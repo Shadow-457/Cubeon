@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 python -m PyInstaller --noconfirm --onedir --windowed \
   --name Cubeon \
   --add-data "assets:assets" \
-  --hidden-import flet \
+  --collect-all flet \
   main.py
 
 tar -czf dist/Cubeon-macOS.tar.gz -C dist Cubeon

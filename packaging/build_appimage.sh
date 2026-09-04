@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 python -m PyInstaller --noconfirm --onedir --name Cubeon \
   --add-data "assets:assets" \
-  --hidden-import flet \
+  --collect-all flet \
   main.py
 
 APPDIR=dist/AppDir

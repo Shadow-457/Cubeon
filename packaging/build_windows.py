@@ -22,7 +22,7 @@ def main():
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir",
         "--name", "Cubeon",
         f"--add-data=assets{SEP}assets",
-        "--hidden-import", "flet",
+        "--collect-all", "flet",
         "main.py",
     ]
     print("+", " ".join(cmd))
