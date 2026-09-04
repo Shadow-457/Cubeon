@@ -1,0 +1,12 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "cubeon-friends:font/cubeon_friends.png",
+      "ascent": 7,
+      "chars": [
+        "\uE000"
+      ]
+    }
+  ]
+}

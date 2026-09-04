@@ -1,0 +1,151 @@
+name: Build Cubeon (AppImage & Windows EXE)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Set up Java 21 (mod compile test)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Run test suite
+        env:
+          # The harnesses are hermetic (sandboxed game dir), but set it
+          # explicitly so a stray write can never touch CI's real HOME.
+          CUBEON_GAME_DIR: /tmp/cubeon-game-ci
+        run: |
+          set -e
+          failed=0
+          for t in tools/test_*.py; do
+            # Gradle-based jar assembly needs network + minutes; compile
+            # checking (test_mod_compile) stays, building does not.
+            case "$t" in
+              tools/test_visual_*.py) echo "skip (manual) $t"; continue;;
+            esac
+            echo "::group::$t"
+            if ! python3 "$t"; then
+              echo "::error::$t failed"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+  build-linux-appimage:
+    name: Build Linux AppImage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build Linux AppImage
+        run: |
+          chmod +x packaging/build_appimage.sh
+          ./packaging/build_appimage.sh
+
+      - name: Upload Linux AppImage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cubeon-Linux-x86_64-AppImage
+          path: dist/Cubeon-x86_64.AppImage
+
+  build-windows-exe:
+    name: Build Windows EXE & ZIP
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build Windows EXE & ZIP
+        run: |
+          python packaging/build_windows.py
+
+      - name: Upload Windows Standalone Folder Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cubeon-Windows-x64-Folder
+          path: dist/Cubeon/
+
+      - name: Upload Windows Portable ZIP Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cubeon-Windows-x64-ZIP
+          path: dist/Cubeon-Windows-x64.zip
+
+  build-macos:
+    name: Build macOS app
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build macOS app bundle
+        run: |
+          chmod +x packaging/build_macos.sh
+          ./packaging/build_macos.sh
+
+      - name: Upload macOS app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cubeon-macOS
+          path: dist/Cubeon/

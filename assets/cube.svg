@@ -1,0 +1,21 @@
+<svg width="256" height="256" viewBox="140 92 232 232" xmlns="http://www.w3.org/2000/svg">
+  <title>Cubeon</title>
+  <desc>A single isometric cube in three shaded faces, transparent background.</desc>
+
+  <!-- base shadow, grounds the cube -->
+  <ellipse cx="256" cy="378" rx="104" ry="16" fill="#000000" opacity="0.22"/>
+
+  <!-- top face -->
+  <polygon points="256,100 358,156 256,212 154,156" fill="#A6D065"/>
+
+  <!-- left face -->
+  <polygon points="154,156 256,212 256,324 154,268" fill="#628A38"/>
+
+  <!-- right face -->
+  <polygon points="256,212 358,156 358,268 256,324" fill="#3E5A22"/>
+
+  <!-- seam strokes, crisp block edges at any size -->
+  <polygon points="256,100 358,156 256,212 154,156" fill="none" stroke="#12140F" stroke-width="5" stroke-linejoin="round" opacity="0.35"/>
+  <polygon points="154,156 256,212 256,324 154,268" fill="none" stroke="#12140F" stroke-width="5" stroke-linejoin="round" opacity="0.35"/>
+  <polygon points="256,212 358,156 358,268 256,324" fill="none" stroke="#12140F" stroke-width="5" stroke-linejoin="round" opacity="0.35"/>
+</svg>

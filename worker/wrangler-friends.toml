@@ -1,0 +1,31 @@
+# Cubeon friends API - Cloudflare Worker + Durable Object.
+#
+# Deploy (same account as the skins/invites workers):
+#
+#   cd worker
+#   npx wrangler deploy -c wrangler-friends.toml
+#
+# That's the whole backend. Cloudflare runs it - there is no server to host,
+# patch, or pay for. The URL it prints must match DEFAULT_API_ROOT in
+# cubeon/friends.py (or set CUBEON_FRIENDS_API to override during testing).
+#
+# Local run for testing:  npx wrangler dev -c wrangler-friends.toml
+# then in the launcher:   export CUBEON_FRIENDS_API=http://127.0.0.1:8787
+
+name = "cubeon-friends"
+main = "cubeon-friends.js"
+compatibility_date = "2025-04-01"
+
+# The realtime hub. One Durable Object instance ("global") holds every live
+# WebSocket, the friend graph, groups, and chat history in its own SQLite DB.
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+# SQLite-backed Durable Objects are the storage backend available on the Workers
+# FREE plan (the older key-value DO storage is not). This migration is what puts
+# the class on that backend - without `new_sqlite_classes`, ctx.storage.sql
+# doesn't exist and every query throws.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]

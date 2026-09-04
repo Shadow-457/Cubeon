@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "cubeon-friends",
+  "version": "${version}",
+  "name": "Cubeon Friends",
+  "description": "Adds a Friends button to Minecraft's game menu. Invite Cubeon friends into your world, join theirs, and answer friend requests without leaving the game - powered by the Cubeon launcher running on this machine.",
+  "authors": ["Cubeon"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.cubeon.friends.CubeonFriendsClient"]
+  },
+  "mixins": [
+    {
+      "config": "cubeon-friends.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "minecraft": "${minecraft_range}",
+    "fabricloader": ">=${loader_range}",
+    "java": ">=17"
+  }
+}

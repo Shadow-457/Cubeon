@@ -1,0 +1,40 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>Cubeon</title>
+  <desc>A single isometric cube in three shaded faces on a dark rounded square background.</desc>
+
+  <defs>
+    <clipPath id="roundedFrame">
+      <rect x="0" y="0" width="512" height="512" rx="104" ry="104"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#roundedFrame)">
+    <rect x="0" y="0" width="512" height="512" fill="#12140F"/>
+
+    <!--
+      One isometric cube, dead center, three faces only, the same silhouette
+      language as a Minecraft block, distilled to the minimum shapes that
+      still read instantly at 16px: a hexagon outline split into a light
+      top diamond and two shaded side rhombi. No gimmicks, nothing that
+      degrades to noise at small sizes, the kind of mark that survives
+      being drawn from memory.
+    -->
+
+    <!-- base shadow, grounds the cube -->
+    <ellipse cx="256" cy="378" rx="104" ry="16" fill="#000000" opacity="0.28"/>
+
+    <!-- top face -->
+    <polygon points="256,100 358,156 256,212 154,156" fill="#A6D065"/>
+
+    <!-- left face -->
+    <polygon points="154,156 256,212 256,324 154,268" fill="#628A38"/>
+
+    <!-- right face -->
+    <polygon points="256,212 358,156 358,268 256,324" fill="#3E5A22"/>
+
+    <!-- seam strokes, crisp block edges at any size -->
+    <polygon points="256,100 358,156 256,212 154,156" fill="none" stroke="#12140F" stroke-width="5" stroke-linejoin="round" opacity="0.4"/>
+    <polygon points="154,156 256,212 256,324 154,268" fill="none" stroke="#12140F" stroke-width="5" stroke-linejoin="round" opacity="0.4"/>
+    <polygon points="256,212 358,156 358,268 256,324" fill="none" stroke="#12140F" stroke-width="5" stroke-linejoin="round" opacity="0.4"/>
+  </g>
+</svg>
