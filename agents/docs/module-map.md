@@ -147,3 +147,22 @@ trap (the mod now warns about it in chat, but don't rely on that).
   minimize-to-tray (Flet window-API risk) and background toasts (needs
   hooking every download site - medium), #13 i18n/accessibility (high effort).
 - New tests: tools/test_production.py (13). Worker: node worker/test-worker.mjs.
+
+## Follow-up 14: private repo + packaging scripts
+
+- **Repo**: github.com/Shadow-457/Cubeon (PRIVATE), created + pushed via gh
+  CLI. .gitignore excludes archive/, cline/, mod/build, dist, __pycache__.
+- **Updater + private repo**: check_for_updates accepts a token (arg,
+  CUBEON_UPDATE_TOKEN env, or cfg["update_token"]) sent as Bearer. Private
+  releases need it; WARNING: the token ships inside any built launcher, so
+  it must be a fine-grained READ-ONLY token and only for personal builds.
+- **packaging/ now exists** (was missing - CI jobs referenced it):
+  build_appimage.sh (PyInstaller onedir -> AppDir -> appimagetool, tar.gz
+  fallback), build_windows.py (onedir + zip), build_macos.sh (onedir + tar.gz).
+  All bundle assets via --add-data (MANDATORY - jars live there).
+  CI jobs now work as written; macOS job calls build_macos.sh.
+- **Verified live on this machine**: full Linux build ran end-to-end,
+  dist/Cubeon-x86_64.AppImage (103 MB) produced, and
+  AppDir/usr/bin/_internal/assets/jars/ contains both mod jars + connect jar.
+- Release flow: bump cubeon/updater.py APP_VERSION -> tag vN.N.N -> push ->
+  gh release create with the built artifacts.
