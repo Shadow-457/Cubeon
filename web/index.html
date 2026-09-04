@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cubeon — Minecraft is better with friends</title>
+<meta name="description" content="Cubeon is a free Minecraft launcher for playing with friends. One click to play, add friends by name, and open your world to them right from the launcher. No account, no paywall." />
+<meta property="og:title" content="Cubeon — Minecraft is better with friends" />
+<meta property="og:description" content="A free launcher built for playing together: one-click play, a friends list and invites that work offline, and no account needed." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="assets/icon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================================
+   Cubeon marketing site.
+   Design language: playful neo-brutalism. Hard ink borders, offset shadows,
+   instant/snap motion, saturated flat blocks, loud Fredoka type.
+   Motif: a Minecraft dig - the page goes sky (surface) -> underground (the
+   real app, dark carbon). The waitlist is the one action; the "still in the
+   oven" board is the honesty anchor. Palette pulled from the app's theme.py.
+   ========================================================================== */
+:root{
+  /* sky + grass (the surface) */
+  --sky-1:#CEE9FF; --sky-2:#E4F3FF; --sky-3:#F2F9FF;
+  --grass:#83C13D; --grass-hi:#9DD657; --grass-lo:#5E8F2A; --grass-deep:#3E5A22;
+  --dirt:#9A6A43; --dirt-hi:#B07E52; --dirt-lo:#6E4A2C;
+  --stone:#8B9086; --stone-lo:#6C7168;
+  /* underground / the real app (exact theme.py tokens) */
+  --deep:#0E110A; --deep-2:#181C12; --deep-3:#242A1B; --panel:#1B2113;
+  --deep-border:#343B22; --deep-border-hi:#4C5731;
+  /* Minecraft-block accents (from the app's own palette) */
+  --gold:#E6B23C; --diamond:#4FB4C7; --redstone:#DB5A4B;
+  --amethyst:#B57BD6; --lapis:#6E9BE0; --copper:#E0894A; --teal:#3FB292; --pink:#E06B93;
+  /* ink = brutalist border + hard shadow (deep grass-black, warmer than pure black) */
+  --ink:#20260F; --ink-2:#31391A;
+  /* text on paper */
+  --text:#22301a; --text-dim:#4c5a40;
+  --on-dark:#EDF0E2; --on-dark-dim:#AEB69A; --on-dark-faint:#7A8268;
+  --paper:#FFFCF3;
+  --r:4px;            /* one radius language: tiny - brutalist */
+  --space:clamp(64px,9vw,120px);
+  --ease:steps(4,end);/* brutalist motion: mechanical, no liquid easing */
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Nunito',system-ui,sans-serif;background:var(--paper);color:var(--text);-webkit-font-smoothing:antialiased}
+img,svg{display:block}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1180px;margin-inline:auto;padding-inline:22px}
+.h-xl,.h-lg,h1,h2,h3{font-family:'Fredoka',system-ui,sans-serif;font-weight:700;line-height:1.02;letter-spacing:.01em}
+.h-xl{font-size:clamp(46px,8.2vw,112px)}
+.h-lg{font-size:clamp(34px,5vw,64px)}
+h2{color:var(--text)}
+.lede{font-size:clamp(16px,1.6vw,20px);font-weight:700;line-height:1.5;color:var(--text-dim)}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:'Fredoka';font-weight:600;font-size:14px;letter-spacing:.14em;text-transform:uppercase;background:var(--ink);color:var(--paper);padding:8px 13px;border:2px solid var(--ink);box-shadow:3px 3px 0 rgba(0,0,0,.18)}
+/* chunky block surfaces */
+.block{background:var(--paper);border:3px solid var(--ink);border-radius:var(--r);box-shadow:6px 6px 0 var(--ink)}
+.press{transition:transform 80ms var(--ease),box-shadow 80ms var(--ease)}
+.press:hover{transform:translate(2px,2px);box-shadow:4px 4px 0 var(--ink)}
+.press:active{transform:translate(5px,5px);box-shadow:0 0 0 var(--ink)}
+.pressable{transition:transform 80ms var(--ease),box-shadow 80ms var(--ease)}
+.pressable:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--ink)}
+
+/* ---- reveal on scroll: brutalist snap, no easing, short ---- */
+html.js .rise{opacity:0;transform:translateY(14px)}
+html.js .rise.in{opacity:1;transform:none;transition:opacity .12s step-end,transform .12s steps(3,end)}
+@keyframes blinkCaret{0%,55%{opacity:1}56%,100%{opacity:0}}
+
+/* =================== ANNOUNCEMENT TICKER =================== */
+.tick{background:var(--ink);color:var(--paper);overflow:hidden;border-bottom:3px solid var(--ink)}
+.tick-inner{display:flex;width:max-content;animation:tick 26s linear infinite}
+.tick span{font-family:'Fredoka';font-weight:600;font-size:14px;letter-spacing:.12em;text-transform:uppercase;padding:9px 26px;white-space:nowrap;color:#cfe7b2}
+.tick b{color:var(--gold);font-weight:700}
+.tick i{font-style:normal;color:var(--ink);-webkit-text-stroke:0}
+.tick .dot{display:inline-block;width:9px;height:9px;background:var(--grass);margin-right:26px;vertical-align:baseline}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* =================== NAV =================== */
+.navbar{background:var(--grass);border-bottom:3px solid var(--ink);position:sticky;top:0;z-index:50}
+.navbar .wrap{display:flex;align-items:center;gap:20px;height:66px}
+.brand{display:flex;align-items:center;gap:10px;font-family:'Fredoka';font-weight:700;font-size:22px;color:var(--ink)}
+.mark{width:30px;height:30px}
+.nav-links{display:flex;align-items:center;gap:6px;margin-left:auto}
+.nav-links a{font-weight:800;font-size:14px;padding:9px 12px;color:var(--ink);border:2px solid transparent}
+.nav-links a:hover{border-color:var(--ink);background:var(--grass-hi)}
+.nav-cta{margin-left:6px;background:var(--gold);border:2px solid var(--ink);border-radius:var(--r);font-family:'Fredoka';font-weight:700;font-size:14px;padding:9px 16px;color:var(--ink);box-shadow:3px 3px 0 var(--ink)}
+.nav-cta:hover{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
+.nav-toggle{display:none;margin-left:auto;background:var(--ink);color:var(--paper);border:none;font-size:20px;padding:8px 13px;cursor:pointer;border-radius:var(--r)}
+@media(max-width:860px){
+  .nav-toggle{display:block}
+  .nav-links{position:absolute;top:66px;left:0;right:0;background:var(--grass);flex-direction:column;align-items:stretch;padding:12px 22px 18px;border-bottom:3px solid var(--ink);display:none;box-shadow:0 12px 0 -6px rgba(0,0,0,.25)}
+  .nav-links.open{display:flex}
+  .nav-links a{padding:13px 12px;border:2px solid var(--ink);margin-bottom:6px;background:var(--grass-hi)}
+  .nav-cta{margin-left:0;text-align:center}
+}
+
+/* =================== HERO (sky) =================== */
+.hero{background:linear-gradient(var(--sky-2),var(--sky-1));position:relative;overflow:hidden}
+.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:44px;align-items:center;padding-top:clamp(46px,7vw,88px);padding-bottom:0;position:relative}
+.hero-left{padding-bottom:clamp(10px,2vw,26px)}
+.hero h1 .pop{display:inline-block;background:var(--grass);color:var(--ink);padding:0 .08em;box-shadow:6px 6px 0 var(--ink)}
+.hero .eyebrow{background:var(--ink);color:var(--gold)}
+.hero .lede{margin-top:22px;max-width:54ch;font-size:clamp(17px,1.8vw,21px)}
+.hero .lede b{color:var(--ink)}
+
+/* waitlist block */
+.wl{background:var(--paper);border:3px solid var(--ink);border-radius:var(--r);box-shadow:8px 8px 0 var(--ink);padding:22px;margin-top:30px;max-width:560px}
+.wl-row{display:flex;gap:10px;flex-wrap:wrap}
+.wl-input{flex:1 1 220px;border:3px solid var(--ink);border-radius:var(--r);font-family:'Nunito';font-weight:800;font-size:16px;padding:14px 14px;color:var(--ink);background:#fff;outline:none}
+.wl-input:focus{background:var(--sky-2)}
+.btn{background:var(--grass);border:3px solid var(--ink);border-radius:var(--r);font-family:'Fredoka';font-weight:700;font-size:18px;color:var(--ink);padding:13px 22px;cursor:pointer;box-shadow:5px 5px 0 var(--ink)}
+.btn.gold{background:var(--gold);box-shadow:5px 5px 0 var(--ink)}
+.btn:disabled{opacity:.6;cursor:wait}
+.wl-note{margin-top:10px;font-size:13px;font-weight:800;color:var(--text-dim);display:flex;align-items:center;gap:7px}
+.wl-note svg{flex:none}
+.wl-status{font-weight:800;font-size:14px;margin-top:8px;display:none;align-items:center;gap:8px}
+.wl-status.show{display:flex}
+.wl-status.ok{color:#3E5A22}
+.wl-status.err{color:#9c2f24}
+.wl-status svg{flex:none}
+
+/* live counter chip - honest, first-in-line framing */
+.countline{margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.countbar{display:none;align-items:center;gap:9px;background:var(--ink);color:var(--grass-hi);border-radius:var(--r);padding:7px 13px;font-family:'Fredoka';font-weight:600;font-size:15px}
+.countline.live .countbar{display:flex}
+.countbar b{color:var(--gold);font-size:18px}
+.countline small{font-weight:800;color:var(--text-dim);font-size:13px}
+
+/* hero right: the real app, framed */
+.shot-wrap{position:relative}
+.shot{background:var(--deep-2);border:3px solid var(--ink);border-radius:var(--r);box-shadow:12px 12px 0 var(--ink);overflow:hidden}
+.titlebar{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:2px solid var(--ink);background:var(--deep-3)}
+.dot{width:13px;height:13px;border-radius:2px}
+.tb-title{margin-left:8px;font-family:'Fredoka';font-weight:600;font-size:13px;color:var(--on-dark-dim);letter-spacing:.04em}
+.shot img{width:100%;height:auto;display:block}
+.shot-cap{margin-top:16px;background:var(--paper);border:3px solid var(--ink);border-radius:var(--r);padding:12px 14px;font-weight:800;font-size:13px;color:var(--text-dim);box-shadow:5px 5px 0 var(--ink);display:flex;gap:10px;align-items:flex-start}
+.shot-cap svg{flex:none;margin-top:1px}
+.floater{position:absolute;background:var(--gold);border:3px solid var(--ink);border-radius:var(--r);box-shadow:4px 4px 0 var(--ink);font-family:'Fredoka';font-weight:600;font-size:13px;color:var(--ink);padding:8px 12px}
+.floater.a{top:-14px;right:14px;transform:rotate(2deg)}
+.floater.b{bottom:-16px;left:-10px;transform:rotate(-2deg)}
+@media(max-width:980px){.hero-grid{grid-template-columns:1fr}.shot-wrap{max-width:620px;margin-inline:auto}}
+
+/* clouds (decor, aria-hidden) */
+.cloud{position:absolute;pointer-events:none}
+.cloud svg{width:100%}
+
+/* =================== GRASS SEAM + HONEST FACTS =================== */
+.grass-band{background:var(--grass);border-bottom:3px solid var(--ink)}
+.grass-facts{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding-block:24px}
+.fact{background:var(--grass-hi);border:3px solid var(--ink);border-radius:var(--r);box-shadow:5px 5px 0 var(--ink);padding:15px 17px}
+.fact b{display:block;font-family:'Fredoka';font-size:24px;font-weight:700;color:var(--ink)}
+.fact span{font-size:13px;font-weight:800;color:#33501a;display:block;margin-top:2px}
+@media(max-width:860px){.grass-facts{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){.grass-facts{grid-template-columns:1fr}}
+
+/* =================== UNDERGROUND: the actual app =================== */
+.underground{background:var(--deep);color:var(--on-dark);border-top:4px solid var(--ink);padding:var(--space) 0}
+.underground h2{color:var(--on-dark)}
+.underground .eyebrow{background:var(--gold);color:var(--ink);border-color:var(--ink)}
+.underground .lede{color:var(--on-dark-dim)}
+.sec-head{margin-bottom:42px}
+.sec-head .eyebrow{margin-bottom:18px}
+.undergrid{display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center}
+.u-copy .mini-h{font-family:'Fredoka';font-weight:600;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.u-copy h2{font-size:clamp(30px,4vw,50px)}
+.u-copy .lede{margin-top:18px}
+.callouts{margin-top:26px;display:grid;gap:12px}
+.callout{background:var(--deep-2);border:2px solid var(--deep-border-hi);border-radius:var(--r);padding:13px 15px;display:flex;gap:13px;align-items:center}
+.callout .cbadge{flex:none;width:30px;height:30px;display:grid;place-items:center;background:var(--grass);color:var(--ink);font-family:'Fredoka';font-weight:700;border-radius:2px;border:2px solid var(--ink)}
+.callout b{font-family:'Fredoka';font-weight:600;font-size:16px;display:block;color:var(--on-dark)}
+.callout small{font-size:13px;font-weight:700;color:var(--on-dark-faint)}
+.u-shot{margin:auto}
+@media(max-width:980px){.undergrid{grid-template-columns:1fr}}
+@media(max-width:860px){.underground{padding-top:44px;padding-bottom:44px}}
+
+/* =================== SURFACE AGAIN: features (bento) =================== */
+.surface{background:var(--paper);padding:var(--space) 0}
+.feat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:14px}
+.feat{padding:26px;display:flex;flex-direction:column}
+.feat.g1{grid-column:span 1}
+.feat.g2{grid-column:span 2}
+.feat.g3{grid-column:span 3}
+.feat.g4{grid-column:span 4}
+.feat .orb{margin-bottom:14px;width:56px;height:56px;flex:none}
+.feat h3{font-size:25px;margin-bottom:8px;color:var(--ink)}
+.feat p{font-size:15px;font-weight:700;color:var(--text-dim);line-height:1.5;flex:1}
+.feat .tag{display:inline-block;margin-top:15px;background:var(--ink);color:var(--paper);font-family:'Fredoka';font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;border-radius:2px;align-self:flex-start}
+.feat.g4{flex-direction:row;align-items:center;gap:26px}
+.feat.g4 .orb{flex:none;margin:0}
+.feat.g4 .g4-body{flex:1;min-width:0}
+.feat.g4 h3{margin-bottom:4px}
+.feat.g4 .tag{margin:10px 0 0;align-self:auto}
+.feat.accent-gold{background:var(--gold)}
+.feat.accent-diamond{background:#aee3ea}
+.feat.accent-lapis{background:#cfe0ff}
+.feat.accent-grass{background:var(--grass-hi)}
+@media(max-width:900px){.feat,.feat.g1,.feat.g2,.feat.g3{grid-column:span 2}}
+@media(max-width:560px){.feat,.feat.g1,.feat.g2,.feat.g3{grid-column:span 4}.feat.g4{flex-direction:column;align-items:flex-start}.feat.g4 .orb{margin-bottom:14px}}
+
+/* =================== HOW: three steps to day one =================== */
+.how{background:var(--sky-2);border-top:4px solid var(--ink);padding:var(--space) 0}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:14px;align-items:stretch}
+.step{position:relative}
+.num{width:44px;height:44px;display:grid;place-items:center;background:var(--ink);color:var(--gold);font-family:'Fredoka';font-weight:700;font-size:24px;border-radius:2px;margin-bottom:14px;position:relative}
+.step .card{padding:22px;height:100%}
+.step .card h3{font-size:23px;color:var(--ink);margin-bottom:8px}
+.step .card p{font-size:15px;font-weight:700;color:var(--text-dim);line-height:1.5}
+@media(max-width:860px){.steps{grid-template-columns:1fr}}
+
+/* =================== STILL IN THE OVEN (honesty board) =================== */
+.oven{background:var(--deep);color:var(--on-dark);border-top:4px solid var(--ink);padding:var(--space) 0}
+.oven h2{color:var(--on-dark)}
+.oven .lede{color:var(--on-dark-dim);max-width:60ch}
+.oven-head{display:flex;justify-content:space-between;align-items:end;gap:20px;flex-wrap:wrap}
+.oven-temp{margin-top:6px;display:inline-flex;align-items:center;gap:9px;background:var(--redstone);color:#fff;font-family:'Fredoka';font-weight:600;font-size:13px;letter-spacing:.1em;text-transform:uppercase;padding:8px 13px;border:2px solid var(--ink);border-radius:var(--r);box-shadow:4px 4px 0 #000}
+.trays{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:44px;align-items:start}
+.tray{background:var(--deep-2);border:2px solid var(--deep-border-hi);border-radius:var(--r);padding:22px}
+.tray-head{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+.tray-head .ico{flex:none;width:34px;height:34px;border-radius:3px;display:grid;place-items:center}
+.tray-head h3{font-family:'Fredoka';font-size:20px;font-weight:600;color:var(--on-dark)}
+.tray ul{list-style:none}
+.tray li{position:relative;padding:8px 0 8px 26px;border-top:1px solid var(--deep-border);font-size:14px;font-weight:700;color:var(--on-dark-dim)}
+.tray li::before{content:'';position:absolute;left:0;top:14px;width:12px;height:12px;border-radius:2px;border:2px solid var(--ink);background:var(--grass-hi)}
+.tray.warm li::before{background:var(--gold)}
+.tray.cool li::before{background:var(--diamond)}
+.tray li.done{color:var(--on-dark)}
+.tray.note{background:var(--deep-3)}
+.oven-rule{margin-top:38px;background:var(--gold);border:3px solid var(--ink);border-radius:var(--r);padding:20px 24px;box-shadow:7px 7px 0 #000}
+.oven-rule b{font-family:'Fredoka';font-size:22px;color:var(--ink);display:block;margin-bottom:6px}
+.oven-rule p{font-size:15px;font-weight:800;color:#4c3a10}
+.oven-rule .btn{margin-top:14px;background:var(--ink);color:var(--gold);box-shadow:5px 5px 0 rgba(0,0,0,.35)}
+@media(max-width:980px){.trays{grid-template-columns:1fr}}
+
+/* =================== FRIENDS IN-GAME (roster band) =================== */
+.social{background:var(--sky-1);border-top:4px solid var(--ink);padding:var(--space) 0}
+.social h2{color:#0e1b33}
+.social .lede{color:#31466e}
+.social-flex{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;margin-top:14px}
+.roster{background:#16294a;border:2px solid #0b1630;box-shadow:8px 8px 0 #0b1630;border-radius:var(--r);padding:14px 12px 12px;max-width:460px}
+.r-head{display:flex;justify-content:space-between;align-items:baseline;padding:0 8px 11px;font-family:'Fredoka';font-weight:600;font-size:15px;color:#cfe0ff;letter-spacing:.02em}
+.r-count{font-size:12px;color:#7f9ed1;font-weight:800}
+.r-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:3px;background:rgba(255,255,255,.06);color:#eef4ff}
+.r-row+.r-row{margin-top:6px}
+.r-row b{font-weight:800}
+.sq{width:10px;height:10px;border-radius:2px;flex:none;background:var(--grass-hi)}
+.sq.off{background:#5a6a8a}
+.r-st{margin-left:auto;font-size:12px;font-weight:700;color:#9fb8e8}
+.r-row.inv{color:#ffd97a}
+.r-row.inv .sq{background:var(--gold)}
+.r-row.dim{color:#7f94bf}
+.r-row.dim .r-st{color:#5f7396}
+.social-txt p{font-size:15px;font-weight:700;color:#31466e;line-height:1.55}
+@media(max-width:860px){.social-flex{grid-template-columns:1fr}}
+
+/* =================== HONEST FAQ =================== */
+.faq{background:var(--paper);padding:var(--space) 0}
+.qa{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-top:14px}
+.q{padding:22px}
+.q h3{font-size:20px;margin-bottom:10px;display:flex;align-items:center;gap:12px;color:var(--ink)}
+.q .qm{flex:none;width:26px;height:26px;border-radius:3px;display:grid;place-items:center;background:var(--ink);color:var(--gold);font-family:'Fredoka';font-weight:700;font-size:15px}
+.q p{font-size:14.5px;font-weight:700;color:var(--text-dim);line-height:1.6}
+@media(max-width:860px){.qa{grid-template-columns:1fr}}
+
+/* =================== FINAL CTA =================== */
+.final{background:linear-gradient(var(--sky-3),var(--sky-2));border-top:4px solid var(--ink);padding:var(--space) 0;text-align:center}
+.final .wl{margin:34px auto 0;max-width:600px;text-align:left}
+.final .wl-note,.final .wl-status{justify-content:flex-start}
+.final .lede{margin-inline:auto}
+
+/* =================== FOOTER =================== */
+footer{background:var(--deep);color:var(--on-dark-dim);padding:46px 0;border-top:3px solid var(--ink)}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+.foot .brand{color:var(--on-dark)}
+.foot small{font-size:13px;font-weight:700;color:var(--on-dark-faint)}
+.foot-links{display:flex;gap:20px;font-weight:800;font-size:14px}
+.foot-links a{color:var(--on-dark-dim)}
+.foot-links a:hover{color:var(--grass-hi)}
+
+@media(max-width:860px){
+  .wrap{padding-inline:16px}
+}
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add('js')</script>
+<span id="top"></span>
+
+<!-- ANNOUNCEMENT TICKER -->
+<div class="tick" aria-hidden="true">
+  <div class="tick-inner" id="tick">
+    <span><b>Cubeon is still in the oven.</b> No fake release date — one email the day it's actually ready to download.&nbsp;<i>■</i>&nbsp;Free&nbsp;<i>■</i>&nbsp;No account&nbsp;<i>■</i>&nbsp;Friends by name&nbsp;<i>■</i></span>
+    <span><b>Cubeon is still in the oven.</b> No fake release date — one email the day it's actually ready to download.&nbsp;<i>■</i>&nbsp;Free&nbsp;<i>■</i>&nbsp;No account&nbsp;<i>■</i>&nbsp;Friends by name&nbsp;<i>■</i></span>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav class="navbar" id="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Cubeon home">
+      <svg class="mark" viewBox="0 0 36 36" aria-hidden="true"><polygon points="18,3 32,10 18,17 4,10" fill="#9DD657"/><polygon points="4,10 18,17 18,33 4,26" fill="#5E8F2A"/><polygon points="32,10 18,17 18,33 32,26" fill="#3E5A22"/></svg>
+      Cubeon
+    </a>
+    <button class="nav-toggle" aria-label="Menu" aria-expanded="false" id="navToggle">☰</button>
+    <div class="nav-links" id="navSlots">
+      <a href="#app">The app</a>
+      <a href="#how">Day one</a>
+      <a href="#oven">Where it's at</a>
+      <a href="#faq">Questions</a>
+      <a class="nav-cta" href="#join">First in line</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="hero">
+  <svg class="cloud" style="top:6%;right:2%;width:120px" viewBox="0 0 120 54" aria-hidden="true"><g fill="#fff" stroke="#bcd9f0" stroke-width="2"><rect x="20" y="20" width="80" height="22"/><rect x="34" y="8" width="40" height="16"/><rect x="6" y="28" width="24" height="14"/></g></svg>
+  <div class="wrap hero-grid">
+    <div class="hero-left">
+      <span class="eyebrow rise">◆ Free launcher · in the works</span>
+      <h1 class="h-xl rise" style="margin-top:18px">Minecraft is<br>better with <span class="pop">friends.</span></h1>
+      <p class="lede rise"><b>The launcher that gets your crew into the same world.</b> Open yours to friends with a short code — no rented server, no port-forwarding — and hop into theirs in a click. Free, no account, friends right in the game.</p>
+
+      <!-- waitlist -->
+      <div class="wl rise" id="join">
+        <form class="wl-form" data-wl novalidate>
+          <div class="wl-row">
+            <input class="wl-input" type="email" name="email" id="email-hero" placeholder="you@email.com" autocomplete="email" aria-label="Your email" />
+            <button class="btn" type="submit">Be first in line</button>
+          </div>
+          <p class="wl-note"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2" fill="#83C13D"/><path d="M4 8l2.5 2.5L12 5.5" stroke="#0E110A" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>One email. The day it's ready. Nothing else.</p>
+          <p class="wl-status" data-status role="status"></p>
+        </form>
+        <div class="countline">
+          <span class="countbar"><span>In line:</span> <b data-count>…</b></span>
+          <small>First batch gets the earliest build.</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="shot-wrap rise">
+      <div class="shot">
+        <div class="titlebar">
+          <span class="dot" style="background:#DB5A4B"></span>
+          <span class="dot" style="background:#E6B23C"></span>
+          <span class="dot" style="background:#83C13D"></span>
+          <span class="tb-title">Cubeon · Play</span>
+        </div>
+        <img src="assets/cubeon-play.png" width="1177" height="756" alt="A screenshot of the Cubeon launcher's Play screen from an earlier build: a sidebar, a Minecraft 26.1.2 profile, a username field reading Shadow, loader and version pickers, and a large green Play button." loading="eager" />
+      </div>
+      <div class="floater a">One click to play</div>
+      <div class="floater b">Friends in-game</div>
+      <p class="shot-cap"><svg width="20" height="20" viewBox="0 0 20 20" style="flex:none;margin-top:1px"><rect x="2" y="2" width="16" height="16" rx="2" fill="#83C13D"/><path d="M6 10l3 3 5-6" stroke="#0E110A" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span>A real screenshot of the launcher, running Minecraft 26.1.2. It's from an earlier build — since then, Chat and Friends left the sidebar: your friends list now lives inside the game.</span></p>
+    </div>
+  </div>
+</header>
+
+<!-- GRASS FACTS -->
+<div class="grass-band">
+  <div class="wrap grass-facts rise">
+    <div class="fact press"><b>$0</b><span>Free to download and play</span></div>
+    <div class="fact press"><b>No account</b><span>Type a name, hit play</span></div>
+    <div class="fact press"><b>1 email</b><span>When it's ready, and only then</span></div>
+    <div class="fact press"><b>3–16</b><span>Character usernames, offline-friendly</span></div>
+  </div>
+</div>
+
+<!-- UNDERGROUND: the actual app -->
+<section class="underground" id="app">
+  <div class="wrap">
+    <div class="undergrid">
+      <div class="u-copy">
+        <p class="mini-h">Peek inside the launcher</p>
+        <h2>This is the actual app.</h2>
+        <p class="lede" style="margin-top:16px">No mockups here. The screenshot is the launcher's real Play screen — dark, quiet, and out of your way, so the game stays the loud part.</p>
+        <div class="callouts">
+          <div class="callout pressable"><span class="cbadge">1</span><div><b>Any version</b><small>Releases, snapshots — play what's installed or browse and download more.</small></div></div>
+          <div class="callout pressable"><span class="cbadge">2</span><div><b>Every loader</b><small>Vanilla, Fabric, Quilt, Forge and NeoForge, per profile.</small></div></div>
+          <div class="callout pressable"><span class="cbadge">3</span><div><b>Just a username</b><small>No login, no account. Your identity is a stable ID that survives renames.</small></div></div>
+        </div>
+      </div>
+      <div class="u-shot">
+        <div class="shot">
+          <div class="titlebar">
+            <span class="dot" style="background:#DB5A4B"></span>
+            <span class="dot" style="background:#E6B23C"></span>
+            <span class="dot" style="background:#83C13D"></span>
+            <span class="tb-title">Cubeon · Play</span>
+          </div>
+          <img src="assets/cubeon-play.png" width="1177" height="756" alt="The Cubeon launcher Play screen from an earlier build, showing the sidebar, a Minecraft profile and version/loader pickers." loading="lazy" />
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES (surface) -->
+<section class="surface" id="features">
+  <div class="wrap">
+    <div class="sec-head rise">
+      <span class="eyebrow">◆ What's in the box</span>
+      <h2 class="h-lg" style="margin-top:16px">Everything you need to play together.</h2>
+    </div>
+    <div class="feat-grid">
+      <div class="feat g3 accent-grass block press rise">
+        <svg class="orb" viewBox="0 0 64 64" aria-hidden="true"><polygon points="32,4 60,18 32,32 4,18" fill="#9DD657"/><polygon points="4,18 32,32 32,60 4,46" fill="#5E8F2A"/><polygon points="60,18 32,32 32,60 60,46" fill="#4b7522"/></svg>
+        <h3>One-click play</h3>
+        <p>Pick a version, hit play. Cubeon downloads Minecraft, installs the loader you choose, and launches. No folders, no fiddling with Java.</p>
+        <span class="tag">Any version · releases + snapshots</span>
+      </div>
+
+      <div class="feat g1 accent-diamond block press rise">
+        <svg class="orb" viewBox="0 0 64 64" aria-hidden="true"><polygon points="32,4 60,18 32,32 4,18" fill="#7ddbe8"/><polygon points="4,18 32,32 32,60 4,46" fill="#3fa0b0"/><polygon points="60,18 32,32 32,60 60,46" fill="#2f8592"/></svg>
+        <h3>Free, no account</h3>
+        <p>Type a name and play. No sign-up wall, no "premium" tier hiding the good parts.</p>
+        <span class="tag">$0 · always</span>
+      </div>
+
+      <div class="feat g2 accent-gold block press rise">
+        <svg class="orb" viewBox="0 0 64 64" aria-hidden="true"><polygon points="32,4 60,18 32,32 4,18" fill="#e97a6c"/><polygon points="4,18 32,32 32,60 4,46" fill="#c04638"/><polygon points="60,18 32,32 32,60 60,46" fill="#9e372b"/></svg>
+        <h3>Friends, in-game</h3>
+        <p>Your friend list lives inside Minecraft, not buried in a menu. Add people by name, see who's online and what they're playing, and hop into each other's worlds.</p>
+        <span class="tag">Roster · presence · invites</span>
+      </div>
+
+      <div class="feat g2 accent-lapis block press rise">
+        <svg class="orb" viewBox="0 0 64 64" aria-hidden="true"><polygon points="32,4 60,18 32,32 4,18" fill="#8fb4f0"/><polygon points="4,18 32,32 32,60 4,46" fill="#4d7fd9"/><polygon points="60,18 32,32 32,60 60,46" fill="#3a63ae"/></svg>
+        <h3>Host a world</h3>
+        <p>Start a server right in the launcher; friends join with a short code instead of a fiddly IP. No port-forwarding, no rented server.</p>
+        <span class="tag">Share a code · they join</span>
+      </div>
+
+      <div class="feat g4 accent-grass block press rise">
+        <svg class="orb" viewBox="0 0 64 64" aria-hidden="true"><polygon points="32,4 60,18 32,32 4,18" fill="#F2C955"/><polygon points="4,18 32,32 32,60 4,46" fill="#C9902B"/><polygon points="60,18 32,32 32,60 60,46" fill="#a8781f"/></svg>
+        <div class="g4-body">
+          <h3>Skins &amp; capes that stick</h3>
+          <p>Set a skin and cape and they show up for everyone on Cubeon, bound to you rather than your username, so they stick even if you rename. Mods and modpacks install in a couple of clicks too.</p>
+          <span class="tag">Skins · capes · mods · modpacks</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW: three steps to day one -->
+<section class="how" id="how">
+  <div class="wrap">
+    <div class="sec-head rise">
+      <span class="eyebrow" style="background:#fff;color:var(--text-dim);border-color:var(--ink)">◆ From here to day one</span>
+      <h2 class="h-lg" style="margin-top:16px">Getting you playing, honestly.</h2>
+    </div>
+    <div class="steps">
+      <div class="step rise">
+        <div class="num">1</div>
+        <div class="card block">
+          <h3>Get in line</h3>
+          <p>Drop your email above. That's it — no account, no download hoops before it's real.</p>
+        </div>
+      </div>
+      <div class="step rise">
+        <div class="num">2</div>
+        <div class="card block">
+          <h3>One email, when it's real</h3>
+          <p>The day the first public build is ready, you get exactly one email with the download. No drip campaign.</p>
+        </div>
+      </div>
+      <div class="step rise">
+        <div class="num">3</div>
+        <div class="card block">
+          <h3>Bring your friends</h3>
+          <p>Install once, type a name, add friends by name and open your world. That's the whole point.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STILL IN THE OVEN -->
+<section class="oven" id="oven">
+  <div class="wrap">
+    <div class="oven-head rise">
+      <div>
+        <span class="eyebrow">◆ No fake release dates</span>
+        <h2 class="h-lg" style="margin-top:16px">Still in the oven.</h2>
+        <p class="lede" style="margin-top:14px">We'd rather show you the tray than promise you a date. Here's exactly where Cubeon stands today.</p>
+      </div>
+      <span class="oven-temp"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="2" fill="#fff"/><rect x="3" y="3" width="10" height="10" fill="#c04638"/></svg> Pre-release</span>
+    </div>
+
+    <div class="trays rise">
+      <div class="tray">
+        <div class="tray-head">
+          <span class="ico" style="background:var(--grass-hi)"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4 9l3 3 7-7" stroke="#0E110A" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <h3>Baked &amp; working</h3>
+        </div>
+        <ul>
+          <li class="done">Version picker — releases and snapshots</li>
+          <li class="done">Loaders: Vanilla, Fabric, Quilt, Forge, NeoForge</li>
+          <li class="done">Friends list, presence &amp; invites inside the game</li>
+          <li class="done">Host a world — invite codes over a Paper server</li>
+          <li class="done">Skins &amp; capes bound to your identity, not your name</li>
+        </ul>
+      </div>
+      <div class="tray warm">
+        <div class="tray-head">
+          <span class="ico" style="background:var(--gold)"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M9 3v6l4 2" stroke="#0E110A" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg></span>
+          <h3>In the oven</h3>
+        </div>
+        <ul>
+          <li>Polishing the installers and first-run experience</li>
+          <li>Stress-testing the invite servers for a crowd</li>
+          <li>Final pass on the friends add-on across versions</li>
+        </ul>
+      </div>
+      <div class="tray cool note">
+        <div class="tray-head">
+          <span class="ico" style="background:var(--diamond)"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="6" fill="none" stroke="#0E110A" stroke-width="2.4"/><circle cx="9" cy="9" r="2" fill="#0E110A"/></svg></span>
+          <h3>What we won't do</h3>
+        </div>
+        <ul>
+          <li>No fake countdown, no "launching tomorrow" banners</li>
+          <li>No paywall, no account wall, no premium tier</li>
+          <li>No spam — one email when it's real, then silence</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="oven-rule rise">
+      <b>When it's done, the list hears first.</b>
+      <p>Join the waitlist and you'll be in the first batch to get the download link — the moment it's actually ready.</p>
+      <a class="btn" href="#join">Be first in line</a>
+    </div>
+  </div>
+</section>
+
+<!-- FRIENDS IN-GAME BAND -->
+<section class="social" id="friends">
+  <div class="wrap">
+    <div class="social-flex">
+      <div class="roster rise" aria-label="Inside the game, each friend is a row with their name and what they're doing.">
+        <div class="r-head"><span>Friends</span><span class="r-count">2 online</span></div>
+        <div class="r-row"><span class="sq" aria-hidden="true"></span><b>Mia</b><span class="r-st">Playing 1.21.4</span></div>
+        <div class="r-row inv"><span class="sq" aria-hidden="true"></span><b>Leo</b><span class="r-st">Online · invited you</span></div>
+        <div class="r-row dim"><span class="sq off" aria-hidden="true"></span><b>Dev</b><span class="r-st">Offline</span></div>
+      </div>
+      <div class="social-txt rise">
+        <span class="eyebrow" style="background:#fff;color:#0e1b33;border-color:#0e1b33">◆ Made for your crew</span>
+        <h2 class="h-lg" style="margin-top:16px">Your crew is the point.</h2>
+        <p style="margin-top:16px">So the friend list isn't buried in a launcher menu — it lives inside the game. Add people by their Cubeon name once, see who's around and what they're playing, and drop into each other's worlds. Friends you're in a world with are highlighted gold, so you always know who's already there.</p>
+        <p style="margin-top:14px">No avatars auto-assigned, no fake chat to manage. Just names, presence, and worlds.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HONEST FAQ -->
+<section class="faq" id="faq">
+  <div class="wrap">
+    <div class="sec-head rise">
+      <span class="eyebrow">◆ Straight answers</span>
+      <h2 class="h-lg" style="margin-top:16px">The honest bits.</h2>
+    </div>
+    <div class="qa">
+      <div class="q block rise">
+        <h3><span class="qm">?</span>Is it really free?</h3>
+        <p>Yes. Cubeon is free to download and play, with no account required and nothing locked behind a paywall. The servers we run cost us, not you.</p>
+      </div>
+      <div class="q block rise">
+        <h3><span class="qm">?</span>So it's not out yet?</h3>
+        <p>Right — it's still in the oven. We don't ship fake dates. Join the list and you'll get one email the day the first public build is ready to download.</p>
+      </div>
+      <div class="q block rise">
+        <h3><span class="qm">?</span>Do my friends need Cubeon too?</h3>
+        <p>For the friends list, presence and one-click joining, yes — that's the shared part. A server you host is a normal Minecraft server on a public address, so anyone can still join it with a regular client.</p>
+      </div>
+      <div class="q block rise">
+        <h3><span class="qm">?</span>What about mods when hosting?</h3>
+        <p>Hosted worlds run on Paper for stability, which means plugins rather than client mods on the server itself. We'll always tell you what works up front. No surprises.</p>
+      </div>
+      <div class="q block rise">
+        <h3><span class="qm">?</span>Is this an official Mojang thing?</h3>
+        <p>No. Cubeon is a fan project — not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB.</p>
+      </div>
+      <div class="q block rise">
+        <h3><span class="qm">?</span>What do you do with my email?</h3>
+        <p>Exactly one thing: send you the download link the day Cubeon is ready. No newsletters, no tracking lists, no reselling.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final">
+  <div class="wrap">
+    <span class="eyebrow rise">◆ Be first in line</span>
+    <h2 class="h-lg rise" style="margin-top:16px">The day it drops, be first to get it.</h2>
+    <p class="lede rise" style="margin:14px auto 0;max-width:54ch">The list hears before anyone else. One email, the day Cubeon is actually downloadable — then go add your friends.</p>
+
+    <div class="wl rise">
+      <form class="wl-form" data-wl novalidate>
+        <div class="wl-row">
+          <input class="wl-input" type="email" name="email" id="email-cta" placeholder="you@email.com" autocomplete="email" aria-label="Your email" />
+          <button class="btn gold" type="submit">Save my spot</button>
+        </div>
+        <p class="wl-status" data-status role="status"></p>
+        <div class="countline">
+          <span class="countbar"><span>In line:</span> <b data-count>…</b></span>
+          <small>The list hears first — be in it.</small>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="#top">
+      <svg class="mark" viewBox="0 0 36 36" aria-hidden="true"><polygon points="18,3 32,10 18,17 4,10" fill="#9DD657"/><polygon points="4,10 18,17 18,33 4,26" fill="#5E8F2A"/><polygon points="32,10 18,17 18,33 32,26" fill="#3E5A22"/></svg>
+      Cubeon
+    </a>
+    <div class="foot-links">
+      <a href="#app">The app</a>
+      <a href="#oven">Where it's at</a>
+      <a href="#faq">Questions</a>
+      <a href="#join">Join</a>
+    </div>
+    <small>Cubeon is a fan project, not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB.</small>
+  </div>
+</footer>
+
+<script>
+/* ============================================================================
+   Waitlist + counter.  Talks to the Cloudflare Worker (worker/cubeon-waitlist.js).
+   The "In line" number only ever shows a live count from the Worker — and only
+   when it's above zero. No seed, no invented number. Before the first real
+   signups the page leans on the "first batch" line instead.
+   ========================================================================== */
+(function(){
+  var WAITLIST_ENDPOINT = 'https://cubeon-waitlist.hamza-457-shahbaz.workers.dev';
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  var K_JOINED='cubeon_wl_joined', K_EMAIL='cubeon_wl_email';
+
+  var counts = document.querySelectorAll('[data-count]');
+  var forms  = document.querySelectorAll('[data-wl]');
+
+  function fmt(n){ return n.toLocaleString('en-US'); }
+
+  // Show the number only when the Worker reports a real count > 0.
+  function renderCount(target){
+    var show = typeof target==='number' && target > 0;
+    counts.forEach(function(el){
+      var line = el.closest('.countline');
+      if(line){ line.classList.toggle('live', show); }
+      if(!show){ el.textContent='…'; return; }
+      var start = Math.max(0, target - 120), cur = start;
+      el.textContent = fmt(start);
+      var steps = 30, i = 0;
+      var id = setInterval(function(){
+        i++;
+        cur = Math.round(start + (target-start) * (i/steps));
+        if(i>=steps){ cur = target; clearInterval(id); }
+        el.textContent = fmt(cur);
+      }, 22);
+    });
+  }
+
+  function setStatus(form, kind, msg){
+    var s = form.querySelector('[data-status]');
+    if(!s) return;
+    s.className = 'wl-status show ' + kind;
+    s.innerHTML = (kind==='ok'
+      ? '<svg width="18" height="18" viewBox="0 0 18 18"><rect width="18" height="18" rx="2" fill="#83C13D"/><path d="M5 9l2.5 2.5L13 6" stroke="#0E110A" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      : '') + '<span>'+msg+'</span>';
+  }
+
+  function markJoined(){
+    document.querySelectorAll('.wl-form input[type=email]').forEach(function(i){ i.value=''; });
+  }
+
+  // Initial count. Live numbers only — if the Worker can't be reached or
+  // reports zero, the countline just stays on its "first batch" copy.
+  (function init(){
+    if(WAITLIST_ENDPOINT){
+      fetch(WAITLIST_ENDPOINT, {method:'GET'})
+        .then(function(r){return r.json();})
+        .then(function(d){ if(d && typeof d.count==='number'){ renderCount(d.count); } })
+        .catch(function(){});
+    }
+    if(localStorage.getItem(K_JOINED)==='1'){
+      forms.forEach(function(f){ setStatus(f,'ok',"You're on the list. See you at launch."); });
+    }
+  })();
+
+  forms.forEach(function(form){
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      var input = form.querySelector('input[type=email]');
+      var email = (input.value||'').trim();
+      if(!EMAIL_RE.test(email)){
+        setStatus(form,'err','That email looks off. Mind checking it?');
+        input.focus();
+        return;
+      }
+      var btn = form.querySelector('button[type=submit]');
+      var label = btn.textContent; btn.disabled=true; btn.textContent='Joining…';
+
+      function done(count, joined){
+        btn.disabled=false; btn.textContent=label;
+        localStorage.setItem(K_JOINED,'1');
+        localStorage.setItem(K_EMAIL,email);
+        if(typeof count==='number'){ renderCount(count); }
+        setStatus(form,'ok', joined===false
+          ? "You're already in line. Nice."
+          : "You're in! When it's ready, the first email is yours.");
+        markJoined();
+      }
+
+      fetch(WAITLIST_ENDPOINT, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({email:email})
+      }).then(function(r){return r.json();})
+        .then(function(d){ done(d&&d.count, d&&d.joined); })
+        .catch(function(){
+          // Network fell over, so still record locally so the user isn't blocked.
+          done(undefined, true);
+        });
+    });
+  });
+
+  // Reveal-on-scroll (brutalist snap). The `js` class is set at the top of
+  // <body> so content is only hidden when we're actually animating it.
+  if('IntersectionObserver' in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){ if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, {threshold:0.12, rootMargin:'0px 0px -40px 0px'});
+    document.querySelectorAll('.rise').forEach(function(el){ io.observe(el); });
+  } else {
+    document.querySelectorAll('.rise').forEach(function(el){ el.classList.add('in'); });
+  }
+
+  // Mobile nav
+  var toggle = document.getElementById('navToggle'), slots = document.getElementById('navSlots');
+  if(toggle){ toggle.addEventListener('click', function(){
+    var open = slots.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open?'true':'false');
+  });
+  slots.addEventListener('click', function(e){ if(e.target.classList.contains('nav-cta')) slots.classList.remove('open'); }); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# Cubeon waitlist API - Cloudflare Worker + KV.
+#
+# One-time setup (creates the KV namespace and prints its id):
+#
+#   cd worker
+#   npx wrangler kv namespace create WAITLIST
+#
+# Paste the printed id into the `id = "..."` line below, then deploy:
+#
+#   npx wrangler deploy -c wrangler-waitlist.toml
+#
+# Cloudflare runs it - there is no server to host, patch, or pay for. Copy the
+# URL it prints into WAITLIST_ENDPOINT in web/index.html to make the site's
+# "N in line" counter real and shared. Until then the site uses a local
+# placeholder count and still works.
+#
+# Local run for testing:  npx wrangler dev -c wrangler-waitlist.toml
+#   GET  count:  curl http://127.0.0.1:8787/
+#   POST join:   curl -X POST http://127.0.0.1:8787/ -d '{"email":"you@example.com"}'
+
+name = "cubeon-waitlist"
+main = "cubeon-waitlist.js"
+compatibility_date = "2025-04-01"
+
+# Signups + the running tally. Replace id with the one `wrangler kv namespace
+# create WAITLIST` prints. (For a separate preview environment, also set
+# preview_id; not required for a single production deploy.)
+[[kv_namespaces]]
+binding = "WAITLIST"
+id = "beeff1c166b74248a68c7b2b00c7a264"

@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "package": "com.cubeon.friends.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "PauseScreenMixin",
+    "TitleScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

@@ -1,0 +1,24 @@
+# You are developing and testing against Flet 0.86.x, so that is what this
+# pins. The old `<0.29.0` cap was wrong - it excluded the version actually
+# installed, which meant a fresh `pip install -r requirements.txt` on someone
+# else's machine got a different Flet than the one Cubeon was tested on.
+#
+# The upper bound matters more than usual here. On 0.80+ Flet's transport calls
+# asyncio.Queue.put_nowait() from whatever thread invoked page.update(), which
+# does not wake the event loop - so background-thread UI updates silently
+# vanish until stray input wakes it. cubeon/thread_safe_ui.py works around that
+# by marshalling updates onto the loop. If you raise this bound, re-check that
+# workaround still applies (and still finds the loop) before shipping.
+flet>=0.86,<0.87
+flet-desktop>=0.86,<0.87
+minecraft-launcher-lib>=8.0
+requests>=2.31.0
+pillow>=10.0.0
+# Realtime social layer (Friends tab): presence, chat, groups, voice-call
+# signalling all ride one WebSocket. Pure-Python, tiny - see cubeon/friends.py.
+websocket-client>=1.7.0
+# Voice-call AUDIO is an optional add-on, deliberately NOT required here so the
+# base install stays small and doesn't pull a native audio stack (which is the
+# usual source of "pip install failed" reports). Calls ring, connect, and chat
+# without it; to add sound: pip install sounddevice numpy   (see cubeon/voice.py)
+psutil>=5.9.0

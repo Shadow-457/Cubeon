@@ -1,0 +1,16 @@
+# --- never commit: huge or machine-local ---
+archive/
+cline/
+mod/build/
+dist/
+build/
+*.AppImage
+*.zip
+__pycache__/
+*.pyc
+.DS_Store
+.directory
+
+# --- local secrets (tokens, keys) ---
+.env
+*.token

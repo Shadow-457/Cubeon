@@ -1,0 +1,7 @@
+name: CubeonGate
+version: 1.0.3
+main: gg.cubeon.gate.CubeonGate
+api-version: '1.21'
+description: Cubeon security check - a password gate on player UUIDs, enforced before spawn, presented as an on-screen form.
+author: Cubeon
+website: https://connect.minekube.com

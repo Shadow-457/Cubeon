@@ -1,0 +1,124 @@
+import groovy.json.JsonSlurper
+
+plugins {
+    // "fabric-loom" is the real plugin id. "net.fabricmc.fabric-loom" also
+    // resolves on the maven, but it's loom's NO-REMAP MARKER plugin: applying
+    // it makes loom's LoomGradleExtensionImpl force disableObfuscation=true,
+    // which then rejects Mojang mappings ("Cannot use Mojang mappings in a
+    // non-obfuscated environment") - exactly what broke the 1.20-1.21 build.
+    id 'fabric-loom' version '1.14.10'
+}
+
+// ---------------------------------------------------------------------------
+// One source tree, one jar per Minecraft bracket.
+//
+//   gradle build -PmcVersion=1.20.1     -> cubeon-friends-1.0.0+mc1.20.1.jar
+//   gradle build -PmcVersion=26.1       -> cubeon-friends-1.0.0+mc26.1.jar
+//   gradle build                        -> the newest bracket in brackets.json
+//
+// or all of them at once, with the jars copied where the launcher looks:
+//
+//   python3 ../tools/build_mod_jars.py
+//
+// The matrix itself lives in brackets.json because cubeon/cubeonfriends.py needs
+// exactly the same table to decide which jar to install into a profile, and a
+// second hand-maintained copy of it would eventually disagree with this one.
+// ---------------------------------------------------------------------------
+
+def matrix = new JsonSlurper().parse(file('brackets.json'))
+def brackets = matrix.brackets
+def wanted = (project.findProperty('mcVersion') ?: brackets.last().key).toString()
+def bracket = brackets.find { it.key == wanted } ?: brackets.find { it.compile_against == wanted }
+if (bracket == null) {
+    throw new GradleException("Unknown -PmcVersion=${wanted}. Known brackets: "
+            + brackets.collect { it.key }.join(', ')
+            + ". Add a new one to mod/brackets.json if Minecraft has moved on.")
+}
+
+version = "${matrix.mod_version}+mc${bracket.key}"
+group = 'com.cubeon'
+
+base { archivesName = 'cubeon-friends' }
+
+repositories {
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${bracket.compile_against}"
+    if (bracket.mappings == 'official') {
+        // These versions ship obfuscated, and the source is written in Mojang's
+        // own names (PauseScreen, GuiGraphics, EditBox), so Mojang's mappings are
+        // the ones that match. 26.x needs no mappings line at all - it ships
+        // unobfuscated, and asking for mappings there fails the build.
+        mappings loom.officialMojangMappings()
+    }
+    implementation "net.fabricmc:fabric-loader:${matrix.loader_version}"
+    // Loom doesn't put sponge-mixin (the mixin annotation processor's own
+    // annotations) on the compile classpath via the loader dependency, so
+    // a mixin source file fails with "package org.spongepowered.asm.mixin
+    // does not exist". Compile-only: the annotations are CLASS retention and
+    // the loader ships the real mixin at runtime.
+    compileOnly "net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7"
+}
+
+// Every jar targets Java 17 bytecode regardless of which Minecraft it is built
+// against. That is not laziness: the mixin config declares
+// compatibilityLevel JAVA_17, and Mixin refuses to apply a mixin whose class
+// file is newer than the declared level - so emitting Java 25 bytecode for the
+// 26.x jar and Java 17 for the rest would need two mixin configs. The mod uses
+// no language or library feature newer than 17, so one level covers all of them.
+// javac reads Minecraft's newer class files from the classpath quite happily
+// while emitting older bytecode; only the JDK doing the reading has to be new
+// enough, which is what the toolchain below is for.
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(bracket.jdk as int)
+    }
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+// Each bracket adds its own copy of CornerIcon on top of the shared tree:
+// the class has one FQN but two era-specific bodies (26.x draws the custom
+// glyph through FontDescription, 1.20-1.21 keeps plain text because that
+// bracket spans several font-API generations). The overlay dir is named after
+// the bracket key and exists for every key in brackets.json.
+sourceSets.main.java.srcDir "src/main/java-overlay-${bracket.key}"
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+    it.options.encoding = 'UTF-8'
+    it.options.compilerArgs << '-Xlint:all'
+}
+
+processResources {
+    // fabric.mod.json declares the exact Minecraft range this jar was built for.
+    // That declaration is the mod's real cross-version safety net: drop the wrong
+    // jar into a profile and Fabric says "requires Minecraft 1.20.x" on a tidy
+    // screen instead of half-loading and crashing later.
+    def replacements = [
+            version        : project.version,
+            minecraft_range: bracket.depends,
+            loader_range   : matrix.loader_min,
+    ]
+    inputs.properties replacements
+    filesMatching('fabric.mod.json') {
+        expand replacements
+    }
+}
+
+tasks.register('printBracket') {
+    description = 'Prints the Minecraft bracket this invocation will build.'
+    doLast {
+        println "bracket=${bracket.key} minecraft=${bracket.compile_against} " +
+                "jdk=${bracket.jdk} mappings=${bracket.mappings} " +
+                "range='${bracket.depends}' jar=${base.archivesName.get()}-${version}.jar"
+    }
+}
+
+tasks.register('printBrackets') {
+    description = 'Prints every bracket key, one per line, for build scripts.'
+    doLast {
+        brackets.each { println it.key }
+    }
+}

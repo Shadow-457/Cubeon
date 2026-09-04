@@ -1,0 +1,76 @@
+{
+  "states": [
+    {
+      "index": 1,
+      "state": "tab_play",
+      "file": "01_tab_play.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 2,
+      "state": "tab_mods",
+      "file": "02_tab_mods.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 3,
+      "state": "tab_modpacks",
+      "file": "03_tab_modpacks.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 4,
+      "state": "tab_friends",
+      "file": "04_tab_friends.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 5,
+      "state": "tab_server_console",
+      "file": "05_tab_server_console.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 6,
+      "state": "tab_server_settings",
+      "file": "06_tab_server_settings.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 7,
+      "state": "tab_profile",
+      "file": "07_tab_profile.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 8,
+      "state": "tab_settings",
+      "file": "08_tab_settings.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 9,
+      "state": "dialog_delete_confirm",
+      "file": "09_dialog_delete_confirm.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 10,
+      "state": "dialog_create_modpack",
+      "file": "10_dialog_create_modpack.png",
+      "reached": true,
+      "captured": true
+    }
+  ],
+  "empty_mode": false,
+  "count": 10
+}
