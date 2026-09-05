@@ -50,6 +50,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import uuid
 
 import requests
@@ -81,6 +82,22 @@ _REPORT_URL = csl.CUBEON_API_BASE + "/report"
 # a rename costs one heartbeat, a new PNG costs one upload, and an unchanged
 # launch costs nothing.
 _PUBLISH_STATE_PATH = os.path.join(CUBEON_HOME, "skin_net.json")
+
+# Failure backoff: when the Worker is unreachable or erroring (e.g. free-tier
+# KV writes exhausted for the day), don't hammer it on the next sync. The
+# cooldown is written into skin_net.json alongside the success state, so it
+# survives restarts. One failure = skip for 10 minutes; the state records
+# when retrying becomes worthwhile again.
+_PUBLISH_FAIL_COOLDOWN = 600.0
+
+
+def _publish_on_cooldown(state: dict) -> bool:
+    """True while a recent publish failure says 'don't try yet'."""
+    until = state.get("retry_not_before", 0)
+    try:
+        return float(until) > time.time()
+    except (TypeError, ValueError):
+        return False
 
 
 def _load_skins_meta() -> dict:
@@ -285,6 +302,13 @@ def _save_publish_state(state: dict) -> None:
         pass
 
 
+def _record_publish_failure(state: dict) -> None:
+    """Note 'don't retry for _PUBLISH_FAIL_COOLDOWN' without touching the
+    last-known-good identity fields, then persist. Never raises."""
+    state["retry_not_before"] = time.time() + _PUBLISH_FAIL_COOLDOWN
+    _save_publish_state(state)
+
+
 def _publish_skin(cfg: dict) -> None:
     """Pushes identity + skin to the Worker so other players see them.
 
@@ -315,11 +339,19 @@ def _publish_skin(cfg: dict) -> None:
         if not username:
             return
 
+        state = _load_publish_state()
+
+        # A recent failure (worker down, KV quota exhausted) means "don't
+        # retry for a while" - syncs fire on every launch AND on every
+        # username change, so without this a persistent outage turns into
+        # a request storm against a Worker that can't serve us anyway.
+        if _publish_on_cooldown(state):
+            return
+
         machine_uuid = stable_uuid()
         secret = stable_secret()
         headers = {"Authorization": f"Bearer {secret}"}
 
-        state = _load_publish_state()
         identity_changed = (
             state.get("username") != username
             or state.get("uuid") != machine_uuid
@@ -356,14 +388,18 @@ def _publish_skin(cfg: dict) -> None:
                     timeout=_NET_TIMEOUT,
                 )
             except requests.RequestException:
-                return  # offline / DNS / timeout - retried next sync
+                _record_publish_failure(state)  # offline - cool off, retry later
+                return
             if resp.status_code != 200:
-                # 403 = UUID owned by another secret; anything else is a
-                # transient server error. Either way record nothing so the
-                # next sync retries.
+                # 403 = UUID owned by another secret: retrying can't help
+                # either, so it gets the same cooldown. 429/5xx = transient
+                # server trouble. Record nothing BUT the cooldown so the
+                # next sync (post-cooldown) retries.
+                _record_publish_failure(state)
                 return
             state.update({"username": username, "uuid": machine_uuid,
                           "base": csl.CUBEON_API_BASE})
+            state.pop("retry_not_before", None)  # success clears cooldown
             _save_publish_state(state)
 
         # 2. Then the sheet itself, if it moved. Skipped entirely when only
@@ -385,6 +421,7 @@ def _publish_skin(cfg: dict) -> None:
 
             if resp.status_code == 200:
                 state.update({"hash": digest, "model": model})
+                state.pop("retry_not_before", None)  # success clears cooldown
                 _save_publish_state(state)
             # A non-200 leaves hash/model unrecorded so the next sync retries;
             # the identity half already saved above stays accurate as-is.

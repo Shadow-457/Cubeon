@@ -903,6 +903,11 @@ def main(page: ft.Page):
         player UUID, cosmetics, and friends account - only the visible name and
         the CustomSkinLoader <USERNAME>.png mirror move. Refreshed here so the
         sidebar and skin preview reflect the new name immediately.
+
+        on_change fires on EVERY KEYSROKE, and the sync below costs a
+        heartbeat POST to the skins Worker (writes there are metered), so the
+        network half is debounced: only the final name (or on_blur) actually
+        publishes. The local UI updates immediately regardless.
         """
         name = username_field.value.strip()
         ok, err = core.validate_username(name)
@@ -911,29 +916,58 @@ def main(page: ft.Page):
             page.update()
             return
         username_field.error_text = None
+        if name == cfg.get("username"):
+            return
 
-        # Persist immediately so the new identity survives even if the
-        # user navigates away without clicking Play.
+        # Update the in-memory name now; everything expensive (LocalSkin
+        # file mirrors + the network heartbeat) is debounced below so a
+        # rename costs one publish, not one per keystroke.
+        cfg["username"] = name
+
+    def _publish_rename():
+        # Read the CURRENT field value: this fires 1.2s after the last
+        # keystroke, so a name captured at keystroke time could be stale.
+        name = username_field.value.strip()
+        ok, err = core.validate_username(name)
+        if not ok or name == cfg.get("username"):
+            return
         cfg["username"] = name
         # CustomSkinLoader looks the skin up by <USERNAME>.png, so a rename
-        # has to move the synced file or the skin stops resolving.
+        # has to move the synced file or the skin stops resolving. Same for
+        # the cape (LocalSkin/capes/<USERNAME>.png).
         core.sync_local_skin_to_csl(cfg)
-        # A rename moves the cape file too, same reason (CSL reads it as
-        # LocalSkin/capes/<USERNAME>.png).
         core.sync_local_cape_to_csl(cfg)
         core.save_config(cfg)
-
-        # Refresh the sidebar + profile dialog avatar/label.
         refresh_avatars()
-        # Keep the profile dialog's own username field showing the same
-        # name, without re-triggering its on_change (which would just redo
-        # this same work).
         if profile_username_field.value != name:
             profile_username_field.value = name
-        page.update()
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def _fire_pending_rename():
+        t = getattr(on_username_change, "_timer", None)
+        if t:
+            on_username_change._timer = None
+            t.cancel()
+        pending = getattr(on_username_change, "_pending", None)
+        if pending:
+            on_username_change._pending = None
+            pending()
+
+    # Debounce: 1.2s after the last keystroke, or immediately on blur.
+    # (Flet events don't carry a type tag, so blur can't be told apart from
+    # change here - the blur handler below just fires whatever is pending.)
+    if getattr(on_username_change, "_timer", None):
+        on_username_change._timer.cancel()
+    on_username_change._pending = _publish_rename
+    on_username_change._timer = threading.Timer(1.2, _fire_pending_rename)
+    on_username_change._timer.daemon = True
+    on_username_change._timer.start()
 
     username_field.on_change = on_username_change
-    username_field.on_blur = on_username_change
+    username_field.on_blur = lambda e=None: _fire_pending_rename()
 
     # Dropdown to select a Minecraft version (installed or available online)
     version_dropdown = ft.Dropdown(

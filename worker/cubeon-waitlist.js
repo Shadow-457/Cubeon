@@ -100,9 +100,30 @@ async function handleJoin(request, env) {
     return json({ count: await readCount(env), joined: false });
   }
 
-  await env.WAITLIST.put(key, JSON.stringify({ email, at: Date.now() }));
+  // KV writes are metered (1k/day on the free tier, account-wide). When the
+  // day's budget is gone, a raw put() THROWS and surfaces as a 500 "error
+  // code: 1101" - which the site shows as a generic failure and any client
+  // hammers with retries. Translate it into a clean 429 so callers can back
+  // off, and say so honestly.
+  try {
+    await env.WAITLIST.put(key, JSON.stringify({ email, at: Date.now() }));
+  } catch (e) {
+    if (String(e && e.message).includes("limit exceeded")) {
+      return json({ error: "daily write budget exhausted - try again tomorrow" }, 429);
+    }
+    throw e;
+  }
   const count = (await readCount(env)) + 1;
-  await env.WAITLIST.put("count", String(count));
+  try {
+    await env.WAITLIST.put("count", String(count));
+  } catch (e) {
+    // The email itself is saved - the worst case is a miscounted tally, so
+    // the signup still succeeds rather than erroring after the fact.
+    if (String(e && e.message).includes("limit exceeded")) {
+      return json({ count, joined: true });
+    }
+    throw e;
+  }
 
   return json({ count, joined: true });
 }

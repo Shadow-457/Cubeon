@@ -176,7 +176,17 @@ async function bearerSecretHash(request) {
 async function ownsUuid(uuid, secretHash, env) {
   const owner = await env.SKINS.get(`owner:${uuid}`);
   if (owner === null) {
-    await env.SKINS.put(`owner:${uuid}`, secretHash);
+    // First-contact TOFU claim. A quota-exhausted put throws; translate it
+    // so callers see a retryable 429 instead of a 500 (the client cools
+    // off either way, but a clean status keeps tail logs honest).
+    try {
+      await env.SKINS.put(`owner:${uuid}`, secretHash);
+    } catch (e) {
+      if (String(e && e.message).includes("limit exceeded")) {
+        return "quota";
+      }
+      throw e;
+    }
     return true;
   }
   // Constant-time compare (mirrors cubeon-friends.js) so a timing side channel
@@ -209,11 +219,25 @@ async function handleHeartbeat(request, env) {
     return problem(400, "bad_uuid");
   }
 
-  if (!(await ownsUuid(uuid.toLowerCase(), secretHash, env))) {
+  const claimed = await ownsUuid(uuid.toLowerCase(), secretHash, env);
+  if (claimed === "quota") {
+    return problem(429, "kv_write_budget_exhausted");
+  }
+  if (!claimed) {
     return problem(403, "not_yours");
   }
 
-  await env.SKINS.put(`pointer:${username.toLowerCase()}`, uuid.toLowerCase());
+  // Quota-exhausted puts throw; surface a clean 429 instead of a 500 so
+  // clients back off instead of hammering (the launcher's publisher treats
+  // any non-200 as "try later" and cools off for 10 minutes).
+  try {
+    await env.SKINS.put(`pointer:${username.toLowerCase()}`, uuid.toLowerCase());
+  } catch (e) {
+    if (String(e && e.message).includes("limit exceeded")) {
+      return problem(429, "kv_write_budget_exhausted");
+    }
+    throw e;
+  }
   return json({ status: "ok" }, "no-store");
 }
 
@@ -251,7 +275,11 @@ async function handleSkinUpload(request, env) {
   if (bytes.length > MAX_SKIN_BYTES || !isSkinPng(bytes)) return problem(400, "bad_skin");
   const model = body.model === "slim" ? "slim" : "default";
 
-  if (!(await ownsUuid(uuid, secretHash, env))) {
+  const claimed = await ownsUuid(uuid, secretHash, env);
+  if (claimed === "quota") {
+    return problem(429, "kv_write_budget_exhausted");
+  }
+  if (!claimed) {
     return problem(403, "not_yours");
   }
 

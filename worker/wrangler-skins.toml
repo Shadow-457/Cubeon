@@ -1,0 +1,16 @@
+# Cubeon skins API - Cloudflare Worker + KV.
+#
+# Deploy:  cd worker && npx wrangler deploy -c wrangler-skins.toml
+# Health:  curl https://cubeon-skins.hamza-457-shahbaz.workers.dev/health
+#
+# The KV namespace SKINS is shared with nothing else. Writes are metered
+# (1k/day account-wide on the free tier) - see cubeon-skins.js for the
+# write-frugality contract every route follows.
+
+name = "cubeon-skins"
+main = "cubeon-skins.js"
+compatibility_date = "2025-04-01"
+
+[[kv_namespaces]]
+binding = "SKINS"
+id = "aac6408636cb4063a16b49e872b59a08"

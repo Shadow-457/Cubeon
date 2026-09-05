@@ -221,15 +221,24 @@ check("a marker from a different endpoint re-syncs the pointer (no needless uplo
       len(_calls) == 1 and _calls[0]["url"] == skins._HEARTBEAT_URL, len(_calls))
 
 # ---------------------------------------------------------------------------
-# 4. Failure handling: 403 and network errors are swallowed, don't poison state
+# 4. Failure handling: 403 and network errors are swallowed, don't poison
+#    identity state, and leave a cooldown so a persistent outage isn't
+#    hammered on every sync (syncs fire per launch AND per rename).
 # ---------------------------------------------------------------------------
 clear_marker()
 reset_calls()
 _next["resp"] = _FakeResp(403, {"error": "not_yours"})
 skins._publish_skin(default_cfg)  # must not raise
 check("a 403 on the heartbeat stops everything (one attempt)", len(_calls) == 1)
-check("a 403 does NOT record a marker (so a later fix retries)",
-      skins._load_publish_state() == {})
+_state_after_403 = skins._load_publish_state()
+check("a 403 records NO identity (so a later fix retries)",
+      "username" not in _state_after_403)
+check("a 403 records a cooldown (no retry storm)",
+      _state_after_403.get("retry_not_before", 0) > 0)
+# While the cooldown is live, a fresh sync is a no-op: no POST at all.
+reset_calls()
+skins._publish_skin(default_cfg)
+check("during cooldown no POST is made", _calls == [])
 
 # A 403 on the upload (after a successful heartbeat) keeps the identity half.
 clear_marker()
@@ -261,7 +270,11 @@ reset_calls()
 _next["raise"] = True
 skins._publish_skin(default_cfg)  # offline: must return quietly, never raise
 check("a network error is swallowed (no raise)", True)
-check("a network error records no marker", skins._load_publish_state() == {})
+_net_err_state = skins._load_publish_state()
+check("a network error records no identity",
+      "username" not in _net_err_state)
+check("a network error records a cooldown", 
+      _net_err_state.get("retry_not_before", 0) > 0)
 
 # A missing username is a no-op, never a POST.
 reset_calls()
