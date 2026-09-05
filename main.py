@@ -247,17 +247,18 @@ def main(page: ft.Page):
     _discord_img = cfg.get("discord_large_image") or None
     _discord_img_text = cfg.get("discord_large_text") or "Cubeon"
     # The player's Minecraft head as the SMALL presence image (corner badge
-    # beside the big logo). Discord accepts direct image URLs here, so the
-    # head is rendered from the public avatar mirror for the current
-    # username. Best-effort: if the mirror can't resolve a name it serves a
-    # placeholder, which is fine; and if Discord can't fetch it, it just
-    # shows nothing. Rebuilt on every set_activity call so a rename updates
-    # the face.
+    # beside the big logo). Served by Cubeon's own skins Worker at
+    # /faces/<name>.png - the face crop of whatever skin the player wears,
+    # including custom skins (third-party mirrors would show Steve for
+    # offline names). Best-effort: a missing face just renders nothing.
+    from cubeon import csl as _csl
+    _csl_root = _csl.CUBEON_API_BASE
+
     def _discord_avatar():
         name = (cfg.get("username") or "").strip()
         if not name:
             return None, None
-        return (f"https://minotar.net/avatar/{name}/128.png", name)
+        return (f"{_csl_root}/faces/{name}.png", name)
     # Announce "in the launcher" off the UI thread: connecting to Discord's IPC
     # socket is a network-ish call, and we never want a missing/slow Discord to
     # delay the window appearing. All later updates are tiny and fast.

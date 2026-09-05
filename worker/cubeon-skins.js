@@ -148,6 +148,16 @@ export default {
       return serveProfile(rawName, env);
     }
 
+    // Face avatars: /faces/<username>.png - the 8x8 head crop (hat layer
+    // included), upscaled to 128. Rendered and uploaded BY THE LAUNCHER as a
+    // content-addressed texture (crops can't be decoded in a Worker without
+    // a PNG codec), then keyed by uuid. Same resolution chain as
+    // serveProfile: name -> pointer -> uuid -> face texture.
+    if (path.startsWith("/faces/") && path.endsWith(".png")) {
+      const rawName = path.slice("/faces/".length, -".png".length);
+      return serveFace(rawName, env);
+    }
+
     return notFound();
   },
 };
@@ -289,10 +299,35 @@ async function handleSkinUpload(request, env) {
 
   const id = await sha256HexBytes(bytes);
   await env.SKINS.put(`texture:${id}`, bytesToBase64(bytes));
-  await env.SKINS.put(`skin:${uuid}`, JSON.stringify({
+  const record = {
     id,
     model,
-  }));
+  };
+
+  // Optional companion face avatar (128x128 head crop, rendered client-side).
+  // Content-addressed like the sheet itself: same face -> same id -> zero
+  // extra KV writes when the skin didn't change. Missing/invalid face just
+  // skips the field - older launchers keep working.
+  if (typeof body.face === "string" && body.face.length > 0) {
+    let faceBytes;
+    try {
+      faceBytes = base64ToBytes(body.face);
+    } catch {
+      faceBytes = null;
+    }
+    // Face avatars are 128x128 (head crop upscaled client-side), so they get
+    // their own dimension guard; anything else about them is content-checked
+    // by the hash, not the shape.
+    const isFacePng =
+      faceBytes && faceBytes.length <= MAX_SKIN_BYTES && isPngWithSize(faceBytes, 128, 128);
+    if (isFacePng) {
+      const faceId = await sha256HexBytes(faceBytes);
+      await env.SKINS.put(`texture:${faceId}`, bytesToBase64(faceBytes));
+      record.face = faceId;
+    }
+  }
+
+  await env.SKINS.put(`skin:${uuid}`, JSON.stringify(record));
 
   return json({ ok: true, id }, "no-store");
 }
@@ -410,6 +445,36 @@ async function serveProfile(username, env) {
   return json({ username, textures }, PROFILE_CACHE);
 }
 
+/**
+ * GET /faces/<username>.png - the player's head crop (Discord presence,
+ * web profiles, anywhere a small avatar beats a full sheet).
+ *
+ * Resolution: name -> pointer -> uuid -> skin record -> face id (falling
+ * back to the full sheet id when the record predates face uploads - a
+ * 64x64 sheet scaled by the client still reads fine as an avatar at
+ * Discord's sizes). Cache: the face is content-addressed, so immutable.
+ */
+async function serveFace(username, env) {
+  if (!USERNAME_RE.test(username)) return notFound();
+
+  const targetUuid = await env.SKINS.get(`pointer:${username.toLowerCase()}`);
+  if (!targetUuid) return notFound();
+  if (await env.SKINS.get(`blocked:${targetUuid}`)) return notFound();
+
+  const record = await env.SKINS.get(`skin:${targetUuid}`, "json");
+  const faceId =
+    (record && typeof record.face === "string" && TEXTURE_ID_RE.test(record.face))
+      ? record.face
+      : skinTextureId(record);
+  if (!faceId) return notFound();
+
+  const b64 = await env.SKINS.get(`texture:${faceId}`, "text");
+  if (!b64) return notFound();
+  return png(base64ToBytes(b64));
+}
+
+/** Serves one texture's PNG bytes by content id. */
+
 /** Serves one texture's PNG bytes by content id. */
 async function serveTexture(id, env) {
   if (id === CAPE_ID) {
@@ -459,11 +524,16 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
  * here keeps the texture namespace to actual skins.
  */
 function isSkinPng(bytes) {
+  return isPngWithSize(bytes, 64, 64) || isPngWithSize(bytes, 64, 32);
+}
+
+/** PNG signature + IHDR dimension check; size-bounded above. */
+function isPngWithSize(bytes, w, h) {
   if (!bytes || bytes.length < 24) return false;
   for (let i = 0; i < 8; i++) if (bytes[i] !== PNG_SIGNATURE[i]) return false;
-  const w = ((bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19]) >>> 0;
-  const h = ((bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]) >>> 0;
-  return (w === 64 && h === 64) || (w === 64 && h === 32);
+  const width = ((bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19]) >>> 0;
+  const height = ((bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]) >>> 0;
+  return width === w && height === h;
 }
 
 // -------------------------------------------------------------------- helpers

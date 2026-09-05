@@ -274,6 +274,27 @@ def _composed_skin_png(cfg: dict) -> bytes:
     return buf.getvalue()
 
 
+def _compose_face_png(cfg: dict, size: int = 128) -> bytes | None:
+    """The head crop of the composed sheet - face base layer + hat layer,
+    alpha-composited - as an upscaled square PNG. This is the avatar the
+    Worker serves at /faces/<name>.png (Discord presence, web). Never
+    raises; returns None when composition fails so the upload just omits
+    the face and the Worker falls back to the full sheet."""
+    try:
+        sheet = cosmetics.compose_skin_with_hat(cfg).convert("RGBA")
+        legacy = sheet.size == (64, 32)
+        face = sheet.crop((8, 8, 16, 16))                     # base head front
+        if not legacy:
+            face = face.copy()
+            face.alpha_composite(sheet.crop((40, 8, 48, 16)))  # hat layer
+        face = face.resize((size, size), Image.NEAREST)
+        buf = io.BytesIO()
+        face.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
 def _active_skin_is_slim(filename: str | None) -> bool:
     """Whether the active skin uses the 3px-arm slim (Alex) model, read from
     the stored metadata. No custom skin => default Steve => classic model."""
@@ -411,6 +432,14 @@ def _publish_skin(cfg: dict) -> None:
                 "model": model,
                 "skin": base64.b64encode(png).decode("ascii"),
             }
+            # Companion face avatar: the 8x8 head crop (hat layer included)
+            # scaled to 128. The Worker can't crop PNGs, so it's rendered
+            # here and rides in the same upload - one request, and the face
+            # is content-addressed server-side (same face -> zero extra
+            # writes on re-publish).
+            face = _compose_face_png(cfg)
+            if face:
+                payload["face"] = base64.b64encode(face).decode("ascii")
             try:
                 resp = requests.post(
                     _UPLOAD_URL, json=payload, headers=headers,
