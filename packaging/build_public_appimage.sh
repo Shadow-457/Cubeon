@@ -12,13 +12,13 @@ APPDIR=dist/AppDir
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 mv dist/Cubeon/* "$APPDIR/usr/bin/"; rmdir dist/Cubeon
-cp "$PUBLIC_ASSETS/icon_256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/cubeon.png"
-cp "$PUBLIC_ASSETS/icon_256.png" "$APPDIR/cubeon.png"
+cp "$PUBLIC_ASSETS/icon_256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/cubeon-public.png"
+cp "$PUBLIC_ASSETS/icon_256.png" "$APPDIR/cubeon-public.png"
 cat > "$APPDIR/cubeon.desktop" <<'EOF'
 [Desktop Entry]
 Name=Cubeon
 Exec=AppRun
-Icon=cubeon
+Icon=cubeon-public
 Type=Application
 Categories=Game;
 Comment=Minecraft launcher

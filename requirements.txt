@@ -17,6 +17,10 @@ pillow>=10.0.0
 # Realtime social layer (Friends tab): presence, chat, groups, voice-call
 # signalling all ride one WebSocket. Pure-Python, tiny - see cubeon/friends.py.
 websocket-client>=1.7.0
+# E2E-encrypted direct messages (cubeon/e2ee.py). Without it chat still works,
+# but DMs are unencrypted and tests/CI need it (test_friends_service exercises
+# the InvalidTag path). Small, wheels for all platforms.
+cryptography>=42.0.0
 # Voice-call AUDIO is an optional add-on, deliberately NOT required here so the
 # base install stays small and doesn't pull a native audio stack (which is the
 # usual source of "pip install failed" reports). Calls ring, connect, and chat

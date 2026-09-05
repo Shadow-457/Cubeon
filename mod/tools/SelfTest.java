@@ -1,4 +1,4 @@
-/**
+/*
  * Offline unit tests for the Minecraft-free half of the Cubeon Friends mod.
  *
  * The mod's UI needs a real Minecraft jar to compile, but everything that has
