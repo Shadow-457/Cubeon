@@ -153,6 +153,42 @@ A private repository is good for storing your source code. It is not ideal for
 giving downloads to many people because download permission is required.
 
 
+## Making a public build without Friends
+
+There are two build types:
+
+- `build_appimage.sh` — development build, Friends included;
+- `build_public_appimage.sh` — public build, Friends disabled.
+
+For a public Linux build:
+
+```bash
+cd /home/fuckarch/Downloads/Cubeon
+bash packaging/build_public_appimage.sh
+```
+
+The result is named:
+
+```text
+dist/Cubeon-public-x86_64.AppImage
+```
+
+The public build does not include Friends jars. It also does not start the
+Friends online service or the local Friends bridge. Minecraft will not show a
+Friends button. The rest of Cubeon still works: Minecraft launching, profiles,
+mods, modpacks, skins, servers, and settings.
+
+For a public Windows build, run on Windows:
+
+```powershell
+python packaging/build_public_windows.py
+```
+
+It creates `dist/Cubeon-public-Windows-x64.zip`.
+
+The regular development build is not changed. You can keep using it whenever
+you want to continue developing Friends.
+
 ### The Friends button is missing in Minecraft
 
 This usually means you are using an older AppImage. The launcher must include

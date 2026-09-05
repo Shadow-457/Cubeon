@@ -201,8 +201,16 @@ def _remove_other_jars(profile_dir: str, keep: str | None) -> None:
             pass
 
 
+def remove_installed(profile_dir: str | None) -> None:
+    """Remove Cubeon Friends jars from a profile for a no-Friends build."""
+    if not profile_dir:
+        return
+    _remove_other_jars(profile_dir, None)
+
 def ensure_installed(mc_version: str | None, loader: str | None,
                      profile_dir: str | None = None) -> bool:
+
+
     """Drops the right mod jar into the active (mc_version, loader) profile.
 
     Only mod loaders that can run the Fabric-format jar get it: Fabric itself,
