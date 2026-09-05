@@ -1852,8 +1852,10 @@ def main(page: ft.Page):
             # Broadcast presence to friends: "playing <version>". Safe no-op if
             # the user hasn't claimed a Cubeon name / isn't connected. version_id
             # is the human MC version (not the loader-specific target id), which
-            # is what a friend wants to see in their list.
-            friends_service.set_version(version_id)
+            # is what a friend wants to see in their list. Guarded like the
+            # on_exit path above: public builds have no Friends service.
+            if friends_service is not None:
+                friends_service.set_version(version_id)
 
             # Discord Rich Presence: show the game as being played, with an
             # elapsed timer. Best-effort - no-op if Discord isn't running.

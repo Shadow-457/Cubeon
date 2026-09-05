@@ -353,5 +353,15 @@ check("...and it is hidden until a leftover actually exists",
 # would otherwise read this dev machine's actual session.lock state.
 _core_smoke.is_server_orphaned = _orig_orphan_probe
 
+# --- public-build regression: friends_service is None when Friends is off ----
+# A launch-time AttributeError ('NoneType' has no 'set_version') slipped
+# through because every suite ran with Friends enabled. Assert the guard
+# exists in source so the None case can never crash a launch again.
+import re as _re
+_src = open(app.__file__, encoding="utf-8").read()
+check("public builds can't crash on friends presence (guarded set_version)",
+      _re.search(r"if friends_service is not None:\s*\n\s*friends_service\.set_version\(", _src) is not None,
+      "main.py must guard the launch-time set_version call")
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
