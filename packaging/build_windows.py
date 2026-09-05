@@ -23,6 +23,7 @@ def main():
         "--name", "Cubeon",
         f"--add-data=assets{SEP}assets",
         f"--add-data=templates{SEP}templates",
+        f"--add-data=mod{SEP}mod",
         "--collect-all", "flet",
         "--collect-submodules", "templates",
         "main.py",

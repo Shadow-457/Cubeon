@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "assets:assets" \
   --add-data "templates:templates" \
+  --add-data "mod/brackets.json:mod" \
   --collect-all flet \
   --collect-submodules templates \
   main.py

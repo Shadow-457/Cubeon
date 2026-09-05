@@ -153,6 +153,14 @@ A private repository is good for storing your source code. It is not ideal for
 giving downloads to many people because download permission is required.
 
 
+### The Friends button is missing in Minecraft
+
+This usually means you are using an older AppImage. The launcher must include
+both the Friends jars and the Minecraft version map. Build a new AppImage with
+the latest packaging script, then launch Minecraft again. In the launcher, use
+Fabric or Quilt; the Friends mod does not run on Vanilla, Forge, or NeoForge.
+
+
 ## Testing friends with another person
 
 Both people should:
