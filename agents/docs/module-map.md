@@ -1,7 +1,29 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-05 (opencode Glm 5.3). If a fact here contradicts the code, the code
+Last updated: 2026-09-06 (opencode Glm 5.3). If a fact here contradicts the code, the code
 wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+
+## KV write discipline (all Workers, 2026-09-06)
+- KV free tier: 1,000 writes/day **account-wide**, 100,000 reads/day. Never
+  write without comparing first — use `putIfChanged(env, key, value, opts?)`
+  (cubeon-skins.js); it returns `"quota"` on limit-exceeded → caller maps to
+  429. TTL'd puts can't skip the write (the TTL refresh IS the write).
+- Steady state (repeat heartbeat, identical re-upload) costs ZERO writes:
+  verified against `wrangler dev --local`.
+- Friends worker = Durable Objects (NOT KV-metered). Waitlist/invites dedupe
+  by read before writing.
+- **Never `git add -A` in worker/ after `wrangler dev`** — `.wrangler/` local
+  state (sqlite/blobs) is gitignored now; check `git status` first.
+
+## Window launch (main.py, 2026-09-06)
+- `page.window.visible = False` at setup; after `mark_mounted`, a
+  `page.run_task(_reveal_window)` awaits `wait_until_ready_to_show()` then
+  flips visible → no default-size flash / blank frames.
+- Geometry persists to `~/.cubeon_launcher/window_geometry.json`
+  (`load/save_window_geometry` in cubeon/config.py); debounced 400 ms saves,
+  clamp on restore, maximized saves keep the restore size.
+- Flet 0.86: `Window.center()` / `wait_until_ready_to_show()` are async —
+  must go through `page.run_task()`; `Window.visible` is a plain field.
 
 ## cubeon-skins Worker — face avatars (2026-09-05)
 - `GET /faces/<username>.png` — player's head crop, same pointer→uuid→record
