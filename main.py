@@ -155,11 +155,12 @@ def main(page: ft.Page):
     # sit on "Preparing" until you switched tabs. See cubeon/thread_safe_ui.py.
     thread_safe_ui.install(page)
 
-    # Dev-only live UI inspector (CUBEON_INSPECT=1): a DevTools-style dialog
-    # for browsing the mounted control tree and editing text/tooltips live.
-    # Off by default; public builds never show it. See cubeon/inspector.py.
-    from cubeon.inspector import inspector_enabled, open_inspect
-    _inspector_enabled = inspector_enabled()
+    # Dev-only live UI inspector (CUBEON_INSPECT=1 or cfg["dev_inspector"]):
+    # a DevTools-style dialog for browsing the mounted control tree and
+    # editing text/tooltips live. Off by default; public builds never show
+    # it. See cubeon/inspector.py. (Gate is set after cfg loads below.)
+    from cubeon.inspector import open_inspect
+    _inspector_enabled = False
 
     def _open_inspector():
         try:
@@ -220,6 +221,12 @@ def main(page: ft.Page):
 
     # --- Load configuration (saved settings) from disk ---
     cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
+
+    # Now that cfg exists, evaluate the inspector gate (env var or
+    # cfg["dev_inspector"]). Set here so the sidebar (built far below)
+    # and the F12 hook both see the resolved value.
+    from cubeon.inspector import inspector_enabled as _insp_enabled
+    _inspector_enabled = _insp_enabled(cfg)
 
     # Now that cfg exists, arm the opt-in crash reporting hooks (the logging
     # itself was armed above; this only decides whether uncaught exceptions

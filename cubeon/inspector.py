@@ -54,9 +54,31 @@ _WEIGHTS = [
 ]
 
 
-def inspector_enabled() -> bool:
-    """Dev builds only: CUBEON_INSPECT=1 opts in. Never in public builds."""
-    return os.environ.get("CUBEON_INSPECT", "").strip() not in ("", "0", "false", "no")
+def inspector_enabled(cfg: dict | None = None) -> bool:
+    """Dev builds only. Two opt-ins, either works (also in packaged builds,
+    where setting an env var before double-clicking is impractical):
+      - environment: CUBEON_INSPECT=1
+      - config: cfg["dev_inspector"] = True (Settings-side toggle)
+    Public builds ship no such config and no env, so it stays hidden.
+    """
+    if os.environ.get("CUBEON_INSPECT", "").strip() not in ("", "0", "false", "no"):
+        return True
+    try:
+        if cfg and bool(cfg.get("dev_inspector")):
+            return True
+    except Exception:
+        pass
+    # A config file that sets dev_inspector without the caller passing cfg:
+    # read it lazily rather than importing the whole config stack here.
+    try:
+        p = os.path.join(os.path.expanduser("~"), ".cubeon_launcher", "config.json")
+        if os.path.isfile(p):
+            import json
+            with open(p, encoding="utf-8") as fh:
+                return bool(json.load(fh).get("dev_inspector"))
+    except Exception:
+        pass
+    return False
 
 
 def _control_text(c) -> str:
@@ -122,39 +144,64 @@ class InspectorDialog:
     # ------------------------------------------------------------------ UI
 
     def _build(self):
+        # Theme tokens from the launcher itself (cubeon/theme.py re-exported
+        # via main's import surface — but importing directly avoids any
+        # dependency on main.py).
+        from cubeon.theme import (BG, SURFACE, SURFACE_HI, BORDER, BORDER_HI,
+                                  TEXT, TEXT_DIM, ACCENT, RADIUS)
+        self._t = dict(BG=BG, SURFACE=SURFACE, SURFACE_HI=SURFACE_HI,
+                       BORDER=BORDER, BORDER_HI=BORDER_HI, TEXT=TEXT,
+                       TEXT_DIM=TEXT_DIM, ACCENT=ACCENT, RADIUS=RADIUS)
+        t = self._t
+
         self.search = ft.TextField(
-            hint_text="Find text…", dense=True, height=38,
+            hint_text="Find text…", dense=True, height=40,
             on_change=self._on_search, prefix_icon=ft.Icons.SEARCH,
+            bgcolor=SURFACE_HI, border_color=BORDER,
+            focused_border_color=ACCENT, color=TEXT,
+            hint_style=ft.TextStyle(color=TEXT_DIM),
+            text_style=ft.TextStyle(color=TEXT),
         )
-        self.tree_column = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
-        self.detail = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)
+        # FIXED panel sizes, not expand chains: an AlertDialog sizes its
+        # content only from explicit width/height — expand=True inside the
+        # content collapses to zero because the dialog gives its content no
+        # bounded constraints to expand INTO. That's why the first version
+        # rendered as an empty sliver.
+        TREE_W, TREE_H, DETAIL_W = 380, 460, 320
+        self.tree_column = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO)
+        self.detail = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
         self.hint = ft.Container(
             content=ft.Text("Pick a control on the left. Text-like properties "
-                            "can be edited live; the log shows the source line "
-                            "to change for real.", size=12, color=ft.Colors.with_opacity(0.6, ft.Colors.ON_SURFACE)),
+                            "can be edited live; the hint below the editor "
+                            "shows the text to search in your editor to make "
+                            "the change permanent.", size=12, color=TEXT_DIM),
             padding=8,
         )
         self.dialog = ft.AlertDialog(
-            modal=True,
+            modal=True, bgcolor=SURFACE,
             title=ft.Row([
-                ft.Icon(ft.Icons.BUG_REPORT, size=18),
-                ft.Text("Cubeon inspector", size=16, weight=ft.FontWeight.W_600),
-                ft.TextButton("Close", on_click=self._close),
+                ft.Icon(ft.Icons.BUG_REPORT, size=18, color=ACCENT),
+                ft.Text("Cubeon inspector", size=16, weight=ft.FontWeight.W_600,
+                        color=TEXT),
+                ft.TextButton("Close", on_click=self._close,
+                              style=ft.ButtonStyle(color=TEXT_DIM)),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             content=ft.Container(
                 content=ft.Column([
                     self.search,
                     ft.Row([
-                        ft.Container(content=self.tree_column, expand=5,
-                                     border=ft.border.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                        ft.Container(content=self.tree_column,
+                                     width=TREE_W, height=TREE_H,
+                                     bgcolor=BG,
+                                     border=ft.border.Border.all(1, BORDER),
                                      border_radius=6, padding=4),
-                        ft.Container(content=self.detail, expand=4,
-                                     border=ft.border.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+                        ft.Container(content=self.detail,
+                                     width=DETAIL_W, height=TREE_H,
+                                     bgcolor=BG,
+                                     border=ft.border.Border.all(1, BORDER),
                                      border_radius=6, padding=8),
-                    ], spacing=8, expand=True),
-                ], spacing=8),
-                width=min(960, self.page.window_width or 960) if hasattr(self.page, "window_width") else 960,
-                height=520,
+                    ], spacing=8),
+                ], spacing=8, tight=True),
             ),
         )
         self._fill_tree()
@@ -173,7 +220,7 @@ class InspectorDialog:
                 continue
             row = ft.Container(
                 content=ft.Text(label, size=12.5, selectable=True,
-                                color=ft.Colors.ON_SURFACE),
+                                color=self._t["TEXT"]),
                 padding=ft.padding.Padding.only(left=6 + depth * 12, top=3, bottom=3, right=4),
                 border_radius=4, ink=True,
                 on_click=lambda e, ctrl=c: self._select(ctrl),
@@ -183,7 +230,8 @@ class InspectorDialog:
             self._tree_items.append((row, label))
         if not self.tree_column.controls:
             self.tree_column.controls.append(
-                ft.Text("Nothing matches.", size=12, italic=True))
+                ft.Text("Nothing matches.", size=12, italic=True,
+                        color=self._t["TEXT_DIM"]))
         _safe_update(self.tree_column)
 
     def _walk_all(self):
@@ -218,14 +266,23 @@ class InspectorDialog:
         text = _control_text(c)
         if text:
             header += f"  “{text[:60]}”"
-        self.detail.controls.append(ft.Text(header, size=14, weight=ft.FontWeight.W_700))
+        self.detail.controls.append(ft.Text(header, size=14, weight=ft.FontWeight.W_700,
+                                            color=self._t["TEXT"]))
 
         # Read-only identity block — helps locate the source: the search box
         # in your editor for the shown default text finds the constructor.
         self.detail.controls.append(ft.Text(
             f"Search your editor for:  “{text}”" if text else "(no text)",
-            size=11, italic=True, selectable=True))
+            size=11, italic=True, selectable=True, color=self._t["TEXT_DIM"]))
 
+        t = self._t
+        field_theme = dict(
+            bgcolor=t["SURFACE_HI"], border_color=t["BORDER"],
+            focused_border_color=t["ACCENT"], color=t["TEXT"],
+            label_style=ft.TextStyle(color=t["TEXT_DIM"]),
+            text_style=ft.TextStyle(color=t["TEXT"]),
+            hint_style=ft.TextStyle(color=t["TEXT_DIM"]),
+        )
         any_edit = False
         for prop, label in _EDITABLE.items():
             cur = getattr(c, prop, None)
@@ -237,6 +294,9 @@ class InspectorDialog:
             if prop == "weight":
                 field = ft.Dropdown(
                     label=label, value=str(cur), dense=True, height=44,
+                    bgcolor=t["SURFACE_HI"], border_color=t["BORDER"],
+                    focused_border_color=t["ACCENT"],
+                    label_style=ft.TextStyle(color=t["TEXT_DIM"]),
                     options=[ft.dropdown.Option(w) for w in _WEIGHTS],
                     on_change=lambda e, cc=c, p=prop: self._apply(cc, p, e.control.value),
                 )
@@ -244,24 +304,27 @@ class InspectorDialog:
                 field = ft.TextField(
                     label=label, value=str(cur), dense=True, multiline=prop == "value",
                     on_blur=lambda e, cc=c, p=prop: self._apply(cc, p, e.control.value or ""),
+                    **field_theme,
                 )
             else:  # size, color
                 field = ft.TextField(
                     label=label, value=str(cur), dense=True,
                     on_blur=lambda e, cc=c, p=prop: self._apply(cc, p, e.control.value or ""),
+                    **field_theme,
                 )
             self.detail.controls.append(field)
 
         if not any_edit:
             self.detail.controls.append(ft.Text(
                 "No editable text properties on this control "
-                "(select a Text/Button in the tree).", size=12))
+                "(select a Text/Button in the tree).", size=12,
+                color=self._t["TEXT_DIM"]))
 
-        self.detail.controls.append(ft.Container(height=1, bgcolor=ft.Colors.OUTLINE_VARIANT))
+        self.detail.controls.append(ft.Container(height=1, bgcolor=self._t["BORDER"]))
         self.detail.controls.append(ft.Text(
             "Changes are live but not saved — restart reverts them. "
             "Use the search hint above to find the source line.",
-            size=11))
+            size=11, color=self._t["TEXT_DIM"]))
         try:
             _safe_update(self.detail)
         except Exception:
