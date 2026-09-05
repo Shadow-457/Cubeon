@@ -122,7 +122,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 return
             mx = install_progress.data or 1
             install_progress.value = val / mx if mx else 0
-            page.update()
+            thread_safe_ui.throttled_update(page)
 
         def max_cb(val):
             install_progress.data = val
@@ -141,6 +141,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     status_cb=status_cb, progress_cb=progress_cb, max_cb=max_cb,
                 )
             except Exception as ex:
+                thread_safe_ui.final_update(page)   # paint coalesced progress
                 if active_version["value"] == version_id:
                     _set_install_busy(False)
                     install_status.value = f"Install failed: {ex}"
@@ -554,7 +555,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     _smooth_gen = {"v": 0}
 
     def _smooth_progress(ev):
-        """Runs on the install worker thread; page.update() is thread-safe."""
+        """Runs on the install worker thread; throttled_update is thread-safe."""
         stage = ev.get("stage")
         title = ev.get("title", "")
         if stage == "start":
@@ -571,7 +572,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         elif stage == "done":
             if not ev.get("ok"):
                 smooth_progress_text.value = f"Couldn't install {title}."
-        page.update()
+        thread_safe_ui.throttled_update(page)
 
     def _smooth_install_worker(version_id, gen):
         try:

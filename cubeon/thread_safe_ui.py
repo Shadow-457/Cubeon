@@ -65,6 +65,7 @@ before that is deferred (re-scheduled a beat later) instead of racing it.
 import asyncio
 import logging
 import threading
+import time
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +103,55 @@ _mounted_pages = set()
 # was never sent, so the next attempt diffs cleanly against the same snapshot.
 TREE_LOCK = threading.RLock()
 _UPDATE_MAX_RETRIES = 3
+
+# THROTTLED page.update() for progress floods (fourth bug, 2026-09-05).
+#
+# install_minecraft_version() reports progress once per FILE - a version is
+# ~4000 asset files - and each report used to call page.update(). Thousands of
+# full-tree repaints queued onto the event loop saturate it: the window stops
+# responding to input for the whole install and unfreezes the moment the
+# download ends (the user-visible "it got stuck, then became good again").
+#
+# Humans cannot perceive more than ~10 fps of progress anyway. throttled_update
+# coalesces an arbitrary call rate into at most one repaint per interval, and
+# guarantees a final repaint so the last state (100%) is always shown.
+_MIN_REPAINT_INTERVAL = 0.1   # seconds; 10 fps
+_throttle_lock = threading.Lock()
+_throttle_state: dict = {}    # id(page) -> {"t": last send, "dirty": pending}
+
+
+def throttled_update(page) -> None:
+    """Rate-limited page.update() for high-frequency progress callbacks.
+
+    Call sites keep their existing per-file/per-chunk callbacks and simply use
+    this instead of page.update(). A repaint is sent at most every
+    _MIN_REPAINT_INTERVAL; intermediate calls are coalesced into the next one.
+    Safe from any thread, before/after mount, and for any number of pages.
+    """
+    key = id(page)
+    now = time.monotonic()
+    with _throttle_lock:
+        st = _throttle_state.get(key)
+        if st is None:
+            _throttle_state[key] = {"t": now, "dirty": False}
+            # First call: fall through and paint immediately below.
+        else:
+            if now - st["t"] < _MIN_REPAINT_INTERVAL:
+                st["dirty"] = True   # coalesce; the next tick paints it
+                return
+            st["t"] = now
+            st["dirty"] = False
+    page.update()
+
+
+def final_update(page) -> None:
+    """Paint any coalesced state left pending by throttled_update(). Call once
+    when a flood ends (install finished/failed) so the last frame always lands."""
+    with _throttle_lock:
+        st = _throttle_state.pop(id(page), None)
+    if st and st.get("dirty"):
+        page.update()
+
 
 
 def mark_mounted(page) -> None:

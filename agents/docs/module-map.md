@@ -100,8 +100,13 @@ trap (the mod now warns about it in chat, but don't rely on that).
 ## Open items (2026-09-04 production review)
 
 1. Relay deployment pipeline — repo Worker code can be ahead of the live
-   deployment; no version handshake exists yet.
+   deployment; no version handshake exists yet. Deploy manually with
+   `cd worker && npx wrangler deploy -c wrangler-friends.toml`
+   (last done 2026-09-05, version 6b7ac883, repo == live as of then).
 2. One live two-launcher in-game end-to-end run has never happened.
+   (Launcher↔relay↔launcher IS proven live as of 2026-09-05 — see
+   agents/2026-09-05_opencode_live-two-player-relay-verified.md. The
+   in-game mod ↔ local bridge hop is the remaining unproven leg.)
 
 ## Production pass (2026-09-05, Cline) — what landed
 
@@ -147,6 +152,17 @@ trap (the mod now warns about it in chat, but don't rely on that).
   minimize-to-tray (Flet window-API risk) and background toasts (needs
   hooking every download site - medium), #13 i18n/accessibility (high effort).
 - New tests: tools/test_production.py (13). Worker: node worker/test-worker.mjs.
+
+## Follow-up 15: CI green again (2026-09-05, opencode)
+
+- `cryptography>=42.0.0` is now in requirements.txt — test_friends_service
+  needs the E2EE path, so "optional at runtime" no longer means "optional in
+  CI". Packaged launchers bundle it (no more degrade-to-unencrypted).
+- javac lint asymmetry: CI resolves javac 25 (new `dangling-doc-comments`
+  lint), local dev box has javac 21. Keep file headers in mod/**/*.java as
+  `/*` not `/**` unless attached to a declaration.
+- Artifacts from a green Actions run: Cubeon-Windows-x64-ZIP/Folder,
+  Cubeon-Linux-x86_64-AppImage, Cubeon-macOS. Release flow unchanged.
 
 ## Follow-up 14: private repo + packaging scripts
 

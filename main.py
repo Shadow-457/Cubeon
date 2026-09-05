@@ -1667,10 +1667,14 @@ def main(page: ft.Page):
         try:
             target_version = version_id
 
-            # Define callback functions that update UI elements from the background thread
+            # Define callback functions that update UI elements from the background thread.
+            # All three use throttled_update(): install progress arrives once
+            # per FILE (a version is ~4000 files) and a full page.update()
+            # per file saturates Flet's event loop - the window stops taking
+            # input for the whole install and unfreezes when it ends.
             def status_cb(text):
                 progress_label.value = text
-                page.update()
+                thread_safe_ui.throttled_update(page)
 
             def progress_cb(val):
                 mx = progress_bar.data or 1
@@ -1678,11 +1682,11 @@ def main(page: ft.Page):
                 # that emits progress before its setMax lands would otherwise
                 # divide by the previous phase's (smaller) max and overshoot.
                 progress_bar.value = min(1.0, max(0.0, val / mx)) if mx else 0
-                page.update()
+                thread_safe_ui.throttled_update(page)
 
             def max_cb(val):
                 progress_bar.data = val
-                page.update()
+                thread_safe_ui.throttled_update(page)
 
             # If the version is not installed, install it. The per-version
             # lock also covers the background prefetch (on_version_selected),
@@ -1722,6 +1726,7 @@ def main(page: ft.Page):
             # Now that the version (and loader, if any) is installed, the
             # loader choice is locked in - refresh the cached support map and
             # re-lock the switcher so it can't be changed after the fact.
+            thread_safe_ui.final_update(page)   # paint any coalesced progress
             support = dict(loader_check_cache.get(version_id, {}))
             for lid in LOADER_IDS:
                 if lid == "vanilla":

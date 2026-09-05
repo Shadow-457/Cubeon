@@ -29,6 +29,7 @@ from cubeon import icons as _icons  # disk cache for Modrinth project art
 
 import launcher_core as core
 from cubeon import modpacks as modpacks_backend
+from cubeon import thread_safe_ui  # throttled_update for per-file progress floods
 from cubeon.paths import CUBEON_HOME
 
 
@@ -79,16 +80,16 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                      or text.startswith("Downloading mods"))):
             installed_refresh_done["done"] = True
             refresh_installed_packs()
-        page.update()
+        thread_safe_ui.throttled_update(page)
 
     def progress_cb(val):
         mx = install_bar.data or 1
         install_bar.value = (val / mx) if mx else None
-        page.update()
+        thread_safe_ui.throttled_update(page)
 
     def max_cb(val):
         install_bar.data = val or 1
-        page.update()
+        thread_safe_ui.throttled_update(page)
 
     def _begin_install():
         busy["value"] = True
@@ -685,6 +686,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 finally:
                     install_btn.disabled = False
                     install_btn_text.value = "Install"
+                    thread_safe_ui.final_update(page)   # paint coalesced progress
                     page.update()
 
             threading.Thread(target=worker, daemon=True).start()
