@@ -1,7 +1,21 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-04 (Cline Glm 5.3 flash). If a fact here contradicts the code, the code
+Last updated: 2026-09-05 (opencode Glm 5.3). If a fact here contradicts the code, the code
 wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+
+## cubeon-skins Worker — face avatars (2026-09-05)
+- `GET /faces/<username>.png` — player's head crop, same pointer→uuid→record
+  chain as profiles; falls back to the full sheet for pre-face records.
+- `POST /api/skin` body may include `face` (128×128 PNG) — content-addressed,
+  stored as `record.face`. PNG guard is `isPngWithSize(bytes,w,h)`; **faces
+  are 128×128**, sheets 64×64/64×32 — size-mismatched uploads are silently
+  dropped, so new texture shapes must update the guard.
+- Launcher: `_compose_face_png` (cubeon/skins.py) renders the head crop
+  (base + hat layer) from the composed sheet; rides the skin upload, never
+  raises (None → omitted).
+- Discord presence small_image = `<CUBEON_API_BASE>/faces/<name>.png`
+  (external URLs are allowed in RPC asset fields; third-party mirrors like
+  minotar are useless for offline names — they only know Mojang accounts).
 
 ## What Cubeon is, in one paragraph
 
