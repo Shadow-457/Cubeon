@@ -1758,7 +1758,8 @@ def main(page: ft.Page):
                 with _exit_lock:
                     exited["done"] = True
                 # Tell friends this user stopped playing (presence -> online).
-                friends_service.set_version(None)
+                if friends_service is not None:
+                    friends_service.set_version(None)
                 # Discord presence: back to just "in the launcher".
                 _rpc.set_activity(details="Cubeon", state="In the launcher",
                                   large_image=_discord_img, large_text=_discord_img_text)
@@ -2360,11 +2361,17 @@ def main(page: ft.Page):
     # created here and lives for the whole process so presence keeps flowing no
     # matter which tab is showing. See cubeon/friends_service.py.
     # -----------------------------------------------------------------
-    friends_client = friends.FriendsClient()
-    # Fail-safe: if the bridge can't bind, the in-game Friends button reports
-    # the launcher as unreachable and the launcher itself is unaffected.
-    friends_service = FriendsService(cfg, state, friends_client)
-    friends_service.start()
+    # Development builds run the Friends bridge/service. Public builds omit
+    # it entirely, so they make no Friends network connection or localhost
+    # bridge and remain a normal launcher while the feature is in development.
+    from cubeon.features import friends_enabled
+    if friends_enabled():
+        friends_client = friends.FriendsClient()
+        friends_service = FriendsService(cfg, state, friends_client)
+        friends_service.start()
+    else:
+        friends_client = None
+        friends_service = None
 
     # -----------------------------------------------------------------
     # SETTINGS TAB
@@ -3013,7 +3020,7 @@ def main(page: ft.Page):
     # launcher opens - the in-game UI has no way to trigger a connect itself.
     # No-op if no name is claimed or the realtime lib is missing; the mod's
     # Account screen reports both states.
-    if friends_client.is_available and friends.load_identity():
+    if friends_client is not None and friends_client.is_available and friends.load_identity():
         friends_client.connect()
 
     # -----------------------------------------------------------------

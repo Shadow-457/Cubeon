@@ -439,15 +439,22 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # Friends button exists in Minecraft's game menu. Best-effort, always
     # before the mods sync so a fresh drop is live this launch.
     try:
-        from .mods import get_profile_dir
-        from . import cubeonfriends
-        friends_ok = cubeonfriends.ensure_installed(mc_version, loader,
-                                       get_profile_dir(mc_version, loader))
-        # Explain a missing button instead of failing silently: the mod only
-        # ships for Fabric/Quilt brackets that have a built jar (mod/brackets.json).
-        if not friends_ok and status_cb and loader in ("fabric", "quilt"):
-            status_cb("Cubeon Friends mod not built for this Minecraft "
-                      "version - the in-game Friends button will be missing")
+        from .features import friends_enabled
+        if not friends_enabled():
+            # A public build must also remove an older Friends jar/profile link
+            # if the user previously ran a development build.
+            from .mods import get_profile_dir
+            from . import cubeonfriends
+            cubeonfriends.remove_installed(
+                get_profile_dir(mc_version, loader))
+        else:
+            from .mods import get_profile_dir
+            from . import cubeonfriends
+            friends_ok = cubeonfriends.ensure_installed(mc_version, loader,
+                                           get_profile_dir(mc_version, loader))
+            if not friends_ok and status_cb and loader in ("fabric", "quilt"):
+                status_cb("Cubeon Friends mod not built for this Minecraft "
+                          "version - the in-game Friends button will be missing")
     except Exception:
         pass
 
