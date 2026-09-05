@@ -46,6 +46,11 @@ jobs:
               tools/test_visual_*.py) echo "skip (manual) $t"; continue;;
             esac
             echo "::group::$t"
+            # Each script gets a fresh game directory. Several suites create
+            # realistic jars/profile state; sharing one directory makes a
+            # later test see an earlier test's files and fail nondeterministically.
+            export CUBEON_GAME_DIR="/tmp/cubeon-game-ci-$RANDOM-$RANDOM"
+            rm -rf "$CUBEON_GAME_DIR"
             if ! python3 "$t"; then
               echo "::error::$t failed"
               failed=1
