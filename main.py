@@ -246,6 +246,18 @@ def main(page: ft.Page):
     # icon. Empty string -> no icon.
     _discord_img = cfg.get("discord_large_image") or None
     _discord_img_text = cfg.get("discord_large_text") or "Cubeon"
+    # The player's Minecraft head as the SMALL presence image (corner badge
+    # beside the big logo). Discord accepts direct image URLs here, so the
+    # head is rendered from the public avatar mirror for the current
+    # username. Best-effort: if the mirror can't resolve a name it serves a
+    # placeholder, which is fine; and if Discord can't fetch it, it just
+    # shows nothing. Rebuilt on every set_activity call so a rename updates
+    # the face.
+    def _discord_avatar():
+        name = (cfg.get("username") or "").strip()
+        if not name:
+            return None, None
+        return (f"https://minotar.net/avatar/{name}/128.png", name)
     # Announce "in the launcher" off the UI thread: connecting to Discord's IPC
     # socket is a network-ish call, and we never want a missing/slow Discord to
     # delay the window appearing. All later updates are tiny and fast.
@@ -256,6 +268,8 @@ def main(page: ft.Page):
             "state": "In the launcher",
             "large_image": _discord_img,
             "large_text": _discord_img_text,
+            "small_image": _discord_avatar()[0],
+            "small_text": _discord_avatar()[1],
         },
         daemon=True,
     ).start()
@@ -1837,8 +1851,10 @@ def main(page: ft.Page):
                 if friends_service is not None:
                     friends_service.set_version(None)
                 # Discord presence: back to just "in the launcher".
+                _av_img, _av_text = _discord_avatar()
                 _rpc.set_activity(details="Cubeon", state="In the launcher",
-                                  large_image=_discord_img, large_text=_discord_img_text)
+                                  large_image=_discord_img, large_text=_discord_img_text,
+                                  small_image=_av_img, small_text=_av_text)
                 state["running_version"] = None  # version is safe to delete again
                 set_button_mode("play" if version_id in state["installed"] else "download")
                 progress_bar.visible = False
@@ -1930,12 +1946,17 @@ def main(page: ft.Page):
 
             # Discord Rich Presence: show the game as being played, with an
             # elapsed timer. Best-effort - no-op if Discord isn't running.
+            # Small image = the player's head, so friends see WHO is online,
+            # not just that someone is.
+            _av_img, _av_text = _discord_avatar()
             _rpc.set_activity(
                 details="Cubeon",
                 state=f"Playing Minecraft {core.extract_mc_version(version_id) or version_id}",
                 start=int(time.time() * 1000),
                 large_image=_discord_img,
                 large_text=_discord_img_text,
+                small_image=_av_img,
+                small_text=_av_text,
             )
 
             # launch_game() has returned, so the game process is up and any
