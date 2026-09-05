@@ -70,10 +70,21 @@ class DiscordPresence:
             t.start()
 
     def _retry_loop(self) -> None:
+        # Every cycle: replay the current activity. Two jobs in one:
+        #   1. Discord wasn't running at startup -> connect now, announce.
+        #   2. Discord restarted mid-session -> the OLD socket died without
+        #      anyone noticing (a dead unix socket raises on write, not on
+        #      idle). Replaying through it makes the send raise, which drops
+        #      the socket so the NEXT cycle reconnects. Without this, a
+        #      Discord restart left the launcher holding a corpse socket and
+        #      the presence silently missing until some unrelated state
+        #      change happened to write again.
+        # Re-sending the same activity is harmless (Discord treats it as an
+        # idempotent update) and it's a local IPC write, not network traffic.
         while not self._stop.wait(10.0):
             with self._lock:
-                if self._ipc is not None or not self._last:
-                    continue  # connected, or nothing to announce yet
+                if not self._last:
+                    continue  # nothing to announce yet
                 payload = {
                     "cmd": "SET_ACTIVITY",
                     "args": {"pid": os.getpid(), "activity": self._last.get("activity") or {}},
@@ -238,12 +249,25 @@ class DiscordPresence:
             self._write_pipe(data)
         else:
             self._ipc.sendall(data)
+            # Drain pending responses so the socket buffer can't fill across
+            # many updates (Discord replies to every frame). Best-effort: a
+            # would-block just means nothing is buffered.
             try:
                 self._ipc.setblocking(False)
-                while self._ipc.recv(4096):
-                    pass
-            except Exception:
-                pass
+                while True:
+                    chunk = self._ipc.recv(4096)
+                    if not chunk:
+                        # EOF: Discord closed its end (quit/restart). Treat as
+                        # dead RIGHT NOW instead of waiting for the next send
+                        # to blow up - the retry loop reconnects next cycle.
+                        raise OSError("Discord IPC closed by peer")
+                    # keep draining; WouldBlock raises out of the loop
+            except OSError as e:
+                if e.errno is not None:  # EAGAIN/EWOULDBLOCK = buffer empty, fine
+                    # errno 11 = EAGAIN on Linux; anything else is a real error
+                    import errno as _errno
+                    if e.errno not in (_errno.EAGAIN, _errno.EWOULDBLOCK):
+                        raise
 
     def _write_pipe(self, data: bytes) -> None:
         import ctypes
