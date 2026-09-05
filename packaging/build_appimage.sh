@@ -1,13 +1,29 @@
 #!/usr/bin/env bash
 # Build the Linux AppImage. Run from the repo root: bash packaging/build_appimage.sh
+#
+# flet_desktop MUST be collected (and its client tarball bundled at build
+# time) or the frozen app tries to pip-install/download at runtime and dies
+# before a window opens. See packaging/build_windows.py for the full story.
 set -e
 cd "$(dirname "$0")/.."
+
+FLET_VERSION="$(python -c 'import flet_desktop.version; print(flet_desktop.version.version)')"
+CLIENT_TAR="$(python -c 'import flet_desktop; print(flet_desktop.get_artifact_filename())')"
+APP_DIR="$(python -c 'import flet_desktop, os; print(os.path.join(os.path.dirname(flet_desktop.__file__), "app"))')"
+mkdir -p "$APP_DIR"
+if [ ! -s "$APP_DIR/$CLIENT_TAR" ]; then
+  echo "+ downloading flet client $CLIENT_TAR"
+  curl -fL "https://github.com/flet-dev/flet/releases/download/v${FLET_VERSION}/${CLIENT_TAR}" \
+    -o "$APP_DIR/$CLIENT_TAR"
+fi
+echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "assets:assets" \
   --add-data "templates:templates" \
   --add-data "mod/brackets.json:mod" \
   --collect-all flet \
+  --collect-all flet_desktop \
   --collect-submodules templates \
   main.py
 

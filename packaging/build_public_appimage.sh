@@ -1,13 +1,28 @@
 #!/usr/bin/env bash
 # Public Linux build: normal launcher, Friends feature disabled.
+#
+# flet_desktop must be collected + client bundled (see build_windows.py).
 set -e
 cd "$(dirname "$0")/.."
 PUBLIC_ASSETS=$(python -c 'import importlib.util; s=importlib.util.spec_from_file_location("public_assets", "packaging/public_assets.py"); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.make_public_assets("."))')
 trap 'rm -rf "$PUBLIC_ASSETS"' EXIT
+
+FLET_VERSION="$(python -c 'import flet_desktop.version; print(flet_desktop.version.version)')"
+CLIENT_TAR="$(python -c 'import flet_desktop; print(flet_desktop.get_artifact_filename())')"
+APP_DIR="$(python -c 'import flet_desktop, os; print(os.path.join(os.path.dirname(flet_desktop.__file__), "app"))')"
+mkdir -p "$APP_DIR"
+if [ ! -s "$APP_DIR/$CLIENT_TAR" ]; then
+  curl -fL "https://github.com/flet-dev/flet/releases/download/v${FLET_VERSION}/${CLIENT_TAR}" \
+    -o "$APP_DIR/$CLIENT_TAR"
+fi
+echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
+
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "$PUBLIC_ASSETS:assets" \
   --add-data "templates:templates" \
-  --collect-all flet --collect-submodules templates main.py
+  --collect-all flet \
+  --collect-all flet_desktop \
+  --collect-submodules templates main.py
 APPDIR=dist/AppDir
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
