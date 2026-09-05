@@ -25,6 +25,7 @@ from cubeon.paths import (
 # --- config / auth / file picker ---
 from cubeon.config import (
     DEFAULT_CONFIG, load_config, save_config,
+    load_window_geometry, save_window_geometry,
     offline_uuid, validate_username, run_file_picker,
     get_system_ram_mb, recommended_max_ram_mb,
     ensure_auth_key, stable_uuid, stable_secret, AUTH_KEY_PATH,

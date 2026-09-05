@@ -205,6 +205,41 @@ async function ownsUuid(uuid, secretHash, env) {
 }
 
 /**
+ * put-if-changed: KV reads are free (100k/day), writes are the scarce thing
+ * (1k/day account-wide on the free tier). Every steady-state heartbeat /
+ * re-upload used to re-PUT identical bytes, so a fleet of idle launchers
+ * burned the whole account's budget by lunchtime. Compare-then-write keeps
+ * the steady state at ZERO writes.
+ */
+async function putIfChanged(env, key, value, options) {
+  if (options && options.expirationTtl) {
+    // TTL puts can't be compared against a plain read (a fresh read of a
+    // TTL'd key returns the value, but re-putting is what refreshes the
+    // clock) - so TTL writes always go through.
+    try {
+      await env.SKINS.put(key, value, options);
+    } catch (e) {
+      if (String(e && e.message).includes("limit exceeded")) {
+        return "quota";
+      }
+      throw e;
+    }
+    return true;
+  }
+  const existing = await env.SKINS.get(key);
+  if (existing === value) return false;
+  try {
+    await env.SKINS.put(key, value);
+  } catch (e) {
+    if (String(e && e.message).includes("limit exceeded")) {
+      return "quota";
+    }
+    throw e;
+  }
+  return true;
+}
+
+/**
  * POST /api/heartbeat - the authenticated pointer updater.
  *
  * Body (JSON): { username, uuid }, Authorization: Bearer <secret_token>.
@@ -237,16 +272,11 @@ async function handleHeartbeat(request, env) {
     return problem(403, "not_yours");
   }
 
-  // Quota-exhausted puts throw; surface a clean 429 instead of a 500 so
-  // clients back off instead of hammering (the launcher's publisher treats
-  // any non-200 as "try later" and cools off for 10 minutes).
-  try {
-    await env.SKINS.put(`pointer:${username.toLowerCase()}`, uuid.toLowerCase());
-  } catch (e) {
-    if (String(e && e.message).includes("limit exceeded")) {
-      return problem(429, "kv_write_budget_exhausted");
-    }
-    throw e;
+  // Compare-then-write: a repeat heartbeat under the same name (every
+  // launcher start) must cost ZERO writes - only a real rename PUTs.
+  const put = await putIfChanged(env, `pointer:${username.toLowerCase()}`, uuid.toLowerCase());
+  if (put === "quota") {
+    return problem(429, "kv_write_budget_exhausted");
   }
   return json({ status: "ok" }, "no-store");
 }
@@ -298,16 +328,12 @@ async function handleSkinUpload(request, env) {
   if (await env.SKINS.get(`blocked:${uuid}`)) return problem(403, "blocked");
 
   const id = await sha256HexBytes(bytes);
-  await env.SKINS.put(`texture:${id}`, bytesToBase64(bytes));
-  const record = {
-    id,
-    model,
-  };
 
   // Optional companion face avatar (128x128 head crop, rendered client-side).
   // Content-addressed like the sheet itself: same face -> same id -> zero
   // extra KV writes when the skin didn't change. Missing/invalid face just
   // skips the field - older launchers keep working.
+  let faceId = null;
   if (typeof body.face === "string" && body.face.length > 0) {
     let faceBytes;
     try {
@@ -318,18 +344,44 @@ async function handleSkinUpload(request, env) {
     // Face avatars are 128x128 (head crop upscaled client-side), so they get
     // their own dimension guard; anything else about them is content-checked
     // by the hash, not the shape.
-    const isFacePng =
-      faceBytes && faceBytes.length <= MAX_SKIN_BYTES && isPngWithSize(faceBytes, 128, 128);
-    if (isFacePng) {
-      const faceId = await sha256HexBytes(faceBytes);
-      await env.SKINS.put(`texture:${faceId}`, bytesToBase64(faceBytes));
-      record.face = faceId;
+    if (faceBytes && faceBytes.length <= MAX_SKIN_BYTES && isPngWithSize(faceBytes, 128, 128)) {
+      faceId = await sha256HexBytes(faceBytes);
     }
   }
 
-  await env.SKINS.put(`skin:${uuid}`, JSON.stringify(record));
+  // Compare-then-write on every key: a re-upload of unchanged content (the
+  // launcher uploads when its local hash state was lost, e.g. after the
+  // state file was deleted) must cost ZERO writes, not three.
+  const quota = await putSkinRecord(env, uuid, {
+    id,
+    model,
+    face: faceId,
+    sheetB64: bytesToBase64(bytes),
+    faceB64: faceId ? body.face : null,
+  });
+  if (quota) return problem(429, "kv_write_budget_exhausted");
 
   return json({ ok: true, id }, "no-store");
+}
+
+/**
+ * Persists a skin record and its textures with put-if-changed semantics:
+ * textures only when the content id is new, the record only when it differs.
+ * Returns true when the write budget was exhausted (caller -> 429).
+ */
+async function putSkinRecord(env, uuid, { id, model, face, sheetB64, faceB64 }) {
+  if ((await env.SKINS.get(`texture:${id}`)) === null) {
+    if ((await putIfChanged(env, `texture:${id}`, sheetB64)) === "quota") return true;
+  }
+  if (face && (await env.SKINS.get(`texture:${face}`)) === null) {
+    if ((await putIfChanged(env, `texture:${face}`, faceB64)) === "quota") return true;
+  }
+  const recordJson = JSON.stringify({
+    id,
+    model,
+    ...(face ? { face } : {}),
+  });
+  return (await putIfChanged(env, `skin:${uuid}`, recordJson)) === "quota";
 }
 
 /**
@@ -359,8 +411,10 @@ async function handleReport(request, env) {
   if (await env.SKINS.get(`report:${targetUuid}`)) return json({ ok: true });   // already flagged
 
   const reason = typeof body.reason === "string" ? body.reason.slice(0, 200) : "";
-  await env.SKINS.put(`report:${targetUuid}`, JSON.stringify({ reason, ts: nowSeconds() }),
-                      { expirationTtl: REPORT_TTL });
+  const put = await putIfChanged(env, `report:${targetUuid}`,
+    JSON.stringify({ reason, ts: nowSeconds() }),
+    { expirationTtl: REPORT_TTL });
+  if (put === "quota") return problem(429, "kv_write_budget_exhausted");
   return json({ ok: true });
 }
 

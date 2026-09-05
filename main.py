@@ -182,8 +182,46 @@ def main(page: ft.Page):
     page.title = "Cubeon Launcher"
     page.bgcolor = BG
     page.padding = 0
-    page.window.width = 1180
-    page.window.height = 760
+    # Start HIDDEN and only show once the whole UI is mounted: otherwise the
+    # desktop shell creates a default-size window first, Flet then applies
+    # 1180x760 (visible resize jump), and the first frames show an empty
+    # container while controls mount. With visible=False the window exists
+    # but stays off-screen-ish until wait_until_ready_to_show() paints it
+    # in one shot - no resize flash, no blank flash, no "weird thing going
+    # until it settles".
+    page.window.visible = False
+    # Restore the last window geometry instead of forcing 1180x760 every
+    # launch - a user who resized their window shouldn't watch it snap
+    # back every start (that resize-jump IS most of the "cheap" feel).
+    # Saved by _save_window_geometry below on move/resize/close. Falls back
+    # to the design default on first run / corrupt state.
+    _geom = core.load_window_geometry()
+
+    def _geom_num(key, lo, hi, default):
+        try:
+            v = _geom.get(key)
+            if v is None:
+                return default
+            v = float(v)
+            return default if (v < lo or v > hi) else v
+        except (TypeError, ValueError):
+            return default
+
+    _gw = _geom_num("width", 980, 7680, 1180)
+    _gh = _geom_num("height", 640, 4320, 760)
+    page.window.width = _gw
+    page.window.height = _gh
+    _gl = _geom_num("left", -3840, 15360, None)
+    _gt = _geom_num("top", -2160, 8640, None)
+    # Off-screen guard: a restored position from a monitor that's gone would
+    # strand the window in unreachable space. -3840/-2160 allow one virtual
+    # monitor to the left/above, but the position is dropped entirely if
+    # invalid; the reveal task re-centers before showing.
+    _needs_center = _gl is None or _gt is None
+    if not _needs_center:
+        page.window.left = _gl
+        page.window.top = _gt
+    page.window.maximized = bool(_geom.get("maximized"))
     page.window.min_width = 980
     page.window.min_height = 640
 
@@ -3115,6 +3153,34 @@ def main(page: ft.Page):
     # of the still-mounting control tree).
     thread_safe_ui.mark_mounted(page)
 
+    # --- Now show the window, in one clean shot ---------------------------
+    # The window was created with visible=False (see the top of main()). By
+    # this point the full control tree is mounted, the theme is applied and
+    # the first paint has been batched - so flipping visible now shows a
+    # fully-formed window at the right size: no default-size flash, no
+    # resize jump, no empty frames. wait_until_ready_to_show() is the
+    # desktop-shell handshake that the first frame is actually in the
+    # window's back buffer; then visible=True paints once.
+    async def _reveal_window():
+        try:
+            if _needs_center:
+                await page.window.center()
+            await page.window.wait_until_ready_to_show()
+        except Exception:
+            pass  # non-desktop or an odd runtime: fall through, visible still applies
+        page.window.visible = True
+        try:
+            page.window.update()
+        except Exception:
+            page.update()
+
+    try:
+        page.run_task(_reveal_window)
+    except Exception:
+        # No event loop to schedule on (headless/test harness): show
+        # synchronously so automated checks still see the window.
+        page.window.visible = True
+
     # Bring the Friends connection up at startup, so a user who claimed a name
     # shows online to friends and can be invited to a P2P world the moment the
     # launcher opens - the in-game UI has no way to trigger a connect itself.
@@ -3355,17 +3421,53 @@ def main(page: ft.Page):
     # --- Clear the Discord activity when the launcher window closes ---
     # Without this, the "Playing / in the launcher" presence can linger on the
     # player's profile after they quit Cubeon. Best-effort and version-tolerant:
+    # --- Window geometry persistence + close cleanup -----------------------
     # on_window_event was renamed on some Flet builds, so absent/odd behavior
     # just means the presence clears on the next launch instead.
+    _geometry_timer = None  # debounce: resize/move fire a stream of events
+
+    def _save_geometry_now():
+        try:
+            w = page.window
+            maximized = bool(w.maximized)
+            if maximized:
+                # Keep the last RESTORED geometry: the window manager's
+                # un-maximize returns to its own remembered size, and saving
+                # the maximized dimensions here would make the next fresh
+                # launch open maximized-sized-but-not-maximized.
+                prev = core.load_window_geometry()
+                core.save_window_geometry(
+                    prev.get("width") or w.width,
+                    prev.get("height") or w.height,
+                    prev.get("left"), prev.get("top"),
+                    True)
+            else:
+                core.save_window_geometry(
+                    w.width, w.height, w.left, w.top, False)
+        except Exception:
+            pass
+
     def _on_window_event(e):
         try:
-            if getattr(e, "data", None) in ("close", "disconnect"):
+            ev = getattr(e, "data", None) or getattr(e, "type", "")
+            if ev in ("close", "disconnect"):
+                _save_geometry_now()  # last chance: capture final state
                 _rpc.clear()
                 _rpc.close()
                 try:
                     friends_service.stop()
                 except Exception:
                     pass
+            elif ev in ("resized", "move", "maximize", "unmaximize", "rescale"):
+                # Debounced: dragging the window fires dozens of events, and
+                # each save is a tiny file write. Saving 400ms after the last
+                # event is plenty; a crash mid-drag only loses the last tweak.
+                nonlocal _geometry_timer
+                if _geometry_timer is not None:
+                    _geometry_timer.cancel()
+                _geometry_timer = threading.Timer(0.4, _save_geometry_now)
+                _geometry_timer.daemon = True
+                _geometry_timer.start()
         except Exception:
             pass
 

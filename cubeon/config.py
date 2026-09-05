@@ -150,6 +150,47 @@ def save_config(cfg: dict) -> None:
         json.dump(cfg, f, indent=2)
 
 
+# ---------------------------------------------------------------------------
+# Window geometry persistence
+#
+# The window's size/position is saved apart from config.json on purpose:
+# config.json is rewritten wholesale on every settings change, and geometry
+# changes are far more frequent (every move/resize tick would otherwise race
+# the config writer). A separate tiny JSON read at startup, appended on
+# settle/close, can't corrupt the main config.
+
+GEOMETRY_PATH = os.path.join(CUBEON_HOME, "window_geometry.json")
+
+
+def load_window_geometry() -> dict:
+    """Last-saved {width, height, left, top, maximized}, or {} when absent.
+
+    Values are validated by the caller (clamped to sane defaults) rather than
+    here - keep this a dumb read."""
+    try:
+        with open(GEOMETRY_PATH, "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, OSError, FileNotFoundError):
+        pass
+    return {}
+
+
+def save_window_geometry(width, height, left, top, maximized) -> None:
+    try:
+        os.makedirs(CUBEON_HOME, exist_ok=True)
+        with open(GEOMETRY_PATH, "w") as f:
+            json.dump({
+                "width": int(width), "height": int(height),
+                "left": int(left) if left is not None else None,
+                "top": int(top) if top is not None else None,
+                "maximized": bool(maximized),
+            }, f)
+    except (OSError, TypeError, ValueError):
+        pass  # a lost geometry save must never break a resize handler
+
+
 def offline_uuid(username: str) -> str:
     """Vanilla offline UUID = md5("OfflinePlayer:" + name), version-3-ish bits set."""
     return str(uuid.uuid3(uuid.NAMESPACE_DNS, f"OfflinePlayer:{username}"))
