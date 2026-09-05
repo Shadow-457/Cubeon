@@ -153,6 +153,65 @@ trap (the mod now warns about it in chat, but don't rely on that).
   hooking every download site - medium), #13 i18n/accessibility (high effort).
 - New tests: tools/test_production.py (13). Worker: node worker/test-worker.mjs.
 
+## Follow-up 19: KV write-quota storm (2026-09-05)
+
+- **Invariant: Cloudflare KV writes are ACCOUNT-WIDE (1k/day free tier)
+  across ALL workers** — waitlist, skins, invites share one budget. A
+  spammy client of any worker starves them all; budget resets 00:00 UTC.
+- The username field's on_change fires PER KEYSTROKE → each used to run
+  the full skin publish (heartbeat POST). Stale skin_net.json → retried
+  forever. Fix: debounce rename publishes in main.py (1.2s/on-blur) AND a
+  10-min failure cooldown in skins.py (`retry_not_before` in
+  skin_net.json). Both layers are needed.
+- Workers translate quota-thrown KV puts into clean 429s (never 500/
+  1101): see handleJoin (waitlist), ownsUuid/handleHeartbeat/
+  handleSkinUpload (skins). Clients treat non-200 as cool-off.
+- Deploy commands: `cd worker && npx wrangler deploy -c wrangler-<name>.toml`
+  — configs now exist for friends, waitlist, AND skins (skins previously
+  had no repo config; its KV id is in wrangler-skins.toml).
+- `web/index.html` waitlist site is complete and pointed at the live
+  worker; it needs the public repo/release funnel before promotion.
+
+## Follow-up 18: live UI inspector (2026-09-05)
+
+- `cubeon/inspector.py`: dev-only DevTools for the launcher's own Flet UI.
+  CUBEON_INSPECT=1 gates it (public builds never show it). Opens via
+  sidebar bug button or F12. Tree browse + text search + live edit of
+  Text.value/size/color/weight and tooltip — session-only, points at the
+  source string to change for real. Note: this repo's Flet 0.86 uses
+  `ft.padding.Padding.only` / `ft.border.Border.all` (NOT ft.padding.only /
+  ft.border.all) — got me twice; update() on unmounted controls raises
+  RuntimeError, so use the module's _safe_update().
+
+## Follow-up 17: public-build launch crash (2026-09-05)
+
+- Public builds (Friends disabled via features.py) set
+  `friends_service = None` in main.py; the launch path called
+  `friends_service.set_version(version_id)` unguarded → AttributeError
+  AFTER the game process spawned (so MC still started, error spooked the
+  user). Fixed with the same `is not None` guard the on_exit path had;
+  regression check added to tools/test_ui_smoke.py.
+- **Invariant: every friends_service reference outside the
+  friends_enabled() block must tolerate None** — public builds are a
+  first-class configuration, not an edge case. test_ui_smoke now asserts
+  the guard textually.
+
+## Follow-up 16: UI-freeze fix — throttled progress repaints (2026-09-05)
+
+- **The "launcher froze during a download then recovered" bug**: mll fires
+  progress once per FILE (~4000 files/version); every report called
+  page.update() (full-tree repaint) → thousands of queued repaints
+  saturated Flet's loop → window stopped taking input until the install
+  ended. Fixed with `thread_safe_ui.throttled_update(page)` (coalesces to
+  max 1 repaint / 0.1s) + `final_update(page)` to flush the last state.
+  Flood sites: main.py do_install_and_launch callbacks, modpacks_tab
+  status/progress/max, server_tab install progress_cb + _smooth_progress.
+- Rule going forward: any callback that can fire per-file/per-chunk must
+  use throttled_update, never bare page.update(). One-shot handlers can
+  keep page.update().
+- Verified: 5000 rapid calls → 1 repaint; 30 calls/1.5s → 15 (cap); all
+  tools/test_*.py suites pass.
+
 ## Follow-up 15: CI green again (2026-09-05, opencode)
 
 - `cryptography>=42.0.0` is now in requirements.txt — test_friends_service
