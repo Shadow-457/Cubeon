@@ -31,8 +31,14 @@ offline, and surprises the first user.
   `Cubeon/_internal/flet_desktop/app/flet-windows.zip` (40 MB) is inside.
 
 ## Baton for next agent
-The exe from run 33978721003 should be the first one that actually opens a
-window — user needs to re-download and confirm on real Windows. If it still
-dies: run via cmd.exe to see the traceback, and check
-`resolve_assets_dir()` + the AppRun layout for Linux. macOS untested on
-real hardware entirely.
+- [CONFIRMED 2026-09-05] The exe opens a window. User verified under Wine,
+  and opencode reproduced: run 33980038131 launches clean (only a harmless
+  `app() is deprecated` DeprecationWarning from flet 0.86 — main.py:3388
+  still calls ft.app(); switch to ft.run() someday, zero urgency).
+- The flet_desktop fix was necessary but NOT sufficient — a second crash
+  followed: cubeon/controller.py imported fcntl (Linux-only) at module
+  load. Fixed in 4f8edc1 by making the import optional (watcher inert on
+  Windows), plus watchdog.terminate() no longer assumes SIGKILL exists.
+  **Lesson: check every platform-specific import before shipping a
+  cross-platform exe — Wine is a cheap pre-flight for this.**
+- macOS build has the same fixes but remains untested on real hardware.
