@@ -1419,11 +1419,11 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     plugins_tab_visible = {"value": False}  # only meaningful once we know main.py's nav; see refresh_plugins_visibility
 
+    plugins_not_paper_notice_text = ft.Text(
+        "", size=13, color=TEXT_DIM,
+    )
     plugins_not_paper_notice = ft.Container(
-        content=ft.Text(
-            "Plugins require the Paper server type. Switch to Paper in Settings > Install first.",
-            size=13, color=TEXT_DIM,
-        ),
+        content=plugins_not_paper_notice_text,
         bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=16,
         visible=True,
     )
@@ -1852,6 +1852,20 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def refresh_plugins_visibility():
         is_paper = plugins_tab_visible["value"]
+        # The notice covers "server not installed yet". Cubeon always hosts
+        # Paper, so the old "Switch to Paper in Settings" wording was wrong
+        # twice over: there is no type to switch, and the fix is installing.
+        if not is_paper:
+            v = active_version["value"]
+            if not v:
+                plugins_not_paper_notice_text.value = (
+                    "Pick a version on the Play tab first - the server hosts whatever's selected there."
+                )
+            else:
+                plugins_not_paper_notice_text.value = (
+                    "Install the server first (Servers tab, big Install button) - "
+                    "plugins live inside it once it exists."
+                )
         plugins_not_paper_notice.visible = not is_paper
         plugins_content.visible = is_paper
         page.update()
