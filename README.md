@@ -6,12 +6,12 @@ each other's skins on **any** server, and built-in world hosting via tunnels.
 
 Built with Python + Flet. No Mojang account, no paywall.
 
-## Quick start
+## Simple owner guide
 
-```bash
-pip install -r requirements.txt
-python main.py          # Java is auto-detected; MC downloads on first launch
-```
+If you own Cubeon but do not want to deal with the technical details, read
+[`docs/SIMPLE_OWNER_GUIDE.md`](docs/SIMPLE_OWNER_GUIDE.md). It explains how to
+run Cubeon, build each platform, publish updates, test friends, and recover
+from common errors in plain English.
 
 ## Features
 
