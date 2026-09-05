@@ -3385,4 +3385,4 @@ if __name__ == "__main__":
     # Cubeon mark. An absolute path always resolves correctly regardless of
     # cwd at launch time.
     _assets_dir = resolve_assets_dir()
-    ft.app(target=main, assets_dir=_assets_dir)
+    ft.run(main, assets_dir=_assets_dir)
