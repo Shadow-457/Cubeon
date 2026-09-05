@@ -155,6 +155,23 @@ def main(page: ft.Page):
     # sit on "Preparing" until you switched tabs. See cubeon/thread_safe_ui.py.
     thread_safe_ui.install(page)
 
+    # Dev-only live UI inspector (CUBEON_INSPECT=1): a DevTools-style dialog
+    # for browsing the mounted control tree and editing text/tooltips live.
+    # Off by default; public builds never show it. See cubeon/inspector.py.
+    from cubeon.inspector import inspector_enabled, open_inspect
+    _inspector_enabled = inspector_enabled()
+
+    def _open_inspector():
+        try:
+            open_inspect(page)
+        except Exception:
+            traceback.print_exc()
+            try:
+                page.open(ft.SnackBar(ft.Text("Inspector failed to open - "
+                                              "see cubeon.log", size=12)))
+            except Exception:
+                pass
+
     # Central logging BEFORE anything else can fail: from here on, every
     # cubeon/ module's log calls land in ~/.cubeon_launcher/cubeon.log and
     # any uncaught exception (any thread) is written there with a traceback.
@@ -808,6 +825,19 @@ def main(page: ft.Page):
                 ft.Container(height=22),  # spacer between brand and nav
                 sidebar_column,  # The navigation buttons
                 ft.Container(expand=True),  # Spacer to push the user info to the bottom
+                # Dev-only UI inspector toggle (CUBEON_INSPECT=1): opens the
+                # live text/property editor. Lives just above the user block
+                # so it's reachable but never part of the shipped nav.
+                *([] if not _inspector_enabled else [
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.BUG_REPORT, size=14, color=TEXT_FAINT),
+                            ft.Text("Inspect UI", size=12, color=TEXT_FAINT),
+                        ], spacing=8),
+                        padding=ft.padding.Padding.only(left=12, bottom=6),
+                        on_click=lambda e: _open_inspector(),
+                    ),
+                ]),
                 # Bottom section: shows the current signed-in username with
                 # avatar - clickable, switches to the Profile tab (view
                 # profile, upload/remove profile picture).
@@ -3280,6 +3310,21 @@ def main(page: ft.Page):
         page.on_window_event = _on_window_event
     except Exception:
         pass
+
+    # F12 toggles the inspector too (same CUBEON_INSPECT gate). Best-effort:
+    # if the keyboard event API moved between Flet versions, the sidebar
+    # button still works.
+    if _inspector_enabled:
+        def _on_key(e):
+            try:
+                if str(getattr(e, "key", "")).lower() in ("f12", "F12"):
+                    _open_inspector()
+            except Exception:
+                pass
+        try:
+            page.on_keyboard_event = _on_key
+        except Exception:
+            pass
 
 
 # This is the standard Python entry point - when the script is run directly, start the Flet app.
