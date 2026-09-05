@@ -37,19 +37,33 @@ from .paths import CUBEON_HOME
 from . import global_mod_cache
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BRACKETS_FILE = os.path.join(_REPO, "mod", "brackets.json")
 
-# Every jar this module manages, so an obsolete one can be recognised and
-# removed. Covers the pre-bracket name (cubeon-friends-1.0.0.jar) too, which
-# would otherwise sit in the profile forever alongside its replacement.
+
+def _resource_path(*parts: str) -> str:
+    """Find a bundled resource in source, PyInstaller onedir, or AppImage."""
+    import sys
+    candidates = []
+    if hasattr(sys, "_MEIPASS"):
+        candidates.append(os.path.join(sys._MEIPASS, *parts))
+    if getattr(sys, "frozen", False):
+        exe = os.path.dirname(os.path.abspath(sys.executable))
+        candidates.extend((os.path.join(exe, *parts), os.path.join(exe, "_internal", *parts)))
+    appdir = os.environ.get("APPDIR")
+    if appdir:
+        candidates.extend((os.path.join(appdir, "usr", "bin", *parts),
+                           os.path.join(appdir, "usr", "bin", "_internal", *parts)))
+    candidates.extend((os.path.join(_REPO, *parts),
+                       os.path.join(os.path.dirname(os.path.abspath(__file__)), *parts)))
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return candidates[0]
+
+
 JAR_GLOB = "cubeon-friends-*.jar"
-
-# A Minecraft version number, and nothing that merely contains digits. The
-# lookarounds are what keep snapshots out: "25w06a" has no version in it, and
-# reading "25" or "06" out of it would silently pick a bracket at random.
 _MC_VERSION_RE = re.compile(r"(?<![A-Za-z0-9.])\d+(?:\.\d+)*(?![A-Za-z0-9]*[A-Za-z])")
-
 _matrix_cache: dict | None = None
+BRACKETS_FILE = _resource_path("mod", "brackets.json")
 
 
 def _matrix() -> dict:
@@ -65,6 +79,8 @@ def _matrix() -> dict:
             data = {}
         _matrix_cache = data
     return _matrix_cache
+
+
 
 
 def parse_mc_version(text: str | None) -> tuple[int, int, int] | None:
@@ -164,11 +180,11 @@ def find_jar(mc_version: str | None) -> str | None:
     if bracket is None:
         return None
     name = jar_name(bracket)
-    repo_libs = os.path.join(_REPO, "mod", "build", "libs")
-    asset_jars = os.path.join(_REPO, "assets", "jars")
-    for path in (os.path.join(CUBEON_HOME, "cache", name),
-                 os.path.join(asset_jars, name),
-                 os.path.join(repo_libs, name)):
+    candidates = [os.path.join(CUBEON_HOME, "cache", name),
+                  _resource_path("assets", "jars", name),
+                  os.path.join(_REPO, "assets", "jars", name),
+                  os.path.join(_REPO, "mod", "build", "libs", name)]
+    for path in candidates:
         if os.path.isfile(path):
             return path
     return None
