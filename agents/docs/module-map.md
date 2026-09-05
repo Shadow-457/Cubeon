@@ -153,6 +153,21 @@ trap (the mod now warns about it in chat, but don't rely on that).
   hooking every download site - medium), #13 i18n/accessibility (high effort).
 - New tests: tools/test_production.py (13). Worker: node worker/test-worker.mjs.
 
+## Follow-up 20: frozen builds need flet_desktop bundled (2026-09-05)
+
+- **Invariant: `--collect-all flet` is NOT enough for PyInstaller builds** —
+  `flet_desktop` is a separate wheel; without `--collect-all flet_desktop`
+  the frozen exe tries to pip-install at runtime and exits before a window
+  ( symptom: exe closes instantly).
+- The PyPI `flet-desktop` wheel ships `flet_desktop/app/` EMPTY — the window
+  binary downloads from GitHub Releases on first run. All packaging scripts
+  now fetch the client archive at BUILD time into the interpreter's
+  `flet_desktop/app/` (that's `get_package_bin_dir()`, the first place
+  `ensure_client_cached()` looks), so first run works offline.
+- Artifact filename is platform-specific: use
+  `flet_desktop.get_artifact_filename()`, not a hardcoded name.
+- Windows builds also pass `--windowed` now.
+
 ## Follow-up 19: KV write-quota storm (2026-09-05)
 
 - **Invariant: Cloudflare KV writes are ACCOUNT-WIDE (1k/day free tier)
