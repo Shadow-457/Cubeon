@@ -182,14 +182,12 @@ def main(page: ft.Page):
     page.title = "Cubeon Launcher"
     page.bgcolor = BG
     page.padding = 0
-    # Start HIDDEN and only show once the whole UI is mounted: otherwise the
-    # desktop shell creates a default-size window first, Flet then applies
-    # 1180x760 (visible resize jump), and the first frames show an empty
-    # container while controls mount. With visible=False the window exists
-    # but stays off-screen-ish until wait_until_ready_to_show() paints it
-    # in one shot - no resize flash, no blank flash, no "weird thing going
-    # until it settles".
-    page.window.visible = False
+    # The window process must ALREADY be started hidden (see ft.run below,
+    # view=FLET_APP_HIDDEN): the client creates its window before Python's
+    # first message can arrive, so setting visible=False here would only
+    # hide a window that had already flashed on screen once. With a hidden
+    # start, the ONLY transition is hidden -> fully-painted reveal at the
+    # bottom of main() - no flash, no hide/show double-take.
     # Restore the last window geometry instead of forcing 1180x760 every
     # launch - a user who resized their window shouldn't watch it snap
     # back every start (that resize-jump IS most of the "cheap" feel).
@@ -284,19 +282,6 @@ def main(page: ft.Page):
     # icon. Empty string -> no icon.
     _discord_img = cfg.get("discord_large_image") or None
     _discord_img_text = cfg.get("discord_large_text") or "Cubeon"
-    # The player's Minecraft head as the SMALL presence image (corner badge
-    # beside the big logo). Served by Cubeon's own skins Worker at
-    # /faces/<name>.png - the face crop of whatever skin the player wears,
-    # including custom skins (third-party mirrors would show Steve for
-    # offline names). Best-effort: a missing face just renders nothing.
-    from cubeon import csl as _csl
-    _csl_root = _csl.CUBEON_API_BASE
-
-    def _discord_avatar():
-        name = (cfg.get("username") or "").strip()
-        if not name:
-            return None, None
-        return (f"{_csl_root}/faces/{name}.png", name)
     # Announce "in the launcher" off the UI thread: connecting to Discord's IPC
     # socket is a network-ish call, and we never want a missing/slow Discord to
     # delay the window appearing. All later updates are tiny and fast.
@@ -307,8 +292,6 @@ def main(page: ft.Page):
             "state": "In the launcher",
             "large_image": _discord_img,
             "large_text": _discord_img_text,
-            "small_image": _discord_avatar()[0],
-            "small_text": _discord_avatar()[1],
         },
         daemon=True,
     ).start()
@@ -1890,10 +1873,8 @@ def main(page: ft.Page):
                 if friends_service is not None:
                     friends_service.set_version(None)
                 # Discord presence: back to just "in the launcher".
-                _av_img, _av_text = _discord_avatar()
                 _rpc.set_activity(details="Cubeon", state="In the launcher",
-                                  large_image=_discord_img, large_text=_discord_img_text,
-                                  small_image=_av_img, small_text=_av_text)
+                                  large_image=_discord_img, large_text=_discord_img_text)
                 state["running_version"] = None  # version is safe to delete again
                 set_button_mode("play" if version_id in state["installed"] else "download")
                 progress_bar.visible = False
@@ -1985,17 +1966,12 @@ def main(page: ft.Page):
 
             # Discord Rich Presence: show the game as being played, with an
             # elapsed timer. Best-effort - no-op if Discord isn't running.
-            # Small image = the player's head, so friends see WHO is online,
-            # not just that someone is.
-            _av_img, _av_text = _discord_avatar()
             _rpc.set_activity(
                 details="Cubeon",
                 state=f"Playing Minecraft {core.extract_mc_version(version_id) or version_id}",
                 start=int(time.time() * 1000),
                 large_image=_discord_img,
                 large_text=_discord_img_text,
-                small_image=_av_img,
-                small_text=_av_text,
             )
 
             # launch_game() has returned, so the game process is up and any
@@ -3154,13 +3130,17 @@ def main(page: ft.Page):
     thread_safe_ui.mark_mounted(page)
 
     # --- Now show the window, in one clean shot ---------------------------
-    # The window was created with visible=False (see the top of main()). By
-    # this point the full control tree is mounted, the theme is applied and
-    # the first paint has been batched - so flipping visible now shows a
-    # fully-formed window at the right size: no default-size flash, no
-    # resize jump, no empty frames. wait_until_ready_to_show() is the
-    # desktop-shell handshake that the first frame is actually in the
-    # window's back buffer; then visible=True paints once.
+    # The window PROCESS was started hidden (view=FLET_APP_HIDDEN at ft.run),
+    # so nothing has ever painted on screen. By this point the full control
+    # tree is mounted, the theme is applied and the first paint has been
+    # batched - so flipping visible now shows a fully-formed window at the
+    # right size: no default-size flash, no resize jump, no empty frames,
+    # and no hide-then-reshow (the first attempt set visible=False from
+    # Python, which arrives AFTER the client already showed its window -
+    # the user saw the window appear, vanish, and reappear).
+    # wait_until_ready_to_show() is the desktop-shell handshake that the
+    # first frame is actually in the window's back buffer; then
+    # visible=True paints once.
     async def _reveal_window():
         try:
             if _needs_center:
@@ -3509,4 +3489,8 @@ if __name__ == "__main__":
     # Cubeon mark. An absolute path always resolves correctly regardless of
     # cwd at launch time.
     _assets_dir = resolve_assets_dir()
-    ft.run(main, assets_dir=_assets_dir)
+    # FLET_APP_HIDDEN: the desktop client process starts with its window
+    # hidden (FLET_HIDE_WINDOW_ON_START env for the client), so the only
+    # window transition the user ever sees is the single reveal of the
+    # finished UI at the bottom of main(). See _reveal_window there.
+    ft.run(main, assets_dir=_assets_dir, view=ft.AppView.FLET_APP_HIDDEN)
