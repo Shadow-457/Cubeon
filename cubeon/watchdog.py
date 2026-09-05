@@ -86,7 +86,12 @@ def stale_session() -> dict | None:
 def terminate(pid: int) -> bool:
     """Politely end an orphaned game. Returns whether we believe it worked."""
     import signal
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+    # SIGKILL doesn't exist on Windows; there os.kill(pid, SIGTERM) already
+    # terminates unconditionally, so escalating further is meaningless.
+    signals = [signal.SIGTERM]
+    if hasattr(signal, "SIGKILL"):
+        signals.append(signal.SIGKILL)
+    for sig in signals:
         try:
             os.kill(pid, sig)
         except OSError:

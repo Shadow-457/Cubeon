@@ -12,12 +12,18 @@ no read permission, or a mid-session unplug just updates state - it never
 raises into the launcher.
 """
 
-import fcntl
 import glob
 import os
 import struct
 import threading
 import time
+
+try:
+    # Linux-only (the whole js* device API is Linux); on Windows/macOS the
+    # watcher just stays inert - importing fcntl there would crash startup.
+    import fcntl
+except ImportError:
+    fcntl = None
 
 _JS_EVENT_BUTTON = 0x01
 _JS_EVENT_AXIS = 0x02
@@ -43,6 +49,8 @@ _HAT_X, _HAT_Y = 16, 17  # ABS_HAT0X / ABS_HAT0Y in the js API
 
 
 def _device_name(path: str) -> str:
+    if fcntl is None:
+        return os.path.basename(path)
     try:
         import ctypes
         with open(path, "rb") as f:
