@@ -233,12 +233,28 @@ except Exception as ex:
 # Earnable hats: the cosmetics row must build with locked tiles present and
 # must never call page.update() during the build (refresh()/page plumbing is
 # exercised elsewhere; this pins "locked rendering doesn't crash headless").
+# Since the section became tabbed (Skin/Cosmetics/Cape), the hat names live
+# in the cosmetics pane - reachable by clicking its tab, which must work
+# headless (FakePage absorbs the update).
 try:
     import cubeon.milestones as _mile
     _mile.load_state()
+    # Find the clickable "Cosmetics" tab: a control with on_click whose
+    # entire subtree text is exactly "cosmetics" (the tab label).
+    # (.parent isn't set until the control mounts, so climbing from the
+    # Text isn't reliable headless.)
+    _clicked = False
+    for c in walk(section):
+        if getattr(c, "on_click", None) is not None:
+            sub = " ".join(all_text(c)).strip()
+            if sub == "cosmetics":
+                c.on_click(None)
+                _clicked = True
+                break
     _sec_txt = " | ".join(all_text(section))
     check("hat row renders earnable hat names",
-          "veteran" in _sec_txt and "party" in _sec_txt, _sec_txt[:200])
+          _clicked and "veteran" in _sec_txt and "party" in _sec_txt,
+          f"clicked={_clicked} " + _sec_txt[:200])
 except Exception as ex:
     check("hat row renders earnable hat names", False,
           f"{type(ex).__name__}: {ex}")

@@ -24,6 +24,7 @@ from cubeon.theme import (
     ACCENT_TINT, ACCENT_TINT_HI,  # selected/hover washes for hat tiles
     SURFACE_MAX,   # top-elevation surface - hover fill on selected hat tiles
     ON_ACCENT,     # explicit dark foreground on an ACCENT fill (same value as BG)
+    text_tab,      # underline-style segment tab (same chrome as Mods' content types)
 )
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
 
@@ -730,119 +731,136 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         # preview with it rather than leaving the box hidden on first paint.
         show_default_cape_preview()
 
-    # --- Build the skin section layout. Two columns: the fixed-width skin
-    # preview on the left, and the upload button + status + the list of
-    # uploaded skins stacked on the right, so the uploaded skins fill what
-    # was otherwise empty space beside the preview instead of sitting in a
-    # sparse full-width row underneath it. ---
+    # --- Build the skin section layout. ---
+    #
+    # Organization: one underline-tab bar (Skin / Cosmetics / Cape - the same
+    # text_tab chrome the Mods tab uses for Mods/Packs/Shaders, so the
+    # launcher speaks one visual language) with ONE pane visible at a time.
+    # Previously all three sections stacked into a very long scroll: the
+    # cape block's empty list + the hat grid's whitespace meant the actual
+    # controls (upload buttons, list rows) lived far apart. Tabs collapse
+    # that to "what am I here to change" up front.
+    #
+    # The panes share the two-column shape the old skin block established:
+    # fixed-width preview on the left, the actionable list + upload CTA on
+    # the right, so each pane reads the same way.
 
-    # The hats/capes notes are tooltips on their section labels rather than
+    def _pane(preview_box, label_ctrl, list_col, upload_btn, status_txt,
+              preview_width=180, preview_height=290):
+        """One tab pane: [preview box] | [label + list + upload + status].
+        Shared by Skin and Cape; Cosmetics builds its own wider layout."""
+        return ft.Row(
+            [
+                preview_box,
+                ft.Container(width=16),
+                ft.Column(
+                    [label_ctrl, list_col, ft.Container(height=2),
+                     upload_btn, status_txt],
+                    spacing=8,
+                    expand=True,
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        )
+
+    skin_preview_box = ft.Container(
+        content=ft.Column(
+            [custom_preview],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=SURFACE, border=ft.border.Border.all(2, ACCENT_DIM),
+        border_radius=RADIUS, padding=12,
+        width=180, height=290, alignment=ft.Alignment.CENTER,
+    )
+
+    cape_preview_box = ft.Container(
+        content=ft.Column(
+            [cape_preview],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=SURFACE, border=ft.border.Border.all(2, ACCENT_DIM),
+        border_radius=RADIUS, padding=12,
+        width=150, height=232, alignment=ft.Alignment.CENTER,
+    )
+
+    # The hats/capes notes are tooltips on their pane labels rather than
     # visible paragraphs - same detail, none of the wall of text.
     def _hat_label_with_note():
-        label = section_label("Cosmetics - hat")
+        label = section_label("Hat")
         label.tooltip = ("Only you see hats right now - like your skin. "
                          "Hats with a lock are earned by playing - hover one "
                          "to see how close you are.")
         return label
 
     def _cape_label_with_note():
-        label = section_label("Cape")
+        label = section_label("Your Capes")
         label.tooltip = ("Your custom cape replaces the shared Cubeon cape "
                          "in-game; friends still see the shared one on you "
                          "for now.")
         return label
 
-    def _capes_label_with_note():
-        label = section_label("Your Capes")
-        label.tooltip = ("Stored locally, applied via CustomSkinLoader. "
-                         "Your custom cape wins over the shared Cubeon cape.")
-        return label
+    # --- The three panes -------------------------------------------------
+    skin_pane = _pane(
+        skin_preview_box, skins_label, skins_list_col,
+        upload_button, upload_status)
 
-    skin_section = ft.Column(
+    cape_pane = _pane(
+        cape_preview_box, _cape_label_with_note(), capes_list_col,
+        cape_upload_button, cape_status)
+
+    # Cosmetics pane: the hat grid is the wide content here, so it gets the
+    # full width; the status line sits right under the grid. A mini preview
+    # of the current skin+hat combo would duplicate the Skin pane's preview,
+    # which already composes the hat in - so the pane is just the grid.
+    cosmetics_pane = ft.Column(
         [
-            section_label("In-Game Skin"),
-            ft.Container(height=8),
-            ft.Row(
-                [
-                    ft.Container(
-                        content=ft.Column(
-                            [custom_preview],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        bgcolor=SURFACE,
-                        border=ft.border.Border.all(2, ACCENT_DIM),
-                        border_radius=RADIUS,
-                        padding=12,
-                        width=180,
-                        height=290,
-                        alignment=ft.Alignment.CENTER,
-                    ),
-                    ft.Container(width=16),
-                    ft.Column(
-                        [
-                            skins_label,
-                            skins_list_col,
-                            ft.Container(height=2),
-                            # Full-width "+ Upload skin" CTA sits at the bottom
-                            # of the list, then the status/visibility feedback.
-                            upload_button,
-                            upload_status,
-                        ],
-                        spacing=8,
-                        # expand so the list rows and the upload button fill the
-                        # width beside the preview instead of leaving a big gap.
-                        expand=True,
-                    ),
-                ],
-                vertical_alignment=ft.CrossAxisAlignment.START,
-            ),
-
-            # --- Cosmetics: wear a hat -----------------------------------
-            ft.Container(height=18),
-            pixel_divider(),
-            ft.Container(height=14),
             _hat_label_with_note(),
             ft.Container(height=8),
             hat_row,
             ft.Container(height=4),
             hat_status,
+        ],
+        spacing=6,
+    )
 
-            # --- Custom cape ---------------------------------------------
-            ft.Container(height=18),
-            pixel_divider(),
-            ft.Container(height=14),
-            _cape_label_with_note(),
-            ft.Container(height=8),
-            ft.Row(
-                [
-                    ft.Container(
-                        content=ft.Column(
-                            [cape_preview],
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        bgcolor=SURFACE,
-                        border=ft.border.Border.all(2, ACCENT_DIM),
-                        border_radius=RADIUS,
-                        padding=12,
-                        width=150,
-                        height=232,
-                        alignment=ft.Alignment.CENTER,
-                    ),
-                    ft.Container(width=16),
-                    ft.Column(
-                        [
-                            _capes_label_with_note(),
-                            capes_list_col,
-                            ft.Container(height=2),
-                            cape_upload_button,
-                            cape_status,
-                        ],
-                        spacing=8,
-                        expand=True,
-                    ),
-                ],
-                vertical_alignment=ft.CrossAxisAlignment.START,
-            ),
+    # --- Tab state + switching --------------------------------------------
+    # active_pane is a plain dict ref (same pattern the Mods tab uses for
+    # active_content) so closures mutate without rebinding.
+    active_pane = {"id": "skin"}
+
+    PANES = [
+        ("skin", "Skin", skin_pane),
+        ("cosmetics", "Cosmetics", cosmetics_pane),
+        ("cape", "Cape", cape_pane),
+    ]
+
+    pane_holder = ft.Container(content=skin_pane)
+    tab_row = ft.Row(spacing=18)
+
+    def build_pane_tabs():
+        tab_row.controls.clear()
+        for pid, label, _ in PANES:
+            tab_row.controls.append(
+                text_tab(label,
+                         selected=active_pane["id"] == pid,
+                         on_click=lambda e, p=pid: switch_pane(p)))
+
+    def switch_pane(pid):
+        if active_pane["id"] == pid:
+            return
+        active_pane["id"] = pid
+        pane_holder.content = dict(
+            (p[0], p[2]) for p in PANES)[pid]
+        build_pane_tabs()
+        page.update()
+
+    build_pane_tabs()
+
+    skin_section = ft.Column(
+        [
+            tab_row,
+            ft.Container(height=10),
+            pane_holder,
         ],
         spacing=6,
     )
