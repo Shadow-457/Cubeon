@@ -45,6 +45,11 @@ wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 - Repaint profiler: `CUBEON_PERF=1` times every `page.update()` by call
   site (table at exit, in `cubeon/thread_safe_ui.py`). Use it before
   any UI-performance guesswork.
+- **Repaint rule:** one small region changed → `thread_safe_ui.refresh(ctrl)`
+  (control-level diff, ~0.35ms avg); structure changed (add/remove/swap)
+  → `page.update()` (full-tree, 5-8ms avg). All per-keystroke /
+  per-file / per-log-line paths already use refresh(); keep new code on
+  that pattern. `refresh()` is thread-safe like page.update().
 - Startup: `minecraft_launcher_lib` is lazy (`cubeon/lazy.py`); Mods/
   Modpacks/Servers tabs build on FIRST VISIT, not at startup.
 - Test-harness gotcha: `tools/test_ui_smoke.py` imports `main` as a module,
