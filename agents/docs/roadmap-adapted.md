@@ -344,3 +344,37 @@ Implemented 2026-08-23.
 - Added regression tests for frame tamper rejection, wrong-token rejection, hash-cache invalidation, and transport metrics.
 
 Validation: Python compileall, P2P loopback, P2P stress, session cleanup, and Batch 6 regression tests pass. Full launcher runtime remains dependent on optional desktop/Minecraft dependencies.
+
+
+## Parked idea: Earnable cosmetics via milestones
+
+**Status: NOT STARTED - deliberately parked (user decision, 2026-09-07). Do not
+pick up without the owner asking.**
+
+The pitch: cosmetics (capes/elytra, served as textures through the existing
+Worker profile pipeline) that unlock at milestones instead of being free picks.
+
+- **Why it's feasible:** the whole texture-serving path already exists and is
+  proven in-game (Worker `username -> UUID -> skin/cape/elytra` profile +
+  CSL merge priority in `cubeon/csl.py` - see phase1-skins-capes.md). No new
+  client-side mod needed for capes; it's "just" a different source of truth
+  for which textures a profile carries.
+- **Milestone candidates discussed:** hours played, friend count, hosting
+  sessions, "early adopter".
+- **The constraint that shapes the design (hard invariant):** the free-tier KV
+  budget is ~1,000 writes/day ACCOUNT-WIDE (all workers share it; quota
+  throws surface as `429 kv_write_budget_exhausted`). So:
+  - ONE write per unlock event (never per-request or per-heartbeat writes).
+  - Milestone progress is computed client-side from local state (game hours,
+    session history) and only *crossings* write to KV.
+  - Reads are cheap/cacheable - a profile GET can carry the cosmetic list it
+    already serves; no new read amplification.
+  - "Hours played" needs a trustworthy local counter (game watchdog already
+    tracks sessions - `cubeon/watchdog.py`) but anti-abuse is minimal by
+    design here: offline launcher, cosmetics are cosmetic.
+- **Where it would live when picked up:** a `cosmetics` map in the Worker
+  profile KV + a gallery tab section in the launcher (Profile dialog area,
+  next to skins) + unlock events fired from launch/session-end code paths
+  (which are already session-scoped - see `_session_end` in main.py).
+- **Out of scope (decided):** emotes/particles - not texture-servable, needs
+  a real client-side mod with entity animation + netcode sync.
