@@ -17,11 +17,21 @@ import re          # For regular expressions (used to clean mod slugs and parse 
 import sys         # For runtime platform detection and PyInstaller bundle paths
 import threading   # For running long tasks (e.g., network calls, game launch) without freezing the UI
 import time        # For the scheduled-backup timer loop
+import tempfile    # For locating the flet client pid file (GPU-crash watcher)
 import traceback   # For printing full tracebacks of swallowed launch errors to the console
 import flet as ft  # Flet UI framework - provides widgets and app scaffolding
 
 # Local module imports - our own helper functions for Minecraft-related logic
 import launcher_core as core
+
+# End-of-session cleanup slot. Flet 0.86 delivers no window events to
+# Python on the real X button, so quit-time cleanup (Discord presence
+# clear, friends stop, geometry save, tray removal) is executed by the
+# __main__ block right after ft.run returns - the one reliable "session
+# ended" moment. main() registers its callable in the dict; the retry
+# loop reads and clears it per attempt. Lives at module scope so main()
+# can register it from any entry point (script OR test harness import).
+_session_end = {"handler": None}
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 from ui.skin_tab import build_skin_section  # Imports the skin section builder, now embedded in the Profile dialog
@@ -219,6 +229,33 @@ def main(page: ft.Page):
     if not _needs_center:
         page.window.left = _gl
         page.window.top = _gt
+    # First-run centering: computed from the primary screen here, not via
+    # window.center() later. center() is async AND issues a GTK resize that
+    # crashed the Mesa/gallium driver when fired mid-first-frame (SIGSEGV
+    # coredumps, 2026-09-06). The window starts hidden (FLET_APP_HIDDEN), so
+    # plain left/top numbers - applied before any paint - are safe and the
+    # reveal shows the window once, already centered.
+    if _needs_center:
+        try:
+            # No screen API on Page in Flet 0.86, so read the primary
+            # monitor size from the platform. X11: xdotool-free parse of
+            # xrandr would spawn a process; GDK_SCALE-style envs are wrong
+            # on multi-monitor. Simplest reliable route that needs no new
+            # dependency: tkinter-free X query via the DISPLAY env + a
+            # single xrandr call is overkill - use the GTK layer the flet
+            # client itself already runs on: nothing extra to install.
+            import subprocess
+            out = subprocess.run(
+                ["xrandr", "--current"], capture_output=True, text=True,
+                timeout=3).stdout
+            # first connected monitor's "WxH+X+Y"
+            m = re.search(r"(\d+)x(\d+)\+\d+\+\d+", out)
+            if m:
+                sw, sh = int(m.group(1)), int(m.group(2))
+                page.window.left = max(0, (sw - int(_gw)) // 2)
+                page.window.top = max(0, (sh - int(_gh)) // 2)
+        except Exception:
+            pass  # no xrandr / not X11: the WM picks a position - fine
     page.window.maximized = bool(_geom.get("maximized"))
     page.window.min_width = 980
     page.window.min_height = 640
@@ -3204,12 +3241,17 @@ def main(page: ft.Page):
     # visible=True paints once.
     async def _reveal_window():
         try:
-            if _needs_center:
-                await page.window.center()
             await page.window.wait_until_ready_to_show()
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
         page.window.visible = True
+        # First successful paint: clear any GPU-crash flag so the NEXT run
+        # trusts hardware GL again (see the exit watcher under __main__).
+        try:
+            _ui = os.path.join(_CUBEON_HOME, "ui_painted_ok")
+            open(_ui, "w").close()
+        except OSError:
+            pass
         try:
             page.window.update()
         except Exception:
@@ -3528,6 +3570,28 @@ def main(page: ft.Page):
     except Exception:
         pass
 
+    # End-of-session cleanup callable, executed by the __main__ block right
+    # after ft.run returns (the only reliable "window session ended" moment
+    # on this build - see the long note there). Keeps Discord presence from
+    # lingering and friends/P2P sockets from half-dangling.
+    def _do_session_end_cleanup():
+        _save_geometry_now()
+        _rpc.clear()
+        _rpc.close()
+        try:
+            friends_service.stop()
+        except Exception:
+            pass
+        try:
+            _tray["controller"].stop()
+        except Exception:
+            pass
+
+    # Module-level _session_end is defined near the top of the file (it
+    # must exist when main() runs under any entry point, including the
+    # test harness which imports main as a module).
+    _session_end["handler"] = _do_session_end_cleanup
+
     # --- Tray icon + callbacks (guarded by the close_to_tray setting) -----
     # DESIGN: never set window.prevent_close. On Flet 0.86/GTK, prevent_close
     # intercepts the native X button in the C++ client, but no "close" event
@@ -3618,8 +3682,119 @@ if __name__ == "__main__":
     # Cubeon mark. An absolute path always resolves correctly regardless of
     # cwd at launch time.
     _assets_dir = resolve_assets_dir()
-    # FLET_APP_HIDDEN: the desktop client process starts with its window
-    # hidden (FLET_HIDE_WINDOW_ON_START env for the client), so the only
-    # window transition the user ever sees is the single reveal of the
-    # finished UI at the bottom of main(). See _reveal_window there.
-    ft.run(main, assets_dir=_assets_dir, view=ft.AppView.FLET_APP_HIDDEN)
+
+    # --- GPU-crash auto-recovery -------------------------------------------
+    # The flet client may die to a driver bug (observed: AMD Polaris +
+    # Mesa 26.1 gallium, SIGSEGV inside libgallium on first frame - both
+    # hardware AND llvmpipe paths, flaky). Nothing in this repo can fix a
+    # system driver, but the launcher can refuse to stay dead:
+    #
+    #   attempt 1: normal launch (hardware GL)
+    #   client dies pre-paint -> relaunch with software GL
+    #   client dies again pre-paint -> relaunch ONCE more with software GL
+    #                                  (llvmpipe is usually reliable; a
+    #                                  second try gets past the flakiness)
+    #   dies a third time / user closes normally -> give up, exit
+    #
+    # A clean session (window painted, then closed) resets the counter, so
+    # every launch gets fresh chances.
+    from cubeon.paths import CUBEON_HOME as _CUBEON_HOME
+    _gl_fallback_marker = os.path.join(_CUBEON_HOME, "use_software_gl")
+
+    # Set once the UI is actually up (see _reveal_window); checked after
+    # ft.run returns to tell a clean close from a pre-paint GPU crash.
+    _ui_up_marker = os.path.join(_CUBEON_HOME, "ui_painted_ok")
+
+    # --- Clean shutdown state (shared with main()) --------------------------
+    # Flet 0.86 delivers NO window events to Python on the real X button
+    # (proven on live X11/KDE - see the window-event note in main()). So
+    # end-of-session cleanup (Discord presence clear, friends disconnect,
+    # geometry save) cannot live in an event handler; it runs HERE, right
+    # after ft.run returns in the main thread, which is the one moment that
+    # reliably means "the window session just ended".
+    # (the cleanup slot itself is module-level; see its definition near the
+    # imports. This local copy was a duplicate - removed.)
+    _MAX_CLIENT_RETRIES = 2
+
+    def _run_flet_once():
+        ft.run(main, assets_dir=_assets_dir, view=ft.AppView.FLET_APP_HIDDEN)
+
+    for _attempt in range(1 + _MAX_CLIENT_RETRIES):
+        if os.path.exists(_gl_fallback_marker):
+            os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+            os.environ["GALLIUM_DRIVER"] = "llvmpipe"
+
+        # Each attempt needs a clean per-run marker state.
+        try:
+            if os.path.exists(_ui_up_marker):
+                os.remove(_ui_up_marker)
+        except OSError:
+            pass
+
+        # FLET_APP_HIDDEN: the desktop client process starts with its window
+        # hidden (FLET_HIDE_WINDOW_ON_START env for the client), so the only
+        # window transition the user ever sees is the single reveal of the
+        # finished UI at the bottom of main(). See _reveal_window there.
+        _run_flet_once()
+
+        # End of THIS session (however it ended): run the cleanup main()
+        # registered - Discord presence clear, friends stop, geometry save,
+        # tray icon removal. Runs on every attempt; the calls are idempotent.
+        # Watchdogged: native libs (pystray/GLib, discord IPC, friends WS)
+        # can deadlock on teardown - observed the whole process hanging in
+        # futex_wait during exit on KDE. 3s to finish, then hard exit anyway
+        # (everything after this point is best-effort cleanup, not data
+        # safety - configs were already saved).
+        _cleanup = _session_end["handler"]
+        _session_end["handler"] = None  # a retry re-registers via main()
+
+        def _run_cleanup():
+            try:
+                if _cleanup is not None:
+                    _cleanup()
+            except Exception:
+                pass
+
+        _ct = threading.Thread(target=_run_cleanup, daemon=True,
+                               name="cubeon-exit-cleanup")
+        _ct.start()
+        _ct.join(timeout=3.0)
+
+        # ft.run returned: either the user closed a working window (clean),
+        # or the client died. Only the pre-paint death justifies a retry.
+        try:
+            ui_painted = os.path.exists(_ui_up_marker)
+            if ui_painted:
+                os.remove(_ui_up_marker)
+        except OSError:
+            ui_painted = False
+
+        if ui_painted:
+            # Real session happened; a fallback flag from an earlier crash
+            # has served its purpose - clear it so the NEXT launch retries
+            # hardware GL (the driver may have been fixed by then).
+            try:
+                if os.path.exists(_gl_fallback_marker):
+                    os.remove(_gl_fallback_marker)
+                    print("cubeon: clean session - hardware OpenGL re-enabled")
+            except OSError:
+                pass
+            break  # user-initiated end: don't restart
+
+        # UI never painted: treat as client crash. Arm fallback and retry.
+        try:
+            os.makedirs(_CUBEON_HOME, exist_ok=True)
+            open(_gl_fallback_marker, "w").close()
+        except OSError:
+            pass
+        if _attempt < _MAX_CLIENT_RETRIES:
+            print(f"cubeon: client died before showing the window "
+                  f"(attempt {_attempt + 1}) - retrying with software OpenGL")
+            time.sleep(1.5)  # let the WM/core dump settle before respawning
+
+    # Hard exit. The tray (pystray/GLib) and pango fontconfig threads are
+    # native and occasionally ignore daemon status during interpreter
+    # shutdown, leaving a zombie launcher process. os._exit skips all
+    # teardown beyond what we already did explicitly above. Cleanup handlers
+    # have ALREADY run at this point (see loop body) - nothing is skipped.
+    os._exit(0)
