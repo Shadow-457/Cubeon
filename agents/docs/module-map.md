@@ -1,6 +1,6 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-06 (opencode Glm 5.3). If a fact here contradicts the code, the code
+Last updated: 2026-09-07 (opencode Glm 5.3; tray-reexec + game-survival session finished by Claude Code). If a fact here contradicts the code, the code
 wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 
 ## Flet 0.86 hard rules (learned 2026-09-06, each cost real debugging time)
@@ -24,6 +24,29 @@ wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 - System tray = `cubeon/tray.py` (pystray, optional dep, icon-only while
   running; true background-on-close is IMPOSSIBLE on this Flet build).
   Tray callbacks arrive on pystray's thread → marshal via `page.run_task`.
+- **`ft.run()` is ONCE-PER-PROCESS on 0.86.** A second `ft.run` spawns a
+  new flet client whose engine NEVER initializes (silent hang, no crash,
+  no window — verified live). Tray reopen therefore RE-EXECS the
+  launcher (`os.execv` in `__main__`, `CUBEON_TRAY_REOPEN=1` env, PyInstaller
+  `sys.frozen` handled). Never "fix" this back to an in-process rerun.
+- On X-close the flet CLIENT process stays alive with a ghost
+  "Working..." window (0.86 can't remove its implicit view).
+  `_kill_flet_client()` in `__main__` kills children named `flet`
+  (SIGTERM→2s→SIGKILL). Match on the NAME — Minecraft (`java`) is also
+  our child and must never be touched.
+- Tray reopen events are timestamped (`reopen_at`) and honored only if
+  newer than `session_ended_at - 5.0`. NEVER blind-clear the reopen/quit
+  events — that silently drops every fast Open click made during window
+  teardown.
+- The launched game gets its own session + real log file
+  (`~/.cubeon_launcher/game.log`, `start_new_session=True`, stdin
+  /dev/null) so it SURVIVES launcher exit/terminal close. Don't
+  "simplify" this back to inherited pipes.
+- Repaint profiler: `CUBEON_PERF=1` times every `page.update()` by call
+  site (table at exit, in `cubeon/thread_safe_ui.py`). Use it before
+  any UI-performance guesswork.
+- Startup: `minecraft_launcher_lib` is lazy (`cubeon/lazy.py`); Mods/
+  Modpacks/Servers tabs build on FIRST VISIT, not at startup.
 - Test-harness gotcha: `tools/test_ui_smoke.py` imports `main` as a module,
   so anything `main()` references must exist at module scope (bit us with
   `_session_end`).
