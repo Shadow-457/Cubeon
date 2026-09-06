@@ -3,6 +3,22 @@
 Last updated: 2026-09-06 (opencode Glm 5.3). If a fact here contradicts the code, the code
 wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 
+## Loader switcher (main.py, 2026-09-06)
+- Loader support/installed lookups MUST use `core.extract_mc_version(version_id)`
+  — the raw dropdown id can be a loader-install row (`fabric-loader-…`),
+  which makes `find_installed_loader_version` miss and `is_loader_supported`
+  lie. The launch path always knew this; the UI path didn't (fixed).
+- Loader checks run in PARALLEL (one thread/loader); results cached in the
+  session `loader_check_cache` keyed by raw version id. mll timings:
+  fabric 0.6s / quilt ~1s / forge ~1.9s / neoforge ~1s, cached 1 week via
+  `cubeon/local_cache` (`loader_support` namespace).
+- Segment dim rule: only dim when (unsupported AND not installed). Never dim
+  just because the version is installed — the pill stays clickable
+  (on_loader_toggle_change allows any INSTALLED loader + vanilla).
+- Headless diag recipe: extract FakePage from tools/test_ui_smoke.py,
+  call `main.main(page)`, walk control tree (see
+  agents/2026-09-06_agent_loader-ui-fixes.md).
+
 ## KV write discipline (all Workers, 2026-09-06)
 - KV free tier: 1,000 writes/day **account-wide**, 100,000 reads/day. Never
   write without comparing first — use `putIfChanged(env, key, value, opts?)`
