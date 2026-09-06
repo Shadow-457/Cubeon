@@ -194,6 +194,56 @@ img = cosmetics.compose_skin_with_hat(cfg2)
 check("worn hat keeps rendering even when locked locally",
       img is not None and img.size == (64, 64))
 
+print("\n5b. 3D isometric previews")
+from PIL import Image as _Img
+_out = os.path.join(tempfile.mkdtemp(prefix="iso_"), "head.png")
+p = cosmetics.render_head_isometric({}, _out, hat_id="tophat", zoom=10)
+img = _Img.open(p)
+check("iso head renders with hat", img.size[0] > 0 and img.size[1] > 0,
+      str(img.size))
+# Geometry contract: cube body is 16s x 12s + 2*pad, so aspect is 4:3-ish.
+w, h = img.size
+check("iso aspect ~16:12 (+pad)", abs((w - 12) / (h - 12) - 16 / 12) < 0.1,
+      f"{w}x{h}")
+# The three faces must be distinguishable: sample the classic head's front
+# face (viewer-right) and left face (viewer-left); with the default Steve
+# base both are skin tones but differently shaded - the right (front) face
+# carries the EYES, so some dark-ish pixels must exist only there.
+px = img.convert("RGBA")
+dark_right = sum(1 for x in range(int(w * 0.55), int(w * 0.95))
+                 for y in range(int(h * 0.35), int(h * 0.75))
+                 if sum(px.getpixel((x, y))[:3]) < 250)
+check("front face visible with features", dark_right > 10, str(dark_right))
+# Unknown hat id falls back to bare head, not a crash/None:
+p2 = cosmetics.render_head_isometric({}, _out.replace(".png", "2.png"),
+                                     hat_id="??nope", zoom=10)
+img2 = _Img.open(p2)
+check("unknown hat renders bare cube", img2.size == img.size, str(img2.size))
+# Every catalogue hat renders without error and with SOME visible pixels
+# (a blank render would mean the template/geometry broke for that hat).
+for hh in cosmetics.list_hats():
+    try:
+        cosmetics.render_hat_preview(hh["id"], {}, _out.replace("head", hh["id"]),
+                                     scale=8)
+        im = _Img.open(_out.replace("head", hh["id"]))
+        vis = sum(1 for x in range(im.width) for y in range(im.height)
+                  if im.getpixel((x, y))[3] > 0)
+        ok = vis > 50
+    except Exception as ex:
+        ok = False
+        print("   (render failed:", hh["id"], ex, ")")
+    check(f"hat preview renders 3D: {hh['id']}", ok)
+# preview_composed_body: head replaced by the cube (no doubled head) - the
+# composed canvas is TALLER than the flat body render because of headroom.
+from cubeon import skins as _skins
+_flat = os.path.join(os.path.dirname(_out), "flat.png")
+_composed = os.path.join(os.path.dirname(_out), "composed.png")
+cfg3 = {"cosmetic_hat": "tophat"}
+cosmetics.preview_composed_body(cfg3, _composed, scale=8)
+flat_sz = _Img.open(_composed).size
+check("composed preview has headroom for tall hats", flat_sz[1] > 256,
+      str(flat_sz))
+
 print("\n6. sync write-frugality (KV budget contract)")
 fresh_state()
 fake_requests.posts.clear()
