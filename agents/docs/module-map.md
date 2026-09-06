@@ -375,5 +375,16 @@ trap (the mod now warns about it in chat, but don't rely on that).
 - **Verified live on this machine**: full Linux build ran end-to-end,
   dist/Cubeon-x86_64.AppImage (103 MB) produced, and
   AppDir/usr/bin/_internal/assets/jars/ contains both mod jars + connect jar.
+- **Windows EXE can be cross-built on this Linux box via Wine** (2026-09-07):
+  `~/winpython/py311/python.exe` is a Windows embeddable Python 3.11.9 with
+  pip + all requirements + PyInstaller installed, and flet-windows.zip
+  pre-fetched into its flet_desktop/app/. Build from repo root:
+  `wine Z:\\home\\fuckarch\\winpython\\py311\\python.exe -m PyInstaller
+  --noconfirm --onedir --windowed --name Cubeon --add-data=...;...
+  --collect-all flet --collect-all flet_desktop --collect-submodules
+  templates main.py` (Z: drive paths; `--add-data=` EQUALS syntax only —
+  space syntax is mangled by wine). Output identical to CI's
+  packaging/build_windows.py layout. See
+  agents/2026-09-07_agent_wine-windows-build.md for the full recipe.
 - Release flow: bump cubeon/updater.py APP_VERSION -> tag vN.N.N -> push ->
   gh release create with the built artifacts.
