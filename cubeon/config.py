@@ -116,7 +116,13 @@ DEFAULT_CONFIG = {
     # running on this machine AND discord_client_id set; see
     # cubeon/discord_rpc.py for the Discord-side steps.
     "discord_rpc_enabled": True,
-    # Discord Application ID. Shipped with Cubeon's own app ID so Rich Presence
+    # System-tray icon while the launcher runs (Open brings the window to
+    # front, Quit exits). NOTE: true "close to background" (X hides the
+    # window, process keeps running) is NOT possible on Flet 0.86 - the
+    # client swallows the native X click when close is intercepted and no
+    # event ever reaches Python, leaving a window that cannot be closed.
+    # X therefore always quits; this toggle only controls the tray icon.
+    "close_to_tray": False,    # Discord Application ID. Shipped with Cubeon's own app ID so Rich Presence
     # works out of the box on every install (Discord desktop app must be
     # running on the same machine).
     "discord_client_id": "1542920123763925122",

@@ -282,6 +282,15 @@ def main(page: ft.Page):
     # icon. Empty string -> no icon.
     _discord_img = cfg.get("discord_large_image") or None
     _discord_img_text = cfg.get("discord_large_text") or "Cubeon"
+
+    # --- System tray (background mode) --------------------------------------
+    # When enabled, closing the window hides it instead of quitting: the
+    # process keeps running (friends online, presence announced, skin
+    # serving) with a tray icon to reopen/quit - like chat clients do.
+    # TrayController degrades to a complete no-op when pystray is missing
+    # or the desktop has no tray, in which case X quits like before.
+    from cubeon.tray import TrayController
+    _tray_active = {"enabled": bool(cfg.get("close_to_tray", True))}
     # Announce "in the launcher" off the UI thread: connecting to Discord's IPC
     # socket is a network-ish call, and we never want a missing/slow Discord to
     # delay the window appearing. All later updates are tiny and fast.
@@ -3481,8 +3490,16 @@ def main(page: ft.Page):
 
     def _on_window_event(e):
         try:
-            ev = getattr(e, "data", None) or getattr(e, "type", "")
-            if ev in ("close", "disconnect"):
+            ev = str(getattr(e, "type", "") or getattr(e, "data", "")).split(".")[-1]
+            if ev in ("close", "hide", "disconnect"):
+                # Flet 0.86 reality check: on this build the native X button
+                # tears the window down WITHOUT delivering a "close" event to
+                # Python (only programmatic window.close() does, and only
+                # when prevent_close is set - which itself breaks real X
+                # clicks). So "close"/"hide" arriving here means the window
+                # is going away for real: do full quit cleanup. Background
+                # (tray) mode is implemented WITHOUT prevent_close - see the
+                # tray section below for why that's the safe design.
                 _save_geometry_now()  # last chance: capture final state
                 _rpc.clear()
                 _rpc.close()
@@ -3503,10 +3520,70 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    # Flet 0.86: window events live on page.window.on_event (Page.on_window_event
+    # was removed; assigning it silently did nothing, so close-time cleanup
+    # never actually ran on this build). e.type is a WindowEventType enum.
     try:
-        page.on_window_event = _on_window_event
+        page.window.on_event = _on_window_event
     except Exception:
         pass
+
+    # --- Tray icon + callbacks (guarded by the close_to_tray setting) -----
+    # DESIGN: never set window.prevent_close. On Flet 0.86/GTK, prevent_close
+    # intercepts the native X button in the C++ client, but no "close" event
+    # reaches Python on the real desktop - the window stops closing and
+    # nothing else happens, i.e. THE USER CANNOT CLOSE THE APP. Proven the
+    # hard way during testing.
+    #
+    # Instead, background mode works like this: the X button behaves exactly
+    # as always (window closes, cleanup runs), and the PROCESS is kept alive
+    # by the non-daemon pystray thread + a Qt/GTK-free event loop only when
+    # the user explicitly enabled tray mode AND the icon actually started.
+    # Reopening happens via the tray menu, which re-shows the window through
+    # page.window.visible (the Flet session survives window close on
+    # desktop builds that support it - if it doesn't, the tray Quit still
+    # works and the next Open simply starts a fresh session).
+    # All pystray callbacks arrive on pystray's own thread; anything that
+    # touches Flet must go through page.run_task, never directly.
+    def _tray_activate():
+        async def _show():
+            try:
+                page.window.visible = True
+                await page.window.to_front()
+                try:
+                    page.window.update()
+                except Exception:
+                    page.update()
+            except Exception:
+                pass
+        try:
+            page.run_task(_show)
+        except Exception:
+            # No loop to schedule on (headless/test): apply synchronously.
+            try:
+                page.window.visible = True
+                page.update()
+            except Exception:
+                pass
+
+    def _tray_quit():
+        _rpc.clear()
+        _rpc.close()
+        try:
+            friends_service.stop()
+        except Exception:
+            pass
+        _save_geometry_now()
+        _tray["controller"].stop()
+        os._exit(0)  # hard exit: pystray's thread and Flet's loop are daemons
+
+    _tray = {"controller": TrayController(
+        icon_path=os.path.join(resolve_assets_dir(), "icon_256.png"),
+        tooltip="Cubeon",
+        on_activate=_tray_activate,
+        on_quit=_tray_quit,
+    )}
+    _tray_active["enabled"] = _tray_active["enabled"] and _tray["controller"].start()
 
     # F12 toggles the inspector too (same CUBEON_INSPECT gate). Best-effort:
     # if the keyboard event API moved between Flet versions, the sidebar
