@@ -25,7 +25,46 @@ from a foreign thread need thread_safe_ui - see that module).
 """
 from __future__ import annotations
 
+import logging
+import os
+import sys
 import threading
+
+log = logging.getLogger(__name__)
+
+
+def _pick_linux_backend() -> None:
+    """Pins pystray to a backend that a modern Linux desktop actually shows.
+
+    Left to itself, pystray falls back to its **xorg** backend whenever the
+    appindicator import raises for any reason. That backend draws an old
+    XEmbed tray icon, which KDE Plasma 6 doesn't show at all (the legacy
+    systray applet is gone) and Wayland can't show ever - so the launcher
+    looked like it had "no tray" while pystray reported success. The
+    icon existed; nothing on screen could display it.
+
+    So: if AppIndicator (Ayatana or the older AppIndicator3) is importable,
+    say so explicitly via PYSTRAY_BACKEND, which must be set BEFORE pystray
+    is imported. StatusNotifierItem is what KDE, GNOME+extension, and
+    wlroots panels all understand.
+    """
+    if not sys.platform.startswith("linux") or os.environ.get("PYSTRAY_BACKEND"):
+        return
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        for name, ver in (("AyatanaAppIndicator3", "0.1"),
+                          ("AppIndicator3", "0.1")):
+            try:
+                gi.require_version(name, ver)
+            except ValueError:
+                continue
+            __import__("gi.repository", fromlist=[name])
+            os.environ["PYSTRAY_BACKEND"] = "appindicator"
+            return
+        os.environ["PYSTRAY_BACKEND"] = "gtk"  # GtkStatusIcon: still beats xorg
+    except Exception:
+        pass  # no gi at all: let pystray choose, tray may simply be off
 
 
 class TrayController:
@@ -57,14 +96,18 @@ class TrayController:
         if self._icon is not None:
             return True
         try:
+            _pick_linux_backend()
             import pystray
             from PIL import Image
-        except Exception:
+        except Exception as ex:
+            log.warning("tray: unavailable (%s: %s)", ex.__class__.__name__, ex)
             return False  # not installed / no PIL: tray is simply off
 
         try:
             image = Image.open(self.icon_path)
-        except Exception:
+            image.load()  # decode now: a lazy failure inside pystray is silent
+        except Exception as ex:
+            log.warning("tray: icon %s unusable (%s)", self.icon_path, ex)
             return False  # missing/corrupt icon file: off, not an error
 
         def _activate(icon=None, item=None):
@@ -93,15 +136,59 @@ class TrayController:
                     pystray.MenuItem("Quit", _quit),
                 ),
             )
-            # default=True marks "Open" as the left-click/double-click action
-            # on platforms that distinguish (Windows, some Linux DEs).
-            threading.Thread(target=self._icon.run, daemon=True,
-                             name="cubeon-tray").start()
-            self._started.set()
-            return True
-        except Exception:
+        except Exception as ex:
+            log.warning("tray: icon creation failed (%s)", ex)
             self._icon = None
             return False
+
+        # default=True marks "Open" as the left-click/double-click action
+        # on platforms that distinguish (Windows, some Linux DEs).
+        #
+        # The setup callback is the ONLY honest proof the tray came up: it
+        # fires from inside pystray's own loop once the icon is registered
+        # with the desktop. The old code assumed success as soon as the
+        # thread was started, so a backend that failed a moment later still
+        # left close_to_tray ON - and then closing the window parked the
+        # process headless with no icon to reopen or quit it. An invisible
+        # un-killable launcher is far worse than no tray, so failure to
+        # confirm within the timeout counts as "no tray".
+        def _setup(icon):
+            try:
+                icon.visible = True
+            except Exception:
+                pass
+            self._started.set()
+
+        def _loop():
+            try:
+                self._icon.run(setup=_setup)
+            except Exception as ex:
+                log.warning("tray: loop ended (%s: %s)", ex.__class__.__name__, ex)
+                self._icon = None
+                self._started.set()  # unblock start(); running turns False
+
+        threading.Thread(target=_loop, daemon=True, name="cubeon-tray").start()
+        if not self._started.wait(timeout=5.0) or self._icon is None:
+            log.warning("tray: backend %s never became visible",
+                        os.environ.get("PYSTRAY_BACKEND", "auto"))
+            self.stop()
+            self._started.clear()
+            return False
+        log.info("tray: running (backend=%s)",
+                 os.environ.get("PYSTRAY_BACKEND", "auto"))
+        return True
+
+    def set_tooltip(self, text: str) -> None:
+        """Updates the hover text. Used to acknowledge "Open" instantly -
+        reopening restarts the launcher, which takes a couple of seconds,
+        and a tray icon that reacts to nothing reads as a dead one."""
+        icon = self._icon
+        if icon is None:
+            return
+        try:
+            icon.title = text
+        except Exception:
+            pass
 
     def stop(self) -> None:
         """Removes the icon and ends pystray's loop. Idempotent, never

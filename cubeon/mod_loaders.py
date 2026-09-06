@@ -4,7 +4,11 @@ module (8.0+), so all four loaders install through the same code path.
 """
 import re
 
-import minecraft_launcher_lib as mll
+# minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
+# nothing here needs it until the user actually installs/launches, so it
+# is imported on first use. `mll.<anything>` is unchanged - see cubeon/lazy.py.
+from .lazy import LazyModule
+mll = LazyModule("minecraft_launcher_lib")
 
 from .paths import MINECRAFT_DIR
 from .versions import get_installed_versions, install_version

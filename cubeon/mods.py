@@ -40,7 +40,11 @@ import re
 import shutil
 import uuid
 
-import requests
+# `requests` costs ~97ms to import; this module is on the startup path but
+# only touches the network when the user browses/downloads. Lazy so the
+# window appears sooner - `requests.get(...)` call sites are unchanged.
+from .lazy import LazyModule
+requests = LazyModule("requests")
 
 from .paths import (
     APP_NAME, MODS_DIR, PROFILES_DIR,

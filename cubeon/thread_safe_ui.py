@@ -63,11 +63,84 @@ first page.add()/update() call, and any background update() that arrives
 before that is deferred (re-scheduled a beat later) instead of racing it.
 """
 import asyncio
+import atexit
 import logging
+import os
+import sys
 import threading
 import time
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# REPAINT PROFILER (opt-in: CUBEON_PERF=1)
+#
+# Every page.update() is a full diff of the mounted control tree plus a
+# serialized patch over the IPC transport to the Flutter client, so a repaint
+# is the single most expensive routine thing the Python side does. There are
+# ~170 update() call sites; guessing which ones hurt is how you end up
+# "optimizing" the wrong half of the app (or concluding the language is the
+# problem when it isn't).
+#
+# With the env var set, each call is timed and attributed to the first frame
+# OUTSIDE this module - i.e. the real call site - and a table is printed at
+# exit, worst total time first. Zero cost when the var is unset: one bool
+# check per repaint.
+# ---------------------------------------------------------------------------
+_PERF = bool(os.environ.get("CUBEON_PERF"))
+_perf_lock = threading.Lock()
+_perf: dict = {}  # "file:line" -> [calls, total_s, worst_s]
+
+
+def _perf_site() -> str:
+    """"file:line" of the nearest caller that isn't this module."""
+    try:
+        frame = sys._getframe(1)
+        mine = __file__
+        while frame is not None:
+            name = frame.f_code.co_filename
+            if name != mine:
+                return f"{os.path.basename(name)}:{frame.f_lineno}"
+            frame = frame.f_back
+    except Exception:
+        pass
+    return "?"
+
+
+def _perf_add(site: str, seconds: float) -> None:
+    with _perf_lock:
+        row = _perf.get(site)
+        if row is None:
+            _perf[site] = [1, seconds, seconds]
+        else:
+            row[0] += 1
+            row[1] += seconds
+            if seconds > row[2]:
+                row[2] = seconds
+
+
+def perf_report() -> str:
+    """The repaint table as text (empty when profiling is off/unused)."""
+    with _perf_lock:
+        rows = sorted(_perf.items(), key=lambda kv: kv[1][1], reverse=True)
+    if not rows:
+        return ""
+    total = sum(r[1][1] for r in rows)
+    calls = sum(r[1][0] for r in rows)
+    out = [f"\ncubeon repaint profile: {calls} page.update() calls, "
+           f"{total * 1000:.0f} ms total in the diff+send",
+           f"{'call site':<34}{'calls':>7}{'total ms':>10}{'avg ms':>9}{'worst ms':>10}"]
+    for site, (n, tot, worst) in rows[:20]:
+        out.append(f"{site:<34}{n:>7}{tot * 1000:>10.1f}"
+                   f"{tot / n * 1000:>9.2f}{worst * 1000:>10.1f}")
+    if len(rows) > 20:
+        out.append(f"... and {len(rows) - 20} quieter call sites")
+    return "\n".join(out)
+
+
+if _PERF:
+    atexit.register(lambda: print(perf_report() or
+                                  "\ncubeon repaint profile: no repaints recorded"))
 
 _installed = False
 _warned = False
@@ -218,28 +291,39 @@ def install(page) -> bool:
         except RuntimeError:
             running = None
 
+        # Attributed HERE, on the calling thread: by the time a background
+        # repaint actually runs on the loop the real call site is long gone
+        # from the stack.
+        site = _perf_site() if _PERF else ""
+
         if running is loop:
             # Already on the loop thread - the normal UI path. Still takes
             # TREE_LOCK: event handlers mutate trees too, and a background
             # worker's append must not land mid-diff of this very call.
             try:
                 with TREE_LOCK:
-                    return original(self, *controls)
+                    if not _PERF:
+                        return original(self, *controls)
+                    _t0 = time.perf_counter()
+                    result = original(self, *controls)
+                    _perf_add(site, time.perf_counter() - _t0)
+                    return result
             except Exception:
-                _reschedule(original, self, controls, 1)
+                _reschedule(original, self, controls, 1, site)
                 return
 
         # A background thread. Hand the actual send to the loop, which both
         # performs it in the right context and wakes the loop so the bytes
         # leave immediately instead of waiting for stray input.
         try:
-            loop.call_soon_threadsafe(_deferred_update, original, self, controls)
+            loop.call_soon_threadsafe(_deferred_update, original, self, controls,
+                                      0, site)
         except RuntimeError:
             # Loop already closed (app shutting down mid-task). Dropping the
             # repaint is correct here; there is no window left to paint.
             pass
 
-    def _reschedule(fn, page_obj, controls, attempt):
+    def _reschedule(fn, page_obj, controls, attempt, site=""):
         """Retry a failed update one loop-tick later. Safe because Flet
         computes patches from its last-sent snapshot: a patch that raised
         was never sent, so nothing is corrupted - we just try again once
@@ -249,11 +333,12 @@ def install(page) -> bool:
                           attempt)
             return
         try:
-            loop.call_soon_threadsafe(_deferred_update, fn, page_obj, controls, attempt)
+            loop.call_soon_threadsafe(_deferred_update, fn, page_obj, controls,
+                                      attempt, site)
         except RuntimeError:
             pass  # window gone mid-retry; nothing left to paint
 
-    def _deferred_update(fn, page_obj, controls, _retries=0):
+    def _deferred_update(fn, page_obj, controls, _retries=0, site=""):
         if id(page_obj) not in _mounted_pages:
             if _retries >= 200:
                 # ~a few seconds of retrying (loop ticks are fast) with no
@@ -264,24 +349,30 @@ def install(page) -> bool:
                 # launcher that never shows install/download progress.
                 log.warning("thread_safe_ui: page never marked mounted after "
                             "%d retries; applying deferred update anyway", _retries)
-                _safe_update(fn, page_obj, controls)
+                _safe_update(fn, page_obj, controls, site)
                 return
             try:
-                loop.call_soon_threadsafe(_deferred_update, fn, page_obj, controls, _retries + 1)
+                loop.call_soon_threadsafe(_deferred_update, fn, page_obj, controls,
+                                          _retries + 1, site)
             except RuntimeError:
                 pass
             return
-        _safe_update(fn, page_obj, controls)
+        _safe_update(fn, page_obj, controls, site)
 
-    def _safe_update(fn, page_obj, controls):
+    def _safe_update(fn, page_obj, controls, site=""):
         try:
             with TREE_LOCK:
-                fn(page_obj, *controls)
+                if not _PERF:
+                    fn(page_obj, *controls)
+                else:
+                    _t0 = time.perf_counter()
+                    fn(page_obj, *controls)
+                    _perf_add(site or "<background>", time.perf_counter() - _t0)
         except Exception:
             # Never let a repaint failure kill the event loop - that would take
             # the whole window down over a cosmetic update. One quiet retry;
             # only give up (with the traceback) after that.
-            _reschedule(fn, page_obj, controls, 1)
+            _reschedule(fn, page_obj, controls, 1, site)
 
     type(page).update = update
     _installed = True

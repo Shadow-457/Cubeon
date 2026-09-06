@@ -116,15 +116,19 @@ DEFAULT_CONFIG = {
     # running on this machine AND discord_client_id set; see
     # cubeon/discord_rpc.py for the Discord-side steps.
     "discord_rpc_enabled": True,
-    # System-tray icon while the launcher runs (Open brings the window to
-    # front, Quit exits). NOTE: true "close to background" (X hides the
-    # window, process keeps running) is NOT possible on Flet 0.86 - the
-    # client swallows the native X click when close is intercepted and no
-    # event ever reaches Python, leaving a window that cannot be closed.
-    # X therefore always quits; this toggle only controls the tray icon.
-    "close_to_tray": False,    # Discord Application ID. Shipped with Cubeon's own app ID so Rich Presence
-    # works out of the box on every install (Discord desktop app must be
-    # running on the same machine).
+    # System-tray icon with Open/Quit. When on, closing the window keeps
+    # the process running headless (friends presence, P2P, tray icon) and
+    # tray Open starts a fresh window session. When off, X quits normally.
+    # The window itself is never intercepted - prevent_close on Flet 0.86
+    # makes it unclosable, so background mode works by re-launching the
+    # UI session instead of hiding the window.
+    "close_to_tray": False,
+    # Discord Rich Presence - show a "Cubeon" activity on your Discord profile
+    # (like TLauncher shows itself as a game). Requires the Discord desktop app
+    # running on this machine AND discord_client_id set; see
+    # cubeon/discord_rpc.py for the Discord-side steps. Shipped with Cubeon's
+    # own app ID so Rich Presence works out of the box on every install
+    # (Discord desktop app must be running on the same machine).
     "discord_client_id": "1542920123763925122",
     # Optional art-asset image key (from Discord's Rich Presence -> Art Assets)
     # shown as the big icon next to the activity, and its hover text.

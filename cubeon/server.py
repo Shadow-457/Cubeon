@@ -25,8 +25,16 @@ import tempfile
 import threading
 import time
 
-import requests
-import minecraft_launcher_lib as mll
+# Lazy: `requests` costs ~97ms to import and every module that pulls it in
+# eagerly puts that on the startup path, even for a session that never
+# touches the network. Call sites are unchanged - see cubeon/lazy.py.
+from .lazy import LazyModule
+requests = LazyModule("requests")
+# minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
+# nothing here needs it until the user actually installs/launches, so it
+# is imported on first use. `mll.<anything>` is unchanged - see cubeon/lazy.py.
+from .lazy import LazyModule
+mll = LazyModule("minecraft_launcher_lib")
 
 from .paths import SERVERS_DIR, APP_NAME
 from .mod_loaders import SUPPORTED_LOADERS  # noqa: F401 (kept for callers that import it from here)

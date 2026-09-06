@@ -22,10 +22,15 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 
-import minecraft_launcher_lib as mll
+# minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
+# nothing here needs it until the user actually installs/launches, so it
+# is imported on first use. `mll.<anything>` is unchanged - see cubeon/lazy.py.
+from .lazy import LazyModule
+mll = LazyModule("minecraft_launcher_lib")
 
-from .paths import MINECRAFT_DIR, APP_NAME
+from .paths import MINECRAFT_DIR, APP_NAME, CUBEON_HOME
 from .config import stable_uuid, save_config
 from .mods import sync_mods_to_game
 from . import csl
@@ -471,36 +476,74 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         if server_port is not None:
             command.extend(["--port", str(int(server_port))])
 
+    # The game must SURVIVE the launcher. Two things used to tie its life to
+    # ours, so closing the launcher (or the terminal it was started from)
+    # took Minecraft down with it:
+    #
+    #   1. stdout was a PIPE owned by this process. When the launcher exits
+    #      the read end dies, and the game's next log write hits a broken
+    #      pipe - at best its logging breaks, at worst the JVM goes down.
+    #      Fixed by giving the game a real FILE for stdout: nothing the
+    #      launcher does can invalidate it, and the user gets a game log.
+    #   2. the game shared our process group and terminal session, so a
+    #      SIGHUP/SIGINT aimed at the launcher (terminal closed, shell job
+    #      killed, desktop session tidying up) was delivered to it too.
+    #      start_new_session=True puts it in its own session/group, which is
+    #      exactly what a real launcher does.
+    #
+    # stdin is /dev/null for the same reason: an inherited terminal stdin
+    # would make the game a background-job SIGTTIN casualty.
+    log_path = os.path.join(CUBEON_HOME, "game.log")
+    try:
+        os.makedirs(CUBEON_HOME, exist_ok=True)
+        log_fh = open(log_path, "wb")
+    except OSError:
+        log_fh = None  # unwritable HOME: fall back to discarding output
+
+    popen_kwargs = {}
+    if hasattr(os, "setsid") or os.name == "nt":
+        popen_kwargs["start_new_session"] = True
+
     process = subprocess.Popen(
         command,
         cwd=MINECRAFT_DIR,
-        stdout=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        stdout=(log_fh or subprocess.DEVNULL),
         stderr=subprocess.STDOUT,
+        **popen_kwargs,
     )
+    if log_fh is not None:
+        log_fh.close()  # the child owns its own dup now
 
-    # The game's output MUST be drained continuously. stdout is a pipe with a
-    # ~64KB OS buffer, and Minecraft logs well past that before its window even
-    # appears - so if nothing reads it, the game blocks on its next write and
-    # hangs forever, with the launcher showing a perfectly healthy "Running".
-    # Draining it also gives us the last lines to report when a launch fails,
-    # which is otherwise thrown away.
+    # We still want the game's output live (progress + the last lines to show
+    # when a launch fails), so we TAIL the log file instead of owning a pipe.
     recent = collections.deque(maxlen=GAME_LOG_TAIL)
 
     def _drain():
         try:
-            for raw in iter(process.stdout.readline, b""):
-                line = raw.decode("utf-8", errors="replace").rstrip()
-                if line:
-                    recent.append(line)
-                    if log_cb:
-                        log_cb(line)
-        except (OSError, ValueError):
-            pass  # pipe closed as the process died; nothing left to read
-        finally:
-            try:
-                process.stdout.close()
-            except OSError:
-                pass
+            with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
+                while True:
+                    line = fh.readline()
+                    if line:
+                        line = line.rstrip()
+                        if line:
+                            recent.append(line)
+                            if log_cb:
+                                log_cb(line)
+                        continue
+                    if process.poll() is not None:
+                        # Dead: one final sweep so a crash report isn't cut
+                        # off mid-write, then stop tailing.
+                        for last in fh.read().splitlines():
+                            last = last.rstrip()
+                            if last:
+                                recent.append(last)
+                                if log_cb:
+                                    log_cb(last)
+                        return
+                    time.sleep(0.2)
+        except OSError:
+            pass  # no log file (unwritable HOME): the game still runs
 
     drain = threading.Thread(target=_drain, name="mc-stdout", daemon=True)
     drain.start()

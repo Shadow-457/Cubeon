@@ -14,7 +14,11 @@ import os
 import re
 import threading
 
-import requests
+# Lazy: `requests` costs ~97ms to import and every module that pulls it in
+# eagerly puts that on the startup path, even for a session that never
+# touches the network. Call sites are unchanged - see cubeon/lazy.py.
+from .lazy import LazyModule
+requests = LazyModule("requests")
 
 log = logging.getLogger(__name__)
 

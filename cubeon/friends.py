@@ -58,7 +58,11 @@ import secrets
 import threading
 import time
 
-import requests
+# Lazy: `requests` costs ~97ms to import and every module that pulls it in
+# eagerly puts that on the startup path, even for a session that never
+# touches the network. Call sites are unchanged - see cubeon/lazy.py.
+from .lazy import LazyModule
+requests = LazyModule("requests")
 
 from .config import ensure_auth_key, stable_secret, stable_uuid
 from .paths import CUBEON_HOME

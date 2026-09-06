@@ -82,7 +82,11 @@ key before the cape key.
 import json
 import os
 
-import requests
+# Lazy: `requests` costs ~97ms to import and every module that pulls it in
+# eagerly puts that on the startup path, even for a session that never
+# touches the network. Call sites are unchanged - see cubeon/lazy.py.
+from .lazy import LazyModule
+requests = LazyModule("requests")
 
 from .paths import CSL_CONFIG_PATH, CSL_EXTRALIST_DIR
 from .mod_loaders import MOD_CAPABLE_LOADERS
