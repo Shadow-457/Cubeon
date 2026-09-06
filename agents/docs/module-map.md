@@ -3,6 +3,33 @@
 Last updated: 2026-09-06 (opencode Glm 5.3). If a fact here contradicts the code, the code
 wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 
+## Flet 0.86 hard rules (learned 2026-09-06, each cost real debugging time)
+- `page.on_window_event` DOES NOT EXIST. Use `page.window.on_event`; `e.type`
+  is a `WindowEventType` enum.
+- The real X button delivers NO event to Python (X11/KDE verified). End-of-
+  session cleanup must run after `ft.run` returns in `__main__`, not in an
+  event handler. See `_session_end` dict (module-level!) in main.py.
+- `window.prevent_close` makes the window UNCLOSABLE on Linux. Never set it.
+- `Window.center()/to_front()/close()` are async coroutines; `run_task`
+  requires a coroutine function (TypeError otherwise). `Window.update()` is
+  sync.
+- Async `window.center()` during first-frame reveal crashes flaky Mesa
+  drivers (libgallium SIGSEGV). Center by computing left/top numerically
+  BEFORE paint instead.
+- The flet client may SIGSEGV in libgallium (Mesa 26.1/AMD Polaris; both hw
+  and llvmpipe; ~50% flaky). main.py's `__main__` retry loop handles it:
+  pre-paint death → `use_software_gl` marker + relaunch (2 retries).
+- After the retry loop: `os._exit(0)` — GLib/pango native threads can hang
+  interpreter shutdown.
+- System tray = `cubeon/tray.py` (pystray, optional dep, icon-only while
+  running; true background-on-close is IMPOSSIBLE on this Flet build).
+  Tray callbacks arrive on pystray's thread → marshal via `page.run_task`.
+- Test-harness gotcha: `tools/test_ui_smoke.py` imports `main` as a module,
+  so anything `main()` references must exist at module scope (bit us with
+  `_session_end`).
+
+
+
 ## Loader switcher (main.py, 2026-09-06)
 - Loader support/installed lookups MUST use `core.extract_mc_version(version_id)`
   — the raw dropdown id can be a loader-install row (`fabric-loader-…`),
