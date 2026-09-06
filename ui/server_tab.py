@@ -115,14 +115,15 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             if active_version["value"] != version_id:
                 return
             install_status.value = text
-            page.update()
+            # Text change only: repaint the status line, not the tree.
+            thread_safe_ui.refresh(install_status)
 
         def progress_cb(val):
             if active_version["value"] != version_id:
                 return
             mx = install_progress.data or 1
             install_progress.value = val / mx if mx else 0
-            thread_safe_ui.throttled_update(page)
+            thread_safe_ui.refresh(install_progress)
 
         def max_cb(val):
             install_progress.data = val
@@ -141,7 +142,6 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     status_cb=status_cb, progress_cb=progress_cb, max_cb=max_cb,
                 )
             except Exception as ex:
-                thread_safe_ui.final_update(page)   # paint coalesced progress
                 if active_version["value"] == version_id:
                     _set_install_busy(False)
                     install_status.value = f"Install failed: {ex}"
@@ -555,7 +555,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     _smooth_gen = {"v": 0}
 
     def _smooth_progress(ev):
-        """Runs on the install worker thread; throttled_update is thread-safe."""
+        """Runs on the install worker thread; refresh() is thread-safe."""
         stage = ev.get("stage")
         title = ev.get("title", "")
         if stage == "start":
@@ -572,7 +572,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         elif stage == "done":
             if not ev.get("ok"):
                 smooth_progress_text.value = f"Couldn't install {title}."
-        thread_safe_ui.throttled_update(page)
+        # Per-file progress events: repaint just the progress row.
+        thread_safe_ui.refresh(smooth_progress_row)
 
     def _smooth_install_worker(version_id, gen):
         try:
@@ -972,7 +973,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                                 data="lib-dl"))
                 if len(console_log.controls) > 800:
                     del console_log.controls[: len(console_log.controls) - 800]
-                pending_flush.append(page.update)
+                pending_flush.append(console_flush_target)
                 if flush_scheduled["v"]:
                     return
                 flush_scheduled["v"] = True
@@ -999,7 +1000,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             if len(console_log.controls) > 800:
                 del console_log.controls[: len(console_log.controls) - 800]
             console_line_count.value = f"{len(console_log.controls)} lines"
-            pending_flush.append(page.update)
+            pending_flush.append(console_flush_target)
             if flush_scheduled["v"]:
                 return
             flush_scheduled["v"] = True
@@ -1016,11 +1017,20 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             except Exception:
                 pass
 
+    def console_flush_target():
+        """Control-level repaint of just the console region (list + counter).
+
+        Server start floods dozens of lines/second; each used to cost a
+        full-tree diff. The whole console lives in two controls, so this
+        repaints only those."""
+        thread_safe_ui.refresh(console_log)
+        thread_safe_ui.refresh(console_line_count)
+
     def clear_console(e=None):
         with thread_safe_ui.TREE_LOCK:
             console_log.controls.clear()
             console_line_count.value = "0 lines"
-        page.update()
+        console_flush_target()
 
     # --- Quick actions - one-tap common commands, no typing required -----
 

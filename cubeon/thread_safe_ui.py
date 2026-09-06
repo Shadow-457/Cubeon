@@ -150,6 +150,11 @@ _warned = False
 # stable way across Flet versions.
 _mounted_pages = set()
 
+# Page-id -> event loop, recorded by install() so refresh() can marshal
+# control-level repaints from background threads to the right loop. Flet
+# does not expose the loop on the page object, hence the side table.
+_loops = {}
+
 # THE THIRD BUG - concurrent tree mutation vs. Flet's diff walk (fixed 2026-08-25)
 #
 # install() originally fixed only the DELIVERY of background updates (frames
@@ -224,6 +229,70 @@ def final_update(page) -> None:
         st = _throttle_state.pop(id(page), None)
     if st and st.get("dirty"):
         page.update()
+
+
+# CONTROL-LEVEL REPAINT (the "refresh one control" API).
+#
+# page.update() diffs the ENTIRE mounted tree - every tab, every row - even
+# when the change is one label's text. With ~9,000 lines of eagerly-built
+# UI that is the app's #1 runtime cost (172 call sites at last count; see
+# the CUBEON_PERF profiler above for the live numbers). Flet's own answer
+# is control.update(): it diffs and sends ONLY that control's subtree.
+#
+# refresh(ctrl) is the thread-safe wrapper for that, mirroring everything
+# install(page) does for page.update(): loop-thread fast path, background
+# calls marshalled via call_soon_threadsafe, TREE_LOCK around the diff so
+# tree mutations can't land mid-walk, reschedule-once on failure, and
+# CUBEON_PERF attribution. It intentionally does NOT wait for
+# mark_mounted(): a control-level patch can't race the initial full-tree
+# mount the way a background page.update() can, because if the control
+# isn't mounted yet Flet treats the patch as an add of that subtree -
+# which is still correct.
+#
+# RULE OF THUMB for call sites:
+#   * one small region changed (a label, a button state, one row, a
+#     banner) -> refresh(that control)
+#   * structure changed (added/removed controls from a list, swapped a
+#     tab body, multiple regions) -> page.update()
+def refresh(control) -> None:
+    """Thread-safe control-level repaint: diffs only `control`'s subtree."""
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    loop = _loops.get(id(control.page)) if hasattr(control, "page") else None
+    if loop is None:
+        # No loop known for this page yet (or a detached control): best-effort
+        # direct call. For a control with no page, Flet's update() is a no-op
+        # anyway; for the pre-install window we're on the loop thread by
+        # definition, so the direct call is the correct fast path.
+        _refresh_now(control)
+        return
+    if running is loop:
+        _refresh_now(control)
+        return
+    try:
+        loop.call_soon_threadsafe(_refresh_now, control)
+    except RuntimeError:
+        pass  # loop gone (window closed mid-flight) - nothing left to paint
+
+
+def _refresh_now(control) -> None:
+    site = _perf_site() if _PERF else ""
+    try:
+        with TREE_LOCK:
+            if not _PERF:
+                control.update()
+            else:
+                _t0 = time.perf_counter()
+                control.update()
+                _perf_add(site, time.perf_counter() - _t0)
+    except Exception:
+        # Same contract as the page path: never kill a thread over a
+        # repaint. A failed patch was never sent, so the tree is intact;
+        # drop it and let the next repaint of this control reconcile.
+        log.debug("refresh(%s) failed; skipped", type(control).__name__,
+                  exc_info=True)
 
 
 
@@ -375,6 +444,7 @@ def install(page) -> bool:
             _reschedule(fn, page_obj, controls, 1, site)
 
     type(page).update = update
+    _loops[id(page)] = loop
     _installed = True
     log.info("thread_safe_ui: page.update() is now safe from any thread")
     return True

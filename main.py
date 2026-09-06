@@ -1471,7 +1471,10 @@ def main(page: ft.Page):
         elif version_dropdown.value not in {o.key for o in version_dropdown.options}:
             version_dropdown.value = version_dropdown.options[0].key
             on_version_selected()
-        page.update()
+        # Per-KEYSTROKE handler: repainting just the dropdown instead of the
+        # whole tree keeps filter typing at control-diff cost, not 9k-line-diff
+        # cost.
+        thread_safe_ui.refresh(version_dropdown)
 
     version_filter_field = ft.TextField(
         hint_text="Filter versions... e.g. 1.20",
@@ -1877,7 +1880,9 @@ def main(page: ft.Page):
             status_dot.bgcolor = ACCENT_DIM
         else:
             status_dot.bgcolor = ACCENT
-        page.update()
+        # Two tiny controls in the sidebar's brand block; repaint just them.
+        thread_safe_ui.refresh(status_text)
+        thread_safe_ui.refresh(status_dot)
 
     def on_play_click():
         """
@@ -1939,14 +1944,18 @@ def main(page: ft.Page):
         try:
             target_version = version_id
 
-            # Define callback functions that update UI elements from the background thread.
-            # All three use throttled_update(): install progress arrives once
-            # per FILE (a version is ~4000 files) and a full page.update()
-            # per file saturates Flet's event loop - the window stops taking
-            # input for the whole install and unfreezes when it ends.
+            # Define callback functions that update UI elements from the
+            # background thread. Progress repaints are control-level:
+            # install progress arrives once per FILE (a version is ~4000
+            # files), so each repaint diffs just the progress row instead
+            # of the full mounted tree.
+            def _paint_progress():
+                thread_safe_ui.refresh(progress_row)
+                thread_safe_ui.refresh(progress_bar)
+
             def status_cb(text):
                 progress_label.value = text
-                thread_safe_ui.throttled_update(page)
+                _paint_progress()
 
             def progress_cb(val):
                 mx = progress_bar.data or 1
@@ -1954,11 +1963,11 @@ def main(page: ft.Page):
                 # that emits progress before its setMax lands would otherwise
                 # divide by the previous phase's (smaller) max and overshoot.
                 progress_bar.value = min(1.0, max(0.0, val / mx)) if mx else 0
-                thread_safe_ui.throttled_update(page)
+                _paint_progress()
 
             def max_cb(val):
                 progress_bar.data = val
-                thread_safe_ui.throttled_update(page)
+                _paint_progress()
 
             # If the version is not installed, install it. The per-version
             # lock also covers the background prefetch (on_version_selected),
@@ -1998,7 +2007,8 @@ def main(page: ft.Page):
             # Now that the version (and loader, if any) is installed, the
             # loader choice is locked in - refresh the cached support map and
             # re-lock the switcher so it can't be changed after the fact.
-            thread_safe_ui.final_update(page)   # paint any coalesced progress
+            # (No coalesced-progress flush needed anymore: the progress
+            # callbacks repaint their own controls directly.)
             support = dict(loader_check_cache.get(version_id, {}))
             for lid in LOADER_IDS:
                 if lid == "vanilla":

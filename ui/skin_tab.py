@@ -25,6 +25,7 @@ from cubeon.theme import (
     SURFACE_MAX,   # top-elevation surface - hover fill on selected hat tiles
     ON_ACCENT,     # explicit dark foreground on an ACCENT fill (same value as BG)
 )
+from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
 
 # Our own launcher core module - contains logic for skin storage/rendering
 import launcher_core as core
@@ -266,7 +267,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             return
         picked = files[0]
         upload_status.value = "Uploading..."
-        page.update()
+        thread_safe_ui.refresh(upload_status)
         try:
             display_name = os.path.splitext(picked.name)[0]
             entry = core.add_custom_skin(picked.path, display_name)
@@ -276,7 +277,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             upload_status.value = str(ve)
         except Exception as ex:
             upload_status.value = f"Upload failed: {ex}"
-        page.update()
+        thread_safe_ui.refresh(upload_status)
 
     def on_files_picked(e):
         # Old-Flet path: pick_files() ran synchronously and the result

@@ -312,7 +312,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     ), None, SURFACE_HI)
                 )
         _fetch_missing_icons()
-        page.update()
+        # Rebuilt the list: repaint just the list region + count, not the
+        # full tree (this fires per keystroke of the installed filter).
+        thread_safe_ui.refresh(mods_list_view)
+        thread_safe_ui.refresh(installed_count_text)
 
     def build_installed_row(m):
         """
@@ -748,7 +751,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         browse_title_text.value = f'RESULTS FOR "{query.upper()}"'
         browse_status_text.value = "Searching..."
         browse_results_view.controls.clear()
-        page.update()
+        # Live search repaints only the browse region (title/status/results),
+        # not the whole mounted tree - this fires per debounced keystroke.
+        thread_safe_ui.refresh(browse_results_view)
+        thread_safe_ui.refresh(browse_title_text)
+        thread_safe_ui.refresh(browse_status_text)
 
         def worker():
             try:
@@ -766,7 +773,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     )
             except Exception as ex:
                 browse_status_text.value = f"Search failed: {ex}"
-                page.update()
+                thread_safe_ui.refresh(browse_status_text)
                 return
             render_browse_results(results, empty_msg="Nothing found for that search.")
 

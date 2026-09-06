@@ -29,7 +29,7 @@ from cubeon import icons as _icons  # disk cache for Modrinth project art
 
 import launcher_core as core
 from cubeon import modpacks as modpacks_backend
-from cubeon import thread_safe_ui  # throttled_update for per-file progress floods
+from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
 from cubeon.paths import CUBEON_HOME
 
 
@@ -80,16 +80,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                      or text.startswith("Downloading mods"))):
             installed_refresh_done["done"] = True
             refresh_installed_packs()
-        thread_safe_ui.throttled_update(page)
+        # Per-file flood: repaint just the status line + bar.
+        thread_safe_ui.refresh(install_status)
+        thread_safe_ui.refresh(install_bar)
 
     def progress_cb(val):
         mx = install_bar.data or 1
         install_bar.value = (val / mx) if mx else None
-        thread_safe_ui.throttled_update(page)
+        thread_safe_ui.refresh(install_bar)
 
     def max_cb(val):
         install_bar.data = val or 1
-        thread_safe_ui.throttled_update(page)
+        thread_safe_ui.refresh(install_bar)
 
     def _begin_install():
         busy["value"] = True
@@ -529,7 +531,10 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         browse_title.value = "POPULAR MODPACKS"
         browse_status.value = "Loading..."
         results_view.controls.clear()
-        page.update()
+        # Loading state: repaint just the browse region.
+        thread_safe_ui.refresh(results_view)
+        thread_safe_ui.refresh(browse_status)
+        thread_safe_ui.refresh(browse_title)
         wanted_mc = state.get("selected_mc_version")
 
         def worker():
@@ -539,7 +544,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 if gen != search_gen["v"]:
                     return
                 browse_status.value = "Couldn't load the list - check your internet."
-                page.update()
+                thread_safe_ui.refresh(browse_status)
                 return
             if gen != search_gen["v"]:
                 return  # a newer search/popular-load took over while we fetched
@@ -554,7 +559,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                     "Popular CurseForge packs like RLCraft and SkyFactory are "
                     "included. Power users: adding a free CurseForge key to "
                     "config.json unlocks the full catalogue and faster installs.")
-                page.update()
+                thread_safe_ui.refresh(browse_status)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -686,7 +691,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 finally:
                     install_btn.disabled = False
                     install_btn_text.value = "Install"
-                    thread_safe_ui.final_update(page)   # paint coalesced progress
+                    # No coalesced-progress flush needed: progress callbacks
+                    # repaint their own controls directly.
                     page.update()
 
             threading.Thread(target=worker, daemon=True).start()
