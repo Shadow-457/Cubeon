@@ -394,94 +394,6 @@ def compose_skin_with_hat(cfg) -> Image.Image:
 # Persistence + previews
 # ---------------------------------------------------------------------------
 
-# Face shading multipliers for the isometric render, mimicking Minecraft's
-# directional light: the top face catches full light, the head's LEFT side
-# (viewer's left, angled toward the light) a step dimmer, the FRONT face
-# (viewer's right, angled away) another step down.
-_ISO_SHADE = {"top": 1.00, "left": 0.80, "right": 0.62}
-
-
-def _shade(img, factor):
-    """Multiplies an RGBA face's RGB by a light factor, alpha untouched."""
-    if factor >= 1.0:
-        return img
-    r, g, b, a = img.split()
-    r = r.point(lambda v: int(v * factor))
-    g = g.point(lambda v: int(v * factor))
-    b = b.point(lambda v: int(v * factor))
-    return Image.merge("RGBA", (r, g, b, a))
-
-
-def render_head_isometric(cfg, out_path: str, hat_id=None, zoom: int = 10,
-                          pad: int = 6) -> str | None:
-    """Renders the player's head as a 3D isometric cube (Minecraft item-
-    render style): top + two visible side faces, each the real skin pixels
-    with its hat-layer tile composited on, shaded per face to fake a light
-    from the upper left. `hat_id` overrides cfg's worn hat (hat tiles pass
-    their own id to preview not-yet-worn hats).
-
-    Geometry: classic 2:1 pixel isometric. The three visible faces of the
-    8x8x8 head are sheared onto one lattice with PIL AFFINE transforms
-    (dest->source inverse maps, NEAREST resample so pixel art stays crisp,
-    fillcolor transparent so out-of-face dest pixels stay empty). Total
-    cube: 16s x 12s screen px for lattice step s.
-
-    Which faces show: the camera looks down at the head from the front-
-    right, so the visible sides are the head's LEFT face (sheet 16,8 - the
-    viewer's left) and the FRONT face (sheet 8,8 - viewer's right). The
-    hat template mirrors the head layout 1:1, so the same crops work for
-    both layers. Painter's order: sides first, top last, so the top face's
-    front edges overdraw the side shears cleanly.
-    """
-    base = _base_skin_for(cfg)
-    if hat_id is None:
-        hat_id = cfg.get("cosmetic_hat")
-    template = hat_template(hat_id) if hat_id and get_hat(hat_id) else None
-
-    def face(ox, oy):
-        """One 8x8 head face with its hat tile layered on (or bare)."""
-        piece = base.crop((ox, oy, ox + 8, oy + 8)).copy()
-        if template is not None:
-            piece.alpha_composite(template.crop((ox, oy, ox + 8, oy + 8)))
-        return piece
-
-    top = face(8, 0)     # top of the head
-    left = _shade(face(16, 8), _ISO_SHADE["left"])   # head's left side
-    right = _shade(face(8, 8), _ISO_SHADE["right"])  # the face itself
-
-    s = max(1, int(zoom))
-    W, H = 16 * s, 12 * s
-    cube = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-
-    # Dest->source affine inverses. Source (u,v) in 0..8; screen:
-    #   top:   X = s(u - v + 8), Y = s(u + v)/2
-    #   left:  X = s u,           Y = s(u/2 + v + 4)
-    #   right: X = s(u + 8),      Y = s(-u/2 + v + 8)
-    top_t = top.transform(
-        (W, H), Image.AFFINE,
-        (0.5 / s, -0.5 / s, 4.0, 0.5 / s, 0.5 / s, 0.0),
-        resample=Image.NEAREST, fillcolor=(0, 0, 0, 0))
-    left_t = left.transform(
-        (W, H), Image.AFFINE,
-        (1.0 / s, 0.0, 0.0, -0.5 / s, 1.0 / s, 4.0),
-        resample=Image.NEAREST, fillcolor=(0, 0, 0, 0))
-    right_t = right.transform(
-        (W, H), Image.AFFINE,
-        (1.0 / s, 0.0, -8.0, 0.5 / s, 1.0 / s, 8.0),
-        resample=Image.NEAREST, fillcolor=(0, 0, 0, 0))
-
-    for layer in (left_t, right_t, top_t):
-        cube.alpha_composite(layer)
-
-    if pad:
-        pw, ph = W + 2 * pad, H + 2 * pad
-        padded = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
-        padded.paste(cube, (pad, pad), cube)
-        cube = padded
-    cube.save(out_path)
-    return out_path
-
-
 def set_hat(cfg, hat_id: str | None) -> None:
     """Wear/remove a hat and re-sync the composed skin through the existing
     CustomSkinLoader pipeline. Mirrors set_active_skin()'s sync-then-save
@@ -499,51 +411,39 @@ def set_hat(cfg, hat_id: str | None) -> None:
     save_config(cfg)
 
 
-def render_hat_preview(hat_id, cfg, out_path: str, scale: int = 10) -> str | None:
-    """Renders a hat thumbnail as a 3D isometric head cube wearing the hat
-    (see render_head_isometric). `scale` is the lattice zoom. Falls back to
-    bare when the hat id is unknown."""
-    if not get_hat(hat_id):
+def render_hat_preview(hat_id, cfg, out_path: str, scale: int = 6) -> str | None:
+    """Renders a hat thumbnail as an unfolded head: the head's TOP face
+    stacked above its FRONT face, both with the hat layer composited on.
+    (Front alone would hide tall hats entirely - a top hat's cylinder lives
+    on the top face.) Nearest-neighbour scaling keeps the pixels crisp."""
+    template = hat_template(hat_id)
+    if not template:
         return None
-    return render_head_isometric(cfg, out_path, hat_id=hat_id, zoom=scale)
+    base = _base_skin_for(cfg)
+
+    # The hat template mirrors the head's own face layout 1:1 (right/front/
+    # left/back at the same local coordinates, shifted +32x on the sheet),
+    # so a base face and its hat face share crop coordinates.
+    def layered(ox, oy):
+        piece = base.crop((ox, oy, ox + 8, oy + 8)).copy()
+        piece.alpha_composite(template.crop((ox, oy, ox + 8, oy + 8)))
+        return piece
+
+    top = layered(8, 0)     # head top
+    front = layered(8, 8)   # face
+
+    canvas = Image.new("RGBA", (8, 16), (0, 0, 0, 0))
+    canvas.paste(top, (0, 0), top)
+    canvas.paste(front, (0, 8), front)
+    canvas = canvas.resize((8 * scale, 16 * scale), Image.NEAREST)
+    canvas.save(out_path)
+    return out_path
 
 
 def preview_composed_body(cfg, out_path: str, scale: int = 8) -> str | None:
-    """Preview of exactly what would be in-game right now (active skin +
-    hat): the body in its flat front view with the head drawn as a 3D
-    isometric cube (see render_head_isometric) - hats read as they will
-    in-game: on a head, seen from an angle, shaded. The flat head the body
-    renderer would draw is replaced by the cube (body starts right under
-    it), so there's no doubled head."""
+    """Full-body preview of exactly what would be in-game right now
+    (active skin + hat), via the regular body renderer."""
+    path = os.path.join(SKINS_DIR, "_cosmetic_preview.png")
+    compose_skin_with_hat(cfg).save(path)
     from . import skins
-    body_path = os.path.join(SKINS_DIR, "_cosmetic_preview.png")
-    compose_skin_with_hat(cfg).save(body_path)
-    flat = skins.render_local_skin_preview("_cosmetic_preview.png",
-                                           out_path, scale)
-    body = Image.open(flat).convert("RGBA")
-    bw, bh = body.size
-    # The flat renderer draws the head as a 24px-wide, 24px-tall block at
-    # factor 3 scaled by scale//3, centered horizontally, rows 0..24*(scale//3).
-    f = max(1, scale // 3)
-    head_px = 24 * f                     # flat head size in output px
-    # Erase the flat head (its full band, incl. hat layer already in it).
-    body.paste((0, 0, 0, 0), (bw // 2 - head_px // 2, 0,
-                              bw // 2 + head_px // 2, head_px))
-    # Draw the iso cube scaled to a bit wider than the flat head was, and
-    # extend the canvas upward for hat headroom (tall hats need space).
-    cube = render_head_isometric(cfg, os.path.join(SKINS_DIR, "_iso_tmp.png"),
-                                 hat_id=None, zoom=max(2, f))
-    if cube is None:
-        body.save(out_path)
-        return out_path
-    cube_img = Image.open(cube)
-    target_w = min(bw, int(head_px * 1.5))
-    ratio = target_w / cube_img.width
-    target_h = int(cube_img.height * ratio)
-    cube_img = cube_img.resize((target_w, target_h), Image.NEAREST)
-    headroom = max(0, target_h - head_px)
-    canvas = Image.new("RGBA", (bw, bh + headroom), (0, 0, 0, 0))
-    canvas.paste(body, (0, headroom), body)
-    canvas.alpha_composite(cube_img, ((bw - target_w) // 2, 0))
-    canvas.save(out_path)
-    return out_path
+    return skins.render_local_skin_preview("_cosmetic_preview.png", out_path, scale)

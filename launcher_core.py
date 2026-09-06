@@ -110,7 +110,6 @@ from cubeon.capes import (
 from cubeon.cosmetics import (
     list_hats, set_hat, apply_hat_layer, compose_skin_with_hat,
     render_hat_preview, preview_composed_body, hat_requirement, hat_unlocked,
-    render_head_isometric,
 )
 
 # --- milestones (earnable hats; see cubeon/milestones.py for the KV budget) ---

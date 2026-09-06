@@ -385,12 +385,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
         def tile(label, hat_id, preview_src=None, locked=False):
             selected = (worn or None) == hat_id
-            # 3D isometric head cube thumbnails (render_hat_preview ->
-            # render_head_isometric); roughly square, ~1.33:1 tall.
-            img = (ft.Image(src=preview_src, width=80, height=70,
-                            fit=ft.BoxFit.CONTAIN)
+            img = (ft.Image(src=preview_src, width=48, height=96, fit=ft.BoxFit.CONTAIN)
                    if preview_src else
-                   ft.Container(width=80, height=70, alignment=ft.Alignment.CENTER,
+                   ft.Container(width=48, height=96, alignment=ft.Alignment.CENTER,
                                 content=ft.Icon(ft.Icons.NO_MEETING_ROOM_OUTLINED,
                                                 color=TEXT_DIM, size=26)))
             if locked:
@@ -403,7 +400,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                          color=TEXT_DIM, size=16),
                          bgcolor=SURFACE_MAX, border_radius=99,
                          padding=2, right=0, bottom=0)],
-                    width=84, height=70)
+                    width=52, height=96)
             content = ft.Column(
                 [
                     img,
@@ -441,7 +438,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             out_path = os.path.join(core.SKINS_DIR, f"_hat_{h['id']}.png")
             src = None
             try:
-                core.render_hat_preview(h["id"], cfg, out_path, scale=10)
+                core.render_hat_preview(h["id"], cfg, out_path, scale=6)
                 with open(out_path, "rb") as f:
                     src = base64.b64encode(f.read()).decode("ascii")
             except Exception:
