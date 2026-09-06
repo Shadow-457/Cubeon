@@ -260,12 +260,19 @@ def refresh(control) -> None:
         running = asyncio.get_running_loop()
     except RuntimeError:
         running = None
-    loop = _loops.get(id(control.page)) if hasattr(control, "page") else None
+    # Flet 0.86: `control.page` is a property that RAISES RuntimeError for
+    # unmounted controls (hasattr() doesn't catch it - the attribute exists).
+    # The lazy-built tabs repaint their lists before the tab body is ever
+    # mounted, so this is a normal path, not an error.
+    try:
+        loop = _loops.get(id(control.page))
+    except Exception:
+        loop = None
     if loop is None:
-        # No loop known for this page yet (or a detached control): best-effort
-        # direct call. For a control with no page, Flet's update() is a no-op
-        # anyway; for the pre-install window we're on the loop thread by
-        # definition, so the direct call is the correct fast path.
+        # No loop known for this page (detached/unmounted control, or no
+        # install() yet): try a direct control.update(). For an unmounted
+        # control Flet's update() is a no-op; when install() hasn't run we
+        # are on the loop thread by definition, so direct is correct.
         _refresh_now(control)
         return
     if running is loop:
@@ -287,6 +294,14 @@ def _refresh_now(control) -> None:
                 _t0 = time.perf_counter()
                 control.update()
                 _perf_add(site, time.perf_counter() - _t0)
+    except RuntimeError as ex:
+        # Expected in one spot: the control isn't mounted yet (lazy-built
+        # tabs repaint their lists before the tab body's first visit mounts
+        # them). Not an error - Flet sends the control's full state when
+        # it's mounted, so nothing is lost. Quietly skip.
+        if "must be added to the page" not in str(ex):
+            log.debug("refresh(%s) failed; skipped", type(control).__name__,
+                      exc_info=True)
     except Exception:
         # Same contract as the page path: never kill a thread over a
         # repaint. A failed patch was never sent, so the tree is intact;

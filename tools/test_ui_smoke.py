@@ -363,5 +363,70 @@ check("public builds can't crash on friends presence (guarded set_version)",
       _re.search(r"if friends_service is not None:\s*\n\s*friends_service\.set_version\(", _src) is not None,
       "main.py must guard the launch-time set_version call")
 
+# --- full lazy-tab dispatch path: clicking Mods must not raise ----------------
+# The 2026-09-07 user crash: clicking Mods ran switch_tab -> _ensure_tab ->
+# lazy _build_mods_tab -> refresh_mods_list -> refresh(mods_list_view), and
+# Flet 0.86's `control.page` property RAISED RuntimeError because the freshly
+# built list was not yet mounted (FakePage never mounts anything, same state).
+# The click handler must survive; drive the REAL sidebar button.
+print("\n8. the Mods nav click runs the lazy build + repaint without raising")
+_mods_click = None
+for _c in walk(page.controls[0]):
+    _oc = getattr(_c, "on_click", None)
+    if _oc is None:
+        continue
+    try:
+        # switch_tab's nav handler is `lambda e, k=key: switch_tab(k)`: the
+        # tab key is bound as a DEFAULT ARG, so it lives in __defaults__,
+        # not in the closure or co_consts.
+        if "mods" in (getattr(_oc, "__defaults__", None) or ()):
+            _mods_click = _oc
+            break
+    except Exception:
+        pass
+check("found the Mods nav button in the built tree", _mods_click is not None)
+if _mods_click is not None:
+    try:
+        _mods_click(None)
+        _clicked_ok = True
+        _click_err = ""
+    except Exception as _ex:
+        _clicked_ok = False
+        _click_err = f"{type(_ex).__name__}: {_ex}"
+    check("clicking Mods (lazy build + refresh_mods_list) doesn't raise",
+          _clicked_ok, _click_err)
+
+
+# --- refresh() on an UNMOUNTED control must not raise -----------------------
+# Real crash (2026-09-07): the lazy-built Mods tab's refresh_mods_list()
+# called thread_safe_ui.refresh(mods_list_view) before the tab was ever
+# mounted; Flet 0.86's `control.page` property RAISES RuntimeError for
+# unmounted controls (hasattr doesn't catch that), and the exception tore
+# down the sidebar's on_click handler. refresh() must swallow it.
+import threading as _threading
+import flet as _ft
+from cubeon import thread_safe_ui as _tsui
+
+class _Unmounted(_ft.Column):
+    """A control that was never added to any page - .page raises."""
+
+_unm = _Unmounted()
+_raised = []
+try:
+    _tsui.refresh(_unm)
+except Exception as _ex:
+    _raised.append(_ex)
+check("refresh() tolerates unmounted controls", not _raised,
+      f"raised {_raised[0]!r}" if _raised else "")
+
+# And a mounted-but-unknown-page control (install() never ran for it)
+# goes through the direct path without raising either.
+try:
+    _tsui.refresh(_ft.Text("never added"))
+    _ok_direct = True
+except Exception as _ex:
+    _ok_direct = False
+check("refresh() direct path safe for detached controls", _ok_direct)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

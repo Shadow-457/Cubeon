@@ -13,6 +13,7 @@ The code uses Flet for UI and relies on launcher_core.py for backend logic
 
 # Standard library imports
 import os          # For file path/mtime handling (used for avatar cache-busting)
+import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
 import re          # For regular expressions (used to clean mod slugs and parse version strings)
 import sys         # For runtime platform detection and PyInstaller bundle paths
 import threading   # For running long tasks (e.g., network calls, game launch) without freezing the UI
@@ -3884,6 +3885,62 @@ def main(page: ft.Page):
 
 # This is the standard Python entry point - when the script is run directly, start the Flet app.
 if __name__ == "__main__":
+    # Silence GTK's accessibility bridge on the flet client. It fails to
+    # plug into AT-SPI on KDE/X11 and prints
+    #   (flet:N): Atk-CRITICAL **: atk_socket_embed: assertion 'plug_id != NULL' failed
+    # on nearly every launch - including perfectly working ones. Pure noise;
+    # NO_AT_BRIDGE stops GTK from loading the broken bridge at all. Set
+    # BEFORE ft.run() so the client inherits it (flet passes os.environ
+    # to the client process).
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("NO_AT_BRIDGE", "1")
+
+    # The atk-bridge env alone doesn't stop the flet client's GTK a11y
+    # socket from printing
+    #   Atk-CRITICAL **: atk_socket_embed: assertion 'plug_id != NULL'
+    # to inherited stderr on every launch (a KDE/X11 cosmetic - the socket
+    # has no atk-bridge to plug into; the window works fine). The client's
+    # stderr is inherited, so we wrap flet_desktop's spawn just enough to
+    # stream it through a drop-filter: everything that isn't that one
+    # known-harmless line still reaches the log. Restored to the real
+    # stream so genuine client errors (GL timeouts, engine failures)
+    # keep arriving.
+    import flet_desktop as _flet_desktop
+    _real_open_view_async = _flet_desktop.open_flet_view_async
+    _ATK_NOISE = re.compile(
+        r"Atk-CRITICAL|atk_socket_embed|plug_id != NULL")
+
+    async def _filtered_open_flet_view_async(page_url, assets_dir, hidden):
+        args, flet_env, pid_file = \
+            _flet_desktop.__locate_and_unpack_flet_view(
+                page_url, assets_dir, hidden)
+        proc = await asyncio.create_subprocess_exec(
+            args[0], *args[1:], env=flet_env,
+            stdout=sys.__stdout__,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        async def _filter_stderr():
+            # Async pipe: must be read with await readline() (a sync read
+            # here leaves the coroutine un-awaited and eats ALL client
+            # stderr instead of filtering it).
+            try:
+                while True:
+                    raw = await proc.stderr.readline()
+                    if not raw:
+                        break
+                    line = raw.decode("utf-8", "replace")
+                    if _ATK_NOISE.search(line):
+                        continue
+                    sys.__stderr__.write(line)
+            except Exception:
+                pass
+
+        asyncio.get_running_loop().create_task(_filter_stderr())
+        return proc, pid_file
+
+    _flet_desktop.open_flet_view_async = _filtered_open_flet_view_async
+
     # assets_dir tells Flet where "..." src paths (window icon, sidebar
     # logo) resolve to on disk. Paths in src= are relative to this folder
     # itself - e.g. src="icon.svg" resolves to assets/icon.svg on disk.

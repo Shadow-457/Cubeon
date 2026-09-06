@@ -19,6 +19,13 @@ wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 - The flet client may SIGSEGV in libgallium (Mesa 26.1/AMD Polaris; both hw
   and llvmpipe; ~50% flaky). main.py's `__main__` retry loop handles it:
   pre-paint death → `use_software_gl` marker + relaunch (2 retries).
+- The flet client prints one `Atk-CRITICAL **: atk_socket_embed: assertion
+  'plug_id != NULL'` line to inherited stderr on every launch (KDE/X11;
+  GTK a11y socket with no atk-bridge). Harmless. `NO_AT_BRIDGE=1` does
+  NOT stop it, and the env can't be fixed — main.py instead wraps
+  `flet_desktop.open_flet_view_async` to pipe the client's stderr through
+  a drop-filter (async `readline`; a SYNC read on the asyncio pipe eats
+  ALL client stderr — verified). Non-matching lines still reach the log.
 - After the retry loop: `os._exit(0)` — GLib/pango native threads can hang
   interpreter shutdown.
 - System tray = `cubeon/tray.py` (pystray, optional dep, icon-only while
@@ -38,6 +45,13 @@ wins — but fix this file too. Durable facts belong HERE, not in diary notes.
   newer than `session_ended_at - 5.0`. NEVER blind-clear the reopen/quit
   events — that silently drops every fast Open click made during window
   teardown.
+- **`control.page` RAISES `RuntimeError` on unmounted controls** (Flet
+  0.86, `base_control.py` — it walks `.parent` and raises "Control must
+  be added to the page first"). `hasattr(ctrl, "page")` returns True (the
+  property exists), so it catches nothing. Any generic repaint helper
+  must wrap the `.page` read in try/except. Flet sends a control's full
+  state when it's mounted, so pre-mount mutations are NOT lost by
+  skipping the repaint. Verified 2026-09-07 (Mods-tab click crash).
 - The launched game gets its own session + real log file
   (`~/.cubeon_launcher/game.log`, `start_new_session=True`, stdin
   /dev/null) so it SURVIVES launcher exit/terminal close. Don't
