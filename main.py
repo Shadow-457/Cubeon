@@ -1071,29 +1071,26 @@ def main(page: ft.Page):
         yet" - every segment is shown at full opacity with no dot, since we
         don't yet know better and shouldn't guess.
 
-        Once the selected version is already installed, the loader choice is
-        locked in (see refresh_loader_support / on_loader_toggle_change) - all
-        non-selected segments are dimmed to make clear they can't be picked."""
-        version_id = version_dropdown.value
-        locked = bool(version_id and version_id in state["installed"])
+        Dimming rule (one rule, no special cases): a segment is dimmed ONLY
+        when it's actually unusable - either the loader isn't supported for
+        this version, or it's unsupported-and-uninstalled. A version being
+        installed does NOT dim the other segments: the switcher stays
+        clickable (on_loader_toggle_change allows switching loaders for an
+        installed version - it just re-launches under that loader), so
+        painting them as if disabled made the whole pill look broken.
+        Selected segment always reads bright on the thumb."""
         for i, lid in enumerate(LOADER_IDS):
             label = loader_segment_labels[i]
             dot = loader_segment_dots[i]
             is_selected = (i == loader_toggle.selected_index)
-            # Selected = bright green on the deep-green thumb; the rest stay
-            # at readable dim text instead of vanishing.
             base_color = ACCENT_HI if is_selected else TEXT_DIM
+            label.color = base_color
             if support is None or lid == "vanilla":
-                label.color = base_color
-                label.opacity = 1 if (not locked or is_selected) else 0.45
+                label.opacity = 1
                 dot.bgcolor = ft.Colors.with_opacity(0, ACCENT)
                 continue
             supported, installed = support.get(lid, (True, False))
-            label.color = base_color
-            if locked:
-                label.opacity = 1 if is_selected else 0.45
-            else:
-                label.opacity = 1 if supported else 0.45
+            label.opacity = 1 if (supported or installed) else 0.45
             # Green dot = already installed for this version, so switching
             # to it will jump straight to Play instead of downloading.
             dot_color = ACCENT if is_selected else ACCENT_DIM
@@ -1108,11 +1105,14 @@ def main(page: ft.Page):
 
         The loader is only a choice at install time: once version_id is
         already installed, we detect which loader (if any) it was installed
-        with, lock the switcher to that, and disable it outright - switching
-        loaders on an existing install would silently reinstall/relaunch
-        under a different loader, which is surprising and not what "install"
-        means here. For a not-yet-installed version, the switcher stays free
-        to pick from."""
+        with, snap the switcher to it. For a not-yet-installed version, the
+        switcher stays free to pick from.
+
+        The four network checks run in PARALLEL (one thread per loader):
+        serially they take ~4s of "Checking..." with the toggle disabled,
+        which read as the launcher being stuck. In parallel the whole check
+        is as fast as the slowest loader (~1-2s), and repeats are served
+        from the session cache instantly."""
         if not version_id:
             style_loader_segments(None)
             loader_status_text.visible = False
@@ -1137,23 +1137,54 @@ def main(page: ft.Page):
         loader_status_text.visible = True
         page.update()
 
+        # Loader support/installed checks key off the numeric MC version, not
+        # the raw dropdown id: when the selection is a loader-install row
+        # ("fabric-loader-0.19.3-1.21.1"), the raw id would make every
+        # installed-loader lookup miss and every support check answer
+        # "unsupported" (same trap the launch path documents for itself).
+        base_version = core.extract_mc_version(version_id) or version_id
+
         def worker():
-            support = {}
-            for lid in LOADER_IDS:
-                if lid == "vanilla":
-                    continue
+            support: dict[str, tuple[bool, bool]] = {}
+            results: dict[str, bool] = {}
+            lock = threading.Lock()
+
+            def check(lid):
                 try:
-                    supported = core.is_loader_supported(lid, version_id)
+                    supported = core.is_loader_supported(lid, base_version)
                 except Exception:
                     supported = False
-                installed = bool(core.find_installed_loader_version(state["installed"], lid, version_id))
-                support[lid] = (supported, installed)
-            loader_check_cache[version_id] = support
+                with lock:
+                    results[lid] = supported
+
+            threads = [threading.Thread(target=check, args=(lid,), daemon=True)
+                       for lid in LOADER_IDS if lid != "vanilla"]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
             # If the user already moved on to a different version while this
             # was running, don't paint stale results over the new selection.
-            if version_dropdown.value != version_id:
+            # The cache is still written: the results are true for this
+            # version regardless of what's selected now, and a later
+            # re-selection gets them for free.
+            stale = version_dropdown.value != version_id
+            if stale:
+                with lock:
+                    loader_check_cache[version_id] = {
+                        lid: (results.get(lid, False),
+                              bool(core.find_installed_loader_version(state["installed"], lid, base_version)))
+                        for lid in LOADER_IDS if lid != "vanilla"
+                    }
                 return
+
+            support = {
+                lid: (results.get(lid, False),
+                      bool(core.find_installed_loader_version(state["installed"], lid, base_version)))
+                for lid in LOADER_IDS if lid != "vanilla"
+            }
+            loader_check_cache[version_id] = support
 
             loader_status_text.visible = False
             if already_installed:
@@ -1189,9 +1220,10 @@ def main(page: ft.Page):
 
     def lock_loader_to_installed(version_id, support):
         """For a version that's already installed, figure out which loader
-        (if any) it was installed with, snap the switcher to it, and disable
-        the switcher so it can't be changed after the fact. Mod loader choice
-        only happens at install time - see refresh_loader_support."""
+        (if any) it was installed with and snap the switcher to it. The
+        switcher stays clickable (the handler allows a switch to Vanilla and
+        a re-switch): only the SELECTION is pinned to the install truth, not
+        the whole control. See on_loader_toggle_change."""
         # Prefer the loader that's already selected when it's genuinely
         # installed for this version. A version can have more than one loader
         # installed at once (e.g. a modpack's Fabric install plus a manual
@@ -1220,7 +1252,7 @@ def main(page: ft.Page):
         if detected in LOADER_IDS:
             loader_toggle.selected_index = LOADER_IDS.index(detected)
         else:
-            # Fallback: keep the switcher on the first option and disabled.
+            # Fallback: keep the switcher on the first option.
             loader_toggle.selected_index = 0
         state["mod_loader"] = detected
         # Keep the switcher clickable: the handler allows a one-way switch
@@ -1237,22 +1269,42 @@ def main(page: ft.Page):
         version_id = version_dropdown.value
         new_loader = LOADER_IDS[idx] if 0 <= idx < len(LOADER_IDS) else LOADER_IDS[0]
         if version_id and version_id in state["installed"]:
-            # Loader is locked in once a version is installed - a mod loader
-            # can't be swapped after the fact (packs key off it). Switching
-            # BACK to vanilla is always allowed though: the plain version id
-            # is already on disk, no install is needed, and the launch just
-            # skips the mods folder.
-            if new_loader == "vanilla" and state["mod_loader"] != "vanilla":
-                state["mod_loader"] = "vanilla"
-                loader_status_text.value = "Switched to Vanilla - mods won't load for this version."
-                loader_status_text.visible = True
-                style_loader_segments(loader_check_cache.get(version_id))
+            # The loader choice was made at install time, but the switcher
+            # isn't a trap: Vanilla is always allowed (the plain version is
+            # on disk; launching it just skips the mods folder), and so is
+            # any loader that's actually INSTALLED for this version (the
+            # launch finds it and plays it - no reinstall). Only a loader
+            # that would have to be installed fresh is blocked, and with a
+            # message - the old code silently snapped the pill back, which
+            # read as the control being broken.
+            if new_loader == "vanilla":
+                if state["mod_loader"] != "vanilla":
+                    state["mod_loader"] = "vanilla"
+                    loader_status_text.value = "Switched to Vanilla - mods won't load for this version."
+                    loader_status_text.visible = True
+                    style_loader_segments(loader_check_cache.get(version_id))
+                    refresh_mods_list()
+                    on_version_selected()
+                    page.update()
+                return
+            cached_support = loader_check_cache.get(version_id)
+            installed_loader = core.find_installed_loader_version(
+                state["installed"], new_loader,
+                core.extract_mc_version(version_id) or version_id)
+            if installed_loader:
+                state["mod_loader"] = new_loader
+                loader_status_text.visible = False
+                style_loader_segments(cached_support)
                 refresh_mods_list()
                 on_version_selected()
+                update_hero()
                 page.update()
                 return
             loader_toggle.selected_index = max(0, LOADER_IDS.index(state["mod_loader"])) \
                 if state["mod_loader"] in LOADER_IDS else 0
+            loader_status_text.value = (f"{core.SUPPORTED_LOADERS[new_loader]} isn't installed "
+                                        f"for this version - pick it before installing.")
+            loader_status_text.visible = True
             page.update()
             return
         cached = loader_check_cache.get(version_id) if version_id else None
