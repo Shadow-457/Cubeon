@@ -230,6 +230,19 @@ try:
 except Exception as ex:
     check("build_skin_section accepts **THEME", False, f"{type(ex).__name__}: {ex}")
 
+# Earnable hats: the cosmetics row must build with locked tiles present and
+# must never call page.update() during the build (refresh()/page plumbing is
+# exercised elsewhere; this pins "locked rendering doesn't crash headless").
+try:
+    import cubeon.milestones as _mile
+    _mile.load_state()
+    _sec_txt = " | ".join(all_text(section))
+    check("hat row renders earnable hat names",
+          "veteran" in _sec_txt and "party" in _sec_txt, _sec_txt[:200])
+except Exception as ex:
+    check("hat row renders earnable hat names", False,
+          f"{type(ex).__name__}: {ex}")
+
 check("DANGER is a required argument, not a drifting default",
       "DANGER" not in (build_skin_section.__defaults__ or ()) and
       "#e05555" not in str(build_skin_section.__kwdefaults__ or {}),

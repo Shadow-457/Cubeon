@@ -159,6 +159,85 @@ def _hat_straw(t):
     _band(t, 8, 9, red)                        # hat band
 
 
+def _hat_veteran(t):
+    # Earned at 10 hours played. A weathered explorer's cap with a compass
+    # rose pin on the front: olive felt, stitched band, brass button.
+    olive, dark, brass = (96, 108, 56, 255), (70, 80, 42, 255), (196, 154, 74, 255)
+    _band(t, 8, 11, olive)                     # dome sides
+    _band(t, 11, 12, dark)                     # stitched brim
+    fx, fy = FACE_TOP
+    _rect(t, fx + 1, fy + 1, fx + 7, fy + 7, olive)
+    _rgba(t, fx + 3, fy + 3, dark)             # leather patch on top
+    # Compass rose: brass plus-sign with a dark nub.
+    cx, cy = FACE_FRONT[0] + 4, FACE_FRONT[1] + 2
+    _rgba(t, cx, cy - 1, brass); _rgba(t, cx, cy + 1, brass)
+    _rgba(t, cx - 1, cy, brass); _rgba(t, cx + 1, cy, brass)
+    _rgba(t, cx, cy, dark)
+
+
+def _hat_party(t):
+    # Earned at 3 friends. A bright party hat with confetti dots and a
+    # pompom tip: the classic cone, magenta with cyan/yellow sprinkles.
+    magenta, deep, cyan, yellow = (211, 47, 132, 255), (150, 30, 92, 255), \
+        (66, 205, 219, 255), (250, 214, 90, 255)
+    # Cone that tapers toward the crown: full band at the eyes, one pixel
+    # narrower one row up, single column of pompom above the front face.
+    _band(t, 11, 12, deep)                     # brim
+    _band(t, 10, 11, magenta)
+    for fx, fy in SIDE_FACES:
+        _rgba(t, fx + 1, fy + 2, magenta)
+        _rgba(t, fx + 6, fy + 2, magenta)
+    # Confetti sprinkles, same pattern on every face so it reads from any
+    # angle at 8px.
+    for fx, fy in SIDE_FACES:
+        _rgba(t, fx + 2, fy + 0, cyan)
+        _rgba(t, fx + 5, fy + 0, yellow)
+    fx, fy = FACE_TOP
+    _rect(t, fx + 3, fy + 3, fx + 5, fy + 5, magenta)
+    _rgba(t, fx + 4, fy + 4, yellow)           # pompom on top
+
+
+def _hat_host(t):
+    # Earned by hosting a world/server. A broadcaster's headset-mic: dark
+    # band, ear cups, and a boom arm reaching around the front to the mouth.
+    dark, pad, silver = (32, 34, 40, 255), (94, 106, 120, 255), (176, 182, 190, 255)
+    fx, fy = FACE_TOP
+    for i in range(8):                         # band over the head
+        _rgba(t, fx + i, fy, dark)
+        _rgba(t, fx + i, fy + 7, dark)
+        _rgba(t, fx, fy + i, dark)
+        _rgba(t, fx + 7, fy + i, dark)
+    # Ear cups.
+    rx, ry = FACE_RIGHT
+    _rect(t, rx + 5, ry + 2, rx + 8, ry + 6, dark)
+    _rect(t, rx + 6, ry + 3, rx + 7, ry + 5, pad)
+    lx, ly = FACE_LEFT
+    _rect(t, lx, ly + 2, lx + 3, ly + 6, dark)
+    _rect(t, lx + 1, ly + 3, lx + 2, ly + 5, pad)
+    # Boom arm: from the right ear cup around the front to a mic dot by
+    # the mouth (front face, low-left).
+    frx, fry = FACE_FRONT
+    _rgba(t, frx + 0, fry + 5, silver)
+    _rgba(t, frx + 1, fry + 5, silver)
+    _rgba(t, frx + 2, fry + 5, silver)
+    _rgba(t, frx + 2, fry + 4, dark)           # mic capsule
+
+
+def _hat_founder(t):
+    # Early-adopter hat: a laurel-wreath circlet in gold. Just the band
+    # (no tall crown) so it reads as "medal for the head" at a glance.
+    gold, light = (232, 178, 60, 255), (246, 210, 110, 255)
+    _band(t, 10, 11, gold)                     # circlet
+    # Leaves: alternating light/dark ticks above the band, all around.
+    for fx, fy in SIDE_FACES:
+        for lx in range(0, 8, 2):
+            _rgba(t, fx + lx, fy + 0, light)
+            _rgba(t, fx + lx + 1, fy + 0, gold)
+    fx, fy = FACE_FRONT
+    _rgba(t, fx + 3, fy + 0, light)            # a small crest on the front
+    _rgba(t, fx + 4, fy + 0, light)
+
+
 HATS = [
     {"id": "tophat", "name": "Top Hat", "draw": _hat_top_hat},
     {"id": "cap", "name": "Cap", "draw": _hat_cap},
@@ -168,12 +247,42 @@ HATS = [
     {"id": "headphones", "name": "Headphones", "draw": _hat_headphones},
     {"id": "santa", "name": "Santa", "draw": _hat_santa},
     {"id": "straw", "name": "Straw Hat", "draw": _hat_straw},
+    # Earnable hats - unlock conditions live in cubeon/milestones.py and
+    # set_hat() refuses to wear a locked one. "require" is the milestone id.
+    {"id": "veteran", "name": "Veteran's Cap", "draw": _hat_veteran,
+     "require": "veteran"},
+    {"id": "party", "name": "Party Hat", "draw": _hat_party,
+     "require": "party"},
+    {"id": "host", "name": "Host Headset", "draw": _hat_host,
+     "require": "host"},
+    {"id": "founder", "name": "Founder Laurel", "draw": _hat_founder,
+     "require": "founder"},
 ]
 
 
 def list_hats():
-    """Catalogue for the UI: [{id, name}]."""
-    return [{"id": h["id"], "name": h["name"]} for h in HATS]
+    """Catalogue for the UI: [{id, name, require?}]. Earnable hats carry
+    their milestone id so the UI can render lock state + progress."""
+    return [{"id": h["id"], "name": h["name"],
+             **({"require": h["require"]} if h.get("require") else {})}
+            for h in HATS]
+
+
+def hat_requirement(hat_id):
+    """The milestone id gating a hat, or None when it's freely wearable."""
+    hat = get_hat(hat_id)
+    return hat.get("require") if hat else None
+
+
+def hat_unlocked(hat_id) -> bool:
+    """Whether an earnable hat's milestone is met (trivially True for
+    freely-wearable hats). Import lives inside so the cosmetics module
+    stays importable without the milestones state (tests, previews)."""
+    req = hat_requirement(hat_id)
+    if req is None:
+        return True
+    from . import milestones
+    return milestones.is_unlocked(req)
 
 
 def get_hat(hat_id):
@@ -273,6 +382,10 @@ def compose_skin_with_hat(cfg) -> Image.Image:
     img = _base_skin_for(cfg)
     hat_id = cfg.get("cosmetic_hat")
     if hat_id and get_hat(hat_id):
+        # If a worn hat somehow lost its unlock locally (state file deleted
+        # before the Worker restore ran), still render it: the unlock was
+        # earned, stripping it mid-session helps nobody. set_hat() is the
+        # enforcement point for NEW wear requests.
         img = apply_hat_layer(img, hat_id)
     return img
 
@@ -284,9 +397,13 @@ def compose_skin_with_hat(cfg) -> Image.Image:
 def set_hat(cfg, hat_id: str | None) -> None:
     """Wear/remove a hat and re-sync the composed skin through the existing
     CustomSkinLoader pipeline. Mirrors set_active_skin()'s sync-then-save
-    ordering (the sync records bookkeeping that must land in one save)."""
+    ordering (the sync records bookkeeping that must land in one save).
+    Earnable hats must be unlocked first (cubeon/milestones.py) - wearing
+    a locked one raises, which the UI turns into an "earn it" hint."""
     if hat_id is not None and not get_hat(hat_id):
         raise ValueError(f"Unknown hat: {hat_id}")
+    if hat_id is not None and not hat_unlocked(hat_id):
+        raise PermissionError(f"Locked hat: {hat_id}")
     cfg["cosmetic_hat"] = hat_id
     from . import skins  # lazy: skins imports this module at the top
     skins.sync_local_skin_to_csl(cfg)

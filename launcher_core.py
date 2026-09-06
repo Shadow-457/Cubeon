@@ -109,8 +109,25 @@ from cubeon.capes import (
 # --- cosmetics (pixel hats baked into the skin's hat layer) ---
 from cubeon.cosmetics import (
     list_hats, set_hat, apply_hat_layer, compose_skin_with_hat,
-    render_hat_preview, preview_composed_body,
+    render_hat_preview, preview_composed_body, hat_requirement, hat_unlocked,
 )
+
+# --- milestones (earnable hats; see cubeon/milestones.py for the KV budget) ---
+from cubeon.cosmetics import hat_unlocked as _hat_unlocked  # noqa: F401 (re-export clarity)
+from cubeon.milestones import (
+    MILESTONES as _MILESTONE_TABLE, evaluate as milestones_evaluate,
+    add_play_seconds as milestones_add_play_seconds,
+    add_hosted_session as milestones_add_hosted,
+    note_friends_count as milestones_note_friends,
+)
+
+
+def milestone_name(milestone_id):
+    """Display name of a milestone id (for toasts/console notes)."""
+    for m in _MILESTONE_TABLE:
+        if m["id"] == milestone_id:
+            return m["name"]
+    return milestone_id
 
 # --- CustomSkinLoader setup (auto-install + registering Cubeon's sources) ---
 from cubeon.csl import (

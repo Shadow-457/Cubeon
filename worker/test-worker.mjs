@@ -345,6 +345,71 @@ check("GET /api/heartbeat -> 405", (await get("/api/heartbeat")).status === 405)
 check("GET /api/skin -> 405", (await get("/api/skin")).status === 405);
 check("GET /report -> 405", (await get("/report")).status === 405);
 
+// ------------------------------------------------------- unlocks ledger --
+// The milestone ledger's whole design is KV write-frugality: one write per
+// milestone EVER. POST the set, then re-POST, and count puts. Also pins the
+// merge-only semantics (a leaked secret can't wipe a ledger) and the
+// catalogue validation (garbage ids are dropped, not stored).
+{
+  const UUID_M = randomUUID().toLowerCase();
+  // Claim ownership first (the TOFU owner: write happens on first contact).
+  await post("/api/heartbeat", { username: "MilestoneGal", uuid: UUID_M }, SECRET_A);
+
+  let res = await post("/api/unlocks", { uuid: UUID_M, milestones: ["veteran", "garbage_id"] }, SECRET_A);
+  let body = await res.json();
+  check("unlocks POST accepts known ids, drops garbage",
+    res.status === 200 && body.milestones.includes("veteran")
+      && !body.milestones.includes("garbage_id"));
+
+  const putsAfterFirst = putCount;
+  res = await post("/api/unlocks", { uuid: UUID_M, milestones: ["veteran", "party"] }, SECRET_A);
+  body = await res.json();
+  check("unlocks POST merges (grows the set)",
+    body.milestones.sort().join(",") === "party,veteran", JSON.stringify(body.milestones));
+
+  const putsAfterGrow = putCount;
+  await post("/api/unlocks", { uuid: UUID_M, milestones: ["veteran", "party"] }, SECRET_A);
+  check("re-POST of identical set writes nothing", putCount === putsAfterGrow);
+
+  // A SUBSET post (older launcher, or reinstall mid-restore) must not shrink
+  // the ledger - milestones are append-only.
+  await post("/api/unlocks", { uuid: UUID_M, milestones: ["veteran"] }, SECRET_A);
+  const afterSubset = await (await post("/api/unlocks", { uuid: UUID_M, milestones: [] }, SECRET_A)).json();
+  check("subset POST can't shrink the ledger (append-only)",
+    afterSubset.milestones.sort().join(",") === "party,veteran",
+    JSON.stringify(afterSubset.milestones));
+
+  // Auth: the ledger is player-private.
+  res = await post("/api/unlocks", { uuid: UUID_M, milestones: ["host"] }, SECRET_B);
+  check("unlocks POST with wrong secret -> 403 not_yours",
+    res.status === 403 && (await res.json()).error === "not_yours");
+  res = await post("/api/unlocks", { uuid: UUID_M, milestones: ["host"] });
+  check("unlocks POST without token -> 401", res.status === 401);
+
+  // GET: the same set back, Bearer + query param.
+  res = await get(`/api/unlocks?uuid=${UUID_M}`);
+  check("unlocks GET without token -> 401", res.status === 401);
+  // (get() helper has no header hook - call fetch directly for the auth'd GET)
+  res = await worker.fetch(new Request(`https://test.invalid/api/unlocks?uuid=${UUID_M}`, {
+    headers: { Authorization: `Bearer ${SECRET_A}` },
+  }), env);
+  check("unlocks GET returns the full ledger",
+    res.status === 200 && (await res.json()).milestones.sort().join(",") === "party,veteran");
+  res = await worker.fetch(new Request(`https://test.invalid/api/unlocks?uuid=${UUID_M}`, {
+    headers: { Authorization: `Bearer ${SECRET_B}` },
+  }), env);
+  check("unlocks GET with wrong secret -> 403", res.status === 403);
+
+  // Bad bodies.
+  res = await post("/api/unlocks", { milestones: ["host"] }, SECRET_A);
+  check("unlocks POST missing uuid -> 400", res.status === 400);
+  res = await post("/api/unlocks", { uuid: "not-a-uuid", milestones: [] }, SECRET_A);
+  check("unlocks POST bad uuid -> 400", res.status === 400);
+  check("unlocks DELETE -> 405", (await worker.fetch(
+    new Request("https://test.invalid/api/unlocks", { method: "DELETE" }), env)).status === 405);
+}
+
+
 // ---------------------------------------------------------------- reports --
 // Reporting an uploaded skin records a pending report for a human; it must NOT
 // auto-block (auto-block on report hands any griefer a remote censor button).

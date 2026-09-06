@@ -62,7 +62,11 @@
       "Bash(javap -p -cp /tmp/claude-1000/g26 net.minecraft.client.gui.components.ChatComponent)",
       "Bash(javap -cp /tmp/claude-1000/g26 net.minecraft.client.gui.components.ChatComponent)",
       "Bash(javap -p -cp /tmp/claude-1000/g26 net.minecraft.client.Minecraft)",
-      "Bash(python3 -c \"import cubeon.local_api, cubeon.friends_service; print\\('import OK'\\)\")"
+      "Bash(python3 -c \"import cubeon.local_api, cubeon.friends_service; print\\('import OK'\\)\")",
+      "Bash(python3 -m py_compile main.py cubeon/launch.py cubeon/tray.py)",
+      "Bash(PYSTRAY_BACKEND='' python3 -c ' *)",
+      "Bash(python3 -m py_compile main.py cubeon/thread_safe_ui.py)",
+      "Bash(CUBEON_PERF=1 python3 -c ' *)"
     ]
   }
 }

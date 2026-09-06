@@ -343,9 +343,33 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 return h["name"]
         return hat_id
 
+    def hat_earn_hint(hat_id):
+        """One-line "how to earn this" for a locked hat, with live progress
+        (e.g. '7.4 / 10 hours in game'). Returns '' for unlocked hats."""
+        from cubeon import milestones
+        req = core.hat_requirement(hat_id)
+        if req is None or core.hat_unlocked(hat_id):
+            return ""
+        for m in milestones.MILESTONES:
+            if m["id"] == req:
+                cur, goal = milestones.progress(m)
+                if m["kind"] == "hours_played":
+                    return f"{cur:.1f} / {goal:.0f} hours in game"
+                if m["kind"] == "friends":
+                    return f"{int(cur)} / {int(goal)} friends ({m['desc']})"
+                if m["kind"] == "hosted":
+                    return f"{int(cur)} / {int(goal)} hosted ({m['desc']})"
+                return m["desc"]
+        return "Keep playing to earn this"
+
     def wear_hat(e, hat_id=None):
         try:
             core.set_hat(cfg, hat_id)
+        except PermissionError:
+            hat_status.value = f"Locked - {hat_earn_hint(hat_id)}"
+            refresh_hat_row()
+            page.update()
+            return
         except Exception as ex:
             hat_status.value = f"Couldn't apply hat: {ex}"
             page.update()
@@ -359,15 +383,27 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         hat_row.controls.clear()
         worn = cfg.get("cosmetic_hat")
 
-        def tile(label, hat_id, preview_src=None):
+        def tile(label, hat_id, preview_src=None, locked=False):
             selected = (worn or None) == hat_id
+            img = (ft.Image(src=preview_src, width=48, height=96, fit=ft.BoxFit.CONTAIN)
+                   if preview_src else
+                   ft.Container(width=48, height=96, alignment=ft.Alignment.CENTER,
+                                content=ft.Icon(ft.Icons.NO_MEETING_ROOM_OUTLINED,
+                                                color=TEXT_DIM, size=26)))
+            if locked:
+                # Dim the art and badge it - a locked hat must look locked,
+                # not like a broken tile. The lock glyph overlaps the art.
+                img = ft.Stack(
+                    [img,
+                     ft.Container(
+                         content=ft.Icon(ft.Icons.LOCK_OUTLINED,
+                                         color=TEXT_DIM, size=16),
+                         bgcolor=SURFACE_MAX, border_radius=99,
+                         padding=2, right=0, bottom=0)],
+                    width=52, height=96)
             content = ft.Column(
                 [
-                    (ft.Image(src=preview_src, width=48, height=96, fit=ft.BoxFit.CONTAIN)
-                     if preview_src else
-                     ft.Container(width=48, height=96, alignment=ft.Alignment.CENTER,
-                                  content=ft.Icon(ft.Icons.NO_MEETING_ROOM_OUTLINED,
-                                                  color=TEXT_DIM, size=26))),
+                    img,
                     ft.Text(label, size=11,
                             color=ACCENT if selected else TEXT_DIM,
                             weight=ft.FontWeight.W_600 if selected else ft.FontWeight.W_500,
@@ -375,16 +411,24 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 ],
                 spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True,
             )
+            # Locked tiles carry the earn hint as their tooltip so the
+            # requirement is discoverable on hover without a click that
+            # would just say "locked".
+            container = ft.Container(
+                content,
+                bgcolor=ACCENT_TINT if selected else SURFACE_HI,
+                border=ft.border.Border.all(1, ACCENT if selected else BORDER),
+                border_radius=RADIUS,
+                padding=10,
+                ink=True,
+                on_click=lambda e, h=hat_id: wear_hat(e, h),
+            )
+            if locked:
+                container.tooltip = hat_earn_hint(hat_id) or "Locked"
+                container.bgcolor = SURFACE_HI
+                container.content.controls[1].color = TEXT_DIM
             return attach_hover(
-                ft.Container(
-                    content,
-                    bgcolor=ACCENT_TINT if selected else SURFACE_HI,
-                    border=ft.border.Border.all(1, ACCENT if selected else BORDER),
-                    border_radius=RADIUS,
-                    padding=10,
-                    ink=True,
-                    on_click=lambda e, h=hat_id: wear_hat(e, h),
-                ),
+                container,
                 ACCENT_TINT if selected else SURFACE_HI,
                 ACCENT_TINT_HI if selected else SURFACE_MAX,
             )
@@ -399,7 +443,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     src = base64.b64encode(f.read()).decode("ascii")
             except Exception:
                 pass  # tile falls back to the bare glyph; wearing still works
-            hat_row.controls.append(tile(h["name"], h["id"], src))
+            locked = h.get("require") and not core.hat_unlocked(h["id"])
+            hat_row.controls.append(tile(h["name"], h["id"], src,
+                                         locked=bool(locked)))
 
         if worn:
             hat_status.value = f"Wearing {hat_name(worn)}."
@@ -694,7 +740,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # visible paragraphs - same detail, none of the wall of text.
     def _hat_label_with_note():
         label = section_label("Cosmetics - hat")
-        label.tooltip = "Only you see hats right now - like your skin."
+        label.tooltip = ("Only you see hats right now - like your skin. "
+                         "Hats with a lock are earned by playing - hover one "
+                         "to see how close you are.")
         return label
 
     def _cape_label_with_note():

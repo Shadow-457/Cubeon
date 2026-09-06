@@ -11,6 +11,8 @@
  *   POST /api/heartbeat      {username, uuid}   Bearer -> claim/verify UUID,
  *                                               repoint username at it
  *   POST /api/skin           {uuid, model, skin} Bearer -> publish a sheet
+ *   GET  /api/unlocks        Bearer -> this UUID's earned-milestone ids
+ *   POST /api/unlocks        {uuid, milestones} Bearer -> merge unlocks
  *   GET  /skins/<name>.json  CustomSkinAPI lookup for CustomSkinLoader:
  *                            name -> UUID -> texture id (CSL then fetches
  *                            <root>/skins/textures/<id> for the bytes)
@@ -32,6 +34,13 @@
  *   texture:<sha256>             TEXT  base64 of the PNG
  *   report:<uuid>                JSON  a pending moderation report (self-expiring)
  *   blocked:<uuid>               any   presence = moderation kill-switch
+ *   unlocks:<uuid>               TEXT  comma-joined earned milestone ids
+ *
+ * The unlocks ledger is a single comma-joined string (not per-milestone
+ * keys, no timestamps): a milestone unlock costs exactly ONE write ever -
+ * the merge below only PUTs when the set GREW, so re-posting an identical
+ * set, or a reinstall restoring its ledger from the server, costs zero
+ * writes. Reads are free; the launcher caches them anyway.
  *
  * The plan's `skin:` value is a bare content id; we store {"id","model"} so
  * the CSL payload can put the id under the right key ("default" vs "slim")
@@ -114,6 +123,11 @@ export default {
     if (path === "/api/skin") {
       if (request.method !== "POST") return methodNotAllowed("POST");
       return handleSkinUpload(request, env);
+    }
+    if (path === "/api/unlocks") {
+      if (request.method === "POST") return handleUnlocksPost(request, env);
+      if (request.method === "GET") return handleUnlocksGet(request, env);
+      return methodNotAllowed("GET, POST");
     }
     if (path === "/report") {
       if (request.method !== "POST") return methodNotAllowed("POST");
@@ -382,6 +396,89 @@ async function putSkinRecord(env, uuid, { id, model, face, sheetB64, faceB64 }) 
     ...(face ? { face } : {}),
   });
   return (await putIfChanged(env, `skin:${uuid}`, recordJson)) === "quota";
+}
+
+/**
+ * Earned-milestone ids from the unlocks:<uuid> ledger, as a Set.
+ * The set is validated against the KNOWN_MILESTONES catalogue so a bad
+ * client can't stuff arbitrary strings into the ledger (it's write-once
+ * per id, but garbage ids would still bloat the value and the response).
+ */
+const KNOWN_MILESTONES = new Set(["founder", "veteran", "party", "host"]);
+
+async function readUnlockSet(env, uuid) {
+  const raw = await env.SKINS.get(`unlocks:${uuid}`);
+  if (!raw) return new Set();
+  return new Set(String(raw).split(",").filter((m) => KNOWN_MILESTONES.has(m)));
+}
+
+/**
+ * GET /api/unlocks - the ledger for this UUID, for cross-install restore.
+ * Body: none, Authorization: Bearer <secret>. The secret must own the UUID
+ * (same TOFU check as the write routes - the ledger is player-private).
+ */
+async function handleUnlocksGet(request, env) {
+  const secretHash = await bearerSecretHash(request);
+  if (!secretHash) return problem(401, "missing_or_bad_token");
+
+  const url = new URL(request.url);
+  const uuid = (url.searchParams.get("uuid") || "").toLowerCase();
+  if (!UUID_RE.test(uuid)) return problem(400, "bad_uuid");
+
+  const claimed = await ownsUuid(uuid, secretHash, env);
+  if (claimed === "quota") return problem(429, "kv_write_budget_exhausted");
+  if (!claimed) return problem(403, "not_yours");
+
+  const set = await readUnlockSet(env, uuid);
+  return json({ milestones: [...set].sort() }, "no-store");
+}
+
+/**
+ * POST /api/unlocks - merge the launcher's earned set into the ledger.
+ *
+ * Body (JSON): { uuid, milestones: string[] }, Authorization: Bearer.
+ *
+ * Write discipline (the whole point of this endpoint's shape): the merged
+ * set is PUT only when it GAINED at least one id - i.e. exactly one write
+ * per milestone ever earned by this player. Re-posting the same set, the
+ * reinstall-restore flow, or a fleet of launchers checking in costs zero
+ * writes. Milestones can never be REMOVED through this route (a leaked
+ * secret could grief by wiping a ledger otherwise); the response always
+ * carries the full server-side set so the client can union locally.
+ */
+async function handleUnlocksPost(request, env) {
+  const secretHash = await bearerSecretHash(request);
+  if (!secretHash) return problem(401, "missing_or_bad_token");
+
+  const body = await readJsonLimited(request, MAX_HEARTBEAT_BODY);
+  if (!body) return problem(400, "bad_body");
+
+  const uuid = typeof body.uuid === "string" ? body.uuid.toLowerCase() : "";
+  if (!UUID_RE.test(uuid)) return problem(400, "bad_uuid");
+
+  const incoming = Array.isArray(body.milestones)
+    ? body.milestones.filter((m) => typeof m === "string" && KNOWN_MILESTONES.has(m))
+    : [];
+  if (incoming.length > KNOWN_MILESTONES.size) return problem(400, "bad_milestones");
+
+  const claimed = await ownsUuid(uuid, secretHash, env);
+  if (claimed === "quota") return problem(429, "kv_write_budget_exhausted");
+  if (!claimed) return problem(403, "not_yours");
+
+  const existing = await readUnlockSet(env, uuid);
+  const merged = new Set([...existing, ...incoming]);
+  if (merged.size > existing.size) {
+    // Sort before joining so identical sets always serialize identically -
+    // putIfChanged's byte comparison then keeps idempotent posts at zero
+    // writes regardless of the client's ordering.
+    const put = await putIfChanged(env, `unlocks:${uuid}`, [...merged].sort().join(","));
+    if (put === "quota") {
+      // Ledger couldn't persist, but the local state stands and the next
+      // evaluate() retries - report success-with-current-set, not an error.
+      return json({ milestones: [...existing].sort() }, "no-store");
+    }
+  }
+  return json({ milestones: [...merged].sort() }, "no-store");
 }
 
 /**

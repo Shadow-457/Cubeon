@@ -2045,6 +2045,18 @@ def main(page: ft.Page):
                 # this launch is already over and leave the result alone.
                 with _exit_lock:
                     exited["done"] = True
+                # Milestones: accumulate this session's playtime (clamped
+                # inside) and evaluate unlocks - a fresh Veteran hat shows
+                # as a toast without disturbing the status flow below.
+                try:
+                    core.add_play_seconds(
+                        time.time() - _milestone_launch_started_at)
+                    fresh = core.milestones_evaluate()
+                    if fresh:
+                        for m in fresh:
+                            set_status(f"Unlocked: {core.milestone_name(m)} hat!")
+                except Exception:
+                    pass  # cosmetic - never let it break the exit path
                 # Tell friends this user stopped playing (presence -> online).
                 if friends_service is not None:
                     friends_service.set_version(None)
@@ -2092,6 +2104,10 @@ def main(page: ft.Page):
             # started (see below).
             set_button_mode("running")
             state["running_version"] = version_id  # block deleting it mid-game
+            # Milestones: remember when THIS session started so on_exit can
+            # accumulate honest playtime (the Discord elapsed timer uses its
+            # own clock; this one must be independent of it).
+            _milestone_launch_started_at = time.time()
             page.update()
 
             # If the selected version belongs to an installed modpack, launch
@@ -2749,6 +2765,17 @@ def main(page: ft.Page):
     else:
         friends_client = None
         friends_service = None
+
+    # Milestones: one evaluate() at startup. Counters persist on disk and
+    # the cached roster just re-fed the friend count, so a user who crossed
+    # a threshold yesterday (10h played, 3 friends) sees the hat/toast on
+    # next launch instead of after their NEXT session ends. Purely cosmetic
+    # - guarded so it can never block or break startup.
+    try:
+        for _m in core.milestones_evaluate():
+            set_status(f"Unlocked: {core.milestone_name(_m)} hat!")
+    except Exception:
+        pass
 
     # -----------------------------------------------------------------
     # SETTINGS TAB

@@ -1569,6 +1569,16 @@ class FriendsService:
                             self.client.call_end(p["room"])
                         except Exception:
                             pass
+                    # Milestones: hosting a world for a friend counts toward
+                    # the Host hat once the LAN world was actually reached
+                    # (the same bar the "ended" state uses). Cosmetic - never
+                    # let it break the session teardown.
+                    try:
+                        from . import milestones as _milestones
+                        _milestones.add_hosted_session()
+                        _milestones.evaluate()
+                    except Exception:
+                        pass
                     if p.get("state") == "connected":
                         if returncode in (0, None):
                             p["state"] = "ended"
