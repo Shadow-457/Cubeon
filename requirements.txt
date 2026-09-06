@@ -26,3 +26,7 @@ cryptography>=42.0.0
 # usual source of "pip install failed" reports). Calls ring, connect, and chat
 # without it; to add sound: pip install sounddevice numpy   (see cubeon/voice.py)
 psutil>=5.9.0
+# System-tray icon while the launcher runs (Open/Quit menu). Optional at
+# runtime - cubeon/tray.py degrades to a no-op when missing - but declared
+# so normal installs get the tray. Pure Python; uses PIL for the icon.
+pystray>=0.19
