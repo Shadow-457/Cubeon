@@ -430,6 +430,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         if cfg.get("csl_synced_name") != before:
             save_config(cfg)
 
+        # Same for the active cape - LocalSkin/capes/<USERNAME>.png.
+        from .capes import sync_local_cape_to_csl
+        cape_before = cfg.get("csl_synced_cape_name")
+        sync_local_cape_to_csl(cfg)
+        if cfg.get("csl_synced_cape_name") != cape_before:
+            save_config(cfg)
+
         # Best-effort: never let a skin-mod problem stop the game launching.
         try:
             csl.ensure_ready(

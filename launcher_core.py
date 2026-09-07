@@ -104,7 +104,7 @@ from cubeon.skins import (
 from cubeon.capes import (
     validate_cape_file, list_custom_capes, add_custom_cape, delete_custom_cape,
     get_custom_cape_path, set_active_cape, sync_local_cape_to_csl,
-    render_cape_preview,
+    render_cape_preview, animated_cape_frames,
 )
 
 # --- cosmetics (pixel hats baked into the skin's hat layer) ---

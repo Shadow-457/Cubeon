@@ -175,6 +175,10 @@ class FriendsService:
         # "Ask to join" - the other half of the Play button: instead of hosting,
         # nudge the friend to host for us.
         ("set_askjoin_handler", "ask_join"),
+        # Animated capes: the mod polls GET /cape/frames and animates the local
+        # player's own cape. Reads the launcher's live config, so switching the
+        # active cape (animated or not) takes effect within one idle poll.
+        ("set_capeframes_provider", "cape_frames_payload"),
     )
 
     def __init__(self, cfg: dict, state: dict, client, *, save_config=None):
@@ -1249,6 +1253,15 @@ class FriendsService:
         rep["_reply_event"].set()
         self._sync_render(rep)
         self._changed()
+
+    def cape_frames_payload(self):
+        """GET /cape/frames. The active cape's stored animation for the Cubeon
+        mod, or None when the active cape isn't animated (the API layer turns
+        that into a 204). Reads live config, so it must only touch cheap,
+        thread-safe things: one dict lookup plus capes.animated_cape_frames'
+        single JSON file read."""
+        from . import capes
+        return capes.animated_cape_frames(self.cfg.get("active_cape"))
 
     def sync_payload(self, friend) -> dict:
         """GET /sync?friend=<name>. The report, minus its internals.

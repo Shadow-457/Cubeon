@@ -44,6 +44,9 @@ from test_mod_bridge import find_jdk, _java_version  # noqa: E402
 MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/friends/Json.java",
     "mod/src/main/java/com/cubeon/friends/Bridge.java",
+    # MC-free by design (reflection only): the animated-cape animator. Compiled
+    # here so the reflection glue can't drift from what Bridge hands it.
+    "mod/src/main/java/com/cubeon/friends/AnimatedCape.java",
     "mod/src/main/java/com/cubeon/friends/CubeonFriendsScreen.java",
     "mod/src/main/java/com/cubeon/friends/CubeonFriendsClient.java",
     "mod/src/main/java/com/cubeon/friends/mixin/PauseScreenMixin.java",

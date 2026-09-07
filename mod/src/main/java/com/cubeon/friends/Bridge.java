@@ -494,6 +494,10 @@ public final class Bridge {
         drainEvents();
         refreshChat();
         refreshSync();
+        // Animated capes piggyback on this same poll (idle rate, ~6s). The
+        // call is cheap for the launcher (in-memory frame list) and a no-op
+        // whenever no animated cape is set.
+        AnimatedCape.refresh(this);
     }
 
     /**
@@ -944,6 +948,49 @@ public final class Bridge {
             token = null;
             tokenStamp = -1;
             return false;
+        }
+    }
+
+    /**
+     * The animated-cape answer: base64 PNG frames plus an fps hint, or null
+     * when the launcher is gone, the endpoint is missing (older launcher), or
+     * no animated cape is set. {@code version} changes whenever the launcher's
+     * frame set does, so the animator can skip re-decoding unchanged frames.
+     */
+    public record CapeFrames(List<String> frames, int fps, int version) {
+        public CapeFrames {
+            frames = frames == null ? List.of() : List.copyOf(frames);
+        }
+    }
+
+    /** One-shot fetch used by the animator - never called on the render thread. */
+    CapeFrames fetchCapeFrames() {
+        if (!loadToken()) {
+            return null;
+        }
+        String body = get("/cape/frames");
+        if (body == null) {
+            return null;
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> root = (Map<String, Object>) Json.parse(body);
+            if (root == null) {
+                return null;
+            }
+            List<String> frames = new ArrayList<>();
+            for (Object o : Json.list(root, "frames")) {
+                if (o instanceof String s && !s.isEmpty()) {
+                    frames.add(s);
+                }
+            }
+            Number fps = (Number) root.get("fps");
+            Number version = (Number) root.get("version");
+            return new CapeFrames(frames,
+                    fps == null ? 0 : fps.intValue(),
+                    version == null ? 0 : version.intValue());
+        } catch (Exception ex) {
+            return null;
         }
     }
 

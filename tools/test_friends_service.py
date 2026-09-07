@@ -238,12 +238,14 @@ def test_contract():
     api = open(os.path.join(ROOT, "cubeon", "local_api.py"), encoding="utf-8").read()
 
     # Every endpoint the mod actually calls, read off its own source.
-    posts = set(re.findall(r'post\("(/[a-z]+)"', bridge))
-    gets = set(re.findall(r'get\("(/[a-z]+)', bridge))
+    # (Paths allow one sub-segment - /cape/frames - because the animated-cape
+    # feed hangs off the cape namespace.)
+    posts = set(re.findall(r'post\("(/[a-z]+(?:/[a-z]+)?)"', bridge))
+    gets = set(re.findall(r'get\("(/[a-z]+(?:/[a-z]+)?)"', bridge))
     ok(posts and gets, f"found the mod's endpoints ({len(gets)} GET, {len(posts)} POST)")
 
     served = set()
-    for route in re.findall(r'parts\.path == "(/[a-z]+)"', api):
+    for route in re.findall(r'parts\.path == "(/[a-z/]+)"', api):
         served.add(route)
     for group in re.findall(r'_(?:NAME|BARE)_ROUTES = \(([^)]*)\)', api):
         served.update("/" + n for n in re.findall(r'"(\w+)"', group))

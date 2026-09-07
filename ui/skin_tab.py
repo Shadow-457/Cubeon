@@ -642,17 +642,32 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     content=ft.Row(
                         [
                             ft.Container(
-                                content=ft.Icon(ft.Icons.CHECKROOM_ROUNDED, color=ACCENT, size=15),
+                                content= ft.Icon(
+                                    ft.Icons.ANIMATION_ROUNDED, color=ACCENT, size=15,
+                                ) if c.get("animated") else ft.Icon(
+                                    ft.Icons.CHECKROOM_ROUNDED, color=ACCENT, size=15,
+                                ),
                                 width=30, height=30, bgcolor=SURFACE,
                                 border_radius=RADIUS, alignment=ft.Alignment.CENTER,
                             ),
-                            ft.Text(
-                                c["name"],
-                                size=12.5,
-                                color=ACCENT if is_active else TEXT,
-                                weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.NORMAL,
-                                font_family=FONT_MONO,
-                                expand=True,
+                            ft.Column(
+                                [
+                                    ft.Text(
+                                        c["name"],
+                                        size=12.5,
+                                        color=ACCENT if is_active else TEXT,
+                                        weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.NORMAL,
+                                        font_family=FONT_MONO,
+                                    ),
+                                    # Animated capes move on YOUR screen only -
+                                    # friends see the first frame. Say so, so
+                                    # nobody expects their friend to see it move.
+                                    ft.Text(
+                                        "Animated - moves only for you",
+                                        size=10, color=TEXT_DIM,
+                                    ) if c.get("animated") else None,
+                                ],
+                                spacing=1, tight=True, expand=True,
                             ),
                             trailing,
                             ft.PopupMenuButton(
@@ -683,7 +698,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             display_name = os.path.splitext(picked.name)[0]
             entry = core.add_custom_cape(picked.path, display_name)
             set_active_cape(entry["filename"])
-            cape_status.value = f"Uploaded and set '{entry['name']}' as active cape."
+            if entry.get("animated"):
+                cape_status.value = (
+                    f"Animated cape '{entry['name']}' set - it moves on "
+                    f"your screen only; friends see the first frame.")
+            else:
+                cape_status.value = f"Uploaded and set '{entry['name']}' as active cape."
         except ValueError as ve:
             cape_status.value = str(ve)
         except Exception as ex:
@@ -697,12 +717,17 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     cape_file_picker.on_result = on_cape_files_picked
 
     def open_cape_picker(e=None):
+        # Any image goes: PNG/JPEG/WebP/GIF/BMP... Non-cape shapes are
+        # auto-fitted onto the cape layout, and a multi-frame GIF/APNG becomes
+        # an animated cape (see cubeon/capes.py).
         core.run_file_picker(
             page, cape_file_picker,
             on_files=handle_cape_files,
-            dialog_title="Choose a cape PNG (64x32)",
+            dialog_title="Choose a cape image",
             allow_multiple=False,
-            allowed_extensions=["png"],
+            allowed_extensions=[
+                "png", "jpg", "jpeg", "webp", "gif", "bmp",
+            ],
         )
 
     cape_upload_button = attach_hover(ft.Container(

@@ -71,6 +71,7 @@ _providers = {
     "syncdownload": None,
     "syncclose": None,
     "askjoin": None,
+    "capeframes": None,
 }
 
 # POST routes that take a single {"name": ...} and return a result dict. Keeping
@@ -166,6 +167,13 @@ def set_sync_provider(fn) -> None:
      "lines":[...]}. state is idle|asking|ready|downloading|error. Polled, so it
     must not block."""
     _providers["sync"] = fn
+
+
+def set_capeframes_provider(fn) -> None:
+    """fn() -> {"fps","frames":[b64...],"version"} or None (no animated cape).
+    Read by the Cubeon mod (GET /cape/frames) to animate the local player's
+    own cape. Must not block: called at the mod's idle poll rate."""
+    _providers["capeframes"] = fn
 
 
 def set_sync_start_handler(fn) -> None:
@@ -290,6 +298,19 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as ex:
                 self._json({"friend": friend, "state": "error", "error": str(ex),
                             "lines": [str(ex)], "missing": [], "extra": []}, 500)
+        elif parts.path == "/cape/frames":
+            # The animated-cape feed for the Cubeon mod (self-only animation;
+            # see cubeon/capes.py). 204 - not 404 - for "no animated cape set"
+            # so the mod can tell "older launcher" (404) from "nothing set"
+            # without log spam: fetch() treats any 2xx-without-frames as stop.
+            fn = _providers["capeframes"]
+            data = fn() if fn else None
+            if data is None:
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self._json(data)
         else:
             self._json({"error": "not found"}, 404)
 

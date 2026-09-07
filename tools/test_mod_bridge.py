@@ -22,6 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCES = [
     "mod/src/main/java/com/cubeon/friends/Json.java",
     "mod/src/main/java/com/cubeon/friends/Bridge.java",
+    "mod/src/main/java/com/cubeon/friends/AnimatedCape.java",
     "mod/tools/SelfTest.java",
 ]
 

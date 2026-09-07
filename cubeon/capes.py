@@ -1,11 +1,12 @@
 """
-Custom cape uploads - stores user-supplied cape PNGs locally, renders a
+Custom cape uploads - stores user-supplied cape images locally, renders a
 preview of the cape's visible face, and syncs the active cape into
 CustomSkinLoader's LocalSkin/capes folder so it can show up in-game.
 
 This is the cape counterpart to cubeon/skins.py and follows that module's
-shape deliberately (same validate -> add -> set-active -> sync flow), so the
-two read the same and the Profile/skin UI can drive them with one pattern.
+shape deliberately (same validate -> add -> set-active -> sync flow), so
+the two read the same and the Profile/skin UI can drive them with one
+pattern.
 
 HOW A CAPE REACHES THE GAME (and who wins)
 Same mechanism as local skins: Cubeon writes the active cape to
@@ -23,7 +24,34 @@ where CSL can find it.
 Like every LocalSkin texture, a local cape is visible only to THIS player -
 friends still see the shared Cubeon cape, because their own client fetches it
 from the Worker for your username.
+
+FLEXIBLE INPUT (2026-09-07)
+Any image Pillow can read is accepted (PNG/JPEG/WebP/GIF/BMP...). The file
+only has to be a real, decodable image; shape is not a precondition:
+
+  * Already cape-shaped (2:1, sane width) -> kept as-is.
+  * Anything else -> drawn onto a proper cape layout: the source is scaled
+    to fit the visible back panel (the 10x16 region), everything else
+    transparent. No user should ever have to learn what "64x32" means.
+
+ANIMATED CAPES (2026-09-07)
+A multi-frame input (GIF or APNG) becomes an animated cape:
+
+  * The FIRST frame is baked into the static .png CSL serves - that's what
+    everyone in-game sees if animation isn't running, and it's the fallback
+    everywhere.
+  * The full frame set (capped: MAX_FRAMES, downscaled to MAX_ANIM_WIDTH)
+    is written next to the cape as <name>.frames.json for the launcher's
+    local API to serve to the Cubeon mod, which animates it on the local
+    player's back ONLY (see mod/src/.../AnimatedCape.java for why that
+    costs other players and the server exactly nothing).
+
+Frames live on this machine only. Nothing about an animated cape is ever
+uploaded - the Worker never sees it, no KV writes, no bytes for anyone
+else's client to fetch.
 """
+import base64
+import io
 import json
 import os
 import re
@@ -45,11 +73,26 @@ CAPES_META_PATH = os.path.join(CAPES_DIR, "capes.json")
 # ratio-relative and handles any of them.
 _VALID_CAPE_WIDTHS = {64, 128, 256, 512, 1024}
 
+# Hard input limit. Real capes are tiny; anything past this is either a
+# camera photo or an accident, and both are better rejected than decoded.
+MAX_SOURCE_BYTES = 8 * 1024 * 1024
+
+# Animation caps, shared with the mod (AnimatedCape.MAX_FRAMES / MAX_FPS).
+# The mod enforces its side of these too - never trust the API's own output.
+MAX_FRAMES = 16
+MAX_FPS = 10
+
+# Frames wider than this get downscaled before being stored. 512px is an
+# extremely generous HD cape; the point of the cap is that the worst-case
+# in-memory cost of an animated cape stays trivial (16 * 512x256x4 = 8MB
+# absolute ceiling, and that's for an absurd cape).
+MAX_ANIM_WIDTH = 512
+
 
 def _load_capes_meta() -> dict:
     if os.path.exists(CAPES_META_PATH):
         try:
-            with open(CAPES_META_PATH, "r") as f:
+            with open(CAPES_META_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
@@ -57,21 +100,84 @@ def _load_capes_meta() -> dict:
 
 
 def _save_capes_meta(meta: dict) -> None:
-    with open(CAPES_META_PATH, "w") as f:
+    with open(CAPES_META_PATH, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 
 
+def _frame_sheet_size(w: int, h: int) -> tuple[int, int]:
+    """The vanilla-faithful cape sheet size for an arbitrary input image.
+
+    64x32 unless the image is already a bigger 2:1 layout: HD capes scale the
+    whole sheet, and honoring that keeps HD uploads crisp instead of crushing
+    them to 64x32.
+    """
+    if h > 0 and w == h * 2 and w in _VALID_CAPE_WIDTHS:
+        return w, h
+    return 64, 32
+
+
+def _to_cape_sheet(img: Image.Image) -> Image.Image:
+    """Turns any image into a proper cape layout.
+
+    Cape-shaped inputs pass through untouched (bar an RGBA flatten). Anything
+    else is fitted onto the visible back panel - the 10x16 region at (1,1) of
+    a 64x32 sheet - scaled to fit, centered, with the rest transparent. The
+    result is ALWAYS a valid cape no matter what the user picked.
+    """
+    img = img.convert("RGBA")
+    w, h = img.size
+    sheet_w, sheet_h = _frame_sheet_size(w, h)
+    if (sheet_w, sheet_h) == (w, h):
+        return img
+
+    sheet = Image.new("RGBA", (sheet_w, sheet_h), (0, 0, 0, 0))
+    n = sheet_w // 64
+    panel_w, panel_h = 10 * n, 16 * n
+    scale = min(panel_w / w, panel_h / h)
+    tw, th = max(1, round(w * scale)), max(1, round(h * scale))
+    fitted = img.resize((tw, th), Image.LANCZOS if scale < 1 else Image.NEAREST)
+    # Center on the back panel, matching how the panel itself is centered.
+    px = 1 * n + (panel_w - tw) // 2
+    py = 1 * n + (panel_h - th) // 2
+    sheet.paste(fitted, (px, py))
+    return sheet
+
+
+def _read_frames(src_path: str) -> list[Image.Image]:
+    """Every frame of a multi-frame file, or [the image] for a still.
+
+    Deduplicates consecutive identical frames (a common GIF authoring
+    artifact that would otherwise waste frame slots) and honors nothing
+    about timing - playback speed is fixed by the launcher, not the file.
+    """
+    with Image.open(src_path) as img:
+        frames: list[Image.Image] = []
+        prev = None
+        for frame in range(getattr(img, "n_frames", 1)):
+            img.seek(frame)
+            # copy() because PIL reuses one buffer per seek.
+            rgba = img.convert("RGBA").copy()
+            if prev is not None and rgba.tobytes() == prev:
+                continue
+            frames.append(rgba)
+            prev = rgba.tobytes()
+            if len(frames) >= MAX_FRAMES:
+                break
+        return frames
+
+
 def validate_cape_file(path: str) -> tuple[bool, str]:
-    """Checks the file is a real PNG with a valid Minecraft cape layout
-    (64x32, or a 2:1 HD cape like 128x64 / 256x128)."""
+    """Checks the file is something we can turn into a cape.
+
+    Deliberately liberal: ANY decodable image is valid (see module docstring
+    - non-cape shapes are auto-fitted, not rejected). The only failures are
+    "not an image", "unreadable", and "absurdly large".
+    """
     try:
+        if os.path.getsize(path) > MAX_SOURCE_BYTES:
+            return False, "That file is too large (over 8 MB)."
         with Image.open(path) as img:
-            if img.format != "PNG":
-                return False, "Cape must be a PNG file"
-            w, h = img.size
-            if w != h * 2 or w not in _VALID_CAPE_WIDTHS:
-                return False, (f"Invalid cape size {img.size}, must be 64x32 "
-                               "(or a 2:1 HD cape like 128x64)")
+            img.verify()  # structural check only
         return True, ""
     except Exception:
         return False, "Couldn't read that file as an image"
@@ -81,21 +187,55 @@ def list_custom_capes() -> list[dict]:
     return _load_capes_meta()["capes"]
 
 
+def _frames_path_for(filename: str) -> str:
+    return os.path.join(CAPES_DIR, filename + ".frames.json")
+
+
 def add_custom_cape(src_path: str, display_name: str) -> dict:
-    """Copies a validated cape PNG into CAPES_DIR under a unique filename and
-    registers it. Returns the new cape's metadata entry."""
+    """Copies a validated image into CAPES_DIR as a real cape layout, and -
+    if it had multiple frames - stores the animation alongside.
+
+    Returns the new cape's metadata entry ({"filename", "name"}), plus an
+    "animated" flag the UI reads to badge the entry.
+    """
     ok, err = validate_cape_file(src_path)
     if not ok:
         raise ValueError(err)
+
+    frames = _read_frames(src_path)
+    if not frames:
+        raise ValueError("Couldn't read that file as an image")
+
+    # The static sheet (what CSL loads and what everyone else would see) is
+    # the first frame, fitted onto a cape layout.
+    sheet = _to_cape_sheet(frames[0])
 
     safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", display_name.strip()) or "cape"
     filename = f"{safe_name}_{uuid.uuid4().hex[:8]}.png"
     os.makedirs(CAPES_DIR, exist_ok=True)
     dest = os.path.join(CAPES_DIR, filename)
-    shutil.copyfile(src_path, dest)
+    sheet.save(dest, "PNG")
+
+    entry = {"filename": filename, "name": display_name.strip() or safe_name}
+
+    # Animation: store capped, downscaled frames as base64 PNGs next to the
+    # cape. Served only to this machine's Cubeon mod via the local API.
+    if len(frames) > 1:
+        encoded = []
+        for fr in frames:
+            f = _to_cape_sheet(fr)
+            if f.width > MAX_ANIM_WIDTH:
+                f = f.resize(
+                    (MAX_ANIM_WIDTH, MAX_ANIM_WIDTH // 2), Image.LANCZOS)
+            buf = io.BytesIO()
+            f.save(buf, "PNG")
+            encoded.append(base64.b64encode(buf.getvalue()).decode("ascii"))
+        with open(_frames_path_for(filename), "w", encoding="utf-8") as f:
+            json.dump({"fps": min(MAX_FPS, max(2, len(encoded))),
+                       "frames": encoded}, f)
+        entry["animated"] = True
 
     meta = _load_capes_meta()
-    entry = {"filename": filename, "name": display_name.strip() or safe_name}
     meta["capes"].append(entry)
     _save_capes_meta(meta)
     return entry
@@ -105,13 +245,44 @@ def delete_custom_cape(filename: str) -> None:
     meta = _load_capes_meta()
     meta["capes"] = [c for c in meta["capes"] if c["filename"] != filename]
     _save_capes_meta(meta)
-    path = os.path.join(CAPES_DIR, filename)
-    if os.path.exists(path):
-        os.remove(path)
+    for path in (os.path.join(CAPES_DIR, filename),
+                 _frames_path_for(filename)):
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def get_custom_cape_path(filename: str) -> str:
     return os.path.join(CAPES_DIR, filename)
+
+
+def animated_cape_frames(filename: str | None) -> dict | None:
+    """The stored animation for a cape, as the local API serves it.
+
+    Returns {"fps": int, "frames": [b64...], "version": int} or None when
+    the cape has no animation. `version` is the frames file's mtime-ns: it
+    changes whenever the user swaps the animated cape, which lets the mod
+    skip re-decoding an unchanged set. Reads are cheap (one small JSON file
+    the launcher itself wrote); there is no caching because the endpoint is
+    polled at the mod's idle rate, not per frame.
+    """
+    if not filename:
+        return None
+    path = _frames_path_for(filename)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        frames = [s for s in data.get("frames", [])
+                  if isinstance(s, str) and s]
+        if not frames:
+            return None
+        return {"fps": int(data.get("fps", 2) or 2),
+                "frames": frames[:MAX_FRAMES],
+                "version": os.stat(path).st_mtime_ns}
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def set_active_cape(cfg: dict, filename: str | None) -> None:
