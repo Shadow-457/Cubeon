@@ -179,6 +179,7 @@ via Minekube Connect tunnels.
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |
 | `cubeonfriends.py` | Which Friends jar goes into which profile (brackets), injected at launch. `mod_stamp()` = jar freshness fingerprint. |
 | `launch.py` | `launch_game()` — injects CSL + friends jar, syncs mods, launches MC. Requires mc_version/loader, no silent defaults. |
+| `capes.py` | Custom capes: any image accepted, auto-fitted onto the cape layout; multi-frame GIF/APNG → `.frames.json` served to the mod (`GET /cape/frames`) for SELF-ONLY in-game animation. Static first frame is what CSL/others see. No Worker/KV involvement at all. |
 | `config.py` | cfg schema, username validation, auth key (public_uuid/secret_token). |
 | `gate.py` | Server join password (PBKDF2, escalating lockouts). |
 
@@ -189,6 +190,13 @@ via Minekube Connect tunnels.
   The mod compiles against a stub API subset (`tools/test_mod_compile.py`) —
   only API that exists identically in both eras. If javac fails on 26.x, the
   API moved; javap the real jar in `~/.minecraft/versions/26.1.2/26.1.2.jar`.
+- **Animated capes are reflection-only** (`mod/.../AnimatedCape.java`):
+  Minecraft is driven by name variants (`Identifier`/`class_2960` etc.),
+  never imported — the class compiles against a bare JDK and must stay that
+  way (test_mod_bridge/test_mod_compile both compile it). It animates ONLY
+  the local player's cape by re-registering the texture under
+  `minecraft:capes/<USERNAME>` on the client's event loop. Everyone else
+  sees the static frame 0 the launcher synced into LocalSkin.
 - **Everything user-facing must degrade to a human sentence.** No blocking
   calls on the mod's request thread; no raw exception text in the UI; errors
   and confirmations both land via the notification ring → in-game chat.
@@ -214,6 +222,7 @@ python3 tools/test_friends.py           # 37: relay client + worker parity
 python3 tools/test_mod_bridge.py        # 110: reads Bridge.java, asserts launcher serves it
 python3 tools/test_mod_compile.py       # mod source compiles vs the stub API subset
 python3 tools/test_mod_matrix.py        # 68: brackets/jar routing
+python3 tools/test_capes.py             # 29: flexible/animated capes + /cape/frames
 python3 tools/test_ui_smoke.py          # 40: tab builders build, invariants hold
 python3 tools/test_invites.py           # 127: Minekube/tunnel flows
 python3 tools/test_modpacks.py          # 51: pack installs
