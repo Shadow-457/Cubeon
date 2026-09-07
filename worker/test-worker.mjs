@@ -259,6 +259,45 @@ res = await post("/api/heartbeat", { username: "RenamedUploader", uuid: UUID_U }
 check("owner renames via heartbeat -> 200", res.status === 200);
 check("rename moved the pointer to the new name",
   store.get("pointer:renameduploader") === UUID_U.toLowerCase());
+check("rename stamped the move time",
+  store.get(`lastmove:${UUID_U.toLowerCase()}`) !== undefined);
+
+// Rename again immediately: the per-identity cooldown must throttle the
+// second move (honest renames are >1h apart; this is the hijack-spam guard).
+res = await post("/api/heartbeat", { username: "ThirdName", uuid: UUID_U }, SECRET_A);
+check("second rename within cooldown -> 429 name_move_cooldown",
+  res.status === 429 && (await res.json()).error === "name_move_cooldown");
+check("throttled rename did not move the pointer",
+  store.get("pointer:thirdname") === undefined);
+
+// ...but a repeat heartbeat under the CURRENT name is still free (steady
+// state, zero writes, no cooldown consumed).
+res = await post("/api/heartbeat", { username: "RenamedUploader", uuid: UUID_U }, SECRET_A);
+check("repeat heartbeat same name -> 200 (steady state)",
+  res.status === 200 && (await res.json()).status === "ok");
+
+// A DIFFERENT identity taking a name that identity U moved recently gets
+// flagged: name_contested tells the new launcher the label is fought over.
+const UUID_V = randomUUID();
+res = await post("/api/heartbeat", { username: "RenamedUploader", uuid: UUID_V }, SECRET_B);
+check("other identity takes the name -> 200 but contested",
+  res.status === 200 && (await res.json()).name_contested === true);
+check("the takeover DID move the pointer (last writer wins)",
+  store.get("pointer:renameduploader") === UUID_V.toLowerCase());
+
+// Back-date only U's stamp (V's stays recent - V moved onto this name
+// seconds ago), so U's re-take isn't cooldown-throttled; U reclaiming
+// must see the contest flag (both sides get warned).
+store.set(`lastmove:${UUID_U.toLowerCase()}`, String(Math.floor(Date.now() / 1000) - 7200));
+res = await post("/api/heartbeat", { username: "RenamedUploader", uuid: UUID_U }, SECRET_A);
+check("victim reclaims name -> 200 but contested",
+  res.status === 200 && (await res.json()).name_contested === true);
+
+// With no recent other-identity holder, a plain heartbeat reports clean.
+const UUID_W = randomUUID();
+res = await post("/api/heartbeat", { username: "FreshName", uuid: UUID_W }, SECRET_B);
+check("fresh uncontested name -> 200, not contested",
+  res.status === 200 && (await res.json()).name_contested === false);
 
 // ----------------------------------------------------------- skin uploads --
 // Content-addressing: the id the Worker returns is the sha256 of the exact

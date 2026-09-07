@@ -310,6 +310,13 @@ def _active_skin_is_slim(filename: str | None) -> bool:
     return False
 
 
+def name_contested() -> bool:
+    """Whether the last successful heartbeat reported this username is
+    ALSO claimed by a different Cubeon identity (name collision). Read by
+    the UI to show a warning instead of a silent last-writer-wins mess."""
+    return bool(_load_publish_state().get("name_contested"))
+
+
 def _load_publish_state() -> dict:
     try:
         with open(_PUBLISH_STATE_PATH, "r", encoding="utf-8") as f:
@@ -418,12 +425,22 @@ def _publish_skin(cfg: dict) -> None:
             if resp.status_code != 200:
                 # 403 = UUID owned by another secret: retrying can't help
                 # either, so it gets the same cooldown. 429/5xx = transient
-                # server trouble. Record nothing BUT the cooldown so the
-                # next sync (post-cooldown) retries.
+                # server trouble (429 name_move_cooldown = this identity
+                # moved names too recently - honest renames are >1h apart,
+                # so spamming or a hijacker gets throttled). Record nothing
+                # BUT the cooldown so the next sync (post-cooldown) retries.
                 _record_publish_failure(state)
                 return
+            # The Worker flags when a DIFFERENT identity held this name
+            # recently (name collision). Persist it so the UI can warn; it
+            # clears on the next uncontested success.
+            try:
+                contested = bool(resp.json().get("name_contested"))
+            except Exception:
+                contested = False
             state.update({"username": username, "uuid": machine_uuid,
-                          "base": csl.CUBEON_API_BASE})
+                          "base": csl.CUBEON_API_BASE,
+                          "name_contested": contested})
             state.pop("retry_not_before", None)  # success clears cooldown
             _save_publish_state(state)
 

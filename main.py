@@ -841,6 +841,21 @@ def main(page: ft.Page):
         # re-triggering its own on_change (which would just redo this work).
         if username_field.value != name:
             username_field.value = name
+        # Name-collision warning: the heartbeat (fired by the sync above,
+        # async) records whether a DIFFERENT Cubeon player also claimed this
+        # name recently. The publish runs on a daemon thread, so give it a
+        # beat, then check once. Cosmetic - a missed warning just means the
+        # user finds out the way they always did.
+        def _warn_if_contested():
+            time.sleep(3.0)
+            try:
+                if core.name_contested():
+                    set_status("Note: another Cubeon player recently used "
+                               "this name - others may see their skin on it.")
+            except Exception:
+                pass
+        threading.Thread(target=_warn_if_contested, daemon=True,
+                         name="cubeon-name-contested-check").start()
         page.update()
 
     profile_username_field.on_change = on_profile_username_change

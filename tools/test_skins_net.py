@@ -119,6 +119,10 @@ def ok_all():
     _next["resp"] = _FakeResp(200, {"ok": True})
 
 
+def next_response(status, payload=None):
+    _next["resp"] = _FakeResp(status, payload)
+
+
 # ---------------------------------------------------------------------------
 # 1. The client<->Worker PNG contract: a composed sheet is a valid skin PNG
 # ---------------------------------------------------------------------------
@@ -418,6 +422,54 @@ published.clear()
 skins.sync_local_skin_to_csl({"username": "", "active_skin": None,
                               "cosmetic_hat": None, "manage_skin_mod": True})
 check("sync never publishes without a username", published == [])
+
+# ---------------------------------------------------------------------------
+# 8. Name-contested signal: the Worker's heartbeat response carries
+#    name_contested (true = a different Cubeon identity held this name
+#    recently). The client persists it for the UI warning and clears it on
+#    the next clean success. Also: 429 name_move_cooldown is a cooldown
+#    failure (retry later), same handling as any other non-200.
+# ---------------------------------------------------------------------------
+skins._publish_skin_async = lambda cfg: skins._publish_skin(cfg)  # run synchronously
+reset_calls()
+clear_marker()
+next_response(200, {"status": "ok", "name_contested": True})
+skins._publish_skin(dict(default_cfg))
+check("contested heartbeat records name_contested=True",
+      skins._load_publish_state().get("name_contested") is True)
+check("name_contested() helper surfaces it", skins.name_contested() is True)
+
+# A clean later heartbeat clears the flag.
+reset_calls()
+state = skins._load_publish_state()
+state["username"] = "SomeoneElse"  # force identity_changed so a heartbeat fires
+skins._save_publish_state(state)
+next_response(200, {"status": "ok", "name_contested": False})
+skins._publish_skin(dict(default_cfg))
+check("clean heartbeat clears name_contested",
+      skins._load_publish_state().get("name_contested") is False)
+
+# Missing key (old worker / non-JSON body) counts as not contested.
+reset_calls()
+state = skins._load_publish_state()
+state["username"] = "SomeoneElseAgain"
+skins._save_publish_state(state)
+next_response(200, {"status": "ok"})
+skins._publish_skin(dict(default_cfg))
+check("absent name_contested key reads as False",
+      skins._load_publish_state().get("name_contested") is False)
+
+# name_move_cooldown 429: treated as transient failure -> cooldown recorded,
+# no identity half saved, so a post-cooldown sync retries.
+reset_calls()
+clear_marker()
+next_response(429, {"error": "name_move_cooldown"})
+skins._publish_skin(dict(default_cfg))
+st = skins._load_publish_state()
+check("429 name_move_cooldown records a retry cooldown",
+      st.get("retry_not_before") is not None)
+check("429 name_move_cooldown does NOT save the identity half",
+      st.get("username") != "TestUser" or st.get("uuid") != skins.stable_uuid())
 
 print(f"\n{failures} CHECK(S) FAILED" if failures else "\nALL SKIN-NET CHECKS PASSED")
 sys.exit(1 if failures else 0)

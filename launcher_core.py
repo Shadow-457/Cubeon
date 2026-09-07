@@ -97,6 +97,7 @@ from cubeon.skins import (
     get_custom_skin_path, set_active_skin, skin_mod_installed,
     sync_local_skin_to_csl,
     render_local_skin_preview, get_skin_face_url,
+    name_contested,
 )
 
 # --- custom capes (upload/store/preview + LocalSkin sync, mirrors skins) ---

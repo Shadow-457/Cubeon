@@ -100,6 +100,22 @@ wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 - **Never `git add -A` in worker/ after `wrangler dev`** — `.wrangler/` local
   state (sqlite/blobs) is gitignored now; check `git status` first.
 
+## Skins identity guard rails (2026-09-07)
+- `ownsUuid` returns `"quota" | "claimed" | true | false`: check quota
+  first; `"claimed"` = first-contact TOFU (race-fixed: re-reads owner
+  after put). Heartbeat uses it to exempt the INITIAL name claim from the
+  move cooldown.
+- Pointer moves are per-identity rate-limited: `lastmove:<uuid>` stamp,
+  3600s cooldown (`429 name_move_cooldown`). Rename costs 2 KV writes
+  (pointer + stamp); first claim 2 (owner + pointer, no stamp); steady
+  state 0.
+- Heartbeat responses carry `name_contested: bool` (computed from the
+  PRE-move holder + their lastmove stamp — post-write holder would always
+  be self). Client persists it in skin_net.json → `skins.name_contested()`
+  → status-bar note on rename (main.py, 3s-delayed daemon thread).
+- Unlocks POST on KV quota → real `429 kv_write_budget_exhausted` (was
+  200-with-stale-set; milestones.py still tolerates both shapes).
+
 ## Window launch (main.py, 2026-09-06)
 - `page.window.visible = False` at setup; after `mark_mounted`, a
   `page.run_task(_reveal_window)` awaits `wait_until_ready_to_show()` then

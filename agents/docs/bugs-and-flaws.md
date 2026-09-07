@@ -80,7 +80,7 @@ A single client can flood the Durable Object with messages, causing:
 
 ---
 
-## Medium: Race Condition in UUID Ownership (TOCTOU)
+## Medium: Race Condition in UUID Ownership (TOCTOU) — FIXED 2026-09-07
 
 **File:** `cubeon/skins.py`, `_publish_skin()` and `cubeon-skins.js`, `ownsUuid()`
 
@@ -314,7 +314,7 @@ The relay-first hybrid handover strategy is partially implemented. The `HybridSe
 | 3 | 🟠 High | Server console deadlock via full stdin pipe | `server.py` |
 | 4 | 🟠 High | User-Agent contains profanity | `mods.py`, `modpacks.py` |
 | 5 | 🟠 High | No rate limiting on Friends WebSocket | `cubeon-friends.js` |
-| 6 | 🟡 Medium | UUID ownership TOCTOU race | `skins.py`, `cubeon-skins.js` |
+| 6 | ✅ Fixed | UUID ownership TOCTOU race (fixed 2026-09-07: re-read after put) | `skins.py`, `cubeon-skins.js` |
 | 7 | 🟡 Medium | Non-atomic skins metadata writes | `skins.py` |
 | 8 | 🟡 Medium | Non-atomic publish state writes | `skins.py` |
 | 9 | 🟡 Medium | `install_local_mod()` doesn't sanitize basename | `mods.py` |

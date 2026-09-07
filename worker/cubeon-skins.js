@@ -203,15 +203,31 @@ async function ownsUuid(uuid, secretHash, env) {
     // First-contact TOFU claim. A quota-exhausted put throws; translate it
     // so callers see a retryable 429 instead of a 500 (the client cools
     // off either way, but a clean status keeps tail logs honest).
+    let freshClaim;
     try {
       await env.SKINS.put(`owner:${uuid}`, secretHash);
+      freshClaim = true;
     } catch (e) {
       if (String(e && e.message).includes("limit exceeded")) {
         return "quota";
       }
       throw e;
     }
-    return true;
+    // Race fix (TOCTOU): two concurrent FIRST writes for the same uuid can
+    // both see owner === null and both PUT (KV has no compare-and-swap on
+    // the free tier). The last put wins silently otherwise - so re-read and
+    // verify the recorded hash is OURS. A losing racer gets the honest 403
+    // instead of a false "claimed". Costs one free read, only on the
+    // first-contact path (once per identity, ever).
+    const settled = await env.SKINS.get(`owner:${uuid}`);
+    if (settled !== null && settled !== secretHash) {
+      return false;
+    }
+    // "claimed" (not true): tells the heartbeat this was the identity's
+    // very first contact, so its initial name pointer is a fresh claim,
+    // not a "move" - the anti-hijack cooldown must not throttle it, and
+    // it must not stamp lastmove for the rename that follows a typo fix.
+    return freshClaim ? "claimed" : true;
   }
   // Constant-time compare (mirrors cubeon-friends.js) so a timing side channel
   // can't reveal how many leading hex chars of the owner hash matched.
@@ -254,15 +270,36 @@ async function putIfChanged(env, key, value, options) {
 }
 
 /**
- * POST /api/heartbeat - the authenticated pointer updater.
+ * How long an identity must wait between MOVING name pointers. Honest
+ * renames are rare (minutes-to-months apart); pointer hijacking is the one
+ * griefing vector this API has (names are unowned labels, last-writer
+ * wins). A per-identity cooldown makes "keep flipping someone else's name
+ * to me" cost an hour per flip while costing honest users nothing.
  *
- * Body (JSON): { username, uuid }, Authorization: Bearer <secret_token>.
- *
- * Claims the UUID on first contact, rejects impostors with 403 afterwards,
- * then writes pointer:<name> -> <uuid>. This is what makes a rename visible
- * network-wide: the next heartbeat under the new name moves the pointer, and
- * every CSL client resolving that name lands on the same master skin.
+ * Implementation: lastmove:<uuid> records the second of this identity's
+ * last pointer move. The FIRST move an identity ever makes is its initial
+ * claim (no prior stamp) and is free - otherwise a fresh install plus an
+ * immediate typo-fix rename would be throttled. Steady-state heartbeats
+ * (pointer already ours) cost zero writes and consume no cooldown, and a
+ * victim reclaiming their name after a hijack is fast because the
+ * HIJACKER's move is what got stamped - the cooldown is per-identity.
  */
+const POINTER_MOVE_COOLDOWN_S = 3600;
+
+/**
+ * Whether a name is currently "contested" from one identity's point of
+ * view: a DIFFERENT identity held the pointer recently (within the move
+ * cooldown). `current` must be the PRE-move holder, so callers pass what
+ * they read BEFORE their own write. Pure read, no writes.
+ */
+async function nameContested(current, uuidLower, env) {
+  if (current === null || current === uuidLower) return false;
+  const theirMove = await env.SKINS.get(`lastmove:${current}`);
+  if (theirMove === null) return true; // held by someone else, no stamp: pre-guard holder
+  const elapsed = nowSeconds() - parseInt(theirMove, 10);
+  return !Number.isNaN(elapsed) && elapsed < POINTER_MOVE_COOLDOWN_S;
+}
+
 async function handleHeartbeat(request, env) {
   const secretHash = await bearerSecretHash(request);
   if (!secretHash) return problem(401, "missing_or_bad_token");
@@ -278,7 +315,10 @@ async function handleHeartbeat(request, env) {
     return problem(400, "bad_uuid");
   }
 
-  const claimed = await ownsUuid(uuid.toLowerCase(), secretHash, env);
+  const uuidLower = uuid.toLowerCase();
+  const nameKey = `pointer:${username.toLowerCase()}`;
+
+  const claimed = await ownsUuid(uuidLower, secretHash, env);
   if (claimed === "quota") {
     return problem(429, "kv_write_budget_exhausted");
   }
@@ -286,15 +326,57 @@ async function handleHeartbeat(request, env) {
     return problem(403, "not_yours");
   }
 
+  const current = await env.SKINS.get(nameKey);
+  if (current === uuidLower) {
+    // Steady state: already our pointer. Zero writes, no cooldown consumed.
+    // No contest possible: the pre-read holder IS us.
+    return json({ status: "ok", name_contested: false }, "no-store");
+  }
+
+  // This heartbeat would MOVE the pointer. First contact ("claimed" from
+  // ownsUuid) means the identity held no name before - the initial claim is
+  // free and unthrottled (a fresh install followed by a typo-fix rename
+  // must work). Every later move is cooldown-checked: a stamp exists from
+  // the identity's first real move, and a victim reclaiming their name
+  // stays fast because the HIJACKER's move is what got stamped.
+  if (claimed !== "claimed") {
+    const lastMove = await env.SKINS.get(`lastmove:${uuidLower}`);
+    if (lastMove !== null) {
+      const elapsed = nowSeconds() - parseInt(lastMove, 10);
+      if (!Number.isNaN(elapsed) && elapsed < POINTER_MOVE_COOLDOWN_S) {
+        return problem(429, "name_move_cooldown");
+      }
+    }
+  }
+
   // Compare-then-write: a repeat heartbeat under the same name (every
   // launcher start) must cost ZERO writes - only a real rename PUTs.
-  const put = await putIfChanged(env, `pointer:${username.toLowerCase()}`, uuid.toLowerCase());
+  const put = await putIfChanged(env, nameKey, uuidLower);
   if (put === "quota") {
     return problem(429, "kv_write_budget_exhausted");
   }
-  return json({ status: "ok" }, "no-store");
+  if (put && claimed !== "claimed") {
+    // A real (non-first) move happened - stamp this identity's move time so
+    // rapid further moves are throttled. First claims don't stamp. Guard
+    // against a quota failure here too; an unstamped move just means one
+    // un-throttled extra move, not a correctness break.
+    try {
+      await env.SKINS.put(`lastmove:${uuidLower}`, String(nowSeconds()));
+    } catch (e) {
+      if (!String(e && e.message).includes("limit exceeded")) throw e;
+    }
+  }
+
+  // Name-in-use signal: `current` is the PRE-move holder, so if it was a
+  // DIFFERENT identity that moved onto this name recently, we just took
+  // the label away from them. The launcher surfaces this as a warning
+  // instead of a silent last-writer-wins mystery.
+  return json({ status: "ok", name_contested: await nameContested(current, uuidLower, env) }, "no-store");
 }
 
+/**
+ * Whether a name pointer was moved by a DIFFERENT identity recently - i.e.
+ * two Cubeon users are fighting over the label. Pure read, no writes.
 /**
  * POST /api/skin - publish a player's own skin against their UUID.
  *
@@ -473,9 +555,12 @@ async function handleUnlocksPost(request, env) {
     // writes regardless of the client's ordering.
     const put = await putIfChanged(env, `unlocks:${uuid}`, [...merged].sort().join(","));
     if (put === "quota") {
-      // Ledger couldn't persist, but the local state stands and the next
-      // evaluate() retries - report success-with-current-set, not an error.
-      return json({ milestones: [...existing].sort() }, "no-store");
+      // Ledger couldn't persist. Answer 429 (the client backs off to the
+      // daily-window retry and re-posts later) instead of 200-with-old-set
+      // - the 200 shape was indistinguishable from success, which made the
+      // client's ambiguity heuristics necessary. The local state stands
+      // either way; only the backup write is deferred.
+      return problem(429, "kv_write_budget_exhausted");
     }
   }
   return json({ milestones: [...merged].sort() }, "no-store");
