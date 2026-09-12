@@ -49,6 +49,7 @@ import time
 from cubeon import e2ee
 from cubeon import friends
 from cubeon import p2p
+from cubeon import worldgate
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +101,11 @@ _SYNC_MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 # add; short enough that a deliberate repeat (say, adding the same bad name
 # twice a minute apart) still tells the player both times.
 _NOTICE_DEDUPE_SECONDS = 10.0
+
+# How long the host waits for a password proof before tearing the invite down
+# (joiner walked away / closed the game). The punch path's own idle timeout is
+# 30s on live traffic; a human typing a password gets a bit more than that.
+_GATE_TIMEOUT = 60.0
 
 
 def _default_save_config(cfg: dict) -> None:
@@ -175,10 +181,13 @@ class FriendsService:
         # "Ask to join" - the other half of the Play button: instead of hosting,
         # nudge the friend to host for us.
         ("set_askjoin_handler", "ask_join"),
-        # Animated capes: the mod polls GET /cape/frames and animates the local
-        # player's own cape. Reads the launcher's live config, so switching the
-        # active cape (animated or not) takes effect within one idle poll.
-        ("set_capeframes_provider", "cape_frames_payload"),
+        # GET /players - skin/cape/presence details for every Cubeon name this
+        # launcher can vouch for; the in-game Friends screen's roster reads it.
+        ("set_players_provider", "players_payload"),
+        # Worldgate: the host's optional LAN-world password (POST /worldgate)
+        # and the joiner's proof answer (POST /joinpassword).
+        ("set_worldgate_handler", "worldgate_set"),
+        ("set_joinpassword_handler", "join_password"),
     )
 
     def __init__(self, cfg: dict, state: dict, client, *, save_config=None):
@@ -477,6 +486,7 @@ class FriendsService:
             p, self._session = self._session, None
             self._pending_rooms.clear()
             self._invited_by.clear()
+        worldgate.clear()
         if not p:
             return
         room = p.get("room")
@@ -500,6 +510,15 @@ class FriendsService:
     def _my_name(self) -> str:
         ident = friends.load_identity()
         return ident["name"] if ident else ""
+
+    def _my_uid(self) -> str:
+        """This machine's 12-digit Cubeon ID, or "" until the server assigns
+        one. Read off the identity file rather than the client, so it is the
+        same value the Chat surface shows in the launcher and the mod."""
+        ident = friends.load_identity()
+        if not ident:
+            return ""
+        return friends.canonical_uid(ident.get("uid")) or ""
 
     @staticmethod
     def _ok() -> dict:
@@ -535,6 +554,7 @@ class FriendsService:
             conv = friends.canonical_name(name) or name.lower()
             out.append({
                 "name": name,
+                "uid": str(f.get("uid") or ""),
                 "online": bool(f.get("online")),
                 "version": f.get("version") or "",
                 "status": f.get("status") or "",
@@ -543,6 +563,7 @@ class FriendsService:
             })
         return {
             "you": friends.current_name() or "",
+            "you_uid": self._my_uid(),
             "connected": bool(self.client.is_connected),
             "available": bool(self.client.is_available),
             "friends": out,
@@ -555,6 +576,55 @@ class FriendsService:
             # means the game is running an old mod and needs a relaunch.
             "mod_stamp": _mod_stamp(version_id),
         }
+
+    def players_payload(self) -> dict:
+        """GET /players. What the in-game menu knows about Cubeon players.
+
+        Every name this launcher can vouch for - this machine's own account
+        plus the whole roster - with whatever skin/cape detail is on local
+        disk. Skins and capes are CSL-keyed off the Minecraft username, so the
+        local account is the only one whose files this machine can see: a
+        friend's skin lives on THEIR launcher, and the mod renders "default"
+        rather than inventing one.
+
+        Polled about once a second while a menu is open, so: no network calls,
+        no locks beyond the roster read, and any failure degrades to an empty
+        list - the mod treats fewer rows as "nothing known", never an error.
+        """
+        roster = self.client.roster or {}
+        you = friends.current_name() or ""
+        version_id = self.state.get("selected_version") or ""
+
+        entries = [f for f in (roster.get("friends") or [])
+                   if isinstance(f, dict) and f.get("name")]
+        entries.sort(key=lambda f: (not f.get("online"), f["name"].lower()))
+
+        players = []
+        if you:
+            players.append({
+                "name": you,
+                "online": True,
+                "skin": _local_skin_name(self.cfg),
+                "cape": _local_cape_name(self.cfg),
+                "version": version_id,
+                "status": "you",
+            })
+        for f in entries:
+            if you and f["name"].strip().lower() == you.lower():
+                continue
+            players.append({
+                "name": f["name"],
+                "online": bool(f.get("online")),
+                # A friend's skin/cape lives on their launcher; the shared
+                # backend serves the pixels to the game itself (CSL), so the
+                # bridge only carries what it can prove. The mod renders
+                # "default"/"none" for these.
+                "skin": "",
+                "cape": "",
+                "version": f.get("version") or "",
+                "status": f.get("status") or "",
+            })
+        return {"players": players}
 
     def _whitelist_names(self, version_id) -> set:
         """The whitelist as a lowercase set, read ONCE per payload.
@@ -1254,15 +1324,6 @@ class FriendsService:
         self._sync_render(rep)
         self._changed()
 
-    def cape_frames_payload(self):
-        """GET /cape/frames. The active cape's stored animation for the Cubeon
-        mod, or None when the active cape isn't animated (the API layer turns
-        that into a 204). Reads live config, so it must only touch cheap,
-        thread-safe things: one dict lookup plus capes.animated_cape_frames'
-        single JSON file read."""
-        from . import capes
-        return capes.animated_cape_frames(self.cfg.get("active_cape"))
-
     def sync_payload(self, friend) -> dict:
         """GET /sync?friend=<name>. The report, minus its internals.
 
@@ -1553,11 +1614,12 @@ class FriendsService:
             if not p or p.get("state") != "hosting_wait_port":
                 return  # cancelled while we were waiting
             p["lan_port"] = port
-            p["state"] = "ringing_out"
-            # Mark the room as a P2P world at invite time. The receiver can
-            # therefore light up only this friend's Join button immediately,
-            # without confusing the invite with a voice call.
-            self.client.call_invite(peer, kind="p2p")
+            # The worldgate decision comes FIRST: the mod shows its password
+            # prompt for this state, and the invite only rings out after the
+            # host saves a password or skips. Gating the invite itself (not
+            # just the offer) is what makes the joiner's "needs password"
+            # prompt appear before they commit to anything.
+            p["state"] = "gate_wait"
             self._changed()
 
         log_cb = p2p.watch_for_lan_port(on_port_found)
@@ -1604,6 +1666,9 @@ class FriendsService:
                         if returncode not in (0, None):
                             detail = (f"Minecraft exited before the LAN world was "
                                       f"detected (code {returncode}).")
+                        if p.get("state") == "gate_wait":
+                            detail = ("Minecraft closed before the world "
+                                      "password was decided.")
                         self._set_failed(p, detail)
 
                 core.launch_game(
@@ -1622,6 +1687,45 @@ class FriendsService:
                     self._changed()
 
         threading.Thread(target=worker, name="p2p-host-launch", daemon=True).start()
+        return self._ok()
+
+    # ------------------------------------------------------------------
+    # Worldgate: the host's optional LAN-world password and the joiner's
+    # proof. See cubeon/worldgate.py for the protocol and why the offer is
+    # withheld until a proof lands.
+    # ------------------------------------------------------------------
+
+    def _ring_out_pending_invite(self, p: dict) -> None:
+        """Sends the P2P invite the session has been holding in gate_wait.
+
+        Marks the room as a P2P world at invite time, so the receiver lights
+        up this friend's Join button immediately (as ringing_out always did)."""
+        p["state"] = "ringing_out"
+        self.client.call_invite(p["peer"], kind="p2p")
+        self._changed()
+
+    def worldgate_set(self, password: "str | None") -> dict:
+        """The host's password decision, from the mod's password prompt.
+
+        password=None (the mod's Skip, or an empty box) leaves the world
+        ungated; anything else arms it. Either way, the invite that gate_wait
+        was holding now goes out."""
+        p = self._session_get()
+        if not p or not p.get("is_host"):
+            return self._err("You're not hosting a world right now.")
+        if p.get("state") != "gate_wait":
+            # Idempotent-friendly: a double click on Save after the invite
+            # already went out must not re-ring the friend.
+            return self._ok()
+        if password:
+            try:
+                worldgate.set_password(password)
+            except worldgate.WorldGateError as ex:
+                return self._err(str(ex))
+            self._notify("World password set - your friend will be asked for it.")
+        else:
+            worldgate.clear()
+        self._ring_out_pending_invite(p)
         return self._ok()
 
     def join(self, name: str) -> dict:
@@ -1670,6 +1774,53 @@ class FriendsService:
         self._end_p2p()
         return self._ok()
 
+    def join_password(self, password: str) -> dict:
+        """The joiner's typed password for a gated world (POST /joinpassword).
+
+        Stores it on the session just long enough to answer the host's
+        challenge; if the challenge has already arrived, answers it now.
+        Cleared the moment a proof is sent - a wrong answer means retyping,
+        never reusing a stale guess."""
+        p = self._session_get()
+        if not p or p.get("is_host"):
+            return self._err("You're not joining a world right now.")
+        # A password is only meaningful while a challenge is outstanding: after
+        # gate_ok (or before any arrives) there is nothing to answer, and
+        # accepting a typing here would let a stale guess sit on the session.
+        if not p.get("gate_challenge") or \
+                p.get("state") not in ("password_needed", "connecting"):
+            return self._err("Nobody has asked for a password.")
+        password = (password or "").strip()
+        if not password:
+            return self._err("Type the world's password.")
+        p["gate_password"] = password
+        if p.get("gate_challenge"):
+            self._answer_gate_challenge(p)
+        else:
+            self._changed()
+        return self._ok()
+
+    def _answer_gate_challenge(self, p: dict) -> None:
+        """Computes and sends the proof for the challenge the session holds.
+
+        The password is dropped as soon as the proof is out: a wrong answer
+        means the player types it again, it never lingers for a retry."""
+        salt = p.get("gate_salt") or ""
+        iterations = p.get("gate_iters") or worldgate.PBKDF2_ITERATIONS
+        try:
+            proof = worldgate.compute_proof(
+                p.get("gate_challenge") or "", p.get("gate_password") or "",
+                salt, iterations)
+        except (ValueError, TypeError):
+            self._fail_p2p("That password can't be used - type it again.")
+            return
+        p["gate_password"] = None
+        p["state"] = "connecting"
+        self.client.signal(p["room"], p["peer"], {
+            "kind": "gate_proof", "proof_hex": proof,
+        })
+        self._changed()
+
     def retry(self) -> dict:
         p = self._session_get()
         if not p or p.get("is_host") or not p.get("offer"):
@@ -1683,8 +1834,9 @@ class FriendsService:
         self._run_joiner_punch(offer)
         return self._ok()
 
-    def add_friend(self, name: str) -> dict:
-        """Send a friend request. Answers from local state only.
+    def add_friend(self, target: str) -> dict:
+        """Send a friend request, by 12-digit ID (the Chat surface) or by
+        Cubeon name (the in-game mod). Answers from local state only.
 
         This runs on a local_api HTTP request thread that the in-game mod is
         blocking on, so the order of the checks below IS the feature: every one
@@ -1704,7 +1856,11 @@ class FriendsService:
         The server is the authority on which names exist, so asking it twice was
         never worth 15 seconds of dead UI.
         """
-        name = (name or "").strip()
+        target = (target or "").strip()
+        uid = friends.canonical_uid(target)
+        if uid:
+            return self._add_friend_uid(uid)
+        name = target
         ok, err = friends.validate_name(name)
         if not ok:
             return self._err(err)
@@ -1772,6 +1928,54 @@ class FriendsService:
             return   # a real person; the request is legitimately in flight
         self._notify(f'No Cubeon user named "{name}".', error=True)
 
+    def _add_friend_uid(self, uid: str) -> dict:
+        """The UID half of add_friend(). Kept separate because the "already
+        your friend" test matches on the friend's stored uid, not a name - the
+        Chat surface no longer knows or needs the name to add someone."""
+        if uid == (self._my_uid() or ""):
+            return self._err("You can't add yourself.")
+        if not self._my_name():
+            return self._err("Claim a Cubeon name before adding friends.")
+        if not self.client.is_available:
+            return self._err("The launcher is missing its realtime add-on, so "
+                             "friend requests can't be sent.")
+        if not self.client.is_connected:
+            return self._err(_NOT_CONNECTED)
+        adder = getattr(self.client, "add_friend_uid", None)
+        if adder is None:
+            return self._err("The launcher needs an update to add friends by ID.")
+        roster = self.client.roster or {}
+        for entry in (roster.get("friends") or []):
+            if isinstance(entry, dict) and str(entry.get("uid") or "") == uid:
+                other = entry.get("name") or ""
+                return self._err(f"{other} is already your friend."
+                                 if other else "You've already added that friend.")
+        if not adder(uid):
+            return self._err(_NOT_CONNECTED)
+        self._notify(f"Friend request sent to ID {uid}.")
+        self._changed()
+        # Same guarantee as the name path: a typo'd ID gets an answer even on an
+        # older relay that drops an unknown add silently.
+        threading.Thread(target=self._verify_add_uid, args=(uid,),
+                         name="cubeon-add-verify-uid", daemon=True).start()
+        return self._ok()
+
+    def _verify_add_uid(self, uid: str) -> None:
+        """Worker half of the add-by-ID fallback: does that ID exist at all?"""
+        checker = getattr(self.client, "check_uid", None)
+        if checker is None:
+            return
+        try:
+            lookup = checker(uid)
+        except Exception:
+            log.debug("add-verify uid lookup failed", exc_info=True)
+            return
+        if not (isinstance(lookup, dict) and lookup.get("ok")):
+            return   # the lookup itself failed - nothing to add
+        if lookup.get("exists"):
+            return   # a real person; the request is legitimately in flight
+        self._notify(f"No Cubeon user with ID {uid}.", error=True)
+
     def accept(self, name: str) -> dict:
         return self._forward(self.client.accept_request, name)
 
@@ -1830,10 +2034,39 @@ class FriendsService:
         if not result.get("ok"):
             # claim()'s message is already a finished human sentence.
             return self._err(result.get("message") or "Couldn't claim that name.")
+        return self._finish_rename(result["name"], was)
+
+    def rename_unique(self, base: str) -> dict:
+        """Rename to `base` made unique with this machine's secret discriminator
+        ("Dragon" -> "Dragon4821"). The Chat tab's rename field uses this so a
+        chosen name never has to be checked for collisions by hand.
+
+        friends.unique_name() is deterministic, so the first candidate is the
+        one every machine with this secret would compute. If another machine
+        already holds it (a genuine 1-in-10k clash, or a user who deliberately
+        claimed the exact handle), walk the discriminator forward a few times
+        rather than handing the user a "taken" error for a name they never
+        typed. Any *other* failure is real and stops immediately."""
+        was = self._my_name() or ""
+        last = None
+        for attempt in range(8):
+            candidate = friends.unique_name(base, attempt=attempt)
+            result = friends.claim(candidate)
+            if result.get("ok"):
+                return self._finish_rename(result["name"], was)
+            last = result
+            if result.get("error") != "name_taken":
+                break
+        return self._err((last or {}).get("message") or "Couldn't claim that name.")
+
+    def _finish_rename(self, name: str, was: str) -> dict:
+        """Everything a successful claim owes the rest of the app: persist the
+        name, re-hello presence, republish the E2EE key under the new name, tell
+        the player, and nudge the UI."""
         # The tab's claim path persisted the new name; the bridge's rename path
         # didn't, so an in-game rename was forgotten on the next launch. Both
         # go through here now.
-        self.cfg["cubeon_name"] = result["name"]
+        self.cfg["cubeon_name"] = name
         try:
             self._save_config()
         except Exception:
@@ -1857,13 +2090,13 @@ class FriendsService:
         # line, so the only wording the player actually sees is this one. It is
         # now unambiguous on its own, and the result carries the name so the mod
         # can pin it in place rather than let the next toast wipe it.
-        confirmed = (f"Your Cubeon name is now {result['name']}."
-                     if was and was.lower() != result["name"].lower()
-                     else f"Your Cubeon name is {result['name']}.")
+        confirmed = (f"Your Cubeon name is now {name}."
+                     if was and was.lower() != name.lower()
+                     else f"Your Cubeon name is {name}.")
         self._notify(confirmed)
         self._changed()
-        return {"ok": True, "error": "", "name": result["name"],
-                "renamed": bool(was and was.lower() != result["name"].lower()),
+        return {"ok": True, "error": "", "name": name,
+                "renamed": bool(was and was.lower() != name.lower()),
                 "message": confirmed}
 
     # =====================================================================
@@ -1908,6 +2141,10 @@ class FriendsService:
                 except Exception:
                     pass
             self._set_failed(p, message)
+            # The world password was armed for THIS session only - a failed
+            # one (wrong password exhausted, joiner vanished) must not leave
+            # it guarding the next world.
+            worldgate.clear()
         else:
             self._notify(message, error=True)
 
@@ -2446,16 +2683,108 @@ class FriendsService:
         if not (pr and pr.get("room") == room and pr.get("is_host")):
             return
 
-        # Joiner accepted - now tell them what to connect to. This is the frame
-        # that actually marks the room as a P2P session rather than a voice
-        # call, on both sides.
-        #
-        # All of this runs in a worker thread ON PURPOSE: STUN can block for
-        # seconds per server, build_mod_list() hashes every enabled jar, and
-        # build_asset_manifest() hashes up to 128 MB of resourcepacks/configs.
-        # Doing that inline would stall this WebSocket dispatch thread -
-        # freezing presence and heartbeats for every friend - for the whole
-        # handshake.
+        # Joiner accepted. If the world is password-gated, the connection
+        # target stays secret until they prove they know it: the p2p_offer
+        # carries the LAN port and the relay session token, so sending it to
+        # an unproven peer would make the gate decorative.
+        if worldgate.has_password():
+            self._host_send_gate_challenge(pr)
+            return
+
+        # Ungated (the host pressed Skip): straight to the offer. This is the
+        # frame that actually marks the room as a P2P session rather than a
+        # voice call, on both sides.
+        self._send_p2p_offer(pr, room)
+
+    def _host_send_gate_challenge(self, pr: dict) -> None:
+        """One challenge round, host side. Fresh 128-bit nonce per round, so a
+        proof can never be replayed into a later session."""
+        challenge = worldgate.new_challenge()
+        pr["gate_challenge"] = challenge
+        pr["gate_attempts"] = pr.get("gate_attempts") or 0
+        pr["state"] = "verifying"
+        record = worldgate.record()
+        self.client.signal(pr["room"], pr["peer"], {
+            "kind": "gate_challenge", "challenge": challenge,
+            "salt_hex": record["salt_hex"] if record else "",
+            "iterations": record["iterations"] if record
+                          else worldgate.PBKDF2_ITERATIONS,
+        })
+        self._changed()
+        threading.Thread(target=self._gate_challenge_watchdog,
+                         args=(pr["room"], challenge),
+                         name="cubeon-gate-watchdog", daemon=True).start()
+
+    def _gate_challenge_watchdog(self, room: str, challenge: str) -> None:
+        """Closes the room if no proof lands: a joiner who walked away must
+        not hold the host's world in 'verifying' forever."""
+        deadline = time.monotonic() + _GATE_TIMEOUT
+        while time.monotonic() < deadline:
+            time.sleep(1.0)
+            p = self._session_get()
+            if not p or p.get("room") != room:
+                return   # session over or replaced; nothing to guard
+            if p.get("state") != "verifying" or p.get("gate_challenge") != challenge:
+                return   # answered, or a newer round took over
+        p = self._session_get()
+        if p and p.get("room") == room and p.get("state") == "verifying":
+            self._fail_p2p("No password answer - the world invite timed out.")
+
+    def _on_gate_proof(self, p) -> None:
+        """Host: the joiner answered the challenge. Verify; on success hand
+        over the connection target, on failure re-challenge (with a fresh
+        nonce) until MAX_ATTEMPTS is burned, then close the room."""
+        data = p.get("data") or {}
+        room = p.get("room")
+        pr = self._session_get()
+        if not (pr and pr.get("room") == room and pr.get("is_host")
+                and pr.get("state") == "verifying"):
+            return
+        challenge = pr.get("gate_challenge") or ""
+        if worldgate.verify(challenge, str(data.get("proof_hex") or "")):
+            pr["gate_challenge"] = None
+            pr["gate_attempts"] = 0
+            # The offer build (STUN + hashing) must leave the dispatch thread.
+            threading.Thread(target=self._send_p2p_offer, args=(pr, room),
+                             name="p2p-host-offer", daemon=True).start()
+            return
+        attempts = (pr.get("gate_attempts") or 0) + 1
+        pr["gate_attempts"] = attempts
+        left = worldgate.MAX_ATTEMPTS - attempts
+        if left <= 0:
+            self._fail_p2p("Wrong password too many times - the world stays "
+                           "closed. Re-invite when you've sorted it out.")
+            return
+        self._notify(f"Wrong password from your friend - {left} "
+                     f"{'try' if left == 1 else 'tries'} left.", error=True)
+        # Re-challenge in the gate_fail frame itself: one fresh nonce (and the
+        # same salt - it derives from the password, not the round), so the
+        # joiner can retype and answer without a second round-trip.
+        challenge = worldgate.new_challenge()
+        pr["gate_challenge"] = challenge
+        record = worldgate.record()
+        self.client.signal(room, pr["peer"], {
+            "kind": "gate_fail", "left": left, "challenge": challenge,
+            "salt_hex": record["salt_hex"] if record else "",
+            "iterations": record["iterations"] if record
+                          else worldgate.PBKDF2_ITERATIONS,
+        })
+        self._changed()
+        threading.Thread(target=self._gate_challenge_watchdog,
+                         args=(room, challenge),
+                         name="cubeon-gate-watchdog", daemon=True).start()
+
+    def _send_p2p_offer(self, pr: dict, room: str) -> None:
+        """Build the hybrid transport and hand the joiner everything it needs
+        (LAN port, STUN candidate, relay session token).
+
+        Runs on a worker thread ON PURPOSE: STUN can block for seconds per
+        server, build_mod_list() hashes every enabled jar, and
+        build_asset_manifest() hashes up to 128 MB of resourcepacks/configs.
+        Doing that inline on the WebSocket dispatch thread would freeze
+        presence and heartbeats for every friend for the whole handshake.
+        Only ever reached past the worldgate (or with no gate armed)."""
+
         def prepare_offer():
             try:
                 session = p2p.HybridSession(is_host=True, lan_port=pr["lan_port"])
@@ -2511,6 +2840,7 @@ class FriendsService:
                 # that never lands is no longer a failure: the session simply
                 # stays on the relay.
             except Exception as e:
+                log.debug("p2p offer build failed", exc_info=True)
                 self._set_failed(
                     pr, f"Couldn't prepare your world for your friend: {e}")
 
@@ -2581,6 +2911,9 @@ class FriendsService:
             # before an invite ever went out) - teardown(None) would raise.
             if not pr.get("is_host") and pr.get("room"):
                 p2p.teardown(pr["room"])
+            # The world password is a per-session secret: gone the moment the
+            # session is, whatever side we were.
+            worldgate.clear()
             self._session_set(None)
         self._changed()
 
@@ -2606,6 +2939,71 @@ class FriendsService:
         if isinstance(sess0, p2p.HybridSession) and p.get("room") == pr0.get("room"):
             if sess0.on_signal_data(data):
                 return
+
+        if kind == "gate_proof":
+            # Host: the joiner's password answer (see _on_gate_proof).
+            self._on_gate_proof(p)
+            return
+
+        if kind == "gate_challenge":
+            # Joiner: the host's world is password-gated. Park the challenge
+            # on the session; if the player already typed a password (an
+            # earlier round, or typing while the challenge was in flight),
+            # answer immediately - otherwise flip to password_needed so the
+            # mod shows the password box.
+            pr = self._session_get()
+            if not pr or pr.get("is_host") or p.get("room") != pr.get("room"):
+                return
+            pr["gate_challenge"] = str(data.get("challenge") or "")
+            pr["gate_salt"] = str(data.get("salt_hex") or "")
+            try:
+                pr["gate_iters"] = int(data.get("iterations")
+                                       or worldgate.PBKDF2_ITERATIONS)
+            except (TypeError, ValueError):
+                pr["gate_iters"] = worldgate.PBKDF2_ITERATIONS
+            if pr.get("gate_password"):
+                self._answer_gate_challenge(pr)
+            else:
+                pr["state"] = "password_needed"
+                self._notify(f"{pr.get('peer')}'s world needs a password.")
+                self._changed()
+            return
+
+        if kind == "gate_ok":
+            # Joiner: the host accepted the proof. The p2p_offer follows as
+            # its own signal - nothing to do here beyond clearing the round.
+            pr = self._session_get()
+            if not pr or pr.get("is_host") or p.get("room") != pr.get("room"):
+                return
+            pr["gate_challenge"] = None
+            pr["gate_salt"] = None
+            self._changed()
+            return
+
+        if kind == "gate_fail":
+            # Joiner: wrong proof. The frame carries the fresh nonce (and the
+            # same salt) for the next round; put the box back up.
+            pr = self._session_get()
+            if not pr or pr.get("is_host") or p.get("room") != pr.get("room"):
+                return
+            pr["gate_challenge"] = str(data.get("challenge") or "")
+            pr["gate_salt"] = str(data.get("salt_hex") or "")
+            try:
+                pr["gate_iters"] = int(data.get("iterations")
+                                       or worldgate.PBKDF2_ITERATIONS)
+            except (TypeError, ValueError):
+                pr["gate_iters"] = worldgate.PBKDF2_ITERATIONS
+            try:
+                left = int(data.get("left"))
+            except (TypeError, ValueError):
+                left = 0
+            pr["gate_password"] = None
+            pr["state"] = "password_needed"
+            self._notify("Wrong password."
+                         + (f" {left} {'try' if left == 1 else 'tries'} left."
+                            if left > 0 else ""), error=True)
+            self._changed()
+            return
 
         if kind == "p2p_offer":
             # Arrives on the joiner right after they accept - this is what
@@ -2850,6 +3248,37 @@ class FriendsService:
             voice.on_signal(p)
         except Exception:
             pass
+
+
+def _local_skin_name(cfg: dict) -> str:
+    """The skin on record for THIS machine's account, as a display name.
+
+    Prefers what CustomSkinLoader is actually serving (the LocalSkin mirror
+    written by skins.sync_local_skin_to_csl), falls back to the launcher's
+    active-skin choice, "" when neither exists - the mod renders "default".
+    """
+    try:
+        from .paths import CSL_LOCAL_SKINS_DIR
+        username = (cfg.get("username") or "").strip()
+        if username and os.path.isfile(
+                os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png")):
+            return f"{cfg.get('active_skin') or 'custom'} (local)"
+    except Exception:
+        pass
+    return cfg.get("active_skin") or ""
+
+
+def _local_cape_name(cfg: dict) -> str:
+    """The cape on record for THIS machine's account, same rules as the skin."""
+    try:
+        from .paths import CSL_LOCAL_CAPES_DIR
+        username = (cfg.get("username") or "").strip()
+        if username and os.path.isfile(
+                os.path.join(CSL_LOCAL_CAPES_DIR, f"{username}.png")):
+            return f"{cfg.get('active_cape') or 'custom'} (local)"
+    except Exception:
+        pass
+    return cfg.get("active_cape") or ""
 
 
 def _mod_stamp(version_id) -> str:

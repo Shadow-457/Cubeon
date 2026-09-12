@@ -988,9 +988,16 @@ public class CubeonClientScreen extends Screen {
 
         for (Slot slot : actions) {
             slot.action = null;
-            slot.button.visible = tab == Tab.FRIENDS || tab == Tab.REQUESTS;
+            slot.button.visible = (tab == Tab.FRIENDS || tab == Tab.REQUESTS)
+                    && !snap.session().needsGateChoice();
             slot.button.active = false;
             slot.button.setTooltip(null);
+        }
+
+        if (snap.session().needsGateChoice()) {
+            // The worldgate decision owns the footer; the action bar would
+            // just offer actions against a world that isn't open yet.
+            return;
         }
 
         if (tab == Tab.ACCOUNT) {
@@ -1204,7 +1211,28 @@ public class CubeonClientScreen extends Screen {
         primary.button.active = false;
 
         boolean typing = false;
-        switch (tab) {
+        Session session = snap.session();
+        if (session.needsGateChoice()) {
+            // The worldgate decision outranks whatever tab is open: the
+            // banner explains why, this footer is how. Empty box + Save is
+            // the host's Skip (an ungated world); the joiner's button is
+            // Join, which refuses an empty box (an empty password is never
+            // a valid answer to a gated world).
+            typing = true;
+            input.setMaxLength(32);
+            if (session.host()) {
+                input.setHint(Component.literal("World password (empty = skip)"));
+                label(primary, "Save");
+                primary.action = this::submitWorldGate;
+                primary.button.active = !busy;
+            } else {
+                input.setHint(Component.literal("World password"));
+                label(primary, "Join");
+                primary.action = this::submitJoinPassword;
+                primary.button.active = !busy;
+            }
+        } else {
+            switch (tab) {
             case FRIENDS -> {
                 if (subViewOpen()) {
                     // A sub-view is about one friend you already have; adding
@@ -1247,15 +1275,22 @@ public class CubeonClientScreen extends Screen {
             case REQUESTS -> {
                 // No text entry on this tab.
             }
+            }
         }
-        primary.button.visible = tab != Tab.REQUESTS && !subViewOpen();
+        if (session.needsGateChoice()) {
+            // In gate mode the primary IS the Save/Join button, on every tab.
+            primary.button.visible = true;
+        } else {
+            primary.button.visible = tab != Tab.REQUESTS && !subViewOpen();
+        }
         primary.button.active = primary.button.active && primary.button.visible;
         input.visible = typing;
         input.setEditable(typing && !busy);
 
         String footnote = status;
         ChatFormatting color = statusIsError ? ChatFormatting.RED : ChatFormatting.YELLOW;
-        if (footnote.isEmpty() && tab == Tab.FRIENDS && !subViewOpen()) {
+        if (footnote.isEmpty() && tab == Tab.FRIENDS && !subViewOpen()
+                && !session.needsGateChoice()) {
             footnote = hint(snap);
             color = ChatFormatting.GRAY;
         }
@@ -1422,6 +1457,41 @@ public class CubeonClientScreen extends Screen {
         submit(claimed ? "Changing your name to " + name + "..." : "Claiming " + name + "...",
                 claimed ? "You are now " + name + "." : "Welcome, " + name + ".",
                 () -> clearInputOnSuccess(bridge.rename(name)), true);
+    }
+
+    /**
+     * Host: the worldgate decision. An empty box means Skip - the world opens
+     * to anyone the invite reaches - and anything else is the password. The
+     * launcher validates the length and words the error; the invite only
+     * rings out once this lands, whichever way it goes.
+     */
+    private void submitWorldGate() {
+        String password = input.getValue();
+        password = password == null ? "" : password.strip();
+        String saved = password;
+        submit("Saving the world password...",
+                password.isEmpty()
+                        ? "No password - anyone your invite reaches can join."
+                        : "World password saved - inviting your friend...",
+                () -> clearInputOnSuccess(bridge.setWorldGate(saved)));
+    }
+
+    /**
+     * Joiner: answer the host's password challenge. The launcher turns the
+     * password into a proof and sends it; a wrong answer comes back as a
+     * notice from the host (with the tries that are left), and the box
+     * re-appears for the next round.
+     */
+    private void submitJoinPassword() {
+        String password = input.getValue();
+        password = password == null ? "" : password.trim();
+        if (password.isEmpty()) {
+            flash("Type the world's password.");
+            return;
+        }
+        String answer = password;
+        submit("Checking the password...", "",
+                () -> clearInputOnSuccess(bridge.sendJoinPassword(answer)));
     }
 
     /** Runs on a worker thread, so the box is cleared back on the main one. */

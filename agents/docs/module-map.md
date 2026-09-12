@@ -265,6 +265,7 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `friends.py` | Relay client (WebSocket, secret as first frame), name rules, identity.json, claim/rename. `auto_name()`/`ensure_identity()` = the secret-derived automatic handle (no claim prompt). `T_*` constants = protocol truth. |
 | `e2ee.py` | X25519 DM encryption; keys published to the relay under the claimed name. |
 | `p2p.py` | P2P worlds: STUN + relay fallback, mod/asset sync, teardown. |
+| `worldgate.py` | The OPTIONAL password on a P2P LAN world (in-memory only, dies with the session). Host arms it from the mod's password prompt; the joiner proves it via HMAC(PBKDF2(pw,salt), nonce) over the E2EE signal channel - the p2p_offer (LAN port + relay token) is withheld until a proof lands, so the gate is real, not decorative. |
 | `server.py` | Paper server hosting: install (Fill v3 API), start/stop, properties, orphan detection. |
 | `minekube.py` | Public address tunnels: finds/installs Connect plugin, endpoint config. |
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |
@@ -676,6 +677,15 @@ content pulled live from the free, keyless, 24/7 APIs the game itself uses.
   count (resume/hash callers rely on that). Measured: a 100 MB instant
   download = 101 callbacks (was 1600). All progress bars route through this
   (version installs, mods, modpacks).
+- **Worldgate (2026-09-12): the LAN-world password gates the OFFER, not the
+  invite.** Host states: hosting_wait_port -> gate_wait (mod prompt) ->
+  ringing_out -> (accept) verifying -> connected. Joiner: connecting ->
+  password_needed -> connecting. Signal kinds: gate_challenge/gate_proof/
+  gate_fail (carries the FRESH nonce + salt for the next round)/gate_ok.
+  MAX_ATTEMPTS=3 then the room closes; a 60s watchdog closes an
+  unanswered round; the password (hash included) never touches disk.
+  Minekube fallback (`_switch_to_minekube`) is untouched and stays behind
+  the same gate because the offer precedes any fallback decision.
 - **P2P outbound loop is event-driven** (2026-09-09): `_tcp_outbound_loop`
   polled `time.sleep(0.01)` forever (~100 wakeups/sec per session). Now waits
   on `_outbound_wake` (Condition on `_state_lock`), nudged by ACK-freed

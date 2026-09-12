@@ -23,6 +23,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import types
 
@@ -40,8 +41,15 @@ from cubeon import friends as friends_mod          # noqa: E402
 from cubeon import friends_service as fs           # noqa: E402
 from cubeon import local_api                       # noqa: E402
 from cubeon import p2p                             # noqa: E402
+from cubeon import worldgate                       # noqa: E402
 
-MOD_SRC = os.path.join(ROOT, "mod", "src", "main", "java", "com", "cubeon", "friends")
+# build() stubs friends.load_identity/current_name for the service tests. The
+# automatic-identity test needs the real implementations, so capture them now,
+# before any build() call replaces the module attributes.
+_REAL_LOAD_IDENTITY = friends_mod.load_identity
+_REAL_SAVE_IDENTITY = friends_mod.save_identity
+
+MOD_SRC = os.path.join(ROOT, "mod", "src", "main", "java", "com", "cubeon", "client")
 
 passed = 0
 failed = 0
@@ -76,6 +84,7 @@ class FakeClient:
         self.is_available = True
         self.sends_ok = True
         self.name_exists = True
+        self.uid_exists = True
         self.handlers = {}
         self.sent = []          # (kind, args)
         self.versions = []
@@ -98,8 +107,12 @@ class FakeClient:
         return self.sends_ok
 
     def add_friend(self, n): return self._send("add", n)
+    def add_friend_uid(self, uid): return self._send("add_uid", uid)
     def check_name(self, n):
         return {"ok": True, "exists": self.name_exists, "online": False}
+    def check_uid(self, uid):
+        return {"ok": True, "exists": self.uid_exists, "name": "Alice",
+                "online": False, "uid": uid}
     def accept_request(self, n): return self._send("accept", n)
     def decline_request(self, n): return self._send("decline", n)
     def remove_friend(self, n): return self._send("remove", n)
@@ -238,8 +251,8 @@ def test_contract():
     api = open(os.path.join(ROOT, "cubeon", "local_api.py"), encoding="utf-8").read()
 
     # Every endpoint the mod actually calls, read off its own source.
-    # (Paths allow one sub-segment - /cape/frames - because the animated-cape
-    # feed hangs off the cape namespace.)
+    # (Paths allow one sub-segment so a future namespaced route doesn't
+    # silently escape the contract check.)
     posts = set(re.findall(r'post\("(/[a-z]+(?:/[a-z]+)?)"', bridge))
     gets = set(re.findall(r'get\("(/[a-z]+(?:/[a-z]+)?)"', bridge))
     ok(posts and gets, f"found the mod's endpoints ({len(gets)} GET, {len(posts)} POST)")
@@ -478,6 +491,49 @@ def test_friend_actions():
     ok(service.remove("Bob")["ok"] and ("remove", ("Bob",)) in client.sent, "remove")
 
 
+def test_add_friend_by_uid():
+    section("add_friend by 12-digit ID (the Chat surface)")
+    service, client, _ = build()
+    friends_mod.load_identity = lambda: {
+        "name": "Steve", "secret": "x", "uid": "000000000005"}
+
+    ok(service.add_friend("42")["ok"] is False,
+       "a non-12-digit ID is refused with a message")
+    ok(service.add_friend("00000000000a")["error"],
+       "letters in an ID are refused")
+
+    ok(service.add_friend("000000000005")["error"] == "You can't add yourself.",
+       "adding your own ID is caught")
+
+    r = service.add_friend("000000000042")
+    ok(r["ok"] and ("add_uid", ("000000000042",)) in client.sent,
+       "a valid ID is sent as an add-by-uid frame")
+    ok(any("Friend request sent to ID 000000000042." in e["text"]
+           for e in service.events_since(0)["events"]),
+       "and confirmed in the feed")
+
+    # Already a friend: matched on the friend's uid, not their name.
+    client.roster = {"friends": [{"name": "Alice", "uid": "000000000042",
+                                  "online": True}],
+                     "requests_in": [], "requests_out": []}
+    ok("already your friend" in service.add_friend("000000000042")["error"],
+       "a friend already on the roster is not re-requested")
+
+    # Unknown ID: the bounded REST fallback answers on its own.
+    client.roster = {"friends": [], "requests_in": [], "requests_out": []}
+    client.uid_exists = False
+    service.add_friend("000000000099")
+    deadline = time.time() + 2
+    seen = ""
+    while time.time() < deadline:
+        seen += " ".join(e["text"] for e in service.events_since(0)["events"])
+        if "No Cubeon user with ID 000000000099." in seen:
+            break
+        time.sleep(0.01)
+    ok("No Cubeon user with ID 000000000099." in seen,
+       "the local REST fallback answers an unknown ID")
+
+
 def test_whitelist():
     section("set_whitelisted (POST /whitelist)")
     service, client, core = build()
@@ -533,6 +589,57 @@ def test_rename():
     ok(client.connects >= 1, "the reconnect that re-publishes is spawned")
 
 
+def test_unique_rename():
+    section("rename_unique (a chosen name + the secret number)")
+    real_secret = friends_mod.stable_secret
+    friends_mod.stable_secret = lambda: "sec_" + "c" * 32
+    try:
+        n = friends_mod.unique_name("Dragon")
+        ok(n == friends_mod.unique_name("Dragon"),
+           "the same base always renders the same number", n)
+        ok(friends_mod.validate_name(n)[0], "the result is a valid name", n)
+        ok(n.startswith("Dragon") and n[-4:].isdigit(),
+           "the chosen base is kept and a number is appended", n)
+        ok(friends_mod.unique_name("Dragon", 1) != n,
+           "an attempt walks to a fresh number")
+        ok(friends_mod.unique_name(n) == n,
+           "re-applying a generated name is idempotent (no stacked number)")
+        ok(friends_mod.validate_name(friends_mod.unique_name("admin"))[0],
+           "even a reserved base gets a suffix that frees it")
+        ok(friends_mod.name_base(n) == "Dragon",
+           "name_base() gives back the editable stem for a rename field")
+        ok(friends_mod.name_base(friends_mod.auto_name()) == "Player",
+           "and the raw auto handle prefills as a clean 'Player', not its hash")
+    finally:
+        friends_mod.stable_secret = real_secret
+
+    service, _client, _ = build()
+    calls = []
+
+    def claim(name):
+        calls.append(name)
+        if len(calls) == 1:
+            return {"ok": False, "error": "name_taken",
+                    "message": "That Cubeon name is already taken. Try another."}
+        return {"ok": True, "name": name, "uuid": "u"}
+
+    friends_mod.claim = claim
+    r = service.rename_unique("Dragon")
+    ok(r["ok"], "a discriminator collision is retried, not surfaced")
+    ok(len(calls) == 2 and calls[0] != calls[1],
+       "the retry used a different secret number", calls)
+    ok(r["name"] == calls[-1] and r["name"].startswith("Dragon"),
+       "the user's base survives in the final name", r["name"])
+    ok(service.cfg["cubeon_name"] == r["name"], "and the name is persisted")
+
+    friends_mod.claim = lambda name: {
+        "ok": False, "error": "bad_name",
+        "message": "Only letters, numbers, and underscores allowed."}
+    r = service.rename_unique("Dragon")
+    ok(not r["ok"] and "underscores" in r["error"],
+       "a real failure stops at once with claim's own sentence", r["error"])
+
+
 def test_host_flow():
     section("invite (host)")
     service, client, core = build()
@@ -551,8 +658,14 @@ def test_host_flow():
 
     build._port_cb(25701)
     ok(service._session_get()["lan_port"] == 25701, "the LAN port is captured")
-    ok(("invite", ("Alice", "p2p")) in client.sent,
-       "the invite goes out marked kind=p2p, so the peer can tell it from a call")
+    ok(service._session_get()["state"] == "gate_wait",
+       "the worldgate decision is asked for before the invite rings out")
+    ok(not any(k == "invite" for k, _ in client.sent),
+       "still no invite - the host hasn't decided the password yet")
+
+    r = service.worldgate_set(None)     # Skip: an ungated world
+    ok(r["ok"] and ("invite", ("Alice", "p2p")) in client.sent,
+       "skip rings the invite out, still marked kind=p2p")
     ok(service._session_get()["state"] == "ringing_out", "state advances")
 
     client.fire("call_invite", {"outgoing": True, "room": "room-9"})
@@ -601,6 +714,193 @@ def test_join_flow():
     service3._session_set(None)
     client3.fire("call_invite", {"from": "Carl", "room": "room-6"})
     ok(("call_decline", ("room-6",)) in client3.sent, "an unmarked ring is declined")
+
+
+def test_worldgate_flow():
+    """The password gate end to end, host side and joiner side, against the
+    FakeClient's recorded signals - the protocol IS the contract."""
+    section("worldgate (LAN-world password)")
+    signals = lambda client: [data for k, args in client.sent if k == "signal"
+                              for data in [args[2]]]
+
+    # --- host: gate_wait, validation, arming ------------------------------
+    service, client, _ = build()
+    worldgate.clear()
+    service._session_set({"state": "gate_wait", "peer": "Alice", "is_host": True,
+                          "room": None, "lan_port": 1234})
+    r = service.worldgate_set("abc")
+    ok(not r["ok"] and "4 characters" in r["error"],
+       "a too-short password is refused with the rule, not a crash")
+    r = service.worldgate_set("hunter22")
+    ok(r["ok"] and ("invite", ("Alice", "p2p")) in client.sent,
+       "a valid password arms the gate and rings the invite out")
+    ok(worldgate.has_password() and service._session_get()["state"] == "ringing_out",
+       "the gate record exists and the session moved on")
+
+    # a double click on Save must not re-ring the friend
+    client.sent.clear()
+    service.worldgate_set("hunter22")
+    ok(not any(k == "invite" for k, _ in client.sent),
+       "worldgate_set outside gate_wait is a no-op")
+
+    # --- host: the challenge goes out on accept ---------------------------
+    service._session_set(dict(service._session_get(), room="room-9",
+                              state="ringing_out"))
+    client.fire("call_accept", {"room": "room-9"})
+    challenges = [d for d in signals(client) if d.get("kind") == "gate_challenge"]
+    ok(len(challenges) == 1 and challenges[0].get("salt_hex")
+       and challenges[0].get("challenge") and challenges[0].get("iterations"),
+       "accept sends exactly one challenge carrying salt + nonce + iterations")
+    ok(service._session_get()["state"] == "verifying",
+       "the offer is withheld until a proof lands")
+    ok(not any(d.get("kind") == "p2p_offer" for d in signals(client)),
+       "no p2p_offer escaped - the LAN port and token are still secret")
+
+    # --- host: a wrong proof re-challenges --------------------------------
+    client.fire("signal", {"room": "room-9", "from": "Alice",
+                           "data": {"kind": "gate_proof", "proof_hex": "nope"}})
+    fails = [d for d in signals(client) if d.get("kind") == "gate_fail"]
+    ok(len(fails) == 1 and fails[0].get("left") == 2
+       and fails[0].get("challenge") != challenges[0]["challenge"],
+       "a wrong proof answers gate_fail with a FRESH nonce and tries left")
+    ok(service._session_get()["state"] == "verifying",
+       "still verifying - the round is open")
+
+
+def _stub_offer_build(fs):
+    """Neutralises the offer thread's network/hash work so a test can pin the
+    gate protocol without STUN or a real HybridSession. Returns an undo."""
+    real = (fs.p2p.HybridSession, fs.p2p.probe_nat,
+            fs.p2p.build_mod_list, fs.p2p.build_asset_manifest)
+
+    class _FakeSession:
+        def __init__(self, **k):
+            self.session_token = bytes(16)
+            self._stop = threading.Event()   # _watch_p2p_transport waits on it
+        def begin(self): pass
+        def udp_socket(self): return None
+        def metrics(self): return {"mode": "relay", "rtt_ms": None}
+        def close(self): self._stop.set()
+
+    fs.p2p.HybridSession = _FakeSession
+    fs.p2p.probe_nat = lambda *a, **k: (_ for _ in ()).throw(fs.p2p.P2PError("x"))
+    fs.p2p.build_mod_list = lambda *a, **k: []
+    fs.p2p.build_asset_manifest = lambda: {}
+    return lambda: (setattr(fs.p2p, "HybridSession", real[0]),
+                    setattr(fs.p2p, "probe_nat", real[1]),
+                    setattr(fs.p2p, "build_mod_list", real[2]),
+                    setattr(fs.p2p, "build_asset_manifest", real[3]))
+
+
+def test_worldgate_joiner():
+    """Joiner half: challenge -> password box -> proof -> fresh nonce retry."""
+    section("worldgate (joiner)")
+    signals = lambda client: [data for k, args in client.sent if k == "signal"
+                              for data in [args[2]]]
+    service, client, _ = build()
+    service._session_set({"state": "connecting", "peer": "Alice", "is_host": False,
+                          "room": "room-2", "gate_password": None})
+    client.fire("signal", {"room": "room-2", "from": "Alice", "data": {
+        "kind": "gate_challenge", "challenge": "c" * 32,
+        "salt_hex": "ab" * 16, "iterations": 1000}})
+    ok(service._session_get()["state"] == "password_needed",
+       "no password yet - the joiner is asked")
+    ok(not any(k == "signal" for k, _ in client.sent),
+       "nothing is answered before the player types")
+
+    r = service.join_password("hunter22")
+    proofs = [d for d in signals(client) if d.get("kind") == "gate_proof"]
+    ok(r["ok"] and len(proofs) == 1, "the typed password becomes one proof")
+    expected = worldgate.compute_proof("c" * 32, "hunter22", "ab" * 16, 1000)
+    ok(proofs and proofs[0]["proof_hex"] == expected,
+       "the proof is exactly HMAC(PBKDF2(password, salt), challenge)")
+    ok(service._session_get()["state"] == "connecting"
+       and service._session_get()["gate_password"] is None,
+       "the plaintext password is dropped the moment the proof is out")
+
+    # wrong answer: the re-challenge arms the next round
+    client.fire("signal", {"room": "room-2", "from": "Alice", "data": {
+        "kind": "gate_fail", "left": 1, "challenge": "d" * 32,
+        "salt_hex": "ab" * 16, "iterations": 1000}})
+    ok(service._session_get()["state"] == "password_needed",
+       "a wrong answer re-opens the password box")
+    r = service.join_password("hunter22")
+    proofs = [d for d in signals(client) if d.get("kind") == "gate_proof"]
+    ok(r["ok"] and worldgate.compute_proof("d" * 32, "hunter22", "ab" * 16, 1000)
+       == proofs[-1]["proof_hex"],
+       "the retry proves against the FRESH nonce, not the old one")
+
+    # gate_ok clears the round; join_password out of band is refused
+    client.fire("signal", {"room": "room-2", "from": "Alice",
+                           "data": {"kind": "gate_ok"}})
+    ok(service._session_get()["state"] == "connecting", "gate_ok lands quietly")
+    r = service.join_password("hunter22")
+    ok(not r["ok"], "a second password out of band is refused")
+
+    # An empty password is never a valid answer to a gated world.
+    service._session_set(dict(service._session_get(), state="password_needed",
+                              gate_challenge="e" * 32))
+    ok(not service.join_password("   ")["ok"], "a blank password is refused")
+    client.sent.clear()
+    # And a challenge that arrives while the player is mid-typing gets answered
+    # by the very next join_password without any special casing.
+    client.fire("signal", {"room": "room-2", "from": "Alice", "data": {
+        "kind": "gate_challenge", "challenge": "f" * 32,
+        "salt_hex": "ab" * 16, "iterations": 1000}})
+    service.join_password("hunter22")
+    proofs = [d for d in signals(client) if d.get("kind") == "gate_proof"]
+    ok(proofs and proofs[-1]["proof_hex"]
+       == worldgate.compute_proof("f" * 32, "hunter22", "ab" * 16, 1000),
+       "a late-arriving challenge is answered against its own nonce")
+
+
+def test_worldgate_offer_released():
+    """The right proof releases the offer; exhaustion closes the world."""
+    section("worldgate (offer release + lockout)")
+    signals = lambda client: [data for k, args in client.sent if k == "signal"
+                              for data in [args[2]]]
+    service, client, _ = build()
+    worldgate.clear()
+    service._session_set({"state": "gate_wait", "peer": "Alice", "is_host": True,
+                          "room": "room-9", "lan_port": 1234,
+                          "mc_version": "1.21.1", "loader": "fabric"})
+    service.worldgate_set("hunter22")
+    client.sent.clear()
+    client.fire("call_accept", {"room": "room-9"})
+    ch = [d for d in signals(client) if d.get("kind") == "gate_challenge"][-1]
+    proof = worldgate.compute_proof(ch["challenge"], "hunter22",
+                                    ch["salt_hex"], ch["iterations"])
+    undo = _stub_offer_build(fs)
+    try:
+        client.fire("signal", {"room": "room-9", "from": "Alice",
+                               "data": {"kind": "gate_proof", "proof_hex": proof}})
+        for _ in range(40):
+            if any(d.get("kind") == "p2p_offer" for d in signals(client)):
+                break
+            time.sleep(0.05)
+    finally:
+        undo()
+    ok(any(d.get("kind") == "p2p_offer" for d in signals(client)),
+       "the right proof releases the p2p_offer (lan port + session token)")
+    ok(service._session_get()["state"] == "connected",
+       "the host session is connected")
+    worldgate.clear()
+
+    service2, client2, _ = build()
+    service2._session_set({"state": "gate_wait", "peer": "Bob", "is_host": True,
+                           "room": "room-1", "lan_port": 1234})
+    service2.worldgate_set("hunter22")
+    client2.sent.clear()
+    for _ in range(3):
+        client2.fire("call_accept", {"room": "room-1"})
+        client2.fire("signal", {"room": "room-1", "from": "Bob",
+                                "data": {"kind": "gate_proof", "proof_hex": "x"}})
+    ok(("call_end", ("room-1",)) in client2.sent,
+       "three wrong proofs close the room")
+    ok(service2._session_get()["state"] == "failed"
+       and "Wrong password" in service2._session_get()["error"],
+       "the host session fails with the reason")
+    ok(not worldgate.has_password(), "the armed password dies with the session")
 
 
 def test_pending_rooms_pruned():
@@ -997,6 +1297,54 @@ def test_chat_http():
     service.stop()
 
 
+def test_automatic_identity():
+    section("automatic identity (the secret-derived handle)")
+    work = tempfile.mkdtemp(prefix="cubeon-identity-")
+    real_secret = friends_mod.stable_secret
+    real_uuid = friends_mod.stable_uuid
+    real_path = friends_mod.IDENTITY_PATH
+    try:
+        friends_mod.load_identity = _REAL_LOAD_IDENTITY
+        friends_mod.save_identity = _REAL_SAVE_IDENTITY
+        friends_mod.IDENTITY_PATH = os.path.join(work, "identity.json")
+        friends_mod.stable_secret = lambda: "sec_" + "a" * 32
+        friends_mod.stable_uuid = lambda: "11111111-1111-4111-8111-111111111111"
+
+        a = friends_mod.auto_name()
+        ok(a == friends_mod.auto_name(), "auto_name() is deterministic per secret")
+        ok(friends_mod.validate_name(a) is not None,
+           "the derived handle passes the same rules as a typed name", a)
+        ok(a.startswith(friends_mod.AUTO_NAME_PREFIX) and len(a) <= 16,
+           "it carries the Player_ prefix and fits the 16-char limit", a)
+        ok(a.lower() not in friends_mod._RESERVED,
+           "and can never collide with a reserved name")
+
+        friends_mod.stable_secret = lambda: "sec_" + "b" * 32
+        ok(friends_mod.auto_name() != a,
+           "a different auth_key.json yields a different handle")
+        friends_mod.stable_secret = lambda: "sec_" + "a" * 32
+
+        ok(friends_mod.load_identity() is None, "no identity file to start")
+        ident = friends_mod.ensure_identity()
+        ok(ident.get("name") == a, "ensure_identity() mints the derived handle")
+        on_disk = friends_mod.load_identity()
+        ok(on_disk and on_disk.get("name") == a,
+           "and persists it, so presence can connect with no claim prompt")
+        ok(friends_mod.ensure_identity().get("name") == a,
+           "a second call returns the same identity - never a silent rotation")
+
+        friends_mod.save_identity("ChosenName")
+        ok(friends_mod.ensure_identity().get("name") == "ChosenName",
+           "an existing (renamed) identity is left untouched")
+    finally:
+        friends_mod.load_identity = _REAL_LOAD_IDENTITY
+        friends_mod.save_identity = _REAL_SAVE_IDENTITY
+        friends_mod.stable_secret = real_secret
+        friends_mod.stable_uuid = real_uuid
+        friends_mod.IDENTITY_PATH = real_path
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def test_no_flet():
     section("headless")
     src = open(os.path.join(ROOT, "cubeon", "friends_service.py"),
@@ -1009,6 +1357,15 @@ def test_no_flet():
     ok("friends_tab" not in main, "main.py doesn't reference it")
     ok('"friends"' not in main.split("nav_items = [")[1].split("]")[0],
        "and there's no Friends entry left in the sidebar")
+    # ...but the social layer does have a home now: a launcher-side Chat tab
+    # that talks to FriendsService directly instead of the mod bridge.
+    chat_path = os.path.join(ROOT, "ui", "chat_tab.py")
+    ok(os.path.exists(chat_path), "the Chat tab exists")
+    chat = open(chat_path, encoding="utf-8").read() if os.path.exists(chat_path) else ""
+    ok("def build_chat_tab" in chat, "it exposes build_chat_tab()")
+    ok("from ui.chat_tab import build_chat_tab" in main
+       and '"chat": _build_chat_tab' in main,
+       "main.py wires it into the tab builders")
 
 
 def main():
@@ -1029,8 +1386,12 @@ def main():
         test_friend_actions()
         test_whitelist()
         test_rename()
+        test_unique_rename()
         test_host_flow()
         test_join_flow()
+        test_worldgate_flow()
+        test_worldgate_offer_released()
+        test_worldgate_joiner()
         test_pending_rooms_pruned()
         test_profile_mismatch()
         test_retry()
@@ -1039,6 +1400,7 @@ def main():
         test_chat_http()
         test_encrypted_chat()
         test_seeded_history()
+        test_automatic_identity()
         test_no_flet()
     finally:
         try:

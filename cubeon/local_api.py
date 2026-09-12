@@ -71,7 +71,12 @@ _providers = {
     "syncdownload": None,
     "syncclose": None,
     "askjoin": None,
-    "capeframes": None,
+    "players": None,
+    # Worldgate: the host's optional LAN-world password (POST /worldgate) and
+    # the joiner's answer to a challenge (POST /joinpassword). See
+    # cubeon/worldgate.py for the protocol.
+    "worldgate": None,
+    "joinpassword": None,
 }
 
 # POST routes that take a single {"name": ...} and return a result dict. Keeping
@@ -169,13 +174,6 @@ def set_sync_provider(fn) -> None:
     _providers["sync"] = fn
 
 
-def set_capeframes_provider(fn) -> None:
-    """fn() -> {"fps","frames":[b64...],"version"} or None (no animated cape).
-    Read by the Cubeon mod (GET /cape/frames) to animate the local player's
-    own cape. Must not block: called at the mod's idle poll rate."""
-    _providers["capeframes"] = fn
-
-
 def set_sync_start_handler(fn) -> None:
     """fn(name) -> {"ok","error"}. Opens the compare channel to a friend."""
     _providers["syncstart"] = fn
@@ -194,6 +192,14 @@ def set_sync_close_handler(fn) -> None:
 def set_askjoin_handler(fn) -> None:
     """fn(name) -> {"ok","error"}. Asks a friend to open their world to us."""
     _providers["askjoin"] = fn
+
+
+def set_players_provider(fn) -> None:
+    """fn() -> {"players": [{"name","online","skin","cape","version","status"}]}.
+    GET /players - what the in-game Friends screen's roster reads for
+    skin/cape/presence details. Must not block; anything missing
+    degrades to "" so the mod renders fewer details, never an error."""
+    _providers["players"] = fn
 
 
 def _write_token(port: int, token: str) -> None:
@@ -283,6 +289,21 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as ex:
                 self._json({"friend": friend, "you": "", "messages": [],
                             "error": str(ex)}, 500)
+        elif parts.path == "/players":
+            fn = _providers["players"]
+            if not fn:
+                # An older service (or a plain-bridge launcher): an empty list
+                # is the mod's "nothing known" answer, never a 404 crash.
+                self._json({"players": []})
+                return
+            try:
+                payload = fn()
+            except Exception as ex:
+                self._json({"players": [], "error": str(ex)}, 500)
+                return
+            players = [p for p in (payload.get("players") or [])
+                       if isinstance(p, dict) and p.get("name")]
+            self._json({"players": players})
         elif parts.path == "/sync":
             fn = _providers["sync"]
             friend = str(parse_qs(parts.query).get("friend", [""])[0] or "").strip()
@@ -298,19 +319,6 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception as ex:
                 self._json({"friend": friend, "state": "error", "error": str(ex),
                             "lines": [str(ex)], "missing": [], "extra": []}, 500)
-        elif parts.path == "/cape/frames":
-            # The animated-cape feed for the Cubeon mod (self-only animation;
-            # see cubeon/capes.py). 204 - not 404 - for "no animated cape set"
-            # so the mod can tell "older launcher" (404) from "nothing set"
-            # without log spam: fetch() treats any 2xx-without-frames as stop.
-            fn = _providers["capeframes"]
-            data = fn() if fn else None
-            if data is None:
-                self.send_response(204)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-            self._json(data)
         else:
             self._json({"error": "not found"}, 404)
 
@@ -361,6 +369,28 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             on = bool(body.get("on"))
             self._call(lambda: fn(name, on))
+        elif route == "worldgate":
+            # The host's password decision: {"password": "..."} arms the gate,
+            # {"skip": true} (or an empty password) leaves the world open to
+            # anyone the invite reaches. Empty-password-as-skip keeps the mod
+            # to one button.
+            fn = _providers["worldgate"]
+            if not fn:
+                self._json({"ok": False, "error": "no worldgate handler"}, 503)
+                return
+            if body.get("skip"):
+                self._call(lambda: fn(None))
+                return
+            self._call(lambda: fn(str(body.get("password") or "")))
+        elif route == "joinpassword":
+            # The joiner's answer to a gate_challenge. Runs the PBKDF2 proof
+            # (a few hundred ms of CPU), so it goes through the same forgiving
+            # _call wrapper as everything else.
+            fn = _providers["joinpassword"]
+            if not fn:
+                self._json({"ok": False, "error": "no joinpassword handler"}, 503)
+                return
+            self._call(lambda: fn(str(body.get("password") or "")))
         elif route == "dm":
             to = str(body.get("to") or "").strip()
             text = str(body.get("text") or "").strip()
