@@ -50,6 +50,7 @@ escaped exception is a silent dead button. Callers check `ok` and show
 `message`, which is already a finished human sentence. This is the same contract
 as invites.py.
 """
+import hashlib
 import json
 import logging
 import os
@@ -74,6 +75,20 @@ log = logging.getLogger(__name__)
 # genuinely sensitive value Cubeon stores (the identity secret), hence 0600,
 # exactly like invites.json.
 IDENTITY_PATH = os.path.join(CUBEON_HOME, "identity.json")
+
+# Prefix for the automatic Cubeon name every install gets without ever being
+# asked. The handle is derived from the machine's stable secret (auth_key.json)
+# rather than typed, so first run needs no claim prompt and two installs can't
+# pick the same name by accident. "Player_" is deliberately NOT the brand name:
+# the reserved-name list exists to stop anyone impersonating "Cubeon"/"admin",
+# and a name that *starts* with the brand would invite exactly that confusion.
+AUTO_NAME_PREFIX = "Player_"
+
+# Width of the secret-derived discriminator appended to a *chosen* name
+# ("Dragon" -> "Dragon4821"). Four decimal digits is the familiar Discord-style
+# shape; it is seeded by the same stable secret, so a given machine always
+# renders the same number for a given base.
+AUTO_NAME_DIGITS = 4
 
 # Last roster the server sent us, cached so the Friends tab can paint instantly
 # on launch instead of showing an empty list until the WebSocket connects. Not
@@ -110,7 +125,7 @@ FAST_TIMEOUT = (3, 4)  # (connect, read)
 
 # Client -> server.
 T_HELLO = "hello"            # {name, secret, version, status} - first frame, authenticates
-T_ADD = "add"                # {name} - send a friend request
+T_ADD = "add"                # {name} or {uid} - send a friend request
 T_REMOVE = "remove"          # {name} - drop a friend (both directions)
 T_ACCEPT = "accept"          # {name} - accept an incoming request
 T_DECLINE = "decline"        # {name} - reject an incoming request
@@ -154,9 +169,52 @@ T_SYSTEM = "system"          # {text} - a server-side notice to show in a thread
 # but uniqueness is enforced server-side where a username's isn't.
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 
+# The public numeric ID, assigned by the server on first registration: twelve
+# zero-padded decimal digits, starting at 000000000001. This is what the Chat
+# surface shows and what a friend types to add you - a name and a secret are no
+# longer how chat identity works. Must equal the worker's UID_RE / UID_WIDTH.
+_UID_RE = re.compile(r"^[0-9]{12}$")
+UID_WIDTH = 12
+
 # Reserved so nobody can claim a name that impersonates the system or the app
 # itself in a chat list ("Cubeon: your account is locked, send your secret...").
 _RESERVED = {"cubeon", "admin", "system", "server", "moderator", "mod", "staff"}
+
+
+def canonical_uid(uid: "str | int | None") -> "str | None":
+    """The canonical 12-digit form of a Cubeon ID, or None if it isn't one.
+
+    Accepts an int or a string; a bare number is zero-padded to 12 digits so the
+    value a user pastes and the value the server returns compare equal.
+    """
+    if isinstance(uid, bool):
+        return None
+    if isinstance(uid, int):
+        if uid < 0:
+            return None
+        # A bare number arrives zero-padded: 1 -> "000000000001". Strings are
+        # NOT padded ("42" stays rejected) so a typo can't silently match a
+        # different user's ID.
+        uid = str(uid).zfill(UID_WIDTH)
+    if not isinstance(uid, str):
+        return None
+    uid = uid.strip()
+    if not _UID_RE.match(uid):
+        return None
+    return uid
+
+
+def format_uid(uid: "str | int | None") -> str:
+    """A best-effort display form: zero-padded to 12 digits, or "" when the
+    value isn't numeric enough to format."""
+    canon = canonical_uid(uid)
+    if canon:
+        return canon
+    try:
+        return str(int(str(uid).strip())).zfill(UID_WIDTH)
+    except (TypeError, ValueError):
+        return ""
+
 
 
 def validate_name(name: str) -> "tuple[bool, str]":
@@ -210,7 +268,8 @@ def load_identity() -> "dict | None":
     return data
 
 
-def save_identity(name: str, secret: "str | None" = None) -> dict:
+def save_identity(name: str, secret: "str | None" = None,
+                  uid: "str | None" = None) -> dict:
     """Persists the claimed name + owning secret with 0600, atomically. Returns
     the stored identity dict (including the stable identity uuid, so callers
     don't recompute it).
@@ -220,11 +279,18 @@ def save_identity(name: str, secret: "str | None" = None) -> dict:
     same secret owns every name this machine ever claims. An explicit secret can
     still be passed (used by tests). The uuid stored is always the stable v4
     identity uuid, NOT offline_uuid(name): that's what makes the account survive
-    a rename - see config.ensure_auth_key()."""
+    a rename - see config.ensure_auth_key().
+
+    `uid` is the server-assigned 12-digit public ID. It is preserved across a
+    rename via the prior-fields merge below when not passed, and set when a
+    claim/hello_ok hands back a fresh one."""
     os.makedirs(CUBEON_HOME, exist_ok=True)
     if secret is None:
         secret = stable_secret()
     identity = {"name": name, "secret": secret, "uuid": stable_uuid()}
+    canon_uid = canonical_uid(uid)
+    if canon_uid:
+        identity["uid"] = canon_uid
     # Preserve fields that other features have parked in identity.json (e.g. the
     # E2EE key in "e2ee_sk"): a rename re-claims the same machine and must not
     # silently rotate its encryption identity. name/secret/uuid above always win.
@@ -271,6 +337,111 @@ def current_name() -> "str | None":
     return identity.get("name") if identity else None
 
 
+def current_uid() -> str:
+    """This machine's 12-digit Cubeon ID, or "" before the server has assigned
+    one (first connection). Safe to call anywhere - never raises."""
+    identity = load_identity()
+    if not identity:
+        return ""
+    return canonical_uid(identity.get("uid")) or ""
+
+
+def remember_uid(uid: "str | None") -> bool:
+    """Persists a server-assigned ID onto the existing identity. True if it
+    changed the file. A no-op without an identity, an invalid ID, or when the
+    ID already matches, so it is safe to call on every hello_ok."""
+    canon = canonical_uid(uid)
+    identity = load_identity()
+    if not canon or not identity:
+        return False
+    if canonical_uid(identity.get("uid")) == canon:
+        return False
+    save_identity(identity["name"], identity.get("secret"), uid=canon)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# 2b. Automatic identity - the user never types or claims a Cubeon name.
+#
+# A Cubeon name is only meaningful when it is *owned*; ownership comes from the
+# stable secret in auth_key.json, not from the string. So the name itself is
+# presentation, and an install can mint a perfectly good one from that secret
+# instead of interrupting first-run with a claim dialog. The derivation is
+# deterministic: the same auth_key.json always yields the same handle, and a
+# fresh install's 256-bit secret makes a collision with another machine's
+# handle effectively impossible. The server binds "claim-on-connect" (see
+# worker/cubeon-friends.js onHello), so saving the derived identity locally is
+# enough - the first WebSocket hello registers it, and the claim is idempotent
+# if it ever replays. Rename stays available for users who want a chosen name.
+# ---------------------------------------------------------------------------
+
+def auto_name() -> str:
+    """The deterministic Cubeon handle for this machine's stable secret.
+
+    "Player_" + the first 8 hex of SHA-256(secret): 15 chars, inside the
+    3-16 name limit, and made only of the allowed [A-Za-z0-9_] set. Never
+    looks like a reserved/system name, and never changes for a given
+    auth_key.json, so a friend who added you once keeps working across
+    launcher reinstalls as long as the key survives."""
+    digest = hashlib.sha256(stable_secret().encode("utf-8")).hexdigest()
+    return AUTO_NAME_PREFIX + digest[:8]
+
+
+def ensure_identity() -> dict:
+    """This machine's identity, minting the automatic one when none exists.
+
+    Returns the existing identity untouched when a name has already been
+    claimed (auto or user-renamed), so this is safe to call on every startup -
+    it can never silently rotate a name a friend already knows. Only a truly
+    nameless install gets the derived handle, which is written to disk
+    immediately so presence can connect even while offline."""
+    identity = load_identity()
+    if identity and identity.get("name"):
+        return identity
+    return save_identity(auto_name())
+
+
+def unique_number(attempt: int = 0) -> str:
+    """The secret-derived discriminator, zero-padded to AUTO_NAME_DIGITS.
+
+    Deterministic for a given auth_key.json. `attempt` walks to a different
+    number when a chosen base actually collides with another machine, so the
+    number stays secret-seeded while a rare clash can still resolve."""
+    digest = hashlib.sha256(stable_secret().encode("utf-8")).hexdigest()
+    modulus = 10 ** AUTO_NAME_DIGITS
+    return str((int(digest, 16) + int(attempt)) % modulus).zfill(AUTO_NAME_DIGITS)
+
+
+def unique_name(base: str, attempt: int = 0) -> str:
+    """A chosen display name made unique with the secret discriminator.
+
+    "Dragon" -> "Dragon4821". The base is reduced to name-safe characters and
+    stripped of any trailing digits first, so re-applying the result is
+    idempotent instead of stacking a second number ("Dragon4821" -> "Dragon4821",
+    not "Dragon48214821"). Truncated to leave room for the discriminator, and
+    guaranteed to be a valid, non-reserved name - a reserved word only ever
+    appears as a prefix, never as the whole handle."""
+    base = re.sub(r"[^A-Za-z0-9_]", "", (base or "").strip())
+    base = base.rstrip("0123456789") or AUTO_NAME_PREFIX.rstrip("_")
+    number = unique_number(attempt)
+    base = base[:16 - len(number)] or "P"
+    return base + number
+
+
+def name_base(name: str) -> str:
+    """The editable stem of a generated handle: everything before the trailing
+    discriminator, so a rename field can prefill with "Dragon" for the current
+    "Dragon4821". The untouched auto handle ("Player_<8hex>") yields the bare
+    "Player" rather than the hash, which reads like a name instead of a key.
+    A name that is all digits is returned unchanged."""
+    text = (name or "").strip()
+    if text.startswith(AUTO_NAME_PREFIX):
+        rest = text[len(AUTO_NAME_PREFIX):]
+        if len(rest) == 8 and all(c in "0123456789abcdef" for c in rest.lower()):
+            return AUTO_NAME_PREFIX.rstrip("_")
+    return text.rstrip("0123456789") or text
+
+
 # ---------------------------------------------------------------------------
 # Roster cache - a non-sensitive snapshot for an instant first paint.
 # ---------------------------------------------------------------------------
@@ -306,6 +477,7 @@ def save_cached_roster(roster: dict) -> None:
 _MESSAGES = {
     "name_taken": "That Cubeon name is already taken. Try another.",
     "bad_name": "That name isn't allowed. Use 3-16 letters, numbers, or underscores.",
+    "bad_uid": "That doesn't look like a Cubeon ID. It's 12 numbers.",
     "not_yours": "That name belongs to another computer.",
     "bad_body": "Cubeon and the friends server disagreed about the request format.",
     "blocked": "This name was blocked for breaking the rules.",
@@ -375,8 +547,13 @@ def claim(name: str, *, base_url: "str | None" = None) -> dict:
     if resp.status_code != 200:
         return _from_response(resp)
 
-    identity = save_identity(name, secret)
-    return {"ok": True, "name": name, "uuid": identity["uuid"]}
+    try:
+        body = resp.json() or {}
+    except ValueError:
+        body = {}
+    identity = save_identity(name, secret, uid=body.get("uid"))
+    return {"ok": True, "name": name, "uuid": identity["uuid"],
+            "uid": current_uid()}
 
 
 def check_name(name: str, *, base_url: "str | None" = None) -> dict:
@@ -399,6 +576,32 @@ def check_name(name: str, *, base_url: "str | None" = None) -> dict:
     except ValueError:
         return _fail("bad_response", _OFFLINE)
     return {"ok": True, "exists": True, "online": bool(body.get("online"))}
+
+
+def lookup_uid(uid: "str | int", *, base_url: "str | None" = None) -> dict:
+    """Resolves a 12-digit Cubeon ID to the account behind it, so the Chat tab
+    can reject a typo'd ID and show the friend's name. Returns ok=True with
+    exists/name/online; exists=False when no account holds that ID."""
+    canon = canonical_uid(uid)
+    if not canon:
+        return _fail("bad_uid", _MESSAGES["bad_uid"])
+    try:
+        resp = requests.get(f"{_api_root(base_url)}/uid/{canon}", timeout=TIMEOUT)
+    except requests.RequestException as ex:
+        log.warning("uid lookup failed: %s", ex.__class__.__name__)
+        return _fail("offline", _OFFLINE)
+    if resp.status_code == 404:
+        return {"ok": True, "exists": False, "name": "", "online": False,
+                "uid": canon}
+    if resp.status_code != 200:
+        return _from_response(resp)
+    try:
+        body = resp.json()
+    except ValueError:
+        return _fail("bad_response", _OFFLINE)
+    return {"ok": True, "exists": True, "uid": canon,
+            "name": body.get("name") or "",
+            "online": bool(body.get("online"))}
 
 
 def publish_pubkey(pubkey_b64: str, *, base_url: "str | None" = None) -> dict:
@@ -639,6 +842,15 @@ class FriendsClient:
 
         if t == T_HELLO_OK:
             self._connected.set()
+            # The server hands back the account's 12-digit ID on every hello.
+            # Persist it here so the Chat surface can show it without a separate
+            # REST round trip, and so it survives even if /claim was never
+            # called (claim-on-connect).
+            try:
+                if remember_uid(msg.get("uid")):
+                    self._emit("identity", {"uid": current_uid()})
+            except Exception:
+                log.debug("couldn't persist the server-assigned uid", exc_info=True)
             self._emit("state", {"connected": True, "retry_in": None})
             self._emit("hello_ok", msg)
             return
@@ -709,6 +921,15 @@ class FriendsClient:
     def add_friend(self, name: str) -> bool:
         return self._raw_send({"t": T_ADD, "name": name})
 
+    def add_friend_uid(self, uid: "str | int") -> bool:
+        """Send a friend request by 12-digit ID. The server resolves it to the
+        account and, exactly like add_friend(), turns a mutual add into an
+        accept. Returns whether the frame went out - never raises."""
+        canon = canonical_uid(uid)
+        if not canon:
+            return False
+        return self._raw_send({"t": T_ADD, "uid": canon})
+
     def remove_friend(self, name: str) -> bool:
         return self._raw_send({"t": T_REMOVE, "name": name})
 
@@ -723,6 +944,12 @@ class FriendsClient:
         client talks to? Returns friends.check_name()'s dict, so the caller can
         tell "exists" from "the lookup itself failed" instead of guessing."""
         return check_name(name, base_url=self._base_url)
+
+    def check_uid(self, uid: "str | int") -> dict:
+        """REST read: resolve a 12-digit ID to its name/presence, or report
+        exists=False. Same contract as check_name() - the caller can tell a
+        missing account from a failed lookup."""
+        return lookup_uid(uid, base_url=self._base_url)
 
     def publish_pubkey(self, pubkey_b64: str) -> dict:
         """Publishes this name's E2EE public key so friends can write it

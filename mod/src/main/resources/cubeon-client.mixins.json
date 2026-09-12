@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "package": "com.cubeon.client.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "PauseScreenMixin",
+    "PlayerNameMixin",
+    "TitleScreenMixin",
+    "CubeonMenuRenderMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}
