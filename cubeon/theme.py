@@ -28,7 +28,7 @@ dialogs so the "blockiness" is uniform rather than a per-widget guess.
 
 Colour follows a disciplined dark-UI system:
 
-  * 60 / 30 / 10.  ~60% is the warm near-black canvas (BG), ~30% is structural
+  * 60 / 30 / 10.  ~60% is the near-black canvas (BG), ~30% is structural
     surface/border neutrals, and only ~10% is chromatic - so the accent actually
     reads as emphasis instead of noise. Chroma is a scarce resource spent on the
     ONE thing that matters on each screen (the primary action, the active tab).
@@ -40,11 +40,10 @@ Colour follows a disciplined dark-UI system:
     DANGER = redstone (destructive / error). Cyan sits near green's complement, so
     it POPS as a secondary action without fighting the green.
 
-  * Warm, not neutral-grey.  The neutrals carry a faint olive undertone (hue ~80).
-    A pure-grey launcher next to Minecraft looks like a different product; a warm
-    ramp reads as part of the same world. The ramp is perceptually stepped so
-    elevation (BG -> SURFACE -> SURFACE_HI -> SURFACE_MAX) is legible on a flat,
-    shadowless design.
+  * True black + green.  The canvas is true black (#050505) and every surface
+    above it is black with only the faintest green cast - so the UI reads as
+    "black and green", never grey. Chroma is a scarce resource: the single
+    accent green carries all emphasis, and it never floods the chrome.
 
   * Contrast is checked, not eyeballed.  Body text pairs (TEXT/TEXT_DIM on the
     dark surfaces) clear WCAG AA (>= 4.5:1); ON_ACCENT on ACCENT clears AAA. The
@@ -57,36 +56,39 @@ Colour follows a disciplined dark-UI system:
 import flet as ft
 
 # --- Neutral ramp ----------------------------------------------------------
-# A dark, slightly olive scheme rather than neutral grey. Stepped so each level
-# of elevation is distinguishable without relying on shadows (this is a flat UI).
-BG = "#0E110A"           # app canvas - near-black, faint olive undertone
-SURFACE = "#181C12"      # panels, cards, containers
-SURFACE_HI = "#242A1B"   # hovered/elevated panels, inputs - one step up
-SURFACE_MAX = "#2E3421"  # top elevation - dialogs, menus, popovers
-BORDER = "#343B22"       # low-contrast structural border - dividers and outlines
-BORDER_HI = "#4C5731"    # emphasized/hover border, quiet focus ring on neutrals
+# True black + green. The canvas is the user's #050505, and every surface above
+# it is black with only the faintest green cast so the UI reads as "black and
+# green", never grey. Stepped so each level of elevation is distinguishable
+# without shadows.
+BG = "#050505"           # app canvas - true black
+SURFACE = "#0B0D0A"      # panels, cards, containers
+SURFACE_HI = "#131711"   # hovered/elevated panels, inputs - one step up
+SURFACE_MAX = "#1A2015"  # top elevation - dialogs, menus, popovers
+BORDER = "#242B1E"       # low-contrast structural border - dividers and outlines
+BORDER_HI = "#39422F"    # emphasized/hover border, quiet focus ring on neutrals
 
 # --- Text ------------------------------------------------------------------
-TEXT = "#EDEFE4"         # warm off-white - primary text (AAA on all surfaces)
-TEXT_DIM = "#A7AD97"     # secondary text - labels, captions (AA on SURFACE)
-TEXT_FAINT = "#6E7659"   # tertiary - hints, placeholders, disabled (non-essential)
+TEXT = "#DDF6D5"         # pale green-white - primary text (AAA on all surfaces)
+TEXT_DIM = "#9DB394"     # muted green-grey - labels, captions (AA on SURFACE)
+TEXT_FAINT = "#68755F"   # tertiary - hints, placeholders, disabled (non-essential)
 
 # --- Brand / hero ----------------------------------------------------------
-ACCENT = "#83C13D"       # grass green - primary action, active state, positive
-ACCENT_HI = "#98D653"    # brighter green - hover / pressed on the hero
-ACCENT_DIM = "#42611F"   # deep green - subtle fills, borders, quiet accents
-ON_ACCENT = "#0E110A"    # text/icon placed ON an ACCENT fill (9:1 - AAA)
+ACCENT = "#46BA34"       # green - primary action, active state, positive
+ACCENT_HI = "#5FD24B"    # brighter green - hover / pressed on the hero
+ACCENT_DIM = "#2BAF00"   # saturated deep green - quiet accents, subtle borders
+ACCENT_DEEP = "#052400"  # near-black green - selected fills / pressed states
+ON_ACCENT = "#04120A"    # text/icon placed ON an ACCENT fill (high contrast)
 
 # --- Semantic (Minecraft-native, used sparingly) ---------------------------
 INFO = "#4FB4C7"         # diamond cyan - download / secondary action / info
 INFO_HI = "#63C7D8"      # brighter cyan - hover / pressed on an INFO fill
 INFO_DIM = "#274F58"     # deep cyan - subtle info fills and borders
-ON_INFO = "#0E110A"      # dark text on an INFO fill
+ON_INFO = "#050505"      # dark text on an INFO fill
 WARNING = "#E6B23C"      # gold ingot - caution, "heads up"
-ON_WARNING = "#0E110A"   # dark text on a WARNING fill
+ON_WARNING = "#050505"   # dark text on a WARNING fill
 DANGER = "#DB5A4B"       # redstone red - destructive actions and errors
 DANGER_HI = "#E86E5F"    # brighter red - hover / pressed on danger
-ON_DANGER = "#0E110A"    # dark text on a DANGER fill (higher contrast than white)
+ON_DANGER = "#050505"    # dark text on a DANGER fill (higher contrast than white)
 
 # Semantic alias: success shares the hero green (positive == on-brand here).
 SUCCESS = ACCENT
@@ -98,7 +100,7 @@ SUCCESS = ACCENT
 # dominates or disappears, and the first entry is the hero green so a lone friend
 # still looks "Cubeon". Lives here (not duplicated per tab) so the set can't drift.
 AVATAR_COLORS = [
-    "#83C13D",  # grass green
+    "#46BA34",  # green
     "#4FB4C7",  # diamond cyan
     "#E6B23C",  # gold
     "#B57BD6",  # amethyst
@@ -116,11 +118,11 @@ AVATAR_COLORS = [
 # look, and having them in one place keeps every screen consistent.
 
 CARD_FILL = ft.Colors.with_opacity(0.55, SURFACE)     # translucent panel fill
-CARD_FILL_HERO = "#1B2113"                            # hero panel: one flat step brighter
+CARD_FILL_HERO = "#0C0F0B"                            # hero panel: one flat step brighter
 CARD_BORDER = ft.Colors.with_opacity(0.55, BORDER)    # low-opacity outline for panels
 ROW_HOVER = ft.Colors.with_opacity(0.65, SURFACE_HI)  # quiet hover lift for borderless rows
-ACCENT_TINT = ft.Colors.with_opacity(0.14, ACCENT)    # selected-state wash (nav/chips/tiles)
-ACCENT_TINT_HI = ft.Colors.with_opacity(0.24, ACCENT) # hovered version of the same wash
+ACCENT_TINT = ft.Colors.with_opacity(0.12, ACCENT)    # selected-state wash (nav/chips/tiles)
+ACCENT_TINT_HI = ft.Colors.with_opacity(0.20, ACCENT) # hovered version of the same wash
 
 
 def card(*, padding=24, hero=False):
@@ -345,7 +347,7 @@ def quiet_chip(label, selected=False, on_click=None):
         bgcolor=ACCENT_TINT if selected else None,
         border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
-        ink=True,
+        ink=False,
         on_click=on_click,
         animate=150,
     )
@@ -369,7 +371,7 @@ def text_tab(label, selected=False, on_click=None):
                 bottom=ft.border.BorderSide(2, ACCENT if selected else "transparent")),
         ),
         padding=ft.padding.Padding.symmetric(horizontal=2),
-        ink=True,
+        ink=False,
         on_click=on_click,
     )
 

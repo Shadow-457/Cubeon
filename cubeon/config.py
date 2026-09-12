@@ -92,6 +92,20 @@ DEFAULT_CONFIG = {
     # hand is not an option. Turning it off is the supported opt-out; see
     # cubeon/csl.py for exactly what it stops doing.
     "manage_skin_mod": True,
+    # Inject the Cubeon Client in-game mod (Friends button/screen) into
+    # Fabric/Quilt profiles at launch. Turning this off launches a clean
+    # install with no Cubeon mod at all - the launcher itself keeps working.
+    # Distinct from features.friends_enabled(), which is a BUILD-time switch
+    # that removes the whole Friends backend; this is the user's per-launch
+    # choice about the jar.
+    "client_mod_enabled": True,
+    # With the Cubeon Client on, also make sure the two client performance
+    # mods that actually raise frame rate (Sodium + Lithium, fetched from
+    # Modrinth like any other mod) are present in the Fabric/Quilt profile.
+    # The Cubeon Client itself is a social mod and draws nothing expensive;
+    # this is what turns "activate Cubeon Client" into a real FPS win.
+    # Turning it off leaves the mod set exactly as the user built it.
+    "perf_mods_enabled": True,
     "server_ram_mb": 2048,  # RAM allocated to the local server started from the Server tab
     # Whether Smooth mode (low-ping optimization) is ON per server version.
     # Stored explicitly rather than inferred from server.properties, because

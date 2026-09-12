@@ -58,7 +58,15 @@ class FakePage:
 
     Records update() calls and overlay/dialog registrations so the test can
     assert the UI was actually wired, and swallows anything display-specific.
+    Mirrors Flet 0.86's dialog API (show_dialog/pop_dialog + a _dialogs
+    stack) so the app's dialog plumbing is exercised the same way it runs
+    for real - the old fake exposed open()/close(), which 0.86 removed, and
+    so hid the "dialogs never close" bug entirely.
     """
+
+    class _Dialogs:
+        def __init__(self):
+            self.controls = []
 
     def __init__(self):
         self.window = FakeWindow()
@@ -73,6 +81,7 @@ class FakePage:
         self.update_calls = 0
         self.opened = []
         self.snackbars = []
+        self._dialogs = FakePage._Dialogs()
         self.session = types.SimpleNamespace()
         # Flet 0.86 attaches the clipboard as a page *service; the tabs that
         # registers one here, so without this the section silently loses copy.
@@ -84,7 +93,23 @@ class FakePage:
     def add(self, *controls):
         self.controls.extend(controls)
 
+    def show_dialog(self, control):
+        control.open = True
+        self._dialogs.controls.append(control)
+        self.opened.append(control)
+        if type(control).__name__ == "SnackBar":
+            self.snackbars.append(control)
+
+    def pop_dialog(self):
+        while self._dialogs.controls:
+            dlg = self._dialogs.controls.pop()
+            if getattr(dlg, "open", None):
+                dlg.open = False
+                return dlg
+        return None
+
     def open(self, control):
+        # Pre-0.28 API - must NOT be preferred by the app on 0.86.
         self.opened.append(control)
 
     def close(self, control):
@@ -167,16 +192,37 @@ if not built:
     sys.exit(1)
 
 check("something was added to the page", len(page.controls) > 0)
-check("window title set", page.title == "Cubeon Launcher")
+check("window title set", page.title == "Cubeon")
 check("fonts registered", set(page.fonts) >= {"Minecraftia", "Inter"})
 check("a FilePicker was registered in the overlay",
       any(type(o).__name__ == "FilePicker" for o in page.overlay),
       f"overlay={[type(o).__name__ for o in page.overlay]}")
 
+def all_tooltips(ctrl):
+    """Tooltips across the tree - the top nav is icon-only by design, so the
+    destinations are named in tooltips, not Text controls."""
+    out = []
+    tip = getattr(ctrl, "tooltip", None)
+    if tip:
+        out.append(str(tip))
+    for c in getattr(ctrl, "controls", None) or []:
+        out.extend(all_tooltips(c))
+    content = getattr(ctrl, "content", None)
+    if content is not None:
+        out.extend(all_tooltips(content))
+    for a in getattr(ctrl, "actions", None) or []:
+        out.extend(all_tooltips(a))
+    return out
+
 print("\n2. the shell has every nav destination")
-text = " | ".join(all_text(page.controls[0]))
-for label in ("play", "mods", "servers", "profile", "settings"):
+text = " | ".join(all_text(page.controls[0])).lower()
+nav_labels = ("play", "mods", "modpacks", "cosmetics", "servers", "account", "settings")
+for label in nav_labels:
     check(f"nav shows {label!r}", label in text)
+check("update-version button present", "update game version" in text)
+# The Legacy toggle and the snapshots checkbox live in Settings now (this
+# fake page only mounts the Play tab), so their ABSENCE here is the check.
+check("legacy toggle not on the play tab", "show snapshots" not in text)
 
 print("\n3. the Play tab is wired")
 check("username field present", "username" in text)
@@ -204,6 +250,27 @@ check("no output still returns something useful",
 check("explanation stays short enough for the label",
       all(len(app._explain_exit(1, l)) <= 180 for l, _ in cases))
 
+print("\n4b. session end classification (close vs GPU crash)")
+# Regression for the "closing the window reopens it" bug: flet 0.86 reaps its
+# client inside ft.run, so a live child can never be observed afterwards. The
+# old live-child test called every normal close a crash and relaunched. The
+# exit status is the only reliable signal: 0 = user close, negative = signal.
+_end_cases = [
+    ((False, None), "pre_paint_crash"),
+    ((False, -11), "pre_paint_crash"),
+    ((True, 0), "clean_close"),
+    ((True, None), "clean_close"),
+    ((True, 1), "clean_close"),
+    ((True, -11), "mid_session_crash"),
+    ((True, -6), "mid_session_crash"),
+]
+for args, expect in _end_cases:
+    got = app._classify_session_end(*args)
+    check(f"session end {args} -> {expect}", got == expect, f"got {got!r}")
+check("a normal close never relaunches (exit 0 is clean, not a crash)",
+      app._classify_session_end(True, 0) == "clean_close",
+      "closing the window must park/exit, never re-exec with software GL")
+
 print("\n5. every tab builder accepts the shared theme (**THEME)")
 # The Profile dialog and the tab builders aren't reached by main()'s initial
 # build, so a broken signature there survives section 1. These call them
@@ -225,6 +292,7 @@ try:
         section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
         **THEME,
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
+        start_prefetch=False,
     )
     check("build_skin_section accepts **THEME", section is not None)
 except Exception as ex:
@@ -255,6 +323,13 @@ try:
     check("hat row renders earnable hat names",
           _clicked and "veteran" in _sec_txt and "party" in _sec_txt,
           f"clicked={_clicked} " + _sec_txt[:200])
+    # 2026-09-11 cosmetics rework: the pane leads with a big live stage and
+    # locked hats carry a mini progress bar instead of a text paragraph.
+    _imgs = [c for c in walk(section) if isinstance(c, ft.Image)]
+    _bars = [c for c in walk(section) if isinstance(c, ft.ProgressBar)]
+    check("cosmetics pane is preview-based (stage image + locked bars)",
+          _clicked and len(_imgs) >= 2 and len(_bars) >= 1,
+          f"clicked={_clicked} images={len(_imgs)} bars={len(_bars)}")
 except Exception as ex:
     check("hat row renders earnable hat names", False,
           f"{type(ex).__name__}: {ex}")
@@ -263,6 +338,240 @@ check("DANGER is a required argument, not a drifting default",
       "DANGER" not in (build_skin_section.__defaults__ or ()) and
       "#e05555" not in str(build_skin_section.__kwdefaults__ or {}),
       f"kwdefaults={build_skin_section.__kwdefaults__}")
+
+print("\n5b. an uploaded (non-animated) cape builds a real row - no gray box")
+# Regression for the "white thing on uploaded capes" report: the cape row's
+# name column was built as `ft.Text(...) if c.get("animated") else None`
+# INSIDE ft.Column(controls=[...]). A None child serializes as a null entry;
+# the Flet client then fails to build that row and Flutter paints its
+# release-mode error widget - the big gray/white box users saw exactly where
+# each uploaded cape's row should have been. Python never raised, so nothing
+# reached the log. Two guards here: (a) the built Cape pane's tree contains
+# zero None entries in any controls list, (b) the uploaded cape's row text
+# actually exists. A real (non-animated) cape is planted in the sandboxed
+# CAPES_DIR so refresh_capes_list() reads genuine data.
+import json as _json
+from PIL import Image as _PILImage
+
+os.makedirs(core.CAPES_DIR, exist_ok=True)
+_PILImage.new("RGBA", (64, 32), (10, 200, 90, 255)).save(
+    os.path.join(core.CAPES_DIR, "regress_cape.png"), "PNG")
+with open(os.path.join(core.CAPES_DIR, "capes.json"), "w", encoding="utf-8") as _f:
+    _json.dump({"capes": [{"filename": "regress_cape.png",
+                           "name": "Regress Cape"}]}, _f)
+
+try:
+    _cape_cfg = {"username": "tester", "active_skin": None,
+                 "active_cape": "regress_cape.png"}
+    _cape_section = build_skin_section(
+        FakePage(), _cape_cfg,
+        section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
+        **THEME,
+        mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
+        start_prefetch=False,
+    )
+    # The Cape pane only hangs off the tab bar's click until switched to;
+    # click it (same trick as the Cosmetics check above) so it's walkable.
+    for _c in walk(_cape_section):
+        if getattr(_c, "on_click", None) is not None and \
+                " ".join(all_text(_c)).strip() == "cape":
+            _c.on_click(None)
+            break
+    _nones = []
+    for _c in walk(_cape_section):
+        _lst = getattr(_c, "controls", None)
+        if isinstance(_lst, list):
+            _nones.extend(f"{type(_c).__name__}[{_i}]"
+                          for _i, _x in enumerate(_lst) if _x is None)
+    check("no None child in any controls list", not _nones,
+          f"null entries at: {_nones[:5]}")
+    # Installed capes render as a card grid, not pages: both the built-in
+    # Cubeon cape and the uploaded one are in the tree at once, and there is
+    # no "n / m" pager label anywhere.
+    _cape_txt = " | ".join(all_text(_cape_section))
+    check("uploaded cape row renders its name",
+          "regress cape" in _cape_txt, _cape_txt[:200])
+    check("installed lists no longer paginate (no page indicator)",
+          not any("/" in (_lbl.value or "")
+                  for _c in walk(_cape_section) if isinstance(_c, ft.Row)
+                  for _lbl in _c.controls if isinstance(_lbl, ft.Text)),
+          "found a leftover 'n / m' pager label")
+except Exception as ex:
+    import traceback
+    check("uploaded cape row builds", False, traceback.format_exc())
+
+print("\n5c. one search box per pane (filter-only, no fetch-player flow)")
+# The Skin/Cape Browse panes used to stack a search TextField AND a separate
+# "Load a real player" TextField - two boxes doing the same job. The panes now
+# use a single filter-as-you-type box each. The old "type a name to fetch"
+# flow was removed 2026-09-11 - pin that no fetch-player copy or Get button
+# survives and the field is filter-only.
+try:
+    _skin_section = build_skin_section(
+        FakePage(), {"username": "tester", "active_skin": None},
+        section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
+        **THEME,
+        mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
+        start_prefetch=False,
+    )
+    _fields = [c for c in walk(_skin_section) if isinstance(c, ft.TextField)]
+    _hints = " | ".join((getattr(f, "hint_text", "") or "").lower() for f in _fields)
+    check("no duplicate 'load a real player' search bar",
+          "load a real player" not in _hints, _hints)
+    _txt_all = " | ".join(all_text(_skin_section)).lower()
+    check("no fetch-player copy or Get button remains",
+          "get player" not in _txt_all and "fetch" not in _txt_all
+          and "on mojang" not in _txt_all,
+          _txt_all[:200])
+    _search_fields = [f for f in _fields
+                      if (getattr(f, "hint_text", "") or "").lower().startswith("search")]
+    check("gallery search is filter-only (no submit fetch)",
+          _search_fields and all(not getattr(f, "on_submit", None)
+                                 for f in _search_fields),
+          f"{len(_search_fields)} search field(s)")
+    # Typing a name must yield suggestions from the FULL curated list even when
+    # nothing is cached yet (fresh install), not "nothing matches". The
+    # not-yet-cached tiles render a placeholder (preview_path is None) - that
+    # must not crash _img_b64 / the tile builder.
+    _skin_search = next(f for f in _fields
+                        if (getattr(f, "hint_text", "") or "").lower()
+                        .startswith("search skins"))
+    _skin_search.value = "jeb"
+    _skin_search.on_change(None)
+    _txt = " | ".join(all_text(_skin_section)).lower()
+    check("searching offers not-yet-cached recommendations",
+          "jeb_" in _txt, _txt[:200])
+except Exception as ex:
+    import traceback
+    check("one search box per pane", False, traceback.format_exc())
+
+print("\n5d. clicking Installed actually flips the pane (not just the underline)")
+# The Browse | Installed tabs once updated view_state + the tab highlight but
+# never flipped the two columns' .visible - so the underline moved and the
+# content did not, which users read as "Installed shows nothing". Pin that a
+# tab click toggles the columns, not only the label styling.
+try:
+    _skin_section = build_skin_section(
+        FakePage(), {"username": "tester", "active_skin": None},
+        section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
+        **THEME,
+        mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
+        start_prefetch=False,
+    )
+    _installed_tab = None
+    for _c in walk(_skin_section):
+        if getattr(_c, "on_click", None) is not None and \
+                " ".join(all_text(_c)).strip().lower().startswith("installed"):
+            _installed_tab = _c
+            break
+    if _installed_tab is not None:
+        _installed_tab.on_click(None)
+    # Find the columns by a text unique to each, then read .visible.
+    _browse_vis = _installed_vis = None
+    for _c in walk(_skin_section):
+        if not isinstance(_c, ft.Column):
+            continue
+        _txt = " ".join(all_text(_c)).lower()
+        if "recommended players" in _txt and "no uploaded skins yet" not in _txt:
+            _browse_vis = _c.visible
+        if "no uploaded skins yet" in _txt and "recommended players" not in _txt:
+            _installed_vis = _c.visible
+    check("Installed tab reveals the Installed column",
+          _installed_tab is not None and _installed_vis is True,
+          f"tab={_installed_tab is not None} installed_visible={_installed_vis}")
+    check("Installed tab hides the Browse column",
+          _browse_vis is False, f"browse_visible={_browse_vis}")
+except Exception as ex:
+    import traceback
+    check("Installed tab flips the pane", False, traceback.format_exc())
+
+print("\n5e. skin search filters in place (no per-keystroke rebuild, no dead-end button)")
+# Search used to rebuild every tile and re-base64 every preview on each
+# keystroke (slow/janky), and an empty result offered a "Look up ... on Mojang"
+# button. Now the grid is built once and search flips .visible; pin both.
+try:
+    _skin_section = build_skin_section(
+        FakePage(), {"username": "tester", "active_skin": None},
+        section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
+        **THEME,
+        mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
+        start_prefetch=False,
+    )
+    _txt_all = " | ".join(all_text(_skin_section)).lower()
+    check("no 'Look up ... on Mojang' button remains",
+          "look up" not in _txt_all and "on mojang" not in _txt_all,
+          _txt_all[:200])
+
+    _tiles = [c for c in walk(_skin_section)
+              if isinstance(getattr(c, "data", None), dict)
+              and "skin_gid" in c.data]
+    _tile_ids = {id(c) for c in _tiles}
+    _search = next((f for f in walk(_skin_section)
+                    if isinstance(f, ft.TextField)
+                    and (getattr(f, "hint_text", "") or "").lower()
+                    .startswith("search skins")), None)
+    _search.value = "jeb"
+    _search.on_change(None)
+    _after = [c for c in walk(_skin_section)
+              if isinstance(getattr(c, "data", None), dict)
+              and "skin_gid" in c.data]
+    check("search does not rebuild the tile objects",
+          {id(c) for c in _after} == _tile_ids,
+          f"before={len(_tile_ids)} after={len(_after)}")
+    _jeb = next((c for c in _after if c.data["skin_gid"].lower().startswith("jeb")), None)
+    _other = next((c for c in _after if not c.data["skin_gid"].lower().startswith("jeb")), None)
+    check("matching tile is shown, non-matching hidden",
+          _jeb is not None and _jeb.visible is True
+          and _other is not None and _other.visible is False,
+          f"jeb={getattr(_jeb, 'visible', None)} other={getattr(_other, 'visible', None)}")
+except Exception as ex:
+    import traceback
+    check("skin search filters in place", False, traceback.format_exc())
+
+print("\n5f. Installed skin cards show a real preview in a wrapping grid")
+# The Installed pane used to render a generic icon chip per row (and later a
+# one-row-per-page pager). It now shows a wrapping card grid where every card
+# carries a rendered preview and the active item is highlighted.
+_inst_skin = None
+try:
+    _src_png = os.path.join(core.SKINS_DIR, "_regress_src.png")
+    _PILImage.new("RGBA", (64, 64), (200, 60, 60, 255)).save(_src_png, "PNG")
+    _inst_skin = core.add_custom_skin(_src_png, "Regress Inst Skin")
+    os.remove(_src_png)
+    _sec = build_skin_section(
+        FakePage(), {"username": "tester", "active_skin": None},
+        section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
+        **THEME, mc_version="1.21.11", mc_loader="fabric",
+        file_picker=ft.FilePicker(), start_prefetch=False)
+    for _c in walk(_sec):
+        if getattr(_c, "on_click", None) is not None and \
+                " ".join(all_text(_c)).strip().lower().startswith("installed"):
+            _c.on_click(None)
+            break
+    _grid = None
+    for _c in walk(_sec):
+        if isinstance(_c, ft.Row) and getattr(_c, "wrap", False) and \
+                "regress inst skin" in " ".join(all_text(_c)).lower():
+            _grid = _c
+            break
+    _has_preview = _grid is not None and any(
+        isinstance(x, ft.Image) for x in walk(_grid))
+    _card = next((x for x in (_grid.controls if _grid else [])
+                  if isinstance(x, ft.Container)), None)
+    check("installed skin card shows a real preview image", _has_preview)
+    check("installed skins flow as a wrapping card grid",
+          _grid is not None and _card is not None and _card.width,
+          f"grid={type(_grid).__name__ if _grid else None} "
+          f"children={[type(x).__name__ for x in (_grid.controls if _grid else [])]}")
+except Exception as ex:
+    import traceback
+    check("installed skin card shows a real preview image", False, traceback.format_exc())
+finally:
+    if _inst_skin:
+        try:
+            core.delete_custom_skin(_inst_skin["filename"])
+        except Exception:
+            pass
 
 print("\n6. rebuilding is idempotent (catches leaked module-level state)")
 # A refactor that hoists per-session state to module level breaks on the second
@@ -281,9 +590,105 @@ if again:
     check("second build produced its own controls", len(page2.controls) > 0)
     check("second build registered its own FilePicker",
           any(type(o).__name__ == "FilePicker" for o in page2.overlay))
-    t2 = " | ".join(all_text(page2.controls[0]))
+    t2 = " | ".join(all_text(page2.controls[0])).lower()
     check("second build has the same nav", all(
-        k in t2 for k in ("play", "mods", "servers", "profile", "settings")))
+        k in t2 for k in ("play", "mods", "modpacks", "cosmetics",
+                          "servers", "account", "settings")),
+        f"text={t2[:400]!r}")
+
+print("\n6b. the Update game version button really updates")
+
+# Drive the actual button handler. It is a nested function, so we reach it
+# through the control tree: the update control is the one with on_click whose
+# subtree contains "update game version". Everything network- or
+# thread-spawning is stubbed so the test stays hermetic. Status messages are
+# not mounted (there is no visible status chip by design), so we capture them
+# by spying on thread_safe_ui.refresh, which set_status() calls.
+import cubeon.thread_safe_ui as _tsui_smoke
+import threading as _threading
+_saved_install_version = core.install_version
+_saved_is_loader_supported = core.is_loader_supported
+_saved_mod_doctor = core.mod_doctor
+_saved_is_server_running = core.is_server_running
+_saved_get_installed = core.get_installed_versions
+_saved_tsui_refresh = _tsui_smoke.refresh
+# Block the prefetch install so it can't flip the version to "installed"
+# mid-assertion (the real install takes long enough that it never does).
+_release_install = _threading.Event()
+core.install_version = lambda *a, **k: _release_install.wait(3)
+core.is_loader_supported = lambda *a, **k: False
+core.mod_doctor = lambda *a, **k: {"checked": 0, "problems": [],
+                                  "fixed": [], "unfixed": []}
+core.is_server_running = lambda *a, **k: False
+_statuses = []
+
+
+def _cap_refresh(ctrl):
+    v = getattr(ctrl, "value", None)
+    if isinstance(v, str):
+        _statuses.append(v)
+    return _saved_tsui_refresh(ctrl)
+
+
+_tsui_smoke.refresh = _cap_refresh
+
+
+def _control_with_click(control, needle):
+    for c in walk(control):
+        if getattr(c, "on_click", None) is not None \
+                and needle in " | ".join(all_text(c)).lower():
+            return c
+    return None
+
+
+try:
+    _update_btn = _control_with_click(page.controls[0], "update game version")
+    check("the update-version button has a click handler",
+          _update_btn is not None)
+    if _update_btn is not None:
+        # Case A: newest release is not installed -> selecting it starts the
+        # download and says so (before, a non-installed latest could hit
+        # "pick it from the list" even though it was already picked).
+        _update_btn.on_click(None)
+        _txt = " | ".join(all_text(page.controls[0])).lower()
+        check("update selects the newest release",
+              "minecraft 1.21.11" in _txt and "1.21.11" in _txt,
+              f"txt={_txt[:400]!r}")
+        _joined_status = " || ".join(s.lower() for s in _statuses)
+        check("update never dead-ends on 'pick it from the list'",
+              "pick it from the list" not in _joined_status,
+              f"statuses={_statuses[-6:]!r}")
+        check("update reports the download for the newest release",
+              "getting 1.21.11" in _joined_status
+              or "updating to 1.21.11" in _joined_status,
+              f"statuses={_statuses[-6:]!r}")
+
+        # Case B: newest release already selected AND installed -> a clear
+        # "already latest" message, not a confusing no-op.
+        core.get_installed_versions = lambda: [
+            {"id": "1.21.11", "display_name": "1.21.11", "incomplete": False}]
+        page3 = FakePage()
+        app.main(page3)
+        _btn3 = _control_with_click(page3.controls[0], "update game version")
+        check("second app instance also has the update button",
+              _btn3 is not None)
+        if _btn3 is not None:
+            _btn3.on_click(None)
+            _txt3 = " | ".join(all_text(page3.controls[0])).lower()
+            check("update keeps the latest installed release selected",
+                  "minecraft 1.21.11" in _txt3, f"txt={_txt3[:400]!r}")
+            check("update on the latest installed release reports it",
+                  any("already on the latest release" in s.lower()
+                      for s in _statuses),
+                  f"statuses={_statuses[-6:]!r}")
+finally:
+    _release_install.set()
+    _tsui_smoke.refresh = _saved_tsui_refresh
+    core.install_version = _saved_install_version
+    core.is_loader_supported = _saved_is_loader_supported
+    core.mod_doctor = _saved_mod_doctor
+    core.is_server_running = _saved_is_server_running
+    core.get_installed_versions = _saved_get_installed
 
 print("\n7. the tunnel section is reachable from the Server console view")
 # The whole point of the feature is a button the user can actually see. main()
@@ -392,6 +797,40 @@ check("public builds can't crash on friends presence (guarded set_version)",
       _re.search(r"if friends_service is not None:\s*\n\s*friends_service\.set_version\(", _src) is not None,
       "main.py must guard the launch-time set_version call")
 
+# --- playtime must actually be recorded on game exit --------------------------
+# The 2026-09-11 stats bug: on_exit called `core.add_play_seconds`, but
+# launcher_core re-exports it as `milestones_add_play_seconds` - so every
+# session raised AttributeError, silently swallowed by the except, and "Time
+# in game" stayed 0. Pin that the symbol main.py calls actually exists, and
+# that the stale name is gone.
+import launcher_core as _lc
+check("launcher_core exposes the playtime accumulator",
+      hasattr(_lc, "milestones_add_play_seconds"),
+      "re-export milestones.add_play_seconds so main.py can call it")
+check("on_exit ends the durable play session through a real attribute",
+      "core.milestones_end_play_session(" in _src
+      and "core.add_play_seconds(" not in _src,
+      "main.py on_exit must call core.milestones_end_play_session")
+# The game outlives the launcher, and a GPU-crash re-exec kills the in-process
+# on_exit watcher - so the session start must be persisted and reconciled on
+# the next start, or time played across a launcher restart is silently lost.
+_src_launch = open(os.path.join(os.path.dirname(app.__file__),
+                                "cubeon/launch.py"), encoding="utf-8").read()
+check("launch pastes the play session to disk",
+      "begin_play_session(" in _src_launch,
+      "launch.py must call milestones.begin_play_session after Popen")
+check("startup reconciles a play session orphaned by a launcher restart",
+      "core.milestones_reconcile_play_session(" in _src,
+      "main.py must call core.milestones_reconcile_play_session")
+from cubeon import milestones as _mile
+_mile.load_state()
+_before = _mile._state["seconds_played"]
+_lc.milestones_add_play_seconds(3661.0)
+_after = _mile._state["seconds_played"]
+check("the re-exported accumulator really credits playtime",
+      abs((_after - _before) - 3661.0) < 0.001,
+      f"seconds_played {_before} -> {_after}")
+
 # --- full lazy-tab dispatch path: clicking Mods must not raise ----------------
 # The 2026-09-07 user crash: clicking Mods ran switch_tab -> _ensure_tab ->
 # lazy _build_mods_tab -> refresh_mods_list -> refresh(mods_list_view), and
@@ -456,6 +895,236 @@ try:
 except Exception as _ex:
     _ok_direct = False
 check("refresh() direct path safe for detached controls", _ok_direct)
+
+# --- dialogs actually close on the Flet 0.86 API -----------------------------
+# The real bug (2026-09-08): Flet 0.86 removed Page.open()/close() in favor of
+# show_dialog()/pop_dialog(); the app's helpers fell back to a pre-0.28 branch
+# (page.dialog + overlay append) that 0.86 ignores, so the Legacy dialog and
+# the version picker opened and then NEVER closed. These checks run the real
+# helpers against a FakePage exposing the real 0.86 API surface.
+print("\n9. dialog plumbing works on the Flet 0.86 API")
+from cubeon import dialogs as _cd
+
+_dlgpage = FakePage()
+_dlg = ft.AlertDialog(title=ft.Text("legacy?"))
+_cd.open_dialog(_dlgpage, _dlg)
+check("open_dialog mounts into the 0.86 dialog stack",
+      _dlg in _dlgpage._dialogs.controls and _dlg.open,
+      f"stack={[type(c).__name__ for c in _dlgpage._dialogs.controls]}")
+_cd.close_dialog(_dlgpage, _dlg)
+check("close_dialog dismisses and unmounts it",
+      not _dlg.open and _dlg not in _dlgpage._dialogs.controls,
+      f"open={_dlg.open} stack={[type(c).__name__ for c in _dlgpage._dialogs.controls]}")
+
+# A dialog buried under another one must still close (flag flip, no stack pop).
+_d1, _d2 = ft.AlertDialog(title=ft.Text("a")), ft.AlertDialog(title=ft.Text("b"))
+_cd.open_dialog(_dlgpage, _d1)
+_cd.open_dialog(_dlgpage, _d2)
+_cd.close_dialog(_dlgpage, _d1)
+check("a buried dialog closes without popping the one above",
+      not _d1.open and _d2.open and _d2 in _dlgpage._dialogs.controls)
+
+_cd.show_snack(_dlgpage, "toast test", bgcolor="#123456")
+check("show_snack mounts a SnackBar via the same stack",
+      len(_dlgpage.snackbars) == 1 and _dlgpage.snackbars[0].open)
+
+# And the app must not call the removed APIs anywhere.
+_src_all = ""
+for _f in ("main.py", "ui/modpacks_tab.py", "ui/server_tab.py"):
+    _src_all += open(os.path.join(os.path.dirname(app.__file__), _f),
+                     encoding="utf-8").read()
+_bad = [ln for ln in _src_all.splitlines()
+        if "page.open(" in ln or "page.close(" in ln]
+check("no raw page.open()/page.close() calls in the UI layer", not _bad,
+      f"{len(_bad)} stale call(s), first: {_bad[0] if _bad else ''}")
+
+# --- the Cubeon Client mod off-switch lives in Settings -----------------------
+# cfg["client_mod_enabled"]: when off, launch removes the injected client jar
+# instead of installing it (cubeon/launch.py reads the same key).
+_src_main = open(app.__file__, encoding="utf-8").read()
+check("Settings exposes the client-mod off-switch",
+      "client_mod_enabled" in _src_main and "client_mod_cb" in _src_main,
+      "the checkbox must exist in main.py")
+import cubeon.config as _cfgmod
+check("config ships a default for the client mod",
+      _cfgmod.DEFAULT_CONFIG.get("client_mod_enabled") is True)
+import cubeon.launch as _launchmod
+_launch_src = open(_launchmod.__file__, encoding="utf-8").read()
+check("launch path honors the off-switch (and removes stale jars)",
+      "client_mod_enabled" in _launch_src,
+      "launch.py must read cfg['client_mod_enabled']")
+
+# --- the version picker's search must not mutate the live dropdown ------------
+# The old filter rewrote version_dropdown.options (and could reassign .value +
+# call on_version_selected) on every keystroke, so typing in the picker's
+# search box silently changed the selected version and kicked off a
+# prefetch/download, and closing the dialog left the dropdown on a narrowed
+# list. The search now filters its own snapshot (pick_source) only.
+check("version picker filters its own list, not the live dropdown",
+      'for o in pick_source["value"]' in _src_main
+      and "version_dropdown.options = all_online_options" not in _src_main,
+      "filter must read pick_source and leave version_dropdown.options alone")
+
+# --- no ripple/click animations ------------------------------------------------
+# The user hates the Material ink splash on every clickable Container.
+# ink=False is the explicit off; nothing in the live UI may set ink=True.
+_app_root = os.path.dirname(os.path.abspath(app.__file__))
+_ui_files = ["main.py", "ui/modpacks_tab.py", "ui/server_tab.py",
+             "ui/mods_tab.py", "ui/skin_tab.py", "cubeon/theme.py",
+             "cubeon/inspector.py"]
+_offenders = []
+for _f in _ui_files:
+    try:
+        for _i, _ln in enumerate(open(os.path.join(_app_root, _f),
+                                      encoding="utf-8"), 1):
+            if "ink=True" in _ln or "ink=not " in _ln:
+                _offenders.append(f"{_f}:{_i}")
+    except OSError:
+        pass
+check("no Material ink ripples in the live UI", not _offenders,
+      f"ripple sites: {_offenders[:3]}")
+
+# --- keyboard must not register as a gamepad -----------------------------------
+# Real case on this box: "Baseus K03 Keyboard" exposes /dev/input/js0 (media
+# keys). The watcher must gate devices by shape/name (_looks_like_gamepad).
+from cubeon.controller import _looks_like_gamepad as _is_pad
+check("gamepad gate: keyboard-shaped js device refused",
+      not _is_pad("Baseus K03 Keyboard", {0, 1, 2}, {0})
+      and not _is_pad("AT Translated Set 2 Keyboard", set(), set()))
+check("gamepad gate: real pads accepted",
+      _is_pad("Microsoft Xbox Series S|X Controller", set(range(11)), set(range(6)))
+      and _is_pad("Sony Interactive Entertainment DualSense Wireless Controller",
+                  set(range(14)), set(range(7)))
+      and _is_pad("Generic USB Joystick", set(range(12)), set(range(6))))
+check("gamepad gate: named-but-tiny device still refused",
+      not _is_pad("Xbox 360 Keyboard Adapter", set(range(2)), set()))
+_src_ctrl = open(os.path.join(_app_root, "cubeon", "controller.py"),
+                 encoding="utf-8").read()
+check("watcher probes device shape before accepting",
+      "_looks_like_gamepad" in _src_ctrl and "_probe_shape" in _src_ctrl
+      and "_rejected" in _src_ctrl)
+
+# --- the game must not inherit the launcher's software-GL fallback -------------
+# main.py arms LIBGL_ALWAYS_SOFTWARE=1 + GALLIUM_DRIVER=llvmpipe when the
+# flet client dies pre-paint; the game inherits env -> Minecraft on llvmpipe
+# ran at ~4 FPS (verified live: /proc/<java>/environ had both vars).
+_src_launch = open(os.path.join(_app_root, "cubeon", "launch.py"),
+                   encoding="utf-8").read()
+check("game env strips LIBGL_ALWAYS_SOFTWARE/GALLIUM_DRIVER",
+      "LIBGL_ALWAYS_SOFTWARE" in _src_launch
+      and "GALLIUM_DRIVER" in _src_launch
+      and "popen_kwargs[\"env\"]" in _src_launch)
+check("software-GL marker clears once the UI paints",
+      "use_software_gl" in _src_main
+      and _src_main.find("use_software_gl", _src_main.find("_reveal_window"))
+      != -1)
+
+# --- account panel must not re-sync the whole page ------------------------------
+# Real jank (2026-09-08): opening/closing the account sidebar called
+# page.update(), which diffs EVERY control in the tree - reads as the whole
+# app reloading. The handlers must diff only the two overlay controls
+# (thread_safe_ui.refresh(account_scrim/account_panel)), like _retire_scrim.
+import re as _re
+def _fn_body(source, name):
+    seg = source[source.find(name):]
+    m = _re.search(r"\n    def |\n\ndef ", seg[1:])
+    return seg[:m.start() + 1] if m else seg
+_open_src = _fn_body(_src_main, "def _open_account_panel")
+_close_src = _fn_body(_src_main, "def _close_account_panel")
+check("account panel open/close use per-control diffs, not page.update()",
+      not _re.search(r"^\s*page\.update\(\)", _open_src, _re.M)
+      and not _re.search(r"^\s*page\.update\(\)", _close_src, _re.M)
+      and "thread_safe_ui.refresh(account_scrim)" in _open_src
+      and "thread_safe_ui.refresh(account_panel)" in _open_src,
+      "a page.update() call in the panel handlers is the full-app-reload jank")
+
+# --- Browse/Installed view tabs on every content surface ------------------------
+# User request (2026-09-09): mods/resourcepacks/shaders, modpacks and plugins
+# each show ONE thing at a time - a Browse view (catalog) and an Installed
+# view, switched by underline tabs, instead of the installed list living a
+# full catalog-scroll below the results.
+def _fn_src(source, name):
+    i = source.find(f"def {name}")
+    if i < 0:
+        return ""
+    m = _re.search(r"\n    def |\n\ndef ", source[i+1:])
+    return source[i:i+1+m.start()] if m else source[i:]
+
+_mods_src = open(os.path.join(_app_root, "ui", "mods_tab.py"), encoding="utf-8").read()
+check("mods tab has Browse/Installed view tabs",
+      "view_segment_row" in _mods_src and "on_view_change" in _mods_src
+      and "browse_pane" in _mods_src and "installed_pane" in _mods_src
+      and '"Installed"' in _mods_src,
+      "the mods tab must toggle between browse and installed panes")
+_mp_src = open(os.path.join(_app_root, "ui", "modpacks_tab.py"), encoding="utf-8").read()
+check("modpacks tab has Browse/Installed view tabs",
+      "view_segment_row" in _mp_src and "on_view_change" in _mp_src,
+      "the modpacks tab must toggle between browse and installed panes")
+_srv_src = open(os.path.join(_app_root, "ui", "server_tab.py"), encoding="utf-8").read()
+check("plugins view has Browse/Installed view tabs",
+      "plugins_view_segment_row" in _srv_src and "_on_plugins_view_change" in _srv_src
+      and "plugins_browse_pane" in _srv_src and "plugins_installed_pane" in _srv_src,
+      "the plugins view must toggle between market and installed panes")
+# The toggle must not rebuild the whole tab: panes stay mounted, visibility flips.
+check("view toggle flips pane visibility only",
+      "browse_pane.visible" in _mods_src and "installed_pane.visible" in _mods_src,
+      "toggling views must not re-create the panes")
+
+# --- Stats tab (2026-09-09) ----------------------------------------------------
+_stats_src = open(os.path.join(_app_root, "ui", "stats_tab.py"), encoding="utf-8").read()
+_main_src = open(os.path.join(_app_root, "main.py"), encoding="utf-8").read()
+check("stats tab exists and is wired into nav + lazy builders",
+      "def build_stats_tab" in _stats_src
+      and '("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats")' in _main_src
+      and '"stats": _build_stats_tab' in _main_src
+      and '"stats": stats_tab_host' in _main_src,
+      "the Stats tab must be reachable from the top nav")
+def _code_lines(source):
+    """Source minus comment lines and docstring bodies - for checks that
+    must not be fooled by prose mentioning a function name."""
+    out, in_doc = [], False
+    for line in source.splitlines():
+        s = line.strip()
+        if s.startswith('"""') or s.startswith("'''"):
+            if not (s.count('"""') > 2 or s.count("'''") > 2):
+                in_doc = not in_doc
+            continue
+        if in_doc or s.startswith("#"):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+check("stats scans are read-only (no create-on-read helpers)",
+      "get_profile_dir(" not in _code_lines(_stats_src)
+      and "get_plugins_dir(" not in _code_lines(_stats_src)
+      and "content_dir(" not in _code_lines(_stats_src),
+      "get_profile_dir/get_plugins_dir/content_dir CREATE folders on read - "
+      "a stats pass must never leave empty folders behind")
+
+# --- Chat tab (2026-09-11) -----------------------------------------------------
+# The social layer moved out of the mod into the launcher: a nav entry, a lazy
+# builder, and a tab module that must survive a public (no-Friends) build.
+_chat_path = os.path.join(_app_root, "ui", "chat_tab.py")
+check("chat tab exists and is wired into nav + lazy builders",
+      os.path.exists(_chat_path)
+      and "def build_chat_tab" in open(_chat_path, encoding="utf-8").read()
+      and '("chat", ft.Icons.CHAT_BUBBLE_ROUNDED, "Chat")' in _main_src
+      and '"chat": _build_chat_tab' in _main_src
+      and '"chat": chat_tab_host' in _main_src,
+      "the Chat tab must be reachable from the top nav and build lazily")
+_chat_src = open(_chat_path, encoding="utf-8").read() if os.path.exists(_chat_path) else ""
+check("chat tab degrades to a notice with no FriendsService",
+      "if service is None" in _chat_src,
+      "a public build passes friends_service=None and must not crash")
+check("chat tab polls on a daemon thread, not the UI thread",
+      "threading.Thread(" in _chat_src and "daemon=True" in _chat_src
+      and "thread_safe_ui" in _chat_src,
+      "FriendsService reads block on the websocket; they must not run on the UI thread")
+check("chat tab shows the 12-digit ID and adds friends by ID",
+      "your_id_text" in _chat_src and "canonical_uid" in _chat_src
+      and "Add a friend by ID" in _chat_src
+      and "name_field" not in _chat_src and "rename_unique" not in _chat_src,
+      "chat identity is the server-assigned ID; names/secrets are not the add flow")
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

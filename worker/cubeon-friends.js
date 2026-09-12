@@ -8,10 +8,23 @@
  *
  *   POST /claim        claim or re-verify a Cubeon name   {name, secret}
  *   GET  /name/<name>  does this name exist / is it online
+ *   GET  /uid/<uid>    resolve a 12-digit Cubeon ID to its name / presence
  *   POST /pubkey       publish this name's E2EE public key {name, secret, pubkey}
  *   GET  /pubkey/<name>  fetch a friend's E2EE public key (opaque to us)
  *   GET  /ws           WebSocket upgrade - the realtime channel
  *   GET  /health       plain-text OK, for debugging by hand
+ *
+ * ------------------------------------------------------------------------
+ * THE 12-DIGIT ID (uid)
+ *
+ * A Cubeon name is human-readable but easy to typo, and the launcher's Chat
+ * surface now hands out a stable numeric ID instead. The first account ever
+ * registered gets 000000000001, the next 000000000002, and so on. It is
+ * allocated here, by the one global Durable Object, so it is unique and
+ * sequential across every Cubeon install - never derived from the secret, which
+ * is why the same account keeps its ID across a rename (the row is updated, not
+ * re-created). Names still key the friend graph internally; the ID is just the
+ * public handle friends type.
  *
  * ------------------------------------------------------------------------
  * WHY A DURABLE OBJECT AND NOT KV
@@ -68,6 +81,11 @@ const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 // Must equal cubeon/friends.py `_RESERVED`.
 const RESERVED = new Set(["cubeon", "admin", "system", "server", "moderator", "mod", "staff"]);
 
+// A Cubeon ID is exactly 12 decimal digits, zero-padded (000000000001...).
+// Must equal cubeon/friends.py `_UID_RE`.
+const UID_RE = /^[0-9]{12}$/;
+const UID_WIDTH = 12;
+
 // Message types - mirror of the T_* constants in cubeon/friends.py.
 const T = {
   HELLO: "hello", ADD: "add", REMOVE: "remove", ACCEPT: "accept",
@@ -105,7 +123,7 @@ export default {
     // request wholesale keeps the Worker a thin router and the DO the single
     // source of truth for names, the friend graph, chat, and presence.
     if (path === "/claim" || path === "/pubkey" || path.startsWith("/name/") ||
-        path.startsWith("/pubkey/") || path === "/ws") {
+        path.startsWith("/uid/") || path.startsWith("/pubkey/") || path === "/ws") {
       const id = env.HUB.idFromName("global");
       return env.HUB.get(id).fetch(request);
     }
@@ -140,7 +158,7 @@ export class Hub {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS names (
         name TEXT PRIMARY KEY, display TEXT, secret_hash TEXT, uuid TEXT,
-        blocked INTEGER DEFAULT 0, created INTEGER
+        uid INTEGER, blocked INTEGER DEFAULT 0, created INTEGER
       );
       CREATE TABLE IF NOT EXISTS friends (owner TEXT, friend TEXT, PRIMARY KEY (owner, friend));
       CREATE TABLE IF NOT EXISTS requests (requester TEXT, target TEXT, PRIMARY KEY (requester, target));
@@ -158,6 +176,12 @@ export class Hub {
     try {
       this.sql.exec("ALTER TABLE names ADD COLUMN pubkey TEXT");
     } catch (e) { /* already added */ }
+    // Same migration pattern for the numeric ID. New DOs get it in the CREATE
+    // above; an older live DO gets the column here and its rows are assigned on
+    // next sight (ensureUid), so a deploy never strands an existing account.
+    try {
+      this.sql.exec("ALTER TABLE names ADD COLUMN uid INTEGER");
+    } catch (e) { /* already added */ }
   }
 
   async fetch(request) {
@@ -174,6 +198,9 @@ export class Hub {
     }
     if (path.startsWith("/name/")) {
       return this.httpNameLookup(path.slice("/name/".length).toLowerCase());
+    }
+    if (path.startsWith("/uid/")) {
+      return this.httpUidLookup(path.slice("/uid/".length));
     }
     if (path.startsWith("/pubkey/")) {
       return this.httpPubkeyLookup(path.slice("/pubkey/".length).toLowerCase());
@@ -214,7 +241,8 @@ export class Hub {
       if (!constantTimeEqual(row.secret_hash || "", hash)) {
         return problem(409, "name_taken");
       }
-      return json({ ok: true, name: row.display, uuid: row.uuid });
+      const uid = this.ensureUid(row);
+      return json({ ok: true, name: row.display, uuid: row.uuid, uid: uidStr(uid) });
     }
 
     // Fresh name - ownership is created here. The offline UUID is derived from
@@ -223,11 +251,12 @@ export class Hub {
     // Workers doesn't provide. It's not a secret - anyone can compute it from
     // the public name - so storing the client-sent value is safe.
     const uuid = cleanUuid(body.uuid);
+    const uid = this.nextUid();
     this.sql.exec(
-      "INSERT INTO names (name, display, secret_hash, uuid, created) VALUES (?, ?, ?, ?, ?)",
-      canon, display, hash, uuid, nowSeconds(),
+      "INSERT INTO names (name, display, secret_hash, uuid, uid, created) VALUES (?, ?, ?, ?, ?, ?)",
+      canon, display, hash, uuid, uid, nowSeconds(),
     );
-    return json({ ok: true, name: display, uuid });
+    return json({ ok: true, name: display, uuid, uid: uidStr(uid) });
   }
 
   // Stores (or replaces) the E2EE public key a name advertises for encrypted
@@ -269,6 +298,18 @@ export class Hub {
     const row = this.nameRow(canon);
     if (!row || row.blocked) return new Response("Not Found", { status: 404 });
     return json({ name: row.display, online: this.isOnline(canon) });
+  }
+
+  // Resolves the public 12-digit ID a user typed to the account behind it. The
+  // client uses this to reject a typo'd ID before sending a request nobody can
+  // receive, and to show the friend's name once it resolves.
+  httpUidLookup(raw) {
+    const uid = uidInt(raw);
+    if (uid === null) return new Response("Not Found", { status: 404 });
+    const row = this.nameByUid(uid);
+    if (!row || row.blocked) return new Response("Not Found", { status: 404 });
+    return json({ name: row.display, uid: uidStr(row.uid),
+                  online: this.isOnline(row.name) });
   }
 
   // ------------------------------------------------------ WebSocket handlers
@@ -370,12 +411,14 @@ export class Hub {
       // Claim-on-connect, so a client that reached the WS without a prior
       // /claim still ends up with a consistent, owned identity.
       const uuid = cleanUuid(msg.uuid);
+      const uid = this.nextUid();
       this.sql.exec(
-        "INSERT INTO names (name, display, secret_hash, uuid, created) VALUES (?, ?, ?, ?, ?)",
-        canon, display, hash, uuid, nowSeconds(),
+        "INSERT INTO names (name, display, secret_hash, uuid, uid, created) VALUES (?, ?, ?, ?, ?, ?)",
+        canon, display, hash, uuid, uid, nowSeconds(),
       );
       row = this.nameRow(canon);
     }
+    const uid = this.ensureUid(row);
 
     const wasOnline = this.isOnline(canon);
     ws.serializeAttachment({
@@ -384,26 +427,40 @@ export class Hub {
       version: typeof msg.version === "string" ? msg.version : null,
       status: typeof msg.status === "string" ? msg.status : "online",
     });
-    ws.send(jstr(T.HELLO_OK, { name: row.display, uuid: row.uuid }));
+    ws.send(jstr(T.HELLO_OK, { name: row.display, uuid: row.uuid, uid: uidStr(uid) }));
     this.sendRoster(canon);
     // First socket for this user => let friends see them come online.
     if (!wasOnline) this.broadcastPresence(canon);
   }
 
   onAdd(me, myDisplay, msg) {
-    const other = canonName(msg.name);
+    // The Chat surface sends a 12-digit ID; the in-game mod still sends a name.
+    // Both resolve to the same canonical name the friend graph is keyed on.
+    let other = null;
+    if (typeof msg.uid === "string") {
+      const uid = uidInt(msg.uid);
+      const target = uid === null ? null : this.nameByUid(uid);
+      if (!target) {
+        return this.sendTo(me, T.SYSTEM,
+          { text: `No Cubeon user with ID ${msg.uid}.` });
+      }
+      other = target.name;
+    } else {
+      other = canonName(msg.name);
+      if (!other || other === me) return;
+      const target = this.nameRow(other);
+      if (!target) return this.sendTo(me, T.SYSTEM, { text: `No Cubeon user named "${msg.name}".` });
+    }
     if (!other || other === me) return;
-    const target = this.nameRow(other);
-    if (!target) return this.sendTo(me, T.SYSTEM, { text: `No Cubeon user named "${msg.name}".` });
     if (this.areFriends(me, other)) return;
     // A request the other way already exists => this is a mutual add, so just
     // accept it instead of stacking a second pending request.
-    if (this.requestExists(other, me)) return this.onAccept(me, myDisplay, { name: msg.name });
+    if (this.requestExists(other, me)) return this.onAccept(me, myDisplay, { name: other });
 
     this.sql.exec(
       "INSERT OR IGNORE INTO requests (requester, target) VALUES (?, ?)", me, other);
     this.sendRoster(me);
-    this.sendTo(other, T.REQUEST, { from: myDisplay });
+    this.sendTo(other, T.REQUEST, { from: myDisplay, from_uid: uidStr(this.uidOf(me)) });
     this.sendRoster(other);
   }
 
@@ -615,6 +672,36 @@ export class Hub {
     return rows.length ? rows[0] : null;
   }
 
+  nameByUid(uid) {
+    const rows = this.sql.exec("SELECT * FROM names WHERE uid=?", uid).toArray();
+    return rows.length ? rows[0] : null;
+  }
+
+  uidOf(canon) {
+    const row = this.nameRow(canon);
+    return row ? this.ensureUid(row) : null;
+  }
+
+  // The next free ID. The Durable Object is single-threaded per request, so a
+  // MAX+1 here can't race another writer - and names are never deleted, so the
+  // sequence only ever moves forward.
+  nextUid() {
+    const row = this.sql.exec(
+      "SELECT COALESCE(MAX(uid), 0) + 1 AS n FROM names").toArray()[0];
+    return row.n;
+  }
+
+  // Returns a row's ID, assigning one on first sight. Fresh rows are born with
+  // an ID; this only matters for a row created before the column existed, so a
+  // deploy can't strand an early account without one.
+  ensureUid(row) {
+    if (!row) return null;
+    if (row.uid !== null && row.uid !== undefined) return row.uid;
+    const uid = this.nextUid();
+    this.sql.exec("UPDATE names SET uid=? WHERE name=?", uid, row.name);
+    return uid;
+  }
+
   displayOf(canon) {
     const row = this.nameRow(canon);
     return row ? row.display : canon;
@@ -695,13 +782,15 @@ export class Hub {
   }
 
   presenceOf(canon) {
+    const row = this.nameRow(canon);
+    const uid = row ? uidStr(this.ensureUid(row)) : "";
     const socks = this.socketsFor(canon);
     if (socks.length) {
       const att = socks[0].deserializeAttachment();
-      return { name: att.display, online: true, status: att.status || "online",
+      return { name: att.display, uid, online: true, status: att.status || "online",
                version: att.version || null };
     }
-    return { name: this.displayOf(canon), online: false, status: "offline", version: null };
+    return { name: this.displayOf(canon), uid, online: false, status: "offline", version: null };
   }
 
   updateAttachment(canon, patch) {
@@ -745,6 +834,28 @@ export class Hub {
 function canonName(name) {
   if (typeof name !== "string" || !NAME_RE.test(name)) return null;
   return name.toLowerCase();
+}
+
+// "42" / 42 / "000000000042" -> 42, or null if it isn't a 12-digit ID. Both the
+// zero-padded form the launcher sends and a bare integer are accepted so the
+// same helper serves /uid/<uid> and an `add {uid}` frame.
+function uidInt(raw) {
+  let s;
+  if (typeof raw === "number" && Number.isInteger(raw)) {
+    s = String(raw).padStart(UID_WIDTH, "0");
+  } else if (typeof raw === "string") {
+    s = raw.trim();
+  } else {
+    return null;
+  }
+  if (!UID_RE.test(s)) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+function uidStr(n) {
+  if (n === null || n === undefined) return "";
+  return String(n).padStart(UID_WIDTH, "0");
 }
 
 // The DM conversation key is the two canonical names sorted and joined, so both

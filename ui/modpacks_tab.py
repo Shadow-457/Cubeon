@@ -24,7 +24,10 @@ import threading
 
 import flet as ft
 
-from cubeon.theme import RADIUS, attach_hover, ACCENT_HI, ON_ACCENT  # blocky corner radius + hover helper/tokens
+from cubeon.theme import (  # design system: blocky radius, hover helper/tokens/underline tabs
+    RADIUS, attach_hover, ACCENT_HI, ON_ACCENT, text_tab,
+    ROW_HOVER, ACCENT_TINT, TEXT_FAINT, CARD_BORDER, CARD_FILL,
+)
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 
 import launcher_core as core
@@ -306,7 +309,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 page.update()
                 return
             if not mods:
-                mods_column.controls.append(ft.Text("This profile has no mods.", size=12, color=TEXT_DIM))
+                mods_column.controls.append(ft.Text("This version has no mods yet.", size=12, color=TEXT_DIM))
                 page.update()
                 return
             for m in mods:
@@ -321,12 +324,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         profile_dd.on_change = rebuild_mods
 
         def close_dlg():
-            # Same old/new-Flet compatibility fallback used across the app.
-            if hasattr(page, "close"):
-                page.close(dlg)
-            else:
-                dlg.open = False
-                page.update()
+            # Shared cross-Flet dialog plumbing (Flet 0.86: pop_dialog).
+            from cubeon import dialogs as cubeon_dialogs
+            cubeon_dialogs.close_dialog(page, dlg)
 
         def do_create(e=None):
             if busy["value"]:
@@ -428,22 +428,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                               style=ft.ButtonStyle(color=ACCENT)),
             ],
         )
-        if hasattr(page, "open"):
-            page.open(dlg)
-        else:
-            dlg.open = True
-            page.dialog = dlg
-            if dlg not in page.overlay:
-                page.overlay.append(dlg)
-            page.update()
+        from cubeon import dialogs as cubeon_dialogs
+        cubeon_dialogs.open_dialog(page, dlg)
 
     # --- Browse Modrinth modpacks -------------------------------------------
 
     search_field = ft.TextField(
         hint_text="Search modpacks... e.g. better mc",
-        border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
-        hint_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI,
-        border_radius=RADIUS, height=48, prefix_icon=ft.Icons.SEARCH_ROUNDED,
+        border_color=CARD_BORDER, focused_border_color=ACCENT_DIM, color=TEXT,
+        hint_style=ft.TextStyle(color=TEXT_FAINT), bgcolor=CARD_FILL,
+        border_radius=RADIUS, height=46,
+        content_padding=ft.padding.Padding.symmetric(horizontal=14, vertical=12),
+        prefix_icon=ft.Icons.SEARCH_ROUNDED,
         on_submit=lambda e: run_search(),  # Enter = search immediately
         on_change=lambda e: _schedule_live_search(),  # typing = debounced search
         expand=True,
@@ -458,9 +454,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     pager_prev = ft.Container(content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
-                              padding=6, border_radius=RADIUS, ink=True)
+                              padding=6, border_radius=RADIUS, ink=False)
     pager_next = ft.Container(content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT),
-                              padding=6, border_radius=RADIUS, ink=True)
+                              padding=6, border_radius=RADIUS, ink=False)
     pager_row = ft.Row([pager_prev, pager_label, pager_next],
                        alignment=ft.MainAxisAlignment.CENTER, spacing=4, visible=False)
 
@@ -557,8 +553,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 browse_status.value = "Includes CurseForge classics."
                 browse_status.tooltip = (
                     "Popular CurseForge packs like RLCraft and SkyFactory are "
-                    "included. Power users: adding a free CurseForge key to "
-                    "config.json unlocks the full catalogue and faster installs.")
+                    "included. A free CurseForge key unlocks the full "
+                    "catalogue and faster installs.")
                 thread_safe_ui.refresh(browse_status)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -620,30 +616,38 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             if any(h.get("source") == "curseforge" for h in merged):
                 browse_status.value = f"{len(merged)} packs found."
                 browse_status.tooltip = (
-                    "Results mix Modrinth and CurseForge classics. Power "
-                    "users: a free CurseForge key in config.json unlocks the "
-                    "full CurseForge catalogue.")
+                    "Results mix Modrinth and CurseForge classics. A free "
+                    "CurseForge key unlocks the full CurseForge catalogue.")
 
         threading.Thread(target=mr_worker, daemon=True).start()
         threading.Thread(target=cf_worker, daemon=True).start()
 
     def build_pack_row(pack, is_installed=False):
+        """
+        Creates a row for a modpack in the browse results.
+
+        Styled like the mods tab's browse row: the pack's NAME leads (14px,
+        bold) with description and download count as quiet metadata, the
+        whole row transparent until hovered, and the install action a
+        restrained green wash instead of a solid slab - so five rows don't
+        stack five loud buttons.
+        """
         install_btn_text = ft.Text(
             "Installed" if is_installed else "Install",
-            size=13, weight=ft.FontWeight.W_600,
-            color=TEXT_DIM if is_installed else BG,
+            size=12.5, weight=ft.FontWeight.W_700,
+            color=TEXT_FAINT if is_installed else ACCENT,
         )
         install_btn = ft.Container(
             content=ft.Row(
                 [ft.Icon(ft.Icons.CHECK_ROUNDED if is_installed else ft.Icons.DOWNLOAD_ROUNDED,
-                         color=TEXT_DIM if is_installed else BG, size=16),
+                         color=TEXT_FAINT if is_installed else ACCENT, size=15),
                  install_btn_text],
                 spacing=6, tight=True,
             ),
-            bgcolor=None if is_installed else ACCENT,
+            bgcolor=None if is_installed else ACCENT_TINT,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
-            ink=not is_installed,
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+            ink=False,
             disabled=is_installed,
         )
 
@@ -724,30 +728,37 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             ft.Image(src=_icons.src(pack.get("icon_url")),
                      width=48, height=48,
                      border_radius=RADIUS, fit=ft.BoxFit.COVER) if pack.get("icon_url") else
-            ft.Container(width=48, height=48, bgcolor=SURFACE, border_radius=RADIUS,
-                         content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_DIM, size=22),
+            ft.Container(width=48, height=48, bgcolor=ROW_HOVER, border_radius=RADIUS,
+                         content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=22),
                          alignment=ft.Alignment.CENTER)
         )
-        return ft.Container(
-            content=ft.Row(
-                [
-                    icon,
-                    ft.Column(
-                        [
-                            ft.Text(pack["title"], size=14, color=TEXT, weight=ft.FontWeight.W_700),
-                            ft.Text(description, size=11, color=TEXT_DIM),
-                            ft.Text(meta_line, size=10,
-                                    color=TEXT_DIM,
-                                    font_family=FONT_MONO),
-                        ],
-                        spacing=2, expand=True,
-                    ),
-                    install_btn,
-                ],
-                spacing=12,
+
+        # Hover lift: transparent at rest, faint surface under the cursor -
+        # same affordance as the mods tab's rows, no permanent slab.
+        return attach_hover(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        icon,
+                        ft.Column(
+                            [
+                                ft.Text(pack["title"], size=15, color=TEXT,
+                                        weight=ft.FontWeight.W_700, max_lines=1),
+                                ft.Text(description, size=12, color=TEXT_DIM, max_lines=1),
+                                ft.Text(meta_line, size=11,
+                                        color=TEXT_FAINT,
+                                        font_family=FONT_MONO),
+                            ],
+                            spacing=3, expand=True,
+                        ),
+                        install_btn,
+                    ],
+                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=10),
             ),
-            bgcolor=SURFACE_HI, border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=10),
+            "transparent", ROW_HOVER,
         )
 
     # --- Installed packs -----------------------------------------------------
@@ -757,22 +768,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     delete_status = ft.Text("", size=12, color=TEXT_DIM)
 
     def _close_any_dialog(dlg):
-        # Same old/new-Flet compatibility fallback used elsewhere in this file.
-        if hasattr(page, "close"):
-            page.close(dlg)
-        else:
-            dlg.open = False
-            page.update()
+        from cubeon import dialogs as cubeon_dialogs
+        cubeon_dialogs.close_dialog(page, dlg)
 
     def _open_any_dialog(dlg):
-        if hasattr(page, "open"):
-            page.open(dlg)
-        else:
-            dlg.open = True
-            page.dialog = dlg
-            if dlg not in page.overlay:
-                page.overlay.append(dlg)
-            page.update()
+        from cubeon import dialogs as cubeon_dialogs
+        cubeon_dialogs.open_dialog(page, dlg)
 
     def _play_installed(m):
         """Installed-pack Play button. While another install is running the
@@ -794,7 +795,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             content=ft.Row([ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=16),
                             ft.Text("Play", size=13, weight=ft.FontWeight.W_700, color=ON_ACCENT)], spacing=4),
             bgcolor=ACCENT, border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=8), ink=True,
+            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=8), ink=False,
             on_click=lambda e, m=meta: _play_installed(m),
         ), ACCENT, ACCENT_HI)
 
@@ -862,8 +863,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             ]
             if not version_id:
                 content_lines.append(
-                    ft.Text("This pack has no linked version on disk - only its "
-                            "tracking record will be removed.", size=12, color=TEXT_DIM))
+                    ft.Text("This pack isn't installed in a version folder - "
+                            "only its entry will be removed.", size=12, color=TEXT_DIM))
             else:
                 content_lines.append(
                     ft.Text("Your mods, skins, and worlds are not affected.",
@@ -889,26 +890,32 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             on_click=lambda e, m=meta: do_delete(m),
         )
 
-        return ft.Container(
-            content=ft.Row(
-                [
-                    ft.Container(width=44, height=44, bgcolor=SURFACE, border_radius=RADIUS,
-                                 content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=ACCENT, size=20),
-                                 alignment=ft.Alignment.CENTER),
-                    ft.Column(
-                        [
-                            ft.Text(meta.get("name", "Modpack"), size=14, color=TEXT, weight=ft.FontWeight.W_700),
-                            ft.Text(subtitle, size=11, color=TEXT_DIM, font_family=FONT_MONO),
-                        ],
-                        spacing=2, expand=True,
-                    ),
-                    play_btn,
-                    delete_btn,
-                ],
-                spacing=12,
+        # Installed rows match the browse rows: transparent at rest, lift on
+        # hover - one calm surface instead of stacked rectangles.
+        return attach_hover(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Container(width=44, height=44, bgcolor=ROW_HOVER, border_radius=RADIUS,
+                                     content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=20),
+                                     alignment=ft.Alignment.CENTER),
+                        ft.Column(
+                            [
+                                ft.Text(meta.get("name", "Modpack"), size=13.5, color=TEXT,
+                                        weight=ft.FontWeight.W_600),
+                                ft.Text(subtitle, size=11, color=TEXT_FAINT, font_family=FONT_MONO),
+                            ],
+                            spacing=2, expand=True,
+                        ),
+                        play_btn,
+                        delete_btn,
+                    ],
+                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
             ),
-            bgcolor=SURFACE_HI, border_radius=RADIUS,
-            padding=ft.padding.Padding.only(left=10, right=10, top=8, bottom=8),
+            "transparent", ROW_HOVER,
         )
 
     def refresh_installed_packs():
@@ -935,7 +942,76 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         else:
             for meta in packs:
                 installed_view.controls.append(build_installed_row(meta))
-        page.update()
+        # Scoped diff of this tab's list (not page.update(): switching TO
+        # modpacks used to re-sync every mounted tab over the wire - the
+        # frame hitch on each tab switch).
+        thread_safe_ui.refresh(installed_view)
+        thread_safe_ui.refresh(installed_count)
+        _build_view_segment()  # keep "Installed (N)" tab count fresh
+
+    # --- Browse / Installed view tabs ---------------------------------------
+    # Same pattern as the Mods tab: the catalog and the installed list each
+    # get the whole screen, toggled by underline tabs. Both panes stay
+    # mounted; only visibility flips.
+    active_view = {"value": "browse"}
+
+    browse_pane = ft.Column(
+        [
+            install_card,
+            ft.Container(height=6),
+            ft.Row([search_field], spacing=6),
+            ft.Container(height=12),
+            ft.Row([browse_title, ft.Container(expand=True), browse_status],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Container(height=4),
+            results_view,
+            pager_row,
+        ],
+        spacing=8,
+        visible=True,
+    )
+
+    installed_pane = ft.Column(
+        [
+            ft.Row([section_label("Installed packs"), ft.Container(expand=True), installed_count],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            delete_status,
+            installed_view,
+        ],
+        spacing=8,
+        visible=False,
+    )
+
+    view_segment_row = ft.Row(spacing=18)
+
+    def _build_view_segment():
+        view_segment_row.controls.clear()
+        try:
+            n_packs = len(core.list_installed_modpacks())
+        except Exception:
+            n_packs = 0
+        for vid, vlabel in (("browse", "Browse"), ("installed", "Installed")):
+            count_note = f" ({n_packs})" if (vid == "installed" and n_packs) else ""
+            view_segment_row.controls.append(
+                text_tab(vlabel + count_note,
+                         selected=active_view["value"] == vid,
+                         on_click=lambda e, v=vid: on_view_change(v))
+            )
+        thread_safe_ui.refresh(view_segment_row)
+
+    def on_view_change(new_view):
+        if active_view["value"] == new_view:
+            return
+        active_view["value"] = new_view
+        browse_pane.visible = (new_view == "browse")
+        installed_pane.visible = (new_view == "installed")
+        _build_view_segment()
+        if new_view == "installed":
+            refresh_installed_packs()
+        thread_safe_ui.refresh(browse_pane)
+        thread_safe_ui.refresh(installed_pane)
+
+    _build_view_segment()
 
     # --- Assemble ------------------------------------------------------------
 
@@ -947,7 +1023,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                         [
                             ft.Text("Modpacks", size=28, weight=ft.FontWeight.W_800, color=TEXT,
                                     font_family=FONT_DISPLAY),
-                            ft.Text("Install a whole pack in one click - version, loader, mods and config together.",
+                            ft.Text("Install a whole pack - version, mods and settings in one click.",
                                     size=13, color=TEXT_DIM),
                         ],
                         spacing=2,
@@ -961,7 +1037,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                         ),
                         bgcolor=ACCENT, border_radius=RADIUS,
                         padding=ft.padding.Padding.symmetric(horizontal=14, vertical=10),
-                        ink=True, on_click=open_create_dialog,
+                        ink=False, on_click=open_create_dialog,
                     ), ACCENT, ACCENT_HI),
                     attach_hover(ft.Container(
                         content=ft.Row(
@@ -971,41 +1047,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                         ),
                         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
                         padding=ft.padding.Padding.symmetric(horizontal=14, vertical=10),
-                        ink=True, on_click=open_mrpack_picker,
+                        ink=False, on_click=open_mrpack_picker,
                     ), None, SURFACE_HI),
                 ],
             ),
             ft.Container(height=14),
-            install_card,
+            # View tabs: Browse (catalog) and Installed (your packs) share
+            # the screen one at a time - the installed list no longer lives
+            # a full catalog-scroll below the search results.
+            view_segment_row,
             ft.Container(height=6),
-            ft.Row(
-                [
-                    search_field,
-                    attach_hover(ft.Container(
-                        content=ft.Text("Search", color=ON_ACCENT, weight=ft.FontWeight.W_700, size=13),
-                        bgcolor=ACCENT, border_radius=RADIUS,
-                        padding=ft.padding.Padding.symmetric(horizontal=18, vertical=13),
-                        ink=True, on_click=lambda e: run_search(),
-                    ), ACCENT, ACCENT_HI),
-                ],
-                spacing=10,
-            ),
-            ft.Container(height=10),
-            ft.Row([browse_title, ft.Container(expand=True), browse_status],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Container(
-                content=results_view,
-                bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=16,
-            ),
-            pager_row,
-            ft.Container(height=24),
-            ft.Row([section_label("Installed packs"), ft.Container(expand=True), installed_count],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            delete_status,
-            ft.Container(
-                content=installed_view,
-                bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=16,
-            ),
+            browse_pane,
+            installed_pane,
         ],
         spacing=8,
         scroll=ft.ScrollMode.AUTO,

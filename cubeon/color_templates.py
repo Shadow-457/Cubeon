@@ -4,7 +4,7 @@ at startup, before any UI module binds the design tokens.
 
 This is the entire mechanism - there is no other colour plumbing:
 
-    python main.py --color1        # green    (70% black / green on main things)
+    python main.py --color1        # green    (true black + green, the default)
     python main.py --color2        # obsidian (graphite monochrome)
     python main.py --color3        # lapis    (navy + lapis blue)
 
@@ -20,12 +20,6 @@ setattr()-ed onto the module and the THEME dict (consumed by tab builders via
 section_label, ...) read module globals at call time, so they pick the patch
 up automatically. The translucent derivatives (CARD_FILL, ACCENT_TINT, ...) are
 derived here from the palette's bases so a template only declares raw colours.
-
-Known limitation: one literal in main.py (the loader-switch thumb, "#32431D")
-is a dark olive pill hardcoded outside the token system. On non-green
-templates it still reads as a dark segmented thumb - subtle, but not
-recoloured. Fixing it means touching main.py, which templates deliberately
-never do.
 """
 import importlib
 
@@ -82,16 +76,27 @@ def resolve(name: str) -> str:
     return key
 
 
+def _darken(hex_color: str, factor: float) -> str:
+    """Scales a #RRGGBB colour toward black by `factor` (0..1). Used only to
+    derive ACCENT_DEEP for templates that don't declare one."""
+    n = int(str(hex_color).lstrip("#"), 16)
+    r = int(((n >> 16) & 0xFF) * factor)
+    g = int(((n >> 8) & 0xFF) * factor)
+    b = int((n & 0xFF) * factor)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
 def _derive(palette: dict) -> dict:
     """Fills in the translucent tokens the theme system expects, computed
     from the template's own bases (same fractions as cubeon.theme)."""
     import flet as ft
 
+    palette.setdefault("ACCENT_DEEP", _darken(palette["ACCENT_DIM"], 0.30))
     palette.setdefault("CARD_FILL", ft.Colors.with_opacity(0.55, palette["SURFACE"]))
     palette.setdefault("CARD_BORDER", ft.Colors.with_opacity(0.55, palette["BORDER"]))
     palette.setdefault("ROW_HOVER", ft.Colors.with_opacity(0.65, palette["SURFACE_HI"]))
-    palette.setdefault("ACCENT_TINT", ft.Colors.with_opacity(0.14, palette["ACCENT"]))
-    palette.setdefault("ACCENT_TINT_HI", ft.Colors.with_opacity(0.24, palette["ACCENT"]))
+    palette.setdefault("ACCENT_TINT", ft.Colors.with_opacity(0.12, palette["ACCENT"]))
+    palette.setdefault("ACCENT_TINT_HI", ft.Colors.with_opacity(0.20, palette["ACCENT"]))
     return palette
 
 

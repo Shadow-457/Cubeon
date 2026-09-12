@@ -17,6 +17,8 @@ main.py
   │     ├── modpacks_tab      (ui/modpacks_tab.py)
   │     ├── server_console_tab    (ui/server_tab.py)
   │     ├── server_plugins_tab    (ui/server_tab.py)
+  │     ├── stats_tab         (ui/stats_tab.py)
+  │     ├── chat_tab          (ui/chat_tab.py, Friends-enabled builds only)
   │     └── server_settings_tab   (ui/server_tab.py)
   └── Backup system (Settings section)
 ```
@@ -54,13 +56,16 @@ def main(page: ft.Page):
     modpacks_tab, ... = build_modpacks_tab(...)
     server_tab, ... = build_server_tab(...)
 
-    # 6b. Friends has no tab - start the headless service the in-game mod drives
+    # 6b. Friends service backs BOTH the in-game mod (via localhost bridge) and
+    #     the launcher's own Chat tab (ui/chat_tab.py, built lazily).
     friends_service = FriendsService(cfg, state, friends_client); friends_service.start()
+    friends.ensure_identity()   # mint the secret-derived handle on first run
 
     # 7. First paint
     refresh_version_list()
 
-    # 8. Bring up Friends connection
+    # 8. Bring up Friends connection (only if an identity predated this launch;
+    #    a freshly minted one connects when the Chat tab first opens)
     friends_client.connect()
 ```
 
@@ -94,17 +99,31 @@ def switch_tab(key):
 
 ### The Play Tab (Inline)
 
-The Play tab is the most complex. It contains:
+The Play tab is the most complex. Its composition is a deliberate hierarchy:
+page heading ("Play" + "Launch Minecraft your way.") → one compact, top-aligned
+hero card with three bands separated by `pixel_divider()`:
 
-**Hero panel:**
-- Big title ("Minecraft 1.20.1")
-- Loader chip ("Fabric")
-- Rename/Delete instance buttons
-- Account field (username)
-- Version dropdown (with online/offline filtering)
-- Loader segmented toggle (Vanilla/Fabric/Quilt/Forge/NeoForge)
-- PLAY button (changes color/text based on state)
+**Instance header:**
+- Grass-block emblem, instance title ("Minecraft 1.20.1"), loader chip + version meta
+- Rename/Delete instance buttons (Delete is dim until hovered)
+
+**Configuration:**
+- Game version (dropdown button) | Account (username) on one row, both 48px
+- Mod loader segmented toggle (Vanilla/Fabric/Quilt/Forge/NeoForge); selected
+  segment = solid deep green thumb (`ACCENT_DEEP`, the `#052400` secondary) +
+  green semibold label (the dot only marks "installed for this version")
+- Version dropdown filters online/offline via the picker dialog
+
+**Action footer:**
+- "Update game version" link on the left — one click selects the newest stable
+  release and starts its download. It never dead-ends: the newest release is
+  added to the picker if the current list lacks it, and it reports "Getting
+  <v>..." / "Already on the latest release (<v>)".
+- PLAY button (changes color/text based on state) right-aligned at 280px
 - Progress bar + status text
+
+The card is never stretched to fill the window; blank canvas below it is
+intentional negative space, not extra card padding.
 
 **Play button states:**
 | State | Color | Text | Action |
@@ -162,6 +181,8 @@ Header ("Mods" / "Resource Packs" / "Shaders")
 - **Category filters:** Collapsed behind a "..." button to save vertical space. Green dot shows when a filter is active.
 - **Content type switching:** The same UI works for Mods, Resource Packs, and Shaders. Mods use per-profile folders; resource packs/shaders go into shared game folders.
 - **Mod icons:** Installed mods only store their Modrinth slug, not the icon URL. A bulk slug→icon lookup fetches real art after the list renders.
+- **Mod detail menu (2026-09-12):** clicking any mod row (browse or installed, except protected/system files) opens `open_mod_detail()` — all screenshots in a scrollable strip, a compact meta line, a one-click **"Install latest"** (or "You're up to date"), the description collapsed behind **"Read more"**, and versions grouped so only ~8 compatible builds show with a **"Show all N versions"** toggle. Uses `cubeon/dialogs.py` + `thread_safe_ui.refresh`.
+- **Automatic repair:** `cubeon/mods.py:mod_doctor()` fixes leftover duplicate copies, missing required dependencies, jars built for the wrong loader/version, and mods that declare a version conflict via Fabric's `breaks` (read from each jar's own `fabric.mod.json` — Modrinth doesn't expose it). A clash with no compatible replacement on either side turns the clashing mod off (reversible) so the game still launches. Runs automatically after installs (browse, detail, install-from-file), at launch (duplicate + conflict repair), and proactively in the background when an (mc_version, loader) profile is selected (`main.py:_proactive_mod_repair`, once per profile per session, full online check); the Installed pane also has a "Fix problems" button. User-facing wording stays "Fix problems" / "Fixed N of M problem(s)" — the word "doctor" never reaches the UI.
 
 ---
 
@@ -206,7 +227,7 @@ written 0600 to `~/.cubeon_launcher/local_api.json`; the mod reads that file.
 
 ```
 Minecraft (mod/)                 launcher (this process)
-  CubeonFriendsScreen  --HTTP-->  local_api.py  -->  FriendsService
+  CubeonClientScreen  --HTTP-->  local_api.py  -->  FriendsService
     polls GET /friends, /status, /events?since=
     POSTs /invite /join /add /accept /decline /remove
           /whitelist /rename /cancel /retry
@@ -220,7 +241,7 @@ Minecraft (mod/)                 launcher (this process)
 
 **Adding an in-game action:** add the method to `FriendsService`, a setter +
 route to `local_api.py`, a call to the mod's `Bridge.java`, and a button in
-`CubeonFriendsScreen.java`. `tools/test_friends_service.py::test_contract`
+`CubeonClientScreen.java`. `tools/test_friends_service.py::test_contract`
 reads the mod's source and fails if the launcher doesn't serve what it calls.
 
 ---
@@ -267,6 +288,54 @@ Cape
 - Previews are rendered from the actual skin pixels using PIL (no external API)
 - The skin section rebuilds every time the Profile tab opens to reflect the current version/loader
 - Uses a shared FilePicker passed in from main.py (not creating its own each rebuild)
+
+---
+
+## ui/chat_tab.py
+
+**Purpose:** the launcher-side social screen — friend roster + presence, incoming
+/ outgoing requests, and encrypted DMs. It drives the process-scoped
+`FriendsService` **directly** (the same object the in-game mod reaches through
+the localhost bridge), so friends/chat work without launching Minecraft.
+
+**Structure:**
+```
+Chat
+  ├── Left rail (290px)
+  │     ├── header: "Chat" + connection dot + Connected/Connecting/Add-on missing
+  │     ├── identity: avatar + "You are <auto handle>" + "Your Cubeon name"
+  │     ├── rename field + save (adds the secret number)
+  │     ├── add-friend field (person-add prefix icon) + send
+  │     ├── Requests (only shown when there are any: accept / decline / pending)
+  │     └── Friends (avatar initial, name, presence / playing version)
+  └── Right pane
+        ├── conversation header (avatar + name + presence) + remove-friend button
+        ├── transcript (empty state centered until a friend is picked)
+        └── composer (rounded field + square accent send button)
+```
+
+**Key behaviors:**
+- Built lazily; only exists in `features.friends_enabled()` builds. In a public
+  build `service is None` and the tab returns a static notice.
+- Polls on its own daemon thread (`_POLL_SECONDS = 1.5`) via
+  `cubeon/thread_safe_ui.py` — never calls Flet from the service's threads.
+- `refresh()` (the on-open hook) reconciles immediately instead of waiting a tick.
+- The Cubeon name is automatic: `friends.ensure_identity()` mints a deterministic
+  `Player_<sha256(secret)[:8]>` handle; there is no claim prompt. See
+  module-map.md for the identity model.
+- The rename field calls `FriendsService.rename_unique(base)`, which appends a
+  4-digit number derived from the same secret ("Dragon" -> "Dragon4821") and
+  retries if that exact handle is already taken. Prefilled with the current stem
+  via `friends.name_base()`.
+- Service calls that hit the network (`send_chat`, `add_friend`, accept/decline,
+  remove, rename) run through the module's `_run()` helper on a daemon thread -
+  a Flet click handler is on the UI thread and must never block on I/O.
+- **Presentation (2026-09-11 rework):** message bubbles hug their text (width
+  measured from the longest line, capped at half the window) instead of all
+  being a fixed 380px; "mine" bubbles are an `ACCENT_TINT` wash (not a solid
+  green slab) so green stays semantic; avatars are stable per-name colors from
+  `theme.AVATAR_COLORS`; the empty state is centered in the pane; message text
+  uses the clean body font, not mono.
 
 ---
 

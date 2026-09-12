@@ -1,32 +1,21 @@
 #!/usr/bin/env python3
 """
-Tests for the 2026-09-07 flexible/animated cape work in cubeon/capes.py +
-the GET /cape/frames local API endpoint. Run with:
+Tests for the flexible cape work in cubeon/capes.py. Run with:
 
     python tools/test_capes.py
 
 No network, no real .minecraft: HOME is pointed at a temp directory before
-cubeon imports (see _sandbox_home), and the local API is exercised by calling
-the provider the HTTP layer would call - friends_service.cape_frames_payload
-- against a stub service, plus one real HTTP round-trip against a locally
-started api server for the 204/JSON contract.
+cubeon imports (see _sandbox_home).
 
-Covers the three behaviors the mod depends on:
+Covers the two behaviors that remain after the animated-cape removal:
   * any image becomes a valid cape sheet (auto-fit onto the 10x16 panel),
-  * a multi-frame GIF gets a .frames.json with capped fps/frames, and the
-    static sheet CSL serves is frame 0,
-  * animated_cape_frames() -> {"fps","frames","version"} for the active
-    animated cape, None for a still cape or none set - and version changes
-    when the animation is swapped (that's the mod's "re-decode" signal).
+  * set_active_cape / sync: LocalSkin/capes/<USERNAME>.png appears, is the
+    fitted sheet, and rename/none cleans up the old file.
 """
-import base64
 import io
-import json
 import os
 import sys
 import tempfile
-import threading
-import time
 import types
 
 import _sandbox_home
@@ -44,7 +33,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PIL import Image                                              # noqa: E402
 
 from cubeon import capes                                           # noqa: E402
-from cubeon.config import save_config                              # noqa: E402
 
 _checks = []
 
@@ -62,17 +50,6 @@ def _png_bytes(img):
 
 def _make_still(w=40, h=40, color=(200, 30, 30, 255)):
     return _png_bytes(Image.new("RGBA", (w, h), color))
-
-
-def _make_gif(n_frames=3, w=40, h=40):
-    frames = [Image.new("RGBA", (w, h), c) for c in
-              ((255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255))]
-    frames = frames[:n_frames] if n_frames <= 3 else \
-        frames + [frames[-1]] * (n_frames - 3)
-    buf = io.BytesIO()
-    frames[0].save(buf, "GIF", save_all=True, append_images=frames[1:],
-                   duration=100, loop=0)
-    return buf.getvalue()
 
 
 def _tmpfile(data, suffix=".png"):
@@ -122,111 +99,39 @@ entry3 = capes.add_custom_cape(src3, "hd cape")
 with Image.open(capes.get_custom_cape_path(entry3["filename"])) as im:
     check("cape-shaped 128x64 kept as-is", im.size == (128, 64), f"got {im.size}")
 
-# --------------------------------------------------------------------------
-# 2. Animated input: GIF -> static sheet (frame 0) + frames.json.
-# --------------------------------------------------------------------------
-gif_path = _tmpfile(_make_gif(3), ".gif")
-entryA = capes.add_custom_cape(gif_path, "animated one")
-check("animated entry flagged", entryA.get("animated") is True,
-      f"entry={entryA}")
-
-with Image.open(capes.get_custom_cape_path(entryA["filename"])) as im:
-    check("static sheet is frame 0 (red)",
-          im.getpixel((5, 5))[:3] == (255, 0, 0), f"got {im.getpixel((5, 5))}")
-
-frames_path = os.path.join(capes.CAPES_DIR, entryA["filename"] + ".frames.json")
-check("frames.json written", os.path.exists(frames_path))
-with open(frames_path) as f:
-    fj = json.load(f)
-check("3 frames stored", len(fj["frames"]) == 3, f"got {len(fj['frames'])}")
-check("fps within cap", 2 <= fj["fps"] <= capes.MAX_FPS, f"got {fj['fps']}")
-dec = base64.b64decode(fj["frames"][1])
-with Image.open(io.BytesIO(dec)) as im:
-    check("frame 1 decodes to green", im.getpixel((5, 5))[:3] == (0, 255, 0),
-          f"got {im.getpixel((5, 5))}")
-
-# Frame cap: a GIF with 30 DISTINCT frames stores at most MAX_FRAMES.
-# (Distinct on purpose: consecutive-identical frames are deduped before the
-# cap, so a lazy "repeat last frame" GIF would store fewer either way.)
-many = []
-for i in range(30):
-    many.append(Image.new("RGBA", (40, 40), (i * 8 % 256, 60, 60, 255)))
-mb = io.BytesIO()
-many[0].save(mb, "GIF", save_all=True, append_images=many[1:],
-             duration=100, loop=0)
-big = _tmpfile(mb.getvalue(), ".gif")
-entryB = capes.add_custom_cape(big, "big anim")
-with open(os.path.join(capes.CAPES_DIR, entryB["filename"] + ".frames.json")) as f:
-    check("frames capped at MAX_FRAMES",
-          len(json.load(f)["frames"]) == capes.MAX_FRAMES)
+# No entry carries animation state anymore; every upload is a plain cape.
+check("entry has no animated flag", "animated" not in entry
+      and "animated" not in entry2 and "animated" not in entry3)
 
 # --------------------------------------------------------------------------
-# 3. animated_cape_frames() - what GET /cape/frames serves.
+# 2. set_active_cape / sync: LocalSkin/capes/<USERNAME>.png appears, is the
+#    fitted sheet, and rename/none cleans up the old file.
 # --------------------------------------------------------------------------
-cfg = {"username": "Tester", "active_cape": entryA["filename"]}
-payload = capes.animated_cape_frames(cfg["active_cape"])
-check("payload has fps/frames/version",
-      payload and {"fps", "frames", "version"} <= set(payload), f"got {payload}")
-check("payload frames == stored frames",
-      payload["frames"] == fj["frames"])
-v1 = payload["version"]
+capeA = capes.add_custom_cape(src, "cape a")
+capeB = capes.add_custom_cape(src3, "cape b")
 
-check("still cape -> None", capes.animated_cape_frames(entry2["filename"]) is None)
-check("missing cape -> None", capes.animated_cape_frames("nope.png") is None)
-check("no cape set -> None", capes.animated_cape_frames(None) is None)
-
-# Swapping to a different animated cape changes the version.
-cfg["active_cape"] = entryB["filename"]
-payload_b = capes.animated_cape_frames(cfg["active_cape"])
-check("other anim has different version", payload_b["version"] != v1)
-
-# --------------------------------------------------------------------------
-# 4. set_active_cape / sync: LocalSkin/capes/<USERNAME>.png appears, is the
-#    static sheet, and rename/none cleans up the old file.
-# --------------------------------------------------------------------------
-cfg = {"username": "Tester", "active_cape": entryA["filename"]}
-capes.set_active_cape(cfg, entryA["filename"])
+cfg = {"username": "Tester", "active_cape": capeA["filename"]}
+capes.set_active_cape(cfg, capeA["filename"])
 synced = os.path.join(capes.CSL_LOCAL_CAPES_DIR, "Tester.png")
 check("csl LocalSkin cape synced", os.path.isfile(synced), synced)
 with Image.open(synced) as im:
-    check("synced cape is the static sheet (frame 0)",
-          im.getpixel((5, 5))[:3] == (255, 0, 0), f"got {im.getpixel((5, 5))}")
+    check("synced cape is the fitted sheet",
+          im.getpixel((5, 5))[:3] == (200, 30, 30), f"got {im.getpixel((5, 5))}")
 
 capes.set_active_cape(cfg, None)
 check("csl cape removed when unset", not os.path.exists(synced))
 
-cfg2 = {"username": "Tester", "active_cape": entryB["filename"]}
-capes.set_active_cape(cfg2, entryB["filename"])
+cfg2 = {"username": "Tester", "active_cape": capeB["filename"]}
+capes.set_active_cape(cfg2, capeB["filename"])
 synced2 = os.path.join(capes.CSL_LOCAL_CAPES_DIR, "Tester.png")
 check("re-sync writes new sheet", os.path.isfile(synced2))
 
-# --------------------------------------------------------------------------
-# 5. The local API endpoint contract (204 vs JSON) over real HTTP.
-# --------------------------------------------------------------------------
-from cubeon import local_api                                     # noqa: E402
-import requests                                                  # noqa: E402
-
-local_api.set_capeframes_provider(lambda: capes.animated_cape_frames(entryA["filename"]))
-check("local api started", local_api.start())
-srv = local_api.start._server
-base = f"http://127.0.0.1:{srv.server_address[1]}"
-hdr = {"X-Cubeon-Token": srv.token}
-
-r = requests.get(f"{base}/cape/frames", headers=hdr)
-check("animated cape -> 200 JSON", r.status_code == 200, str(r.status_code))
-body = r.json()
-check("HTTP payload matches direct call",
-      body["fps"] == payload["fps"] and body["frames"] == payload["frames"])
-
-local_api.set_capeframes_provider(lambda: None)
-r2 = requests.get(f"{base}/cape/frames", headers=hdr)
-check("no animated cape -> 204", r2.status_code == 204, str(r2.status_code))
-
-# No provider registered at all (older launcher): still 204, not 404, so the
-# mod's poll loop treats it as "nothing set".
-local_api._providers["capeframes"] = None
-r3 = requests.get(f"{base}/cape/frames", headers=hdr)
-check("unregistered provider -> 204", r3.status_code == 204, str(r3.status_code))
+# Delete removes the stored file and drops the entry.
+capes.delete_custom_cape(capeB["filename"])
+check("deleted cape file removed",
+      not os.path.exists(capes.get_custom_cape_path(capeB["filename"])))
+check("deleted cape dropped from meta",
+      capeB["filename"] not in [c["filename"] for c in capes.list_custom_capes()])
 
 # --------------------------------------------------------------------------
 fails = [n for n, ok, _ in _checks if not ok]

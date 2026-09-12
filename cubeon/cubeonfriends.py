@@ -1,7 +1,8 @@
 """
-Ships the "Cubeon Friends" Fabric mod (see mod/ in the repo) into the active
-Fabric profile before launch, so the Friends button shows up in Minecraft's
-game menu without the player ever installing anything.
+Ships the "Cubeon Client" Fabric mod (see mod/ in the repo) into the active
+Fabric profile before launch, so the Cubeon button shows up in Minecraft's
+menus without the player ever installing anything. (Shipped as "Cubeon Friends"
+until the rename; see LEGACY_JAR_GLOBS.)
 
 The mod is built once per Minecraft bracket at dev time (see mod/brackets.json
 and tools/build_mod_jars.py) and shipped with the launcher. At launch we put
@@ -60,7 +61,13 @@ def _resource_path(*parts: str) -> str:
     return candidates[0]
 
 
-JAR_GLOB = "cubeon-friends-*.jar"
+JAR_GLOB = "cubeon-client-*.jar"
+# The mod shipped as "Cubeon Friends" (cubeon-friends-*.jar) before it grew into
+# the Cubeon Client. A profile set up by one of those launchers still has that
+# jar, and the rename changed the mod id, so Fabric would happily load BOTH -
+# two Cubeon buttons, two bridges, two pollers. Every cleanup pass therefore
+# sweeps the old name as well as the current one; nothing installs it.
+LEGACY_JAR_GLOBS = ("cubeon-friends-*.jar",)
 _MC_VERSION_RE = re.compile(r"(?<![A-Za-z0-9.])\d+(?:\.\d+)*(?![A-Za-z0-9]*[A-Za-z])")
 _matrix_cache: dict | None = None
 BRACKETS_FILE = _resource_path("mod", "brackets.json")
@@ -125,7 +132,7 @@ def pick_bracket(mc_version: str | None) -> dict | None:
 
 
 def jar_name(bracket: dict) -> str:
-    pattern = _matrix().get("jar_name", "cubeon-friends-{version}+mc{key}.jar")
+    pattern = _matrix().get("jar_name", "cubeon-client-{version}+mc{key}.jar")
     return (pattern
             .replace("{version}", str(_matrix().get("mod_version", "1.0.0")))
             .replace("{key}", str(bracket.get("key", ""))))
@@ -191,18 +198,19 @@ def find_jar(mc_version: str | None) -> str | None:
 
 
 def _remove_other_jars(profile_dir: str, keep: str | None) -> None:
-    """Deletes every Cubeon Friends jar in the profile except `keep`."""
-    for path in glob.glob(os.path.join(profile_dir, JAR_GLOB)):
-        if keep and os.path.basename(path) == keep:
-            continue
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+    """Deletes every Cubeon Client jar in the profile except `keep`."""
+    for pattern in (JAR_GLOB, *LEGACY_JAR_GLOBS):
+        for path in glob.glob(os.path.join(profile_dir, pattern)):
+            if keep and os.path.basename(path) == keep:
+                continue
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def remove_installed(profile_dir: str | None) -> None:
-    """Remove Cubeon Friends jars from a profile for a no-Friends build."""
+    """Remove Cubeon Client jars from a profile for a no-Friends build."""
     if not profile_dir:
         return
     _remove_other_jars(profile_dir, None)

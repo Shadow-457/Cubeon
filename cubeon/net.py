@@ -83,9 +83,19 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
     """Write a streaming response body to dest_path (append mode when
     resuming). Returns bytes written this call. A dropped connection
     mid-body raises requests.RequestException, which callers treat as
-    retryable."""
+    retryable.
+
+    progress_cb is THROTTLED here (>= 33ms or >= 1% of total, whichever is
+    rarer) because it fires per 64 KiB chunk: on a fast link that's hundreds
+    of calls a second, and every call used to reach the UI as its own
+    repaint. Callers that need the final byte count get one last callback
+    before return, always."""
     mode = "ab" if resume_from else "wb"
     done = resume_from
+    total = int(resp.headers.get("content-length", 0)) + resume_from
+    last_cb = 0.0
+    last_done = 0
+    _now = time.monotonic
     with open(dest_path, mode) as fh:
         for chunk in resp.iter_content(chunk_size=1 << 16):
             if not chunk:
@@ -95,7 +105,17 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
                 hasher.update(chunk)
             done += len(chunk)
             if progress_cb:
-                progress_cb(done, int(resp.headers.get("content-length", 0)) + resume_from)
+                # Emit if: time budget hit, or 1% of the file landed, or the
+                # download finished. The 1% gate matters for big files (a 200
+                # MB asset at full speed would otherwise paint ~3000 times).
+                if (done - last_done >= total // 100
+                        or _now() - last_cb >= 0.033
+                        or done >= total):
+                    last_cb = _now()
+                    last_done = done
+                    progress_cb(done, total)
+    if progress_cb and done != last_done:
+        progress_cb(done, total)  # exact final count, never swallowed
     return done - resume_from
 
 

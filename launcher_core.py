@@ -65,7 +65,8 @@ from cubeon.mods import (
     list_mods, toggle_mod, delete_mod, add_mod_file, open_mods_folder,
     install_local_mod, sync_mods_to_game, copy_mods_between_profiles,
     get_recommended_mods, search_mods, get_mod_download, download_mod,
-    get_mod_icons,
+    installed_project_ids, required_dependencies, install_mod_with_dependencies,
+    get_mod_icons, get_mod_details, get_mod_versions, mod_doctor,
 )
 
 # --- modpacks (Modrinth .mrpack: install a whole version+loader+mods bundle) ---
@@ -104,7 +105,7 @@ from cubeon.skins import (
 from cubeon.capes import (
     validate_cape_file, list_custom_capes, add_custom_cape, delete_custom_cape,
     get_custom_cape_path, set_active_cape, sync_local_cape_to_csl,
-    render_cape_preview, animated_cape_frames,
+    render_cape_preview,
 )
 
 # --- cosmetics (pixel hats baked into the skin's hat layer) ---
@@ -113,6 +114,16 @@ from cubeon.cosmetics import (
     render_hat_preview, preview_composed_body, hat_requirement, hat_unlocked,
 )
 
+# --- gallery (browseable ready-made skins + capes; see cubeon/gallery.py) ---
+from cubeon.gallery import (
+    list_gallery_skins, list_gallery_capes,
+    install_gallery_skin, install_gallery_cape,
+    load_player, gallery_id_for_file, forget_file, ensure_gallery,
+    featured_cached_count, prefetch_featured, suggest_player,
+    featured_count, all_gallery_items, matches_query,
+)
+
+
 # --- milestones (earnable hats; see cubeon/milestones.py for the KV budget) ---
 from cubeon.cosmetics import hat_unlocked as _hat_unlocked  # noqa: F401 (re-export clarity)
 from cubeon.milestones import (
@@ -120,6 +131,9 @@ from cubeon.milestones import (
     add_play_seconds as milestones_add_play_seconds,
     add_hosted_session as milestones_add_hosted,
     note_friends_count as milestones_note_friends,
+    begin_play_session as milestones_begin_play_session,
+    end_play_session as milestones_end_play_session,
+    reconcile_play_session as milestones_reconcile_play_session,
 )
 
 

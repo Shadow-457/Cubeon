@@ -7,7 +7,7 @@ dict. They are plugins: nothing in the launcher's UI code knows about them.
 cubeon.theme before any UI module binds them, which is wired up by the small
 hook at the bottom of cubeon/__init__.py so you can simply run:
 
-    python main.py --color1     # green    - 70% black, green only on main things
+    python main.py --color1     # green    - true black + green (default identity)
     python main.py --color2     # obsidian - graphite monochrome, off-white accent
     python main.py --color3     # lapis    - deep navy + lapis blue
     python main.py --color4     # redstone - red-tinted dark + redstone accent

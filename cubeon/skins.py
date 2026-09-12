@@ -530,7 +530,8 @@ def skin_mod_installed(mc_version: str | None, loader: str | None) -> bool:
     return csl.is_installed(mc_version, loader)
 
 
-def render_local_skin_preview(filename: str, out_path: str, scale: int = 8) -> str:
+def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
+                              src_path: str | None = None) -> str:
     """Composites a Minecraft-style full body preview from the uploaded skin.
 
     Front view, built from the real pixels: head, torso, arms, and legs at
@@ -538,9 +539,12 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8) -> s
     ("hat"/jacket/sleeve/pants) layer composited on top - that outer layer is
     what makes a skin with a hood, jacket, or baggy pants read correctly
     instead of showing the bare base layer underneath.
+
+    `src_path` overrides where the sheet is read from (used by the gallery,
+    whose skins live outside SKINS_DIR); `filename` is then only a name.
     """
-    src_path = get_custom_skin_path(filename)
-    with Image.open(src_path) as sheet:
+    src = src_path or get_custom_skin_path(filename)
+    with Image.open(src) as sheet:
         sheet = sheet.convert("RGBA")
         legacy = sheet.size == (64, 32)
         slim = (not legacy) and _detect_slim_model(sheet)

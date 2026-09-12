@@ -36,6 +36,28 @@ _EVENT = struct.Struct("IhBB")
 # _IOC(direction=READ(2), type='j'(0x6a), nr=0x13, size=len)
 _JSIOCGNAME = lambda n: (2 << 30) | (n << 16) | (0x6A << 8) | 0x13
 
+
+def _looks_like_gamepad(name: str, buttons, axes) -> bool:
+    """Filter out non-gamepad devices that expose a /dev/input/js* node.
+
+    The real-world case (2026-09-08): a "Baseus K03 Keyboard" registers a js
+    interface (3 buttons, 1 axis) for its media keys, and the watcher happily
+    announced "🎮 Baseus K03 Keyboard connected" and drove the menus from key
+    presses. A genuine gamepad - Xbox, PlayStation, most third-party - has
+    at least 8 buttons (face 4 + shoulder 4) and 4+ axes (2 sticks, triggers).
+    Devices with mouse/keyboard in the name are rejected outright, and
+    anything that doesn't meet the button+axis minimums is ignored.
+    """
+    low = (name or "").lower()
+    if any(word in low for word in ("keyboard", "mouse", "trackpoint",
+                                    "touchpad", "tablet", "synaptics")):
+        return False
+    if any(word in low for word in ("gamepad", "controller", "joystick",
+                                    "xbox", "playstation", "dualsense",
+                                    "dualshock", "switch", "8bitdo", "steam")):
+        return len(buttons) >= 4  # a named pad is trusted with minimal shape
+    return len(buttons) >= 8 and len(axes) >= 4
+
 _BUTTON_NAMES = {
     0: "a", 1: "b", 2: "x", 3: "y",
     4: "lb", 5: "rb", 6: "lt", 7: "rt",
@@ -64,6 +86,39 @@ def _device_name(path: str) -> str:
     return os.path.basename(path)
 
 
+def _probe_shape(f, max_wait: float = 0.2) -> tuple[set, set]:
+    """Collect button/axis numbers from a device's JS_EVENT_INIT dump.
+
+    Opening a js device makes the kernel replay its current state as INIT
+    events - the shape of the device. Non-blocking read with a short wait;
+    some (slow, virtual) devices need a moment to deliver the dump.
+    """
+    buttons: set = set()
+    axes: set = set()
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        try:
+            data = f.read(4096)
+        except (BlockingIOError, OSError):
+            data = b""
+        if data:
+            saw_live = False
+            for i in range(0, len(data) - _EVENT.size + 1, _EVENT.size):
+                _, _, etype, number = _EVENT.unpack_from(data, i)
+                if etype & _JS_EVENT_INIT:
+                    if etype & _JS_EVENT_BUTTON:
+                        buttons.add(number)
+                    elif etype & _JS_EVENT_AXIS:
+                        axes.add(number)
+                else:
+                    saw_live = True  # dump over: real traffic now
+            if saw_live:
+                break
+        else:
+            time.sleep(0.01)
+    return buttons, axes
+
+
 class ControllerWatcher:
     """Watches /dev/input/js* in a background thread and translates raw
     events into launcher-friendly callbacks:
@@ -86,6 +141,7 @@ class ControllerWatcher:
         self._lock = threading.Lock()
         self._known: dict = {}   # js path -> device name
         self._open: dict = {}    # js path -> file object
+        self._rejected: set = set()  # js paths probed and refused (not pads)
         self.current_name = None
 
     # ------------------------------------------------------------------
@@ -116,13 +172,23 @@ class ControllerWatcher:
                 if path not in present:
                     self._close(path)
             for path in sorted(present):
-                if path in self._open:
+                if path in self._open or path in self._rejected:
                     continue
                 name = _device_name(path)
                 try:
                     f = open(path, "rb", buffering=0)
                     os.set_blocking(f.fileno(), False)
                 except OSError:
+                    continue
+                # Probe the device's shape from its INIT event dump before
+                # believing it's a gamepad (see _looks_like_gamepad).
+                buttons, axes = _probe_shape(f)
+                if not _looks_like_gamepad(name, buttons, axes):
+                    self._rejected.add(path)
+                    try:
+                        f.close()
+                    except Exception:
+                        pass
                     continue
                 self._open[path] = f
                 self._known[path] = name

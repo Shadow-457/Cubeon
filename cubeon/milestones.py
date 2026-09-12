@@ -39,6 +39,14 @@ from .paths import CUBEON_HOME
 
 MILESTONES_PATH = os.path.join(CUBEON_HOME, "milestones.json")
 
+# In-flight play session, persisted so a launcher crash/re-exec (the game
+# deliberately survives it - see launch.py start_new_session) can still credit
+# the time when the launcher comes back. Without this, playtime was only ever
+# recorded by the in-process game watcher: a GPU-crash re-exec or a full quit
+# killed that watcher, the game ran on unobserved, and "Time in game" stayed 0.
+PLAY_SESSION_PATH = os.path.join(CUBEON_HOME, "play_session.json")
+_GAME_LOG_PATH = os.path.join(CUBEON_HOME, "game.log")
+
 # The feature's launch date (UTC epoch). "Early adopter" = first_seen_at
 # before this. Bump ONLY if you relaunch the program intentionally - it is
 # recorded into each user's state file on first load, after which the
@@ -59,6 +67,10 @@ MILESTONES = [
 ]
 
 _lock = threading.Lock()
+# Serializes play-session read/credit/clear so on_exit and the startup
+# reconciler can't both credit the same record (double-counting playtime).
+# Distinct from _lock, which add_play_seconds takes internally.
+_session_lock = threading.Lock()
 _state = None  # cached dict once loaded
 
 
@@ -205,6 +217,117 @@ def add_play_seconds(seconds: float) -> None:
     with _lock:
         st["seconds_played"] += seconds
         _save_state_locked()
+
+
+# ------------------------------------------------------------- play sessions
+#
+# The game runs in its own session (launch.py) and is meant to outlive the
+# launcher. The in-process watcher that calls on_exit is therefore not durable:
+# a GPU-crash re-exec or the user quitting the launcher ends it, and the game
+# keeps running with nobody left to credit the time. These helpers record the
+# session on disk at launch and reconcile it on the next launcher start.
+
+def _read_play_session() -> dict | None:
+    try:
+        with open(PLAY_SESSION_PATH, "r", encoding="utf-8") as f:
+            rec = json.load(f)
+        started = float(rec.get("started", 0) or 0)
+        pid = int(rec.get("pid", 0) or 0)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+    if started <= 0:
+        return None
+    return {"started": started, "pid": pid}
+
+
+def _write_play_session(rec: dict) -> None:
+    tmp = PLAY_SESSION_PATH + ".tmp"
+    try:
+        os.makedirs(CUBEON_HOME, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        os.replace(tmp, PLAY_SESSION_PATH)
+    except OSError:
+        pass  # session tracking is best-effort, never a launch blocker
+
+
+def begin_play_session(pid: int, started_at: float | None = None) -> None:
+    """Record a launching game (called right after Popen, by launch_game)."""
+    _write_play_session({"started": float(started_at or time.time()),
+                         "pid": int(pid or 0)})
+
+
+def _play_session_elapsed(rec: dict, now: float) -> float:
+    """Seconds to credit for `rec`, bounded by the game log's last write.
+
+    game.log is truncated per launch and only the game writes it, so its mtime
+    is a good stand-in for when the game stopped. That bound is what keeps a
+    launcher left off overnight from crediting idle hours as playtime. If the
+    log is missing or predates the session (instant crash / unwritable HOME),
+    credit nothing rather than the entire idle gap - under-crediting is
+    preferable to minting a hat from idle time."""
+    end = rec["started"]  # no log evidence -> no credit
+    try:
+        mtime = os.path.getmtime(_GAME_LOG_PATH)
+        if mtime > rec["started"]:
+            end = min(now, mtime)
+    except OSError:
+        pass
+    return max(0.0, end - rec["started"])
+
+
+def end_play_session(now: float | None = None) -> float:
+    """Credit and clear the on-disk play session. Idempotent: the first caller
+    wins, the second finds no record and credits nothing. Returns seconds."""
+    with _session_lock:
+        rec = _read_play_session()
+        if rec is None:
+            return 0.0
+        try:
+            os.unlink(PLAY_SESSION_PATH)
+        except OSError:
+            pass
+        seconds = _play_session_elapsed(rec, time.time() if now is None else now)
+    if seconds > 0:
+        add_play_seconds(seconds)
+    return seconds
+
+
+def reconcile_play_session(pid_alive=None) -> None:
+    """Called once at launcher startup. Credits a session left behind by a
+    launcher that crashed or was re-exec'd while the game ran, and - if that
+    game is somehow STILL running - watches its pid so the rest is credited
+    when it finally exits. Never raises."""
+    try:
+        rec = _read_play_session()
+        if rec is None:
+            return
+        if pid_alive is None:
+            from .watchdog import _pid_alive as pid_alive
+        alive = False
+        if rec["pid"] > 0:
+            try:
+                alive = bool(pid_alive(rec["pid"]))
+            except Exception:
+                alive = False
+        if not alive:
+            end_play_session()
+            return
+
+        def _poll():
+            while True:
+                time.sleep(30.0)
+                try:
+                    if not pid_alive(rec["pid"]):
+                        break
+                except Exception:
+                    break
+            end_play_session()
+
+        threading.Thread(target=_poll, daemon=True,
+                         name="cubeon-playtime-reconcile").start()
+    except Exception:
+        pass  # cosmetic - never block startup on it
 
 
 def add_hosted_session() -> None:

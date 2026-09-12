@@ -222,7 +222,7 @@ class InspectorDialog:
                 content=ft.Text(label, size=12.5, selectable=True,
                                 color=self._t["TEXT"]),
                 padding=ft.padding.Padding.only(left=6 + depth * 12, top=3, bottom=3, right=4),
-                border_radius=4, ink=True,
+                border_radius=4, ink=False,
                 on_click=lambda e, ctrl=c: self._select(ctrl),
                 data=c,
             )
@@ -348,7 +348,8 @@ class InspectorDialog:
             log.warning("inspector edit rejected (%s.%s=%r): %s",
                         type(ctrl).__name__, prop, new_raw, ex)
             try:
-                self.page.open(ft.SnackBar(ft.Text(f"Couldn't set {prop}: {ex}", size=12)))
+                from . import dialogs as cubeon_dialogs
+                cubeon_dialogs.show_snack(self.page, f"Couldn't set {prop}: {ex}")
             except Exception:
                 pass
             return
@@ -356,7 +357,8 @@ class InspectorDialog:
 
     def _close(self, e=None):
         try:
-            self.page.close(self.dialog)
+            from . import dialogs as cubeon_dialogs
+            cubeon_dialogs.close_dialog(self.page, self.dialog)
         except Exception:
             try:
                 if self.dialog.open:
@@ -370,11 +372,11 @@ def open_inspect(page: ft.Page):
     """Open (or reopen) the inspector. Entry point used by main.py."""
     dlg = InspectorDialog(page)
     try:
-        page.open(dlg.dialog)
+        from . import dialogs as cubeon_dialogs
+        cubeon_dialogs.open_dialog(page, dlg.dialog)
     except Exception:
-        # Flet <0.28 fallback
+        # Last resort: flip the flag directly.
         dlg.dialog.open = True
-        page.dialog = dlg.dialog
         page.update()
     log.info("inspector opened (%d root controls, tree walk ok)",
              len(dlg.roots))

@@ -176,6 +176,26 @@ _VANILLA_JVM_ARGS = [
 # Fabric's KnotClient needs this to report the "real" main class to mods.
 _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 
+# Client-side JVM tuning, appended to every launch. Aimed squarely at the
+# thing players read as "low FPS": frame-time spikes. G1GC with a short pause
+# target keeps garbage collection off the render frames, and matching -Xms to
+# -Xmx (done in build_launch_command) removes the mid-game heap-growth hitches
+# where a long session suddenly stutters as the heap resizes.
+#
+# Deliberately lighter than the server's Aikar set (cubeon/server.py): a client
+# heap is far smaller, and always-pre-touch / huge region sizes just slow
+# startup here for no frame-rate gain. Kept to flags that exist on Java 8
+# through 25, since Cubeon launches versions across that whole range.
+CLIENT_JVM_FLAGS = [
+    "-XX:+UseG1GC",
+    "-XX:+ParallelRefProcEnabled",
+    "-XX:MaxGCPauseMillis=50",
+    "-XX:+UnlockExperimentalVMOptions",
+    "-XX:+DisableExplicitGC",
+    "-XX:G1NewSizePercent=20",
+    "-XX:G1ReservePercent=20",
+]
+
 
 def _restore_emptied_arguments(version_id: str) -> bool:
     """Rebuilds an arguments block that an older Cubeon emptied. Returns True if repaired.
@@ -377,7 +397,9 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         "token": "0",  # offline/cracked token placeholder
         "launcherName": APP_NAME,
         "launcherVersion": "1.0",
-        "jvmArguments": [f"-Xmx{ram_mb}M", f"-Xms{min(ram_mb, 1024)}M"],
+        # -Xms matches -Xmx so the heap never resizes mid-game (the resize is a
+        # visible stutter), then the shared client GC tuning rides along.
+        "jvmArguments": [f"-Xmx{ram_mb}M", f"-Xms{ram_mb}M", *CLIENT_JVM_FLAGS],
         "customResolution": True,
         "resolutionWidth": str(width),
         "resolutionHeight": str(height),
@@ -447,26 +469,58 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         except Exception:
             pass
 
-    # Ship the in-game "Cubeon Friends" mod into the Fabric profile so the
+    # Ship the in-game Cubeon Client mod into the Fabric profile so the
     # Friends button exists in Minecraft's game menu. Best-effort, always
     # before the mods sync so a fresh drop is live this launch.
     try:
         from .features import friends_enabled
-        if not friends_enabled():
-            # A public build must also remove an older Friends jar/profile link
-            # if the user previously ran a development build.
-            from .mods import get_profile_dir
-            from . import cubeonfriends
-            cubeonfriends.remove_installed(
-                get_profile_dir(mc_version, loader))
+        from .mods import get_profile_dir
+        from . import cubeonfriends
+        _profile_dir = get_profile_dir(mc_version, loader)
+        if not friends_enabled() or not cfg.get("client_mod_enabled", True):
+            # Off: either a public build (no Friends backend at all) or the
+            # user's Settings toggle. Both must also REMOVE any jar a
+            # previous run left behind - a stale copy would still load.
+            cubeonfriends.remove_installed(_profile_dir)
         else:
-            from .mods import get_profile_dir
-            from . import cubeonfriends
             friends_ok = cubeonfriends.ensure_installed(mc_version, loader,
-                                           get_profile_dir(mc_version, loader))
+                                           _profile_dir)
             if not friends_ok and status_cb and loader in ("fabric", "quilt"):
                 status_cb("Cubeon Friends mod not built for this Minecraft "
                           "version - the in-game Friends button will be missing")
+    except Exception:
+        pass
+
+    # The Cubeon Client is a social mod and draws almost nothing; the actual
+    # frame-rate win comes from Sodium + Lithium, fetched here for the same
+    # profile. Tied to the client toggle (there is no separate switch in
+    # Settings - the user asked for that gone; `perf_mods_enabled` remains a
+    # config-only opt-out), and always before the mods sync so a jar fetched
+    # right now is live this launch.
+    try:
+        if (cfg is not None and cfg.get("client_mod_enabled", True)
+                and cfg.get("perf_mods_enabled", True)):
+            from . import perf_mods
+            report = perf_mods.ensure_installed(mc_version, loader,
+                                                status_cb=status_cb)
+            if report["installed"] and status_cb:
+                status_cb("FPS boost installed")
+    except Exception:
+        pass
+
+    # Last-chance repair before the game reads the folder: a leftover second
+    # copy of a mod - or two mods that Fabric says can't run together - is the
+    # classic "it crashed on startup" cause, and the user will never see it in
+    # time. The duplicate pass is filesystem-only; the dependency pass is
+    # skipped here (handled at install time) but a version conflict is still
+    # resolved, since that is a guaranteed crash. Best-effort - a failed check
+    # must never block playing.
+    try:
+        from .mods import mod_doctor
+        fixed = len(mod_doctor(mc_version, loader, auto_fix=True,
+                               check_online=False).get("fixed") or [])
+        if fixed and status_cb:
+            status_cb(f"Fixed {fixed} mod problem(s)")
     except Exception:
         pass
 
@@ -510,6 +564,17 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     popen_kwargs = {}
     if hasattr(os, "setsid") or os.name == "nt":
         popen_kwargs["start_new_session"] = True
+
+    # The launcher may be running on SOFTWARE OpenGL (its own crash fallback:
+    # if the GPU driver killed the flet client, main.py arms LIBGL_ALWAYS_
+    # SOFTWARE=1 for itself and re-execs). The game must NEVER inherit that:
+    # Minecraft on llvmpipe is ~4 FPS, and the game has its own GL stack that
+    # doesn't share the launcher's driver bug. Strip the software-GL vars from
+    # the child environment while passing everything else through.
+    _game_env = {k: v for k, v in os.environ.items()
+                 if k not in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER",
+                              "LIBGL_DRM_DEVICE")}
+    popen_kwargs["env"] = _game_env
 
     process = subprocess.Popen(
         command,
@@ -560,6 +625,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # mystery file locks. Cleared the moment the process is confirmed dead.
     from . import watchdog
     watchdog.register(process.pid, version_id)
+
+    # Playtime: persist the session start next to the watchdog record. The
+    # in-process on_exit watcher credits and clears it on a clean exit; if the
+    # launcher is re-exec'd/crashes first, the next startup reconciles it (see
+    # milestones.reconcile_play_session) so the game's time isn't lost.
+    from . import milestones
+    milestones.begin_play_session(process.pid)
 
     def _watch():
         process.wait()

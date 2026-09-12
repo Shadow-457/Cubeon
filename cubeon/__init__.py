@@ -26,11 +26,11 @@ skin_tab.py don't need to change their imports.
 # any tokens - so `python main.py --color1` launches with that palette and
 # every UI module simply receives the patched values.
 #
-# DEFAULT: with no --color argument, the "carbon" template (--color5) is
+# DEFAULT: with no --color argument, the "green" template (--color1) is
 # applied, making it the app's default palette. An explicit --color<name> still
 # overrides it. Set DEFAULT_COLOR_TEMPLATE to None to fall back to theme.py's
 # built-in green tokens instead.
-DEFAULT_COLOR_TEMPLATE = "carbon"
+DEFAULT_COLOR_TEMPLATE = "green"
 
 
 def _load_color_template():

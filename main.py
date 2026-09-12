@@ -84,15 +84,19 @@ _tray_runtime = {"controller": None, "reopen": None, "quit": None,
                  "reopen_at": 0.0}
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
+from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
 from ui.skin_tab import build_skin_section  # Imports the skin section builder, now embedded in the Profile dialog
 from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
 from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab builder function
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
+from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetics counters
+from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
 from cubeon import friends  # Realtime social client (identity, presence, chat, calls)
-from cubeon.friends_service import FriendsService  # Headless owner of friends/P2P (UI lives in the in-game mod)
+from cubeon.friends_service import FriendsService  # Headless owner of friends/P2P (launcher Chat tab + in-game mod)
+from cubeon.features import friends_enabled  # Development vs. public (no-Friends) builds
+from ui.chat_tab import build_chat_tab  # Chat tab: friends list, requests, encrypted chat
 from cubeon.discord_rpc import DiscordPresence  # Optional Discord Rich Presence (no-op unless configured)
 from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driving (no-op without a pad)
-
 
 # ---------------------------------------------------------------------------
 # Design tokens - colors and fonts used throughout the UI.
@@ -109,7 +113,7 @@ from cubeon.theme import (  # noqa: E402  (kept with the other token setup)
     TEXT, TEXT_DIM, TEXT_FAINT, DANGER, INFO, WARNING,
     FONT_DISPLAY, FONT_BODY, FONT_MONO,
     FONT_URLS, THEME, RADIUS, RADIUS_LG,
-    CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT,
+    CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT, ACCENT_DEEP,
     card as glass_card,
 )
 from cubeon import theme  # for theme.pixel_divider / theme.section_label
@@ -201,6 +205,71 @@ def _explain_exit(code: int, lines=None) -> str:
     return f"Crashed (exit {code}). Check that Java and your mods match this version."
 
 
+def _classify_session_end(ui_painted: bool, client_exit):
+    """Why a flet session ended, using the client process's exit status.
+
+    flet 0.86's ``ft.run()`` reaps the desktop client itself (``await
+    fvp.wait()``) and only returns once the client is already gone, so a live
+    child process can never be observed here - the old "is a flet child alive?"
+    test was always false and made every normal close look like a crash.
+
+    ``client_exit`` is the returncode captured by ``_capture_flet_client_exit``:
+    ``0`` (or any non-negative) is a normal exit, a negative value is a
+    signal death (``-11`` SIGSEGV, ``-6`` SIGABRT, ...), and ``None`` means it
+    could not be observed. Returns one of:
+      * ``"pre_paint_crash"``  - died before the window showed
+      * ``"mid_session_crash"``- died to a signal after the window showed
+      * ``"clean_close"``      - a normal close (default when unsure)
+    """
+    if not ui_painted:
+        return "pre_paint_crash"
+    if client_exit is not None and client_exit < 0:
+        return "mid_session_crash"
+    return "clean_close"
+
+
+def _capture_flet_client_exit(slot: dict) -> None:
+    """Installs a one-time wrapper that records the flet client's exit status.
+
+    Only flet's own ``await fvp.wait()`` sees that status before the child is
+    reaped, so we wrap the process object the moment ``ft.run`` obtains it and
+    stash ``returncode`` into ``slot["code"]``. The classification then comes
+    from ``_classify_session_end``. Best-effort: if the API moves, the slot
+    stays ``None`` and every end is treated as a clean close (never a
+    surprise relaunch).
+    """
+    try:
+        import flet_desktop
+    except Exception:
+        return
+    original = getattr(flet_desktop, "open_flet_view_async", None)
+    if original is None or getattr(original, "_cubeon_exit_capture", False):
+        return
+
+    class _ClientExitProxy:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        async def wait(self):
+            try:
+                result = await self._real.wait()
+            except BaseException:
+                slot["code"] = None
+                raise
+            slot["code"] = self._real.returncode
+            return result
+
+    async def _wrapped(*args, **kwargs):
+        proc, pid_file = await original(*args, **kwargs)
+        return _ClientExitProxy(proc), pid_file
+
+    _wrapped._cubeon_exit_capture = True
+    flet_desktop.open_flet_view_async = _wrapped
+
+
 def main(page: ft.Page):
     """
     This is the main function that Flet calls when the app starts.
@@ -227,11 +296,7 @@ def main(page: ft.Page):
             open_inspect(page)
         except Exception:
             traceback.print_exc()
-            try:
-                page.open(ft.SnackBar(ft.Text("Inspector failed to open - "
-                                              "see cubeon.log", size=12)))
-            except Exception:
-                pass
+            _show_snack("Inspector failed to open - see cubeon.log")
 
     # Central logging BEFORE anything else can fail: from here on, every
     # cubeon/ module's log calls land in ~/.cubeon_launcher/cubeon.log and
@@ -239,7 +304,7 @@ def main(page: ft.Page):
     from cubeon.logging_setup import setup_logging
     setup_logging()
     # --- Basic window configuration ---
-    page.title = "Cubeon Launcher"
+    page.title = "Cubeon"
     page.bgcolor = BG
     page.padding = 0
     # The window process must ALREADY be started hidden (see ft.run below,
@@ -457,43 +522,75 @@ def main(page: ft.Page):
     # surface can mount them); they're just not displayed in the sidebar.
     # -----------------------------------------------------------------
 
+    # -----------------------------------------------------------------
+    # TOP NAVIGATION - the icon bar across the top (Play, Mods, Modpack,
+    # Cosmetics, Servers), with Account and Settings docked on the right.
+    # Replaces the old left sidebar: the content surface now spans the
+    # whole window under one bar, matching the Cubeon layout mockup.
+    # -----------------------------------------------------------------
+
     # A small colored dot that changes color to show status (ready, busy, error)
     status_dot = ft.Container(width=7, height=7, bgcolor=ACCENT, border_radius=RADIUS)
     status_text = ft.Text("READY", size=11, color=TEXT_DIM, font_family=FONT_MONO)
 
-    # -----------------------------------------------------------------
-    # SIDEBAR NAVIGATION - the vertical menu on the left
-    # -----------------------------------------------------------------
-
-    # Flat nav items: (key, icon, label). Profile is its own tab, opened
-    # either from the sidebar nav list or by clicking "Signed in as" at
-    # the bottom of the sidebar.
-    nav_items = [
+    # Flat nav items: (key, icon, label). The "profile" tab is the COSMETICS
+    # view (skins, capes, hats) - the identity card moved behind the Account
+    # icon on the right. The server keys share one top-bar icon and switch
+    # between Console/Plugins/Settings through the chip row under the bar.
+    top_nav_items = [
         ("play", ft.Icons.PLAY_ARROW_ROUNDED, "Play"),
         ("mods", ft.Icons.EXTENSION_ROUNDED, "Mods"),
         ("modpacks", ft.Icons.INVENTORY_2_ROUNDED, "Modpacks"),
-        ("profile", ft.Icons.PERSON_ROUNDED, "Profile"),
-        ("settings", ft.Icons.TUNE_ROUNDED, "Settings"),
+        ("profile", ft.Icons.CHECKROOM_ROUNDED, "Cosmetics"),
+        ("server", ft.Icons.DNS_ROUNDED, "Servers"),
+        ("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats"),
     ]
-    # "Servers" is a separate expandable group rather than a flat item -
-    # (key, icon, label) sub-items collapsed under one clickable header.
+    # The Chat tab only exists in builds that ship the social layer; a public
+    # no-Friends build stays a plain launcher with no dead nav entry.
+    if friends_enabled():
+        top_nav_items.insert(3, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED, "Chat"))
     server_group_items = [
         ("server_console", ft.Icons.TERMINAL_ROUNDED, "Console"),
         ("server_plugins", ft.Icons.EXTENSION_ROUNDED, "Plugins"),
         ("server_settings", ft.Icons.TUNE_ROUNDED, "Settings"),
     ]
-    server_group_expanded = {"value": False}
+    SERVER_TOP_KEY = "server"
 
     active_tab = {"value": "play"}  # We use a dict so we can mutate it inside nested functions
     nav_buttons = {}  # Will hold references to each navigation button container
 
-    # The main content area on the right - it will be replaced when switching tabs
-    content_area = ft.Container(expand=True)
+    # The main content area on the right - it will be replaced when switching tabs.
+    # tab_switcher (a single AnimatedSwitcher created once) is now a plain
+    # pass-through: duration=0 makes the swap instant. It is kept as a
+    # switcher (not a plain Container) only so the structure - and the
+    # switch_tab code that assigns .content - stays unchanged.
+    tab_switcher = ft.AnimatedSwitcher(
+        content=ft.Container(expand=True),
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=0,
+        reverse_duration=0,
+    )
+    content_area = ft.Container(content=tab_switcher, expand=True)
 
     def _style_nav_button(btn, is_active):
+        """Restyles a nav button for the active/inactive state.
+
+        Two shapes live in nav_buttons: top-bar ICON buttons (marker
+        `cubeon_top_icon`: an icon over an underline bar) and the server
+        sub-tab CHIPS (icon + label rows, the old sidebar style). The marker
+        attribute is set at build time; Flet controls are plain Python
+        objects, so a private attribute survives page.update() just fine.
+        """
+        if getattr(btn, "cubeon_top_icon", False):
+            btn.data = is_active
+            # A faint green wash behind the icon plus the underline - the
+            # active tab reads at a glance without a bright slab.
+            btn.bgcolor = ACCENT_TINT if is_active else "transparent"
+            btn.content.controls[0].color = ACCENT if is_active else TEXT_DIM
+            btn.content.controls[1].bgcolor = ACCENT if is_active else "transparent"
+            return
         # The active state is a *quiet* one: a faint green wash and a small
-        # accent bar on the left edge - not a solid green slab. Green stays
-        # scarce, so the rail doesn't out-shout the content it navigates to.
+        # accent bar on the left edge - not a solid green slab.
         btn.bgcolor = ACCENT_TINT if is_active else "transparent"
         btn.data = is_active  # remembered so the hover handler knows the resting state
         row = btn.content
@@ -502,20 +599,53 @@ def main(page: ft.Page):
         row.controls[2].bgcolor = ACCENT if is_active else "transparent"  # indicator bar
 
     def _on_nav_hover(e):
-        """Affordance: an inactive nav item lifts to a faint wash and its
-        label brightens to full TEXT on hover, so the sidebar feels responsive
-        instead of dead. The active item is left alone - it already reads as
-        selected and shouldn't flicker under the cursor."""
+        """Affordance: an inactive nav item lifts to a faint wash so the bar
+        feels responsive instead of dead. The active item is left alone - it
+        already reads as selected and shouldn't flicker under the cursor."""
         btn = e.control
         if btn.data:  # active tab - leave it as-is
             return
         hovering = e.data == "true"
         btn.bgcolor = ROW_HOVER if hovering else "transparent"
         btn.content.controls[0].color = TEXT if hovering else TEXT_DIM
-        btn.content.controls[1].color = TEXT if hovering else TEXT_DIM
+        if not getattr(btn, "cubeon_top_icon", False):
+            btn.content.controls[1].color = TEXT if hovering else TEXT_DIM
         btn.update()
 
+    def build_top_nav_button(key, icon, label):
+        """An icon-only top-bar button: the icon, and the small green
+        underline that marks the active tab (the mockup's active affordance -
+        a bar under the icon, not a filled slab)."""
+        is_active = key == active_tab["value"]
+        btn = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Icon(icon, size=21, color=ACCENT if is_active else TEXT_DIM),
+                    # The underline: green only when active.
+                    ft.Container(width=24, height=3, border_radius=RADIUS,
+                                 bgcolor=ACCENT if is_active else "transparent"),
+                ],
+                spacing=5,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+            bgcolor=ACCENT_TINT if is_active else "transparent",
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=13, vertical=7),
+            data=is_active,
+            on_click=lambda e, k=key: switch_tab(k),
+            on_hover=_on_nav_hover,
+            animate=150,
+            tooltip=label,
+        )
+        btn.cubeon_top_icon = True
+        nav_buttons[key] = btn
+        return btn
+
     def build_nav_button(key, icon, label, *, icon_size=18, indent=0):
+        """A labeled chip button - used for the server sub-tabs (Console /
+        Plugins / Settings) shown under the bar while a server tab is active.
+        Same visual language the old sidebar rows used."""
         is_active = key == active_tab["value"]
         btn = ft.Container(
             content=ft.Row(
@@ -541,74 +671,68 @@ def main(page: ft.Page):
         nav_buttons[key] = btn
         return btn
 
-    def toggle_server_group(e=None):
-        server_group_expanded["value"] = not server_group_expanded["value"]
-        server_group_children.visible = server_group_expanded["value"]
-        server_group_chevron.name = (
-            ft.Icons.EXPAND_LESS_ROUNDED if server_group_expanded["value"] else ft.Icons.EXPAND_MORE_ROUNDED
+    # The server sub-tab chips. switch_tab shows/hides the whole row
+    # depending on whether a server tab is active.
+    server_subnav = ft.Row(
+        [build_nav_button(key, icon, label) for key, icon, label in server_group_items],
+        spacing=8,
+    )
+    subnav_bar = ft.Container(
+        content=ft.Row([ft.Container(width=16), server_subnav], spacing=0),
+        visible=False,
+        padding=ft.padding.Padding.only(left=12, top=10, bottom=2),
+    )
+
+    def _build_top_bar():
+        """The bar itself: brand mark on the left, the five nav icons dead
+        center, Account and Settings on the right. Account opens the identity
+        card (avatar, username, profile picture) in a dialog - the click
+        target is filled in later, once the card is built, via the
+        _account_open holder defined just below."""
+        nav_row = ft.Row(
+            [build_top_nav_button(key, icon, label) for key, icon, label in top_nav_items],
+            spacing=6,
         )
-        page.update()
-
-    server_group_chevron = ft.Icon(ft.Icons.EXPAND_MORE_ROUNDED, size=18, color=TEXT_DIM)
-
-    def build_server_group_header():
-        """The 'Servers' row itself - minimal: an icon, a label, and a
-        chevron. Clicking it only expands/collapses; it never navigates,
-        since there's nothing to show without picking Console or Settings."""
-        is_active = active_tab["value"] in {k for k, _, _ in server_group_items}
+        account_btn = ft.IconButton(
+            icon=ft.Icons.PERSON_ROUNDED, icon_size=22, icon_color=TEXT_DIM,
+            tooltip="Account",
+            # Late-bound on purpose: _open_account_panel is defined further
+            # down (after its controls), and the click resolves it then.
+            on_click=lambda e: _open_account_panel(),
+            style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
+        )
+        settings_btn = ft.IconButton(
+            icon=ft.Icons.TUNE_ROUNDED, icon_size=22, icon_color=TEXT_DIM,
+            tooltip="Settings",
+            on_click=lambda e: switch_tab("settings"),
+            style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
+        )
         return ft.Container(
             content=ft.Row(
                 [
-                    ft.Icon(ft.Icons.DNS_ROUNDED, size=18, color=ACCENT if is_active else TEXT_DIM),
-                    ft.Text("Servers", size=13.5,
-                            weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
-                            color=TEXT if is_active else TEXT_DIM, expand=True),
-                    server_group_chevron,
+                    ft.Container(width=8),
+                    sidebar_brand,
+                    ft.Row([ft.Container(expand=True), nav_row,
+                            ft.Container(expand=True)], expand=True),
+                    account_btn,
+                    settings_btn,
+                    ft.Container(width=10),
                 ],
-                spacing=12,
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
-            on_click=toggle_server_group,
+            padding=ft.padding.Padding.only(left=14, right=6, top=8, bottom=2),
         )
 
-    def build_nav():
-        """
-        Creates the list of navigation controls: the flat tab buttons plus
-        the collapsible "Servers" group. The currently active tab gets a
-        highlighted background (ACCENT). Clicking a flat button or a group
-        sub-item calls switch_tab(); clicking the group header just
-        expands/collapses it.
-        """
-        rows = []
-        for key, icon, label in nav_items[:3]:  # Play, Mods, Modpacks
-            rows.append(build_nav_button(key, icon, label))
-
-        nonlocal server_group_header
-        server_group_header = build_server_group_header()
-        rows.append(server_group_header)
-        server_sub_rows = [
-            build_nav_button(key, icon, label, icon_size=16, indent=14)
-            for key, icon, label in server_group_items
-        ]
-        nonlocal server_group_children
-        server_group_children = ft.Column(server_sub_rows, spacing=2, visible=server_group_expanded["value"])
-        rows.append(server_group_children)
-
-        for key, icon, label in nav_items[3:]:  # Profile, Settings
-            rows.append(build_nav_button(key, icon, label))
-        return rows
-
-    server_group_children = ft.Column([])  # placeholder, replaced inside build_nav()
-    server_group_header = ft.Container()   # placeholder, replaced inside build_nav()
-
-    # Sidebar "Signed in as" widgets - pulled out as named variables so the
+    # "Signed in as" widgets - pulled out as named variables so the
     # username field's on_change handler can update them live, since offline
     # accounts are keyed entirely off the username (new name = new account).
+    # They are mounted in the top bar's brand mark (username) and shown in
+    # the Account dialog (avatar).
     #
     # Avatar source resolution: an uploaded profile picture wins if present,
-    # otherwise falls back to the skin-face render - so the sidebar/profile
-    # dialog always shows *something* meaningful even before anyone uploads
+    # otherwise falls back to the skin-face render - so the account view
+    # always shows *something* meaningful even before anyone uploads
     # their own picture.
     def _current_avatar_src(username: str) -> str:
         pfp_path = core.get_profile_picture_path(cfg)
@@ -660,8 +784,8 @@ def main(page: ft.Page):
     profile_pfp_status = ft.Text("", size=12, color=TEXT_DIM)
 
     def refresh_avatars():
-        """Called after upload/remove/username-change so the sidebar and
-        the dialog's own avatar never fall out of sync with each other."""
+        """Called after upload/remove/username-change so the account dialog's
+        avatar never falls out of sync with the current state."""
         src = _current_avatar_src(cfg["username"])
         sidebar_avatar.foreground_image_src = src
         profile_dialog_avatar.foreground_image_src = src
@@ -894,71 +1018,139 @@ def main(page: ft.Page):
         ),
         bgcolor=ACCENT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=11, horizontal=18),
-        ink=True, on_click=open_pfp_picker,
+        ink=False, on_click=open_pfp_picker,
     )
     profile_pfp_remove_btn = ft.Container(
         content=ft.Text("Remove", color=DANGER, weight=ft.FontWeight.W_700, size=13),
         border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=11, horizontal=18),
-        ink=True, on_click=on_remove_pfp, alignment=ft.Alignment.CENTER,
+        ink=False, on_click=on_remove_pfp, alignment=ft.Alignment.CENTER,
     )
 
+    # -----------------------------------------------------------------
+    # COSMETICS TAB (the old Profile tab): skins, capes and hats. The
+    # identity card (avatar, username, profile picture) moved out of here
+    # into the Account dialog behind the top bar's person icon - cosmetics
+    # and account are different questions and now get different surfaces.
+    #
+    # Like the Mods/Stats/Settings tabs, the tab is a plain padded column on
+    # the page canvas - NOT wrapped in its own bordered SURFACE card. That
+    # extra card was the outer half of the old "box in a box" look (every
+    # stage/tile was then a second solid box); the panes now paint their own
+    # translucent CARD_FILL wells, so the canvas is the only frame.
+    # -----------------------------------------------------------------
     profile_tab = ft.Column(
-        [
-            ft.Column(
-                    [
-                        # --- Header card: avatar | identity + username | picture actions ---
-                        ft.Container(
-                            content=ft.Row(
-                                [
-                                    # Left: avatar
-                                    profile_avatar_with_parrot,
-                                    ft.Container(width=20),
-                                    # Center: name + editable username field
-                                    ft.Column(
-                                        [
-                                            profile_dialog_username,
-                                            ft.Container(height=14),
-                                            ft.Container(width=340, content=profile_username_field),
-                                        ],
-                                        spacing=2,
-                                        expand=True,
-                                    ),
-                                    ft.Container(width=20),
-                                    # Right: profile picture upload/remove
-                                    ft.Column(
-                                        [
-                                            section_label("Profile picture"),
-                                            ft.Container(height=8),
-                                            ft.Row(
-                                                [profile_pfp_upload_btn, profile_pfp_remove_btn],
-                                                spacing=10,
-                                            ),
-                                            profile_pfp_status,
-                                        ],
-                                        spacing=2,
-                                        horizontal_alignment=ft.CrossAxisAlignment.START,
-                                    ),
-                                ],
-                                vertical_alignment=ft.CrossAxisAlignment.START,
-                            ),
-                            bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=24,
-                        ),
-
-                        ft.Container(height=24),
-
-                        # --- Section: in-game skin (see skin_tab.py) ---
-                        ft.Container(
-                            content=skin_section_container,
-                            bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=24,
-                        ),
-                    ],
-                    spacing=2,
-            ),
-        ],
+        [skin_section_container],
         scroll=ft.ScrollMode.AUTO,
         expand=True,
     )
+
+    # -----------------------------------------------------------------
+    # ACCOUNT PANEL — slides in from the right edge over a dimmed scrim.
+    #
+    # Flet 0.86 has no Drawer control, so it is two overlay Containers:
+    #   account_panel  animates `right` between -ACCOUNT_PANEL_W (parked
+    #                  off-screen) and 0 (open)
+    #   account_scrim  full-window dim that fades in/out and eats clicks
+    #
+    #   Open:  _open_account_panel()   (wired to the top bar's person icon)
+    #   Close: _close_account_panel()  (scrim click and the ✕ button)
+    #
+    # Close detail: the scrim fades out (200ms) and is hidden by a timer
+    # just after the fade ends. Hiding it instantly reads as a flicker;
+    # leaving it visible at opacity 0 would keep it swallowing every click
+    # on the launcher - so the timer matters. Its update goes through
+    # thread_safe_ui because it fires on a timer thread.
+    # -----------------------------------------------------------------
+    ACCOUNT_PANEL_W = 390
+
+    def _close_account_panel(e=None):
+        account_panel.right = -ACCOUNT_PANEL_W
+        account_scrim.opacity = 0
+
+        def _retire_scrim():
+            # BUG this fixes: this used to call final_update(page), which only
+            # repaints when a THROTTLED update is pending - here nothing is,
+            # so the visible=False below never reached the client. The scrim
+            # (a full-window click-catcher) then stayed mounted at opacity 0
+            # forever and swallowed every click on the launcher.
+            try:
+                account_scrim.visible = False
+                thread_safe_ui.refresh(account_scrim)
+            except Exception:
+                pass  # a late scrim hide must never surface as an error
+
+        threading.Timer(0.25, _retire_scrim).start()
+        # Per-control diff, NOT page.update(): a whole-page update re-syncs
+        # every control in the tree (all tabs, the console, everything) -
+        # visually a full-app reload and the direct cause of the jank when
+        # toggling the panel. Diffing just these two overlays paints the
+        # slide/fade animation alone.
+        thread_safe_ui.refresh(account_scrim)
+        thread_safe_ui.refresh(account_panel)
+
+    account_scrim = ft.Container(
+        bgcolor=ft.Colors.with_opacity(0.55, "#000000"),
+        left=0, top=0, right=0, bottom=0,
+        opacity=0,
+        visible=False,
+        ink=False,
+        on_click=_close_account_panel,
+        animate_opacity=ft.Animation(200),
+    )
+
+    account_panel = ft.Container(
+        bgcolor=SURFACE,
+        width=ACCOUNT_PANEL_W,
+        top=0,
+        bottom=0,
+        right=-ACCOUNT_PANEL_W,
+        animate_position=ft.Animation(280, "easeOutCubic"),
+        padding=ft.padding.Padding.only(left=24, right=24, top=28, bottom=24),
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text("Account", size=22, color=TEXT, font_family=FONT_DISPLAY,
+                                expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE_ROUNDED, icon_size=20,
+                            icon_color=TEXT_DIM, tooltip="Close",
+                            on_click=_close_account_panel,
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Container(height=18),
+                ft.Row([profile_avatar_with_parrot], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Container(height=14),
+                profile_dialog_username,
+                ft.Container(height=10),
+                profile_username_field,
+                ft.Container(height=18),
+                pixel_divider(),
+                ft.Container(height=10),
+                section_label("Profile picture"),
+                ft.Container(height=8),
+                ft.Row([profile_pfp_upload_btn, profile_pfp_remove_btn], spacing=10),
+                ft.Container(height=6),
+                profile_pfp_status,
+            ],
+            spacing=2,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        ),
+    )
+    page.overlay.extend([account_scrim, account_panel])
+
+    def _open_account_panel(e=None):
+        account_scrim.visible = True
+        account_scrim.opacity = 1
+        account_panel.right = 0
+        # Per-control diff (see _close_account_panel): a page.update() here
+        # was the "whole app reloads" jank - it re-synced every mounted tab.
+        thread_safe_ui.refresh(account_scrim)
+        thread_safe_ui.refresh(account_panel)
 
     def refresh_profile_tab():
         """Called whenever the Profile tab becomes active, so its fields
@@ -969,75 +1161,31 @@ def main(page: ft.Page):
         profile_username_field.error_text = None
         rebuild_skin_section()
 
-    # Column that holds all nav buttons
-    sidebar_column = ft.Column(build_nav(), spacing=2)
-
-    # Brand mark - the app icon plus wordmark, shown once at the top of the
-    # sidebar so the launcher has a consistent visual identity every time
-    # it's open, not just as a taskbar/window icon.
+    # Brand mark - the cube icon and wordmark. Mounted at the left edge of
+    # the top bar. (The Minecraft-style nametag that used to ride after the
+    # wordmark is gone - the player's name lives in the Account dialog.)
     sidebar_brand = ft.Row(
         [
-            # The cube mark as a static vector (assets/cube.svg), extracted
-            # from the icon's own polygons - crisp at any size, no hand-drawn
-            # animation frames to go muddy.
             ft.Image(src="cube.svg", width=32, height=32, fit=ft.BoxFit.CONTAIN),
             ft.Text("Cubeon", size=19, color=TEXT, font_family=FONT_DISPLAY),
         ],
         spacing=10,
     )
 
-    # The sidebar container. It sits directly on the canvas gradient with no
-    # fill and no dividing border - separation comes from the content surface
-    # beside it being one step lighter, not from a drawn line. Narrower than
-    # before: a rail should navigate, not dominate.
-    sidebar = ft.Container(
-        content=ft.Column(
-            [
-                sidebar_brand,
-                ft.Container(height=22),  # spacer between brand and nav
-                sidebar_column,  # The navigation buttons
-                ft.Container(expand=True),  # Spacer to push the user info to the bottom
-                # Dev-only UI inspector toggle (CUBEON_INSPECT=1): opens the
-                # live text/property editor. Lives just above the user block
-                # so it's reachable but never part of the shipped nav.
-                *([] if not _inspector_enabled else [
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Icon(ft.Icons.BUG_REPORT, size=14, color=TEXT_FAINT),
-                            ft.Text("Inspect UI", size=12, color=TEXT_FAINT),
-                        ], spacing=8),
-                        padding=ft.padding.Padding.only(left=12, bottom=6),
-                        on_click=lambda e: _open_inspector(),
-                    ),
-                ]),
-                # Bottom section: shows the current signed-in username with
-                # avatar - clickable, switches to the Profile tab (view
-                # profile, upload/remove profile picture).
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            section_label("Signed in as"),
-                            ft.Row(
-                                [
-                                    sidebar_avatar,
-                                    sidebar_username_text,
-                                ],
-                                spacing=10,
-                            ),
-                        ],
-                        spacing=8,
-                    ),
-                    padding=ft.padding.Padding.only(top=14),
-                    border=ft.border.Border.only(top=ft.border.BorderSide(1, CARD_BORDER)),
-                    border_radius=RADIUS,
-                    on_click=lambda e: switch_tab("profile"),
-                ),
-            ],
-            expand=True,
-        ),
-        width=200,
-        padding=ft.padding.Padding.only(left=16, right=12, top=18, bottom=16),
-    )
+    # The sidebar is gone (top navigation now). The brand mark mounts in the
+    # top bar; the dev-only UI inspector toggle keeps a home in the top bar's
+    # right cluster via the same _inspector_enabled flag.
+    top_bar = _build_top_bar()
+    if _inspector_enabled:
+        # Dev-only UI inspector toggle (CUBEON_INSPECT=1): opens the live
+        # text/property editor. Sits left of the Account icon.
+        try:
+            top_bar.content.controls.insert(3, ft.IconButton(
+                icon=ft.Icons.BUG_REPORT, icon_size=18, icon_color=TEXT_FAINT,
+                tooltip="Inspect UI", on_click=lambda e: _open_inspector(),
+            ))
+        except Exception:
+            pass  # a missing dev toggle must never break the layout
 
     # -----------------------------------------------------------------
     # PLAY TAB - the main "Play" tab content
@@ -1056,7 +1204,7 @@ def main(page: ft.Page):
         text_style=ft.TextStyle(font_family=FONT_MONO),  # Use monospaced for usernames
         bgcolor=SURFACE_HI,
         border_radius=RADIUS,
-        height=52,
+        height=48,
     )
 
     def on_username_change(e=None):
@@ -1143,7 +1291,7 @@ def main(page: ft.Page):
         label_style=ft.TextStyle(color=TEXT_DIM),
         bgcolor=SURFACE_HI,
         border_radius=RADIUS,
-        height=52,
+        height=48,
         options=[],  # Will be populated later
         on_select=lambda e: on_version_selected(),  # Called when user picks a version
     )
@@ -1157,8 +1305,8 @@ def main(page: ft.Page):
     # actually know (installed / available / unsupported) for the currently
     # selected version, instead of a static row of plain text.
     loader_segment_labels = [
-        ft.Text(core.SUPPORTED_LOADERS[lid], color=ACCENT_HI if i == 0 else TEXT_DIM,
-                 size=13, weight=ft.FontWeight.W_600)
+        ft.Text(core.SUPPORTED_LOADERS[lid], color=ACCENT if i == 0 else TEXT_DIM,
+                 size=12.5, weight=ft.FontWeight.W_600)
         for i, lid in enumerate(LOADER_IDS)
     ]
     # Small dot under each label - green once we've confirmed that loader is
@@ -1175,14 +1323,14 @@ def main(page: ft.Page):
 
     loader_status_text = ft.Text("", size=11, color=TEXT_DIM, visible=False)
 
-    # Switcher between Vanilla and each supported mod loader. The thumb is a
-    # *subtle* deep-green pill rather than a bright slab, so the selected
-    # option reads via its green label + the quiet thumb behind it while the
-    # inactive ones stay clearly visible (TEXT_DIM) - previously the active
-    # segment was near-white-on-green and everything else was nearly invisible.
+    # Switcher between Vanilla and each supported mod loader. The selected
+    # segment is marked by a subtle green wash behind it plus green, semibold
+    # label text; the inactive segments stay clearly readable (TEXT_DIM). The
+    # small dot under a label is NOT the selection marker - it only records
+    # "already installed for this version".
     loader_toggle = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,  # index into LOADER_IDS
-        thumb_color="#32431D",  # ACCENT_DIM blended over SURFACE_HI - restrained
+        thumb_color=ACCENT_DEEP,  # near-black green - selected background
         bgcolor=SURFACE_HI,
         padding=4,
         controls=loader_segment_columns,
@@ -1212,7 +1360,7 @@ def main(page: ft.Page):
             label = loader_segment_labels[i]
             dot = loader_segment_dots[i]
             is_selected = (i == loader_toggle.selected_index)
-            base_color = ACCENT_HI if is_selected else TEXT_DIM
+            base_color = ACCENT if is_selected else TEXT_DIM
             label.color = base_color
             if support is None or lid == "vanilla":
                 label.opacity = 1
@@ -1452,7 +1600,9 @@ def main(page: ft.Page):
         refresh_mods_list()
         on_version_selected()
 
-    # A row for "Show snapshots" checkbox (visible only when browsing online)
+    # A row for the "Show snapshots" checkbox - lives in the Settings tab's
+    # Game versions card now (always visible there; it only affects what the
+    # online fetch includes, and toggling it re-fetches immediately).
     browse_online_row = ft.Row(
         [
             ft.Checkbox(
@@ -1461,10 +1611,231 @@ def main(page: ft.Page):
                 on_change=lambda e: refresh_version_list(online=True),  # Reload versions when toggled
             ),
         ],
-        visible=False,  # Hidden by default
     )
     show_snapshots = browse_online_row.controls[0]  # Reference to the checkbox
 
+    # --- Legacy versions + one-click version update ----------------------
+    #
+    # Everything below 1.20 is LEGACY for Cubeon: the in-game client mod's
+    # jar matrix (mod/brackets.json) starts at 1.20.1, so on an older version
+    # there is no Friends button, no skins/capes sync, no Cubeon anything -
+    # vanilla with extra steps. Rather than pretending otherwise, those
+    # versions are hidden behind an explicit "Legacy" opt-in that says exactly
+    # that, and "Update game version" moves the current selection to the
+    # newest release in one click. The opt-in persists in config
+    # ("legacy_versions"): off for new users, kept for returning ones.
+    state.setdefault("legacy_ok", bool(cfg.get("legacy_versions", False)))
+
+    def _is_legacy_version(version_id):
+        """True for versions below 1.20 (numeric MC versions only - snapshots
+        and unparseable ids are left alone; gating what we can't classify
+        would hide playable versions on a parsing bug)."""
+        mc = core.extract_mc_version(version_id) if version_id else None
+        if not mc:
+            return False
+        try:
+            parts = tuple(int(p) for p in mc.split(".")[:3])
+        except ValueError:
+            return False
+        while len(parts) < 3:
+            parts += (0,)
+        return parts < (1, 20, 0)
+
+    def _newest_release_key():
+        """Newest stable release offered, or None when there's no online list
+        (offline). Prefers the list already on screen so the Update button
+        never makes a second network call, and falls back to Mojang's own
+        "latest release" when that list is still empty. Snapshot ids are
+        non-numeric, so the parse below simply skips them."""
+        def _sort_key(vid):
+            try:
+                parts = tuple(int(p) for p in (vid or "").split(".")[:3])
+            except ValueError:
+                return None
+            while len(parts) < 3:
+                parts += (0,)
+            return parts
+
+        candidates = []
+        for option in all_online_options.get("value") or []:
+            key = _sort_key(option.key)
+            if key is not None:
+                candidates.append((key, option.key))
+        if candidates:
+            return max(candidates)[1]
+        try:
+            return core.get_latest_release() or None
+        except Exception:
+            return None
+
+    legacy_note = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.HISTORY_ROUNDED, size=14, color=TEXT_DIM),
+                ft.Text(
+                    "These old versions run plain vanilla - no mods, skins "
+                    "or friends.",
+                    size=12, color=TEXT_DIM, expand=True,
+                ),
+            ],
+            spacing=8,
+        ),
+        visible=False,
+    )
+
+    legacy_btn_label = ft.Text(
+        "Legacy: on" if state.get("legacy_ok") else "Legacy",
+        size=12, color=ACCENT if state.get("legacy_ok") else TEXT_DIM,
+        weight=ft.FontWeight.W_600)
+
+    def _set_legacy_ui(on):
+        """One place for the Legacy toggle's visible state. Persisted so the
+        choice survives a restart (a user who enabled legacy once shouldn't
+        watch the versions vanish again on next launch)."""
+        state["legacy_ok"] = on
+        cfg["legacy_versions"] = on
+        try:
+            core.save_config(cfg)
+        except Exception:
+            pass  # a failed save keeps working for this session
+        legacy_note.visible = on
+        legacy_btn_label.value = "Legacy: on" if on else "Legacy"
+        legacy_btn_label.color = ACCENT if on else TEXT_DIM
+
+    def _do_enable_legacy(e=None, dlg=None):
+        _set_legacy_ui(True)
+        if dlg is not None:
+            _close_dialog(dlg)
+        # Synchronous, like the browse-online link: refresh_version_list ends
+        # in page.update(), which must stay on the UI thread.
+        refresh_version_list(online=True)
+        set_status("Legacy versions enabled")
+
+    def on_enable_legacy(e=None):
+        """The opt-in dialog. One clear sentence about what legacy costs,
+        then it never nags again this session (the note stays visible)."""
+        if state.get("legacy_ok"):
+            # Already on: clicking again hides legacy versions again.
+            _set_legacy_ui(False)
+            refresh_version_list()
+            set_status("Legacy versions hidden")
+            return
+        dlg = ft.AlertDialog(
+            modal=True, bgcolor=SURFACE,
+            title=ft.Text("Enable legacy versions?", color=TEXT, weight=ft.FontWeight.W_800),
+            content=ft.Container(
+                content=ft.Text(
+                    "Versions below 1.20 run plain vanilla - no mods, skins "
+                    "or friends.\n\n"
+                    "Show legacy versions in the list?",
+                    size=13, color=TEXT,
+                ),
+                width=380,
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: _close_dialog(dlg)),
+                ft.TextButton("Enable legacy", on_click=lambda e: _do_enable_legacy(dlg=dlg),
+                              style=ft.ButtonStyle(color=ACCENT)),
+            ],
+        )
+        _open_dialog(dlg)
+
+    legacy_btn = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.HISTORY_ROUNDED, color=TEXT_DIM, size=14),
+                legacy_btn_label,
+            ],
+            spacing=6,
+        ),
+        on_click=on_enable_legacy,
+        ink=False,
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+        tooltip="Show or hide versions below 1.20",
+    )
+
+    def on_update_version(e=None):
+        """One click: fetch the version list if needed, pick the newest stable
+        release, and select it - which auto-installs it via the same prefetch
+        path a manual selection uses.
+
+        This must never dead-end. Three cases that used to produce a useless
+        message (or no action at all) are handled explicitly:
+          - the newest release isn't in the current list (offline or filtered)
+            -> it is added to the dropdown/picker before selecting it;
+          - the newest release is already selected but NOT yet installed -> the
+            install is (re)started and the status says "Getting ...", instead
+            of "pick it from the list" when it already is picked;
+          - it is selected and installed -> "Already on the latest release".
+        """
+        set_status("Checking for updates", busy=True)
+        try:
+            if not all_online_options["value"]:
+                refresh_version_list(online=True)
+            latest = _newest_release_key()
+            if not latest:
+                set_status("Could not fetch versions (offline?)")
+                return
+            current_mc = state.get("selected_mc_version")
+            if (current_mc == latest
+                    and state.get("selected_version") in state["installed"]):
+                set_status(f"Already on the latest release ({latest})")
+                return
+
+            # The newest release has to be selectable. The offline (installed-
+            # only) list can't contain it, and any list can be missing a just-
+            # released version - add it rather than pointing the user at a list
+            # it isn't in.
+            if not any(o.key == latest for o in (version_dropdown.options or [])):
+                option = ft.dropdown.Option(key=latest, text=latest)
+                version_dropdown.options = [option] + list(
+                    version_dropdown.options or [])
+                if not any(o.key == latest for o in (pick_source["value"] or [])):
+                    pick_source["value"] = [option] + list(
+                        pick_source["value"] or [])
+
+            if version_dropdown.value != latest:
+                version_dropdown.value = latest
+                _sync_version_button()
+                on_version_selected()
+                set_status(f"Updating to {latest}...")
+            else:
+                # Already selected. Make sure the download is actually underway
+                # (a selection that never changed can miss the prefetch) and
+                # report the real state - never a message that reads like the
+                # button did nothing.
+                on_version_selected()
+                if latest in state["installed"]:
+                    set_status(f"Already on the latest release ({latest})")
+                else:
+                    set_status(f"Getting {latest}...")
+        except Exception as ex:
+            set_status(f"Update check failed: {ex}")
+        finally:
+            # Paint the visible picker label even on an error path.
+            _sync_version_button()
+            thread_safe_ui.refresh(version_button_label)
+            thread_safe_ui.refresh(version_dropdown)
+
+    update_version_btn = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.SYSTEM_UPDATE_ALT_ROUNDED, color=ACCENT, size=15),
+                ft.Text("Update game version", size=12.5, color=ACCENT,
+                        weight=ft.FontWeight.W_600),
+            ],
+            spacing=7,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        on_click=on_update_version,
+        ink=False,
+        bgcolor="transparent",
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=7),
+        tooltip="Get the newest Minecraft version",
+    )
+    theme.attach_hover(update_version_btn, "transparent", ACCENT_TINT)
     # Online mode pulls in every release Mojang has ever shipped (600+
     # entries) with no way to jump to one - the raw dropdown became a wall of
     # text nobody could scan. This filters that list live as the user types
@@ -1472,25 +1843,15 @@ def main(page: ft.Page):
     # them scroll past hundreds of versions from 2011 onward to find one from
     # this year. Only shown once there's actually a long online list to
     # filter; the short offline (installed-only) list doesn't need it.
-    all_online_options = {"value": []}  # full unfiltered list, cached across filter keystrokes
-
-    def _filter_versions(e=None):
-        query = (version_filter_field.value or "").strip().lower()
-        if not query:
-            version_dropdown.options = all_online_options["value"]
-        else:
-            version_dropdown.options = [
-                o for o in all_online_options["value"] if query in o.key.lower()
-            ]
-        if not version_dropdown.options:
-            version_dropdown.value = None
-        elif version_dropdown.value not in {o.key for o in version_dropdown.options}:
-            version_dropdown.value = version_dropdown.options[0].key
-            on_version_selected()
-        # Per-KEYSTROKE handler: repainting just the dropdown instead of the
-        # whole tree keeps filter typing at control-diff cost, not 9k-line-diff
-        # cost.
-        thread_safe_ui.refresh(version_dropdown)
+    all_online_options = {"value": []}  # full unfiltered online list, cached across filter keystrokes
+    # The picker dialog's source list (installed-only offline, or the full
+    # online list). Kept SEPARATE from version_dropdown.options on purpose:
+    # the old filter rewrote the canonical dropdown options/value on every
+    # keystroke, which meant typing in the search box could silently move the
+    # selection to the first match and kick off a prefetch/download - and
+    # closing the dialog left the dropdown stuck on a narrowed list. The
+    # dialog now filters this snapshot and only commits via a row click.
+    pick_source = {"value": []}
 
     version_filter_field = ft.TextField(
         hint_text="Filter versions... e.g. 1.20",
@@ -1503,7 +1864,7 @@ def main(page: ft.Page):
         text_size=13,
         content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        on_change=_filter_versions,
+        on_change=None,   # wired to on_pick_search once the picker exists
         visible=False,  # shown only once online browsing is active
     )
 
@@ -1519,17 +1880,171 @@ def main(page: ft.Page):
         visible=False,
     )
 
-    # Link to browse online versions (when clicked, fetches versions from Mojang)
-    browse_online_link = ft.Container(
+    # (browse_online_link was folded into the version picker dialog's
+    # "Browse all versions →" link - same action, plus a list rebuild.)
+
+    # -----------------------------------------------------------------
+    # THE VERSION PICKER - the dropdown's face and its search dialog.
+    #
+    # The ft.Dropdown itself is the source of truth (value/options - dozens
+    # of code paths read and write it) but it is NOT mounted: a plain
+    # dropdown can't hold a search box, and 600+ online versions turned the
+    # separate filter field into permanent visual weight on the Play tab.
+    # Instead the compact button below opens a dialog with the search field,
+    # the filtered list, and the browse/snapshot controls inside it - the
+    # mockup's "Search versions... / list / Browse all versions ->".
+    # -----------------------------------------------------------------
+
+    version_button_label = ft.Text(
+        "No versions installed yet", size=14, color=TEXT_DIM,
+        font_family=FONT_MONO, expand=True,
+    )
+    version_dropdown_button = ft.Container(
+        content=ft.Row(
+            [
+                version_button_label,
+                ft.Icon(ft.Icons.ARROW_DROP_DOWN_ROUNDED, size=18, color=TEXT_DIM),
+            ],
+            spacing=6,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=SURFACE_HI,
+        border=ft.border.Border.all(1, BORDER),
+        border_radius=RADIUS,
+        height=48,
+        padding=ft.padding.Padding.symmetric(horizontal=12),
+        ink=False,
+        tooltip="Pick a Minecraft version",
+    )
+
+    def _sync_version_button():
+        """Mirror the dropdown's current value onto the button's label."""
+        val = version_dropdown.value
+        label = None
+        for o in version_dropdown.options or []:
+            if o.key == val:
+                label = (o.text or o.key).strip() or val
+                break
+        if not label and val:
+            label = val
+        version_button_label.value = label or "No versions installed yet"
+        version_button_label.color = TEXT if label else TEXT_DIM
+
+    def _pick_version(key):
+        """A click on a row in the picker dialog: select it and close."""
+        version_dropdown.value = key
+        _close_dialog(version_pick_dialog)
+        _sync_version_button()
+        on_version_selected()
+
+    def _rebuild_pick_list():
+        """The dialog's rows: the full pick source, narrowed by whatever is
+        typed in the search field. Selected row is marked and tinted.
+
+        Filtering is local to the dialog - it never touches
+        version_dropdown.options/value, so browsing doesn't change the
+        selection or start a download.
+
+        Ends in page.update() on purpose: every caller mutates the list after
+        some other control already updated the page (the browse link runs
+        refresh_version_list first, the search field's own keystroke updates
+        only itself), so without this the rebuilt rows would sit invisible
+        until the NEXT event repainted - the "browse loads only after I
+        reopen the menu" bug."""
+        query = (version_filter_field.value or "").strip().lower()
+        rows = []
+        for o in pick_source["value"]:
+            text = (o.text or o.key).strip()
+            if query and query not in o.key.lower() and query not in text.lower():
+                continue
+            selected = o.key == version_dropdown.value
+            rows.append(ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CHECK_ROUNDED if selected else ft.Icons.CIRCLE,
+                                size=12, color=ACCENT if selected else "transparent"),
+                        ft.Text(text, size=13, expand=True,
+                                color=TEXT if selected else TEXT_DIM,
+                                weight=ft.FontWeight.W_600 if selected else ft.FontWeight.W_400),
+                    ],
+                    spacing=10,
+                ),
+                bgcolor=ACCENT_TINT if selected else None,
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+                ink=False,
+                on_click=lambda e, k=o.key: _pick_version(k),
+                animate=100,
+            ))
+        if not rows:
+            # Never show a blank box - say what to do next. This happens on a
+            # fresh install (nothing downloaded yet) and on a filter that
+            # matches nothing.
+            rows.append(ft.Container(
+                content=ft.Text(
+                    "No versions here yet. Press “Browse all versions” to load "
+                    "the online list." if not pick_source["value"]
+                    else "No versions match your search.",
+                    size=12, color=TEXT_DIM,
+                ),
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16),
+            ))
+        pick_list.controls = rows
+        page.update()
+
+    def on_pick_search(e=None):
+        _rebuild_pick_list()
+
+    version_filter_field.on_change = on_pick_search
+    version_filter_field.border_radius = RADIUS
+
+    def on_browse_all_in_dialog(e=None):
+        refresh_version_list(online=True)
+        _rebuild_pick_list()
+
+    browse_all_link = ft.Container(
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.CLOUD_DOWNLOAD_ROUNDED, color=ACCENT, size=14),
-                ft.Text("Browse online versions", size=12, color=ACCENT, weight=ft.FontWeight.W_600),
+                ft.Text("Browse all versions →", size=12, color=ACCENT,
+                        weight=ft.FontWeight.W_600),
             ],
             spacing=8,
         ),
-        on_click=lambda e: refresh_version_list(online=True),
-        ink=True,
+        on_click=on_browse_all_in_dialog,
+        ink=False,
+    )
+
+    pick_list = ft.Column([], spacing=2, scroll=ft.ScrollMode.AUTO, height=320)
+
+    def _open_version_picker(e=None):
+        version_filter_field.value = ""
+        _rebuild_pick_list()
+        _open_dialog(version_pick_dialog)
+
+    version_dropdown_button.on_click = _open_version_picker
+
+    version_pick_dialog = ft.AlertDialog(
+        modal=False, bgcolor=SURFACE,
+        title=ft.Text("Game version", color=TEXT, weight=ft.FontWeight.W_800),
+        content=ft.Container(
+            width=420,
+            content=ft.Column(
+                [
+                    version_filter_field,
+                    ft.Container(height=4),
+                    pick_list,
+                    ft.Container(height=6),
+                    ft.Row(
+                        [ft.Container(expand=True),
+                         ft.Row([offline_notice, browse_all_link], spacing=14)],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ],
+                spacing=4, tight=True,
+            ),
+        ),
     )
 
     # Progress bar and label shown during installation/launch
@@ -1553,9 +2068,10 @@ def main(page: ft.Page):
     )
 
     # The main play button - its appearance changes based on state (play/download/busy)
-    play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=22)
-    play_button_text = ft.Text("PLAY", size=16, color=ON_ACCENT,
-                                font_family=FONT_DISPLAY)
+    play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=18)
+    play_button_text = ft.Text("PLAY", size=15, color=ON_ACCENT,
+                               weight=ft.FontWeight.W_700,
+                               style=ft.TextStyle(letter_spacing=0.5))
 
     def _on_play_hover(e):
         """Brighten the hero button on hover so it reads as the obvious next
@@ -1573,13 +2089,14 @@ def main(page: ft.Page):
     play_button = ft.Container(
         content=ft.Row(
             [play_button_icon, play_button_text],
-            alignment=ft.MainAxisAlignment.CENTER, spacing=6,
+            alignment=ft.MainAxisAlignment.CENTER, spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=ACCENT,
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=16),
+        padding=ft.padding.Padding.symmetric(vertical=14, horizontal=20),
         alignment=ft.Alignment.CENTER,
-        ink=True,
+        ink=False,
         on_click=lambda e: on_play_click(),  # The main action
         on_hover=_on_play_hover,
     )
@@ -1737,6 +2254,7 @@ def main(page: ft.Page):
         It checks if the version is installed, and if it's complete or incomplete.
         Then it updates the play button mode accordingly.
         """
+        _sync_version_button()   # the compact button mirrors the real dropdown
         version_id = version_dropdown.value
         state["selected_version"] = version_id  # keep Mods/Servers tabs in sync with the dropdown
         # Separate "clean" numeric version for anything that keys off a mods
@@ -1779,6 +2297,11 @@ def main(page: ft.Page):
             set_button_mode("download")
             prefetch_version(version_id)
 
+        # Fix any existing mod problems for this profile in the background now,
+        # rather than waiting for the launch-time pass (which is filesystem-only
+        # for speed). Best-effort and off the critical path.
+        _proactive_mod_repair(version_id)
+
     def refresh_version_list(online=False):
         """
         Populates the version dropdown with available versions.
@@ -1796,7 +2319,9 @@ def main(page: ft.Page):
         _refresh_pack_index()  # keep the version+loader -> pack-name map current
 
         if not online:
-            # Offline mode: only installed versions
+            # Offline mode: only installed versions. Legacy (below 1.20)
+            # entries stay hidden until the user opts in via the Legacy
+            # button - same rule as the online list.
             _labels = cfg.get("version_labels") or {}
             options = [
                 ft.dropdown.Option(
@@ -1804,10 +2329,12 @@ def main(page: ft.Page):
                     text=f"{_labels.get(v['id']) or v.get('display_name', v['id'])}  {'⚠' if v.get('incomplete') else '●'}",
                 )
                 for v in installed
+                if state.get("legacy_ok") or not _is_legacy_version(v["id"])
             ]
             version_dropdown.options = options
-            browse_online_row.visible = False
+            pick_source["value"] = list(options)
             offline_notice.visible = False
+            legacy_note.visible = state.get("legacy_ok", False)
             version_filter_field.visible = False
             version_filter_field.value = ""
 
@@ -1843,16 +2370,18 @@ def main(page: ft.Page):
         except Exception:
             # If network fails, show the offline notice
             offline_notice.visible = True
-            browse_online_row.visible = False
             version_filter_field.visible = False
             set_status("Offline")
             page.update()
             return
 
-        # Build options: show installed versions with a "●" marker
+        # Build options: show installed versions with a "●" marker. Legacy
+        # (below 1.20) entries are skipped unless the user opted in.
         _labels = cfg.get("version_labels") or {}
         options = []
         for v in versions:
+            if not state.get("legacy_ok") and _is_legacy_version(v["id"]):
+                continue
             is_installed = v["id"] in state["installed"]
             tag = "  ●" if is_installed else ""
             # A renamed instance keeps its nickname in the online list too, so
@@ -1860,10 +2389,11 @@ def main(page: ft.Page):
             label = _labels.get(v["id"]) if is_installed else None
             options.append(ft.dropdown.Option(key=v["id"], text=f"{label or v['id']}{tag}"))
         all_online_options["value"] = options
+        pick_source["value"] = list(options)
         version_filter_field.value = ""
         version_filter_field.visible = True
         version_dropdown.options = options
-        browse_online_row.visible = True
+        legacy_note.visible = state.get("legacy_ok", False)
         offline_notice.visible = False
 
         # Set the dropdown value to either the previously selected, the latest release, or the first
@@ -2060,12 +2590,13 @@ def main(page: ft.Page):
                 # this launch is already over and leave the result alone.
                 with _exit_lock:
                     exited["done"] = True
-                # Milestones: accumulate this session's playtime (clamped
-                # inside) and evaluate unlocks - a fresh Veteran hat shows
-                # as a toast without disturbing the status flow below.
+                # Milestones: credit this session's playtime (clamped inside)
+                # and evaluate unlocks - a fresh Veteran hat shows as a toast
+                # without disturbing the status flow below. Reads the on-disk
+                # session record written at launch, so it works even if the
+                # launcher was re-exec'd while the game ran.
                 try:
-                    core.add_play_seconds(
-                        time.time() - _milestone_launch_started_at)
+                    core.milestones_end_play_session()
                     fresh = core.milestones_evaluate()
                     if fresh:
                         for m in fresh:
@@ -2119,10 +2650,6 @@ def main(page: ft.Page):
             # started (see below).
             set_button_mode("running")
             state["running_version"] = version_id  # block deleting it mid-game
-            # Milestones: remember when THIS session started so on_exit can
-            # accumulate honest playtime (the Discord elapsed timer uses its
-            # own clock; this one must be independent of it).
-            _milestone_launch_started_at = time.time()
             page.update()
 
             # If the selected version belongs to an installed modpack, launch
@@ -2224,7 +2751,7 @@ def main(page: ft.Page):
                                  font_family=FONT_MONO, weight=ft.FontWeight.W_600)
     server_status_open_console = ft.Container(
         content=ft.Text("Open Console →", size=12, color=ACCENT, weight=ft.FontWeight.W_600),
-        ink=True, visible=False,
+        ink=False, visible=False,
         on_click=lambda e: switch_tab("server_console"),
     )
 
@@ -2271,23 +2798,18 @@ def main(page: ft.Page):
     # own folder; shared mod profiles, skins, and worlds are left alone.
     # -----------------------------------------------------------------
     def _open_dialog(dlg):
-        # page.open()/close() only exist on Flet 0.28+, so fall back to the
-        # older page.dialog assignment.
-        if hasattr(page, "open"):
-            page.open(dlg)
-        else:
-            dlg.open = True
-            page.dialog = dlg
-            if dlg not in page.overlay:
-                page.overlay.append(dlg)
-            page.update()
+        # Shared cross-Flet dialog plumbing (see cubeon/dialogs.py) - Flet
+        # 0.86 exposes show_dialog()/pop_dialog(), not the older open/close.
+        cubeon_dialogs.open_dialog(page, dlg)
 
     def _close_dialog(dlg):
-        if hasattr(page, "close"):
-            page.close(dlg)
-        else:
-            dlg.open = False
-            page.update()
+        cubeon_dialogs.close_dialog(page, dlg)
+
+    def _show_snack(msg, *, duration=4000, action=None, action_label=None):
+        """Toast popup used everywhere (thread-safe, never raises)."""
+        cubeon_dialogs.show_snack(page, msg, duration=duration, action=action,
+                                  action_label=action_label,
+                                  bgcolor=SURFACE_HI, text_color=ON_ACCENT)
 
     def _selected_installed_id():
         """The selected version id iff it's actually installed, else None -
@@ -2333,8 +2855,7 @@ def main(page: ft.Page):
                 content=ft.Column(
                     [
                         name_field,
-                        ft.Text(f"Launch id: {vid}", size=11, color=TEXT_DIM, font_family=FONT_MONO),
-                        ft.Text("Display nickname only. Leave blank to reset to the default name.",
+                        ft.Text("Just a nickname - leave blank to reset it.",
                                 size=12, color=TEXT_DIM),
                     ],
                     spacing=8, tight=True,
@@ -2415,12 +2936,16 @@ def main(page: ft.Page):
         _open_dialog(dlg)
 
     rename_instance_btn = ft.IconButton(
-        ft.Icons.DRIVE_FILE_RENAME_OUTLINE_ROUNDED, icon_color=TEXT_DIM, icon_size=20,
+        ft.Icons.DRIVE_FILE_RENAME_OUTLINE_ROUNDED, icon_color=TEXT_DIM, icon_size=18,
         tooltip="Rename instance", on_click=on_rename_instance,
+        style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
     )
     delete_instance_btn = ft.IconButton(
-        ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=DANGER, icon_size=20,
+        ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=TEXT_DIM, icon_size=18,
         tooltip="Delete instance", on_click=on_delete_instance,
+        # Secondary until the pointer is on it - the destructive action then
+        # reads red without the row looking alarming at rest.
+        style=ft.ButtonStyle(color={ft.ControlState.HOVERED: DANGER}),
     )
 
     # -----------------------------------------------------------------
@@ -2437,7 +2962,7 @@ def main(page: ft.Page):
     # -----------------------------------------------------------------
 
     # Hero panel widgets -----------------------------------------------------
-    hero_title = ft.Text("Minecraft", size=26, color=TEXT, font_family=FONT_DISPLAY)
+    hero_title = ft.Text("Minecraft", size=22, color=TEXT, font_family=FONT_DISPLAY)
     hero_version_text = ft.Text("", size=11, color=TEXT_FAINT, font_family=FONT_MONO)
     hero_loader_chip_text = ft.Text("Vanilla", size=10.5, color=ACCENT,
                                     weight=ft.FontWeight.W_700, font_family=FONT_MONO)
@@ -2467,42 +2992,43 @@ def main(page: ft.Page):
         hero_loader_chip_text.value = core.SUPPORTED_LOADERS.get(
             LOADER_IDS[loader_toggle.selected_index], "Vanilla")
 
-    # Now assemble the actual Play tab UI
+    # Now assemble the actual Play tab UI. Hierarchy is deliberate:
+    #   PAGE HEADING  -> INSTANCE CARD
+    #     INSTANCE HEADER  (emblem, name, meta, rename/delete)
+    #     CONFIGURATION    (game version + account, then mod loader)
+    #     ACTION FOOTER    (update game version, PLAY)
+    # The card is compact and top-aligned; it is never stretched to fill the
+    # viewport just because there is room below it.
     play_tab = ft.Column(
         [
-            ft.Row(
+            ft.Column(
                 [
-                    ft.Column(
-                        [
-                            ft.Text("Play", size=28, color=TEXT, font_family=FONT_DISPLAY),
-                            ft.Text("Launch offline / cracked with any installed or downloadable version.",
-                                    size=13, color=TEXT_DIM),
-                        ],
-                        spacing=2,
-                    ),
+                    ft.Text("Play", size=24, color=TEXT, font_family=FONT_DISPLAY),
+                    ft.Text("Launch Minecraft your way.", size=13, color=TEXT_DIM),
                 ],
+                spacing=2,
+                tight=True,
             ),
-            ft.Container(height=20),  # spacer
+            ft.Container(height=16),  # heading -> card
 
-            # --- HERO PANEL: what am I about to launch, and the controls ---
+            # --- HERO PANEL: the instance card ---
             ft.Container(
                 content=ft.Column(
                     [
-                        # Identity band: emblem, big title, contextual actions.
+                        # INSTANCE HEADER: emblem, instance name + meta line,
+                        # contextual rename/delete.
                         ft.Row(
                             [
                                 # Rotating grass-block GIF (assets/grass_block.gif),
-                                # generated in-house. Promoted from stray corner
-                                # decoration to the hero's emblem - same world,
-                                # same palette, one glanceable identity.
-                                ft.Image(src="grass_block.gif", width=64, height=64, fit=ft.BoxFit.CONTAIN),
-                                ft.Container(width=4),
+                                # generated in-house - the instance's emblem.
+                                ft.Image(src="grass_block.gif", width=56, height=56, fit=ft.BoxFit.CONTAIN),
+                                ft.Container(width=12),
                                 ft.Column(
                                     [
                                         ft.Row(
                                             [
                                                 hero_title,
-                                                ft.Container(width=6),
+                                                ft.Container(width=4),
                                                 rename_instance_btn,
                                                 delete_instance_btn,
                                             ],
@@ -2520,20 +3046,30 @@ def main(page: ft.Page):
                                         ),
                                         version_issue_text,
                                     ],
-                                    spacing=7,
+                                    spacing=6,
                                     expand=True,
                                 ),
                             ],
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
 
-                        ft.Container(height=18),
+                        ft.Container(height=16),
 
-                        # Configuration band: Account and Version side by side -
-                        # one intentional row instead of two isolated form
-                        # fields separated by dead space.
+                        # CONFIGURATION: two related fields on one row - game
+                        # version (a dropdown) and account (an account field) -
+                        # then the mod loader choice below them.
                         ft.Row(
                             [
+                                ft.Column(
+                                    [
+                                        section_label("Game version"),
+                                        ft.Container(height=6),
+                                        version_dropdown_button,
+                                    ],
+                                    spacing=0,
+                                    expand=True,
+                                ),
+                                ft.Container(width=16),
                                 ft.Column(
                                     [
                                         section_label("Account"),
@@ -2543,40 +3079,28 @@ def main(page: ft.Page):
                                     spacing=0,
                                     expand=True,
                                 ),
-                                ft.Container(width=16),
-                                ft.Column(
-                                    [
-                                        section_label("Version"),
-                                        ft.Container(height=6),
-                                        version_dropdown,
-                                        # Online-mode filter lives with the thing
-                                        # it filters; "Browse online versions"
-                                        # sits directly beneath its sibling.
-                                        version_filter_field,
-                                        ft.Row([browse_online_link, offline_notice], spacing=14),
-                                    ],
-                                    spacing=0,
-                                    expand=True,
-                                ),
                             ],
                         ),
-
                         ft.Container(height=14),
+                        ft.Column(
+                            [
+                                section_label("Mod loader"),
+                                ft.Container(height=6),
+                                loader_toggle,
+                                loader_status_text,
+                            ],
+                            spacing=0,
+                        ),
 
-                        # Action band: loader choice left (a quiet segmented
-                        # pill, not a slab), PLAY right at a fixed sane width.
+                        ft.Container(height=18),
+
+                        # ACTION FOOTER: the launch-config nudge on the left,
+                        # the primary PLAY action on the right.
                         ft.Row(
                             [
-                                ft.Column(
-                                    [
-                                        loader_toggle,
-                                        loader_status_text,
-                                        browse_online_row,
-                                    ],
-                                    spacing=8,
-                                ),
+                                update_version_btn,
                                 ft.Container(expand=True),
-                                ft.Container(width=340, content=play_button),
+                                ft.Container(width=280, content=play_button),
                             ],
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
@@ -2585,9 +3109,29 @@ def main(page: ft.Page):
                         progress_row,
                         progress_bar,
                     ],
-                    spacing=10,
+                    spacing=0,
                 ),
-                **glass_card(hero=True, padding=26),
+                **glass_card(hero=True, padding=20),
+            ),
+
+            ft.Container(height=20),  # card -> OG key-art banner
+
+            # Full-width OG Minecraft key art beneath the instance card. The
+            # card above stays compact on purpose, so the image is wrapped in a
+            # Row with an expanded child - that stretches the banner edge-to-edge
+            # without stretching the card. Fixed height + COVER crops it cleanly
+            # at any window width; rounded/clipped to match the blocky panels.
+            ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER),
+                        expand=True,
+                        height=220,
+                        border_radius=RADIUS_LG,
+                        border=ft.border.Border.all(1, CARD_BORDER),
+                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    ),
+                ],
             ),
         ],
         spacing=4,
@@ -2627,6 +3171,8 @@ def main(page: ft.Page):
     server_console_tab = ft.Container(expand=True)
     server_plugins_tab = ft.Container(expand=True)
     server_settings_tab = ft.Container(expand=True)
+    stats_tab_host = ft.Container(expand=True)
+    chat_tab_host = ft.Container(expand=True)
 
     def _cb(key, name):
         """A builder callback that stays a no-op until its tab is built."""
@@ -2643,6 +3189,50 @@ def main(page: ft.Page):
     load_popular_modpacks = _cb("modpacks", "popular")
     refresh_server_tab = _cb("server", "refresh")
 
+    # Proactive, best-effort mod repair. When the user settles on an
+    # (mc_version, loader) profile we run the FULL doctor in the background -
+    # including the network-dependent dependency and loader/version passes the
+    # launch-time check skips for speed - so leftover duplicate copies, missing
+    # dependencies and version clashes are fixed before Play is ever clicked.
+    # Once per profile per session; silent unless it actually changed
+    # something. Never blocks or raises into the UI.
+    _repair_state = {"done": set(), "lock": threading.Lock()}
+
+    def _proactive_mod_repair(version_id):
+        if not version_id or state["mod_loader"] == "vanilla":
+            return
+        mc = state.get("selected_mc_version")
+        loader = state["mod_loader"]
+        if not mc or loader not in core.MOD_CAPABLE_LOADERS:
+            return
+        key = (mc, loader)
+        with _repair_state["lock"]:
+            if key in _repair_state["done"]:
+                return
+            _repair_state["done"].add(key)
+
+        def worker():
+            try:
+                report = core.mod_doctor(mc, loader, auto_fix=True,
+                                         check_online=True)
+            except Exception:
+                return
+            if not (report.get("fixed") or []):
+                return
+            fixed = len(report["fixed"])
+            try:
+                set_status(f"Fixed {fixed} mod problem(s)")
+            except Exception:
+                pass
+            refresh = (_tab_cbs.get("mods") or {}).get("refresh")
+            if callable(refresh):
+                try:
+                    refresh()
+                except Exception:
+                    pass
+
+        threading.Thread(target=worker, name="mod-repair", daemon=True).start()
+
     def _build_mods_tab():
         content, refresh, recommend, browse = build_mods_tab(
             page, cfg, state, version_dropdown,
@@ -2652,6 +3242,47 @@ def main(page: ft.Page):
         mods_tab.content = content
         _tab_cbs["mods"] = {"refresh": refresh, "recommend": recommend,
                             "browse": browse}
+
+    # -----------------------------------------------------------------
+    # STATS TAB - one clean screen of counters (playtime, library,
+    # cosmetics). Read-only scans of state that already exists; see
+    # ui/stats_tab.py.
+    # -----------------------------------------------------------------
+    def _build_stats_tab():
+        content, refresh = build_stats_tab(
+            page, cfg, state,
+            section_label=section_label,
+            go_to_tab=switch_tab,
+            **THEME,
+        )
+        stats_tab_host.content = content
+        _tab_cbs["stats"] = {"refresh": refresh}
+
+    # -----------------------------------------------------------------
+    # CHAT TAB - the launcher's social surface: automatic Cubeon identity,
+    # friend roster + requests, and encrypted DMs. Talks straight to the
+    # process-scoped FriendsService (the same object the in-game mod reaches
+    # through the local bridge); see ui/chat_tab.py. Built lazily so no poll
+    # thread starts until the user opens the tab.
+    # -----------------------------------------------------------------
+    def _build_chat_tab():
+        content, refresh = build_chat_tab(
+            page, cfg, state, friends_service,
+            section_label=section_label,
+            **THEME,
+        )
+        chat_tab_host.content = content
+        _tab_cbs["chat"] = {"refresh": refresh}
+        # First run: the identity was just minted and startup deliberately
+        # didn't connect yet. Opening Chat is the natural moment to bring the
+        # connection up (and publish the E2EE key) so the roster populates.
+        if (friends_client is not None and friends_client.is_available
+                and not friends_client.is_connected):
+            try:
+                friends.ensure_identity()
+                friends_client.connect()
+            except Exception:
+                traceback.print_exc()
 
     # -----------------------------------------------------------------
     # MODPACKS TAB - install a whole Modrinth .mrpack (version + loader +
@@ -2725,6 +3356,8 @@ def main(page: ft.Page):
         "mods": _build_mods_tab,
         "modpacks": _build_modpacks_tab,
         "server": _build_server_tab,       # one build fills all three screens
+        "stats": _build_stats_tab,
+        "chat": _build_chat_tab,
     }
 
     def _ensure_tab(key):
@@ -2763,7 +3396,6 @@ def main(page: ft.Page):
     # first session's instances are kept; only their cfg/state references
     # are re-pointed at the current session's dicts (both are plain dicts
     # the service reads live).
-    from cubeon.features import friends_enabled
     if friends_enabled():
         if _tray_runtime["friends_service"] is None:
             _tray_runtime["friends_client"] = friends.FriendsClient()
@@ -2878,8 +3510,8 @@ def main(page: ft.Page):
         if value > recommended_ram_mb:
             ram_warning.value = (
                 f"⚠ Above the recommended half-point ({recommended_ram_mb} MB). "
-                f"Allocating too much RAM to Minecraft can starve your OS and "
-                f"other apps, or cause instability."
+                f"Allocating too much RAM to Minecraft can starve your computer "
+                f"and other apps, or cause instability."
             )
             ram_warning.visible = True
         else:
@@ -2922,8 +3554,10 @@ def main(page: ft.Page):
         label_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI, border_radius=RADIUS,
     )
 
-    def save_settings(e):
-        """Saves the settings from the UI fields to the config file."""
+    def save_settings(e=None):
+        """Saves width/height/java_path from the UI fields to the config
+        file. Called on field blur/submit by the Settings tab (instant
+        save - there is no Save button anymore)."""
         try:
             cfg["width"] = int(width_field.value or 1280)
             cfg["height"] = int(height_field.value or 720)
@@ -2933,19 +3567,31 @@ def main(page: ft.Page):
         core.save_config(cfg)
         set_status("Settings saved")
 
-    save_settings_btn = ft.Container(
-        content=ft.Text("Save settings", color=BG, weight=ft.FontWeight.W_700, size=14),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=13),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=save_settings,
-    )
-
     # Opt-in crash reporting (see cubeon/crashreport.py): OFF by default and
     # inert until a report endpoint is configured server-side. The checkbox
     # is the user's explicit yes; the config key is the contract the hook
     # reads.
+    # The in-game Cubeon Client mod (Friends button, in-game menu) is injected
+    # into Fabric/Quilt profiles at launch. This is the user's off switch:
+    # unchecking launches a clean mod setup (the launcher itself is unaffected).
+    # Mirrors crash_reports_cb's instant-save pattern.
+    client_mod_cb = ft.Checkbox(
+        label="",
+        value=bool(cfg.get("client_mod_enabled", True)),
+        active_color=ACCENT,
+    )
+
+    def on_client_mod_change(e):
+        cfg["client_mod_enabled"] = bool(client_mod_cb.value)
+        core.save_config(cfg)
+        set_status("Cubeon Client mod " +
+                   ("will install at launch" if client_mod_cb.value
+                    else "disabled - launches clean"))
+
+    client_mod_cb.on_change = on_client_mod_change
+
     crash_reports_cb = ft.Checkbox(
-        label="Send crash reports (helps fix bugs; log tail only, never "
-              "passwords or friends data)",
+        label="",
         value=bool(cfg.get("crash_reports", False)),
         active_color=ACCENT,
     )
@@ -3071,7 +3717,7 @@ def main(page: ft.Page):
     backup_now_btn = ft.Container(
         content=ft.Text("Back up now", color=BG, weight=ft.FontWeight.W_700, size=14),
         bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=13),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=run_backup_now, expand=True,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=run_backup_now, expand=True,
     )
 
     def open_backups_folder(e):
@@ -3095,7 +3741,7 @@ def main(page: ft.Page):
         content=ft.Text("Open backups folder", color=TEXT, weight=ft.FontWeight.W_600, size=14),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=13),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=open_backups_folder, expand=True,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=open_backups_folder, expand=True,
     )
 
     restore_file_picker = ft.FilePicker()
@@ -3168,7 +3814,7 @@ def main(page: ft.Page):
         ),
         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=9),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=pick_restore_file,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=pick_restore_file,
     )
 
     # Small Minekube credit - a quiet icon on the Settings header row, not
@@ -3186,152 +3832,40 @@ def main(page: ft.Page):
                 return
         except Exception:
             pass
-        snack = ft.Snackbar(ft.Text(
-            "Minekube Connect is the software and backend behind all "
-            "Cubeon servers. Visit https://connect.minekube.com/"))
-        # Same old/new-Flet compatibility fallback as _open_dialog above.
-        if hasattr(page, "open"):
-            page.open(snack)
-        else:
-            snack.open = True
-            page.snack_bar = snack
-            page.update()
+        _show_snack("Cubeon servers are powered by Minekube Connect. "
+                    "Visit https://connect.minekube.com/",
+                    duration=8000)
 
     minekube_badge = ft.IconButton(
         ft.Icons.DNS_ROUNDED,
         icon_size=16, icon_color=TEXT_DIM,
-        tooltip=("Powered by Minekube Connect: the software and backend "
-                 "used for all Cubeon servers. Click to learn more."),
+        tooltip="Cubeon servers are powered by Minekube Connect",
         on_click=_open_minekube,
     )
 
-    # Build the Settings tab UI
-    settings_tab = ft.Column(
-        [
-            ft.Row(
-                [
-                    ft.Text("Settings", size=28, color=TEXT, font_family=FONT_DISPLAY),
-                    ft.Container(expand=True),
-                    minekube_badge,
-                ],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            ft.Text("Memory, resolution, and Java configuration.", size=13, color=TEXT_DIM),
-            ft.Container(height=20),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        section_label("Memory"),
-                        ram_slider,
-                        ram_range_row,
-                        ram_label,
-                        ram_warning,
-                        ft.Container(height=8),
-                        pixel_divider(),
-                        ft.Container(height=8),
-                        section_label("Window resolution"),
-                        ft.Row([width_field, height_field], spacing=12),
-                        ft.Container(height=8),
-                        pixel_divider(),
-                        ft.Container(height=8),
-                        section_label("Java runtime"),
-                        java_path_field,
-                        ft.Text(
-                            f"Auto-detected: {detected_java or 'not found on PATH'}",
-                            size=11, color=TEXT_FAINT, font_family=FONT_MONO,
-                        ),
-                        ft.Container(height=8),
-                        section_label("Privacy"),
-                        crash_reports_cb,
-                        ft.Container(height=8),
-                        save_settings_btn,
-                    ],
-                    spacing=10,
-                ),
-                bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=24,
-            ),
-            ft.Container(height=16),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        section_label("Backups"),
-                        ft.Text(
-                            "Zips your config, mod profiles, skins/capes, profile picture, "
-                            "and local server configs so they survive a reinstall or a "
-                            "wiped drive.",
-                            size=12, color=TEXT_DIM,
-                        ),
-                        ft.Container(height=6),
-                        # --- Automatic backups: one quiet grouped panel, the
-                        # same surface-within-surface style as the server
-                        # properties switch cards - the knobs clearly belong
-                        # to the switch above them.
-                        ft.Container(
-                            content=ft.Column(
-                                [
-                                    ft.Row(
-                                        [
-                                            ft.Column(
-                                                [
-                                                    ft.Text("Automatic backups", size=13, color=TEXT,
-                                                            weight=ft.FontWeight.W_600),
-                                                    ft.Text("Runs on a schedule while the launcher is open",
-                                                            size=11, color=TEXT_FAINT),
-                                                ],
-                                                spacing=2, expand=True,
-                                            ),
-                                            backup_enabled_switch,
-                                        ],
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-                                    ft.Row([frequency_dropdown, keep_last_field], spacing=12),
-                                    ft.Row(
-                                        [
-                                            ft.Column(
-                                                [
-                                                    ft.Text("Include world saves", size=13, color=TEXT,
-                                                            weight=ft.FontWeight.W_600),
-                                                    ft.Text("Can make backups large - also used by Back up now",
-                                                            size=11, color=TEXT_FAINT),
-                                                ],
-                                                spacing=2, expand=True,
-                                            ),
-                                            include_saves_switch,
-                                        ],
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-                                ],
-                                spacing=12,
-                            ),
-                            bgcolor=SURFACE_HI, border_radius=RADIUS, padding=14,
-                        ),
-                        ft.Container(height=8),
-                        pixel_divider(),
-                        ft.Container(height=8),
-                        # --- Status: one line with a clock glyph, not bare mono text.
-                        ft.Row(
-                            [
-                                ft.Icon(ft.Icons.HISTORY_ROUNDED, size=16, color=TEXT_FAINT),
-                                backup_status_text,
-                            ],
-                            spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        ft.Container(height=4),
-                        # --- Actions: primary + secondary side by side, equal
-                        # weight per role; restore is the quiet tertiary below.
-                        ft.Row(
-                            [backup_now_btn, open_folder_btn],
-                            spacing=12,
-                        ),
-                        restore_btn,
-                    ],
-                    spacing=10,
-                ),
-                bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=24,
-            ),
-        ],
-        spacing=4,
-        scroll=ft.ScrollMode.AUTO,
+    # Build the Settings tab UI - two panes (section rail + content), all
+    # controls prebuilt above, arranged by ui/settings_tab.py. Every field
+    # saves instantly on blur/submit; there is no Save button anymore.
+    settings_tab = build_settings_tab(
+        page, cfg,
+        section_label=section_label, pixel_divider=pixel_divider,
+        set_status=set_status,
+        save_width_height_java=save_settings,
+        browse_online_row=browse_online_row, legacy_btn=legacy_btn,
+        legacy_note=legacy_note, client_mod_cb=client_mod_cb,
+        ram_slider=ram_slider, ram_range_row=ram_range_row,
+        ram_label=ram_label, ram_warning=ram_warning,
+        width_field=width_field, height_field=height_field,
+        java_path_field=java_path_field, detected_java=detected_java,
+        crash_reports_cb=crash_reports_cb,
+        backup_enabled_switch=backup_enabled_switch,
+        frequency_dropdown=frequency_dropdown,
+        include_saves_switch=include_saves_switch,
+        keep_last_field=keep_last_field,
+        backup_status_text=backup_status_text,
+        backup_now_btn=backup_now_btn, open_folder_btn=open_folder_btn,
+        restore_btn=restore_btn, minekube_badge=minekube_badge,
+        **THEME,
     )
 
     # -----------------------------------------------------------------
@@ -3350,6 +3884,8 @@ def main(page: ft.Page):
         "server_plugins": server_plugins_tab,
         "server_settings": server_settings_tab,
         "settings": settings_tab,
+        "stats": stats_tab_host,
+        "chat": chat_tab_host,
     }
     SERVER_GROUP_KEYS = {"server_console", "server_plugins", "server_settings"}
 
@@ -3358,22 +3894,27 @@ def main(page: ft.Page):
         Switches the active tab. Updates the navigation buttons' appearance
         and replaces the content area with the chosen tab.
         Also triggers a refresh of the mods list when switching to the Mods
-        tab, and of the Servers group when switching to either of its
-        sub-items. Picking a Servers sub-item also auto-expands the group
-        and highlights its header, so the active section stays visible.
+        tab, and of the Servers tab (with its Console/Plugins/Settings chip
+        row) when switching to any of its keys.
         """
         active_tab["value"] = key
+        # The top-bar Servers icon is an entry point, not a tab of its own:
+        # it opens the Console (the chips then switch between the three).
+        if key == SERVER_TOP_KEY:
+            key = "server_console"
         # Update nav button styles
         for k, btn in nav_buttons.items():
-            _style_nav_button(btn, k == key)
-        # Servers group header highlights whenever either sub-item is active,
-        # and expands so the active sub-item is never hidden behind a collapse.
-        if key in SERVER_GROUP_KEYS and not server_group_expanded["value"]:
-            toggle_server_group()
-        server_group_header.content.controls[0].color = ACCENT if key in SERVER_GROUP_KEYS else TEXT_DIM
-        server_group_header.content.controls[1].color = ACCENT if key in SERVER_GROUP_KEYS else TEXT_DIM
-        # Replace content
-        content_area.content = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
+            _style_nav_button(btn, k == key or (k == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS))
+        # The server chip row lives under the top bar and is visible only
+        # while a server tab is active. The top-bar "Servers" icon itself is
+        # just an entry point - it opens the Console.
+        subnav_bar.visible = key in SERVER_GROUP_KEYS
+        # Replace content - instantly. No AnimatedSwitcher fade: a 220ms
+        # cross-fade reads as lag on tab changes (the user reads it as
+        # "sloppy rendering"), and the fade forced the whole-page update
+        # below to carry two full tab trees at once. Hard-cut + scoped
+        # refresh is the snappy path.
+        tab_switcher.content = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
             horizontal=28, vertical=24), expand=True)
         # If switching to Mods, refresh the list and load recommendations if not yet loaded
         if key == "mods":
@@ -3393,35 +3934,51 @@ def main(page: ft.Page):
         elif key in SERVER_GROUP_KEYS:
             _ensure_tab("server")
             refresh_server_tab()
+        elif key == "stats":
+            _ensure_tab("stats")
+            _cb("stats", "refresh")()
+        elif key == "chat":
+            _ensure_tab("chat")
+            _cb("chat", "refresh")()
         elif key == "play":
             refresh_server_status_panel()
-        page.update()
+        # Scoped repaint, NOT page.update(): a whole-page diff re-sends every
+        # control of every mounted tab over the websocket (~hundreds) - a
+        # visible frame hitch exactly at the moment of the switch. Diffing
+        # the switcher + subnav alone paints the swap; the nav buttons'
+        # style changes ride along in the same flush.
+        thread_safe_ui.refresh(tab_switcher)
+        thread_safe_ui.refresh(subnav_bar)
+        for btn in nav_buttons.values():
+            thread_safe_ui.refresh(btn)
 
     # Initialize content area with the Play tab
-    content_area.content = ft.Container(play_tab, padding=ft.padding.Padding.symmetric(
+    tab_switcher.content = ft.Container(play_tab, padding=ft.padding.Padding.symmetric(
         horizontal=28, vertical=24), expand=True)
 
     # -----------------------------------------------------------------
     # FINAL LAYOUT - assemble the whole page
     # -----------------------------------------------------------------
 
-    # The shell: transparent sidebar on the flat canvas beside the content
-    # surface - separation is tonal, no drawn borders. There is no top bar:
-    # brand lives in the sidebar.
+    # The shell: the top icon bar above the content surface - the whole
+    # window is one column now, no sidebar. There is a bottom bar: brand
+    # lives in the top bar's left edge.
     #
     # content_area (the tab host) lives INSIDE the surface; switching tabs
-    # only ever replaces its .content, so the surface persists.
+    # only ever replaces its .content, so the surface persists. The subnav
+    # bar (server Console/Plugins/Settings chips) sits between the top bar
+    # and the surface and shows itself only while a server tab is active.
     content_surface = ft.Container(
         content=content_area,
         bgcolor=CARD_FILL,
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS_LG,
-        margin=ft.margin.Margin.only(top=12, right=12, bottom=12),
+        margin=ft.margin.Margin.only(left=12, top=4, right=12, bottom=12),
         expand=True,
     )
 
     page.add(ft.Container(
-        content=ft.Row([sidebar, content_surface], expand=True, spacing=0),
+        content=ft.Column([top_bar, subnav_bar, content_surface], expand=True, spacing=0),
         expand=True,
     ))
 
@@ -3457,10 +4014,28 @@ def main(page: ft.Page):
         page.window.visible = True
         # First successful paint: clear any GPU-crash flag so the NEXT run
         # trusts hardware GL again (see the exit watcher under __main__).
+        # _CUBEON_HOME lives in the __main__ block, not in main()'s scope -
+        # importing it here is what keeps the ui_painted_ok marker actually
+        # being written (a NameError here used to silently kill the marker,
+        # making every session look like a pre-paint crash to the watcher).
         try:
+            from cubeon.paths import CUBEON_HOME as _CUBEON_HOME
             _ui = os.path.join(_CUBEON_HOME, "ui_painted_ok")
             open(_ui, "w").close()
-        except OSError:
+            # The software-GL fallback has DONE its job the moment the UI
+            # paints on it: clear it now rather than waiting for a clean
+            # close. Otherwise the marker lingers armed the whole session
+            # (and across kills/crashes) and - far worse - the game used to
+            # inherit the launcher's LIBGL_ALWAYS_SOFTWARE and run at ~4 FPS
+            # on llvmpipe. The env vars are also stripped from the game's
+            # environment in cubeon/launch.py as belt-and-braces.
+            _gl = os.path.join(_CUBEON_HOME, "use_software_gl")
+            if os.path.exists(_gl):
+                try:
+                    os.remove(_gl)
+                except OSError:
+                    pass
+        except (OSError, ImportError):
             pass
         try:
             page.window.update()
@@ -3474,13 +4049,21 @@ def main(page: ft.Page):
         # synchronously so automated checks still see the window.
         page.window.visible = True
 
-    # Bring the Friends connection up at startup, so a user who claimed a name
-    # shows online to friends and can be invited to a P2P world the moment the
-    # launcher opens - the in-game UI has no way to trigger a connect itself.
-    # No-op if no name is claimed or the realtime lib is missing; the mod's
-    # Account screen reports both states.
-    if friends_client is not None and friends_client.is_available and friends.load_identity():
-        friends_client.connect()
+    # The Cubeon name is automatic now: ensure_identity() mints the
+    # secret-derived handle (no claim prompt) and the server binds it on the
+    # WebSocket hello. Connect at startup only when an identity predates this
+    # launch - a brand-new one connects when the Chat tab first opens. That
+    # still gives every existing user instant presence, while keeping headless
+    # test harnesses that build the UI from opening a real websocket to the
+    # friends server with a throwaway identity.
+    if friends_client is not None and friends_client.is_available:
+        had_identity = friends.load_identity() is not None
+        try:
+            friends.ensure_identity()
+        except Exception:
+            traceback.print_exc()
+        if had_identity:
+            friends_client.connect()
 
     # -----------------------------------------------------------------
     # GAMEPAD SUPPORT
@@ -3494,11 +4077,7 @@ def main(page: ft.Page):
                         "B = Play tab · X = Mods · Y = Modpacks · Select = help")
 
     def _controller_show_help():
-        try:
-            page.open(ft.SnackBar(ft.Text(_CONTROLLER_HINT, size=12, color=ON_ACCENT),
-                                  bgcolor=SURFACE_HI, duration=6000))
-        except Exception:
-            pass
+        _show_snack(_CONTROLLER_HINT, duration=6000)
 
     def _controller_cycle_tab(direction: int):
         keys = [k for k in nav_buttons.keys() if k in tabs]
@@ -3533,22 +4112,10 @@ def main(page: ft.Page):
             pass  # a stray pad press must never break the launcher
 
     def _on_controller_connect(name: str):
-        try:
-            # Silent auto-detection: no permanent UI - just a one-time toast
-            # telling the player the pad was picked up and can drive menus.
-            page.open(ft.SnackBar(
-                ft.Text(f"🎮 {name} connected · {_CONTROLLER_HINT}",
-                        size=12, color=ON_ACCENT),
-                bgcolor=SURFACE_HI, duration=7000))
-        except Exception:
-            pass
+        _show_snack(f"🎮 {name} connected · {_CONTROLLER_HINT}", duration=7000)
 
     def _on_controller_disconnect(name: str):
-        try:
-            page.open(ft.SnackBar(ft.Text(f"🎮 {name} disconnected", size=12, color=ON_ACCENT),
-                                  bgcolor=SURFACE_HI, duration=4000))
-        except Exception:
-            pass
+        _show_snack(f"🎮 {name} disconnected", duration=4000)
 
     try:
         # Process-scoped watcher (see module-level _dispatch_controller):
@@ -3599,6 +4166,19 @@ def main(page: ft.Page):
     threading.Thread(target=_backup_scheduler, daemon=True).start()
 
     # -----------------------------------------------------------------
+    # PLAYTIME RECONCILE
+    # The game outlives the launcher (see launch.py start_new_session), and a
+    # GPU-crash re-exec replaces this process wholesale - killing the in-process
+    # on_exit watcher that would otherwise credit playtime. Every start (INCLUDING
+    # the re-exec, which sets CUBEON_TRAY_REOPEN) reconciles the persisted
+    # session record so the game's time is still counted.
+    # -----------------------------------------------------------------
+    try:
+        core.milestones_reconcile_play_session()
+    except Exception:
+        pass  # cosmetic; never block startup on it
+
+    # -----------------------------------------------------------------
     # ORPHANED GAME WATCHDOG
     # If the previous launcher run died while Minecraft was still up, the
     # game is still running with no one watching it (holding locks on the
@@ -3611,23 +4191,11 @@ def main(page: ft.Page):
         if _stale:
             def _kill_orphan(e=None):
                 _watchdog.terminate(_stale["pid"])
-                try:
-                    page.open(ft.SnackBar(ft.Text(
-                        f"Ended the leftover Minecraft session (pid {_stale['pid']})",
-                        size=12, color=ON_ACCENT), bgcolor=SURFACE_HI))
-                    page.update()
-                except Exception:
-                    pass
+                _show_snack(f"Ended the leftover Minecraft session "
+                            f"(pid {_stale['pid']})")
 
-            page.open(ft.SnackBar(
-                ft.Row([
-                    ft.Text("A Minecraft session from before is still running",
-                            size=13, color=ON_ACCENT, expand=True),
-                    ft.TextButton("Close it", on_click=_kill_orphan,
-                                  style=ft.ButtonStyle(color=ON_ACCENT)),
-                ]),
-                bgcolor=SURFACE_HI, duration=8000))
-            page.update()
+            _show_snack("A Minecraft session from before is still running",
+                        duration=8000, action=_kill_orphan, action_label="Close it")
     except Exception:
         pass  # watchdog is a nicety; never block startup on it
 
@@ -3647,18 +4215,8 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
-        try:
-            page.open(ft.SnackBar(
-                ft.Row([
-                    ft.Text(f"Cubeon {info['version']} is available",
-                            size=13, color=ON_ACCENT, expand=True),
-                    ft.TextButton("Get it", on_click=_open_release,
-                                  style=ft.ButtonStyle(color=ON_ACCENT)),
-                ]),
-                bgcolor=SURFACE_HI, duration=10000))
-            page.update()
-        except Exception:
-            pass  # a missed update hint beats a broken UI
+        _show_snack(f"Cubeon {info['version']} is available",
+                    duration=10000, action=_open_release, action_label="Get it")
 
     try:
         from cubeon import updater
@@ -3694,11 +4252,7 @@ def main(page: ft.Page):
             on_profile_username_change()   # validates, saves, syncs skins/avatars
             cfg["onboarded"] = True
             core.save_config(cfg)
-            try:
-                page.close(onboard_dlg)
-                page.update()
-            except Exception:
-                pass
+            _close_dialog(onboard_dlg)
 
         onboard_dlg = ft.AlertDialog(
             modal=True,
@@ -3706,7 +4260,7 @@ def main(page: ft.Page):
             content=ft.Container(
                 content=ft.Column([
                     ft.Text("Pick the name you'll play as. You can change it "
-                            "later in your Profile.", size=13, color=TEXT_DIM),
+                            "later from the Account menu.", size=13, color=TEXT_DIM),
                     onboard_name,
                 ], tight=True, spacing=14),
                 width=360,
@@ -3716,8 +4270,7 @@ def main(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
         try:
-            page.open(onboard_dlg)
-            page.update()
+            _open_dialog(onboard_dlg)
         except Exception:
             pass  # a missed welcome dialog must not break startup
 
@@ -3909,24 +4462,37 @@ def main(page: ft.Page):
         if _tray_runtime["quit"] is None:
             _tray_runtime["quit"] = threading.Event()
 
-    # F12 toggles the inspector too (same CUBEON_INSPECT gate). Best-effort:
-    # if the keyboard event API moved between Flet versions, the sidebar
-    # button still works.
-    if _inspector_enabled:
-        def _on_key(e):
-            try:
-                if str(getattr(e, "key", "")).lower() in ("f12", "F12"):
-                    _open_inspector()
-            except Exception:
-                pass
+    # Escape closes the Account panel (an overlay panel has no dialog-managed
+    # Escape handling of its own), F12 toggles the inspector (same
+    # CUBEON_INSPECT gate). Best-effort: if the keyboard event API moved
+    # between Flet versions, the ✕ button still works.
+    def _on_key(e):
         try:
-            page.on_keyboard_event = _on_key
+            key = str(getattr(e, "key", ""))
+            if key.lower() == "escape" and account_panel.right == 0:
+                _close_account_panel()
+            elif key == "F12" and _inspector_enabled:
+                _open_inspector()
         except Exception:
             pass
+    try:
+        page.on_keyboard_event = _on_key
+    except Exception:
+        pass
 
 
 # This is the standard Python entry point - when the script is run directly, start the Flet app.
 if __name__ == "__main__":
+    # --new-ui: run the REDESIGN PREVIEW instead of the real launcher.
+    # The preview (ui_new/preview.py) is a standalone mock - a different
+    # layout (top-bar nav, cinematic hero with official version banners)
+    # that shares nothing with the real UI below. Approving the design
+    # means porting it by hand; nothing here is live.
+    if "--new-ui" in sys.argv[1:]:
+        from ui_new.preview import run as _run_new_ui
+        _run_new_ui()
+        os._exit(0)
+
     # Silence GTK's accessibility bridge on the flet client. It fails to
     # plug into AT-SPI on KDE/X11 and prints
     #   (flet:N): Atk-CRITICAL **: atk_socket_embed: assertion 'plug_id != NULL' failed
@@ -4031,6 +4597,16 @@ if __name__ == "__main__":
     # (the cleanup slot itself is module-level; see its definition near the
     # imports. This local copy was a duplicate - removed.)
     _MAX_CLIENT_RETRIES = 2
+    # Mid-session GPU-crash re-execs (see the ui_painted-but-client-dead
+    # branch in _session_loop). Each restart bumps CUBEON_GPU_RESTARTS in the
+    # environment, which survives execv; a clean close resets it.
+    _MAX_MIDSESSION_RESTARTS = 2
+
+    # The flet client's exit status for the session that just ended, filled by
+    # the capture installed below. 0 = normal close, negative = signal death.
+    _last_client_exit = {"code": None}
+    _capture_flet_client_exit(_last_client_exit)
+
 
     def _run_flet_once():
         ft.run(main, assets_dir=_assets_dir, view=ft.AppView.FLET_APP_HIDDEN)
@@ -4075,13 +4651,21 @@ if __name__ == "__main__":
                 with open(f"/proc/{entry}/stat", "rb") as fh:
                     head, _, tail = fh.read().rpartition(b")")
                 comm = head.partition(b"(")[2].decode("utf-8", "replace")
-                ppid = int(tail.split()[1])
+                fields = tail.split()
+                ppid = int(fields[1])
+                state = fields[0].decode("ascii", "replace")
             except (OSError, IndexError, ValueError):
                 continue  # process vanished mid-read, or an odd stat line
             if ppid == me and comm == "flet":
+                # A zombie already exited - nothing to kill. (On flet 0.86 the
+                # client is normally reaped by ft.run before we get here, so
+                # this scan is a safety net; the session is classified by exit
+                # status, not by what this finds.)
+                if state == "Z":
+                    continue
                 victims.append(int(entry))
         if not victims:
-            return
+            return False
         for pid in victims:
             try:
                 os.kill(pid, signal.SIGTERM)
@@ -4102,6 +4686,7 @@ if __name__ == "__main__":
                     os.kill(pid, signal.SIGKILL)
                 except OSError:
                     pass
+        return True
 
     def _session_loop():
         while True:
@@ -4111,12 +4696,14 @@ if __name__ == "__main__":
                     os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
                     os.environ["GALLIUM_DRIVER"] = "llvmpipe"
 
-                # Each attempt needs a clean per-run marker state.
+                # Each attempt needs a clean per-run marker state, and a fresh
+                # slot for the client's exit status.
                 try:
                     if os.path.exists(_ui_up_marker):
                         os.remove(_ui_up_marker)
                 except OSError:
                     pass
+                _last_client_exit["code"] = None
 
                 # FLET_APP_HIDDEN: the desktop client starts with its window
                 # hidden, so the only transition the user sees is the single
@@ -4132,10 +4719,10 @@ if __name__ == "__main__":
                 _run_flet_once()
                 _session_ended_at = time.monotonic()
 
-                # First thing, before any cleanup: get rid of the ghost
-                # window (see _kill_flet_client). Doing this late would
-                # leave the placeholder on screen for the cleanup's whole
-                # 3-second budget.
+                # First thing, before any cleanup: get rid of any leftover
+                # ghost window (see _kill_flet_client). The flet 0.86 client is
+                # normally already reaped by the time ft.run returns, so this is
+                # just a safety net and its result no longer classifies the end.
                 _kill_flet_client()
 
                 # CUBEON_PERF=1: dump the repaint table for the session that
@@ -4163,8 +4750,10 @@ if __name__ == "__main__":
                 _ct.start()
                 _ct.join(timeout=3.0)
 
-                # ft.run returned: user closed a working window, or the
-                # client died. Only pre-paint death justifies a retry.
+                # ft.run returned. Classify WHY from the client's exit status
+                # (captured while flet reaped it): a normal close exits 0, a
+                # driver crash dies to a signal (-11 SIGSEGV, ...). See
+                # _classify_session_end for the full contract.
                 try:
                     ui_painted = os.path.exists(_ui_up_marker)
                     if ui_painted:
@@ -4172,32 +4761,90 @@ if __name__ == "__main__":
                 except OSError:
                     ui_painted = False
 
-                if ui_painted:
-                    # Real session: clear any crash-fallback flag so the
-                    # next session retries hardware GL (driver may be fixed).
+                _session_end_kind = _classify_session_end(
+                    ui_painted, _last_client_exit["code"])
+
+                if _session_end_kind == "clean_close":
+                    # Real user close: clear any crash-fallback flag so the
+                    # next session retries hardware GL (driver may be fixed),
+                    # and reset the mid-session restart budget.
                     try:
                         if os.path.exists(_gl_fallback_marker):
                             os.remove(_gl_fallback_marker)
                             print("cubeon: clean session - hardware OpenGL re-enabled")
                     except OSError:
                         pass
+                    os.environ.pop("CUBEON_GPU_RESTARTS", None)
                     break  # to park-or-exit below
 
-                # UI never painted: client crash. Arm fallback, retry.
-                try:
-                    os.makedirs(_CUBEON_HOME, exist_ok=True)
-                    open(_gl_fallback_marker, "w").close()
-                except OSError:
-                    pass
-                _retries += 1
-                if _retries <= _MAX_CLIENT_RETRIES:
-                    print(f"cubeon: client died before showing the window "
-                          f"(attempt {_retries}) - retrying with software OpenGL")
-                    time.sleep(1.5)  # let the WM/core dump settle
-                else:
-                    print("cubeon: client keeps dying before the window "
-                          "shows - giving up")
-                    return  # exit process
+                if _session_end_kind == "mid_session_crash":
+                    # The window HAD painted, but the client died to a signal:
+                    # a mid-session crash (observed live 2026-09-08: Mesa
+                    # 26.1 SIGSEGV inside libgallium during a GTK paint).
+                    # ft.run is ONCE-per-process - a second one hangs silently
+                    # - so the in-process retry below is NOT an option here.
+                    # Recovery is the tray-reopen trick instead: arm the
+                    # software-GL fallback so the fresh image doesn't hit the
+                    # same driver bug, and replace this process wholesale.
+                    # Bounded by CUBEON_GPU_RESTARTS so a wedged driver can
+                    # never turn this into an infinite relaunch loop; on
+                    # exhaustion we fall through to park-or-exit, exactly as
+                    # if the user had closed the window.
+                    try:
+                        _gpu_restarts = int(os.environ.get(
+                            "CUBEON_GPU_RESTARTS", "0")) + 1
+                    except ValueError:
+                        _gpu_restarts = 1
+                    if _gpu_restarts <= _MAX_MIDSESSION_RESTARTS:
+                        try:
+                            os.makedirs(_CUBEON_HOME, exist_ok=True)
+                            open(_gl_fallback_marker, "w").close()
+                        except OSError:
+                            pass
+                        os.environ["CUBEON_GPU_RESTARTS"] = str(_gpu_restarts)
+                        print(f"cubeon: client crashed mid-session (GPU "
+                              f"driver?) - restarting with software OpenGL "
+                              f"(attempt {_gpu_restarts})")
+                        time.sleep(1.5)  # let the WM/core dump settle
+                        _ctrl = _tray_runtime["controller"]
+                        if _ctrl is not None:
+                            _ctrl.stop()  # the new image makes its own icon
+                        try:
+                            os.environ["CUBEON_TRAY_REOPEN"] = "1"
+                            if getattr(sys, "frozen", False):
+                                os.execv(sys.executable,
+                                         [sys.executable] + sys.argv[1:])
+                            os.execv(sys.executable,
+                                     [sys.executable,
+                                      os.path.abspath(__file__)]
+                                     + sys.argv[1:])
+                        except OSError as ex:
+                            print(f"cubeon: mid-session restart via re-exec "
+                                  f"failed ({ex}); falling back to the tray")
+                        break  # execv never returns; on failure, park
+
+                if _session_end_kind == "pre_paint_crash":
+                    # UI never painted: client crash. Arm fallback, retry.
+                    try:
+                        os.makedirs(_CUBEON_HOME, exist_ok=True)
+                        open(_gl_fallback_marker, "w").close()
+                    except OSError:
+                        pass
+                    _retries += 1
+                    if _retries <= _MAX_CLIENT_RETRIES:
+                        print(f"cubeon: client died before showing the window "
+                              f"(attempt {_retries}) - retrying with software OpenGL")
+                        time.sleep(1.5)  # let the WM/core dump settle
+                    else:
+                        print("cubeon: client keeps dying before the window "
+                              "shows - giving up")
+                        return  # exit process
+
+                if _session_end_kind == "mid_session_crash":
+                    # Mid-session crash budget exhausted: park (or exit)
+                    # instead of looping - exactly as if the user had closed
+                    # the window. Tray/friends stay up; Open starts fresh.
+                    break
 
             # A painted session just ended (user closed the window).
             _ctrl = _tray_runtime["controller"]
@@ -4232,8 +4879,17 @@ if __name__ == "__main__":
             # Wait for either signal. 30s ticks only to keep the wait from
             # looking wedged in diagnostics; signals interrupt instantly.
             while not _quit_ev.is_set():
-                if _reopen.wait(timeout=30.0):
-                    break
+                try:
+                    if _reopen.wait(timeout=30.0):
+                        break
+                except RuntimeError:
+                    # flet's exit_gracefully signal handler calls into an
+                    # asyncio loop that is already closed at this point
+                    # (observed twice live: the wait is interrupted during
+                    # teardown and flet raises "Event loop is closed"). It
+                    # used to escape as a cubeon.fatal CRITICAL; it is just
+                    # teardown noise - treat it like a quit request.
+                    return  # exit process
                 continue
             if _quit_ev.is_set():
                 return  # exit process

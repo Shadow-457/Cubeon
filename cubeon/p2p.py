@@ -444,6 +444,9 @@ class PunchSession:
         self._transport_thread = None
         self._tcp_out_queue = bytearray()
         self._tcp_out_eof = False
+        # Wakes _tcp_outbound_loop when there are TCP bytes to move (or a
+        # stop) - the loop used to poll every 10ms around the clock.
+        self._outbound_wake = threading.Condition(self._state_lock)
         self._tcp_in_queue = queue.Queue(maxsize=MAX_RX_BUFFER_FRAMES)
         self._last_peer_seen = time.monotonic()
         self._last_ping = 0.0
@@ -701,10 +704,14 @@ class PunchSession:
 
     def _handle_frame(self, kind: int, seq: int, ack: int, payload: bytes) -> None:
         with self._state_lock:
+            freed = False
             for sent_seq in list(self._unacked):
                 if sent_seq <= ack:
                     self._unacked.pop(sent_seq, None)
                     self._retransmit_count.pop(sent_seq, None)
+                    freed = True
+        if freed:
+            self._wake_outbound()  # ACK freed send-window space: move more TCP bytes
 
         if kind == self._HELLO:
             self._send_raw(self._frame(self._ACK, 0, self._rx_next - 1))
@@ -805,11 +812,23 @@ class PunchSession:
             self._stop_with_reason("Minecraft TCP connection closed")
 
     def _tcp_outbound_loop(self) -> None:
+        # Event-driven (2026-09-09): this used to poll every 10ms forever -
+        # ~100 idle wakeups/second per P2P session. Now it sleeps on
+        # _outbound_wake (nudged when an ACK frees send-window space or the
+        # session stops) with a 0.2s timeout that bounds the window-full
+        # backpressure case even if a nudge raced.
         while not self._stop.is_set():
             if not self._tcp_ready.wait(0.2):
                 continue
+            with self._outbound_wake:
+                self._outbound_wake.wait(0.2)
+            if self._stop.is_set():
+                return
             self._drain_tcp_outbound()
-            time.sleep(0.01)
+
+    def _wake_outbound(self) -> None:
+        with self._outbound_wake:
+            self._outbound_wake.notify_all()
 
     def _drain_tcp_outbound(self) -> None:
         sock = self._tcp_sock
@@ -910,6 +929,7 @@ class PunchSession:
             except Exception:
                 pass
         self._stop.set()
+        self._wake_outbound()  # unblock the outbound loop so it can exit
         for sock in (self._tcp_sock, self._local_listener, self._sock):
             try:
                 if sock:

@@ -66,7 +66,11 @@
       "Bash(python3 -m py_compile main.py cubeon/launch.py cubeon/tray.py)",
       "Bash(PYSTRAY_BACKEND='' python3 -c ' *)",
       "Bash(python3 -m py_compile main.py cubeon/thread_safe_ui.py)",
-      "Bash(CUBEON_PERF=1 python3 -c ' *)"
+      "Bash(CUBEON_PERF=1 python3 -c ' *)",
+      "Bash(grep -rn \"cubeon-friends\\\\|cubeon_friends\\\\|CubeonFriends\\\\|com.cubeon.friends\" tools/test_friends.py tools/test_friends_service.py tools/test_mod_bridge.py tools/test_mod_matrix.py; echo \"=== gradle/mc ===\"; which gradle; ls ~/.cubeon_minecraft/versions/ 2>/dev/null | head; ls ~/.gradle 2>/dev/null | head -3)",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(python3 tools/test_mod_matrix.py)"
     ]
   }
 }

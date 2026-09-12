@@ -269,5 +269,55 @@ check("200-but-empty echo treated as quota (backoff set)",
 check("200-but-empty doesn't mark unlocks as synced",
       milestones.load_state()["synced_unlocked"] == [])
 
+print("\n7. durable play sessions (survive a launcher crash/re-exec)")
+# The game outlives the launcher and a GPU-crash re-exec replaces the process,
+# killing the in-process on_exit watcher. The session start is persisted at
+# launch and reconciled at startup so that time isn't silently lost.
+open(milestones._GAME_LOG_PATH, "w").close()
+os.utime(milestones._GAME_LOG_PATH, (1000.0, 1000.0))
+fresh_state()
+milestones.begin_play_session(pid=4242, started_at=100.0)
+check("begin_play_session persists started+pid",
+      milestones._read_play_session() == {"started": 100.0, "pid": 4242})
+# now is 10h later, but the game log stopped at t=1000 (900s of play).
+credited = milestones.end_play_session(now=100.0 + 10 * 3600)
+check("end credits to the game-log mtime, not the idle gap",
+      abs(credited - 900.0) < 0.01, str(credited))
+check("end clears the session record",
+      not os.path.exists(milestones.PLAY_SESSION_PATH))
+check("end is idempotent (second call credits nothing)",
+      milestones.end_play_session(now=100.0 + 10 * 3600) == 0.0)
+
+# An instant crash leaves no log output; that must credit nothing rather than
+# the whole idle gap since the session started.
+fresh_state()
+milestones.begin_play_session(pid=4242, started_at=5000.0)
+os.utime(milestones._GAME_LOG_PATH, (50.0, 50.0))
+check("end credits nothing when the log predates the session",
+      milestones.end_play_session(now=5000.0 + 10 * 3600) == 0.0)
+
+fresh_state()
+milestones.begin_play_session(pid=4242, started_at=100.0)
+os.utime(milestones._GAME_LOG_PATH, (700.0, 700.0))
+before = milestones.load_state()["seconds_played"]
+milestones.reconcile_play_session(pid_alive=lambda pid: False)
+after = milestones.load_state()["seconds_played"]
+check("reconcile credits an orphaned (launcher-crashed) session",
+      abs((after - before) - 600.0) < 0.01, f"{before} -> {after}")
+check("reconcile clears the dead record",
+      not os.path.exists(milestones.PLAY_SESSION_PATH))
+
+fresh_state()
+milestones.begin_play_session(pid=4242, started_at=1000.0)
+milestones.reconcile_play_session(pid_alive=lambda pid: True)
+check("reconcile keeps a still-running session on disk",
+      os.path.exists(milestones.PLAY_SESSION_PATH))
+check("reconcile does not credit a live session early",
+      milestones.load_state()["seconds_played"] == 0.0)
+try:
+    os.unlink(milestones.PLAY_SESSION_PATH)
+except OSError:
+    pass
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

@@ -29,6 +29,7 @@ import launcher_core as core
 
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
+from cubeon import dialogs  # open/close dialogs across Flet versions
 
 
 def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.Dropdown, *,
@@ -164,7 +165,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     # Filter field to search installed mods by name
     installed_filter_field = ft.TextField(
-        hint_text="Filter installed mods...",
+        hint_text="Search installed mods...",
         border_color=CARD_BORDER,
         focused_border_color=ACCENT_DIM,
         color=TEXT,
@@ -266,11 +267,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             if _is_mod():
                 empty_icon = ft.Icons.EXTENSION_OFF_ROUNDED
                 empty_title = "No mods installed yet"
-                empty_hint = "Download something above, or drop .jar files into the mods folder."
+                empty_hint = "Download one from the list above."
             else:
                 empty_icon = ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED
                 empty_title = f"No {core.CONTENT_TYPES[_ct()]['label_plural'].lower()} installed yet"
-                empty_hint = "Download something above, or drop .zip files into the folder."
+                empty_hint = "Download one from the list above."
             mods_list_view.controls.append(
                 ft.Container(
                     content=ft.Column(
@@ -307,7 +308,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         ),
                         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=10),
                         border_radius=RADIUS,
-                        ink=True,
+                        ink=False,
                         on_click=lambda e: (installed_show_all.update({"value": not installed_show_all["value"]}), refresh_mods_list()),
                     ), None, SURFACE_HI)
                 )
@@ -316,6 +317,69 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         # full tree (this fires per keystroke of the installed filter).
         thread_safe_ui.refresh(mods_list_view)
         thread_safe_ui.refresh(installed_count_text)
+        # Keep the "Installed (N)" tab label in step with reality.
+        _build_view_segment()
+
+    # --- Automatic repair ---------------------------------------------------
+    # "My mods won't load" almost always means a leftover duplicate copy of a
+    # mod or a missing required dependency. The doctor finds and fixes both; it
+    # also runs by itself the moment a mod is installed, so the common
+    # breakage never becomes a mystery. The user-facing wording stays plain -
+    # "Fix problems" - the word "doctor" never leaves the code.
+    repair_status = ft.Text("", size=11.5, color=TEXT_DIM,
+                            font_family=FONT_MONO, visible=False)
+    repair_btn = attach_hover(ft.Container(
+        content=ft.Row(
+            [ft.Icon(ft.Icons.BUILD_ROUNDED, color=ACCENT, size=15),
+             ft.Text("Fix problems", color=ACCENT, size=12.5,
+                     weight=ft.FontWeight.W_700)],
+            spacing=6, tight=True),
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+        ink=False,
+    ), "transparent", ACCENT_TINT)
+
+    def _set_repair_status(t):
+        repair_status.value = t
+        repair_status.visible = True
+        thread_safe_ui.refresh(repair_status)
+
+    def _finish_repair():
+        repair_btn.disabled = False
+        thread_safe_ui.refresh(repair_btn)
+
+    def run_mod_repair(e=None):
+        """Check the current profile for the usual breakage and fix it:
+        leftover duplicate copies, missing required dependencies, jars built
+        for a different loader/version, and two mods that declare they can't
+        run together. Never destructive beyond disabling/deleting an older
+        copy - see cubeon/mods.py:mod_doctor."""
+        if not _is_mod() or state["mod_loader"] == "vanilla":
+            return
+        repair_btn.disabled = True
+        _set_repair_status("Checking your mods...")
+
+        def worker():
+            try:
+                report = core.mod_doctor(
+                    state["selected_mc_version"], state["mod_loader"],
+                    auto_fix=True, status_cb=_set_repair_status)
+            except Exception as ex:
+                _set_repair_status(f"Couldn't check: {ex}")
+                _finish_repair()
+                return
+            problems = report.get("problems") or []
+            fixed = len(report.get("fixed") or [])
+            if not problems:
+                _set_repair_status("No problems found.")
+            else:
+                _set_repair_status(f"Fixed {fixed} of {len(problems)} problem(s).")
+            refresh_mods_list()
+            _finish_repair()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    repair_btn.on_click = run_mod_repair
 
     def build_installed_row(m):
         """
@@ -381,7 +445,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # it stops reading as Installed and offers Download again.
             _render_browse_page()
 
-        return attach_hover(
+        row = attach_hover(
             ft.Container(
                 content=ft.Row(
                     [
@@ -431,6 +495,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             ),
             "transparent", ROW_HOVER,
         )
+        # Clicking the row (not the switch/delete) opens the full mod menu.
+        # Protected/system files have no store identity to look up.
+        if not m.get("protected") and (m.get("project_id") or m.get("slug")):
+            row.on_click = lambda e, mm=m: open_mod_detail(mm)
+        return row
 
     def open_folder_click(e):
         """Opens the folder for the active content type in the system file explorer."""
@@ -461,6 +530,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 core.install_local_content(_ct(), picked.path)
             local_install_status.value = f"Installed '{picked.name}'."
             refresh_mods_list()
+            if _is_mod():
+                # A just-added file is the classic moment for a duplicate or a
+                # missing dependency to bite - check and fix quietly.
+                run_mod_repair()
         except ValueError as ve:
             local_install_status.value = str(ve)
         except Exception as ex:
@@ -525,7 +598,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # "sodium" costs one request instead of six. That's what lets the big
     # green "Search" button disappear - there was nothing left for it to do.
     mod_search_field = ft.TextField(
-        hint_text="Search mods on Modrinth... e.g. sodium, iris, jei",
+        hint_text="Search mods... e.g. sodium, iris, jei",
         border_color=CARD_BORDER,
         focused_border_color=ACCENT_DIM,
         color=TEXT,
@@ -569,11 +642,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     browse_pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     browse_pager_prev = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=True,
+        padding=6, border_radius=RADIUS, ink=False,
     )
     browse_pager_next = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=True,
+        padding=6, border_radius=RADIUS, ink=False,
     )
     browse_pager_row = ft.Row(
         [browse_pager_prev, browse_pager_label, browse_pager_next],
@@ -661,13 +734,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         Kept in one place so every type-dependent label switches together."""
         header_title.value = dict(CONTENT_TABS)[_ct()]
         if _is_mod():
-            header_subtitle.value = "Browse and install mods, or manage what's already in your folder."
-            mod_search_field.hint_text = "Search mods on Modrinth... e.g. sodium, iris, jei"
+            header_subtitle.value = "Download mods, or manage what's already installed."
+            mod_search_field.hint_text = "Search mods... e.g. sodium, iris, jei"
         elif _ct() == "resourcepack":
-            header_subtitle.value = "Browse and install resource packs. They apply to every version."
+            header_subtitle.value = "Download resource packs - they apply to every version."
             mod_search_field.hint_text = "Search resource packs... e.g. faithful, stay true"
         else:
-            header_subtitle.value = "Browse and install shaders. They need Iris or OptiFine to run."
+            header_subtitle.value = "Download shaders - they need Iris or OptiFine to run."
             mod_search_field.hint_text = "Search shaders... e.g. complementary, BSL, sildurs"
 
     def on_content_type_change(new_type):
@@ -843,6 +916,533 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         browse_pager_next.disabled = page_num >= total_pages - 1
         page.update()
 
+    # --- Mod detail menu ----------------------------------------------------
+    # Clicking a mod (browse or installed) opens this: cover art, the full
+    # description, the numbers, and every released version with a one-click
+    # install. A list row only has room for a name and a line of text; this is
+    # where "what is this, and which version do I want?" gets answered.
+
+    def _detail_loading_row():
+        return ft.Row(
+            [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+             ft.Text("Loading details...", size=13, color=TEXT_DIM)],
+            spacing=10, alignment=ft.MainAxisAlignment.CENTER,
+        )
+
+    def _detail_badge(text, tone="dim"):
+        """A tiny metadata pill. Quiet by default; green only for the one
+        version that matches the profile the user is browsing."""
+        accent = tone == "accent"
+        return ft.Container(
+            content=ft.Text(text, size=10.5,
+                            color=ACCENT if accent else TEXT_FAINT,
+                            weight=ft.FontWeight.W_600,
+                            font_family=FONT_MONO),
+            bgcolor=ACCENT_TINT if accent else CARD_FILL,
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=7, vertical=3),
+            border=None if accent else ft.border.Border.all(1, CARD_BORDER),
+        )
+
+    def open_mod_detail(mod):
+        """Open the full menu for one mod, keyed by its Modrinth id or slug.
+        Manually dropped-in files have neither, so there is nothing to look
+        up - those rows simply don't open a menu."""
+        ref = (mod.get("project_id") or mod.get("slug") or "").strip()
+        if not ref:
+            return
+
+        title = mod.get("title") or mod.get("display_name") or "Mod"
+        icon_url = mod.get("icon_url")
+        blurb = (mod.get("description") or "").strip()
+
+        _body_h = 560
+        try:
+            _wh = getattr(page, "height", None)
+            if not _wh and getattr(page, "window", None) is not None:
+                _wh = page.window.height
+            if _wh:
+                _body_h = max(360, min(640, int(_wh) - 210))
+        except Exception:
+            _body_h = 560
+
+        detail_body = ft.Column(
+            [_detail_loading_row()],
+            spacing=14, width=680, height=_body_h,
+            scroll=ft.ScrollMode.AUTO,
+        )
+
+        def _close(e=None):
+            dialogs.close_dialog(page, dlg)
+
+        def _hero(url, *, width, height, radius=RADIUS):
+            _icons.prefetch(url)
+            return ft.Image(src=_icons.src(url), width=width, height=height,
+                            border_radius=radius, fit=ft.BoxFit.COVER)
+
+        dlg = ft.AlertDialog(
+            modal=False, bgcolor=SURFACE,
+            content=ft.Container(
+                width=720,
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                (_hero(icon_url, width=64, height=64)
+                                 if icon_url else
+                                 ft.Container(width=64, height=64, bgcolor=CARD_FILL,
+                                              border_radius=RADIUS,
+                                              content=ft.Icon(
+                                                  ft.Icons.EXTENSION_OUTLINED,
+                                                  color=TEXT_FAINT, size=26),
+                                              alignment=ft.Alignment.CENTER)),
+                                ft.Column(
+                                    [
+                                        ft.Text(title, size=20, color=TEXT,
+                                                weight=ft.FontWeight.W_800,
+                                                max_lines=2),
+                                        ft.Text(blurb or " ", size=12.5,
+                                                color=TEXT_DIM, max_lines=2)
+                                        if blurb else ft.Container(height=0),
+                                    ],
+                                    spacing=4, expand=True,
+                                ),
+                                ft.IconButton(ft.Icons.CLOSE_ROUNDED,
+                                              icon_color=TEXT_DIM, icon_size=20,
+                                              tooltip="Close", on_click=_close),
+                            ],
+                            spacing=14,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        pixel_divider(),
+                        detail_body,
+                    ],
+                    spacing=14, tight=True,
+                ),
+            ),
+        )
+
+        dialogs.open_dialog(page, dlg)
+
+        installed_now = {}
+        try:
+            for m in core.list_mods(state["selected_mc_version"],
+                                    state["mod_loader"]):
+                if m.get("filename"):
+                    installed_now[m["filename"]] = m
+        except Exception:
+            installed_now = {}
+
+        # --- Shared install plumbing ---------------------------------------
+        # One path for the top "Install latest" button and every row in the
+        # version list, so their states can never drift apart.
+        def _human_count(n):
+            try:
+                n = int(n)
+            except (TypeError, ValueError):
+                return str(n)
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
+            if n >= 1_000:
+                return f"{n / 1_000:.1f}K".replace(".0K", "K")
+            return str(n)
+
+        def _plain_preview(md):
+            """A short, readable teaser from the Markdown body: images, links
+            and markup stripped, whitespace collapsed."""
+            t = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", md or "")
+            t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)
+            t = re.sub(r"<[^>]+>", " ", t)
+            t = re.sub(r"[#>*_`~|]+", " ", t)
+            return re.sub(r"\s+", " ", t).strip()
+
+        def _run_install(v, details, *, on_status, on_done, on_error):
+            def worker():
+                try:
+                    loader = browse_loader()
+                    core.install_mod_with_dependencies(
+                        v["url"], v["filename"],
+                        mc_version=state["selected_mc_version"],
+                        loader=loader,
+                        slug=details.get("slug"),
+                        project_id=details.get("project_id"),
+                        hashes=v.get("hashes"),
+                        status_cb=on_status,
+                    )
+                    # Automatic repair: an install is exactly when a stale
+                    # duplicate or a missing dependency tends to appear.
+                    fixed = 0
+                    try:
+                        report = core.mod_doctor(
+                            state["selected_mc_version"], loader,
+                            auto_fix=True, status_cb=on_status)
+                        fixed = len(report.get("fixed") or [])
+                    except Exception:
+                        fixed = 0
+                    installed_now[v["filename"]] = {"filename": v["filename"]}
+                    refresh_mods_list()
+                    _render_browse_page()
+                    on_done(fixed)
+                except Exception as ex:
+                    on_error(ex)
+            threading.Thread(target=worker, daemon=True).start()
+
+        quick_state = {"repaints": []}
+
+        def _install_button(v, details, *, label="Install", big=False):
+            """An Install button that owns its busy / done / error states."""
+            done = {"v": bool(installed_now.get(v.get("filename")))}
+            busy = {"v": False}
+            fg = ON_ACCENT if big else ACCENT
+            text = ft.Text(label, size=13 if big else 12,
+                           weight=ft.FontWeight.W_700,
+                           color=TEXT_FAINT if done["v"] else fg)
+            icon = ft.Icon(ft.Icons.CHECK_ROUNDED if done["v"]
+                           else ft.Icons.DOWNLOAD_ROUNDED,
+                           color=TEXT_FAINT if done["v"] else fg,
+                           size=16 if big else 15)
+            btn = ft.Container(
+                content=ft.Row([icon, text], spacing=6, tight=True),
+                bgcolor=ACCENT_TINT if done["v"]
+                else (ACCENT if big else ACCENT_TINT),
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(
+                    horizontal=16 if big else 12, vertical=10 if big else 7),
+                ink=False, disabled=done["v"],
+            )
+
+            def on_click(e):
+                if busy["v"] or done["v"]:
+                    return
+                busy["v"] = True
+                btn.disabled = True
+                text.value = "Installing..."
+                text.color = TEXT_DIM
+                icon.color = TEXT_DIM
+                btn.bgcolor = ROW_HOVER
+                thread_safe_ui.refresh(btn)
+
+                def status(t):
+                    text.value = t
+                    thread_safe_ui.refresh(btn)
+
+                def finished(fixed):
+                    busy["v"] = False
+                    done["v"] = True
+                    text.value = "Installed"
+                    text.color = TEXT_FAINT
+                    icon.name = ft.Icons.CHECK_ROUNDED
+                    icon.color = TEXT_FAINT
+                    btn.bgcolor = ACCENT_TINT
+                    thread_safe_ui.refresh(btn)
+                    for _repaint in quick_state.get("repaints", []):
+                        try:
+                            _repaint()
+                        except Exception:
+                            pass
+                    if fixed:
+                        dialogs.show_snack(
+                            page, f"Installed. Fixed {fixed} problem(s).",
+                            bgcolor=SURFACE_HI, text_color=TEXT)
+
+                def failed(ex):
+                    busy["v"] = False
+                    btn.disabled = False
+                    text.value = "Try again"
+                    text.color = DANGER
+                    icon.color = DANGER
+                    btn.bgcolor = ACCENT_TINT
+                    thread_safe_ui.refresh(btn)
+                    dialogs.show_snack(page, f"Install failed: {ex}",
+                                       bgcolor=SURFACE_HI, text_color=TEXT)
+
+                _run_install(v, details, on_status=status,
+                             on_done=finished, on_error=failed)
+
+            if not done["v"]:
+                btn.on_click = on_click
+            return btn
+
+        def _gallery_strip(gallery):
+            """All screenshots, hero first, in a sideways-scrolling strip -
+            one image made the menu feel like it was hiding the rest."""
+            tiles = []
+            for g in gallery[:8]:
+                _icons.prefetch(g["url"])
+                tiles.append(ft.Container(
+                    content=ft.Image(src=_icons.src(g["url"]), width=300,
+                                     height=170, fit=ft.BoxFit.COVER,
+                                     border_radius=RADIUS),
+                    border_radius=RADIUS,
+                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    border=ft.border.Border.all(1, CARD_BORDER),
+                ))
+            return ft.Row(tiles, spacing=10, scroll=ft.ScrollMode.AUTO)
+
+        def _meta_line(details):
+            """Only what a player decides on: how popular it is, what loader it
+            runs on, and which Minecraft versions it covers."""
+            pills = []
+            if details.get("downloads"):
+                pills.append(_detail_badge(
+                    _human_count(details["downloads"]) + " downloads"))
+            loaders = details.get("loaders") or []
+            if loaders:
+                pills.append(_detail_badge(
+                    " / ".join(x.title() for x in loaders[:3])))
+            gvs = details.get("game_versions") or []
+            if gvs:
+                shown = ", ".join(gvs[:3]) + ("…" if len(gvs) > 3 else "")
+                pills.append(_detail_badge("Minecraft " + shown))
+            return ft.Row(pills, spacing=6, run_spacing=6, wrap=True) if pills else None
+
+        def _quick_action(details, versions):
+            """The one thing most people came to do, at the top: get the newest
+            build that matches their game, or see they already have it - no
+            scanning a long list required."""
+            compat = [v for v in versions if v.get("compatible") and v.get("url")]
+            compat.sort(key=lambda v: v.get("date_published") or "", reverse=True)
+            holder = ft.Container()
+
+            def _paint():
+                if not compat:
+                    holder.content = ft.Row(
+                        [ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=16,
+                                 color=TEXT_DIM),
+                         ft.Text("No build for your Minecraft version yet.",
+                                 size=12.5, color=TEXT_DIM)],
+                        spacing=8)
+                else:
+                    best = compat[0]
+                    vnum = str(best.get("version_number")
+                               or best.get("name") or "").split("+", 1)[0]
+                    if installed_now.get(best.get("filename")):
+                        holder.content = ft.Row(
+                            [ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=20,
+                                     color=ACCENT),
+                             ft.Column(
+                                 [ft.Text("You're up to date", size=13,
+                                          color=ACCENT,
+                                          weight=ft.FontWeight.W_700),
+                                  ft.Text(f"{vnum} is installed", size=11.5,
+                                          color=TEXT_DIM)],
+                                 spacing=1, expand=True)],
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                    else:
+                        holder.content = ft.Row(
+                            [ft.Column(
+                                [ft.Text("Latest for your setup", size=11,
+                                         color=TEXT_FAINT, font_family=FONT_MONO),
+                                 ft.Text(vnum, size=16, color=TEXT,
+                                         weight=ft.FontWeight.W_800,
+                                         font_family=FONT_DISPLAY)],
+                                spacing=1, expand=True),
+                             _install_button(best, details,
+                                             label="Install latest", big=True)],
+                            spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                try:
+                    thread_safe_ui.refresh(holder)
+                except Exception:
+                    pass
+
+            quick_state["repaints"].append(_paint)
+            _paint()
+            holder.bgcolor = CARD_FILL
+            holder.border = ft.border.Border.all(1, CARD_BORDER)
+            holder.border_radius = RADIUS
+            holder.padding = ft.padding.Padding.symmetric(horizontal=14, vertical=12)
+            return holder
+
+        def _description_block(body):
+            """The README is useful but enormous; show a three-line teaser with
+            a 'Read more' toggle instead of burying the versions below a wall
+            of text."""
+            preview = _plain_preview(body)
+            if not preview:
+                return None
+            full = {"ctrl": None, "shown": False}
+            holder = ft.Column(spacing=6)
+            toggle_text = ft.Text("Read more", size=12, color=ACCENT,
+                                  weight=ft.FontWeight.W_700)
+            toggle = ft.Container(
+                content=toggle_text, ink=False,
+                padding=ft.padding.Padding.symmetric(vertical=4))
+            text_ctrl = ft.Text(
+                preview + ("…" if len(body) > len(preview) else ""),
+                size=12.5, color=TEXT_DIM)
+
+            def _toggle(e=None):
+                if full["shown"]:
+                    holder.controls = [text_ctrl, toggle]
+                    toggle_text.value = "Read more"
+                    full["shown"] = False
+                else:
+                    if full["ctrl"] is None:
+                        full["ctrl"] = ft.Markdown(
+                            body, selectable=True,
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            shrink_wrap=True)
+                    holder.controls = [full["ctrl"], toggle]
+                    toggle_text.value = "Show less"
+                    full["shown"] = True
+                thread_safe_ui.refresh(holder)
+
+            toggle.on_click = _toggle
+            holder.controls = [text_ctrl, toggle]
+            return ft.Column(
+                [ft.Text("About this mod", size=15, color=TEXT,
+                         weight=ft.FontWeight.W_700, font_family=FONT_DISPLAY),
+                 holder],
+                spacing=6)
+
+        def _versions_section(details, versions):
+            """Compatible builds first, and only a handful of them - a mod like
+            Sodium has hundreds of releases across every Minecraft version."""
+            compat = [v for v in versions if v.get("compatible")]
+            compat.sort(key=lambda v: v.get("date_published") or "", reverse=True)
+            others = [v for v in versions if not v.get("compatible")]
+            others.sort(key=lambda v: v.get("date_published") or "", reverse=True)
+            shown_all = {"v": False}
+            list_holder = ft.Column(spacing=4)
+            more_text = ft.Text("", size=12, color=ACCENT,
+                                weight=ft.FontWeight.W_700)
+            more = ft.Container(content=more_text, visible=False, ink=False,
+                                padding=ft.padding.Padding.symmetric(vertical=6))
+
+            def _paint():
+                rows = []
+                if not versions:
+                    rows.append(ft.Text("No versions are available for this mod.",
+                                        size=12.5, color=TEXT_DIM))
+                else:
+                    for v in (compat if shown_all["v"] else compat[:8]):
+                        rows.append(_build_version_row(v, details))
+                    if shown_all["v"]:
+                        for v in others:
+                            rows.append(_build_version_row(v, details))
+                    hidden = ((len(compat) - 8 if len(compat) > 8 else 0)
+                              + len(others))
+                    if shown_all["v"]:
+                        more.visible = True
+                        more_text.value = "Show fewer versions"
+                    elif hidden > 0:
+                        more.visible = True
+                        more_text.value = f"Show all {len(versions)} versions"
+                    else:
+                        more.visible = False
+                list_holder.controls = rows
+                try:
+                    thread_safe_ui.refresh(list_holder)
+                    thread_safe_ui.refresh(more)
+                except Exception:
+                    pass
+
+            def _toggle(e=None):
+                shown_all["v"] = not shown_all["v"]
+                _paint()
+
+            more.on_click = _toggle
+            _paint()
+            quick_state["repaints"].append(_paint)
+            return ft.Column(
+                [ft.Text("Versions", size=15, color=TEXT,
+                         weight=ft.FontWeight.W_700, font_family=FONT_DISPLAY),
+                 list_holder, more],
+                spacing=6)
+
+        def _render_details(details, versions):
+            controls = []
+            gallery = [g for g in (details.get("gallery") or []) if g.get("url")]
+            if gallery:
+                controls.append(_gallery_strip(gallery))
+            meta = _meta_line(details)
+            if meta is not None:
+                controls.append(meta)
+            controls.append(_quick_action(details, versions))
+            desc = _description_block(details.get("body") or "")
+            if desc is not None:
+                controls.append(pixel_divider())
+                controls.append(desc)
+            controls.append(pixel_divider())
+            controls.append(_versions_section(details, versions))
+
+            detail_body.controls.clear()
+            detail_body.controls.extend(controls)
+            thread_safe_ui.refresh(detail_body)
+
+        def _build_version_row(v, details):
+            vnum = str(v.get("version_number") or v.get("name")
+                       or "version").split("+", 1)[0]
+            already = installed_now.get(v.get("filename"))
+
+            tags = list(v.get("loaders") or [])
+            gv = v.get("game_versions") or []
+            tag_text = " · ".join([x.title() for x in tags] + [", ".join(gv[:3])])
+            if len(gv) > 3:
+                tag_text += "…"
+
+            return ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Column(
+                            [
+                                ft.Row(
+                                    [ft.Text(vnum, size=13.5, color=TEXT,
+                                             weight=ft.FontWeight.W_700),
+                                     *([_detail_badge("match", "accent")]
+                                       if v.get("compatible")
+                                       else [_detail_badge("other version")])],
+                                    spacing=8,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                                ft.Text(
+                                    (v.get("version_type") or "release").title()
+                                    + (f"  ·  {tag_text}" if tag_text else ""),
+                                    size=11, color=TEXT_FAINT,
+                                    font_family=FONT_MONO, max_lines=2),
+                            ],
+                            spacing=3, expand=True,
+                        ),
+                        _install_button(
+                            v, details,
+                            label="Installed" if already else "Install"),
+                    ],
+                    spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                bgcolor=CARD_FILL if already else None,
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=8),
+            )
+
+        def worker():
+            details, versions, err = None, [], None
+            try:
+                details = core.get_mod_details(ref) or {}
+            except Exception as ex:
+                err = ex
+            if details is None:
+                details = {}
+            try:
+                versions = core.get_mod_versions(
+                    ref, mc_version=current_mc_version_for_search(),
+                    loader=browse_loader())
+            except Exception:
+                versions = []
+            if not details and not versions:
+                def _failed():
+                    detail_body.controls.clear()
+                    detail_body.controls.append(ft.Text(
+                        "Couldn't load this mod's details. Check your "
+                        "connection and try again.", size=13, color=TEXT_DIM))
+                    thread_safe_ui.refresh(detail_body)
+                _failed()
+                return
+            _render_details(details, versions)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _browse_page_prev(e=None):
         if browse_state["page"] > 0:
             browse_state["page"] -= 1
@@ -886,7 +1486,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             bgcolor=None if is_installed else ACCENT_TINT,
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
-            ink=not is_installed,
+            ink=False,
             disabled=is_installed,
         )
 
@@ -927,21 +1527,44 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         # them this silently lands in the wrong profile folder
                         # (get_profile_dir(None, None) => "unknown-vanilla") and
                         # the game never finds it at launch. See cubeon/mods.py.
-                        core.download_mod(
+                        #
+                        # install_mod_with_dependencies also pulls in every
+                        # REQUIRED Modrinth dependency the profile doesn't have
+                        # yet (Fabric API is the classic one), so a fresh click
+                        # actually results in a mod that loads in-game.
+                        def _dep_status(t):
+                            download_btn_text.value = t
+                            page.update()
+                        result = core.install_mod_with_dependencies(
                             file_info["url"], file_info["filename"],
                             mc_version=state["selected_mc_version"], loader=browse_loader(),
-                            slug=mod.get("slug"), hashes=file_info.get("hashes"),
+                            slug=mod.get("slug"), project_id=mod.get("project_id"),
+                            hashes=file_info.get("hashes"),
+                            status_cb=_dep_status,
                         )
+                        deps_note = f" +{len(result['installed']) - 1} deps" \
+                            if len(result["installed"]) > 1 else ""
+                        if result["failed"]:
+                            download_btn_text.value = ("Installed, but failed: "
+                                                       + ", ".join(result["failed"]))
+                            download_btn_text.color = DANGER
+                            download_btn.bgcolor = ACCENT_TINT
+                            page.update()
+                            refresh_mods_list()
+                            return
                     else:
                         core.download_content(_ct(), file_info["url"], file_info["filename"])
 
-                    download_btn_text.value = "Installed"
+                    download_btn_text.value = "Installed" + deps_note
                     download_btn_text.color = TEXT_FAINT
                     download_btn.bgcolor = None
                     download_btn.content.controls[0].name = ft.Icons.CHECK_ROUNDED
                     download_btn.content.controls[0].color = TEXT_FAINT
                     page.update()
                     refresh_mods_list()  # Update the installed list
+                    # Automatic repair: catch a duplicate/missing dependency
+                    # introduced by this install before it can crash a launch.
+                    run_mod_repair()
                 except Exception as ex:
                     download_btn_text.value = "Failed"
                     download_btn_text.color = DANGER
@@ -960,8 +1583,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         _icons.prefetch(mod.get("icon_url"))
 
         # Hover lift: transparent at rest, faint surface under the cursor -
-        # affordance without another permanent rectangle.
-        return attach_hover(
+        # affordance without another permanent rectangle. Clicking anywhere on
+        # the row (outside the download button) opens the full mod menu.
+        row = attach_hover(
             ft.Container(
                 content=ft.Row(
                     [
@@ -999,6 +1623,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             ),
             "transparent", ROW_HOVER,
         )
+        row.on_click = lambda e: open_mod_detail(mod)
+        return row
 
     # Warning shown when Vanilla is selected - mods never load without a mod
     # loader, so it's better to say that plainly than let the tab look
@@ -1027,9 +1653,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             [
                 ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=TEXT_DIM, size=14),
                 ft.Text(
-                    "Shaders need Iris (with Sodium) or OptiFine installed to run. "
-                    "Grab Iris from the Mods tab, then pick a shader in-game under "
-                    "Options > Video Settings > Shaders.",
+                    "Shaders run on Iris (with Sodium) or OptiFine. Install Iris "
+                    "from the Mods tab, then pick a shader in-game.",
                     size=12, color=TEXT_DIM,
                 ),
             ],
@@ -1043,6 +1668,79 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # reflects, so we only re-fetch recommendations/search when it's
     # actually stale, not on every unrelated refresh_mods_list() call.
     browse_profile = {"key": None}
+
+    # --- Browse / Installed view tabs ---------------------------------------
+    # One thing on screen at a time: the browse surface (search + results)
+    # or the installed list. Switching is instant and free - both panes stay
+    # mounted, only their visibility flips, so nothing is rebuilt or
+    # re-fetched on toggle.
+    active_view = {"value": "browse"}  # "browse" | "installed"
+
+    browse_pane = ft.Column(
+        [
+            ft.Row([mod_search_field, filters_button], spacing=6),
+            category_chips_container,
+            ft.Container(height=18),
+            ft.Row([browse_title_text, ft.Container(expand=True), browse_status_text],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Container(height=8),
+            browse_results_view,
+            browse_pager_row,
+        ],
+        spacing=8,
+        visible=True,
+    )
+
+    installed_pane = ft.Column(
+        [
+            ft.Row(
+                [section_label("Installed"), ft.Container(expand=True),
+                 repair_btn, installed_count_text],
+                spacing=12,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            repair_status,
+            ft.Container(height=10),
+            installed_filter_field,
+            ft.Container(height=10),
+            mods_list_view,
+        ],
+        spacing=8,
+        visible=False,
+    )
+
+    view_segment_row = ft.Row(spacing=18)
+
+    def _build_view_segment():
+        view_segment_row.controls.clear()
+        for vid, vlabel in (("browse", "Browse"), ("installed", "Installed")):
+            count_note = ""
+            if vid == "installed":
+                # Live-ish count on the tab itself: cheap to compute here
+                # because refresh_mods_list also calls _build_view_segment.
+                try:
+                    n = len(core.list_mods(state["selected_mc_version"], state["mod_loader"])) \
+                        if _is_mod() else len(core.list_content(_ct()))
+                    count_note = f" ({n})" if n else ""
+                except Exception:
+                    count_note = ""
+            view_segment_row.controls.append(
+                text_tab(vlabel + count_note,
+                         selected=active_view["value"] == vid,
+                         on_click=lambda e, v=vid: on_view_change(v))
+            )
+        thread_safe_ui.refresh(view_segment_row)
+
+    def on_view_change(new_view):
+        if active_view["value"] == new_view:
+            return
+        active_view["value"] = new_view
+        browse_pane.visible = (new_view == "browse")
+        installed_pane.visible = (new_view == "installed")
+        _build_view_segment()
+        if new_view == "installed":
+            refresh_mods_list()
+        thread_safe_ui.refresh(browse_pane)
+        thread_safe_ui.refresh(installed_pane)
 
     def refresh_browse_for_new_profile():
         """
@@ -1069,12 +1767,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     build_category_chips()
     build_content_segment()
+    _build_view_segment()
 
     # Header title/subtitle are refs so _apply_type_labels() can retarget them
     # when the content-type segment switches (Mods -> Resource Packs -> Shaders).
     header_title = ft.Text("Mods", size=28, weight=ft.FontWeight.W_800, color=TEXT,
                             font_family=FONT_DISPLAY)
-    header_subtitle = ft.Text("Browse and install mods, or manage what's already in your folder.",
+    header_subtitle = ft.Text("Download mods, or manage what's already installed.",
                               size=13, color=TEXT_DIM)
     _apply_type_labels()  # sync the refs now that they exist
 
@@ -1105,7 +1804,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         ),
                         border_radius=RADIUS,
                         padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
-                        ink=True, on_click=open_local_mod_picker,
+                        ink=False, on_click=open_local_mod_picker,
                     ), "transparent", ROW_HOVER),
                     ft.Container(width=6),
                     attach_hover(ft.Container(
@@ -1116,7 +1815,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         ),
                         border_radius=RADIUS,
                         padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
-                        ink=True, on_click=open_folder_click,
+                        ink=False, on_click=open_folder_click,
                     ), "transparent", ACCENT_TINT),
                 ],
             ),
@@ -1136,28 +1835,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 spacing=6,
             ),
             ft.Container(height=14),
-            # Search + the "..." that unfolds category filters. Live search
-            # made a Search button redundant; the filters collapsed up here
-            # stop a dozen chips from eating vertical space before content.
-            ft.Row([mod_search_field, filters_button], spacing=6),
-            category_chips_container,
-            ft.Container(height=22),
-            # Browse results header (title and status)
-            ft.Row([browse_title_text, ft.Container(expand=True), browse_status_text],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Container(height=8),
-            browse_results_view,
-            browse_pager_row,
-            ft.Container(height=26),
-            pixel_divider(CARD_BORDER),
-            ft.Container(height=20),
-            # Installed section
-            ft.Row([section_label("Installed"), ft.Container(expand=True), installed_count_text],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Container(height=10),
-            installed_filter_field,
-            ft.Container(height=10),
-            mods_list_view,
+            # View tabs: Browse (search + results) and Installed (your list)
+            # share the screen one at a time - no more scrolling past the
+            # whole catalog to reach your installed items.
+            view_segment_row,
+            ft.Container(height=6),
+            browse_pane,
+            installed_pane,
         ],
         spacing=8,
         scroll=ft.ScrollMode.AUTO,

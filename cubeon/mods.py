@@ -410,15 +410,17 @@ def supersede_older_copies(profile_dir: str, filename: str,
 
 # Mods Cubeon ships and depends on itself - CustomSkinLoader is what makes
 # skins/capes work on an offline account (cubeon/csl.py), and the Cubeon
-# Friends mod is the in-game friends button (cubeon/cubeonfriends.py). Both
+# Client mod is the in-game Cubeon button (cubeon/cubeonfriends.py). Both
 # are re-installed automatically at launch, so a user "removing" one only
-# ever breaks their own skins or the Friends button - protected the same way
+# ever breaks their own skins or the Cubeon button - protected the same way
 # the server's managed plugins are (see cubeon/server.py PROTECTED_PLUGINS).
 # Matched by filename stem (without .jar/.jar.disabled, lowercase prefix) and
 # by Modrinth slug for the one we download from there (kept as a literal, not
 # imported from csl.py - csl imports from this module, so it can't go the
-# other way; tools/test_csl.py checks the two stay in agreement).
-PROTECTED_MOD_STEM_PREFIXES = ("customskinloader", "cubeon-friends")
+# other way; tools/test_csl.py checks the two stay in agreement). The old
+# cubeon-friends- name is still protected: profiles from before the rename
+# have that jar until the next launch sweeps it (cubeonfriends.LEGACY_JAR_GLOBS).
+PROTECTED_MOD_STEM_PREFIXES = ("customskinloader", "cubeon-client", "cubeon-friends")
 CSL_MODRINTH_SLUG_LOCAL = "customskinloader"
 
 
@@ -854,10 +856,16 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
         if not versions:
             return None
 
-        # Versions come back newest-first; take the first with a primary file
-        latest = versions[0]
-        files = latest.get("files", [])
-        primary = next((f for f in files if f.get("primary")), files[0] if files else None)
+        # Versions come back newest-first. A release occasionally has an empty
+        # `files` list (or only non-primary files); blindly using versions[0]
+        # would return None and make the doctor wrongly DISABLE a mod that does
+        # have a downloadable build. Take the newest version that actually has
+        # a file.
+        latest = next((v for v in versions if v.get("files")), None)
+        if latest is None:
+            return None
+        files = latest.get("files") or []
+        primary = next((f for f in files if f.get("primary")), files[0])
         if not primary:
             return None
 
@@ -874,6 +882,795 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     # and revalidate in the background; a re-released mod picks up on the
     # next browse instead of blocking this click.
     return local_cache.cached_call("mod_download", cache_key, _fetch, max_age=86400)
+
+
+def get_mod_details(project_id_or_slug: str) -> dict | None:
+    """Full Modrinth project record, normalized for the mod detail view.
+
+    One cached GET /project/{id}: everything the detail dialog shows besides
+    the version list - long description, gallery art, categories, supported
+    loaders/versions, links and licence. Returns None when the project can't
+    be resolved at all (deleted, or the id belongs to another platform such as
+    a CurseForge-only pack entry), so callers can fall back to the row they
+    already had instead of showing an empty dialog.
+    """
+    ref = (project_id_or_slug or "").strip()
+    if not ref:
+        return None
+
+    def _fetch() -> dict:
+        resp = requests.get(
+            f"{MODRINTH_API}/project/{ref}",
+            headers=MODRINTH_HEADERS, timeout=10,
+        )
+        resp.raise_for_status()
+        p = resp.json()
+
+        gallery = []
+        for img in p.get("gallery") or []:
+            url = img.get("url")
+            if url:
+                gallery.append({
+                    "url": url,
+                    "featured": bool(img.get("featured")),
+                    "title": img.get("title") or "",
+                    "description": img.get("description") or "",
+                })
+        # Featured art first: it is the project's own chosen hero image, which
+        # is a better lead than an arbitrary gallery order.
+        gallery.sort(key=lambda g: not g["featured"])
+
+        return {
+            "project_id": p.get("id"),
+            "slug": p.get("slug"),
+            "title": p.get("title") or p.get("slug") or ref,
+            "description": p.get("description") or "",
+            "body": p.get("body") or "",
+            "icon_url": p.get("icon_url"),
+            "gallery": gallery,
+            "downloads": p.get("downloads", 0),
+            "followers": p.get("followers", 0),
+            "categories": p.get("categories") or [],
+            "loaders": p.get("loaders") or [],
+            "game_versions": p.get("game_versions") or [],
+            "client_side": p.get("client_side"),
+            "server_side": p.get("server_side"),
+            "source_url": p.get("source_url") or "",
+            "issues_url": p.get("issues_url") or "",
+            "wiki_url": p.get("wiki_url") or "",
+            "discord_url": p.get("discord_url") or "",
+            "license": (p.get("license") or {}).get("name") or "",
+            "updated": p.get("updated"),
+            "published": p.get("published"),
+        }
+
+    return local_cache.cached_call(
+        "mod_details", {"project": ref}, _fetch,
+        max_age=6 * 3600)
+
+
+def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
+                     loader: str | None = None, *,
+                     allow_network: bool = True) -> list[dict]:
+    """Every released version of a mod, newest first, normalized for the
+    detail view. Each entry carries its own supported loaders and Minecraft
+    versions, whether it is compatible with the profile the user is browsing
+    (`compatible`), the primary downloadable file, and its dependencies.
+
+    ONE GET /project/{id}/version covers the whole list - no per-version
+    requests - and is cached for 6 hours, so opening a mod's menu twice costs
+    nothing and the version picker stays usable offline via the stale tier.
+
+    `allow_network=False` reads ONLY the last cached copy (no request), for
+    callers that must never block on the network.
+    """
+    ref = (project_id_or_slug or "").strip()
+    if not ref:
+        return []
+    if not allow_network:
+        cached = local_cache.get_stale("mod_versions", {"project": ref})
+        return cached if isinstance(cached, list) else []
+
+    def _fetch() -> list[dict]:
+        resp = requests.get(
+            f"{MODRINTH_API}/project/{ref}/version",
+            headers=MODRINTH_HEADERS, timeout=10,
+        )
+        resp.raise_for_status()
+        out = []
+        for v in resp.json():
+            files = v.get("files") or []
+            primary = next((f for f in files if f.get("primary")),
+                           files[0] if files else None)
+            if not primary:
+                continue
+            game_versions = v.get("game_versions") or []
+            loaders = v.get("loaders") or []
+            compatible = True
+            if mc_version and mc_version not in game_versions:
+                compatible = False
+            if loader and loader not in loaders:
+                compatible = False
+            out.append({
+                "id": v.get("id"),
+                "version_number": v.get("version_number") or "",
+                "name": v.get("name") or "",
+                "version_type": v.get("version_type") or "release",
+                "game_versions": game_versions,
+                "loaders": loaders,
+                "date_published": v.get("date_published") or "",
+                "downloads": v.get("downloads", 0),
+                "changelog": v.get("changelog") or "",
+                "compatible": compatible,
+                "dependencies": [
+                    {
+                        "project_id": d.get("project_id"),
+                        "version_id": d.get("version_id"),
+                        "dependency_type": d.get("dependency_type"),
+                    }
+                    for d in (v.get("dependencies") or [])
+                ],
+                "filename": primary.get("filename"),
+                "url": primary.get("url"),
+                "size_kb": round(primary.get("size", 0) / 1024, 1),
+                "hashes": primary.get("hashes") or {},
+            })
+        return out
+
+    return local_cache.cached_call(
+        "mod_versions", {"project": ref}, _fetch,
+        max_age=6 * 3600)
+
+
+def _required_deps_cached(project_id_or_slug: str, mc_version: str | None,
+                          loader: str) -> list[dict]:
+    """required_dependencies() behind the 6h cache, so the doctor can check a
+    whole profile without one network round trip per installed mod per run."""
+    def _fetch() -> list[dict]:
+        return required_dependencies(project_id_or_slug, mc_version, loader)
+    return local_cache.cached_call(
+        "mod_required_deps",
+        {"project": project_id_or_slug, "mc": mc_version, "loader": loader},
+        _fetch, max_age=6 * 3600)
+
+
+# ---------------------------------------------------------------------------
+# Mod-conflict detection (Fabric `breaks`)
+#
+# The single most confusing crash a modded player hits is a VERSION CONFLICT:
+#
+#   Mod 'Sodium' 0.8.14 is incompatible with version 1.10.7 or earlier of
+#   mod 'Iris', yet a conflicting version is present: 1.10.7
+#
+# The Modrinth API does NOT expose this relationship - `dependencies` on a
+# version only lists required/optional/embedded/incompatible PROJECTS, never
+# Fabric's `breaks` version ranges. The only source of truth is the jar's own
+# fabric.mod.json, so that is what we read. It is a local file operation, so
+# detection works offline (and at launch); resolving an actual conflict needs
+# the network to find a replacement build.
+# ---------------------------------------------------------------------------
+
+
+def _version_parts(version: str) -> list[str]:
+    """Numeric/alpha runs of a version, build metadata after '+' dropped -
+    the same thing Fabric ignores when matching `depends`/`breaks`."""
+    base = (version or "").strip().split("+", 1)[0]
+    return re.findall(r"\d+|[A-Za-z]+", base)
+
+
+def _cmp_versions(a: str, b: str) -> int:
+    """Maven-ish ordering: numeric vs numeric by value, a numeric run beats an
+    alpha one (1.0 > 1.0-rc), a longer version beats its own prefix
+    (1.0.1 > 1.0) unless the extra bit is a qualifier (1.0-rc < 1.0)."""
+    pa, pb = _version_parts(a), _version_parts(b)
+    for i in range(max(len(pa), len(pb))):
+        x = pa[i] if i < len(pa) else None
+        y = pb[i] if i < len(pb) else None
+        if x is None:
+            return 1 if (y and y.isalpha()) else -1
+        if y is None:
+            return -1 if x.isalpha() else 1
+        if x.isdigit() and y.isdigit():
+            if int(x) != int(y):
+                return -1 if int(x) < int(y) else 1
+        elif x.isdigit() != y.isdigit():
+            return 1 if x.isdigit() else -1
+        elif x.lower() != y.lower():
+            return -1 if x.lower() < y.lower() else 1
+    return 0
+
+
+def _match_wildcard(version: str, pattern: str) -> bool:
+    """Fabric-style wildcard: `0.8.x`, `1.21.*` match on their prefix."""
+    pv = _version_parts(pattern)
+    vv = _version_parts(version)
+    for i, p in enumerate(pv):
+        if p in ("x", "X", "*"):
+            return True
+        if i >= len(vv):
+            return False
+        if p.isdigit() and vv[i].isdigit():
+            if int(p) != int(vv[i]):
+                return False
+        elif p.lower() != vv[i].lower():
+            return False
+    return True
+
+
+def _satisfies_range(version: str, expr: str) -> bool:
+    for m in re.finditer(r"([\[\(])([^,\)]*),?([^\]\)]*)([\]\)])", expr):
+        lo_inc = m.group(1) == "["
+        hi_inc = m.group(4) == "]"
+        lo, hi = m.group(2).strip(), m.group(3).strip()
+        if lo:
+            c = _cmp_versions(version, lo)
+            if not (c >= 0 if lo_inc else c > 0):
+                continue
+        if hi:
+            c = _cmp_versions(version, hi)
+            if not (c <= 0 if hi_inc else c < 0):
+                continue
+        return True
+    return False
+
+
+def _satisfies_term(version: str, term: str) -> bool:
+    term = term.strip()
+    if term in ("", "*"):
+        return True
+    if "x" in term.lower() or "*" in term:
+        return _match_wildcard(version, term)
+    for op in ("<=", ">=", "!=", "==", "=", "<", ">"):
+        if term.startswith(op):
+            c = _cmp_versions(version, term[len(op):].strip())
+            return {"<=": c <= 0, ">=": c >= 0, "!=": c != 0,
+                    "==": c == 0, "=": c == 0, "<": c < 0, ">": c > 0}[op]
+    # A bare version means exact (Fabric treats it as an upper bound only when
+    # prefixed with an operator; `0.8.x` handled above).
+    return _cmp_versions(version, term) == 0
+
+
+def version_satisfies(version: str, predicate) -> bool:
+    """True when `version` matches a Fabric/Maven version predicate such as
+    `<=1.10.7`, `>=0.16.0`, `0.8.x`, `[1.0,2.0)`, `*`, or an AND/OR
+    combination. A missing/blank predicate means "any version"."""
+    if isinstance(predicate, (list, tuple)):
+        return any(version_satisfies(version, p) for p in predicate)
+    expr = str(predicate or "").strip()
+    if expr in ("", "*", "any"):
+        return True
+    for alt in expr.split("||"):
+        alt = alt.strip()
+        if not alt:
+            continue
+        if alt[0] in "[(":
+            if _satisfies_range(version, alt):
+                return True
+            continue
+        if all(_satisfies_term(version, t) for t in alt.split()):
+            return True
+    return False
+
+
+def read_mod_metadata(jar_path: str) -> dict | None:
+    """A jar's own declared identity: {id, version, name, depends, breaks}.
+
+    Fabric and Quilt only (the launcher's default loaders). Reads
+    `fabric.mod.json`/`quilt.mod.json` straight out of the zip with no
+    download and no network. Returns None for Forge/NeoForge or an
+    unreadable file - callers treat that as "no metadata", never an error.
+    """
+    import zipfile
+    try:
+        with zipfile.ZipFile(jar_path) as z:
+            names = set(z.namelist())
+            if "fabric.mod.json" in names:
+                d = json.loads(z.read("fabric.mod.json").decode("utf-8", "replace"))
+                return {
+                    "id": d.get("id"),
+                    "version": str(d.get("version") or ""),
+                    "name": d.get("name") or d.get("id") or "",
+                    "depends": d.get("depends") or {},
+                    "breaks": d.get("breaks") or {},
+                }
+            if "quilt.mod.json" in names:
+                d = json.loads(z.read("quilt.mod.json").decode("utf-8", "replace"))
+                q = d.get("quilt_loader") or {}
+                def _pairs(items):
+                    out = {}
+                    for it in items or []:
+                        if isinstance(it, dict) and it.get("id"):
+                            out[it["id"]] = it.get("versions") or "*"
+                    return out
+                return {
+                    "id": q.get("id"),
+                    "version": str(q.get("version") or ""),
+                    "name": q.get("id") or "",
+                    "depends": _pairs(q.get("depends")),
+                    "breaks": _pairs(q.get("breaks")),
+                }
+    except Exception:
+        return None
+    return None
+
+
+def _read_remote_mod_metadata(download_url: str) -> dict | None:
+    """Download a jar to a temp file just to read its fabric.mod.json, for
+    conflict resolution. The bytes are discarded; nothing is installed."""
+    import tempfile
+    from . import net
+    fd, tmp = tempfile.mkstemp(suffix=".jar")
+    os.close(fd)
+    try:
+        net.download_to(tmp, download_url, headers=MODRINTH_HEADERS,
+                        timeout=25, attempts=2)
+        return read_mod_metadata(tmp)
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _mod_ref(mod: dict) -> str | None:
+    ref = (mod.get("project_id") or mod.get("slug") or "").strip()
+    return ref or None
+
+
+def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
+                          target_version: str, predicate, *,
+                          mc_version: str | None, loader: str,
+                          status_cb=None) -> tuple[bool, str]:
+    """Try to make a `breaks` conflict go away by installing a build that no
+    longer clashes. Two attempts, cheapest first:
+
+      1. Update the TARGET (the mod being broken), e.g. a newer Iris that
+         Sodium accepts. Nothing else installed changes.
+      2. Otherwise REPLACE THE DECLARER with the newest build (stable builds
+         preferred over betas) whose own `breaks` no longer names the
+         installed target version, e.g. Sodium 0.8.14 -> 0.8.12 for Iris
+         1.10.7.
+
+    Returns (fixed, label). Never raises."""
+    if status_cb:
+        status_cb(f"Resolving conflict with {target.get('display_name') or 'a mod'}")
+
+    def _install(candidate: dict, owner: dict):
+        download_mod(candidate["url"], candidate["filename"],
+                     mc_version=mc_version, loader=loader,
+                     slug=owner.get("slug"), project_id=owner.get("project_id"),
+                     hashes=candidate.get("hashes"))
+
+    def _candidates(versions, current_filename, *, limit=12):
+        """Compatible builds only, newest first, stable before beta - and
+        capped AFTER filtering, since the full list spans every Minecraft
+        version and loader the project ever shipped for."""
+        usable = [v for v in versions
+                  if v.get("compatible") and v.get("filename") != current_filename
+                  and v.get("url")]
+        releases = [v for v in usable if v.get("version_type") == "release"]
+        betas = [v for v in usable if v.get("version_type") != "release"]
+        releases.sort(key=lambda x: x.get("date_published") or "", reverse=True)
+        betas.sort(key=lambda x: x.get("date_published") or "", reverse=True)
+        return (releases + betas)[:limit]
+
+    # --- 1. update the target ------------------------------------------
+    t_ref = _mod_ref(target)
+    if t_ref:
+        try:
+            t_versions = get_mod_versions(t_ref, mc_version=mc_version,
+                                          loader=loader)
+        except Exception:
+            t_versions = []
+        for v in _candidates(t_versions, target.get("filename")):
+            if not version_satisfies(v.get("version_number"), predicate):
+                _install(v, target)
+                return True, f"updated {target.get('display_name')} to " \
+                             f"{str(v.get('version_number')).split('+', 1)[0]}"
+
+    # --- 2. replace the declarer ---------------------------------------
+    d_ref = _mod_ref(declarer)
+    if d_ref:
+        try:
+            d_versions = get_mod_versions(d_ref, mc_version=mc_version,
+                                          loader=loader)
+        except Exception:
+            d_versions = []
+        for v in _candidates(d_versions, declarer.get("filename")):
+            meta = _read_remote_mod_metadata(v["url"])
+            if not meta:
+                continue
+            still = any(version_satisfies(target_version, p)
+                        for k, p in (meta.get("breaks") or {}).items()
+                        if str(k).lower() == target_id.lower())
+            if not still:
+                _install(v, declarer)
+                shown = str(meta.get("version") or v.get("version_number") or "")
+                return True, f"replaced {declarer.get('display_name')} with " \
+                             f"{shown.split('+', 1)[0]}"
+    return False, ""
+
+
+def mod_doctor(mc_version: str | None, loader: str | None, *,
+               auto_fix: bool = True, check_online: bool = True,
+               status_cb=None) -> dict:
+    """Find - and, when asked, fix - the common reasons a modpack won't load.
+
+    Runs on every install, from a "Fix problems" action, and before a launch.
+    Four checks, in order of how often each is the real cause of "the game
+    crashes / the mod does nothing":
+
+      1. **Duplicate mods.** Two copies of one mod (an update that left the
+         old jar behind) is the classic crash. Same Modrinth id -> the older
+         copy is DELETED (that is what updating means); same filename stem
+         only -> the older copy is DISABLED, which is reversible.
+      2. **Missing required dependencies.** A mod that declares a required
+         dependency (Fabric API, Sodium for Iris, ...) simply refuses to load
+         without it. Each missing one is fetched.
+      3. **Mods built for another loader or Minecraft version.** When the
+         project has no release at all for the selected (mc_version, loader),
+         the jar can never load; it is disabled rather than left to crash.
+      4. **Version conflicts.** Fabric jars declare "this mod will not work
+         with mod X version Y" in their own fabric.mod.json `breaks`, which
+         Modrinth does not expose. Each installed jar is read locally and the
+         clash is resolved by updating one side; failing that, by putting the
+         declaring side on the newest build that accepts the other; failing
+         that, by turning the clashing mod off so the game still launches.
+
+    `check_online=False` skips the dependency and loader/version passes (each
+    of which makes API calls per mod). Duplicate and conflict checks are
+    filesystem-only for DETECTION; a conflict is still RESOLVED when auto_fix
+    is on (a clash is a guaranteed crash), with a local disable as the last
+    resort if no replacement can be reached.
+
+    Returns {"checked", "problems": [{kind, mod, detail, fixed, fix?}],
+    "fixed", "unfixed"}. Never raises: a broken check costs a missed problem,
+    never a launch. Every problem whose fix SUCCEEDED is listed in "fixed";
+    one whose fix was attempted and failed (or skipped) is in "unfixed".
+    """
+    result = {"checked": 0, "problems": [], "fixed": [], "unfixed": []}
+    if not mc_version or loader not in MOD_CAPABLE_LOADERS:
+        return result
+    try:
+        require_loader_and_version(mc_version, loader, "check mods")
+        profile_dir = get_profile_dir(mc_version, loader)
+        mods = list_mods(mc_version, loader)
+    except Exception:
+        return result
+
+    result["checked"] = len(mods)
+
+    def _report(kind, mod, detail, fixed, fix_label=""):
+        entry = {"kind": kind, "mod": mod, "detail": detail, "fixed": fixed}
+        if fix_label:
+            entry["fix"] = fix_label
+        result["problems"].append(entry)
+        (result["fixed"] if fixed else result["unfixed"]).append(entry)
+
+    # --- 1. duplicates -----------------------------------------------------
+    # Only ENABLED jars count: a duplicate already sitting as .jar.disabled
+    # was fixed by an earlier run and must not be re-reported forever.
+    groups: dict = {}
+    for m in mods:
+        if m.get("protected") or not m.get("enabled"):
+            continue
+        fname = m.get("filename")
+        if not fname:
+            continue
+        slug, pid, stem = mod_identity(profile_dir, fname)
+        ident = pid or slug
+        key = ("id", ident.lower()) if ident else ("stem", stem)
+        groups.setdefault(key, []).append(m)
+
+    for key, group in groups.items():
+        if len(group) < 2:
+            continue
+        ranked = sorted(group,
+                        key=lambda mm: _version_key(mm.get("filename") or ""),
+                        reverse=True)
+        winner = ranked[0]
+        # supersede_older_copies handles EVERY other copy of the winner in one
+        # call, so run it once for the group rather than once per loser - a
+        # second call finds nothing left and would report the rest as unfixed.
+        if auto_fix:
+            if status_cb:
+                status_cb(f"Removing extra copies of {winner['display_name']}")
+            try:
+                supersede_older_copies(
+                    profile_dir, winner["filename"],
+                    winner.get("slug"), winner.get("project_id"))
+            except Exception:
+                pass
+        for loser in ranked[1:]:
+            # Per-loser truth, not group-level: a loser is fixed only when its
+            # own enabled file is actually gone now (deleted or moved to
+            # .disabled). A partial failure must not be reported as success.
+            still_here = os.path.isfile(
+                os.path.join(profile_dir, loser.get("filename") or ""))
+            fixed = bool(auto_fix and not still_here)
+            detail = (f"another copy of {winner['display_name']} is installed "
+                      f"({loser['display_name']})")
+            _report("duplicate", loser["display_name"], detail, fixed,
+                    "removed" if fixed else "")
+
+    # --- 2 + 3. dependency and loader/version checks (network) -------------
+    if check_online:
+        installed_ids = installed_project_ids(mc_version, loader)
+        for m in mods:
+            if m.get("protected") or not m.get("enabled"):
+                continue
+            ref = m.get("project_id") or m.get("slug")
+            if not ref:
+                continue
+
+            # 3. does any release exist for this loader + Minecraft version?
+            try:
+                if get_mod_download(ref, mc_version=mc_version, loader=loader) is None:
+                    if auto_fix and status_cb:
+                        status_cb(f"Turning off {m['display_name']}")
+                    fixed = False
+                    fix_label = ""
+                    if auto_fix:
+                        try:
+                            toggle_mod(mc_version, loader, m["filename"])
+                            fixed = True
+                            fix_label = "disabled"
+                        except Exception:
+                            fixed = False
+                    _report("incompatible", m["display_name"],
+                            f"no release for {loader} {mc_version}",
+                            fixed, fix_label)
+                    continue  # a jar that can't load has no useful deps to add
+            except Exception:
+                # Network/API problem, not a proven incompatibility - leave it.
+                continue
+
+            # 2. required dependencies the profile doesn't have yet.
+            try:
+                deps = _required_deps_cached(ref, mc_version, loader)
+            except Exception:
+                deps = []
+            for dep in deps:
+                dep_id = dep.get("project_id")
+                if dep_id and dep_id in installed_ids:
+                    continue
+                dep_name = name_stem(dep.get("filename") or "a dependency")
+                fixed = False
+                fix_label = ""
+                if auto_fix:
+                    if status_cb:
+                        status_cb(f"Installing {dep_name}")
+                    try:
+                        download_mod(dep["url"], dep["filename"],
+                                     mc_version=mc_version, loader=loader,
+                                     project_id=dep_id, hashes=dep.get("hashes"))
+                        fixed = True
+                        fix_label = "installed"
+                        if dep_id:
+                            installed_ids.add(dep_id)
+                    except Exception:
+                        fixed = False
+                _report("missing-dependency", m["display_name"],
+                        f"needs {dep_name}", fixed, fix_label)
+
+    # --- 4. version conflicts (`breaks`) -----------------------------------
+    # Read straight from the installed jars: Fabric records "this mod will not
+    # work with mod X version Y" in fabric.mod.json's `breaks`, and the
+    # Modrinth API does not expose it, so the jar is the only source. Local
+    # file reads only - detection works offline; making the clash GO AWAY
+    # needs the network, so it is only attempted when auto_fix is on.
+    id_map: dict = {}
+    metas: dict = {}
+    for m in mods:
+        if m.get("protected") or not m.get("enabled") or not m.get("filename"):
+            continue
+        try:
+            meta = read_mod_metadata(os.path.join(profile_dir, m["filename"]))
+        except Exception:
+            meta = None
+        if not meta or not meta.get("id"):
+            continue
+        metas[m["filename"]] = meta
+        key = str(meta["id"]).lower()
+        prev = id_map.get(key)
+        if prev is None or _cmp_versions(meta.get("version") or "",
+                                         prev[1] or "") > 0:
+            id_map[key] = (m, meta.get("version") or "")
+
+    seen_pairs: set = set()
+    disabled_targets: set = set()
+    for m in mods:
+        if m.get("protected") or not m.get("enabled"):
+            continue
+        meta = metas.get(m.get("filename"))
+        if not meta:
+            continue
+        decl_id = str(meta.get("id") or "").lower()
+        for dep_id, predicate in (meta.get("breaks") or {}).items():
+            dep_key = str(dep_id).lower()
+            hit = id_map.get(dep_key)
+            if not hit:
+                continue
+            target, target_version = hit
+            if target.get("filename") == m.get("filename"):
+                continue
+            if not version_satisfies(target_version, predicate):
+                continue
+            pair = tuple(sorted([m.get("filename") or decl_id,
+                                 target.get("filename") or dep_key]))
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            target_name = (metas.get(target.get("filename"), {}).get("name")
+                           or target["display_name"])
+            declarer_name = meta.get("name") or m["display_name"]
+            target_disp = target_version.split("+", 1)[0]
+            detail = f"does not work with {target_name} {target_disp}"
+            fixed = False
+            fix_label = ""
+            if auto_fix:
+                try:
+                    fixed, fix_label = _resolve_mod_conflict(
+                        dict(m, display_name=declarer_name),
+                        dict(target, display_name=target_name),
+                        dep_key, target_version, predicate,
+                        mc_version=mc_version, loader=loader,
+                        status_cb=status_cb)
+                except Exception:
+                    fixed, fix_label = False, ""
+            if auto_fix and not fixed:
+                # Last resort so the game ALWAYS launches: no compatible build
+                # of either side exists, so the two simply cannot coexist. The
+                # declarer refuses to load while the target is present, so turn
+                # the target off (reversible - the user can re-enable it in the
+                # Mods tab). Never delete.
+                if target.get("filename") in disabled_targets:
+                    # Already turned off for an earlier declarer; don't toggle
+                    # it back on.
+                    fixed, fix_label = True, f"turned off {target_name}"
+                else:
+                    if status_cb:
+                        status_cb(f"Turning off {target_name} to avoid a crash")
+                    try:
+                        toggle_mod(mc_version, loader, target["filename"])
+                        fixed = True
+                        fix_label = f"turned off {target_name}"
+                        disabled_targets.add(target.get("filename"))
+                        id_map.pop(dep_key, None)
+                    except Exception:
+                        fixed, fix_label = False, ""
+            _report("conflict", declarer_name, detail, fixed, fix_label)
+
+    return result
+
+
+def installed_project_ids(mc_version: str | None, loader: str | None) -> set:
+    """The Modrinth project ids/slugs already present in a profile (from the
+    meta sidecars download_mod writes). Used to skip dependencies that are
+    already installed instead of re-downloading them."""
+    out = set()
+    try:
+        for m in list_mods(mc_version, loader):
+            for key in ("project_id", "slug"):
+                if m.get(key):
+                    out.add(m[key])
+    except Exception:
+        pass
+    return out
+
+
+def required_dependencies(project_id_or_slug: str, mc_version: str | None,
+                          loader: str = "fabric") -> list[dict]:
+    """The REQUIRED Modrinth dependencies of a mod's latest version, resolved
+    to downloadable files for (mc_version, loader).
+
+    Returns a list of the same shape get_mod_download returns, plus the
+    dependency's project id: [{"project_id", "filename", "url", "size_kb",
+    "hashes"}]. Optional/embedded/incompatible dependencies are ignored -
+    only dependency_type == "required" is what makes a mod refuse to load
+    without it.
+
+    Fail-soft by design: the dependency graph is a nicety layered on top of a
+    download that already worked. Any API change, missing data or network hiccup
+    yields an empty list (the mod still installs; the user just installs the
+    deps by hand like before), never an exception into the click handler.
+    """
+    try:
+        params = {"loaders": json.dumps([loader]) if loader else None,
+                  "game_versions": json.dumps([mc_version]) if mc_version else None}
+        params = {k: v for k, v in params.items() if v}
+        resp = requests.get(
+            f"{MODRINTH_API}/project/{project_id_or_slug}/version",
+            params=params, headers=MODRINTH_HEADERS, timeout=10,
+        )
+        resp.raise_for_status()
+        versions = resp.json()
+        if not versions:
+            return []
+        deps = versions[0].get("dependencies") or []
+        required_ids = sorted({d.get("project_id") for d in deps
+                               if d.get("dependency_type") == "required"
+                               and d.get("project_id")})
+        out = []
+        for dep_id in required_ids:
+            file_info = get_mod_download(dep_id, mc_version=mc_version, loader=loader)
+            if file_info:
+                out.append({"project_id": dep_id, **file_info})
+        return out
+    except Exception:
+        return []
+
+
+def install_mod_with_dependencies(download_url: str, filename: str,
+                                  mc_version: str | None, loader: str,
+                                  slug: str | None = None,
+                                  project_id: str | None = None,
+                                  hashes: dict | None = None,
+                                  progress_cb=None,
+                                  status_cb=None) -> dict:
+    """Downloads a mod AND every required dependency it needs that the profile
+    doesn't already have.
+
+    status_cb(text) is called with human progress ("Installing Fabric API...")
+    so the UI can show what's happening between the clicks. Returns
+    {"installed": [filenames], "skipped": n, "failed": [names]} - partial
+    success is success for the main mod: a dependency that fails to resolve is
+    reported, never raised.
+    """
+    require_loader_and_version(mc_version, loader, "download a mod")
+    installed: list[str] = []
+    skipped = 0
+    failed: list[str] = []
+
+    download_mod(download_url, filename, progress_cb=progress_cb,
+                 slug=slug, mc_version=mc_version, loader=loader,
+                 hashes=hashes, project_id=project_id)
+    installed.append(filename)
+
+    have = installed_project_ids(mc_version, loader)
+    # The main mod is installed now, so its own id can't come back as a
+    # dependency we still need; make sure a self/circular entry can't loop.
+    if project_id:
+        have.add(project_id)
+    if slug:
+        have.add(slug)
+
+    # project_id may be unknown to the caller (browse rows carry it, drag-drop
+    # doesn't); resolve it from the filename's meta when needed.
+    main_project = project_id
+    if not main_project and slug:
+        main_project = slug
+    if not main_project:
+        try:
+            main_project = (_read_meta(get_profile_dir(mc_version, loader),
+                                       filename) or {}).get("project_id")
+        except Exception:
+            main_project = None
+    if main_project:
+        have.add(main_project)
+
+    if status_cb:
+        status_cb("Checking dependencies...")
+    for dep in required_dependencies(main_project or slug or filename,
+                                     mc_version, loader):
+        dep_id = dep.get("project_id")
+        if dep_id and dep_id in have:
+            skipped += 1
+            continue
+        if status_cb:
+            status_cb(f"Installing dependency: {name_stem(dep.get('filename') or '')}")
+        try:
+            download_mod(dep["url"], dep["filename"], mc_version=mc_version,
+                         loader=loader, project_id=dep_id,
+                         hashes=dep.get("hashes"))
+            installed.append(dep["filename"])
+            if dep_id:
+                have.add(dep_id)
+        except Exception:
+            failed.append(name_stem(dep.get("filename") or "a dependency"))
+    return {"installed": installed, "skipped": skipped, "failed": failed}
 
 
 def download_mod(download_url: str, filename: str, progress_cb=None,

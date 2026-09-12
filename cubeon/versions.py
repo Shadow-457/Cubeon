@@ -13,6 +13,8 @@ import shutil
 from .lazy import LazyModule
 mll = LazyModule("minecraft_launcher_lib")
 
+from . import local_cache
+from . import net
 from .paths import MINECRAFT_DIR
 
 
@@ -196,21 +198,65 @@ def suggest_friendly_name(version_id: str, folder_name: str) -> str:
     return version_num
 
 
+# Mojang serves the same manifest from two hostnames, and either one can be
+# DNS-blocked or route-broken independently (the usual reason the version list
+# loads for everyone but one person). piston-meta is the canonical host now;
+# launchermeta is the older alias. A failure on one is retried on the other
+# before the user is ever told they're offline.
+MANIFEST_URLS = (
+    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+    "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json",
+)
+
+
+def _download_manifest() -> dict:
+    """Fetch the raw version manifest, trying each Mojang mirror in turn with
+    timeout + retry. Raises the last error so the cache can fall back to a
+    previously downloaded copy."""
+    last_err: Exception | None = None
+    for url in MANIFEST_URLS:
+        try:
+            resp = net.get_with_retry(url, timeout=15, attempts=2)
+        except Exception as ex:
+            last_err = ex
+            continue
+        try:
+            data = resp.json()
+        except Exception as ex:
+            last_err = ex
+            continue
+        finally:
+            resp.close()
+        if isinstance(data, dict) and data.get("versions"):
+            return data
+        last_err = RuntimeError("the version manifest came back empty")
+    raise last_err or RuntimeError("Couldn't fetch the Minecraft version list")
+
+
+def _manifest() -> dict:
+    """The version manifest, cached on disk for an hour and served stale when
+    the network is down. Without this, one failed DNS lookup showed "No
+    internet" even on a machine that was plainly online a second earlier."""
+    return local_cache.cached_call(
+        "mojang_manifest", "v2", _download_manifest,
+        max_age=3600, stale_ok=True, background_refresh=False)
+
+
 def get_available_versions(include_snapshots=False, include_old=False) -> list[dict]:
-    versions = mll.utils.get_version_list()
     out = []
-    for v in versions:
-        if v["type"] == "release":
-            out.append(v)
-        elif v["type"] == "snapshot" and include_snapshots:
-            out.append(v)
-        elif v["type"] in ("old_alpha", "old_beta") and include_old:
-            out.append(v)
+    for v in _manifest().get("versions", []):
+        vtype = v.get("type")
+        if vtype == "release":
+            out.append({"id": v["id"], "type": vtype})
+        elif vtype == "snapshot" and include_snapshots:
+            out.append({"id": v["id"], "type": vtype})
+        elif vtype in ("old_alpha", "old_beta") and include_old:
+            out.append({"id": v["id"], "type": vtype})
     return out
 
 
 def get_latest_release() -> str:
-    return mll.utils.get_latest_version()["release"]
+    return _manifest()["latest"]["release"]
 
 
 def install_version(version_id: str, progress_cb, status_cb, max_cb) -> None:
