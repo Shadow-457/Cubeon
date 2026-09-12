@@ -1,5 +1,5 @@
 /*
- * Offline unit tests for the Minecraft-free half of the Cubeon Friends mod.
+ * Offline unit tests for the Minecraft-free half of the Cubeon Client mod.
  *
  * The mod's UI needs a real Minecraft jar to compile, but everything that has
  * ever actually been *wrong* in it lived in the plain-Java half: JSON parsing,
@@ -9,16 +9,16 @@
  * Minecraft install.
  *
  * Run it through tools/test_mod_bridge.py, or by hand:
- *   javac -d /tmp/out mod/src/main/java/com/cubeon/friends/{Json,Bridge}.java \
+ *   javac -d /tmp/out mod/src/main/java/com/cubeon/client/{Json,Bridge}.java \
  *         mod/tools/SelfTest.java
- *   java -cp /tmp/out com.cubeon.friends.SelfTest
+ *   java -cp /tmp/out com.cubeon.client.SelfTest
  *
  * <p>It declares the production package on purpose: the response parsers are
  * package-private because nothing outside Bridge should call them, and a test
  * is not a reason to widen an API. It lives outside src/main/java, so Gradle
  * never compiles it into the shipped jar.
  */
-package com.cubeon.friends;
+package com.cubeon.client;
 
 import java.util.List;
 import java.util.Map;
@@ -37,6 +37,7 @@ public final class SelfTest {
         sessionParsing();
         eventParsing();
         chatParsing();
+        playersParsing();
         resultReading();
         nameChecking();
         presenceText();
@@ -304,6 +305,38 @@ public final class SelfTest {
         ok(Bridge.parseChatMessages(
                 "{\"messages\": [{\"seq\": 1, \"text\": \"\"}]}", new long[]{-1}).isEmpty(),
                 "a textless line is dropped");
+    }
+
+    private static void playersParsing() {
+        section("Bridge: /players parsing");
+        List<Bridge.CubeonPlayer> players = Bridge.parsePlayers("""
+                {"players": [
+                  {"name": "Hamza", "online": true, "skin": "hero.png",
+                   "cape": "cube.png", "version": "26.1.2", "status": ""},
+                  {"name": "Ali", "online": false, "skin": "", "cape": ""}
+                ]}
+                """);
+        ok(players.size() == 2, "two players carried");
+        ok(players.get(0).name().equals("Hamza") && players.get(0).online(),
+                "online sorts before offline");
+        ok(players.get(0).skin().equals("hero.png")
+                && players.get(0).cape().equals("cube.png"),
+                "skin and cape names carried");
+        ok(players.get(0).presence().equals("Playing 26.1.2"),
+                "presence wording matches Friend.presence()");
+
+        ok(Bridge.parsePlayers("{\"players\": []}").isEmpty(),
+                "an empty list is an empty list");
+        ok(Bridge.parsePlayers("").isEmpty(),
+                "an unreachable /players parses to nothing, not an exception");
+        ok(Bridge.parsePlayers("<html>404</html>").isEmpty(),
+                "an older launcher's 404 page degrades to nothing");
+        ok(Bridge.parsePlayers(
+                "{\"players\": [{\"online\": true}, {\"name\": \"\"}]}").isEmpty(),
+                "nameless entries are dropped");
+        ok(Bridge.parsePlayers(
+                "{\"players\": [{\"name\": \"Solo\"}]}").size() == 1,
+                "every field is optional");
     }
 
     private static void resultReading() {        section("Bridge: results");

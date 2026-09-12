@@ -1,6 +1,6 @@
 {
   "_note": [
-    "The Cubeon Friends mod's Minecraft version matrix, and the single source of",
+    "The Cubeon Client mod's Minecraft version matrix, and the single source of",
     "truth for it: mod/build.gradle reads this file to know what to compile",
     "against, and cubeon/cubeonfriends.py reads it to pick which jar to install",
     "into a profile. Two hand-maintained copies of the same table would drift,",
@@ -17,7 +17,7 @@
     "",
     "Within each bracket one jar covers everything, because the mod's source only",
     "touches API that has not moved: Screen's lifecycle, addRenderableWidget, and",
-    "Button/EditBox/StringWidget (see the long comment in CubeonFriendsScreen for",
+    "Button/EditBox/StringWidget (see the long comment in CubeonClientScreen for",
     "why it never overrides render or an input callback). Intermediary names are",
     "stable across versions by design, so the 1.20.1-built jar's references still",
     "resolve on 1.21.x. tools/test_mod_compile.py is what keeps the source inside",
@@ -48,7 +48,7 @@
   "mod_version": "1.0.0",
   "loader_version": "0.19.3",
   "loader_min": "0.14.0",
-  "jar_name": "cubeon-friends-{version}+mc{key}.jar",
+  "jar_name": "cubeon-client-{version}+mc{key}.jar",
   "brackets": [
     {
       "key": "1.20-1.21",

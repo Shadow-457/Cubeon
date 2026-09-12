@@ -1,6 +1,6 @@
-package com.cubeon.friends.mixin;
+package com.cubeon.client.mixin;
 
-import com.cubeon.friends.CubeonFriendsScreen;
+import com.cubeon.client.CubeonClientScreen;
 
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -29,7 +29,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(TitleScreen.class)
 public abstract class TitleScreenMixin extends Screen {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("cubeon-friends");
+    private static final Logger LOGGER = LoggerFactory.getLogger("cubeon-client");
 
     /** One log line per session, not one per title-screen open. */
     private static boolean cubeon$warned;
@@ -47,15 +47,15 @@ public abstract class TitleScreenMixin extends Screen {
 
             // No world exists here, so invites can never complete - the icon
             // opens the screen with Invite blocked; joining still works.
-            Button friends = CubeonFriendsScreen.menuButton(this, false);
-            friends.setX(CubeonFriendsScreen.ICON_INSET);
-            friends.setY(CubeonFriendsScreen.ICON_INSET);
+            Button friends = CubeonClientScreen.menuButton(this, false);
+            friends.setX(CubeonClientScreen.ICON_INSET);
+            friends.setY(CubeonClientScreen.ICON_INSET);
             this.addRenderableWidget(friends);
         } catch (Throwable ex) {
             // A broken title screen is catastrophic; a missing Friends icon is not.
             if (!cubeon$warned) {
                 cubeon$warned = true;
-                LOGGER.warn("Cubeon Friends: could not add the Friends icon", ex);
+                LOGGER.warn("Cubeon Client: could not add the Friends icon", ex);
             }
         }
     }

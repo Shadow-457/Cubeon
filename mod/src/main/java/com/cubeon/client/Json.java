@@ -1,4 +1,4 @@
-package com.cubeon.friends;
+package com.cubeon.client;
 
 import java.util.ArrayList;
 import java.util.Collections;

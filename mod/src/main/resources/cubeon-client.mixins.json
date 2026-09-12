@@ -5,8 +5,7 @@
   "client": [
     "PauseScreenMixin",
     "PlayerNameMixin",
-    "TitleScreenMixin",
-    "CubeonMenuRenderMixin"
+    "TitleScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 0

@@ -20,8 +20,8 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "mod", "src", "main", "resources",
-                   "assets", "cubeon-friends", "textures", "font",
-                   "cubeon_friends.png")
+                   "assets", "cubeon-client", "textures", "font",
+                   "cubeon_client.png")
 
 # '#' = opaque (white) pixel; '.' = transparent. Exactly 8 rows of 8 chars.
 GRID = [

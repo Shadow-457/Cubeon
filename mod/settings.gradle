@@ -5,4 +5,4 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-rootProject.name = 'cubeon-friends'
+rootProject.name = 'cubeon-client'

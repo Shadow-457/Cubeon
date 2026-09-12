@@ -1,5 +1,5 @@
 """
-Guards the Cubeon Friends mod's Minecraft version matrix.
+Guards the Cubeon Client mod's Minecraft version matrix.
 
 The mod ships as one jar per Minecraft bracket, and two things have to agree
 about that matrix: mod/build.gradle (which builds the jars) and
@@ -288,7 +288,7 @@ def test_resources(matrix):
     gradle = open(os.path.join(MOD, "build.gradle"), encoding="utf-8").read()
     fabric_json = open(os.path.join(MOD, "src", "main", "resources", "fabric.mod.json"),
                        encoding="utf-8").read()
-    mixins = load(os.path.join(MOD, "src", "main", "resources", "cubeon-friends.mixins.json"))
+    mixins = load(os.path.join(MOD, "src", "main", "resources", "cubeon-client.mixins.json"))
 
     # A placeholder the build doesn't supply ships to players verbatim, and
     # Fabric then rejects "${minecraft_range}" as a version range.

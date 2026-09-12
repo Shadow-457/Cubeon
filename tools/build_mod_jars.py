@@ -1,5 +1,5 @@
 """
-Builds one Cubeon Friends jar per Minecraft bracket and puts them where the
+Builds one Cubeon Client jar per Minecraft bracket and puts them where the
 launcher looks for them.
 
     python3 tools/build_mod_jars.py                 # every bracket
@@ -68,10 +68,12 @@ LIB_PREFIXES = ("sponge-mixin", "fabric-loader", "brigadier", "slf4j-api",
 # loads at all, and the screen class is the one most likely to be missing if a
 # compile half-failed.
 REQUIRED_ENTRIES = ("fabric.mod.json",
-                    "cubeon-friends.mixins.json",
-                    "com/cubeon/friends/CubeonFriendsScreen.class",
-                    "com/cubeon/friends/CornerIcon.class",
-                    "com/cubeon/friends/mixin/PauseScreenMixin.class")
+                    "cubeon-client.mixins.json",
+                    "com/cubeon/client/CubeonClientScreen.class",
+                    "com/cubeon/client/WorldPlayers.class",
+                    "com/cubeon/client/CornerIcon.class",
+                    "com/cubeon/client/mixin/PauseScreenMixin.class",
+                    "com/cubeon/client/mixin/PlayerNameMixin.class")
 
 
 def load_matrix():

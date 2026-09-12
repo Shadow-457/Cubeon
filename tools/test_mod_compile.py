@@ -1,5 +1,5 @@
 """
-Compiles the Cubeon Friends mod's *Minecraft-facing* code - the screen, the mod
+Compiles the Cubeon Client mod's *Minecraft-facing* code - the screen, the mod
 entrypoint, and the pause-menu mixin - against a hand-written stub of the
 Minecraft API.
 
@@ -42,20 +42,20 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from test_mod_bridge import find_jdk, _java_version  # noqa: E402
 
 MOD_SOURCES = [
-    "mod/src/main/java/com/cubeon/friends/Json.java",
-    "mod/src/main/java/com/cubeon/friends/Bridge.java",
-    # MC-free by design (reflection only): the animated-cape animator. Compiled
-    # here so the reflection glue can't drift from what Bridge hands it.
-    "mod/src/main/java/com/cubeon/friends/AnimatedCape.java",
-    "mod/src/main/java/com/cubeon/friends/CubeonFriendsScreen.java",
-    "mod/src/main/java/com/cubeon/friends/CubeonFriendsClient.java",
-    "mod/src/main/java/com/cubeon/friends/mixin/PauseScreenMixin.java",
-    "mod/src/main/java/com/cubeon/friends/mixin/TitleScreenMixin.java",
+    "mod/src/main/java/com/cubeon/client/Json.java",
+    "mod/src/main/java/com/cubeon/client/Bridge.java",
+    "mod/src/main/java/com/cubeon/client/CubeonClientScreen.java",
+    "mod/src/main/java/com/cubeon/client/CubeonClient.java",
+    "mod/src/main/java/com/cubeon/client/Nametag.java",
+    "mod/src/main/java/com/cubeon/client/WorldPlayers.java",
+    "mod/src/main/java/com/cubeon/client/mixin/PauseScreenMixin.java",
+    "mod/src/main/java/com/cubeon/client/mixin/PlayerNameMixin.java",
+    "mod/src/main/java/com/cubeon/client/mixin/TitleScreenMixin.java",
     # The 1.20-1.21 overlay: CornerIcon's era-stable copy. The 26.x overlay is
-    # NOT compiled here - it draws the icon through FontDescription, which is
-    # 26-only API, so it would pollute the stub with types that do not exist
-    # on 1.20. That copy is checked by the real 26 build instead.
-    "mod/src/main/java-overlay-1.20-1.21/com/cubeon/friends/CornerIcon.java",
+    # NOT compiled here - it draws through the 26-only GuiGraphicsExtractor /
+    # FontDescription chain, so it would pollute the stub with types that do
+    # not exist on 1.20. That copy is checked by the real 26 build instead.
+    "mod/src/main/java-overlay-1.20-1.21/com/cubeon/client/CornerIcon.java",
 ]
 
 # The mod targets Java 17 bytecode (mod/build.gradle explains why), so the stub
@@ -325,8 +325,9 @@ STUBS = {
         package net.minecraft.client.player;
 
         import net.minecraft.network.chat.Component;
+        import net.minecraft.world.entity.LivingEntity;
 
-        public class LocalPlayer {
+        public class LocalPlayer extends LivingEntity {
             /**
              * The one chat entry point this mod is allowed: present with the
              * same shape in 1.20-26.x (displayClientMessage was renamed away
@@ -424,6 +425,7 @@ STUBS = {
 
         import net.minecraft.client.gui.Gui;
         import net.minecraft.client.gui.screens.Screen;
+        import net.minecraft.client.multiplayer.ClientPacketListener;
         import net.minecraft.client.player.LocalPlayer;
 
         public class Minecraft {
@@ -446,6 +448,60 @@ STUBS = {
             public boolean hasSingleplayerServer() {
                 return false;
             }
+
+            /**
+             * The player-list handle. Same name and return type from 1.20.1
+             * through 26.1.2 (checked against the shipped 26.1.2 jar); null
+             * outside a world, which is how the menu's Online panel knows it
+             * is in a menu. Added for WorldPlayers - a deliberate narrowing:
+             * if a future version renames this, WorldPlayers is the file that
+             * moves, per era.
+             */
+            public ClientPacketListener getConnection() {
+                return null;
+            }
+        }
+        """,
+
+    "net/minecraft/client/multiplayer/ClientPacketListener.java": """
+        package net.minecraft.client.multiplayer;
+
+        import java.util.Collection;
+
+        public class ClientPacketListener {
+            public Collection<PlayerInfo> getOnlinePlayers() {
+                return java.util.List.of();
+            }
+        }
+        """,
+
+    "net/minecraft/client/multiplayer/PlayerInfo.java": """
+        package net.minecraft.client.multiplayer;
+
+        import com.mojang.authlib.GameProfile;
+
+        public class PlayerInfo {
+            public GameProfile getProfile() {
+                return null;
+            }
+        }
+        """,
+
+    "com/mojang/authlib/GameProfile.java": """
+        package com.mojang.authlib;
+
+        public class GameProfile {
+            public String getName() {
+                return "";
+            }
+        }
+        """,
+
+    "net/minecraft/world/entity/LivingEntity.java": """
+        package net.minecraft.world.entity;
+
+        /* Superclass of LocalPlayer; no members the mod touches. */
+        public class LivingEntity {
         }
         """,
 
@@ -542,6 +598,8 @@ STUBS = {
             At[] at();
 
             int require() default -1;
+
+            boolean cancellable() default false;
         }
         """,
 
@@ -549,6 +607,43 @@ STUBS = {
         package org.spongepowered.asm.mixin.injection.callback;
 
         public class CallbackInfo {
+        }
+        """,
+
+    "org/spongepowered/asm/mixin/injection/callback/CallbackInfoReturnable.java": """
+        package org.spongepowered.asm.mixin.injection.callback;
+
+        public class CallbackInfoReturnable<T> extends CallbackInfo {
+            public T getReturnValue() {
+                return null;
+            }
+
+            public void setReturnValue(T value) {
+            }
+        }
+        """,
+
+    "net/minecraft/world/entity/player/Player.java": """
+        package net.minecraft.world.entity.player;
+
+        import net.minecraft.network.chat.Component;
+
+        /*
+         * The nametag badge's whole target surface, and nothing else. Both methods
+         * are declared on Player itself with this exact shape in 1.20.1 and in
+         * 26.1.2 (checked against the shipped 26.1.2 jar's method table), which is
+         * why the badge can be one injection for both eras. Absent on purpose:
+         * anything from the entity render path - renderNameTag, the render-state
+         * classes, PoseStack/GuiGraphics - all of which were reshaped in 26.x.
+         */
+        public class Player {
+            public Component getName() {
+                return Component.empty();
+            }
+
+            public Component getDisplayName() {
+                return Component.empty();
+            }
         }
         """,
 }

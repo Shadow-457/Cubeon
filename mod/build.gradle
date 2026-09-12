@@ -12,8 +12,8 @@ plugins {
 // ---------------------------------------------------------------------------
 // One source tree, one jar per Minecraft bracket.
 //
-//   gradle build -PmcVersion=1.20.1     -> cubeon-friends-1.0.0+mc1.20.1.jar
-//   gradle build -PmcVersion=26.1       -> cubeon-friends-1.0.0+mc26.1.jar
+//   gradle build -PmcVersion=1.20.1     -> cubeon-client-1.0.0+mc1.20.1.jar
+//   gradle build -PmcVersion=26.1       -> cubeon-client-1.0.0+mc26.1.jar
 //   gradle build                        -> the newest bracket in brackets.json
 //
 // or all of them at once, with the jars copied where the launcher looks:
@@ -38,7 +38,7 @@ if (bracket == null) {
 version = "${matrix.mod_version}+mc${bracket.key}"
 group = 'com.cubeon'
 
-base { archivesName = 'cubeon-friends' }
+base { archivesName = 'cubeon-client' }
 
 repositories {
 }

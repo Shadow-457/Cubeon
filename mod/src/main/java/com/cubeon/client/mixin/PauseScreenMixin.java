@@ -1,6 +1,6 @@
-package com.cubeon.friends.mixin;
+package com.cubeon.client.mixin;
 
-import com.cubeon.friends.CubeonFriendsScreen;
+import com.cubeon.client.CubeonClientScreen;
 
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -46,7 +46,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PauseScreen.class)
 public abstract class PauseScreenMixin extends Screen {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("cubeon-friends");
+    private static final Logger LOGGER = LoggerFactory.getLogger("cubeon-client");
 
     /** One log line per session, not one per pause-menu open. */
     private static boolean cubeon$warned;
@@ -68,15 +68,15 @@ public abstract class PauseScreenMixin extends Screen {
             // the screen, but Invite is blocked there.
             boolean canInvite = this.minecraft.hasSingleplayerServer();
 
-            Button friends = CubeonFriendsScreen.menuButton(this, canInvite);
-            friends.setX(CubeonFriendsScreen.ICON_INSET);
-            friends.setY(CubeonFriendsScreen.ICON_INSET);
+            Button friends = CubeonClientScreen.menuButton(this, canInvite);
+            friends.setX(CubeonClientScreen.ICON_INSET);
+            friends.setY(CubeonClientScreen.ICON_INSET);
             this.addRenderableWidget(friends);
         } catch (Throwable ex) {
             // Whatever went wrong, the player still gets a working pause menu.
             if (!cubeon$warned) {
                 cubeon$warned = true;
-                LOGGER.warn("Cubeon Friends: could not add the Friends icon", ex);
+                LOGGER.warn("Cubeon Client: could not add the Friends icon", ex);
             }
         }
     }

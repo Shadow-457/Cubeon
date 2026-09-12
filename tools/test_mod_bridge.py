@@ -1,5 +1,5 @@
 """
-Runs the Cubeon Friends mod's Java self-test (mod/tools/SelfTest.java).
+Runs the Cubeon Client mod's Java self-test (mod/tools/SelfTest.java).
 
 The mod's UI classes need a real Minecraft jar on the classpath to compile, so
 they can't be tested here. Everything that has historically actually been broken
@@ -20,13 +20,12 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 SOURCES = [
-    "mod/src/main/java/com/cubeon/friends/Json.java",
-    "mod/src/main/java/com/cubeon/friends/Bridge.java",
-    "mod/src/main/java/com/cubeon/friends/AnimatedCape.java",
+    "mod/src/main/java/com/cubeon/client/Json.java",
+    "mod/src/main/java/com/cubeon/client/Bridge.java",
     "mod/tools/SelfTest.java",
 ]
 
-MAIN_CLASS = "com.cubeon.friends.SelfTest"
+MAIN_CLASS = "com.cubeon.client.SelfTest"
 
 # Records and pattern-matching switches need 17+; the sources target the same
 # language level the mod's Gradle build uses, which is never below this.

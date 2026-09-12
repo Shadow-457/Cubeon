@@ -1,6 +1,6 @@
-package com.cubeon.friends;
+package com.cubeon.client;
 
-import com.cubeon.friends.Bridge.Toast;
+import com.cubeon.client.Bridge.Toast;
 
 import net.fabricmc.api.ClientModInitializer;
 
@@ -29,7 +29,7 @@ import net.minecraft.network.chat.Component;
  * for no Fabric API modules at all for the same reason - loader only - so it
  * installs on a plain Fabric profile with nothing else in the mods folder.
  */
-public class CubeonFriendsClient implements ClientModInitializer {
+public class CubeonClient implements ClientModInitializer {
 
     private static final Component PREFIX =
             Component.literal("[Cubeon] ").withStyle(ChatFormatting.AQUA);
@@ -37,7 +37,7 @@ public class CubeonFriendsClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         Bridge bridge = Bridge.get();
-        bridge.setToastSink(CubeonFriendsClient::announce);
+        bridge.setToastSink(CubeonClient::announce);
         bridge.start();
     }
 
