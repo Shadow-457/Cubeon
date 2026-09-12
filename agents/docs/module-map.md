@@ -684,8 +684,20 @@ content pulled live from the free, keyless, 24/7 APIs the game itself uses.
   gate_fail (carries the FRESH nonce + salt for the next round)/gate_ok.
   MAX_ATTEMPTS=3 then the room closes; a 60s watchdog closes an
   unanswered round; the password (hash included) never touches disk.
-  Minekube fallback (`_switch_to_minekube`) is untouched and stays behind
-  the same gate because the offer precedes any fallback decision.
+  The offer precedes any fallback decision, so the gate covers both.
+- **LAN worlds NEVER hand the joiner to Minekube (2026-09-12, behavior
+  change).** connect-spigot is a tunnel for the host's PAPER SERVER (verified
+  in the shipped jar - no target/local-port config key), so a joiner pointed
+  at <endpoint>.play.minekube.net would land in the server's world, not the
+  LAN world. `_switch_to_minekube` now only ANNOUNCES the address into the
+  host's Minecraft chat (copyable, labelled as the server); the punch-failed
+  session stays on Cubeon's relay, which carries the world correctly. The
+  joiner's `p2p_use_minekube` handler is kept for OLD-launcher hosts.
+- **Address into Minecraft chat:** `FriendsService.notify_active()` (class
+  seam; `_active` set in start(), cleared in stop()) lets any module push a
+  line into the mod's event ring - the Server tab's public-address watcher
+  uses it, one line per resolved address. Host also gets world-live lines at
+  worldgate_set; the password is never echoed into chat (streamers).
 - **P2P outbound loop is event-driven** (2026-09-09): `_tcp_outbound_loop`
   polled `time.sleep(0.01)` forever (~100 wakeups/sec per session). Now waits
   on `_outbound_wake` (Condition on `_state_lock`), nudged by ACK-freed
