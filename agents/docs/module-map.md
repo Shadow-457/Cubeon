@@ -1,9 +1,22 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-07 (opencode Glm 5.3; tray-reexec + game-survival session finished by Claude Code). If a fact here contradicts the code, the code
-wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+Last updated: 2026-09-11 (opencode; Play page + top-nav hierarchy/spacing refinement). If a fact here contradicts the code, the
+code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 
 ## Flet 0.86 hard rules (learned 2026-09-06, each cost real debugging time)
+- **Dialog API: `Page.show_dialog(dlg)` / `Page.pop_dialog()` — there is NO
+  `Page.open()`/`Page.close()` on 0.86.** Dialogs (AlertDialog AND SnackBar —
+  both are DialogControls) live in the managed stack `page._dialogs.controls`,
+  NOT in `page.overlay`. `show_dialog` raises on an already-open dialog;
+  `pop_dialog` closes the top one; a buried dialog closes via
+  `dlg.open = False; dlg.update()`. ALWAYS go through `cubeon/dialogs.py`
+  (`open_dialog`/`close_dialog`/`show_snack`) — the app previously fell back
+  to a pre-0.28 `page.dialog` branch that 0.86 silently ignores, which is why
+  popups never closed and toasts never showed (fixed 2026-09-08; smoke §9
+  pins it, FakePage mirrors the 0.86 API).
+- `thread_safe_ui.final_update(page)` is NOT a generic "repaint now" — it
+  only flushes a pending THROTTLED update. To paint one control from a timer
+  thread, use `thread_safe_ui.refresh(ctrl)` (the account-panel scrim bug).
 - `page.on_window_event` DOES NOT EXIST. Use `page.window.on_event`; `e.type`
   is a `WindowEventType` enum.
 - The real X button delivers NO event to Python (X11/KDE verified). End-of-
@@ -69,10 +82,86 @@ wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 - Test-harness gotcha: `tools/test_ui_smoke.py` imports `main` as a module,
   so anything `main()` references must exist at module scope (bit us with
   `_session_end`).
+- **A `None` inside any Flet `controls` list (e.g. `ft.Text(...) if cond
+  else None` in `ft.Column([...])`) does NOT raise Python-side.** It
+  serializes as a null child; the Dart client fails to build that subtree
+  and Flutter's release-mode ErrorWidget paints a giant gray box in its
+  place — with zero output in any log. This was the "white thing on
+  uploaded capes" bug (2026-09-07). Never put None in controls lists;
+  test_ui_smoke §5b walks the built Cape pane asserting None-free lists.
 
 
 
-## Loader switcher (main.py, 2026-09-06)
+## Version art + new-UI preview (2026-09-08)
+- `cubeon/version_art.py`: version id → official banner image (minecraft.wiki).
+  Lookup: `<id>_banner.jpg` URL first (covers 1.15.2+, snapshots), then the
+  page's lead image via the MediaWiki `pageimages` API (old versions 1.8-1.14
+  have no banner file). Disk cache `CACHE_DIR/version_art/<id>.{jpg,png}` is
+  FOREVER (banners never change); memory dict short-circuits both hits and
+  misses-per-session. UI threads must use `fetch_async()` — `get_version_art()`
+  downloads synchronously on miss.
+- `ui_new/preview.py` is the REDESIGN PREVIEW, launched by `python main.py
+  --new-ui` (intercepted in `__main__` before any flet-desktop stderr
+  wrapping). It shares NOTHING with the real UI: top-bar nav, cinematic
+  banner hero, version card grid. It reuses real palettes through
+  `cubeon.color_templates`. Do not build features in the preview — port them
+  into main.py only after user approval.
+- Launcher's visible name is "Cubeon" (unchanged). The IN-GAME MOD is named
+  "Cubeon Client" (fabric.mod.json `name`, screen title + corner-icon tooltip
+  in CubeonClientScreen.java) — jar id / package `cubeon-client` /
+  `com.cubeon.client`.
+- Sidebar brand = cube mark + "Cubeon" + a Feather-style player pill:
+  small avatar + in-game username (`sidebar_brand_avatar` /
+  `sidebar_brand_username`, refreshed in `refresh_avatars()`), click →
+  Profile tab. test_ui_smoke asserts the window title string.
+- **Play page composition (2026-09-11 refinement).** PAGE HEADING ("Play" +
+  "Launch Minecraft your way.", FONT_DISPLAY only for the heading) → the
+  single hero card, top-aligned and compact (padding 20, internal `spacing=0`
+  with explicit spacers; NOT stretched to fill the viewport). The card is
+  three labelled bands, separated by explicit spacers only - the two
+  `pixel_divider()` calls that used to sit under the Mod loader and above the
+  footer were removed (2026-09-11): INSTANCE HEADER
+  (grass-block emblem, `hero_title`, loader chip + version meta, rename/
+  delete) → CONFIGURATION (a row of the two related fields, Game version
+  dropdown + Account field, then the Mod loader segmented control) →
+  ACTION FOOTER (`update_version_btn` on the left, PLAY right at 280px).
+  Below the card sits a full-width OG Minecraft key-art banner
+  (`assets/titleimg.jpg`, 2000x1000): wrapped in a `Row` so an expanded
+  `Container` stretches it edge-to-edge (the card itself stays compact), fixed
+  height 220 + `BoxFit.COVER` + `ClipBehavior.ANTI_ALIAS` so it crops cleanly at
+  any window width.
+  PLAY text uses the clean UI font (not Minecraftia) — pixel face is reserved
+  for branding/page heading/instance title. Delete is TEXT_DIM at rest and
+  DANGER only on hover; rename TEXT_DIM→TEXT on hover.
+- **Top nav**: icon-only buttons (`build_top_nav_button`) are 21px icons with
+  a green underline AND an `ACCENT_TINT` wash for the active tab; tooltips
+  carry every destination (test_ui_smoke's `all_text` includes
+  `tooltip` attrs, so nav names are asserted from them). Do not change
+  tooltip words without updating `nav_labels` in test_ui_smoke.
+  Account/Settings icons are 22px.
+- **Palette is true black + green, via the `green` template (2026-09-11).**
+  The app default is `DEFAULT_COLOR_TEMPLATE = "green"` in `cubeon/__init__.py`
+  (was `"carbon"`). `templates/color_green.py` and the fallback `cubeon/theme.py`
+  now both carry the user's exact scheme: `BG=#050505` (true black),
+  `SURFACE=#0B0D0A`, `SURFACE_HI=#131711`, `SURFACE_MAX=#1A2015`,
+  `BORDER=#242B1E`, `TEXT=#DDF6D5` (pale green-white), `ACCENT=#46BA34`,
+  `ACCENT_HI=#5FD24B`, `ACCENT_DIM=#2BAF00`, `ACCENT_DEEP=#052400`,
+  `ON_ACCENT=#04120A`, `CARD_FILL_HERO=#0C0F0B`. Surfaces are black with a
+  faint green cast - never grey. Green stays reserved for
+  ACTIVE/SELECTED/ACTION/SUCCESS (`ACCENT_TINT` 0.12 wash; `ACCENT_TINT_HI`
+  0.20). The loader segmented-control thumb uses the solid `ACCENT_DEEP`
+  (`#052400`) now, not the `ACCENT_TINT_HI` wash of the previous pass.
+  `ACCENT_DEEP` is a module-level token (NOT in `THEME`) exported by
+  `cubeon/theme.py`; templates that don't declare it get it derived in
+  `cubeon/color_templates._derive()` (darkened `ACCENT_DIM`). The old olive
+  literals (`#33431E`, `#0E110A`, ...) must not come back.
+- **Copy rule (binding, 2026-09-11):** all user-facing text is plain and
+  gamer-friendly — no jargon (`jar`, `process`, `PID`, `hash`, `config.json`,
+  `UUID`, `endpoint`, `.zip`, `OS`, `plugin stack`, "in this build"). Settings/
+  Stats captions, mods/modpacks/shader notices, server tooltips and the legacy
+  note were all rewritten. Keep new strings short and non-technical.
+
+
 - Loader support/installed lookups MUST use `core.extract_mc_version(version_id)`
   — the raw dropdown id can be a loader-install row (`fabric-loader-…`),
   which makes `find_installed_loader_version` miss and `is_loader_supported`
@@ -145,9 +234,11 @@ wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 A Minecraft launcher (Python/Flet desktop UI) with a friends/social layer:
 a Fabric mod (`mod/`) injects an in-game Friends screen (chat, P2P worlds,
 mod-sync), talking to the launcher over a localhost HTTP bridge, which talks to
-a Cloudflare Worker relay (`worker/`) over WebSocket. DMs and sync frames are
-E2EE (`cubeon/e2ee.py`). Local server hosting is Paper-only, exposed to friends
-via Minekube Connect tunnels.
+a Cloudflare Worker relay (`worker/`) over WebSocket. The launcher ALSO has its
+own top-nav **Chat tab** (`ui/chat_tab.py`, 2026-09-11) that drives the same
+process-scoped `FriendsService` directly, so the social layer works without
+launching the game. DMs and sync frames are E2EE (`cubeon/e2ee.py`). Local
+server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 
 ## Repo layout (top level)
 
@@ -156,8 +247,8 @@ via Minekube Connect tunnels.
 | `main.py` | UI glue: builds tabs, owns FriendsService, avatars, dialogs. ~3000 lines. |
 | `launcher_core.py` | Re-export shim over the `cubeon` package (legacy import surface). |
 | `cubeon/` | All launcher logic (see table below). |
-| `ui/` | Flet tab builders: `server_tab.py` (biggest), `mods_tab.py`, `modpacks_tab.py`, `skin_tab.py`. Pure builders — they receive `cfg`/`state` by reference and helpers (`section_label`, `pixel_divider`, theme) from main.py. |
-| `mod/` | The in-game Fabric mod. `src/main/java/com/cubeon/friends/`: `CubeonFriendsScreen.java` (whole UI), `Bridge.java` (localhost HTTP client + snapshot parsing), `CubeonFriendsClient.java` (entrypoint, chat notices), `Json.java`. `brackets.json` = **single source of truth** for MC version brackets (read by build.gradle AND cubeonfriends.py). |
+| `ui/` | Flet tab builders: `server_tab.py` (biggest), `mods_tab.py`, `modpacks_tab.py`, `skin_tab.py`, `stats_tab.py`, `chat_tab.py`. Pure builders — they receive `cfg`/`state` by reference and helpers (`section_label`, `pixel_divider`, theme) from main.py. |
+| `mod/` | The in-game Fabric mod. `src/main/java/com/cubeon/client/`: `CubeonClientScreen.java` (the Friends UI: FRIENDS/REQUESTS/ACCOUNT tabs only - chat was removed 2026-09-12 and lives in the launcher's Chat tab; Bridge chat plumbing is dormant, nothing calls setChatFriend), `Bridge.java` (localhost HTTP client + snapshot parsing), `CubeonClient.java` (entrypoint, chat notices), `Json.java`, `Nametag.java`, `WorldPlayers.java`; per-era overlays add `CornerIcon.java`. `brackets.json` = **single source of truth** for MC version brackets (read by build.gradle AND cubeonfriends.py). |
 | `worker/` | Cloudflare Worker + Durable Object relay (`cubeon-friends.js`, `cubeon-invites.js`). Protocol constants must stay in parity with `cubeon/friends.py` (asserted by `tools/test_friends.py`). |
 | `assets/jars/` | Shippable jars: both Friends mod jars + `connect-spigot.jar` (Minekube Connect). |
 | `tools/` | Test harnesses (plain scripts printing `N passed, M failed`). |
@@ -171,15 +262,16 @@ via Minekube Connect tunnels.
 | `paths.py` | Every on-disk location + `ensure_disk_space()`. CUBEON_GAME_DIR env overrides the game dir (tests use it). |
 | `friends_service.py` (~2800 lines) | Headless friends owner: roster, add/rename (local-state answers, no blocking lookups), E2EE chat, sync compare channel, P2P sessions, notification ring (200 events). Serves all bridge providers. |
 | `local_api.py` | The localhost HTTP bridge the mod polls. Token file `~/.cubeon_launcher/local_api.json`, 0600, loopback only. |
-| `friends.py` | Relay client (WebSocket, secret as first frame), name rules, identity.json, claim/rename. `T_*` constants = protocol truth. |
+| `friends.py` | Relay client (WebSocket, secret as first frame), name rules, identity.json, claim/rename. `auto_name()`/`ensure_identity()` = the secret-derived automatic handle (no claim prompt). `T_*` constants = protocol truth. |
 | `e2ee.py` | X25519 DM encryption; keys published to the relay under the claimed name. |
 | `p2p.py` | P2P worlds: STUN + relay fallback, mod/asset sync, teardown. |
 | `server.py` | Paper server hosting: install (Fill v3 API), start/stop, properties, orphan detection. |
 | `minekube.py` | Public address tunnels: finds/installs Connect plugin, endpoint config. |
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |
 | `cubeonfriends.py` | Which Friends jar goes into which profile (brackets), injected at launch. `mod_stamp()` = jar freshness fingerprint. |
-| `launch.py` | `launch_game()` — injects CSL + friends jar, syncs mods, launches MC. Requires mc_version/loader, no silent defaults. |
-| `capes.py` | Custom capes: any image accepted, auto-fitted onto the cape layout; multi-frame GIF/APNG → `.frames.json` served to the mod (`GET /cape/frames`) for SELF-ONLY in-game animation. Static first frame is what CSL/others see. No Worker/KV involvement at all. |
+| `perf_mods.py` | FPS boost: fetches Sodium + Lithium (`PERF_MOD_SLUGS`) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled`. `_present()` dedupes by slug/name/id/filename; best-effort, never raises. |
+| `launch.py` | `launch_game()` — injects CSL + friends jar + Sodium/Lithium, syncs mods, launches MC. `CLIENT_JVM_FLAGS` + matched `-Xms/-Xmx`. Requires mc_version/loader, no silent defaults. |
+| `capes.py` | Custom capes: any image accepted, auto-fitted onto the cape layout, synced into CSL's LocalSkin. Static images only — the animated-cape system was removed 2026-09-07. No Worker/KV involvement at all. |
 | `config.py` | cfg schema, username validation, auth key (public_uuid/secret_token). |
 | `gate.py` | Server join password (PBKDF2, escalating lockouts). |
 
@@ -190,13 +282,14 @@ via Minekube Connect tunnels.
   The mod compiles against a stub API subset (`tools/test_mod_compile.py`) —
   only API that exists identically in both eras. If javac fails on 26.x, the
   API moved; javap the real jar in `~/.minecraft/versions/26.1.2/26.1.2.jar`.
-- **Animated capes are reflection-only** (`mod/.../AnimatedCape.java`):
-  Minecraft is driven by name variants (`Identifier`/`class_2960` etc.),
-  never imported — the class compiles against a bare JDK and must stay that
-  way (test_mod_bridge/test_mod_compile both compile it). It animates ONLY
-  the local player's cape by re-registering the texture under
-  `minecraft:capes/<USERNAME>` on the client's event loop. Everyone else
-  sees the static frame 0 the launcher synced into LocalSkin.
+- **Animated capes were REMOVED (2026-09-07).** Custom capes are static
+  images only now: no `AnimatedCape.java`, no `.frames.json`, no
+  `GET /cape/frames`, no `animated` flag in capes.json. If it ever comes
+  back, the historical contract (CSL `(LOCAL_LEGACY)` texture-hash trap,
+  1.21.x reflection traps) is documented in
+  agents/2026-09-07_agent_animated-cape-static-fix.md and
+  agents/2026-09-07_agent_flexible-animated-capes.md — read those before
+  re-deriving anything, they cost real debugging time to learn.
 - **Everything user-facing must degrade to a human sentence.** No blocking
   calls on the mod's request thread; no raw exception text in the UI; errors
   and confirmations both land via the notification ring → in-game chat.
@@ -217,13 +310,13 @@ via Minekube Connect tunnels.
 ## Tests — run these, in this order of relevance
 
 ```
-python3 tools/test_friends_service.py   # 180: service + bridge contract
+python3 tools/test_friends_service.py   # 213: service + bridge contract + identity + unique rename + chat tab
 python3 tools/test_friends.py           # 37: relay client + worker parity
-python3 tools/test_mod_bridge.py        # 110: reads Bridge.java, asserts launcher serves it
+python3 tools/test_mod_bridge.py        # 119: reads Bridge.java, asserts launcher serves it
 python3 tools/test_mod_compile.py       # mod source compiles vs the stub API subset
 python3 tools/test_mod_matrix.py        # 68: brackets/jar routing
-python3 tools/test_capes.py             # 29: flexible/animated capes + /cape/frames
-python3 tools/test_ui_smoke.py          # 40: tab builders build, invariants hold
+python3 tools/test_capes.py             # 14: flexible capes + CSL sync
+python3 tools/test_ui_smoke.py          # 97: tab builders build, invariants hold
 python3 tools/test_invites.py           # 127: Minekube/tunnel flows
 python3 tools/test_modpacks.py          # 51: pack installs
 python3 tools/test_mod_store.py         # 21: global mod store
@@ -299,6 +392,132 @@ trap (the mod now warns about it in chat, but don't rely on that).
   hooking every download site - medium), #13 i18n/accessibility (high effort).
 - New tests: tools/test_production.py (13). Worker: node worker/test-worker.mjs.
 
+## Follow-up 21: REAL-player cosmetics gallery (2026-09-10)
+
+The gallery's procedural/self-drawn skins & capes were replaced with REAL
+content pulled live from the free, keyless, 24/7 APIs the game itself uses.
+
+- **cubeon/remotes.py (NEW)**: Mojang session API (`api.mojang.com/
+  users/profiles/minecraft/<name>` -> UUID), Mojang session server
+  (`sessionserver.mojang.com/session/minecraft/profile/<uuid>` -> base64
+  textures blob with skin + cape urls) and the textures download (Mojang
+  serves bare-http texture urls -> we upgrade to https). Everything cached
+  under `CUBEON_HOME/remotes/<id>/` with a 24h TTL; offline falls back to
+  stale cache. HTTP goes through the module-level `remotes.TEST_HANDLER` hook
+  so tests need zero network. (mc-heads.net head fetching was removed
+  2026-09-11 with the hat-fetching system.)
+- **cubeon/gallery.py (reworked)**: was procedural palette-remaps; now the
+  catalog is REAL players keyed by canonical username. Kept public API names:
+  `list_gallery_skins/capes` (NETWORK-FREE - only read the cache; take an
+  optional fuzzy `query` + `limit`), `install_gallery_skin/cape` (real player's
+  art through the upload pipeline, wears it), `gallery_id_for_file/forget_file/
+  ensure_gallery`. NEW: `load_player`, plus the discovery layer: `prefetch_featured`,
+  `featured_cached_count`, `featured_count`, `suggest_player` (fuzzy "did you
+  mean" wrapper - the free Mojang API only resolves EXACT names).
+- **cubeon/remotes.py**: also holds the curated `FEATURED_PLAYERS` list (20
+  real accounts, ~14 with capes - verified live 2026-09-10) driving the
+  Recommended grid + `featured_names/tags/cape_names/cached_count/count`,
+  `cached_display_names` (network-free), and `prefetch_featured` (network,
+  best-effort, never raises).
+- **cubeon/cosmetics.py**: hats are drawn pixel art only (each entry has a
+  `draw` routine). The old image-hat path (`add_image_hat`, HATS_IMAGES_DIR)
+  was removed 2026-09-11 along with the real-player-head fetching system.
+- **ui/skin_tab.py**: ONE search box per pane (Skin + Cape Browse). Typing
+  fuzzy-filters the grid (`Network-free` `_norm`/`_match_score`). Recommended
+  players fill the grid via the background prefetch registered through
+  `_ACTIVE_GALLERY_REFRESH` + `refresh_active_galleries()`. The
+  "type a Minecraft name to fetch" flow (and its "Get player" button / "on
+  Mojang" copy) was REMOVED 2026-09-11 - Browse is filter-only now; keep
+  `on_submit` off those fields. The "Wear a real player's head" fetch row was
+  removed earlier - the Cosmetics pane is just the earnable hat picker.
+- **Search must surface UNCACHED recommendations (2026-09-10)**: `_catalog`
+  only listed cached players, so on a fresh install every search returned
+  "nothing matches" (or one tile) until the prefetch caught up. With a
+  `query`, `_catalog` now also appends not-yet-cached featured players
+  (`cached: False`, `preview_path: None`) - the tile shows a placeholder and
+  its GET fetches on demand (worker thread). The no-query Recommended view
+  stays cached-only so it isn't a wall of blanks. Cape queries only include
+  featured names in `FEATURED_CAPE_NAMES`.
+- **Prefetch fills the WHOLE list progressively**: `_start_featured_prefetch`
+  fetches in batches of 5, repainting after each, until all featured are
+  cached or a pass makes no progress (offline / dead name). The old gate
+  stopped after ~6, which left search thin.
+- **Tests**: tools/test_gallery.py rewritten for the real pipeline (fake
+  Mojang server via remotes.TEST_HANDLER) - 38 checks green. test_ui_smoke
+  90/90 (incl. "one search box per pane", "search is filter-only",
+  "no fetch-player copy", "search offers uncached recommendations",
+  "Installed tab flips the pane", "search filters in place - no per-keystroke
+  rebuild / no dead-end button", "installed skin card shows a real preview
+  image", "installed skins flow as a wrapping card grid", "installed lists no
+  longer paginate", "cosmetics pane is preview-based", and the playtime
+  accumulator checks), test_capes 14/14, skins-net green.
+
+- **Cosmetics pane is preview-based (2026-09-11)**: `ui/skin_tab.py`'s
+  Cosmetics pane now mirrors Skin/Cape - a big live stage on the left
+  (`hat_preview` via `render_hat_stage()` -> `core.preview_composed_body`,
+  caption = current hat name) with search + grid on the right. Locked hats
+  carry a mini `ft.ProgressBar` (from `hat_progress()`), and `hat_status` is
+  hidden unless it holds a real message - no always-on "Wearing X." line.
+  Tile tooltips use the short `hat_earn_hint` (e.g. "7.4 / 10 h in game").
+  The hat grid also sits in `_grid_scroll` (height 290) like the other panes.
+
+- **Installed lists show previews as a wrapping card grid (2026-09-11)**:
+  the Skin and Cape Installed panes used a generic icon chip per row; then
+  briefly a one-row-per-page pager (rejected - "not good"). Final design is a
+  wrapping card grid, SAME visual language as Browse. `ui/skin_tab.py`'s
+  `_owned_card(...)` builds each card (real preview via `_skin_card_b64` /
+  `_cape_card_b64`, name, optional sublabel, hover-revealed Use/Delete, and an
+  accent border + ACTIVE pill for the active item). `skins_list_col` /
+  `capes_list_col` are `ft.Row(wrap=True)` grids; the built-in Cubeon cape is
+  the first card (no delete, `on_delete=None`). `_grid_scroll(grid, height=290)`
+  wraps a grid in a fixed-height scrolling Column so a long list never
+  stretches the tab. There is NO pager anywhere in the cosmetics tab.
+
+- **Cosmetics theming matches the Mods tab (2026-09-11)**: the tab used to be
+  the only one wrapped in its own bordered SURFACE card in `main.py`, and every
+  inner stage/tile was another solid bordered box - i.e. "box in a box".
+  `main.py`'s `profile_tab` is now a plain `ft.Column([skin_section_container])`
+  (padded by the tab switcher), exactly like Mods/Stats/Settings. `ui/skin_tab.py`
+  paints its panels with the Mods-tab translucent tokens: stages / tiles / cards
+  use `CARD_FILL` + `CARD_BORDER` (no more solid `SURFACE`/`SURFACE_HI` + hard
+  `BORDER`/2px `ACCENT_DIM`), cards/tiles lift to `ROW_HOVER` on hover and
+  selected hats/cards wash with `ACCENT_TINT`; the search fields use
+  `CARD_FILL`/`CARD_BORDER` + `focused_border_color=ACCENT_DIM` + faint hints.
+  Reuse these tokens when adding new cosmetics surfaces - do NOT reintroduce a
+  solid nested panel.
+
+- **Browse/Installed visibility BUG (fixed 2026-09-10)**: `_view_tabs`'
+  `switch_view` used to update `view_state` + the tab highlight but NOT the
+  two columns' `.visible`, so clicking "Installed" moved the underline and
+  left Browse on screen - users reported "Installed shows nothing". The
+  columns now register in `view_panes` and `_apply_view(pane_id)` flips
+  `.visible`. Keep that registry when touching the pane builders.
+
+- **Browse grid is built ONCE, search flips `.visible` (2026-09-11)**:
+  `refresh_skin_gallery`/`refresh_cape_gallery` used to `controls.clear()` +
+  re-render + re-base64 every preview on each keystroke (janky search, image
+  flicker), and the empty-result state offered a "Look up ... on Mojang"
+  button (removed). They now build all tiles once from `gallery.all_gallery_items`
+  (cached + uncached recommended, memoized per cache signature), stash
+  `{skin,cape}_gid` on each tile's `.data`, and toggle `.visible` via
+  `gallery.matches_query`. The module-level `_img_b64` memoizes base64 by
+  path+mtime. Install/delete paths reset the `{skin,cape}_tiles_sig` dict to
+  force the one rebuild that reflects the new INSTALLED pill. `skin_empty_hint`/
+  `cape_empty_hint` carry the "no match / still loading" line so install status
+  text in `*_browse_status` is not clobbered. Both browse grids also sit in
+  `_grid_scroll(...)` so a long result set scrolls inside a fixed-height region
+  instead of stretching the tab.
+
+- **HONEST LIMIT - there is NO hat API.** Vanilla Minecraft has no hat slot;
+  hats are pixel art the launcher paints into the skin's hat layer, and they
+  are only visible to you (like a custom skin), not other players.
+- **List functions must stay network-free**: refresh_*_gallery in skin_tab
+  runs at build time; remotes.cached_player_ids + _snapshot_from_profile must
+  never hit the network (they short-circuit on fresh cache). Keep it that way.
+- **os.path.isfile(None) crashes**: _snapshot_from_profile must guard paths
+  with `path and os.path.isfile(path)` - a player with no cape has cape_path
+  None.
+
 ## Follow-up 20: frozen builds need flet_desktop bundled (2026-09-05)
 
 - **Invariant: `--collect-all flet` is NOT enough for PyInstaller builds** —
@@ -356,6 +575,386 @@ trap (the mod now warns about it in chat, but don't rely on that).
   friends_enabled() block must tolerate None** — public builds are a
   first-class configuration, not an edge case. test_ui_smoke now asserts
   the guard textually.
+
+## Mod in-game UI (2026-09-08; menu removed 2026-09-11) — durable facts
+- **The full Cubeon in-game menu is GONE** (Profile/Skins/Capes/Cosmetics/
+  Statistics/Chat/Online). It was `CubeonMenuScreen.java` plus the per-era
+  overlay `CharacterView.java` + `mixin/CubeonMenuRenderMixin`. All five files
+  were deleted, the mixin deregistered, and both `PauseScreenMixin` and
+  `TitleScreenMixin` now add ONLY the Friends corner icon
+  (`CubeonClientScreen.menuButton`). Do not reintroduce a second menu button
+  under the Friends icon. The overlays still exist for `CornerIcon` (the
+  Friends glyph), which is unrelated to the menu.
+- **authlib split**: GameProfile is a record on 26 (`.name()`) but a class on
+  1.20.1 (`.getName()`), and PlayerInfo exposes no name — WorldPlayers resolves
+  it reflectively. Do not "simplify" that back to a direct call.
+- New bridge endpoint GET `/players` (local_api.py `_providers["players"]` ←
+  `FriendsService.players_payload`). Fail-soft contract: no provider or a raise
+  must answer an empty `players` list, never a 404 the mod crashes on; the mod
+  treats null/empty as "nothing known". Skin/cape are display strings only —
+  the launcher never ships pixels over the bridge; a friend's skin lives on
+  their launcher.
+- test_mod_compile's stub includes LivingEntity, ClientPacketListener,
+  PlayerInfo, GameProfile and Minecraft.getConnection() for WorldPlayers. The
+  now-removed character preview's GuiGraphics + InventoryScreen stubs were
+  deleted with the menu.
+
+## Mid-session GPU-crash auto-recovery (2026-09-08; discriminator fixed 2026-09-11)
+- The Mesa 26.1/libgallium SIGSEGV also happens **mid-session** (during a GTK
+  paint), not just pre-paint. A pre-paint death is retried in-process (safe:
+  the engine never initialized); a mid-session death must NOT re-run ft.run
+  (once-per-process → silent hang). `_session_loop` classifies the end via
+  `_classify_session_end(ui_painted, client_exit)` → arm `use_software_gl`,
+  bump `CUBEON_GPU_RESTARTS` (env, survives execv, reset on clean close) and
+  **re-exec the whole launcher** (the tray-reopen trick), max 2 restarts, then
+  park like a user close.
+- **The old discriminator was wrong and made every close reopen the window
+  (fixed 2026-09-11, live bug).** `_kill_flet_client()` returning "a live flet
+  child" can NEVER be true: flet 0.86's `ft.run()` reaps the desktop client
+  itself (`await fvp.wait()` inside `flet/app.py`) and only returns after the
+  child is gone. So the "live child = user close / no child = crash" test always
+  said "crash" and re-exec'd on every normal X-close. The reliable signal is the
+  client's **exit status**, captured by `_capture_flet_client_exit()`, which
+  wraps `flet_desktop.open_flet_view_async` so the process object's `.wait()`
+  records `returncode` while flet awaits it: `0` (or any `>=0`) = normal close,
+  negative = signal death (`-11` SIGSEGV, `-6` SIGABRT), `None` = unobservable →
+  treat as clean close (never a surprise relaunch). Verified live under Xvfb:
+  window close → 0 → exits with no relaunch; `kill -SEGV` on the client → -11 →
+  restarts with software GL. Regression covered by `test_ui_smoke.py` §4b.
+- `_kill_flet_client()` is kept only as a best-effort ghost-window cleanup; its
+  return value no longer classifies the session. Zombie flet children are still
+  excluded from the scan (state `fields[0]` of /proc stat after
+  `rpartition(b")")`).
+- The parked `_reopen.wait(timeout=30)` can be interrupted by flet's
+  exit_gracefully handler after the asyncio loop closed → spurious
+  "Event loop is closed" RuntimeError (logged CRITICAL cubeon.fatal twice
+  live). Now caught: teardown noise, treated as quit.
+- **The software-GL fallback must NEVER reach the game** (2026-09-08, live
+  bug: Minecraft ran at 4 FPS). The launcher's `LIBGL_ALWAYS_SOFTWARE=1` +
+  `GALLIUM_DRIVER=llvmpipe` used to be inherited by the java child (verified
+  in /proc/<pid>/environ). Two guards: (1) `cubeon/launch.py` strips
+  `LIBGL_ALWAYS_SOFTWARE`/`GALLIUM_DRIVER`/`LIBGL_DRM_DEVICE` from the game
+  env; (2) `_reveal_window` deletes the `use_software_gl` marker as soon as
+  the UI paints (the fallback only needs to survive until first paint, not
+  until clean close — waiting let it linger armed across kills/crashes).
+- **Not every /dev/input/js* is a gamepad** (2026-09-08, live bug: "🎮 Baseus
+  K03 Keyboard connected"). Some keyboards expose a js HID interface (that
+  one: 3 buttons, 1 axis) for media keys. `cubeon/controller.py` now probes
+  each device's INIT-event shape (`_probe_shape`) and gates it through
+  `_looks_like_gamepad(name, buttons, axes)`: keyboard/mouse-named devices
+  are refused outright; named pads need ≥4 buttons; unnamed devices need
+  ≥8 buttons + ≥4 axes. Rejected paths go to `_rejected` so the 2s scan
+  doesn't re-probe them. Verified against the real js0 on this box.
+- **No Material ink ripples** (user preference, 2026-09-08): every clickable
+  `ft.Container` uses `ink=False`. ui_smoke §10 asserts no `ink=True` /
+  `ink=not ` anywhere in main.py, ui/*.py, cubeon/theme.py, cubeon/inspector.py
+  (archive/ and ui_new/preview.py are exempt: dead dist copies and the
+  --new-ui mock).
+- **Account panel toggles must diff, not page.update()** (2026-09-08): the
+  open/close handlers repaint ONLY the two overlays via
+  `thread_safe_ui.refresh(account_scrim)` + `refresh(account_panel)`. A
+  `page.update()` there re-synced every mounted control — user saw the whole
+  app "reload" on each panel toggle. General rule for animation-y overlay
+  choreography: always per-control refreshes. ui_smoke §10 asserts no raw
+  `page.update()` line inside the two handlers.
+- **Tab switching is a hard cut with a scoped diff** (2026-09-09, "snappier"
+  pass): `switch_tab` ends with `thread_safe_ui.refresh(tab_switcher)` +
+  `refresh(subnav_bar)` + per-nav-button refreshes — NOT `page.update()` (a
+  whole-tree diff hitched the frame exactly at the switch). The
+  AnimatedSwitcher's fade is `duration=0, reverse_duration=0` (kept as a
+  switcher only so `.content` assignment code is unchanged).
+  `refresh_installed_packs` (ui/modpacks_tab.py) likewise diffs
+  `installed_view`/`installed_count` instead of the page. Measured in the
+  FakePage harness: steady-state switch = 0 page.update calls, ~3ms wall;
+  first visit to a lazy tab builds it (~87ms once). Remaining `page.update()`
+  calls live in one-shot action handlers (install buttons, filter toggles) —
+  fine. The one at switch_tab's tail was the "sloppy rendering" complaint.
+- **Download progress is throttled at the SOURCE** (2026-09-09 efficiency
+  pass): `net.stream_to_file` fires progress_cb per 64 KiB chunk — hundreds
+  of UI repaints/sec on fast links. It now emits at most every 33ms OR every
+  1% of the file, with one guaranteed final callback carrying the exact byte
+  count (resume/hash callers rely on that). Measured: a 100 MB instant
+  download = 101 callbacks (was 1600). All progress bars route through this
+  (version installs, mods, modpacks).
+- **P2P outbound loop is event-driven** (2026-09-09): `_tcp_outbound_loop`
+  polled `time.sleep(0.01)` forever (~100 wakeups/sec per session). Now waits
+  on `_outbound_wake` (Condition on `_state_lock`), nudged by ACK-freed
+  window space in `_handle_frame` and by `close()`. A 0.2s wait timeout
+  covers the window-full backpressure case. `test_p2p_*` suite green.
+- **Content surfaces are Browse/Installed toggle views** (2026-09-09): mods
+  (incl. resource packs + shaders, which share the tab), modpacks, and
+  server plugins each show ONE pane at a time — `view_segment_row` underline
+  tabs (`text_tab`) above `browse_pane` / `installed_pane`, both mounted,
+  only `.visible` flips on `on_view_change` (no rebuild, no re-fetch). The
+  Installed tab label carries a live count ("Installed (7)"), refreshed by
+  the same refresh_*_list() calls that rebuild the list. Pattern is identical
+  in all three files; server_tab's panes are built AFTER the market controls
+  exist (plugin_search_field etc.) — `refresh_plugins_list` may be defined
+  before them but only CALLS `_build_plugins_view_segment` at runtime. The
+  old stacked layout (browse results with installed list a full scroll
+  below) is gone. ui_smoke §11 asserts the pattern in all three files.
+- **Browse rows share ONE visual pattern everywhere** (2026-09-09): the mods
+  tab's row style is the canonical one — `attach_hover(container,
+  "transparent", ROW_HOVER)` (transparent at rest, faint lift on hover, no
+  permanent slab), 15px W_700 title / 12px TEXT_DIM description / 11px
+  TEXT_FAINT FONT_MONO metadata, and the action button a restrained
+  ACCENT_TINT wash with ACCENT text (solid ACCENT is reserved for the one
+  hero action per screen). `build_pack_row` (ui/modpacks_tab.py) and
+  `_plugin_result_row` (ui/server_tab.py) follow it exactly. Tab builders
+  only receive the fixed THEME kwarg set — extra tokens (ROW_HOVER,
+  ACCENT_TINT, TEXT_FAINT, attach_hover) are imported directly from
+  cubeon/theme.py; do NOT add keys to THEME (TypeError at every call site).
+- **Stats tab** (2026-09-09, ui/stats_tab.py): top-nav "stats" key, lazy
+  tab like the others. Read-only counters over existing state
+  (milestones.json, versions scan, folder globs, skins/capes meta) in
+  three sections (Playtime / Library / Cosmetics). RULE: never call
+  get_profile_dir() / get_plugins_dir() / content_dir() from a read-only
+  scan — they CREATE directories as a side effect; glob PROFILES_DIR /
+  SERVERS_DIR / RESOURCEPACKS_DIR / SHADERPACKS_DIR directly
+  (ui_smoke §12 enforces via a comment-stripping matcher). Flet 0.86 has
+  no `ft.margin.only/.symmetric` — use `ft.Margin(l, t, r, b)`.
+- **Chat tab + automatic identity** (2026-09-11, ui/chat_tab.py): top-nav
+  "chat" key, inserted at index 3 ONLY when `features.friends_enabled()`, so a
+  public no-Friends build has no dead entry. It talks to the process-scoped
+  `FriendsService` directly (roster/chat/requests), NOT the mod bridge, and:
+  - `build_chat_tab(page, cfg, state, service, *, section_label, **THEME) ->
+    (root, refresh)`; `service is None` returns a static notice (never crashes).
+  - polls on its own daemon thread via `cubeon/thread_safe_ui.py` (service
+    reads block on the websocket — never touch Flet from them); `refresh()` is
+    main.py's on-open reconcile hook.
+  - auto name: `friends.auto_name()` = `"Player_" + sha256(stable_secret())[:8]`
+    (deterministic per auth_key.json, 15 chars, allowed name set, never
+    reserved). `friends.ensure_identity()` mints it only when no identity has a
+    name, so it can never silently rotate a name a friend already knows; the
+    server binds it claim-on-connect at WS hello. No claim prompt exists.
+  - rename: the Chat tab's "Your name" field calls
+    `FriendsService.rename_unique(base)`, which appends
+    `friends.unique_number()` (4 digits of sha256(stable_secret())) to the
+    chosen base - "Dragon" -> "Dragon4821". `friends.unique_name()` strips
+    non-name chars and trailing digits first, so re-applying is idempotent; a
+    `name_taken` reply walks the number forward (attempt) instead of failing a
+    name the user never typed; any other error stops. `friends.name_base()`
+    pulls the editable stem back out to prefill the field.
+  - main.py startup connects only if an identity ALREADY existed; a brand-new
+    one connects when the Chat tab first opens (keeps headless UI builds from
+    opening real websockets with throwaway identities).
+  - **layout reworked 2026-09-11** (was cramped/rough): left rail = "Chat"
+    header + connection dot, identity avatar + name, rename field, add-friend
+    field (only requests section shows when non-empty), then Friends. Right
+    pane = conversation header (avatar + name + presence) with a centered
+    empty state until a friend is picked, content-hugging bubbles ("mine" =
+    `ACCENT_TINT` wash, theirs = `SURFACE_HI`), and a rounded composer with a
+    square accent send button. Avatars are per-name `theme.AVATAR_COLORS`.
+    Bubble width is measured from the longest line, capped at half the window.
+    Message/name text uses the body font, not mono.
+- **Playtime is a durable on-disk play session (fixed 2026-09-11)**: the game
+  outlives the launcher (launch.py `start_new_session=True`) and a GPU-crash
+  re-exec (main.py `os.execv`, sets `CUBEON_TRAY_REOPEN`) replaces the process,
+  killing the in-process on_exit watcher. So playtime is persisted, not just
+  credited in memory:
+  - `launch_game` calls `milestones.begin_play_session(pid)` right after
+    `watchdog.register` → writes `~/.cubeon_launcher/play_session.json`
+    (`{started, pid}`).
+  - `main.py` on_exit / the startup reconciler call
+    `core.milestones_end_play_session()`, which credits `min(now, mtime of
+    game.log) - started` (the log mtime bounds idle time when the launcher was
+    off for hours) and clears the record. Idempotent under `_session_lock`, so
+    on_exit and a reconcile poll can't both credit.
+  - `main()` calls `core.milestones_reconcile_play_session()` on EVERY start
+    (including re-execs - do NOT gate it on `CUBEON_TRAY_REOPEN`, which is set
+    on exactly the crash path that needs it): a dead pid is credited and
+    cleared; a live one is left on disk and watched by a 30s poll until exit.
+  - GOTCHA: `core.add_play_seconds` does not exist; launcher_core re-exports
+    `milestones.add_play_seconds` as `milestones_add_play_seconds`, and session
+    helpers as `milestones_begin/end/reconcile_play_session`. A bare rename
+    fails silently under `except Exception: pass` (that was the original
+    "Time in game stays 0" bug). ui_smoke pins the session wiring + a real
+    3661s accumulation; test_milestones §7 pins the durable-session semantics.
+- **Browse/installed PANE anatomy is the mods tab's** (2026-09-09): bare
+  Columns with NO enclosing SURFACE slab, a quiet search field (CARD_BORDER,
+  ACCENT_DIM focus, CARD_FILL fill, 46px, TEXT_FAINT hint, no separate
+  solid-green Search button — Enter/typing carries it), a 12px TEXT_DIM mono
+  caption line ("Recommended" / "Popular modpacks" / "Plugin picks") sharing
+  a row with the status text, and transparent-until-hover rows everywhere
+  (browse AND installed). Hero headers (big ACCENT icon + Minecraftia title)
+  are gone from these panes — the one hero per screen rule.
+
+## Top-bar layout + mod deps + legacy gate (2026-09-08, later)
+- **The sidebar is gone.** Navigation is now a top icon bar (`_build_top_bar`):
+  Play / Mods / Modpacks / Cosmetics / Servers centered (icon + green
+  underline for active, marker attr `cubeon_top_icon` on those buttons),
+  Account + Settings icon buttons on the right. The top-bar "Servers" icon is
+  an entry point that maps to `server_console`; the Console/Plugins/Settings
+  chips live in `subnav_bar` between the top bar and the content surface and
+  are visible only while a server tab is active. The identity card moved out
+  of the old Profile tab into an `account_dialog` opened by the Account icon
+  (`_account_open["fn"]` holder is filled after the dialog is built).
+- **The old "profile" tab is now Cosmetics** (skins/capes/hat only) - key is
+  still `"profile"` internally, switch_tab/refresh_profile_tab unchanged.
+- **Required-dependency auto-install**: `mods.required_dependencies()` reads
+  Modrinth's latest-version `dependencies` (only `dependency_type ==
+  "required"`), resolves each with the cached `get_mod_download()`;
+  `mods.install_mod_with_dependencies()` downloads main mod + missing deps
+  (skips by project_id/slug via `mods.installed_project_ids()`), returns
+  `{installed, skipped, failed}` and never raises for a failed dep.
+  `ui/mods_tab.py` on_download uses it and reports "Installed +N deps" /
+  per-dep failures. Verified live: iris→sodium resolved, junk→[].
+- **Legacy gate**: versions below 1.20 (numeric only, `_is_legacy_version`)
+  are hidden from BOTH the installed and online lists until the user enables
+  it. The **Legacy toggle lives in Settings → "Game versions"** (a real
+  on/off toggle via `_set_legacy_ui` + `state["legacy_ok"]`; the choice
+  PERSISTS as `cfg["legacy_versions"]`, seeded at startup). The "Show
+  snapshots" checkbox also lives in that card (always visible,
+  re-fetches on toggle). The Play tab and the version picker dialog no longer
+  carry either control - test_ui_smoke asserts their absence on the Play tab.
+- **Cubeon Client mod off-switch**: Settings → "Game versions" →
+  "Install the Cubeon Client in-game mod" checkbox, `cfg["client_mod_enabled"]`
+  (default True). cubeon/launch.py treats off like a public build: no jar
+  install AND `cubeonfriends.remove_installed()` sweeps stale jars (a
+  leftover would still load). Smaller blast radius than
+  features.friends_enabled(), which is a BUILD-time switch removing the whole
+  backend.
+- **FPS boost (Sodium + Lithium)**: NO Settings toggle (the user explicitly
+  asked for it removed 2026-09-11 - don't add it back). It rides the existing
+  "Cubeon extras in-game" toggle: when `client_mod_enabled` is on (and the
+  config-only `perf_mods_enabled`, default True, is on) and the loader is
+  Fabric/Quilt, `cubeon/launch.py` calls
+  `perf_mods.ensure_installed(mc_version, loader)` before `sync_mods_to_game`,
+  which fetches Sodium + Lithium from Modrinth (`PERF_MOD_SLUGS`) into the
+  profile exactly like a user-installed mod. `perf_mods._present()` matches
+  slug/display_name/project_id/filename so a manual jar is never duplicated
+  (duplicate Sodium = crash). Best-effort: no build/offline/load error is
+  reported in the return dict, never raised. The Cubeon Client itself is a
+  social mod and contributes ~0 FPS; Sodium is the actual frame-rate engine and
+  its own in-game settings are intentionally left untouched.
+- **Client JVM flags**: `cubeon/launch.py` `CLIENT_JVM_FLAGS` (G1GC,
+  MaxGCPauseMillis=50, ParallelRefProc, DisableExplicitGC, G1NewSize/Reserve)
+  are appended to every launch's `jvmArguments`, and `-Xms` now equals `-Xmx`
+  (no mid-game heap-growth stutter). Deliberately lighter than the server's
+  Aikar set (`HIGH_PING_JVM_FLAGS`); flags chosen to exist on Java 8–25.
+- **Mod detail menu + auto-repair (2026-09-12)**: clicking any mod row
+  (browse OR installed, except protected/system files) opens a full menu via
+  `ui/mods_tab.py:open_mod_detail()`. It fetches `mods.get_mod_details()`
+  (one cached `GET /project/{id}`: gallery/featured art, body markdown,
+  downloads, categories, loaders, game_versions, licence, links) and
+  `mods.get_mod_versions()` (one cached `GET /project/{id}/version`: every
+  release, each marked `compatible` for the current profile, with its primary
+  file url/filename/hashes and dependencies). Both use the 6h `local_cache`
+  so reopening is instant and works offline via the stale tier. Detail
+  install buttons call `install_mod_with_dependencies`, then the doctor.
+  The dialog uses `cubeon/dialogs.py` `open_dialog`/`close_dialog`
+  (Flet 0.86 stack), `cubeon/icons.py` for art, and background threads +
+  `thread_safe_ui.refresh` for painting.
+  **Layout (2026-09-12, friendliness pass)**: 720px wide; scrollable height
+  adapts to `page.height` (capped 640). Order = gallery strip (all screenshots,
+  sideways scroll) → compact meta pills (downloads / loader / Minecraft) →
+  **"Install latest" quick action** (or "You're up to date") → collapsed
+  description (`Read more` reveals the full `ft.Markdown`) → version list.
+  Version list shows at most **8 compatible** builds, then a "Show all N
+  versions" toggle that also reveals incompatible builds tagged
+  "other version". A shared `_install_button()` drives both the quick action
+  and every row; on success all cached repaints in `quick_state["repaints"]`
+  fire so the banner and rows stay in sync.
+- **mod_doctor() auto-repair**: `cubeon/mods.py:mod_doctor(mc, loader,
+  auto_fix=True, check_online=True)` returns `{checked, problems, fixed,
+  unfixed}` and NEVER raises. Four checks: (1) duplicate copies - same
+  Modrinth id => older copy DELETED via `supersede_older_copies`; same
+  filename stem only => older copy DISABLED (reversible). Run once per
+  duplicate group, not per loser, and `fixed` is computed PER LOSER (the
+  file is really gone) rather than group-level, so a partial failure is not
+  reported as success. (2) missing required dependencies
+  (`_required_deps_cached`, 6h) => downloaded, tracked in `installed_ids` so
+  two mods needing the same dep fetch it once. (3) no release for the current
+  loader+mc_version => the jar is DISABLED (`toggle_mod`), never deleted.
+  `get_mod_download` skips a newest release whose `files` list is empty so a
+  usable older build isn't mistaken for "no release" (which would wrongly
+  disable the mod). (4) **version conflicts** - see next bullet.
+  Wired four places: automatically after every mod install (`ui/mods_tab.py`
+  browse quick-download AND the detail dialog AND "Install from file"), by
+  the Installed pane's **"Fix problems"** button, at launch in
+  `cubeon/launch.py` with `check_online=False` (skips the per-mod API passes;
+  duplicate + conflict repair still runs), and **proactively** by
+  `main.py:_proactive_mod_repair()` when an (mc_version, loader) profile is
+  selected - full `check_online=True`, once per profile per session, in a
+  background thread, silent unless it changed something. Regression:
+  `tools/test_mod_detail.py` (66 checks).
+
+- **Version-conflict detection (`breaks`)**: Fabric records "this mod will not
+  work with mod X version Y" in the jar's own `fabric.mod.json` `breaks`, and
+  the **Modrinth API does NOT expose it** (`dependencies` only lists required/
+  optional/embedded/incompatible PROJECTS, never version ranges) - so the jar
+  is the only source of truth. `read_mod_metadata(jar)` unzips
+  `fabric.mod.json`/`quilt.mod.json` (local, offline; returns `depends`,
+  `breaks`, id, version, name). `version_satisfies(version, predicate)`
+  implements Fabric/Maven ranges (`<=1.10.7`, `0.8.x`, `[1.0,2.0)`, `*`,
+  `||`). `mod_doctor` builds an id->installed-version map, and for every jar
+  whose `breaks` matches an installed mod it reports `kind="conflict"`.
+  Resolution (`_resolve_mod_conflict`): (1) update the TARGET if a compatible
+  build escapes the predicate; else (2) replace the DECLARER with the newest
+  compatible build (stable before beta, compatibility filtered BEFORE any
+  cap) whose own `breaks` no longer matches - e.g. Sodium 0.8.14 breaks Iris
+  <=1.10.7, and the newest Iris for 1.21.11 *is* 1.10.7, so Sodium is
+  downgraded to 0.8.12 (breaks Iris <=1.10.6). Remote candidate jars are read
+  via `_read_remote_mod_metadata` (temp download, discarded). If neither side
+  has a compatible replacement, `mod_doctor` falls back to DISABLING the
+  target (`toggle_mod`, reversible) so the game still launches; a
+  `disabled_targets` set stops a second declarer of the same target from
+  toggling it back on. Never deletes blindly; `download_mod` supersedes the
+  replaced copy.
+- **Version manifest fetch**: `cubeon/versions.py` `MANIFEST_URLS` /
+  `_download_manifest()` / `_manifest()`. Both Mojang hostnames are tried
+  (`piston-meta` then `launchermeta`) via `net.get_with_retry` (timeout 15s,
+  2 attempts); the raw manifest is cached in `local_cache` under
+  `mojang_manifest` / `v2` for 1h and served STALE when both mirrors fail.
+  `get_available_versions()` and `get_latest_release()` read that cache, NOT
+  `mll.utils.get_version_list()` (single bare request, no timeout/retry).
+  Regression: `tools/test_versions_manifest.py`.
+- **"Update game version"** button (Play tab, next to Legacy): loads the
+  online list if needed, picks the newest stable release
+  (`_newest_release_key`, pure numeric ids, list-first then
+  `get_latest_release()` fallback - the function was referenced but never
+  defined until 2026-09-11, so the button used to always raise), selects it -
+  the existing prefetch path installs it in the background. Hardened
+  2026-09-12 to never dead-end: if the newest release isn't in the current
+  (offline/filtered) list it is added to the dropdown + `pick_source` before
+  selecting; if it's already selected but not installed it (re)starts the
+  install and says "Getting <v>..."; if selected AND installed it says
+  "Already on the latest release (<v>)". The old "Latest is <v> - pick it
+  from the list" branch (which fired when it was already picked) is gone.
+  The visible picker label is repainted in the handler's `finally`.
+  Regression: `tools/test_ui_smoke.py` section 6b drives the real handler.
+- test_ui_smoke now asserts nav via lowercased all_text (which includes
+  tooltips - all_text already walked them); nav labels are
+  play/mods/modpacks/cosmetics/servers/account/settings + the two buttons.
+- **Version picker dialog**: the Play tab's config band is one compact row -
+  GAME VERSION (button) | ACCOUNT (username field), both 48px. The `ft.Dropdown` is still
+  the source of truth but is NOT mounted; the button (`version_dropdown_button`,
+  label mirrored by `_sync_version_button()` from `on_version_selected`) opens
+  `version_pick_dialog`: the search field `version_filter_field`
+  (on_change = on_pick_search), scrollable `pick_list` rows, and a
+  "Browse all versions →" link (refresh_version_list(online=True) + rebuild).
+  (The "Show snapshots" checkbox lives in Settings now, not the dialog.)
+  **Invariant (2026-09-11 fix):** the dialog filters its OWN snapshot,
+  `pick_source["value"]` (installed-only offline, full online list when
+  fetched), and `_rebuild_pick_list()` reads only that. It must NEVER rewrite
+  `version_dropdown.options`/`.value` while filtering - the old `_filter_versions`
+  did, so every keystroke could reassign the selection to the first match and
+  call `on_version_selected()` (silently starting a prefetch/download), and
+  closing the dialog left the dropdown stuck on a narrowed list. Selection
+  commits only via `_pick_version` (a row click). `refresh_version_list` keeps
+  both `all_online_options` (update-version path) and `pick_source` current.
+  An empty `pick_source`/zero-match renders an explanatory row, never a blank
+  box. test_ui_smoke guards this with a source assertion.
+- **Version strings are shown verbatim; "1.21.11" is not a typo for "1.21.1".**
+  Verified 2026-09-11: the installed folder/JSON id on this machine is
+  literally `1.21.11` (alongside `1.21.8`, `26.1.2`), and `extract_mc_version`
+  is non-destructive for it. Do not "fix" the displayed version without first
+  checking `~/.minecraft/versions/<id>/<id>.json`'s `id` field.
+- The `_reveal_window` GPU-marker NameError (from the mid-session recovery
+  work) is fixed: `_CUBEON_HOME` is imported inside the coroutine; the fuzz
+  suite (12 checks incl. run_task coroutine scan) catches this class.
+
+
 
 ## Follow-up 16: UI-freeze fix — throttled progress repaints (2026-09-05)
 
