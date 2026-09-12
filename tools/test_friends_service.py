@@ -985,6 +985,39 @@ def test_notify_active():
        "cleared again - a stale service can't eat notices")
 
 
+def test_sync_report_version_callout():
+    """The mod-diff report names the mods the joiner has at a DIFFERENT
+    version, so a duplicate isn't left as an unexplained 'missing'."""
+    section("mod-diff report: different-version call-out")
+    ok(fs._mod_stem("Sodium-Fabric-0.5.11.jar") == "sodium-fabric", "stem keeps the mod name")
+    ok(fs._mod_stem("fabric-api-0.150.0.jar") == "fabric-api", "stem stops at the version token")
+    ok(fs._mod_stem("1.20-fix.jar") == "", "a digit-led filename never claims a stem")
+
+    service, _, _ = build()
+    rep = {"state": "ready", "friend": "Alice",
+           "you": {"version": "1.21.1", "loader": "fabric", "mods": 3},
+           "them": {"version": "1.21.1", "loader": "fabric", "mods": 4},
+           "version_ok": True, "loader_ok": True,
+           "missing": [{"filename": "sodium-fabric-0.5.0.jar"},
+                       {"filename": "c2me-0.3.7.jar"}],
+           "version_licts": ["sodium-fabric-0.5.0.jar"],
+           "extra": [], "needs_relaunch": False, "encrypted": True,
+           "download_done": 0, "download_total": 1}
+    service._sync_render(rep)
+    lines = "\n".join(rep["lines"])
+    ok("DIFFERENT version" in lines and "sodium" in lines,
+       "the report names the conflicting mod file", lines)
+    ok("c2me-0.3.7.jar" in lines, "a genuinely-new mod still reads as missing")
+
+    # No conflicts -> no call-out, and the host-version line is unchanged.
+    rep2 = dict(rep, version_licts=[], missing=[])
+    service._sync_render(rep2)
+    ok("DIFFERENT version" not in "\n".join(rep2["lines"]),
+       "no version clash, no confusing call-out")
+    ok("everything ready" in "\n".join(rep2["lines"]).replace("can play together", "everything ready"),
+       "clean-ready wording survives")
+
+
 def test_pending_rooms_pruned():
     section("pending invites are pruned (they used to leak forever)")
     service, client, _ = build()
@@ -1476,6 +1509,7 @@ def main():
         test_worldgate_joiner()
         test_world_not_server_fallback()
         test_notify_active()
+        test_sync_report_version_callout()
         test_pending_rooms_pruned()
         test_profile_mismatch()
         test_retry()

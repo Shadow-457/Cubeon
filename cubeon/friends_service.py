@@ -108,6 +108,26 @@ _NOTICE_DEDUPE_SECONDS = 10.0
 _GATE_TIMEOUT = 60.0
 
 
+def _mod_stem(filename):
+    """'sodium-fabric-0.5.11.jar' -> 'sodium-fabric'. The leading run of
+    filename tokens before the first digit-led one - the mod NAME, which
+    every version of it shares. A filename that starts with a digit yields
+    "" ("1.20-fix" is not a stable name), so it can never claim a match.
+
+    This is a presentation heuristic for the sync report's "different
+    version" call-out; it never gates a download, so a wrong guess costs at
+    most a confusing label, never a broken join."""
+    base = (str(filename or "").split(".jar", 1)[0] or "").strip().lower()
+    if base[:1].isdigit():
+        return ""
+    keep = []
+    for token in base.split("-"):
+        if token[:1].isdigit():
+            break
+        keep.append(token)
+    return "-".join(keep)
+
+
 def _default_save_config(cfg: dict) -> None:
     # save_config lives in launcher_core; imported lazily so this module doesn't
     # depend on main.py's import graph or create a cycle.
@@ -1113,6 +1133,7 @@ class FriendsService:
             "loader_ok": True,
             "missing": [],
             "extra": [],
+            "version_licts": [],
             "can_download": False,
             "download_done": 0,
             "download_total": 0,
@@ -1241,6 +1262,13 @@ class FriendsService:
                     lines.append("  " + entry["filename"])
                 if len(rep["missing"]) > 3:
                     lines.append(f"  ...and {len(rep['missing']) - 3} more")
+            conflicts = rep.get("version_licts") or []
+            if conflicts:
+                lines.append("You have a DIFFERENT version of:")
+                for fn in conflicts[:3]:
+                    lines.append("  " + fn)
+                if len(conflicts) > 3:
+                    lines.append(f"  ...and {len(conflicts) - 3} more")
             if rep["extra"]:
                 lines.append(f"You have {len(rep['extra'])} mod(s) they don't. "
                              f"That's usually fine.")
@@ -1248,7 +1276,8 @@ class FriendsService:
                 lines.append(f"Downloading {rep['download_done']}"
                              f"/{rep['download_total']}...")
             if rep["needs_relaunch"]:
-                lines.append("Done. Relaunch Minecraft to load the new mods.")
+                lines.append("Done. The host's mods are installed and linked - "
+                             "press Fix and relaunch Minecraft to load them.")
             if not rep["encrypted"]:
                 lines.append("Note: not encrypted - install the launcher's "
                              "encryption add-on.")
@@ -1347,6 +1376,14 @@ class FriendsService:
         rep["missing"] = [m for m in missing if not m.get("sha256") in rep["_gone"]]
         rep["extra"] = sorted(m["filename"] for m in mine["mods"]
                               if m["sha256"].lower() not in theirs)
+        # A missing mod whose NAME we already have (a same-stem file with a
+        # different hash) is a version clash, not a brand-new mod - call it
+        # out so "why do I have a duplicate?" doesn't become the player's job.
+        mine_stems = {_mod_stem(m.get("filename"))
+                      for m in mine["mods"] if m.get("filename")}
+        rep["version_licts"] = sorted({
+            m["filename"] for m in rep["missing"]
+            if m.get("filename") and _mod_stem(m["filename"]) in mine_stems})
         total_bytes = sum(int(m.get("size") or 0) for m in rep["missing"])
         # Linking a 1.21 friend's jars into a 1.20 profile is how you get a
         # crash on the next launch, so a version/loader mismatch disables the

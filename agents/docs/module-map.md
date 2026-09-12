@@ -685,6 +685,12 @@ content pulled live from the free, keyless, 24/7 APIs the game itself uses.
   MAX_ATTEMPTS=3 then the room closes; a 60s watchdog closes an
   unanswered round; the password (hash included) never touches disk.
   The offer precedes any fallback decision, so the gate covers both.
+- **Mod-diff report calls out version clashes (2026-09-12):** the sync
+  report's missing-mod list splits a mod the joiner HAS at a different
+  hash into its own "You have a DIFFERENT version of" block, by matching
+  filename stems (_mod_stem: tokens before the first digit-led one).
+  Purely presentational - never gates can_download. The Fix-button
+  label in the mod is now "Fix" (was "Download mods").
 - **LAN worlds NEVER hand the joiner to Minekube (2026-09-12, behavior
   change).** connect-spigot is a tunnel for the host's PAPER SERVER (verified
   in the shipped jar - no target/local-port config key), so a joiner pointed

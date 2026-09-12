@@ -1129,7 +1129,7 @@ public class CubeonClientScreen extends Screen {
         String who = selected;
         Bridge.SyncReport report = bridge.syncReport();
         label(actions[0], report.idle() ? "Compare" : "Refresh");
-        label(actions[1], "Download mods");
+        label(actions[1], "Fix");
         label(actions[2], "Close");
         actions[3].button.visible = false;
 
