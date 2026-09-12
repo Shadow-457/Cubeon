@@ -154,6 +154,12 @@ class FakeCore:
         self.whitelist = []
         self.launches = []
         self.server_running = False
+        # The Minekube surface the service reads (launcher_core re-exports
+        # cubeon.minekube); tests stub the two reads it makes.
+        self.minekube = types.SimpleNamespace(
+            read_public_address=lambda version_id: None,
+            public_address=lambda endpoint: "",
+            get_endpoint=lambda version_id: "")
 
     def extract_mc_version(self, version_id):
         return (version_id or "").split("-")[-1] or None
@@ -903,6 +909,82 @@ def test_worldgate_offer_released():
     ok(not worldgate.has_password(), "the armed password dies with the session")
 
 
+def test_world_not_server_fallback():
+    """The punch failed: the world STAYS on Cubeon's relay - the joiner keeps
+    landing in the LAN world - and the Minekube address is announced into the
+    host's Minecraft chat as a shareable for the Cubeon server itself."""
+    section("fallback (world on the relay, address in chat)")
+
+    # --- no public server: honest relay stay, nothing shared ---------------
+    service, client, core = build()
+    worldgate.clear()
+    fake_punch = types.SimpleNamespace(close=lambda: None)
+    closed = []
+    fake_punch.close = lambda: closed.append(1)
+    service._session_set({"state": "connected", "peer": "Alice", "is_host": True,
+                          "room": "room-7", "punch": fake_punch,
+                          "lan_port": 1234})
+    service._switch_to_minekube("direct connection failed")
+    texts = [e["text"] for e in service.events_since(0)["events"]]
+    ok(any("relay" in t for t in texts), "the host is told the world stays on the relay")
+    ok(not any(d.get("kind") == "p2p_use_minekube"
+               for k, args in client.sent if k == "signal"
+               for d in [args[2]]),
+       "the joiner is NOT redirected to the Paper server - that's a different world")
+    ok(not closed, "the relay transport is untouched - it is carrying the world")
+    ok(service._session_get().get("minekube_active") is None,
+       "no minekube session state - that path is old-launcher compat only")
+
+    # --- server running: the address is announced into the host's chat ----
+    core.server_running = True
+    core.minekube.read_public_address = lambda v: "live-beru.play.minekube.net"
+    service._switch_to_minekube("direct connection failed")
+    texts = [e["text"] for e in service.events_since(0)["events"]]
+    ok(any("live-beru.play.minekube.net" in t and "server" in t.lower()
+           for t in texts),
+       "the address lands in the host's Minecraft chat, labelled as the server")
+    ok(not any(d.get("kind") == "p2p_use_minekube"
+               for k, args in client.sent if k == "signal"
+               for d in [args[2]]),
+       "still no joiner redirect on the new protocol")
+
+    # --- old-host compat: a p2p_use_minekube still works on the joiner -----
+    service2, client2, _ = build()
+    service2._session_set({"state": "connecting", "peer": "Bob",
+                           "is_host": False, "room": "room-8",
+                           "mods_ready": True, "assets_ready": True})
+    client2.fire("signal", {"room": "room-8", "from": "Bob", "data": {
+        "kind": "p2p_use_minekube", "address": "old-host.play.minekube.net"}})
+    s = service2._session_get()
+    ok(s.get("minekube_active") and s.get("minekube_address") == "old-host.play.minekube.net",
+       "an older launcher's handoff still lands the joiner on Minekube")
+    texts = [e["text"] for e in service2.events_since(0)["events"]]
+    ok(any("old-host.play.minekube.net" in t for t in texts),
+       "the joiner sees the address in their Minecraft chat")
+
+
+def test_notify_active():
+    """The Server tab's seam into the mod's Minecraft chat."""
+    section("notify_active (chat push from other modules)")
+    ok(fs.FriendsService.notify_active("x") is False,
+       "no active service - best-effort false, never a crash")
+
+    service, client, _ = build()
+    prev = fs.FriendsService._active
+    try:
+        fs.FriendsService._active = service
+        ok(fs.FriendsService.notify_active("Your Cubeon server is public at "
+                                        "x.play.minekube.net") is True,
+           "the active service accepts the line")
+        texts = [e["text"] for e in service.events_since(0)["events"]]
+        ok(any("x.play.minekube.net" in t for t in texts),
+           "the line joined the same event ring the mod polls")
+    finally:
+        fs.FriendsService._active = prev
+    ok(fs.FriendsService.notify_active("x") is False,
+       "cleared again - a stale service can't eat notices")
+
+
 def test_pending_rooms_pruned():
     section("pending invites are pruned (they used to leak forever)")
     service, client, _ = build()
@@ -1392,6 +1474,8 @@ def main():
         test_worldgate_flow()
         test_worldgate_offer_released()
         test_worldgate_joiner()
+        test_world_not_server_fallback()
+        test_notify_active()
         test_pending_rooms_pruned()
         test_profile_mismatch()
         test_retry()

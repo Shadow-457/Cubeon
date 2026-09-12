@@ -15,7 +15,10 @@ import re
 import threading
 
 import flet as ft
-from cubeon.theme import RADIUS, animated_switch, TEXT_FAINT  # design system (radius, toggles, faint text tier)
+from cubeon.theme import (  # design system (radius, toggles, faint text tier, underline tabs, accent fg)
+    RADIUS, animated_switch, TEXT_FAINT, text_tab, ON_ACCENT,
+    attach_hover, ROW_HOVER, ACCENT_TINT, CARD_BORDER, CARD_FILL,
+)
 
 import launcher_core as core
 from cubeon import icons as _icons  # disk cache for Modrinth project art
@@ -157,9 +160,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     install_button = ft.Container(
         content=ft.Text("Install server", color=BG, weight=ft.FontWeight.W_700, size=14),
         bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=13, horizontal=18),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=on_install_click, width=180,
-        tooltip="Paper server - vanilla compatible, plugin-ready. A Paper "
-                "jar already in Cubeon's folder is used instead of downloading.",
+        alignment=ft.Alignment.CENTER, ink=False, on_click=on_install_click, width=180,
+        tooltip="Paper server - works with normal Minecraft and supports plugins.",
     )
 
     # --- Server type -------------------------------------------------------
@@ -322,7 +324,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         content=ft.Text("Add", size=12, color=BG, weight=ft.FontWeight.W_700),
         bgcolor=ACCENT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=on_whitelist_add,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=on_whitelist_add,
     )
 
     # --- Security password (CubeonGate) -----------------------------------
@@ -334,7 +336,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     gate_password_field = text_field(
         "Server password", width=240, password=True, can_reveal_password=True,
         tooltip="Players verify once per account. 3 wrong tries locks them "
-                "out, starting at 10 minutes. Stored as a hash only.")
+                "out, starting at 10 minutes.")
     gate_status = ft.Text("", size=11, color=TEXT_DIM)
 
     def update_gate_status():
@@ -374,13 +376,13 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         content=ft.Text("Set password", size=12, color=BG, weight=ft.FontWeight.W_700),
         bgcolor=ACCENT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=on_gate_set,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=on_gate_set,
     )
     gate_clear_button = ft.Container(
         content=ft.Text("Remove", size=12, color=TEXT_DIM, weight=ft.FontWeight.W_600),
         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=on_gate_clear,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=on_gate_clear,
     )
     # Distance caps: Minecraft ENFORCES view-distance / simulation-distance
     # per player SERVER-side - a client can open its own settings to 32
@@ -515,7 +517,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         if value > server_recommended_ram_mb:
             server_ram_warning.value = (
                 f"⚠ Above the recommended half-point ({server_recommended_ram_mb} MB). "
-                f"The server and your OS share this RAM - allocating too much can "
+                f"The server and your computer share this RAM - allocating too much can "
                 f"starve everything else or cause instability."
             )
             server_ram_warning.visible = True
@@ -637,7 +639,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             smooth_progress_ring.visible = True
             smooth_progress_bar.visible = True
             smooth_progress_bar.value = None
-            smooth_progress_text.value = "Setting up the low-ping plugin stack..."
+            smooth_progress_text.value = "Setting up smooth mode..."
             threading.Thread(target=_smooth_install_worker, args=(version_id, _smooth_gen["v"]),
                              name="smooth-mode-plugin-install", daemon=True).start()
         else:
@@ -649,7 +651,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     high_ping_switch, high_ping_row = switch_row(
         "Smooth mode for laggy friends",
-        "Lighter settings + auto-installs low-ping plugins (Paper servers).",
+        "Lighter settings for players on slow connections.",
     )
     high_ping_switch.on_change = on_high_ping_toggle
 
@@ -673,7 +675,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=14, vertical=11),
-        ink=True, on_click=on_open_folder_click,
+        ink=False, on_click=on_open_folder_click,
     )
 
     settings_status = ft.Text("", size=12, color=TEXT_DIM)
@@ -681,22 +683,13 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # --- Delete this version's server ---------------------------------------
 
     def _open_dialog(dlg):
-        # Same old/new-Flet fallback used across the app (main.py, modpacks_tab).
-        if hasattr(page, "open"):
-            page.open(dlg)
-        else:
-            dlg.open = True
-            page.dialog = dlg
-            if dlg not in page.overlay:
-                page.overlay.append(dlg)
-            page.update()
+        # Shared cross-Flet dialog plumbing (Flet 0.86: show_dialog/pop_dialog).
+        from cubeon import dialogs as cubeon_dialogs
+        cubeon_dialogs.open_dialog(page, dlg)
 
     def _close_dialog(dlg):
-        if hasattr(page, "close"):
-            page.close(dlg)
-        else:
-            dlg.open = False
-            page.update()
+        from cubeon import dialogs as cubeon_dialogs
+        cubeon_dialogs.close_dialog(page, dlg)
 
     def on_delete_server_click(e=None):
         version_id = active_version["value"]
@@ -735,7 +728,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 content=ft.Column(
                     [
                         ft.Text(f"This permanently deletes the server for '{version_id}'. "
-                                "Its jar, world, settings and any plugins are removed.", size=13, color=TEXT),
+                                "Its world, settings and any plugins are removed.", size=13, color=TEXT),
                         ft.Text("Your game installs, mods and skins are not affected.",
                                 size=12, color=TEXT_DIM),
                     ],
@@ -758,7 +751,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=14, vertical=11),
-        ink=True, on_click=on_delete_server_click,
+        ink=False, on_click=on_delete_server_click,
     )
 
     def on_save_settings(e=None):
@@ -809,7 +802,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             spacing=7, tight=True,
         ),
         bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=18, vertical=12),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=on_save_settings,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=on_save_settings,
     )
 
     # The settings card used to be one long wall of sections. Basics - the
@@ -836,7 +829,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                      size=11, color=TEXT_DIM)],
             spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        bgcolor=SURFACE_HI, border_radius=RADIUS, ink=True,
+        bgcolor=SURFACE_HI, border_radius=RADIUS, ink=False,
         on_click=_toggle_advanced,
         padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
     )
@@ -1064,7 +1057,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             ),
             bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
-            ink=True, on_click=on_click,
+            ink=False, on_click=on_click,
         )
 
     quick_actions_row = ft.Row(
@@ -1107,18 +1100,13 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         page.update()
 
     def _show_snack(text: str):
-        """Shows a snackbar; tolerant of both old and new Flet class names."""
-        snack_cls = getattr(ft, "SnackBar", None) or getattr(ft, "Snackbar", None)
-        if snack_cls is None:
+        """Shows a snackbar via the shared cross-Flet plumbing; falls back to
+        a console line if even that can't run."""
+        from cubeon import dialogs as cubeon_dialogs
+        try:
+            cubeon_dialogs.show_snack(page, text)
+        except Exception:
             append_console(f"[hint] {text}")
-            return
-        snack = snack_cls(ft.Text(text))
-        if hasattr(page, "open"):
-            page.open(snack)
-        else:
-            snack.open = True
-            page.snack_bar = snack
-            page.update()
 
     def _start_blocked_reason(version_id: str | None) -> str | None:
         """Why Start can't run right now, in plain language - or None if it can."""
@@ -1263,7 +1251,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     start_stop_button = ft.Container(
         content=ft.Text("Start server", color=BG, weight=ft.FontWeight.W_700, size=14),
         bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=13, horizontal=20),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=on_start_stop_click, width=180,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=on_start_stop_click, width=180,
     )
 
     restart_button = ft.Container(
@@ -1273,7 +1261,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=13, horizontal=16),
-        alignment=ft.Alignment.CENTER, ink=True, on_click=on_restart_click, disabled=True,
+        alignment=ft.Alignment.CENTER, ink=False, on_click=on_restart_click, disabled=True,
     )
 
     def on_stop_orphan_click(e=None):
@@ -1316,7 +1304,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         ),
         bgcolor=DANGER, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=13, horizontal=16),
-        alignment=ft.Alignment.CENTER, ink=True,
+        alignment=ft.Alignment.CENTER, ink=False,
         on_click=on_stop_orphan_click, visible=False,
     )
     orphan_notice = ft.Text("", size=12, color=DANGER, font_family=FONT_MONO,
@@ -1332,8 +1320,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         if pid:
             orphan_notice.value = (
                 f"A server from an earlier Cubeon session is still running "
-                f"(process {pid}) and is holding this world. Stop it before "
-                f"starting a new one.")
+                f"and is holding this world. Stop it before starting a new one.")
         page.update()
 
     def _send_console_command(version_id: str, text: str):
@@ -1370,7 +1357,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     )
     send_command_button = ft.Container(
         content=ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=16, color=BG),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=9, ink=True,
+        bgcolor=ACCENT, border_radius=RADIUS, padding=9, ink=False,
         on_click=on_send_command, disabled=True,
     )
 
@@ -1402,7 +1389,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                                     spacing=4, tight=True,
                                 ),
                                 padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-                                border_radius=RADIUS, ink=True, on_click=clear_console,
+                                border_radius=RADIUS, ink=False, on_click=clear_console,
                                 tooltip="Clear the log",
                             ),
                         ],
@@ -1451,12 +1438,19 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     installed_plugins_count = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     plugins_show_all = {"value": False}
 
+    # --- Browse / Installed view state (panes built after their children) ---
+    plugins_active_view = {"value": "browse"}
+    plugins_browse_pane = None   # constructed below, once the market controls exist
+    plugins_installed_pane = None
+
     def refresh_plugins_list():
         version_id = active_version["value"]
         installed_plugins_list.controls.clear()
         if not version_id or core.get_server_type(version_id) != core.SERVER_TYPE_PAPER:
             installed_plugins_count.value = ""
-            page.update()
+            thread_safe_ui.refresh(installed_plugins_list)
+            thread_safe_ui.refresh(installed_plugins_count)
+            _build_plugins_view_segment()
             return
         plugins = core.list_plugins(version_id)
         installed_plugins_count.value = f"{len(plugins)} plugin(s)"
@@ -1498,11 +1492,14 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     ),
                     padding=ft.padding.Padding.symmetric(vertical=8, horizontal=10),
                     border_radius=RADIUS,
-                    ink=True,
+                    ink=False,
                     on_click=lambda e: (plugins_show_all.update({"value": not plugins_show_all["value"]}), refresh_plugins_list()),
                 )
-            )
-        page.update()
+                    )
+        # Scoped diff (page.update() re-synced every mounted tab).
+        thread_safe_ui.refresh(installed_plugins_list)
+        thread_safe_ui.refresh(installed_plugins_count)
+        _build_plugins_view_segment()  # keep "Installed (N)" tab count fresh
 
     def _plugin_row(p: dict):
         def on_toggle(e):
@@ -1519,58 +1516,70 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             core.delete_plugin(version_id, p["filename"])
             refresh_plugins_list()
 
-        return ft.Container(
-            content=ft.Row(
-                [
-                    ft.Container(
-                        content=ft.Icon(ft.Icons.EXTENSION_ROUNDED, size=18, color=ACCENT if p["enabled"] else TEXT_DIM),
-                        width=38, height=38, bgcolor=SURFACE, border_radius=RADIUS,
-                        alignment=ft.Alignment.CENTER,
-                    ),
-                    ft.Column(
-                        [
-                            ft.Text(p["display_name"], size=14, color=TEXT, weight=ft.FontWeight.W_600),
-                            ft.Text("Managed by Cubeon (required for public sharing)" if p.get("protected")
-                                    else ("Enabled" if p["enabled"] else "Disabled"),
-                                    size=11, color=ACCENT if (p["enabled"] or p.get("protected")) else TEXT_DIM),
-                        ],
-                        spacing=2, expand=True,
-                    ),
-                    # Protected plugins (Minekube Connect) get a lock instead
-                    # of the toggle/delete controls - they're Cubeon's own
-                    # infrastructure and are re-installed at server start
-                    # anyway, so removing them only ever broke sharing.
-                    *(
-                        [ft.Container(
-                            content=ft.Row([
-                                ft.Icon(ft.Icons.LOCK_ROUNDED, size=14, color=TEXT_DIM),
-                                ft.Text("System", size=11, color=TEXT_DIM, font_family=FONT_MONO),
-                            ], spacing=4, tight=True),
-                            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-                        )]
-                        if p.get("protected") else [
-                            animated_switch(value=p["enabled"], active_color=ACCENT, on_change=on_toggle),
-                            ft.Container(
-                                content=ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED, size=18, color=DANGER),
-                                padding=8, ink=True, border_radius=RADIUS, on_click=on_delete,
-                            ),
-                        ]
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        # Installed rows match the mods tab's: transparent at rest, lift on
+        # hover, quiet typography - state is in the text, not a slab.
+        return attach_hover(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.EXTENSION_ROUNDED, size=18,
+                                            color=ACCENT if p["enabled"] else TEXT_FAINT),
+                            width=38, height=38, bgcolor=ROW_HOVER, border_radius=RADIUS,
+                            alignment=ft.Alignment.CENTER,
+                        ),
+                        ft.Column(
+                            [
+                                ft.Text(p["display_name"], size=13.5,
+                                        color=TEXT if p["enabled"] else TEXT_DIM,
+                                        weight=ft.FontWeight.W_600),
+                                ft.Text("Managed by Cubeon (required for public sharing)" if p.get("protected")
+                                        else ("Enabled" if p["enabled"] else "Disabled"),
+                                        size=11, color=TEXT_FAINT, font_family=FONT_MONO),
+                            ],
+                            spacing=2, expand=True,
+                        ),
+                        # Protected plugins (Minekube Connect) get a lock instead
+                        # of the toggle/delete controls - they're Cubeon's own
+                        # infrastructure and are re-installed at server start
+                        # anyway, so removing them only ever broke sharing.
+                        *(
+                            [ft.Container(
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.LOCK_ROUNDED, size=14, color=TEXT_DIM),
+                                    ft.Text("System", size=11, color=TEXT_DIM, font_family=FONT_MONO),
+                                ], spacing=4, tight=True),
+                                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
+                            )]
+                            if p.get("protected") else [
+                                animated_switch(value=p["enabled"], active_color=ACCENT, on_change=on_toggle),
+                                ft.Container(
+                                    content=ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED, size=18, color=DANGER),
+                                    padding=8, ink=False, border_radius=RADIUS, on_click=on_delete,
+                                ),
+                            ]
+                        ),
+                    ],
+                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
             ),
-            bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=12,
+            "transparent", ROW_HOVER,
         )
 
     # Browse/search Modrinth for plugins.
     plugin_search_field = ft.TextField(
         hint_text="Search plugins on Modrinth...",
-        border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
-        hint_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI, border_radius=RADIUS,
-        height=44, expand=True, prefix_icon=ft.Icons.SEARCH_ROUNDED,
+        border_color=CARD_BORDER, focused_border_color=ACCENT_DIM, color=TEXT,
+        hint_style=ft.TextStyle(color=TEXT_FAINT), bgcolor=CARD_FILL, border_radius=RADIUS,
+        height=46, expand=True, prefix_icon=ft.Icons.SEARCH_ROUNDED,
+        content_padding=ft.padding.Padding.symmetric(horizontal=14, vertical=12),
         on_submit=lambda e: run_plugin_search(),
     )
     plugin_search_status = ft.Text("", size=12, color=TEXT_DIM)
+    # Quiet mono caption, same role as the mods tab's "Recommended" line.
+    plugin_market_title = ft.Text("Plugin picks", size=12, color=TEXT_DIM, font_family=FONT_MONO)
 
     # Download-progress banner: every plugin install (market, search results,
     # low-ping picks - anything using _install_plugin_handler) reports its
@@ -1596,11 +1605,11 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     plugin_pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     plugin_pager_prev = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=True,
+        padding=6, border_radius=RADIUS, ink=False,
     )
     plugin_pager_next = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=True,
+        padding=6, border_radius=RADIUS, ink=False,
     )
     plugin_pager_row = ft.Row(
         [plugin_pager_prev, plugin_pager_label, plugin_pager_next],
@@ -1616,8 +1625,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 error_content=ft.Icon(ft.Icons.EXTENSION_ROUNDED, color=ACCENT, size=20),
             )
         return ft.Container(
-            content=ft.Icon(ft.Icons.EXTENSION_ROUNDED, size=22, color=ACCENT),
-            width=size, height=size, bgcolor=SURFACE, border_radius=RADIUS,
+            content=ft.Icon(ft.Icons.EXTENSION_ROUNDED, size=22, color=TEXT_FAINT),
+            width=size, height=size, bgcolor=ROW_HOVER, border_radius=RADIUS,
             alignment=ft.Alignment.CENTER,
         )
 
@@ -1674,54 +1683,69 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         return handler
 
     def _plugin_result_row(hit: dict, is_installed=False):
+        """
+        One plugin in the browse results, styled exactly like the mods tab's
+        rows: title leads (15px, bold), description and download/author
+        metadata quiet beneath it, the row transparent until hovered, and the
+        install action a restrained green wash instead of a solid block.
+        """
         desc = hit.get("description") or ""
         if len(desc) > 105:
             desc = desc[:102] + "..."
         downloads = hit.get("downloads", 0) or 0
         author = hit.get("author") or "Modrinth"
-        return ft.Container(
+
+        install_btn_text = ft.Text(
+            "Installed" if is_installed else "Install",
+            size=12.5, weight=ft.FontWeight.W_700,
+            color=TEXT_FAINT if is_installed else ACCENT,
+        )
+        install_btn = ft.Container(
             content=ft.Row(
-                [
-                    _plugin_icon(hit),
-                    ft.Column(
-                        [
-                            ft.Text(hit["title"] or hit.get("slug", ""), size=15, color=TEXT, weight=ft.FontWeight.W_800),
-                            ft.Text(desc, size=12, color=TEXT_DIM),
-                            ft.Row(
-                                [
-                                    ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=13, color=TEXT_DIM),
-                                    ft.Text(f"{downloads:,}", size=11, color=TEXT_DIM, font_family=FONT_MONO),
-                                    ft.Container(width=8),
-                                    ft.Icon(ft.Icons.PERSON_ROUNDED, size=13, color=TEXT_DIM),
-                                    ft.Text(author, size=11, color=TEXT_DIM),
-                                ],
-                                spacing=4,
-                            ),
-                        ],
-                        spacing=3, expand=True,
-                    ),
-                    ft.Container(
-                        content=ft.Row(
-                            [
-                                ft.Icon(ft.Icons.CHECK_ROUNDED if is_installed else ft.Icons.ADD_ROUNDED,
-                                        size=16, color=TEXT_DIM if is_installed else BG),
-                                ft.Text("Installed" if is_installed else "Install",
-                                        size=12.5,
-                                        color=TEXT_DIM if is_installed else BG,
-                                        weight=ft.FontWeight.W_800),
-                            ],
-                            spacing=5, tight=True,
-                        ),
-                        bgcolor=None if is_installed else ACCENT,
-                        border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=14, vertical=10),
-                        ink=not is_installed,
-                        on_click=None if is_installed else _install_plugin_handler(hit),
-                    ),
-                ],
-                spacing=12,
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                [ft.Icon(ft.Icons.CHECK_ROUNDED if is_installed else ft.Icons.DOWNLOAD_ROUNDED,
+                         color=TEXT_FAINT if is_installed else ACCENT, size=15),
+                 install_btn_text],
+                spacing=6, tight=True,
             ),
-            bgcolor=SURFACE_HI, border=ft.border.Border.all(1, ACCENT_DIM), border_radius=RADIUS, padding=14,
+            bgcolor=None if is_installed else ACCENT_TINT,
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+            ink=False,
+            on_click=None if is_installed else _install_plugin_handler(hit),
+        )
+
+        return attach_hover(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        _plugin_icon(hit),
+                        ft.Column(
+                            [
+                                ft.Text(hit["title"] or hit.get("slug", ""), size=15,
+                                        color=TEXT, weight=ft.FontWeight.W_700, max_lines=1),
+                                ft.Text(desc, size=12, color=TEXT_DIM, max_lines=1),
+                                ft.Row(
+                                    [
+                                        ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=13, color=TEXT_FAINT),
+                                        ft.Text(f"{downloads:,}", size=11, color=TEXT_FAINT,
+                                                font_family=FONT_MONO),
+                                        ft.Container(width=8),
+                                        ft.Icon(ft.Icons.PERSON_ROUNDED, size=13, color=TEXT_FAINT),
+                                        ft.Text(author, size=11, color=TEXT_FAINT),
+                                    ],
+                                    spacing=4,
+                                ),
+                            ],
+                            spacing=3, expand=True,
+                        ),
+                        install_btn,
+                    ],
+                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=10),
+            ),
+            "transparent", ROW_HOVER,
         )
 
     def run_plugin_search(e=None):
@@ -1809,65 +1833,83 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     plugin_pager_prev.on_click = _plugin_page_prev
     plugin_pager_next.on_click = _plugin_page_next
 
-    plugin_search_button = ft.Container(
-        content=ft.Row(
-            [ft.Icon(ft.Icons.SEARCH_ROUNDED, size=16, color=BG),
-             ft.Text("Search", size=13, color=BG, weight=ft.FontWeight.W_800)],
-            spacing=6, tight=True,
-        ),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
-        ink=True, on_click=run_plugin_search,
+    # (Search runs on Enter; the old solid-green Search button is gone - the
+    # mods tab has no explicit search button either.)
+
+    # --- Browse / Installed view tabs (built here: every child control now exists) ---
+    # Same pattern as the Mods tab: the plugin market and the installed list
+    # each get the whole screen, toggled by underline tabs. Both panes stay
+    # mounted; only visibility flips. No enclosing slab - the rows carry
+    # themselves, exactly like the mods browse pane.
+    plugins_browse_pane = ft.Column(
+        [
+            ft.Row([plugin_search_field], spacing=6),
+            ft.Container(height=12),
+            ft.Row([plugin_market_title, ft.Container(expand=True), plugin_search_status],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Container(height=4),
+            plugin_install_banner,
+            plugin_results_list,
+            plugin_pager_row,
+        ],
+        spacing=8,
+        visible=True,
     )
+
+    plugins_installed_pane = ft.Column(
+        [
+            ft.Row([section_label("Installed plugins"), ft.Container(expand=True), installed_plugins_count],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            installed_plugins_list,
+        ],
+        spacing=8,
+        visible=False,
+    )
+
+    plugins_view_segment_row = ft.Row(spacing=18)
+
+    def _build_plugins_view_segment():
+        plugins_view_segment_row.controls.clear()
+        try:
+            v = active_version["value"]
+            n_plugs = len(core.list_plugins(v)) if (v and core.get_server_type(v) == core.SERVER_TYPE_PAPER) else 0
+        except Exception:
+            n_plugs = 0
+        for vid, vlabel in (("browse", "Browse"), ("installed", "Installed")):
+            count_note = f" ({n_plugs})" if (vid == "installed" and n_plugs) else ""
+            plugins_view_segment_row.controls.append(
+                text_tab(vlabel + count_note,
+                         selected=plugins_active_view["value"] == vid,
+                         on_click=lambda e, vv=vid: _on_plugins_view_change(vv))
+            )
+        thread_safe_ui.refresh(plugins_view_segment_row)
+
+    def _on_plugins_view_change(new_view):
+        if plugins_active_view["value"] == new_view:
+            return
+        plugins_active_view["value"] = new_view
+        plugins_browse_pane.visible = (new_view == "browse")
+        plugins_installed_pane.visible = (new_view == "installed")
+        _build_plugins_view_segment()
+        if new_view == "installed":
+            refresh_plugins_list()
+        thread_safe_ui.refresh(plugins_browse_pane)
+        thread_safe_ui.refresh(plugins_installed_pane)
 
     plugins_content = ft.Column(
         [
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Row(
-                            [
-                                ft.Container(
-                                    content=ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, color=BG, size=20),
-                                    width=42, height=42, bgcolor=ACCENT, border_radius=RADIUS,
-                                    alignment=ft.Alignment.CENTER,
-                                ),
-                                ft.Column(
-                                    [
-                                        ft.Text("Plugin Market", size=20, color=TEXT, font_family=FONT_DISPLAY),
-                                        ft.Text("Power-ups for your Paper server.", size=12, color=TEXT_DIM),
-                                    ],
-                                    spacing=1, expand=True,
-                                ),
-                                plugin_search_status,
-                            ],
-                            spacing=12,
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        ft.Row([plugin_search_field, plugin_search_button], spacing=8),
-                        plugin_install_banner,
-                        plugin_results_list,
-                        plugin_pager_row,
-                    ],
-                    spacing=12,
-                ),
-                bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=24,
-            ),
-            ft.Container(height=16),
-            ft.Container(
-                content=ft.Column(
-                    [
-                        section_label("Installed plugins"),
-                        installed_plugins_count,
-                        installed_plugins_list,
-                    ],
-                    spacing=8,
-                ),
-                bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=24,
-            ),
+            # View tabs: Browse (the market) and Installed (your plugins)
+            # share the screen one at a time - the installed list no longer
+            # lives a full market-scroll below the search results.
+            plugins_view_segment_row,
+            ft.Container(height=6),
+            plugins_browse_pane,
+            plugins_installed_pane,
         ],
         spacing=0,
         visible=False,
     )
+    _build_plugins_view_segment()
 
     def refresh_plugins_visibility():
         is_paper = plugins_tab_visible["value"]
@@ -1892,7 +1934,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     plugins_view = ft.Column(
         [
             ft.Text("Plugins", size=28, color=TEXT, font_family=FONT_DISPLAY),
-            ft.Text("Find plugins first. Installed plugins stay below, capped so they don't bury the shop.", size=13, color=TEXT_DIM),
+            ft.Text("Find plugins, then manage the ones you've added.", size=13, color=TEXT_DIM),
             ft.Container(height=8),
             plugins_not_paper_notice,
             plugins_content,
@@ -1940,6 +1982,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         same contract the old tunnel panel's watcher had, just attached to
         one neat line instead of a whole collapsible section."""
         import time as _time
+        _last_notified = None   # address already pushed into Minecraft chat
         while True:
             _time.sleep(2.0)
             try:
@@ -1951,6 +1994,19 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     public_text.value = f"Public address: {addr}"
                     public_hint_text.value = ("Share this with friends. "
                                               "No port forwarding needed.")
+                    # The address belongs in the player's Minecraft chat too:
+                    # a host in-game learns it where they can copy it, instead
+                    # of hunting for the Server tab. One line per resolved
+                    # address, not per poll.
+                    if addr != _last_notified:
+                        _last_notified = addr
+                        try:
+                            from cubeon.friends_service import FriendsService
+                            FriendsService.notify_active(
+                                f"Your Cubeon server is public at {addr} - "
+                                f"share it with friends.")
+                        except Exception:
+                            pass
                     # Feed the Tab-list branding in CubeonGate so the
                     # player list shows the live endpoint.
                     try:

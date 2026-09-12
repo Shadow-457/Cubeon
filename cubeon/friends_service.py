@@ -151,6 +151,12 @@ class FriendsService:
     profile.
     """
 
+    # The process-scoped instance, set by start() (see the comment there).
+    # Exactly one service per process is the contract, so a class-level
+    # reference is the seam other Cubeon modules use to reach the in-game
+    # mod's Minecraft chat (FriendsService.notify_active).
+    _active = None
+
     # local_api setter -> method on this service. Missing setters are skipped,
     # so this module works against both the bridge as shipped today and the
     # wider one being written alongside it.
@@ -277,6 +283,14 @@ class FriendsService:
         if self._started:
             return
         self._started = True
+        # The process-scoped service: exactly one per process (main.py guards
+        # against a second local_api server stealing the token file), so a
+        # class-level reference is the clean seam for OTHER Cubeon modules
+        # (the Server tab's share flow) to push a line into the in-game mod's
+        # Minecraft chat without threading a service handle through every
+        # constructor. Cleared on shutdown so a stale reference can't eat
+        # notices meant for the next session.
+        FriendsService._active = self
 
         if not self._handlers_bound:
             self._handlers_bound = True
@@ -353,6 +367,7 @@ class FriendsService:
         Every thread this module starts is a daemon, so there is nothing to
         join - they die with the process.
         """
+        FriendsService._active = None
         try:
             from cubeon import local_api
             local_api.stop()
@@ -388,6 +403,30 @@ class FriendsService:
     def revision(self) -> int:
         with self._notify_lock:
             return self._revision
+
+    @classmethod
+    def notify_active(cls, text: str, error: bool = False) -> bool:
+        """Pushes a line into the in-game mod's Minecraft chat (or the status
+        line while a Cubeon screen is open), without owning a service handle.
+
+        This is how module-adjacent features - the Server tab learning the
+        Minekube public address, say - reach the player in the game: the
+        notice joins the same event ring the mod polls, so it renders wherever
+        the mod renders notices. False when this process has no active
+        service (headless tests, the service never started, or it stopped) -
+        the caller carries on, chat is best-effort.
+
+        Safe from any thread: _notify takes the ring's lock.
+        """
+        service = cls._active
+        if service is None:
+            return False
+        try:
+            service._notify(text, error)
+        except Exception:
+            log.debug("notify_active couldn't deliver %r", text, exc_info=True)
+            return False
+        return True
 
     def _notify(self, text, error: bool = False) -> None:
         """One toast, addressed to whoever is drawing the UI now.
@@ -1722,9 +1761,15 @@ class FriendsService:
                 worldgate.set_password(password)
             except worldgate.WorldGateError as ex:
                 return self._err(str(ex))
-            self._notify("World password set - your friend will be asked for it.")
+            # The password itself is NEVER echoed into chat - a streamer's
+            # chat is public. The friend gets asked for it by the gate; the
+            # host tells them out of band.
+            self._notify(f"Your world is live - {p['peer']} has been invited. "
+                         f"They'll be asked for the world password.")
         else:
             worldgate.clear()
+            self._notify(f"Your world is live - {p['peer']} has been invited "
+                         f"(no password).")
         self._ring_out_pending_invite(p)
         return self._ok()
 
@@ -2210,8 +2255,9 @@ class FriendsService:
                             self._switch_to_minekube("direct connection failed")
                         else:
                             self._notify(f"Couldn't open a direct connection to "
-                                         f"{current['peer']} - waiting for the "
-                                         f"host's fallback decision...")
+                                         f"{current['peer']} - the world is on "
+                                         f"Cubeon's relay (higher ping, same "
+                                         f"world).")
                     elif prev_mode in ("relay", "handover") and mode == "direct":
                         self._notify(f"Direct connection to {current['peer']} "
                                      f"established. Ping just improved.")
@@ -2363,24 +2409,25 @@ class FriendsService:
             self._changed()
 
     def _switch_to_minekube(self, reason: str = "") -> None:
-        """Host-side fallback when the direct P2P punch has failed: point the
-        joiner at the host's Minekube public server instead of leaving the
-        session on the Cubeon relay.
+        """Host-side, after the direct P2P punch has failed.
 
-        The relay is still what carried the handshake and mod sync - it's only
-        the *gameplay* path that moves. The joiner launches straight into
-        <endpoint>.play.minekube.net like any normal server, which beats a
-        relayed hop through Cubeon's Cloudflare Worker for both ping and infra
-        load. Requires the host's Paper server to actually be running with
-        public sharing; without it there is nothing to fall back to, so the
-        session stays on the relay rather than killing a working (if slower)
-        connection."""
+        THE WORLD STAYS ON CUBEON'S RELAY. The HybridSession has already
+        fallen back to relaying the world's TCP stream through the signalling
+        channel, so the joiner still lands in the LAN world - just with
+        higher ping. Minekube's public address is deliberately NOT used as
+        the join target: the Connect plugin is a tunnel for the host's PAPER
+        SERVER, so a friend pointed at <endpoint>.play.minekube.net would
+        land in the server's world, not this one. The address is announced
+        into the host's Minecraft chat instead, as a copyable share for the
+        Cubeon server itself (an older launcher may still hand its joiner
+        there - see the p2p_use_minekube handler, kept for that).
+        """
         p = self._session_get()
-        if not p or not p.get("is_host") or p.get("minekube_active"):
+        if not p or not p.get("is_host"):
             return
         if reason:
-            # Same as _switch_to_relay: the caller's explanation was discarded.
-            self._notify(f"Looking for a Minekube fallback: {reason}.")
+            self._notify(f"Direct connection failed - staying on Cubeon's "
+                         f"relay ({reason}).")
 
         core = _core()
         version_id = self.state.get("selected_version")
@@ -2390,28 +2437,18 @@ class FriendsService:
             if not address:
                 address = core.minekube.public_address(
                     core.minekube.get_endpoint(version_id))
-        if not address:
-            self._notify("Direct P2P failed and your Minekube server isn't "
-                         "running, so you're staying on the Cubeon relay. Start "
-                         "your Paper server with public sharing (Servers tab) to "
-                         "use the Minekube fallback next time.")
-            return
-
-        p["minekube_active"] = True
-        p["minekube_address"] = address
-        try:
-            self.client.signal(p["room"], p["peer"],
-                               {"kind": "p2p_use_minekube", "address": address})
-        except Exception:
-            pass
-        # Gameplay no longer rides the P2P transport - stop it so neither side
-        # keeps punching or relaying frames in the background.
-        if p.get("punch"):
-            p["punch"].close()
-            p["punch"] = None
-        self._notify(f"P2P connection failed. It's on Minekube now. Your friend "
-                     f"is joining {address}.")
-        p["state"] = "connected"
+        if address:
+            # The one place the address is printed for the host: their own
+            # Minecraft chat, where it can be copied and shared. It shares
+            # the Cubeon SERVER - say so, so nobody expects their LAN world
+            # to be behind it.
+            self._notify(f"Your Cubeon server is also public at {address} - "
+                         f"share that for friends joining WITHOUT Cubeon. "
+                         f"This world stays right here.")
+        else:
+            self._notify("Start your Paper server with public sharing "
+                         "(Servers tab) if you also want a public address "
+                         "for the Cubeon server.")
         self._changed()
 
     def _run_joiner_punch(self, offer: dict) -> None:
