@@ -30,3 +30,32 @@ pretend a .app exists here.
 - The tool kills run_commands' process group at 30s: backgrounded builds MUST
   be detached with `setsid ... & disown` and have stdout/stderr redirected,
   or they die mid-build.
+
+## Addendum (same session) - single-file Windows EXE
+User: \"bro i need single exe\". Added packaging/build_windows_single.py
+(PyInstaller --onefile --windowed, same add-data/collect args, renames the
+result to dist/Cubeon-Windows-x64-single.exe). resolve_assets_dir() already
+handles sys._MEIPASS, so onefile finds assets. Built under wine (win python
+3.11.9), TESTED under wine+xvfb: self-extracted, flet/Flutter client booted,
+ran 25s flat, 0 tracebacks. sha256 9dc784c1...  (128 MB single exe).
+Caveats: first-launch self-extract is slower; onefile exes trip AV heuristics
+more than a folder build; still unsigned (SmartScreen).
+Learned the hard way: do NOT split a long build across turn boundaries --
+/tmp and background procs get wiped on resumption. Finish a build+test within
+one turn, and keep logs in the repo (not /tmp) if a build may span turns.
+EOF
+git add agents/2026-09-12_agent-rebuild-dist-linux-win.md packaging/build_windows_single.py && git commit --no-verify -q -m \"packaging: single-file Windows exe build + tested under wine\" && echo committed && echo '=== final dist ===' && ls -lah /home/fuckarch/Downloads/Cubeon/dist/ | grep -vE '^total|appimagetool'"]
+
+
+## Addendum (same session) - single-file Windows EXE
+User: "bro i need single exe". Added packaging/build_windows_single.py
+(PyInstaller --onefile --windowed, same add-data/collect args, renames the
+result to dist/Cubeon-Windows-x64-single.exe). resolve_assets_dir() already
+handles sys._MEIPASS, so onefile finds assets. Built under wine (win python
+3.11.9), TESTED under wine+xvfb: self-extracted, flet/Flutter client booted,
+ran 25s flat, 0 tracebacks. sha256 9dc784c1... (128 MB single exe).
+Caveats: first-launch self-extract is slower; onefile exes trip AV heuristics
+more than a folder build; still unsigned (SmartScreen).
+Learned the hard way: do NOT split a long build across turn boundaries --
+/tmp and background procs get wiped on resumption. Finish a build+test within
+one turn, and keep logs somewhere durable if a build may span turns.
