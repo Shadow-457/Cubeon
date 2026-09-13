@@ -326,6 +326,11 @@ def install_safe_stubs(verbose=False):
     import cubeon.backup as backup_mod
     backup_mod.is_due = lambda *a, **k: False
 
+    # Startup update check hits the GitHub releases API - no real request here.
+    import cubeon.updater as updater_mod
+    updater_mod.check_for_updates = lambda *a, **k: None
+    updater_mod.check_in_background = lambda *a, **k: None
+
     # No launching real processes / opening the browser.
     subprocess.Popen = lambda *a, **k: types.SimpleNamespace(
         pid=0, poll=lambda: 0, wait=lambda *x, **y: 0, terminate=lambda: None, kill=lambda: None)
@@ -417,13 +422,34 @@ def install_safe_stubs(verbose=False):
     core.add_custom_skin = lambda *a, **k: {"filename": "fuzz.png", "display_name": "fuzz"}
     core.install_local_mod = lambda *a, **k: "fuzz.jar"
     core.install_local_content = lambda *a, **k: "fuzz.zip"
+    # Shape-correct so the browse-row mod branch runs safely: it reads
+    # result["installed"] / result["failed"], then run_mod_repair() reads the
+    # mod_doctor report. Both are real download/repair leaves otherwise.
+    core.install_mod_with_dependencies = lambda *a, **k: {
+        "installed": ["fuzz.jar"], "failed": []}
+    core.mod_doctor = lambda *a, **k: {"problems": [], "fixed": []}
 
     # --- network readers: shape-correct empties (no Modrinth calls) ---------
-    for _name in ("get_recommended_mods", "search_mods", "get_recommended_content",
-                  "search_content", "get_recommended_plugins", "search_plugins",
+    for _name in ("get_recommended_plugins", "search_plugins",
                   "search_modpacks", "get_popular_modpacks"):
         if hasattr(core, _name):
             setattr(core, _name, (lambda *a, **k: []))
+
+    # Browse readers get ONE realistic hit each, not [] - otherwise no result
+    # row is ever built, so build_browse_row()'s on_download worker (the
+    # resourcepack/shader install path where deps_note was read unbound) is
+    # unreachable and the fuzzer runs green while that bug lives on. A real
+    # hit makes the Download button exist and be clicked.
+    _BROWSE_HIT = {
+        "project_id": "fuzz0000", "slug": "fuzz-pack", "title": "Fuzz Pack",
+        "description": "a fake browse hit", "icon_url": None,
+        "downloads": 42, "author": "fuzzer",
+    }
+    for _name in ("get_recommended_mods", "search_mods", "get_recommended_content",
+                  "search_content"):
+        if hasattr(core, _name):
+            setattr(core, _name, (lambda *a, **k: [dict(_BROWSE_HIT)]))
+
     for _name in ("get_mod_download", "get_content_download", "get_plugin_download"):
         if hasattr(core, _name):
             setattr(core, _name, (lambda *a, **k: {
@@ -432,7 +458,34 @@ def install_safe_stubs(verbose=False):
     core.get_modpack_file = lambda *a, **k: {
         "filename": "fuzz.mrpack", "url": "https://cdn.modrinth.com/x.mrpack",
         "size_kb": 1, "version_number": "1.0.0"}
+    # The mod detail dialog fetches project metadata + the version list. A
+    # browse row is clickable, so this path runs the moment a hit renders -
+    # unstubbed it would fetch the real Modrinth API and prefill real state.
+    core.get_mod_details = lambda *a, **k: {
+        "project_id": "fuzz0000", "slug": "fuzz-pack", "title": "Fuzz Pack",
+        "description": "a fake browse hit", "body": "fake body",
+        "icon_url": None, "gallery": [], "downloads": 42, "followers": 3,
+        "categories": ["adventure"], "loaders": ["fabric"],
+        "game_versions": ["1.20.1"], "license": "MIT",
+        "source_url": "", "issues_url": "", "wiki_url": "", "discord_url": "",
+        "client_side": "required", "server_side": "optional",
+    }
+    core.get_mod_versions = lambda *a, **k: [{
+        "id": "fuzzver0", "version_number": "1.0.0", "name": "fuzz 1.0.0",
+        "version_type": "release", "game_versions": ["1.20.1"],
+        "loaders": ["fabric"], "date_published": "2024-01-01T00:00:00Z",
+        "downloads": 7, "changelog": "", "compatible": True,
+        "dependencies": [], "filename": "fuzz.jar",
+        "url": "https://cdn.modrinth.com/data/x/fuzz.jar",
+        "size_kb": 1, "hashes": {},
+    }]
     core.get_skin_face_url = lambda *a, **k: ""
+    # Installed-mod rows resolve icons via one bulk Modrinth call, and
+    # icons.prefetch() writes the real ~/.cubeon_launcher/cache/icons. Neither
+    # may happen in a headless run - stub both (None icon = the placeholder).
+    core.get_mod_icons = lambda slugs=None, *a, **k: {s: None for s in (slugs or [])}
+    import cubeon.icons as icons_mod
+    icons_mod.prefetch = lambda url=None, *a, **k: None
     core.summarize_modpack = lambda *a, **k: {"name": "fuzz", "mods": [], "mc_version": "1.20.1"}
 
     # Seed one installed version so state["installed"] is non-empty - the delete

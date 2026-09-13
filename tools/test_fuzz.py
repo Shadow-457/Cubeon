@@ -220,6 +220,37 @@ set_fields(pgC, "TextField", "Version", "1.0.0")
 for btn in clickable_with_subtext(pgC, "export .mrpack"):
     fire_control(btn, "__directed_export__")           # starts the export worker
 
+# --- Scenario D: Mods -> Resource Packs -> Download (the deps_note bug) -----
+# Navigating to Mods loads recommended *mods*; switching the content-type
+# segment to Resource Packs instead loads packs, so build_browse_row() runs
+# its non-mod branch and its on_download worker calls download_content(). That
+# worker used to read deps_note with no binding on the resourcepack path ->
+# UnboundLocalError, swallowed by the generic except and shown to the user as
+# a dead "Failed" install. Drive it deliberately: mount Mods, switch segment,
+# let the browse worker render rows, then click Download.
+pgD = fresh_build()
+goto(pgD, "Mods")
+for seg in clickable_with_subtext(pgD, "resource packs"):
+    fire_control(seg, "__directed_content_seg__")
+for t in list(threading.enumerate()):
+    if t is not threading.current_thread() and t.daemon:
+        t.join(timeout=0.5)
+gc.collect()
+for btn in clickable_with_subtext(pgD, "download"):
+    fire_control(btn, "__directed_content_download__")
+for t in list(threading.enumerate()):
+    if t is not threading.current_thread() and t.daemon:
+        t.join(timeout=0.5)
+gc.collect()
+# Every install leaf is stubbed to SUCCEED, so a row that ends up saying
+# "Failed" is a defect the generic except swallowed - exactly how the unbound
+# deps_note read (resourcepack/shader install) reached the user as a dead
+# "Failed" while every other test stayed green.
+d_failed = [ctrl_text(c) for c in every_control(pgD)
+            if "failed" in ctrl_text(c).lower()]
+check("content install under stubbed success never reports Failed",
+      not d_failed, "; ".join(d_failed))
+
 print(f"  total after directed: {total_fires} invocations")
 
 # Give any spun-up worker threads a moment, then fold their exceptions in.

@@ -41,6 +41,7 @@ from .mod_loaders import SUPPORTED_LOADERS  # noqa: F401 (kept for callers that 
 from .launch import find_java, find_java_for_version, java_major_version, required_java_major
 from .mods import modrinth_search_index, rank_search_hits
 from . import local_cache
+from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 MODRINTH_HEADERS = {"User-Agent": f"cubeon-thing/{APP_NAME.lower()}/1.0"}
@@ -475,14 +476,17 @@ def _get_paper_download_url(version_id: str) -> tuple[str, str]:
     been sunset and stopped returning current builds. Returns
     (download_url, build_number_as_string)."""
     headers = {"User-Agent": f"{APP_NAME}-launcher/1.0 (https://github.com/{APP_NAME.lower()})"}
-    builds_resp = requests.get(
-        f"https://fill.papermc.io/v3/projects/paper/versions/{version_id}/builds",
-        headers=headers, timeout=15,
-    )
-    if builds_resp.status_code == 404:
-        raise RuntimeError(f"Paper doesn't publish builds for {version_id} (try a recent release version).")
-    builds_resp.raise_for_status()
-    data = builds_resp.json()
+    try:
+        data = net.get_json(
+            f"https://fill.papermc.io/v3/projects/paper/versions/{version_id}/builds",
+            headers=headers, timeout=15,
+        )
+    except requests.HTTPError as ex:
+        if getattr(ex.response, "status_code", None) == 404:
+            raise RuntimeError(
+                f"Paper doesn't publish builds for {version_id} "
+                "(try a recent release version).") from ex
+        raise
     if isinstance(data, dict) and data.get("ok") is False:
         raise RuntimeError(data.get("message") or f"Paper has no builds for {version_id}.")
     builds = data if isinstance(data, list) else data.get("builds", [])
@@ -628,7 +632,6 @@ def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
         if status_cb:
             status_cb(f"Downloading Paper {build} server.jar")
         dl_headers = {"User-Agent": f"{APP_NAME}-launcher/1.0 (https://github.com/{APP_NAME.lower()})"}
-        from . import net
         try:
             probe = requests.head(url, headers=dl_headers, timeout=10,
                                   allow_redirects=True)
@@ -1204,12 +1207,10 @@ def get_recommended_plugins() -> list[dict]:
     cache_key = {"slugs": RECOMMENDED_PLUGIN_SLUGS}
 
     def _fetch() -> list[dict]:
-        resp = requests.get(
+        projects = net.get_json(
             f"{MODRINTH_API}/projects", params={"ids": json.dumps(RECOMMENDED_PLUGIN_SLUGS)},
-            headers=MODRINTH_HEADERS, timeout=10,
+            headers=MODRINTH_HEADERS, timeout=15,
         )
-        resp.raise_for_status()
-        projects = resp.json()
         by_slug = {p.get("slug"): p for p in projects}
         results = []
         for slug in RECOMMENDED_PLUGIN_SLUGS:
@@ -1233,12 +1234,10 @@ def get_low_ping_plugins() -> list[dict]:
     cache_key = {"slugs": LOW_PING_PLUGIN_SLUGS}
 
     def _fetch() -> list[dict]:
-        resp = requests.get(
+        by_slug = {p.get("slug"): p for p in net.get_json(
             f"{MODRINTH_API}/projects", params={"ids": json.dumps(LOW_PING_PLUGIN_SLUGS)},
-            headers=MODRINTH_HEADERS, timeout=10,
-        )
-        resp.raise_for_status()
-        by_slug = {p.get("slug"): p for p in resp.json()}
+            headers=MODRINTH_HEADERS, timeout=15,
+        )}
         results = []
         for slug in LOW_PING_PLUGIN_SLUGS:
             p = by_slug.get(slug)
@@ -1364,9 +1363,8 @@ def search_plugins(query: str, mc_version: str | None = None, limit: int = 100) 
     def _fetch() -> list[dict]:
         params = {"query": query, "limit": str(limit), "facets": json.dumps(facets),
                   "index": modrinth_search_index(query)}
-        resp = requests.get(f"{MODRINTH_API}/search", params=params, headers=MODRINTH_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        data = net.get_json(f"{MODRINTH_API}/search", params=params,
+                            headers=MODRINTH_HEADERS, timeout=15)
         results = []
         for hit in data.get("hits", []):
             results.append({
@@ -1386,12 +1384,10 @@ def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None) 
         params = {"loaders": json.dumps(["paper", "spigot", "bukkit"])}
         if mc_version:
             params["game_versions"] = json.dumps([mc_version])
-        resp = requests.get(
+        versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=MODRINTH_HEADERS, timeout=10,
+            params=params, headers=MODRINTH_HEADERS, timeout=15,
         )
-        resp.raise_for_status()
-        versions = resp.json()
         if not versions:
             return None
         latest = versions[0]
@@ -1410,20 +1406,13 @@ def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None) 
 
 def download_plugin(version_id: str, download_url: str, filename: str,
                      slug: str | None = None, progress_cb=None) -> str:
+    """Fetch a plugin jar with the same retry/resume/atomic-replace guarantees
+    as every other download in the launcher (see cubeon/net.py)."""
+    from . import net
     plugins_dir = get_plugins_dir(version_id)
     dest = os.path.join(plugins_dir, filename)
-    with requests.get(download_url, headers=MODRINTH_HEADERS, stream=True, timeout=15) as resp:
-        resp.raise_for_status()
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        with open(dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=65536):
-                if not chunk:
-                    continue
-                f.write(chunk)
-                downloaded += len(chunk)
-                if progress_cb:
-                    progress_cb(downloaded, total)
+    net.download_to(dest, download_url, headers=MODRINTH_HEADERS, timeout=60,
+                    progress_cb=progress_cb)
     _write_plugin_meta(plugins_dir, filename, slug)
     return dest
 

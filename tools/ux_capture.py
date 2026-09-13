@@ -44,8 +44,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The tabs we tour, in a natural top-to-bottom order. Keys match nav_items /
 # server_group_items in main.py; we navigate by key (never by the ambiguous
 # "Settings" label).
-TAB_ORDER = ["play", "mods", "modpacks", "friends",
-             "server_console", "server_settings", "profile", "settings"]
+TAB_ORDER = ["play", "mods", "modpacks", "chat", "profile",
+             "server_console", "server_plugins", "server_settings",
+             "stats", "settings"]
 KNOWN_KEYS = set(TAB_ORDER)
 
 

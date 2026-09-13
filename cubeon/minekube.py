@@ -63,12 +63,6 @@ import shutil
 import tempfile
 import time
 
-# Lazy: `requests` costs ~97ms to import and every module that pulls it in
-# eagerly puts that on the startup path, even for a session that never
-# touches the network. Call sites are unchanged - see cubeon/lazy.py.
-from .lazy import LazyModule
-requests = LazyModule("requests")
-
 from .paths import APP_NAME, SERVERS_DIR
 from .server import (
     CONNECT_PLUGIN_NAME as PLUGIN_NAME,
@@ -346,29 +340,16 @@ def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
 
     if status_cb:
         status_cb("Downloading the Minekube Connect plugin...")
-    try:
-        resp = requests.get(PLUGIN_URL, stream=True, timeout=HTTP_TIMEOUT,
-                            allow_redirects=True,
-                            headers={"User-Agent": f"{APP_NAME}-launcher/1.0"})
-        resp.raise_for_status()
-    except requests.RequestException as ex:
-        raise MinekubeError(
-            "Couldn't download the Minekube Connect plugin. Check your "
-            "internet and try again.") from ex
 
+    from . import net
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest), prefix=".connect-", suffix=".jar.part")
+    # net.download_to gives retry+backoff+Range-resume and an atomic replace;
+    # the jar-validity checks below still gate what gets moved into place.
+    tmp = dest + ".connect.part"
     try:
-        total = int(resp.headers.get("content-length", 0))
-        done = 0
-        with os.fdopen(fd, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=65536):
-                if not chunk:
-                    continue
-                f.write(chunk)
-                done += len(chunk)
-                if progress_cb and total:
-                    progress_cb(done, total)
+        net.download_to(tmp, PLUGIN_URL, timeout=HTTP_TIMEOUT,
+                        headers={"User-Agent": f"{APP_NAME}-launcher/1.0"},
+                        progress_cb=progress_cb)
         if os.path.getsize(tmp) < MIN_PLUGIN_BYTES:
             raise MinekubeError(
                 "The Connect plugin came back far too small to be real. "
@@ -379,6 +360,10 @@ def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
                     "The Connect plugin didn't arrive as a valid jar - "
                     "usually a network intercepting the download.")
         os.replace(tmp, dest)
+    except net.DownloadError as ex:
+        raise MinekubeError(
+            "Couldn't download the Minekube Connect plugin. Check your "
+            "internet and try again.") from ex
     finally:
         if os.path.exists(tmp):
             try:

@@ -13,6 +13,10 @@ half-file. Every download in Cubeon now goes through here so that:
     starting a 500 MB Paper jar over from byte zero;
   - a global semaphore caps how many downloads run at once, so a modpack
     with 300 files can't open 300 simultaneous connections;
+  - one pooled Session is reused for every request, so a pack's many files
+    off the same CDN don't pay a fresh TCP+TLS handshake apiece;
+  - API/metadata calls use get_json(), which gets the same retry treatment
+    as a file transfer (a single blip must not read as "no matching file");
   - the destination is only ever replaced by a COMPLETE, verified file
     (hash when the caller has one, magic bytes otherwise).
 """
@@ -39,12 +43,44 @@ DOWNLOAD_GATE = threading.BoundedSemaphore(MAX_CONCURRENT_DOWNLOADS)
 DEFAULT_ATTEMPTS = 3
 BACKOFF_BASE = 1.5  # seconds; doubled each retry: 1.5s, 3s, 6s...
 
+# One process-wide connection pool. requests.get() builds a brand-new
+# Session (and therefore a new TCP connection + TLS handshake) on every
+# call; a modpack install streams dozens-to-hundreds of jars off the same
+# CDN host, so reusing the pool removes a handshake per file. Built lazily so
+# importing cubeon.net never drags `requests` in before it's actually needed.
+_SESSION = None
+_SESSION_LOCK = threading.Lock()
+
+
+def _session():
+    global _SESSION
+    if _SESSION is None:
+        with _SESSION_LOCK:
+            if _SESSION is None:
+                s = requests.Session()
+                adapter = requests.adapters.HTTPAdapter(
+                    pool_connections=MAX_CONCURRENT_DOWNLOADS * 2,
+                    pool_maxsize=MAX_CONCURRENT_DOWNLOADS * 2,
+                    max_retries=0,  # retry policy lives in get_with_retry()
+                )
+                s.mount("https://", adapter)
+                s.mount("http://", adapter)
+                _SESSION = s
+    return _SESSION
+
+
+def _do_get(url: str, **kwargs):
+    """The single GET transport seam in this module. Production uses the
+    pooled Session above; tests replace this function to stay hermetic."""
+    return _session().get(url, **kwargs)
+
 
 class DownloadError(RuntimeError):
     """Every retry failed, or the response was unusable. Human-readable."""
 
 
-def get_with_retry(url: str, *, headers: dict | None = None, timeout: int = 30,
+def get_with_retry(url: str, *, headers: dict | None = None,
+                   params: dict | None = None, timeout: int = 30,
                    attempts: int = DEFAULT_ATTEMPTS) -> requests.Response:
     """GET with exponential backoff on transient failures. The response is
     returned fully-connected (stream=True) and the caller must close it.
@@ -54,7 +90,8 @@ def get_with_retry(url: str, *, headers: dict | None = None, timeout: int = 30,
     last_err: Exception | None = None
     for attempt in range(attempts):
         try:
-            resp = requests.get(url, headers=headers, stream=True, timeout=timeout)
+            resp = _do_get(url, headers=headers, params=params, stream=True,
+                           timeout=timeout)
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
                 retry_after = resp.headers.get("Retry-After")
                 try:
@@ -76,6 +113,20 @@ def get_with_retry(url: str, *, headers: dict | None = None, timeout: int = 30,
                          url, ex.__class__.__name__, delay)
                 time.sleep(delay)
     raise DownloadError(f"Couldn't reach {url} after {attempts} tries: {last_err}")
+
+
+def get_json(url: str, *, headers: dict | None = None, params: dict | None = None,
+             timeout: int = 30, attempts: int = DEFAULT_ATTEMPTS):
+    """GET url and decode a JSON body with the same retry/backoff as a file
+    download. Every search / version-lookup call goes through here so one
+    dropped packet on a flaky link retries instead of surfacing to the user
+    as a dead "network error" the moment they click Install."""
+    resp = get_with_retry(url, headers=headers, params=params,
+                          timeout=timeout, attempts=attempts)
+    try:
+        return resp.json()
+    finally:
+        resp.close()
 
 
 def stream_to_file(resp: requests.Response, dest_path: str, *,

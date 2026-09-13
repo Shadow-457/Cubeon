@@ -36,11 +36,20 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 
 from .paths import GLOBAL_MODS_DIR
 
 _HASH_INDEX_PATH = os.path.join(GLOBAL_MODS_DIR, ".hash_index.json")
 _INDEX_STRUCT = ("sha256", "manifest")
+
+# A modpack now downloads its jars in parallel (see modpacks._install_from_zip),
+# so several threads can finish and try to commit to the store at once. Every
+# read-modify-write of the index - and the store-name choice, which is race
+# prone if two different jars with the same human name land together - happens
+# under this lock. Without it, concurrent _record() calls each load the index,
+# add their own entry, and the later save silently drops the earlier one.
+_INDEX_LOCK = threading.RLock()
 
 
 def _hash_file(path: str, algo: str = "sha256") -> str:
@@ -172,35 +181,39 @@ def _choose_store_name(sha256_hex: str, human_name: str | None, index: dict) -> 
 
 def _record(sha256_hex: str, filename: str, hashes: dict) -> None:
     """Persist sha256 -> stored filename and any manifest aliases."""
-    index = _load_index()
-    index["sha256"][sha256_hex] = filename
-    for algo in ("sha512", "sha1"):
-        digest = (hashes or {}).get(algo)
-        if digest:
-            index["manifest"][digest.lower()] = sha256_hex
-    _save_index(index)
+    with _INDEX_LOCK:
+        index = _load_index()
+        index["sha256"][sha256_hex] = filename
+        for algo in ("sha512", "sha1"):
+            digest = (hashes or {}).get(algo)
+            if digest:
+                index["manifest"][digest.lower()] = sha256_hex
+        _save_index(index)
 
 
 def _ingest(tmp_path: str, human_name: str | None, hashes: dict) -> str:
     """Move freshly-fetched bytes (tmp_path) into the store under the right
-    name, deduping against what's already there. Returns the stored path."""
+    name, deduping against what's already there. Returns the stored path.
+
+    The hashing stays outside the lock (it's the slow part); only the
+    name-choice + move + index update are serialized, so two threads can't
+    pick the same store filename for different bytes."""
     sha256_hex = _hash_file(tmp_path, "sha256")
 
-    existing = _filename_for_sha(sha256_hex)
-    if existing:
-        stored = _store_path(existing)
-        if os.path.isfile(stored):
-            os.remove(tmp_path)  # someone already stored this exact jar
-            return stored
+    with _INDEX_LOCK:
+        existing = _filename_for_sha(sha256_hex)
+        if existing:
+            stored = _store_path(existing)
+            if os.path.isfile(stored):
+                os.remove(tmp_path)  # someone already stored this exact jar
+                return stored
 
-    os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
-    filename = _choose_store_name(sha256_hex, human_name, _load_index())
-    stored = _store_path(filename)
-    # Atomic: replace means a racing identical write just lands on top of
-    # identical bytes; the index is idempotent either way.
-    os.replace(tmp_path, stored)
-    _record(sha256_hex, filename, hashes)
-    return stored
+        os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
+        filename = _choose_store_name(sha256_hex, human_name, _load_index())
+        stored = _store_path(filename)
+        os.replace(tmp_path, stored)
+        _record(sha256_hex, filename, hashes)
+        return stored
 
 
 def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,

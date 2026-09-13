@@ -26,14 +26,9 @@ import os
 import shutil
 import uuid
 
-# Lazy: `requests` costs ~97ms to import and every module that pulls it in
-# eagerly puts that on the startup path, even for a session that never
-# touches the network. Call sites are unchanged - see cubeon/lazy.py.
-from .lazy import LazyModule
-requests = LazyModule("requests")
-
 from .paths import APP_NAME, RESOURCEPACKS_DIR, SHADERPACKS_DIR
 from . import local_cache
+from . import net
 # Reuse the exact same Modrinth browse-sort / relevance-banding logic the Mods
 # tab uses, so "browse" and search behave identically across content types
 # instead of drifting into two subtly different rankings.
@@ -213,9 +208,8 @@ def search_content(content_type: str, query: str, mc_version: str | None = None,
             "query": query, "limit": str(limit), "facets": json.dumps(facets),
             "index": modrinth_search_index(query),
         }
-        resp = requests.get(f"{MODRINTH_API}/search", params=params, headers=MODRINTH_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        data = net.get_json(f"{MODRINTH_API}/search", params=params,
+                            headers=MODRINTH_HEADERS, timeout=15)
 
         results = []
         for hit in data.get("hits", []):
@@ -260,12 +254,10 @@ def get_content_download(content_type: str, project_id_or_slug: str,
     cache_key = {"type": content_type, "project": project_id_or_slug, "mc_version": mc_version}
 
     def _fetch():
-        resp = requests.get(
+        versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=MODRINTH_HEADERS, timeout=10,
+            params=params, headers=MODRINTH_HEADERS, timeout=15,
         )
-        resp.raise_for_status()
-        versions = resp.json()
         if not versions:
             return None
 
@@ -280,6 +272,9 @@ def get_content_download(content_type: str, project_id_or_slug: str,
             "url": primary.get("url"),
             "size_kb": round(primary.get("size", 0) / 1024, 1),
             "version_number": latest.get("version_number"),
+            # Modrinth publishes sha512/sha1 per file; carrying them here lets
+            # download_content reject a corrupted/truncated transfer outright.
+            "hashes": primary.get("hashes") or {},
         }
 
     # Between click and download start - 24h fresh, then SWR, offline fallback.
@@ -287,23 +282,29 @@ def get_content_download(content_type: str, project_id_or_slug: str,
 
 
 def download_content(content_type: str, download_url: str, filename: str,
-                     progress_cb=None) -> str:
+                     progress_cb=None, hashes: dict | None = None) -> str:
     """Streams a pack/shader file into the shared folder for this content type.
-    progress_cb(downloaded, total) is called periodically if provided. Returns
-    the final path. No profile/version keying is needed - resource packs and
-    shaders live in one shared, version-agnostic folder the game reads directly."""
+
+    Goes through cubeon.net like every other download: retry with backoff,
+    HTTP Range resume after a dropped connection, a global concurrency cap,
+    and an atomic .part -> final replace so a half-file is never mistaken for
+    a complete pack. (This was the last install path still doing a bare
+    single-attempt requests.get - exactly why a brief Wi-Fi hiccup showed up
+    to the user as a hard "network error" instead of quietly retrying.)
+
+    hashes: the Modrinth file's {"sha512"/"sha1": ...} when known; a mismatch
+    is rejected rather than installing corrupt bytes. progress_cb(downloaded,
+    total) is throttled inside net. Returns the final path. No profile/version
+    keying is needed - packs and shaders live in one shared, version-agnostic
+    folder the game reads directly."""
     d = content_dir(content_type)
     dest = os.path.join(d, filename)
-    with requests.get(download_url, headers=MODRINTH_HEADERS, stream=True, timeout=15) as resp:
-        resp.raise_for_status()
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
-        with open(dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=65536):
-                if not chunk:
-                    continue
-                f.write(chunk)
-                downloaded += len(chunk)
-                if progress_cb:
-                    progress_cb(downloaded, total)
+    algo, expected = None, None
+    for a in ("sha512", "sha1"):
+        if (hashes or {}).get(a):
+            algo, expected = a, hashes[a].lower()
+            break
+    expected_pair = (algo, expected) if algo and expected else None
+    net.download_to(dest, download_url, headers=MODRINTH_HEADERS, timeout=60,
+                    expected_hash=expected_pair, progress_cb=progress_cb)
     return dest

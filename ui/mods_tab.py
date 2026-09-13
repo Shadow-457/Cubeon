@@ -1522,6 +1522,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
                     download_btn_text.value = "Downloading..."
                     page.update()
+                    # Set for BOTH branches: the success line below appends it,
+                    # and the resource-pack/shader path used to reach that line
+                    # with no deps_note bound at all -> UnboundLocalError, caught
+                    # by the generic except and misreported as a failed install.
+                    deps_note = ""
                     if _is_mod():
                         # mc_version/loader must be passed explicitly - without
                         # them this silently lands in the wrong profile folder
@@ -1553,7 +1558,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             refresh_mods_list()
                             return
                     else:
-                        core.download_content(_ct(), file_info["url"], file_info["filename"])
+                        # hashes = Modrinth's per-file sha512/sha1; passing them
+                        # makes the install reject a corrupt/truncated transfer
+                        # instead of dropping bad bytes into resourcepacks/.
+                        core.download_content(_ct(), file_info["url"],
+                                              file_info["filename"],
+                                              hashes=file_info.get("hashes"))
 
                     download_btn_text.value = "Installed" + deps_note
                     download_btn_text.color = TEXT_FAINT
@@ -1566,7 +1576,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # introduced by this install before it can crash a launch.
                     run_mod_repair()
                 except Exception as ex:
-                    download_btn_text.value = "Failed"
+                    # Say WHY in one line - "Failed" alone left the user with
+                    # no idea whether to retry, free up disk, or pick another
+                    # file. net.DownloadError messages are already human-sized.
+                    reason = (str(ex).strip().splitlines() or [""])[0] \
+                        or type(ex).__name__
+                    download_btn_text.value = f"Failed - {reason}"[:70]
                     download_btn_text.color = DANGER
                     download_btn.disabled = False
                     download_btn.bgcolor = ACCENT_TINT

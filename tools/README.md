@@ -19,7 +19,8 @@ stubbed or pointed at localhost). Run from the repo root:
 | `python3 tools/test_p2p_*.py` | P2P transport/session layers (`_stress` variant is long) |
 | `python3 tools/test_launch_indicator.py` | the Play tab's launch progress bar: phase ordering, no stalls, no backwards jumps |
 | `python3 tools/test_ui_smoke.py` | boots the Flet UI headless-ish smoke test |
-| `python3 tools/test_fuzz.py` | fuzz harness over common input parsers |
+| `python3 tools/test_mega_smoke.py` | **one-command deep gate**: syntax → imports → type/contract → control flow → headless runtime (`--static` skips runtime, `--suites` also runs the harnesses below, `--json` for machines) |
+| `python3 tools/test_fuzz.py` | UI chaos monkey: builds the real UI headless under safe stubs, fires every handler with a hostile corpus, plus directed scenarios (play/delete/export/content-install) |
 | `python3 tools/test_orphan_server.py` | server lifecycle cleanup edge cases |
 
 ### The in-game Friends mod (`mod/`)
@@ -41,6 +42,15 @@ All exit 0 on pass, non-zero on failure.
   into `worker/cubeon-skins.js`. **Never edit those constants by hand** - a
   single wrong base64 char ships a broken cape that only shows up in-game.
 - `debug_run.py` - run the launcher with debug flags.
+- `app_driver.py` - **AI-usable driver**: boots the real UI headless under the
+  same safe stubs as the fuzzers and *uses* it (open every tab, type every
+  field, fire every handler) then reports JSON errors + handler coverage.
+  `explore` fires ~822 invocations at **100% of the handler surface** (click /
+  change / submit / hover / focus / blur / picker-result); `fuzz` does the same
+  across the hostile corpus (~26k invocations, still 100%). The report's
+  `handler_coverage` names anything a pass didn't fire. Commands: `explore`,
+  `fuzz`, `tabs`, `script <steps.json>`, `shots`. `shots` delegates to the
+  windowed `ux_capture.py` tour for real PNGs (Flet has no headless renderer).
 - `ux_capture.py` / `fuzz_visual.py` - screenshot/UI capture helpers
   (output lands in `agents/docs/ux_shots/`).
 - `_fuzz_common.py` - shared fuzzing fixtures (not a test).

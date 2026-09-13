@@ -1,7 +1,70 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-11 (opencode; Play page + top-nav hierarchy/spacing refinement). If a fact here contradicts the code, the
+Last updated: 2026-09-13 (deepseek-v4-flash; added the mega smoke gate + AI app driver). If a fact here contradicts the code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+
+## AI app driver + mega smoke (2026-09-13) — read before writing a new test
+- `tools/app_driver.py` is the reusable "hands": it boots the REAL UI headless
+  (HOME sandboxed, `_fuzz_common.install_safe_stubs`) into a `Driver`, whose
+  `tabs()`/`open_tab()`/`click()`/`type_fields()`/`fire_all()` an agent can
+  call, and whose `report()` is JSON. Prefer extending it over re-deriving a
+  FakePage harness. Its `DriverPage` adds the Flet 0.86 `show_dialog`/
+  `pop_dialog` stack that `_fuzz_common.FakePage` still lacks, so
+  `cubeon.dialogs`-opened dialogs are reachable. `shots` delegates to the
+  windowed `ux_capture.py` (Flet has no headless renderer).
+- **`fire_all()` fires the whole handler surface, not just clicks**: on_change/
+  on_submit/on_click, plus on_hover (data "true"/"false"), on_focus/on_blur,
+  and on_result (FakeEvent.files == [] = the picker-cancelled path). `report()`
+  carries `handler_coverage` = fired/seen + the names of anything missed, so a
+  shallow pass can't masquerade as coverage. As of 2026-09-13 `explore` =
+  325/325 and `fuzz` = 4371/4371 (100%). A real pointer/OS event (physical
+  hover, a real file chosen) has no headless analogue - the synthetic events
+  above cover the *handlers*.
+- **Headless `.update()` noise is filtered, not warned**: `Container.update()`/
+  focus handlers raise `RuntimeError: Control must be added to the page first`
+  when unmounted; the driver's `_classify` drops that (and "Event loop is
+  closed") as an artifact, so hover logic is exercised without false alarms.
+- `tools/test_mega_smoke.py` = the one-command gate, cheapest layer first:
+  syntax (`compile` all 112 .py) → imports (62 modules) → type/contract
+  (launcher_core facade covers every `core.*` in main.py+ui/, forbidden Flet
+  APIs, None-in-controls, THEME/signatures, type hints) → AST control flow
+  (unreachable, dup defs, bare except) → headless runtime (every tab opens,
+  every handler fires, no errors, no None children, second build idempotent).
+  `--static` skips runtime, `--json` for machines, `--suites` chains the
+  repo's own harnesses.
+- `ux_capture.py`'s TAB_ORDER now matches the live nav keys
+  (play/mods/modpacks/chat/profile/server_console/server_plugins/
+  server_settings/stats); Settings is not in `discover_nav` because its
+  handler has no `k=key` default arg — capture it by other means if needed.
+- **`_sandbox_home.isolate()` leaks into child processes** via `os.environ`
+  (`HOME`/`USERPROFILE`). flet lives in the real user site-packages and is
+  only resolved at interpreter STARTUP, so a child launched with a rewritten
+  HOME gets `ModuleNotFoundError: No module named 'flet'`. Any harness that
+  spawns a GUI suite after isolating HOME must pass the original HOME through
+  (`test_mega_smoke.section_suites` does). Each suite re-isolates itself.
+- **`install_safe_stubs()` patches `subprocess.Popen` process-wide** (to a
+  `SimpleNamespace`), so any `subprocess.run` after it raises `TypeError`.
+  Run subprocess-based suites BEFORE the runtime/driver layer, or restore
+  `subprocess.Popen` afterwards.
+- **Seeded browse hits matter (2026-09-13):** returning `[]` from the browse
+  readers means no result row is ever built, so `build_browse_row()`'s
+  `on_download` worker (the resourcepack/shader install) and the mod detail
+  dialog are UNREACHABLE — the suite passes while that code is broken. The
+  stubs return one realistic hit and shape-correct `get_mod_details` /
+  `get_mod_versions` / `install_mod_with_dependencies` / `mod_doctor`; keep
+  those shapes in sync with `cubeon/mods.py`.
+- **The generic `except` in install workers hides defect signatures.** An
+  `UnboundLocalError` there is caught and rendered as "Failed" — it never
+  reaches `fire()`/`threading.excepthook`, so the defect detectors stay
+  green. The only reliable guard is to stub the install leaves to SUCCEED and
+  assert no row shows "Failed" (`test_fuzz` scenario D). Do this for any new
+  install path.
+- **Backend metadata reads go through `net.get_json`, not bare
+  `requests.get`** (`mods.py`, `content.py`, `server.py`, `modpacks.py`,
+  `minekube.py`). Any harness faking `requests.get` must ALSO route
+  `net._do_get` + stub `updater.check_in_background`, `icons.prefetch`, and
+  `core.get_mod_icons`, or a headless run silently hits the real network
+  (the pooled `requests.Session` is invisible to a `requests.get` monkeypatch).
 
 ## Flet 0.86 hard rules (learned 2026-09-06, each cost real debugging time)
 - **Dialog API: `Page.show_dialog(dlg)` / `Page.pop_dialog()` — there is NO
@@ -311,6 +374,8 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 ## Tests — run these, in this order of relevance
 
 ```
+python3 tools/test_mega_smoke.py        # deep gate: syntax + imports + contracts + control flow + headless runtime
+python3 tools/app_driver.py explore     # AI driver: use the app headless, JSON error/coverage report (`fuzz`, `script`, `shots`)
 python3 tools/test_friends_service.py   # 213: service + bridge contract + identity + unique rename + chat tab
 python3 tools/test_friends.py           # 37: relay client + worker parity
 python3 tools/test_mod_bridge.py        # 119: reads Bridge.java, asserts launcher serves it
@@ -355,6 +420,20 @@ trap (the mod now warns about it in chat, but don't rely on that).
   verification covering prefix+tail, and a global 4-download gate. Wired into
   modpacks._stream_download, mods.download_mod, server.install_server
   (Paper). Contract: error message must contain "integrity" (test asserts).
+  **2026-09-13 additions:** a lazy process-wide pooled `requests.Session`
+  (connection/TLS reuse; `requests.get` makes a new Session per call),
+  `net.get_json()` (retry-wrapped metadata/API GET — a blip must not read as
+  "no matching file"), and `net._do_get` is now the SINGLE transport seam:
+  production = pooled session, tests monkeypatch `net._do_get`. Harnesses that
+  fake `requests.get` (test_modpacks) must route `net._do_get` back through it
+  or they'll hit the real network.
+  **Also now wired:** `content.download_content` (resource packs + shaders —
+  was the last bare single-attempt `requests.get`, hence the "network error"
+  on install), `server.download_plugin`, `minekube` Connect plugin. Modpack
+  mod-file downloads run in a `ThreadPoolExecutor(max_workers=4)` so the
+  gate is actually used (the old serial loop made it decorative);
+  `global_mod_cache` index writes + store-name choice are lock-guarded for
+  that concurrency.
 - `cubeon/logging_setup.py`: rotating file log at
   `~/.cubeon_launcher/cubeon.log` (5MB x3), sys/threading excepthooks, and
   `diagnostics_text()` for bug reports. setup_logging() is idempotent; call

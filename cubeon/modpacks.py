@@ -70,6 +70,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import zipfile
 from urllib.parse import urlparse
 
@@ -87,6 +88,7 @@ from .mod_loaders import install_mod_loader, find_installed_loader_version, MOD_
 from .mods import get_profile_dir, modrinth_search_index, rank_search_hits, record_mod_source
 from . import local_cache
 from . import global_mod_cache
+from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 MODRINTH_HEADERS = {"User-Agent": f"fuckarch/{APP_NAME.lower()}/1.0"}
@@ -295,7 +297,6 @@ def _stream_download(dest_path: str, urls: list[str], hashes: dict | None, progr
         except (requests.RequestException, RuntimeError, ValueError) as ex:
             log.debug("size probe for %s skipped: %s", url, ex.__class__.__name__)
 
-    from . import net
     last_err = None
     for url in candidates:
         expected_pair = (algo, expected) if algo and expected else None
@@ -444,27 +445,54 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
         total = len(mod_files) + len(other_files)
         max_cb(max(total, 1))
         n = 0
-        for f in mod_files:
-            n += 1
-            path = f.get("path", "")
-            status_cb(f"Downloading mods... {n}/{len(mod_files)}")
-            dest = _safe_relpath(profile_dir, os.path.basename(path))
-            urls = f.get("downloads") or []
-            _download_to(dest, urls, f.get("hashes"), use_global_cache=True)
-            # Record what this jar IS. A manifest entry has no slug, but the
-            # Modrinth CDN URL carries the project id, and that's enough for the
-            # Mods tab to show the mod as installed and - more importantly - for
-            # a later install of a newer build to REPLACE this one instead of
-            # sitting next to it. Without this, every pack mod was anonymous:
-            # the browse view offered "Download" for mods the pack had already
-            # installed, and taking that offer left the profile with two builds
-            # of the same mod for the game to pick between.
-            record_mod_source(
-                profile_dir, os.path.basename(dest),
-                project_id=_modrinth_project_id(urls),
-                url=urls[0] if urls else None,
-            )
-            progress_cb(n)
+
+        # 3a) Mod jars fetch IN PARALLEL, not one-at-a-time. The old serial
+        # loop meant the 4-slot net.DOWNLOAD_GATE was decorative: a single
+        # thread can only ever hold one slot, so a 300-mod pack paid the full
+        # latency of 300 sequential transfers. A bounded pool (sized to the
+        # same cap) uses all four slots while still keeping Modrinth's CDN and
+        # the user's router happy. Worker threads only touch the network and
+        # the content-addressed store (which is now lock-guarded); every UI
+        # callback and the manifest bookkeeping run back here, on this thread.
+        if mod_files:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            fetched = []
+
+            def _fetch_one(entry):
+                path = entry.get("path", "")
+                dest = _safe_relpath(profile_dir, os.path.basename(path))
+                urls = entry.get("downloads") or []
+                _download_to(dest, urls, entry.get("hashes"), use_global_cache=True)
+                return (os.path.basename(dest),
+                        _modrinth_project_id(urls),
+                        urls[0] if urls else None)
+
+            with ThreadPoolExecutor(max_workers=net.MAX_CONCURRENT_DOWNLOADS) as pool:
+                futures = [pool.submit(_fetch_one, f) for f in mod_files]
+                for fut in as_completed(futures):
+                    try:
+                        fetched.append(fut.result())
+                    except Exception:
+                        for pending in futures:
+                            pending.cancel()
+                        raise
+                    n += 1
+                    status_cb(f"Downloading mods... {n}/{len(mod_files)}")
+                    progress_cb(n)
+
+            # Record what each jar IS, after the downloads settle. A manifest
+            # entry has no slug, but the Modrinth CDN URL carries the project
+            # id, and that's enough for the Mods tab to show the mod as
+            # installed and - more importantly - for a later install of a newer
+            # build to REPLACE this one instead of sitting next to it. Without
+            # this, every pack mod was anonymous: the browse view offered
+            # "Download" for mods the pack had already installed, and taking
+            # that offer left the profile with two builds of the same mod for
+            # the game to pick between. Done serially to avoid racing writes to
+            # the profile's metadata file.
+            for filename, project_id, url in fetched:
+                record_mod_source(profile_dir, filename,
+                                  project_id=project_id, url=url)
 
         # 4) Non-mod declared files (resourcepacks/shaders/etc.) into the game dir.
         for f in other_files:
@@ -986,9 +1014,8 @@ def _modrinth_modpack_search(query: str, mc_version: str | None, limit: int) -> 
 
     params = {"query": query, "limit": str(limit), "facets": json.dumps(facets),
               "index": modrinth_search_index(query)}
-    resp = requests.get(f"{MODRINTH_API}/search", params=params, headers=MODRINTH_HEADERS, timeout=6)
-    resp.raise_for_status()
-    payload = resp.json()
+    payload = net.get_json(f"{MODRINTH_API}/search", params=params,
+                           headers=MODRINTH_HEADERS, timeout=15)
     hits = payload.get("hits") if isinstance(payload, dict) else None
     results = []
     for hit in hits if isinstance(hits, list) else []:
@@ -1168,10 +1195,8 @@ def _cf_request(path: str, params: "dict | None" = None, timeout: int = 10):
         "Accept": "application/json",
         "x-api-key": key,
     }
-    resp = requests.get(f"{CURSEFORGE_API}{path}", params=params,
+    return net.get_json(f"{CURSEFORGE_API}{path}", params=params,
                         headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
 
 
 def _cf_download_url(project_id, file_id) -> str:
@@ -1456,10 +1481,8 @@ def get_modpack_file(project_id_or_slug: str, mc_version: str | None = None) -> 
     if cached is not None:
         return cached
 
-    resp = requests.get(f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-                        params=params, headers=MODRINTH_HEADERS, timeout=10)
-    resp.raise_for_status()
-    versions = resp.json()
+    versions = net.get_json(f"{MODRINTH_API}/project/{project_id_or_slug}/version",
+                            params=params, headers=MODRINTH_HEADERS, timeout=15)
     if not isinstance(versions, list) or not versions:
         return local_cache.set("modpack_file", cache_key, None)
 

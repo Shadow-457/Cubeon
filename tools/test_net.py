@@ -72,12 +72,20 @@ def fake_get_factory(responses):
 
 
 def with_monkeypatched_get(fn):
+    """Route net's transport seam at the faked requests.get the tests set.
+
+    Production net._do_get uses a pooled requests.Session; here it's pointed
+    back at requests.get (looked up at call time) so the existing fakes keep
+    working and nothing ever touches the network."""
     def run():
-        real = net.requests.get
+        real_do_get = net._do_get
+        real_req_get = net.requests.get
+        net._do_get = lambda url, **kwargs: net.requests.get(url, **kwargs)
         try:
             fn()
         finally:
-            net.requests.get = real
+            net._do_get = real_do_get
+            net.requests.get = real_req_get
     return run
 
 
@@ -229,6 +237,37 @@ def _midbody_drop_retries():
 
 
 _midbody_drop_retries()
+
+
+@with_monkeypatched_get
+def _get_json_retries_then_succeeds():
+    body = {"hits": [{"project_id": "abc"}]}
+    net.requests.get = fake_get_factory([
+        FakeResp([], status=503),
+        FakeResp([], json_body=body),
+    ])
+    net.BACKOFF_BASE = 0.01
+    try:
+        got = net.get_json("https://api.modrinth.com/v2/search", timeout=5)
+    finally:
+        net.BACKOFF_BASE = 1.5
+    check(got == body, "get_json retries a transient 5xx then decodes the body")
+
+
+_get_json_retries_then_succeeds()
+
+
+@with_monkeypatched_get
+def _get_json_failure_is_clean():
+    net.requests.get = lambda *a, **k: FakeResp([], status=404)
+    try:
+        net.get_json("https://api.modrinth.com/v2/missing", attempts=3)
+        check(False, "a 404 metadata fetch must raise")
+    except net.DownloadError:
+        check(True, "get_json surfaces a clean DownloadError, not a raw HTTPError")
+
+
+_get_json_failure_is_clean()
 
 
 @with_monkeypatched_get

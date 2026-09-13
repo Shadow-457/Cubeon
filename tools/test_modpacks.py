@@ -67,10 +67,26 @@ class _FakeResp:
             yield self._data[i:i + chunk_size]
 
 
-def _fake_get(url, headers=None, stream=False, timeout=None):
+def _fake_get(url, headers=None, stream=False, timeout=None, params=None,
+              **kwargs):
     if url not in _BLOBS:
         raise AssertionError(f"unexpected download URL: {url}")
     return _FakeResp(_BLOBS[url])
+
+
+def _fake_head(url, **kwargs):
+    """HEAD probe target - report no size rather than touching the network."""
+    return _FakeResp(b"")
+
+
+def _net_seam(url, headers=None, params=None, stream=True, timeout=None,
+              **kwargs):
+    """net._do_get replacement: forward to whichever requests.get fake the
+    test has installed *at call time*, so the later API-response fakes apply.
+    net always passes stream=True, which the JSON fakes don't accept, so it's
+    dropped here (the fakes don't stream anyway)."""
+    return modpacks.requests.get(url, headers=headers, params=params,
+                                 timeout=timeout)
 
 
 # --- build a synthetic .mrpack --------------------------------------------
@@ -130,6 +146,10 @@ def main():
     calls = {"version": None, "loader": None}
     modpacks.MINECRAFT_DIR = game_dir
     modpacks.requests.get = _fake_get
+    modpacks.requests.head = _fake_head
+    # net got a pooled-Session transport seam (net._do_get); route it through
+    # the same fake so the download AND metadata paths stay fully offline.
+    modpacks.net._do_get = _net_seam
     modpacks.install_version = lambda v, *a, **k: calls.__setitem__("version", v)
     modpacks.install_mod_loader = lambda lid, v, *a, **k: (calls.__setitem__("loader", (lid, v)) or "fabric-loader-0.15.7-1.20.1")
     modpacks.get_profile_dir = lambda mc, loader: profile_dir
@@ -331,8 +351,13 @@ def main():
     class _FakeApiResp:
         def __init__(self, payload):
             self._payload = payload
+            self.status_code = 200
+            self.headers = {}
 
         def raise_for_status(self):
+            pass
+
+        def close(self):
             pass
 
         def json(self):

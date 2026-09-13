@@ -42,7 +42,8 @@ import uuid
 
 # `requests` costs ~97ms to import; this module is on the startup path but
 # only touches the network when the user browses/downloads. Lazy so the
-# window appears sooner - `requests.get(...)` call sites are unchanged.
+# window appears sooner. Metadata GETs route through net.get_json (retry +
+# backoff); `requests` stays only for its exception types here.
 from .lazy import LazyModule
 requests = LazyModule("requests")
 
@@ -53,6 +54,7 @@ from .paths import (
 from .mod_loaders import MOD_CAPABLE_LOADERS
 from . import local_cache
 from . import global_mod_cache
+from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
 MODRINTH_HEADERS = {"User-Agent": f"fuckarch/{APP_NAME.lower()}/1.0"}
@@ -700,12 +702,10 @@ def get_recommended_mods(mc_version: str | None = None, loader: str = "fabric",
     cache_key = {"mc_version": mc_version, "loader": loader, "category": category, "slugs": RECOMMENDED_MOD_SLUGS}
 
     def _fetch() -> list[dict]:
-        resp = requests.get(
+        projects = net.get_json(
             f"{MODRINTH_API}/projects", params={"ids": json.dumps(RECOMMENDED_MOD_SLUGS)},
             headers=MODRINTH_HEADERS, timeout=10,
         )
-        resp.raise_for_status()
-        projects = resp.json()
 
         # Preserve curated order rather than whatever order the API returns
         by_slug = {p.get("slug"): p for p in projects}
@@ -756,9 +756,8 @@ def search_mods(query: str, mc_version: str | None = None, loader: str = "fabric
             "query": query, "limit": str(limit), "facets": json.dumps(facets),
             "index": modrinth_search_index(query),
         }
-        resp = requests.get(f"{MODRINTH_API}/search", params=params, headers=MODRINTH_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
+        data = net.get_json(f"{MODRINTH_API}/search", params=params,
+                            headers=MODRINTH_HEADERS, timeout=10)
 
         results = []
         for hit in data.get("hits", []):
@@ -811,13 +810,12 @@ def get_mod_icons(slugs: "list[str]") -> dict[str, "str | None"]:
 
     if missing:
         try:
-            resp = requests.get(
+            projects = net.get_json(
                 f"{MODRINTH_API}/projects",
                 params={"ids": json.dumps(missing)},
                 headers=MODRINTH_HEADERS, timeout=10,
             )
-            resp.raise_for_status()
-            for project in resp.json():
+            for project in projects:
                 url = project.get("icon_url") or None
                 slug = project.get("slug")
                 _icon_url_cache[slug] = url
@@ -847,12 +845,10 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader}
 
     def _fetch():
-        resp = requests.get(
+        versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
             params=params, headers=MODRINTH_HEADERS, timeout=10,
         )
-        resp.raise_for_status()
-        versions = resp.json()
         if not versions:
             return None
 
@@ -899,12 +895,10 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
         return None
 
     def _fetch() -> dict:
-        resp = requests.get(
+        p = net.get_json(
             f"{MODRINTH_API}/project/{ref}",
             headers=MODRINTH_HEADERS, timeout=10,
         )
-        resp.raise_for_status()
-        p = resp.json()
 
         gallery = []
         for img in p.get("gallery") or []:
@@ -972,13 +966,12 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
         return cached if isinstance(cached, list) else []
 
     def _fetch() -> list[dict]:
-        resp = requests.get(
+        versions = net.get_json(
             f"{MODRINTH_API}/project/{ref}/version",
             headers=MODRINTH_HEADERS, timeout=10,
         )
-        resp.raise_for_status()
         out = []
-        for v in resp.json():
+        for v in versions:
             files = v.get("files") or []
             primary = next((f for f in files if f.get("primary")),
                            files[0] if files else None)
@@ -1581,12 +1574,10 @@ def required_dependencies(project_id_or_slug: str, mc_version: str | None,
         params = {"loaders": json.dumps([loader]) if loader else None,
                   "game_versions": json.dumps([mc_version]) if mc_version else None}
         params = {k: v for k, v in params.items() if v}
-        resp = requests.get(
+        versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
             params=params, headers=MODRINTH_HEADERS, timeout=10,
         )
-        resp.raise_for_status()
-        versions = resp.json()
         if not versions:
             return []
         deps = versions[0].get("dependencies") or []
