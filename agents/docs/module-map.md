@@ -834,26 +834,41 @@ content pulled live from the free, keyless, 24/7 APIs the game itself uses.
     reserved). `friends.ensure_identity()` mints it only when no identity has a
     name, so it can never silently rotate a name a friend already knows; the
     server binds it claim-on-connect at WS hello. No claim prompt exists.
-  - rename: the Chat tab's "Your name" field calls
-    `FriendsService.rename_unique(base)`, which appends
-    `friends.unique_number()` (4 digits of sha256(stable_secret())) to the
-    chosen base - "Dragon" -> "Dragon4821". `friends.unique_name()` strips
-    non-name chars and trailing digits first, so re-applying is idempotent; a
-    `name_taken` reply walks the number forward (attempt) instead of failing a
-    name the user never typed; any other error stops. `friends.name_base()`
-    pulls the editable stem back out to prefill the field.
+  - the tab shows the server-assigned 12-digit **ID**, not a name: a name is
+    only a cosmetic label and there is NO rename field (the old
+    `rename_unique`/"Your name" flow was removed 2026-09-12; test_ui_smoke
+    pins `name_field`/`rename_unique` OUT of chat_tab.py). Add a friend by ID
+    via `friends.canonical_uid(raw)` -> `FriendsService.add_friend(uid)`.
   - main.py startup connects only if an identity ALREADY existed; a brand-new
     one connects when the Chat tab first opens (keeps headless UI builds from
     opening real websockets with throwaway identities).
-  - **layout reworked 2026-09-11** (was cramped/rough): left rail = "Chat"
-    header + connection dot, identity avatar + name, rename field, add-friend
-    field (only requests section shows when non-empty), then Friends. Right
-    pane = conversation header (avatar + name + presence) with a centered
-    empty state until a friend is picked, content-hugging bubbles ("mine" =
-    `ACCENT_TINT` wash, theirs = `SURFACE_HI`), and a rounded composer with a
-    square accent send button. Avatars are per-name `theme.AVATAR_COLORS`.
-    Bubble width is measured from the longest line, capped at half the window.
-    Message/name text uses the body font, not mono.
+  - **layout reworked 2026-09-11, professional pass 2026-09-13**: left rail =
+    "Chat" header + connection dot, identity block (avatar + name, and the ID
+    in a bordered badge chip), add-friend field, requests section (only when
+    non-empty), then Friends. Roster rows are chat-style: avatar ringed green
+    when online, name, last-message preview ("You: ..." for outbound) or
+    presence when there is no history, and a right-aligned clock + accent
+    unread badge. Right pane = conversation header (avatar + name + presence)
+    with a centered empty state until a friend is picked, day separators and
+    grouped spacing in the transcript, content-hugging bubbles ("mine" =
+    `ACCENT_TINT` wash, theirs = `SURFACE_HI`), an inline send-error line, a
+    rounded composer (`shift_enter=True`: Enter sends, Shift+Enter newline),
+    a square accent send button, and a warning banner while the socket is
+    down. Avatars are per-name `theme.AVATAR_COLORS`. Bubble width is measured
+    from the longest line, capped at half the window. Message/name text uses
+    the body font, not mono.
+  - **roster rail data contract (2026-09-13)**:
+    `FriendsService.roster_payload` decorates each friend with
+    `last_text`/`last_ts`/`last_dir` and `unread` (inbound msgs after that
+    peer's read marker). `FriendsService.mark_read(friend)` advances the
+    marker monotonically; the Chat tab calls it on select and on every poll
+    while a conversation is open, which clears the badge. The tab's
+    `_mark_read` uses `getattr(service, "mark_read", None)` so stub services
+    (test_fuzz/app_driver) keep working. GOTCHA: a multiline Flet TextField
+    with default `shift_enter=False` makes Enter insert a newline and never
+    fire `on_submit` - the composer must set `shift_enter=True`.
+    `test_friends_service.test_chat_read_rail` and the ui_smoke chat checks
+    pin the rail contract, the Enter-to-send rule and the day separators.
 - **Playtime is a durable on-disk play session (fixed 2026-09-11)**: the game
   outlives the launcher (launch.py `start_new_session=True`) and a GPU-crash
   re-exec (main.py `os.execv`, sets `CUBEON_TRAY_REOPEN`) replaces the process,

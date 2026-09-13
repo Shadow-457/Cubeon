@@ -69,6 +69,31 @@ def _fmt_time(ts_ms) -> str:
         return ""
 
 
+def _day_key(ts_ms):
+    """(calendar day string, human label) for a message timestamp.
+
+    The day string is what the transcript groups on; the label is what a
+    separator reads. Blank ts (an old/seeded message with no clock) returns
+    (None, "") so it never forces a bogus "Today" separator."""
+    try:
+        ts = int(ts_ms)
+        if ts <= 0:
+            return None, ""
+        if ts > 10_000_000_000:
+            ts //= 1000
+        lt = time.localtime(ts)
+        key = time.strftime("%Y-%m-%d", lt)
+        now = time.localtime()
+        if key == time.strftime("%Y-%m-%d", now):
+            return key, "Today"
+        if key == time.strftime("%Y-%m-%d", time.localtime(
+                time.mktime(now) - 86400)):
+            return key, "Yesterday"
+        return key, time.strftime("%B %d, %Y", lt)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None, ""
+
+
 def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                    section_label,
                    BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
@@ -104,6 +129,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     _last_roster = {"v": None}
     _roster_sig = {"v": None}
     _identity_sig = {"v": None}
+    _last_day = {}
+    _last_dir = {}
     tick_lock = threading.Lock()
     stop = threading.Event()
 
@@ -132,12 +159,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         border_radius=RADIUS,
         height=40,
         content_padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
-        expand=True,
         on_submit=lambda e: _do_add(),
     )
-    add_btn = ft.IconButton(icon=ft.Icons.ARROW_FORWARD_ROUNDED, icon_size=18,
-                            icon_color=ACCENT, tooltip="Send friend request",
-                            on_click=lambda e: _do_add())
 
     requests_label = section_label("Requests")
     requests_col = ft.Column(spacing=6)
@@ -154,7 +177,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                icon_size=18, icon_color=TEXT_DIM,
                                hover_color=DANGER,
                                tooltip="Remove friend", visible=False)
-    transcript = ft.ListView(expand=True, spacing=8, auto_scroll=True,
+    transcript = ft.ListView(expand=True, spacing=0, auto_scroll=True,
                              padding=ft.padding.Padding.symmetric(
                                  vertical=6, horizontal=2), visible=False)
 
@@ -168,6 +191,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         border_radius=RADIUS,
         expand=True,
         multiline=True,
+        shift_enter=True,
         min_lines=1,
         max_lines=4,
         content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
@@ -179,23 +203,40 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         alignment=ft.Alignment.CENTER, ink=False,
         on_click=lambda e: _do_send(),
     ), ACCENT, ACCENT_HI)
+    composer_status = ft.Text("", size=11, color=DANGER, max_lines=2,
+                              overflow=ft.TextOverflow.ELLIPSIS, visible=False)
     composer_row = ft.Row([composer, send_btn], spacing=8, visible=False,
                           vertical_alignment=ft.CrossAxisAlignment.END)
 
+    empty_title = ft.Text("Pick a friend to start chatting", size=14,
+                          color=TEXT_DIM)
+    empty_sub = ft.Text("Messages are private to you and them.", size=12,
+                        color=TEXT_FAINT)
     empty_state = ft.Container(
         content=ft.Column(
             [
                 ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=38,
                         color=TEXT_FAINT),
-                ft.Text("Pick a friend to start chatting", size=14,
-                        color=TEXT_DIM),
-                ft.Text("Messages are private to you and them.", size=12,
-                        color=TEXT_FAINT),
+                empty_title,
+                empty_sub,
             ],
             spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             tight=True,
         ),
         alignment=ft.Alignment.CENTER, expand=True,
+    )
+
+    conn_banner_text = ft.Text("", size=12, color=WARNING)
+    conn_banner = ft.Container(
+        content=ft.Row([ft.Icon(ft.Icons.CLOUD_OFF_ROUNDED, size=16,
+                                color=WARNING),
+                        conn_banner_text],
+                       spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        bgcolor=ft.Colors.with_opacity(0.10, WARNING),
+        border=ft.border.Border.all(1, ft.Colors.with_opacity(0.35, WARNING)),
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
+        visible=False,
     )
 
     # --- small builders --------------------------------------------------
@@ -205,23 +246,25 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             h = (h * 31 + ord(ch)) & 0xFFFFFFFF
         return AVATAR_COLORS[h % len(AVATAR_COLORS)]
 
-    def _paint_avatar(box, name, size):
+    def _paint_avatar(box, name, size, online=None):
         """Fills an existing rounded-square avatar with the name's initial in
         a stable per-name color - so the roster has identity without color
-        noise, and green stays semantic."""
+        noise, and green stays semantic. `online=True` rings it in the presence
+        green, which is the one place green is allowed to appear here."""
         color = _avatar_color(name)
         box.width = box.height = size
         box.border_radius = RADIUS
         box.bgcolor = ft.Colors.with_opacity(0.16, color)
-        box.border = ft.border.Border.all(1, CARD_BORDER)
+        box.border = ft.border.Border.all(
+            2 if online else 1, ACCENT if online else CARD_BORDER)
         box.alignment = ft.Alignment.CENTER
         box.content = ft.Text((name[:1] or "?").upper(),
                               size=int(size * 0.42), color=color,
                               weight=ft.FontWeight.W_700)
 
-    def _avatar(name, size):
+    def _avatar(name, size, online=None):
         box = ft.Container()
-        _paint_avatar(box, name, size)
+        _paint_avatar(box, name, size, online)
         return box
 
     def _pill(label, fill, fg, on_click):
@@ -244,38 +287,63 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             return "Online", ACCENT
         return "Offline", TEXT_FAINT
 
+    def _unread_badge(count):
+        return ft.Container(
+            content=ft.Text(str(count) if count < 100 else "99+", size=10,
+                            color=ON_ACCENT, weight=ft.FontWeight.W_700),
+            bgcolor=ACCENT, border_radius=9, ink=False,
+            padding=ft.padding.Padding.symmetric(horizontal=6, vertical=1),
+        )
+
     def _friend_row(f):
         name = f.get("name") or ""
         uid = str(f.get("uid") or "")
         is_sel = selected["name"] == name
-        sub, sub_color = _presence(f)
+        online = bool(f.get("online"))
+        last_text = str(f.get("last_text") or "").strip()
+        last_ts = int(f.get("last_ts") or 0)
+        unread = int(f.get("unread") or 0)
+        if last_text:
+            preview = ("You: " if f.get("last_dir") == "out" else "") + last_text
+            preview = preview.replace("\n", " ")
+            preview_color = TEXT_DIM if online or unread else TEXT_FAINT
+        else:
+            preview, preview_color = _presence(f)
+        stamp = _fmt_time(last_ts) if last_ts else ""
+        trailing = ft.Column(
+            [
+                ft.Text(stamp, size=10,
+                        color=ACCENT if unread else TEXT_FAINT),
+                _unread_badge(unread) if unread else ft.Container(),
+            ],
+            spacing=3, tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.END,
+        )
         row = ft.Container(
             content=ft.Row(
                 [
-                    _avatar(name, 34),
+                    _avatar(name, 34, online),
                     ft.Column(
                         [
                             ft.Text(name, size=13, color=TEXT,
                                     weight=ft.FontWeight.W_600, max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS),
-                            ft.Text(sub, size=11, color=sub_color,
-                                    max_lines=1,
-                                    overflow=ft.TextOverflow.ELLIPSIS),
-                            ft.Text(f"ID {uid}" if uid else "", size=10,
-                                    font_family=FONT_MONO, color=TEXT_FAINT,
+                            ft.Text(preview, size=11, color=preview_color,
                                     max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS),
                         ],
                         spacing=1, tight=True, expand=True,
                     ),
+                    trailing,
                 ],
-                spacing=10,
+                spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor=_row_bg(is_sel),
             border_radius=RADIUS,
             ink=False,
             padding=ft.padding.Padding.symmetric(horizontal=8, vertical=7),
+            tooltip=f"ID {uid}" if uid else None,
             on_click=lambda e, n=name: _select(n),
         )
         attach_hover(row, _row_bg(is_sel), ROW_HOVER)
@@ -329,6 +397,21 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         status_text.color = DANGER if error else TEXT_DIM
         thread_safe_ui.refresh(status_text)
 
+    def _set_composer_status(text):
+        text = str(text or "").strip()
+        composer_status.value = text
+        composer_status.visible = bool(text)
+        thread_safe_ui.refresh(composer_status)
+
+    def _mark_read(name):
+        fn = getattr(service, "mark_read", None)
+        if not callable(fn):
+            return
+        try:
+            fn(name)
+        except Exception:
+            pass
+
     def _apply_identity(roster):
         uid = roster.get("you_uid") or ""
         sig = (roster.get("you"), uid, bool(roster.get("connected")),
@@ -339,14 +422,24 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         name = roster.get("you") or ""
         connected = bool(roster.get("connected"))
         available = bool(roster.get("available"))
-        you_text.value = f"You are {name}" if name else "Setting up..."
-        you_id_text.value = uid or "Getting your ID..."
+        you_text.value = name or "Setting up..."
+        you_id_text.value = uid or "Waiting for your ID…"
         conn_dot.bgcolor = (ACCENT if connected
                             else (WARNING if available else DANGER))
         conn_text.value = ("Connected" if connected else
-                           ("Connecting..." if available else "Add-on missing"))
-        _paint_avatar(you_avatar, uid or name or "?", 34)
-        for ctrl in (you_text, you_id_text, you_avatar, conn_dot, conn_text):
+                           ("Connecting…" if available else "Add-on missing"))
+        _paint_avatar(you_avatar, name or "?", 34)
+        if available and not connected:
+            conn_banner_text.value = ("Connecting to Cubeon… messages will "
+                                      "send once you're back online.")
+            conn_banner.visible = True
+        else:
+            conn_banner.visible = False
+        empty_sub.value = ("Add a friend by ID, or wait for someone to add you."
+                           if connected else
+                           "You're offline — messages send once you reconnect.")
+        for ctrl in (you_text, you_id_text, you_avatar, conn_dot, conn_text,
+                     conn_banner, empty_sub):
             thread_safe_ui.refresh(ctrl)
 
     def _rebuild_requests(roster):
@@ -408,6 +501,23 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         longest = max((len(ln) for ln in lines), default=1)
         return min(max_w, max(_BUBBLE_MIN, int(longest * _CHAR_PX) + 6))
 
+    def _day_separator(label):
+        """A centered "Today"/date rule, the standard way a long transcript
+        marks where a new day begins instead of a bare stream of timestamps."""
+        def _rule():
+            return ft.Container(height=1, bgcolor=CARD_BORDER, expand=True)
+        return ft.Container(
+            content=ft.Row(
+                [_rule(),
+                 ft.Text(label, size=10, color=TEXT_FAINT,
+                         weight=ft.FontWeight.W_600),
+                 _rule()],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            margin=ft.Margin(0, 12, 0, 4),
+        )
+
     def _append_messages(msgs, name):
         if not msgs or selected["name"] != name:
             return
@@ -418,8 +528,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 if seq is not None:
                     last_seq[name] = max(last_seq.get(name, -1), int(seq))
                 mine = m.get("dir") == "out"
+                side = "out" if mine else "in"
                 text = m.get("text") or ""
                 ts = m.get("ts")
+                day, label = _day_key(ts)
+                if day and day != _last_day.get(name):
+                    _last_day[name] = day
+                    _last_dir[name] = None
+                    transcript.controls.append(_day_separator(label))
+                same = _last_dir.get(name) == side
+                gap = 2 if same else (6 if _last_day.get(name) else 10)
+                _last_dir[name] = side
                 bubble = ft.Container(
                     content=ft.Column(
                         [
@@ -439,15 +558,22 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                                          vertical=8),
                 )
                 transcript.controls.append(
-                    ft.Row([bubble],
-                           alignment=(ft.MainAxisAlignment.END if mine
-                                      else ft.MainAxisAlignment.START)))
+                    ft.Container(
+                        content=ft.Row(
+                            [bubble],
+                            alignment=(ft.MainAxisAlignment.END if mine
+                                       else ft.MainAxisAlignment.START)),
+                        margin=ft.Margin(0, gap, 0, 0),
+                    ))
         thread_safe_ui.refresh(transcript)
 
     # --- actions ---------------------------------------------------------
     def _select(name):
         selected["name"] = name
         last_seq[name] = -1
+        _last_day[name] = None
+        _last_dir[name] = None
+        composer_status.visible = False
         with thread_safe_ui.TREE_LOCK:
             transcript.controls.clear()
         transcript.visible = True
@@ -458,15 +584,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         uid = str(f.get("uid") or "")
         transcript_sub.value = f"{sub}  ·  ID {uid}" if uid else sub
         transcript_sub.color = sub_color
-        _paint_avatar(header_avatar, name, 36)
+        _paint_avatar(header_avatar, name, 36, f.get("online"))
         header_avatar.visible = True
         remove_btn.visible = True
         remove_btn.on_click = lambda e, n=name: _confirm_remove(n)
         composer_row.visible = True
         _roster_sig["v"] = None   # repaint the selection highlight
         for ctrl in (transcript, empty_state, transcript_header,
-                     transcript_sub, header_avatar, remove_btn, composer_row):
+                     transcript_sub, header_avatar, remove_btn, composer_row,
+                     composer_status):
             thread_safe_ui.refresh(ctrl)
+        _mark_read(name)
         _tick()
 
     def _run(action, done, label):
@@ -488,13 +616,15 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         if not name or not text:
             return
 
+        _set_composer_status("")
+
         def done(res):
             if res.get("ok"):
                 composer.value = ""
                 thread_safe_ui.refresh(composer)
             else:
-                _set_status(res.get("error") or "Couldn't send that message.",
-                            error=True)
+                _set_composer_status(res.get("error")
+                                     or "Couldn't send that message.")
 
         _run(lambda: service.send_chat(name, text), done, "cubeon-chat-send")
 
@@ -555,9 +685,11 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         header_avatar.visible = False
         remove_btn.visible = False
         composer_row.visible = False
+        composer_status.visible = False
         _roster_sig["v"] = None
         for ctrl in (transcript, empty_state, transcript_header,
-                     transcript_sub, header_avatar, remove_btn, composer_row):
+                     transcript_sub, header_avatar, remove_btn, composer_row,
+                     composer_status):
             thread_safe_ui.refresh(ctrl)
 
     def _confirm_remove(name):
@@ -602,6 +734,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 except Exception:
                     payload = {}
                 _append_messages(payload.get("messages") or [], name)
+                _mark_read(name)
         finally:
             tick_lock.release()
 
@@ -641,9 +774,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         you_avatar,
                         ft.Column(
                             [
+                                ft.Text("You", size=10, color=TEXT_FAINT,
+                                        weight=ft.FontWeight.W_600),
                                 you_text,
-                                ft.Text("Your ID", size=10, color=TEXT_FAINT),
-                                your_id_text,
                             ],
                             spacing=1, tight=True, expand=True,
                         ),
@@ -651,8 +784,29 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     spacing=10,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.Text("Share this ID so a friend can add you.", size=10,
-                        color=TEXT_FAINT),
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.BADGE_OUTLINED, size=16,
+                                    color=ACCENT),
+                            ft.Column(
+                                [
+                                    ft.Text("Your friend ID", size=10,
+                                            color=TEXT_FAINT),
+                                    your_id_text,
+                                ],
+                                spacing=0, tight=True, expand=True,
+                            ),
+                        ],
+                        spacing=10,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    bgcolor=CARD_FILL,
+                    border=ft.border.Border.all(1, CARD_BORDER),
+                    border_radius=RADIUS,
+                    padding=ft.padding.Padding.symmetric(horizontal=10,
+                                                         vertical=8),
+                ),
                 ft.Container(height=6),
                 add_field,
                 requests_label,
@@ -682,9 +836,11 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     spacing=12,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+                conn_banner,
                 ft.Container(height=1, bgcolor=CARD_BORDER),
                 transcript,
                 empty_state,
+                composer_status,
                 composer_row,
             ],
             spacing=12,

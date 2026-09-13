@@ -256,6 +256,7 @@ class FriendsService:
         self._chat_lock = threading.RLock()
         self._chat = {}            # canon peer -> {"next_seq": int, "msgs": deque}
         self._chat_seeded = set()  # peers we've asked the relay for history on
+        self._chat_read = {}       # canon peer -> highest seq marked seen
         # Plaintext of messages we've sent, waiting on the relay's echo as the
         # "it was stored" confirmation before they enter the ring. A sender can
         # never decrypt its own envelope (the shared secret needs the *peer's*
@@ -611,6 +612,11 @@ class FriendsService:
         for f in entries:
             name = f["name"]
             conv = friends.canonical_name(name) or name.lower()
+            with self._chat_lock:
+                room = self._chat.get(conv)
+                msgs = list(room["msgs"]) if room else []
+                read = self._chat_read.get(conv, 0)
+            last = msgs[-1] if msgs else None
             out.append({
                 "name": name,
                 "uid": str(f.get("uid") or ""),
@@ -619,6 +625,11 @@ class FriendsService:
                 "status": f.get("status") or "",
                 "invited": conv in invited,
                 "whitelisted": name.strip().lower() in whitelist,
+                "last_text": (last.get("text") or "") if last else "",
+                "last_ts": int(last.get("ts") or 0) if last else 0,
+                "last_dir": (last.get("dir") or "") if last else "",
+                "unread": sum(1 for m in msgs
+                              if m.get("dir") == "in" and m.get("seq", 0) > read),
             })
         return {
             "you": friends.current_name() or "",
@@ -1057,6 +1068,29 @@ class FriendsService:
                 self.client.request_history(peer=peer)
         return {"friend": peer, "you": you,
                 "messages": msgs[-_CHAT_PAGE:]}
+
+    def mark_read(self, friend: str) -> dict:
+        """Mark a conversation as seen up to its newest message.
+
+        The launcher's Chat tab calls this while a conversation is open (each
+        poll and on select), which is what clears the roster's unread badge.
+        Idempotent and monotonic: the marker only ever moves forward, so a
+        stale poll can't resurrect an already-read badge."""
+        peer = (friend or "").strip()
+        canon = friends.canonical_name(peer) or peer.lower()
+        if not canon:
+            return self._err("Pick a friend first.")
+        with self._chat_lock:
+            room = self._chat.get(canon)
+            top = (room["next_seq"] - 1) if room else 0
+            if top > self._chat_read.get(canon, 0):
+                self._chat_read[canon] = top
+                changed = True
+            else:
+                changed = False
+        if changed:
+            self._changed()
+        return self._ok()
 
     # =====================================================================
     # Profile Sync (the mod's Sync view). Compares this machine's Minecraft

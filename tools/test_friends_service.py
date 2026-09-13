@@ -343,6 +343,52 @@ def test_roster_payload():
        "an unreadable whitelist degrades instead of breaking the roster")
 
 
+def test_chat_read_rail():
+    section("roster rail: last message preview + unread + mark_read")
+    service, client, _ = build()
+    client.roster = {
+        "friends": [{"name": "Alice", "online": True, "uid": "000000000007"},
+                    {"name": "bob", "online": False}],
+        "requests_in": [], "requests_out": [],
+    }
+    service._chat_append("alice", "in", "Alice", "hey", 1000)
+    service._chat_append("alice", "out", "Steve", "hi alice", 2000)
+    service._chat_append("alice", "in", "Alice", "you there?", 3000)
+    service._chat_append("bob", "in", "bob", "yo", 1500)
+
+    by = {f["name"]: f for f in service.roster_payload()["friends"]}
+    ok(by["Alice"]["last_text"] == "you there?"
+       and by["Alice"]["last_ts"] == 3000
+       and by["Alice"]["last_dir"] == "in",
+       "the roster row carries the newest line, its clock and its side",
+       str(by["Alice"]))
+    ok(by["Alice"]["unread"] == 2,
+       "only inbound lines after the read marker count as unread",
+       str(by["Alice"]["unread"]))
+    ok(by["bob"]["unread"] == 1 and by["bob"]["last_text"] == "yo",
+       "each conversation tracks its own rail independently")
+
+    service.mark_read("alice")
+    by = {f["name"]: f for f in service.roster_payload()["friends"]}
+    ok(by["Alice"]["unread"] == 0, "opening a conversation clears its badge")
+    ok(by["Alice"]["last_text"] == "you there?",
+       "mark_read leaves the preview alone")
+
+    service._chat_append("alice", "in", "Alice", "back?", 4000)
+    by = {f["name"]: f for f in service.roster_payload()["friends"]}
+    ok(by["Alice"]["unread"] == 1,
+       "a newer inbound re-raises the badge after a read")
+
+    service.mark_read("alice")
+    service.mark_read("alice")
+    by = {f["name"]: f for f in service.roster_payload()["friends"]}
+    ok(by["Alice"]["unread"] == 0, "mark_read is idempotent")
+
+    ok(service.mark_read("")["ok"] is False, "mark_read needs a friend")
+    ok(service.mark_read("nobody")["ok"] is True,
+       "mark_read for a peer with no conversation is a harmless no-op")
+
+
 def test_events():
     section("events_since (GET /events)")
     service, client, _ = build()
@@ -1496,6 +1542,7 @@ def main():
     try:
         test_contract()
         test_roster_payload()
+        test_chat_read_rail()
         test_events()
         test_status_payload()
         test_friend_actions()

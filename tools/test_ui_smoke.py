@@ -1125,6 +1125,22 @@ check("chat tab shows the 12-digit ID and adds friends by ID",
       and "Add a friend by ID" in _chat_src
       and "name_field" not in _chat_src and "rename_unique" not in _chat_src,
       "chat identity is the server-assigned ID; names/secrets are not the add flow")
+check("chat composer sends on Enter",
+      "shift_enter=True" in _chat_src and "on_submit=lambda e: _do_send()" in _chat_src,
+      "a multiline composer without shift_enter makes Enter insert a newline, "
+      "so the only way to send is the tiny button - a chat that looks broken")
+check("chat roster rail previews the last message and unread count",
+      "last_text" in _chat_src and "unread" in _chat_src
+      and "_unread_badge" in _chat_src,
+      "a chat roster without a last-line preview / unread badge reads as a "
+      "bare contact list")
+check("chat transcript groups by day",
+      "_day_key" in _chat_src and "_day_separator" in _chat_src
+      and "Yesterday" in _chat_src,
+      "long conversations need day separators instead of an undated stream")
+check("chat marks a conversation read while it is open",
+      "mark_read" in _chat_src,
+      "without mark_read the unread badge never clears when a friend is selected")
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
