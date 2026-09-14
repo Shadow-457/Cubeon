@@ -153,3 +153,14 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
   seeded library files never surface). 5f+ unchanged. Suite: 114/114 green;
   test_gallery 25/25 green (core library module kept for the forget_file
   bookkeeping + possible future use).
+
+## Workers deployed (2026-09-14)
+- All four workers now LIVE with the sweep fixes: friends (28e39df0), skins
+  (035a9cf2), waitlist (87605d08), invites (17ab0fc5). Verified: oversized
+  waitlist body rejected; legit join returns 200.
+- cubeon-invites had NEVER been deployed (no toml existed). Created
+  worker/wrangler-invites.toml + KV namespace INVITES
+  (837c3f4a586047d69eba373fc6f9f602) and deployed. README updated.
+- Gotcha: wrangler hangs silently at its banner when the stored OAuth token
+  needs refresh and no TTY - rerun with CI=true and </dev/null; it then
+  refreshes and proceeds. Deploy = upload ~10s + triggers ~5s.

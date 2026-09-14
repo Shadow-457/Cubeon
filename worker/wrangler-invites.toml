@@ -1,0 +1,11 @@
+name = "cubeon-invites"
+main = "cubeon-invites.js"
+compatibility_date = "2025-04-01"
+
+[[kv_namespaces]]
+binding = "INVITES"
+id = "837c3f4a586047d69eba373fc6f9f602"
+
+# Optional: bind Cloudflare's Rate Limiting binding as RATE_LIMITER to enable
+# the write-budget gate in cubeon-invites.js (it degrades to no-limit if
+# absent). Add when the beta invite volume justifies it.

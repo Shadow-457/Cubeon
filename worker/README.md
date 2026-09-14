@@ -5,7 +5,7 @@ Three Cloudflare Workers, all on the free tier, no VPS, no card:
 | Worker | Job | Status |
 |---|---|---|
 | `cubeon-skins.js` | identity + skins: UUID-anchored skins, username pointers, the Cubeon cape | **live** |
-| `cubeon-invites.js` | short invite codes → a host's tunnel address | **not deployed yet** |
+| `cubeon-invites.js` | short invite codes → a host's tunnel address | **deployed** (wrangler-invites.toml) |
 | `cubeon-friends.js` | Friends tab: presence, chat, groups, voice signalling | **not deployed yet** |
 
 The skins Worker is fully live - the read path (the `/skins/<name>.json`
@@ -256,7 +256,7 @@ is also what makes CSL fall through cleanly to LocalSkin when offline.
 
 Turns `bluefox-1234.gl.joinmc.link:52341` into `CUBE-7F4K-9QMN`.
 
-- **Not deployed yet.** The launcher defaults to
+- **Deployed 2026-09-14** (wrangler-invites.toml, KV namespace INVITES). The launcher defaults to
   `https://cubeon-invites.hamza-457-shahbaz.workers.dev` - same account as the
   skins Worker. Nothing calls it until the host UI lands.
 - **Launcher side:** `cubeon/invites.py`
@@ -379,7 +379,7 @@ The realtime backend for the **Friends tab**: unique Cubeon names, presence
 (online/offline + which game version), direct chat, groups, and voice-call
 signalling - all over one WebSocket.
 
-- **Not deployed yet.** The launcher defaults to
+- **Deployed 2026-09-14** (wrangler-invites.toml, KV namespace INVITES). The launcher defaults to
   `https://cubeon-friends.hamza-457-shahbaz.workers.dev` - same account as the
   other two. Set `CUBEON_FRIENDS_API` to point elsewhere while testing.
 - **Launcher side:** `cubeon/friends.py` (identity + client),
