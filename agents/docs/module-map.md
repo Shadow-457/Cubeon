@@ -1,6 +1,60 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-13 (deepseek-v4-flash; added the mega smoke gate + AI app driver). If a fact here contradicts the code, the
+Last updated: 2026-09-14 (bug sweep: atomic JSON writes, mods hardening, worker DM refusals). If a fact here contradicts
+the code, the
+code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+
+## Atomic JSON writes + hardening (2026-09-14) — INVARIANT
+- Every persisted JSON state file (config.json, skins.json, skin_net.json,
+  auth_key.json, ...) MUST be written via `cubeon/atomicio.write_json()`
+  (unique temp file in the target dir + fsync + `os.replace()`), or an
+  equivalent tmp+replace. A direct `open(path, "w")` is a crash-corruption
+  bug: most load_* readers fall back to defaults on JSONDecodeError, silently
+  wiping user settings. `save_config`, `_save_skins_meta`,
+  `_save_publish_state` were the last three direct writers, fixed together.
+- `cubeon/mods.py` `_safe_jar_filename()` sanitizes every user-picked jar
+  basename before it becomes a file in a profile dir (also `add_mod_file`).
+- `toggle_mod`/`delete_mod` guard on `os.path.lexists` - a stale UI mod list
+  must produce a message/no-op, never FileNotFoundError.
+- Worker DM refusals are never silent: `onDm` sends `T.ERROR
+  {code: dm_bad_recipient|dm_empty|dm_not_friends}` (toasted by
+  `friends_service._on_error`). Asserted in `tools/test_friends.py`.
+
+
+## Chat tab identity card (2026-09-13)
+- `ui/chat_tab.py` `_apply_identity` previously crashed on a typo'd control
+  name (`you_id_text` vs `your_id_text`); the poller swallows exceptions, so a
+  bug in an identity/roster paint path silently leaves the UI stale — never
+  assume a blank control means no data, grep for a name error first.
+- The Cubeon ID must always be rendered through `_friends.canonical_uid()` to
+  keep the zero-padded 12-digit form.
+- Flet 0.86 clipboard: `page.set_clipboard` is gone. Use
+  `page.run_task(ft.Clipboard().set, value)` (async service). FakePage
+  harnesses lack `run_task`, so clipboard handlers must try/except.
+- **The launcher can only show a Cubeon ID if the DEPLOYED friends worker
+  sends one.** The repo's `worker/cubeon-friends.js` assigns/back-fills the
+  12-digit uid and sends it in `hello_ok`/`/claim` — but the live worker at
+  `cubeon-friends.hamza-457-shahbaz.workers.dev` must be redeployed
+  (`cd worker && npx wrangler deploy -c wrangler-friends.toml`) before any
+  client build can display it. Old hello_ok/claim replies have NO `uid`.
+- The chat identity card shows ONLY the 12-digit ID (no `Player_xxxxxxxx`
+  name — that auto-minted handle is the relay key, internal only; it survives
+  as the card's hover tooltip).
+- **Two-launcher testing:** `tools/launch_sandbox.py <name>` boots an isolated
+  second launcher (fresh HOME → fresh friends account; `--list`/`--wipe`).
+  MUST set `PYTHONUSERBASE=<real home>/.local` or flet can't import. Bridge
+  uses a random port + token, so instances coexist. Default shares
+  `~/.cubeon_minecraft` via CUBEON_GAME_DIR (no re-download); `--isolated-game`
+  gives the sandbox its own game dir.
+- Chat identity card (ui/chat_tab.py): profile avatar (PFP via
+  `cubeon.profile.get_profile_picture_path`) + cfg["username"] as the display
+  name (relay name fallback) + the 12-digit ID as a small secondary line with
+  a copy button. The pfp path is in `_apply_identity`'s sig so swapping the
+  picture repaints without a roster change. Friends' avatars/names stay
+  color-initial + relay-name — the protocol doesn't transmit PFPs/usernames;
+  changing that means worker + client changes.
+
+ If a fact here contradicts the code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 
 ## AI app driver + mega smoke (2026-09-13) — read before writing a new test
@@ -472,86 +526,57 @@ trap (the mod now warns about it in chat, but don't rely on that).
   hooking every download site - medium), #13 i18n/accessibility (high effort).
 - New tests: tools/test_production.py (13). Worker: node worker/test-worker.mjs.
 
-## Follow-up 21: REAL-player cosmetics gallery (2026-09-10)
+## Follow-up 21: cosmetics = LOCAL library folders (2026-09-14, replaces the real-player gallery)
 
-The gallery's procedural/self-drawn skins & capes were replaced with REAL
-content pulled live from the free, keyless, 24/7 APIs the game itself uses.
+The Mojang "browse REAL players" system was REMOVED by user request (2026-09-14).
+Browse is now two local drop-folders; the only network skin path left is the
+skins-worker publish (cubeon/skins.py, worker/cubeon-skins.js).
 
-- **cubeon/remotes.py (NEW)**: Mojang session API (`api.mojang.com/
-  users/profiles/minecraft/<name>` -> UUID), Mojang session server
-  (`sessionserver.mojang.com/session/minecraft/profile/<uuid>` -> base64
-  textures blob with skin + cape urls) and the textures download (Mojang
-  serves bare-http texture urls -> we upgrade to https). Everything cached
-  under `CUBEON_HOME/remotes/<id>/` with a 24h TTL; offline falls back to
-  stale cache. HTTP goes through the module-level `remotes.TEST_HANDLER` hook
-  so tests need zero network. (mc-heads.net head fetching was removed
-  2026-09-11 with the hat-fetching system.)
-- **cubeon/gallery.py (reworked)**: was procedural palette-remaps; now the
-  catalog is REAL players keyed by canonical username. Kept public API names:
-  `list_gallery_skins/capes` (NETWORK-FREE - only read the cache; take an
-  optional fuzzy `query` + `limit`), `install_gallery_skin/cape` (real player's
-  art through the upload pipeline, wears it), `gallery_id_for_file/forget_file/
-  ensure_gallery`. NEW: `load_player`, plus the discovery layer: `prefetch_featured`,
-  `featured_cached_count`, `featured_count`, `suggest_player` (fuzzy "did you
-  mean" wrapper - the free Mojang API only resolves EXACT names).
-- **cubeon/remotes.py**: also holds the curated `FEATURED_PLAYERS` list (20
-  real accounts, ~14 with capes - verified live 2026-09-10) driving the
-  Recommended grid + `featured_names/tags/cape_names/cached_count/count`,
-  `cached_display_names` (network-free), and `prefetch_featured` (network,
-  best-effort, never raises).
-- **cubeon/cosmetics.py**: hats are drawn pixel art only (each entry has a
-  `draw` routine). The old image-hat path (`add_image_hat`, HATS_IMAGES_DIR)
-  was removed 2026-09-11 along with the real-player-head fetching system.
-- **ui/skin_tab.py**: ONE search box per pane (Skin + Cape Browse). Typing
-  fuzzy-filters the grid (`Network-free` `_norm`/`_match_score`). Recommended
-  players fill the grid via the background prefetch registered through
-  `_ACTIVE_GALLERY_REFRESH` + `refresh_active_galleries()`. The
-  "type a Minecraft name to fetch" flow (and its "Get player" button / "on
-  Mojang" copy) was REMOVED 2026-09-11 - Browse is filter-only now; keep
-  `on_submit` off those fields. The "Wear a real player's head" fetch row was
-  removed earlier - the Cosmetics pane is just the earnable hat picker.
-- **Search must surface UNCACHED recommendations (2026-09-10)**: `_catalog`
-  only listed cached players, so on a fresh install every search returned
-  "nothing matches" (or one tile) until the prefetch caught up. With a
-  `query`, `_catalog` now also appends not-yet-cached featured players
-  (`cached: False`, `preview_path: None`) - the tile shows a placeholder and
-  its GET fetches on demand (worker thread). The no-query Recommended view
-  stays cached-only so it isn't a wall of blanks. Cape queries only include
-  featured names in `FEATURED_CAPE_NAMES`.
-- **Prefetch fills the WHOLE list progressively**: `_start_featured_prefetch`
-  fetches in batches of 5, repainting after each, until all featured are
-  cached or a pass makes no progress (offline / dead name). The old gate
-  stopped after ~6, which left search thin.
-- **Tests**: tools/test_gallery.py rewritten for the real pipeline (fake
-  Mojang server via remotes.TEST_HANDLER) - 38 checks green. test_ui_smoke
-  90/90 (incl. "one search box per pane", "search is filter-only",
-  "no fetch-player copy", "search offers uncached recommendations",
-  "Installed tab flips the pane", "search filters in place - no per-keystroke
-  rebuild / no dead-end button", "installed skin card shows a real preview
-  image", "installed skins flow as a wrapping card grid", "installed lists no
-  longer paginate", "cosmetics pane is preview-based", and the playtime
-  accumulator checks), test_capes 14/14, skins-net green.
+- **cubeon/gallery.py (reworked)**: the catalog is the contents of
+  `~/.cubeon_launcher/skin_library/` and `~/.cubeon_launcher/cape_library/`
+  (image extensions png/jpg/jpeg/webp/gif/bmp). One item per file; `id` = file
+  name; fuzzy search over stems (`_norm`/`_match_score`); previews rendered
+  from the actual pixels once and cached under `gallery/previews/` (memoized
+  per folder signature in `_CATALOG_MEMO`). `install_gallery_skin/cape`
+  run the file through the exact upload pipeline (`_skins.add_custom_skin` /
+  `_capes.add_custom_cape`) and wear it. `gallery_id_for_file/forget_file/
+  ensure_gallery` keep their shapes. The old featured/Mojang names
+  (`featured_count`, `featured_cached_count`, `prefetch_featured`,
+  `suggest_player`, `load_player`) remain exported as honest no-op stubs
+  because launcher_core re-exports them and harnesses probe them.
+- **cubeon/remotes.py**: dead code - nothing imports it anymore. Kept in the
+  tree (test_skins_net.py does NOT cover it; it tests skins.py). Do NOT call
+  it from new code.
+- **ui/skin_tab.py**: hat/Cosmetics pane REMOVED entirely (user: "remove the
+  hat BROWSE shit too") - the section is Skin | Cape panes only, and
+  `build_skin_section` no longer takes `start_prefetch`. Each Browse pane has
+  a search box + an "open folder" button (`_open_folder` -> xdg-open/open/
+  os.startfile). `core.ensure_gallery()` runs at every section build so the
+  drop-folders exist on first run. `cubeon/cosmetics.py` hat drawing helpers
+  still exist (launcher_core re-exports) but have no UI.
+- **build_skin_section signature**: `(..., file_picker, cape_file_picker)` -
+  NO `start_prefetch`. test_ui_smoke's six call sites were updated.
+- **Tests**: test_gallery.py rewritten for the local-library pipeline (25
+  checks); test_ui_smoke hat checks replaced with "hat browse is gone" and
+  the search/pane-flip checks re-pointed at the local library ("your skin
+  library folder" caption).
+- GOTCHA from the 2026-09-13 session: a mid-refactor skin_tab.py shipped to
+  the user's RUNNING launcher and crashed with `NameError: _img_b64` at
+  import-time call `refresh_skins_list()` (line ~429) - in the current tree
+  `_img_b64` is defined INSIDE build_skin_section at line ~312, before the
+  first statement-level `refresh_skins_list()` call, which is correct. If you
+  move those defs, check statement-call order, not just name resolution.
 
-- **Cosmetics pane is preview-based (2026-09-11)**: `ui/skin_tab.py`'s
-  Cosmetics pane now mirrors Skin/Cape - a big live stage on the left
-  (`hat_preview` via `render_hat_stage()` -> `core.preview_composed_body`,
-  caption = current hat name) with search + grid on the right. Locked hats
-  carry a mini `ft.ProgressBar` (from `hat_progress()`), and `hat_status` is
-  hidden unless it holds a real message - no always-on "Wearing X." line.
-  Tile tooltips use the short `hat_earn_hint` (e.g. "7.4 / 10 h in game").
-  The hat grid also sits in `_grid_scroll` (height 290) like the other panes.
+Still-true invariants from the pre-local era:
 
 - **Installed lists show previews as a wrapping card grid (2026-09-11)**:
-  the Skin and Cape Installed panes used a generic icon chip per row; then
-  briefly a one-row-per-page pager (rejected - "not good"). Final design is a
-  wrapping card grid, SAME visual language as Browse. `ui/skin_tab.py`'s
   `_owned_card(...)` builds each card (real preview via `_skin_card_b64` /
   `_cape_card_b64`, name, optional sublabel, hover-revealed Use/Delete, and an
   accent border + ACTIVE pill for the active item). `skins_list_col` /
   `capes_list_col` are `ft.Row(wrap=True)` grids; the built-in Cubeon cape is
   the first card (no delete, `on_delete=None`). `_grid_scroll(grid, height=290)`
   wraps a grid in a fixed-height scrolling Column so a long list never
-  stretches the tab. There is NO pager anywhere in the cosmetics tab.
+  stretches the tab. NO pager anywhere in the cosmetics tab.
 
 - **Cosmetics theming matches the Mods tab (2026-09-11)**: the tab used to be
   the only one wrapped in its own bordered SURFACE card in `main.py`, and every
@@ -1134,3 +1159,47 @@ content pulled live from the free, keyless, 24/7 APIs the game itself uses.
   agents/2026-09-07_agent_wine-windows-build.md for the full recipe.
 - Release flow: bump cubeon/updater.py APP_VERSION -> tag vN.N.N -> push ->
   gh release create with the built artifacts.
+
+## Invariant: ft.Image never loads absolute filesystem paths (Flet 0.86)
+
+- `ft.Image(src=...)` only accepts asset-relative paths (resolved against
+  assets_dir) or http(s) URLs. A `~/.cubeon_launcher/...` absolute path
+  silently fails and renders a PERMANENT BLANK BOX (this bit the chat
+  tab's self-avatar; skin_tab hit it earlier). Three working patterns:
+  1. base64 str (skin_tab previews, chat_tab `_set_you_avatar`)
+  2. raw bytes via `ft.CircleAvatar(foreground_image_src=...)` (main.py)
+  3. bundled asset-relative path (skin_tab DEFAULT_CAPE_PREVIEW_SRC)
+- Chat tab gotcha: visible-toggled header chrome (avatar, remove button,
+  header hairline) must be flipped together in `_select` AND
+  `_clear_conversation` and listed in BOTH refresh tuples — an always-on
+  divider rendered as a stray floating line in the empty right pane.
+
+## Worker/relay invariants (2026-09-14 sweep)
+
+- **`decodeURIComponent(url.pathname)` throws URIError on malformed escapes**
+  (e.g. `/name/%zz`) and an unhandled throw in a Worker fetch surfaces as a
+  Cloudflare "error 1101" page. All four workers route through `safePathname()`
+  which falls back to the raw (always-valid) pathname. Keep that pattern for
+  any new worker.
+- **Durable Object race audit rule:** message handlers run one at a time, so
+  code with NO `await` between a read and its write is race-free by
+  construction (`onAdd` mutual-add auto-accept). Only `await`-crossing
+  sections are candidates — e.g. `onHello`'s claim-on-connect INSERT, guarded
+  by a catch + re-read on the PRIMARY KEY violation.
+- **Pre-auth WS flooding:** the per-user `frames:` limiter only exists AFTER
+  hello authenticates. Unauthenticated sockets are gated per-IP (30/10min),
+  with the IP captured into the socket attachment at upgrade time
+  (`CF-Connecting-IP`) because headers are unavailable in
+  `webSocketMessage`. `serializeAttachment` REPLACES the attachment, so any
+  later write must re-include `ip`.
+- **Chat history SQL:** newest-N-then-reorder needs a subquery, and `rowid`
+  must be PROJECTED out of the subquery (`rowid AS rid`) or the outer
+  `ORDER BY` fails with "no such column". Verified against real SQLite.
+- **KV write budget:** every worker must keep the compare-then-write / body-
+  cap discipline; the waitlist worker's `request.json()` was the one uncapped
+  body parse (fixed 2026-09-14). invites' `RATE_LIMITER` binding is now
+  actually consulted (`.catch(() => null)` → degrade to no limit, not 500).
+- Deploy note: relay fixes require `cd worker && npx wrangler deploy -c
+  wrangler-friends.toml` (plus -skins/-waitlist as touched) to go live.
+
+- `web/index.html` landing page is a single self-contained file (no build, inline CSS/JS). `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.

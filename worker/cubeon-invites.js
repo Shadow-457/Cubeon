@@ -102,16 +102,28 @@ const TTL_SECONDS = 24 * 60 * 60;
  */
 const REFRESH_AFTER_SECONDS = 6 * 60 * 60;
 
+// A resolve is worthless if it's stale, and hosts change ports. Cache barely. */
+const RESOLVE_CACHE = "public, max-age=10";
+
 /** Bodies are a handful of short fields; anything larger is not a real client. */
 const MAX_BODY_BYTES = 1024;
 
-/** A resolve is worthless if it's stale, and hosts change ports. Cache barely. */
-const RESOLVE_CACHE = "public, max-age=10";
+// decodeURIComponent throws URIError on a malformed escape sequence, and an
+// unhandled throw in fetch() surfaces as a Cloudflare "error 1101" page. A
+// URL can't hold a raw invalid %-sequence, so the encoded pathname is a safe
+// fallback - worst case CODE_RE rejects it, which is right for garbage.
+function safePathname(url) {
+  try {
+    return decodeURIComponent(url.pathname);
+  } catch {
+    return url.pathname;
+  }
+}
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const path = decodeURIComponent(url.pathname);
+    const path = safePathname(url);
 
     if (path === "/health") {
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -180,6 +192,17 @@ async function resolve(code, env) {
 async function publish(code, request, env) {
   const secret = bearer(request);
   if (!secret) return problem(401, "missing_secret");
+
+  // Abuse gate for the scarce resource (writes). The header comment promises
+  // "uses it when present and runs without it when not" - but the binding was
+  // never actually consulted, so the documented degradation was really "no
+  // limiting at all". Now: with the binding, a PUT flood gets a clean 429
+  // before any KV read/write; without it, behavior is unchanged (works, but
+  // abusable). A misbehaving binding degrades to no limiting, not to 500s.
+  if (env.RATE_LIMITER) {
+    const rl = await env.RATE_LIMITER.limit({ key: code }).catch(() => null);
+    if (rl && rl.success === false) return problem(429, "rate_limited");
+  }
 
   if (await env.INVITES.get(`blocked:${code}`)) return problem(403, "blocked");
 

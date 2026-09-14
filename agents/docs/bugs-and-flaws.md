@@ -4,9 +4,9 @@
 
 ---
 
-## Critical: Config Corruption on Crash
+## Critical: Config Corruption on Crash — FIXED (2026-09-14)
 
-**File:** `cubeon/config.py`, `save_config()` (line ~87)
+**File:** `cubeon/config.py`, `save_config()`
 
 ```python
 def save_config(cfg: dict) -> None:
@@ -18,7 +18,12 @@ def save_config(cfg: dict) -> None:
 
 **Why it's critical:** Every other sensitive write in the codebase uses atomic write (temp file + `os.replace()`): `_write_auth_key()`, `invites._save()`, `_save_publish_state()`, `_write_client_json()`. `save_config()` is the one exception, and it's the most frequently written file.
 
-**Fix:** Write to a `.tmp` file, then `os.replace()` - same pattern as `_write_auth_key()`.
+**Fix (2026-09-14):** new shared helper `cubeon/atomicio.py` (`write_json()` =
+unique temp file in the target dir + fsync + `os.replace()`), now used by
+`config.save_config`, `skins._save_skins_meta`, and `skins._save_publish_state`
+- all three writers from this catalog. **Invariant: any new persisted JSON
+state file must go through `cubeon/atomicio.write_json` (or an equivalent
+tmp+replace), never a direct `open(path, "w")`.**
 
 ---
 
@@ -52,9 +57,9 @@ process.stdin.flush()
 
 ---
 
-## High: User-Agent Strings Contain Profanity
+## High: User-Agent Strings Contain Profanity — FIXED (2026-09-14)
 
-**Files:** `cubeon/mods.py` (line ~27), `cubeon/modpacks.py` (line ~29)
+**Files:** `cubeon/mods.py`, `cubeon/modpacks.py`, `cubeon/icons.py`
 
 ```python
 MODRINTH_HEADERS = {"User-Agent": f"fuckarch/{APP_NAME.lower()}/1.0"}
@@ -62,11 +67,21 @@ MODRINTH_HEADERS = {"User-Agent": f"fuckarch/{APP_NAME.lower()}/1.0"}
 
 **Problem:** The User-Agent sent to Modrinth's API contains "fuckarch". Corporate proxies, school networks (the target audience), and Modrinth's own WAF may block or flag requests with profane User-Agent strings. This would silently break mod search/download for users on filtered networks.
 
+**Fix (2026-09-14):** all three now send `Cubeon/<app>/1.0`; `server.py`'s odd
+`cubeon-thing/...` was normalized to the same string. If you add a new network
+client, never derive its UA from the hostname.
+
 ---
 
-## High: No Rate Limiting on Friends WebSocket Messages
+## High: No Rate Limiting on Friends WebSocket Messages — STALE (rate limiter exists)
 
 **File:** `worker/cubeon-friends.js`, `webSocketMessage()`
+
+**Update 2026-09-14:** this entry is stale - the worker now has a per-user
+sliding-window rate limiter (see the "Sliding-window rate limiter" helper and
+the flood guard that sends `T.ERROR {code: "rate_limited"}` in
+`webSocketMessage()`), and `cubeon/friends.py` treats non-200/`rate_limited`
+as a cool-off. Original text kept for context:
 
 The Durable Object processes every incoming frame with SQL queries and broadcasts. There is no per-connection or per-user rate limit on:
 - Chat messages (`onDm`, `onGroupMsg`)
@@ -130,33 +145,24 @@ Non-atomic. A crash here loses the publish state, causing the next launch to re-
 
 ---
 
-## Medium: `install_local_mod()` Doesn't Validate Source Path
+## Medium: `install_local_mod()` Doesn't Validate Source Path — FIXED (2026-09-14)
 
-**File:** `cubeon/mods.py`, `install_local_mod()` (line ~220)
+**File:** `cubeon/mods.py`, `install_local_mod()`
 
-```python
-def install_local_mod(src_path: str, mc_version: str | None, loader: str | None) -> str:
-    ...
-    filename = os.path.basename(src_path)
-    dest = os.path.join(profile_dir, filename)
-```
-
-**Problem:** `src_path` is user-supplied (from a file picker). If the filename contains characters that are valid on one OS but not another (e.g., colons on Windows, null bytes), the copy can fail silently or write to an unexpected location. The function doesn't sanitize the basename.
+**Fix:** new `_safe_jar_filename()` (also used by `add_mod_file`): replaces
+`<>:"/\|?*` + control chars with `_` in the stem and strips trailing dots/
+spaces (Windows-rejected). Replace, don't reject - the user picked the file,
+not its name.
 
 ---
 
-## Medium: `toggle_mod()` / `delete_mod()` Don't Check File Exists
+## Medium: `toggle_mod()` / `delete_mod()` Don't Check File Exists — FIXED (2026-09-14)
 
-**File:** `cubeon/mods.py`, `toggle_mod()` (line ~196), `delete_mod()` (line ~202)
+**File:** `cubeon/mods.py`
 
-```python
-def toggle_mod(mc_version, loader, filename):
-    profile_dir = get_profile_dir(mc_version, loader)
-    full = os.path.join(profile_dir, filename)
-    new_name = ...
-    os.rename(full, os.path.join(profile_dir, new_name))  # FileNotFoundError if missing
-```
-
+**Fix:** both guard with `os.path.lexists(full)` first (lexists: a dangling
+store link still counts). `toggle_mod` raises a clean "refresh the mod list"
+ValueError; `delete_mod` returns - the goal (entry gone) is already achieved.
 If the file was deleted externally (antivirus, another process, manual cleanup), these raise an unhandled `FileNotFoundError` that propagates to the UI as a raw traceback.
 
 ---
@@ -171,24 +177,19 @@ function dmConv(a, b) {
 }
 ```
 
-This sorts by **string** comparison, which means `"alice" > "bob"` is true (lexicographic). This is correct for canonical names. However, if a client sends a non-canonical name that `canonName()` rejects (returns null), the DM silently drops because `onDm` checks `if (!to || ...)` - but the error isn't surfaced to the sender. The sender sees their message echoed back via `sendTo(me, T.DM, frame)` even if the recipient never received it, because the echo runs unconditionally:
+This sorts by **string** comparison, which means `"alice" > "bob"` is true (lexicographic). This is correct for canonical names.
 
-```javascript
-this.sendTo(to, T.DM, frame);   // may be a no-op if to is null
-this.sendTo(me, T.DM, frame);   // always runs - sender sees "sent"
-```
+**Update 2026-09-14:** the catalog's original claim ("echo runs unconditionally") is stale - current `onDm()` guard-returns on `!to || !text || !areFriends`, so the echo does NOT run for a rejected DM. But the remaining flaw was the mirror image: the refusal was **completely silent**, so a sender whose message bounced (bad name, empty text, or not friends) saw nothing at all - the UI renders its own message optimistically and only treats it as delivered on the echo. **Fixed:** `onDm` now sends `T.ERROR` frames (`dm_bad_recipient` / `dm_empty` / `dm_not_friends`) to the sender, which `friends_service._on_error` toasts. Parity is asserted by `tools/test_friends.py` ("worker's onDm refuses with an error frame, not silence").
 
 ---
 
-## Medium: Friend Request Auto-Accept Race
+## Medium: Friend Request Auto-Accept Race — VERIFIED NON-ISSUE 2026-09-14
 
-**File:** `worker/cubeon-friends.js`, `onAdd()` (line ~254)
+**File:** `worker/cubeon-friends.js`, `onAdd()`
 
-```javascript
-if (this.requestExists(other, me)) return this.onAccept(me, myDisplay, { name: msg.name });
-```
+The claim was: two simultaneous `add` frames both check `requestExists` before either writes, leaving two pending requests instead of a mutual acceptance.
 
-If Alice sends a friend request to Bob, and Bob simultaneously sends one to Alice, both `onAdd` calls check `requestExists` before either writes. Both see no existing request, both insert, and the result is two pending requests instead of a mutual acceptance. The friends never become friends until one of them manually accepts.
+That can't happen. A Durable Object runs one event handler at a time, and `onAdd`/`onAccept` are fully synchronous — `this.sql.exec()` is sync, and there is no `await` between the `requestExists` check and the write. Whichever `add` frame the DO processes second therefore always observes the first's request row and takes the auto-accept path. Interleaving is only possible across an `await` (e.g. `onHello`'s `sha256Hex`, whose claim-on-connect INSERT is separately guarded by the PRIMARY KEY re-read). Lesson for future audits: only await-crossing sections in a DO handler are race candidates.
 
 ---
 
@@ -309,18 +310,18 @@ The relay-first hybrid handover strategy is partially implemented. The `HybridSe
 
 | # | Severity | Issue | File(s) |
 |---|----------|-------|---------|
-| 1 | 🔴 Critical | Config corruption on crash (non-atomic write) | `config.py` |
-| 2 | 🔴 Critical | Config dict shared across threads without locking | `main.py` |
-| 3 | 🟠 High | Server console deadlock via full stdin pipe | `server.py` |
-| 4 | 🟠 High | User-Agent contains profanity | `mods.py`, `modpacks.py` |
-| 5 | 🟠 High | No rate limiting on Friends WebSocket | `cubeon-friends.js` |
+| 1 | ✅ Fixed 2026-09-14 | Config corruption on crash (non-atomic write) — `cubeon/atomicio.write_json` | `config.py` |
+| 2 | ⚠️ Known | Config dict shared across threads without locking (mitigated: skins publish uses a snapshot; skin_net.json exists specifically so background threads never write config) | `main.py` |
+| 3 | ✅ Fixed | Server console deadlock via full stdin pipe (2026-08-31) | `server.py` |
+| 4 | ✅ Fixed 2026-09-14 | User-Agent contained profanity | `mods.py`, `modpacks.py`, `icons.py`, `server.py` |
+| 5 | ✅ Already implemented | (stale entry) sliding-window rate limiter exists in the worker | `cubeon-friends.js` |
 | 6 | ✅ Fixed | UUID ownership TOCTOU race (fixed 2026-09-07: re-read after put) | `skins.py`, `cubeon-skins.js` |
-| 7 | 🟡 Medium | Non-atomic skins metadata writes | `skins.py` |
-| 8 | 🟡 Medium | Non-atomic publish state writes | `skins.py` |
-| 9 | 🟡 Medium | `install_local_mod()` doesn't sanitize basename | `mods.py` |
-| 10 | 🟡 Medium | `toggle_mod()` / `delete_mod()` no existence check | `mods.py` |
-| 11 | 🟡 Medium | DM echo runs even when recipient lookup fails | `cubeon-friends.js` |
-| 12 | 🟡 Medium | Friend request mutual-add race condition | `cubeon-friends.js` |
+| 7 | ✅ Fixed 2026-09-14 | Non-atomic skins metadata writes — `cubeon/atomicio.write_json` | `skins.py` |
+| 8 | ✅ Fixed 2026-09-14 | Non-atomic publish state writes — `cubeon/atomicio.write_json` | `skins.py` |
+| 9 | ✅ Fixed 2026-09-14 | `install_local_mod()` doesn't sanitize basename — `_safe_jar_filename()` | `mods.py` |
+| 10 | ✅ Fixed 2026-09-14 | `toggle_mod()` / `delete_mod()` no existence check — `lexists` guards | `mods.py` |
+| 11 | ✅ Fixed 2026-09-14 | DM refusal was a silent drop — now `T.ERROR` frames to the sender (parity-tested) | `cubeon-friends.js` |
+| 12 | ✅ Verified non-issue 2026-09-14 (stale claim) | Mutual-add "race": a DO runs message handlers one at a time and `onAdd`/`onAccept` are fully synchronous (no awaits), so the second add always sees the first's request row and auto-accepts | `cubeon-friends.js` |
 | 13 | 🟡 Medium | Background thread exceptions silently discarded | Multiple files |
 | 14 | 🟢 Low | `find_java_for_version()` fallback may return too-old Java | `launch.py` |
 | 15 | 🟢 Low | `get_profile_dir()` creates state as side effect | `mods.py` |
@@ -328,3 +329,12 @@ The relay-first hybrid handover strategy is partially implemented. The `HybridSe
 | 17 | 🟢 Low | Version dropdown used before population | `main.py` |
 | 18 | 🟢 Low | Circular import workaround in cosmetics | `cosmetics.py` |
 | 19 | 🟢 Low | P2P hybrid handover incomplete | `p2p.py` |
+| 20 | ✅ Fixed 2026-09-14 (visual) | Chat self-avatar rendered as a blank square — `ft.Image(src=<absolute path>)` never loads in Flet 0.86; now base64 bytes with chip fallback | `chat_tab.py` |
+| 21 | ✅ Fixed 2026-09-14 (visual) | Stray floating hairline across the chat empty-state pane — header divider is now hidden until a conversation is selected | `chat_tab.py` |
+| 22 | ✅ Fixed 2026-09-14 (relay) | Chat history backfill served the OLDEST page — `ORDER BY ts ASC LIMIT ?` returns the stale prefix once a conversation outgrows the 50-message window; now a newest-50 subquery re-ordered chronologically (rowid tiebreak, projected as `rid`) | `cubeon-friends.js` |
+| 23 | ✅ Fixed 2026-09-14 (relay) | `decodeURIComponent(pathname)` throws URIError on malformed %-escapes → CF error 1101, in all four workers — `safePathname()` fallback | `cubeon-friends.js`, `cubeon-invites.js`, `cubeon-skins.js` |
+| 24 | ✅ Fixed 2026-09-14 (relay) | Unauthenticated WS hello flood: each attempt cost a SHA-256 and each unknown name burned a permanent claim row — IP captured into the attachment at upgrade, 30/10min per-IP pre-auth gate | `cubeon-friends.js` |
+| 25 | ✅ Fixed 2026-09-14 (relay) | invites `RATE_LIMITER` binding was documented ("uses it when present") but never referenced by the code — now gates PUT, degrades to no-limit if absent/failing | `cubeon-invites.js` |
+| 26 | ✅ Fixed 2026-09-14 (relay) | waitlist POST parsed an unbounded JSON body (`request.json()`, no cap — the only worker without one) — 1KB Content-Length + decoded-length cap | `cubeon-waitlist.js` |
+| 27 | ✅ Fixed 2026-09-14 (relay) | Blocked accounts were still addable via the in-game mod's name path (the `/name/`+`/uid/` HTTP lookups 404 them) — both `onAdd` paths now treat blocked as nonexistent | `cubeon-friends.js` |
+| 28 | ✅ Fixed 2026-09-14 (relay) | Call invites minted an unbounded `calls` room row per invite — 10/min per-user budget with a visible message | `cubeon-friends.js` |

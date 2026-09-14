@@ -79,10 +79,28 @@ export default {
   },
 };
 
+// The only field is one email; anything bigger is not a real client. Checked
+// against the declared Content-Length AND the decoded length (the header is a
+// hint a client controls), matching the sibling workers - an uncapped
+// request.json() would parse an arbitrarily large body into memory.
+const MAX_BODY_BYTES = 1024;
+
 async function handleJoin(request, env) {
   let email = "";
+  const declared = Number(request.headers.get("Content-Length") || "0");
+  let raw = "";
+  if (declared <= MAX_BODY_BYTES) {
+    try {
+      raw = await request.text();
+    } catch (_) {
+      raw = "";
+    }
+  }
+  if (raw.length > MAX_BODY_BYTES) {
+    return json({ error: "bad json" }, 400);
+  }
   try {
-    const body = await request.json();
+    const body = JSON.parse(raw);
     email = (body && typeof body.email === "string" ? body.email : "").trim().toLowerCase();
   } catch (_) {
     return json({ error: "bad json" }, 400);

@@ -34,6 +34,8 @@ Design rules it follows:
   - Built lazily the first time the tab opens (main.py's _ensure_tab), so no
     poll thread and no roster read happens until then.
 """
+import base64
+import os
 import threading
 import time
 
@@ -46,6 +48,7 @@ from cubeon.theme import (
 )
 from cubeon import dialogs as _dialogs
 from cubeon import friends as _friends
+from cubeon import profile as _profile
 from cubeon import thread_safe_ui
 
 _POLL_SECONDS = 1.5
@@ -135,17 +138,37 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     stop = threading.Event()
 
     # --- controls --------------------------------------------------------
-    you_text = ft.Text("Setting up...", size=13, color=TEXT,
-                       weight=ft.FontWeight.W_600, max_lines=1,
-                       overflow=ft.TextOverflow.ELLIPSIS)
     you_avatar = ft.Container(width=34, height=34, border_radius=RADIUS)
     conn_dot = ft.Container(width=8, height=8, border_radius=4,
                             bgcolor=TEXT_FAINT)
     conn_text = ft.Text("", size=11, color=TEXT_DIM)
 
-    your_id_text = ft.Text("", size=15, color=ACCENT, font_family=FONT_MONO,
-                           weight=ft.FontWeight.W_700, selectable=True,
+    # The NAME is what you present: the launcher username you picked on the
+    # Play tab (falling back to the internal relay handle until you pick one).
+    you_text = ft.Text("", size=14, color=TEXT,
+                       weight=ft.FontWeight.W_700, max_lines=1,
+                       overflow=ft.TextOverflow.ELLIPSIS)
+    # The ID is the personal, un-takeable account handle - owned by the
+    # secret, never renamed away. It stays small and quiet: it's what a
+    # friend types to ADD you, not your display identity.
+    your_id_text = ft.Text("Waiting for your ID…", size=11, color=TEXT_DIM,
+                           font_family=FONT_MONO, selectable=True,
                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+    def _do_copy(_e=None):
+        value = your_id_text.value or ""
+        try:
+            from flet.controls.services.clipboard import Clipboard
+            page.run_task(Clipboard().set, value)
+        except Exception:
+            pass   # headless/older hosts have no clipboard service
+        _set_status("Cubeon ID copied to clipboard.")
+
+    copy_id_btn = ft.IconButton(
+        icon=ft.Icons.CONTENT_COPY_ROUNDED, icon_size=14,
+        icon_color=TEXT_DIM, tooltip="Copy your Cubeon ID",
+        visible=False,
+        on_click=_do_copy,
+    )
 
     add_field = ft.TextField(
         hint_text="Add a friend by ID",
@@ -266,6 +289,37 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         box = ft.Container()
         _paint_avatar(box, name, size, online)
         return box
+
+    def _set_you_avatar(name):
+        """Your identity-card avatar: the profile picture you set on the
+        Profile tab when you have one, the color-initial chip otherwise.
+        Friends' profile pictures live on THEIR machines (nothing transmits
+        them), so only your own card gets the real image."""
+        you_avatar.width = you_avatar.height = 34
+        pfp_path = _profile.get_profile_picture_path(cfg)
+        if pfp_path:
+            # ft.Image.src only accepts asset-relative paths or URLs in this
+            # Flet version - an absolute path under ~/.cubeon_launcher fails
+            # to load and renders as a permanently blank square (see
+            # skin_tab.render_preview_for for the same discovery). Feed it
+            # base64 bytes instead; if the file can't be read, fall back to
+            # the color-initial chip so the card is never an empty box.
+            try:
+                with open(pfp_path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("ascii")
+            except OSError:
+                b64 = None
+            if b64:
+                you_avatar.bgcolor = SURFACE_HI
+                you_avatar.border = ft.border.Border.all(1, CARD_BORDER)
+                you_avatar.alignment = ft.Alignment.CENTER
+                you_avatar.content = ft.Image(src=b64, width=32, height=32,
+                                              fit=ft.ImageFit.COVER,
+                                              border_radius=RADIUS)
+            else:
+                _paint_avatar(you_avatar, name, 34)
+        else:
+            _paint_avatar(you_avatar, name, 34)
 
     def _pill(label, fill, fg, on_click):
         return ft.Container(
@@ -414,21 +468,31 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     def _apply_identity(roster):
         uid = roster.get("you_uid") or ""
-        sig = (roster.get("you"), uid, bool(roster.get("connected")),
-               bool(roster.get("available")))
+        relay = roster.get("you") or ""
+        connected = bool(roster.get("connected"))
+        available = bool(roster.get("available"))
+        # The profile picture is part of the identity: changing it on the
+        # Profile tab repaints the card on the next tick even when the
+        # friends state hasn't moved.
+        pfp_path = _profile.get_profile_picture_path(cfg)
+        sig = (relay, uid, connected, available, pfp_path)
         if sig == _identity_sig["v"]:
             return
         _identity_sig["v"] = sig
-        name = roster.get("you") or ""
-        connected = bool(roster.get("connected"))
-        available = bool(roster.get("available"))
-        you_text.value = name or "Setting up..."
-        you_id_text.value = uid or "Waiting for your ID…"
+        # What you present is your launcher username; the internal relay
+        # handle only shows until you've picked one (and in the hover
+        # tooltip, since it's the name the friends server actually keys).
+        shown = (cfg.get("username") or "").strip() or relay
+        you_text.value = shown or "Setting up..."
+        your_id_text.value = (_friends.canonical_uid(uid)
+                              or "Waiting for your ID…")
+        copy_id_btn.visible = bool(uid)
+        you_avatar.tooltip = relay or None
+        _set_you_avatar(shown or "?")
         conn_dot.bgcolor = (ACCENT if connected
                             else (WARNING if available else DANGER))
         conn_text.value = ("Connected" if connected else
                            ("Connecting…" if available else "Add-on missing"))
-        _paint_avatar(you_avatar, name or "?", 34)
         if available and not connected:
             conn_banner_text.value = ("Connecting to Cubeon… messages will "
                                       "send once you're back online.")
@@ -438,8 +502,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         empty_sub.value = ("Add a friend by ID, or wait for someone to add you."
                            if connected else
                            "You're offline — messages send once you reconnect.")
-        for ctrl in (you_text, you_id_text, you_avatar, conn_dot, conn_text,
-                     conn_banner, empty_sub):
+        for ctrl in (you_text, your_id_text, copy_id_btn, you_avatar, conn_dot,
+                     conn_text, conn_banner, empty_sub):
             thread_safe_ui.refresh(ctrl)
 
     def _rebuild_requests(roster):
@@ -587,12 +651,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _paint_avatar(header_avatar, name, 36, f.get("online"))
         header_avatar.visible = True
         remove_btn.visible = True
+        header_rule.visible = True
         remove_btn.on_click = lambda e, n=name: _confirm_remove(n)
         composer_row.visible = True
         _roster_sig["v"] = None   # repaint the selection highlight
         for ctrl in (transcript, empty_state, transcript_header,
-                     transcript_sub, header_avatar, remove_btn, composer_row,
-                     composer_status):
+                     transcript_sub, header_avatar, remove_btn, header_rule,
+                     composer_row, composer_status):
             thread_safe_ui.refresh(ctrl)
         _mark_read(name)
         _tick()
@@ -684,12 +749,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         transcript_sub.value = ""
         header_avatar.visible = False
         remove_btn.visible = False
+        header_rule.visible = False
         composer_row.visible = False
         composer_status.visible = False
         _roster_sig["v"] = None
         for ctrl in (transcript, empty_state, transcript_header,
-                     transcript_sub, header_avatar, remove_btn, composer_row,
-                     composer_status):
+                     transcript_sub, header_avatar, remove_btn, header_rule,
+                     composer_row, composer_status):
             thread_safe_ui.refresh(ctrl)
 
     def _confirm_remove(name):
@@ -769,38 +835,24 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Container(height=4),
-                ft.Row(
-                    [
-                        you_avatar,
-                        ft.Column(
-                            [
-                                ft.Text("You", size=10, color=TEXT_FAINT,
-                                        weight=ft.FontWeight.W_600),
-                                you_text,
-                            ],
-                            spacing=1, tight=True, expand=True,
-                        ),
-                    ],
-                    spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Icon(ft.Icons.BADGE_OUTLINED, size=16,
-                                    color=ACCENT),
+                            you_avatar,
                             ft.Column(
                                 [
-                                    ft.Text("Your friend ID", size=10,
-                                            color=TEXT_FAINT),
+                                    you_text,
                                     your_id_text,
                                 ],
-                                spacing=0, tight=True, expand=True,
+                                spacing=1, tight=True, expand=True,
                             ),
+                            copy_id_btn,
                         ],
                         spacing=10,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
+                    tooltip="Your Cubeon account (the ID is yours alone - "
+                            "it can't be renamed or taken)",
                     bgcolor=CARD_FILL,
                     border=ft.border.Border.all(1, CARD_BORDER),
                     border_radius=RADIUS,
@@ -822,6 +874,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         ),
     )
 
+    # The hairline rule under the conversation header. It only makes sense
+    # when a header exists - with no friend selected the header row is
+    # invisible, and this rule alone rendered as a stray floating line
+    # across the empty right pane.
+    header_rule = ft.Container(height=1, bgcolor=CARD_BORDER, visible=False)
+
     right = ft.Container(
         expand=True,
         content=ft.Column(
@@ -837,7 +895,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 conn_banner,
-                ft.Container(height=1, bgcolor=CARD_BORDER),
+                header_rule,
                 transcript,
                 empty_state,
                 composer_status,

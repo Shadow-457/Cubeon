@@ -108,10 +108,23 @@ const MAX_BODY_BYTES = 1024;  // /claim body - a handful of short fields
 
 // --------------------------------------------------------------------- Worker
 
+// decodeURIComponent throws URIError on a malformed escape sequence, and an
+// unhandled throw in fetch() surfaces as a Cloudflare "error 1101" page.
+// A URL can't contain a raw invalid %-sequence (URL parsing percent-encodes
+// it), so falling back to the encoded pathname is always safe to route on -
+// worst case the pattern match 404s, which is the right answer for garbage.
+function safePathname(url) {
+  try {
+    return decodeURIComponent(url.pathname);
+  } catch {
+    return url.pathname;
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const path = decodeURIComponent(url.pathname);
+    const path = safePathname(url);
 
     if (path === "/health") {
       return new Response("cubeon-friends ok\n", {
@@ -186,7 +199,7 @@ export class Hub {
 
   async fetch(request) {
     const url = new URL(request.url);
-    const path = decodeURIComponent(url.pathname);
+    const path = safePathname(url);
 
     if (path === "/claim") {
       if (request.method !== "POST") return methodNotAllowed("POST");
@@ -215,6 +228,15 @@ export class Hub {
       // memory, and we authenticate in the first message (the `hello` frame)
       // rather than the URL, so the secret never lands in a request log.
       this.ctx.acceptWebSocket(server);
+      // Stash the caller IP on the socket BEFORE any hello: onHello needs it
+      // to rate-limit pre-auth connection attempts (an unauthenticated flood
+      // of hellos each costs a SHA-256 plus, for unknown names, a claim
+      // row). The attachment is the only per-socket storage that survives
+      // hibernation; the real identity overwrites this on successful hello,
+      // so the IP is merged in there too.
+      server.serializeAttachment({
+        ip: request.headers.get("CF-Connecting-IP") || "unknown",
+      });
       return new Response(null, { status: 101, webSocket: client });
     }
     return new Response("Not Found", { status: 404 });
@@ -252,10 +274,25 @@ export class Hub {
     // the public name - so storing the client-sent value is safe.
     const uuid = cleanUuid(body.uuid);
     const uid = this.nextUid();
-    this.sql.exec(
-      "INSERT INTO names (name, display, secret_hash, uuid, uid, created) VALUES (?, ?, ?, ?, ?, ?)",
-      canon, display, hash, uuid, uid, nowSeconds(),
-    );
+    try {
+      this.sql.exec(
+        "INSERT INTO names (name, display, secret_hash, uuid, uid, created) VALUES (?, ?, ?, ?, ?, ?)",
+        canon, display, hash, uuid, uid, nowSeconds(),
+      );
+    } catch (e) {
+      // A concurrent /claim (or claim-on-connect) for the same fresh name won
+      // the PRIMARY KEY: both requests interleave at the sha256Hex await and
+      // both see "no row". Same secret => the same machine double-submitting,
+      // answer ok; different secret => the name was just taken, 409 - either
+      // way NOT an unhandled 500.
+      const winner = this.nameRow(canon);
+      if (!winner) throw e;
+      if (!constantTimeEqual(winner.secret_hash || "", hash)) {
+        return problem(409, "name_taken");
+      }
+      return json({ ok: true, name: winner.display, uuid: winner.uuid,
+                    uid: uidStr(this.ensureUid(winner)) });
+    }
     return json({ ok: true, name: display, uuid, uid: uidStr(uid) });
   }
 
@@ -396,6 +433,19 @@ export class Hub {
       ws.send(jstr(T.ERROR, { code: "bad_name", message: "That name isn't allowed." }));
       return ws.close(1008, "bad_name");
     }
+    // Pre-auth flood gate. Everything above this line is free, but below it
+    // every attempt costs a SHA-256, and an unknown name costs a claim row
+    // (names are never deleted, so a flood grows the table forever). 30 per
+    // IP per 10 minutes is far above any real client - one claim per install,
+    // one hello per reconnect - while capping what an anonymous socket can
+    // burn. The IP rides the attachment set at upgrade time.
+    const pre = ws.deserializeAttachment() || {};
+    const ip = typeof pre.ip === "string" ? pre.ip : "unknown";
+    if (!this.allow(`hello:${ip}`, 30, 10 * 60_000)) {
+      ws.send(jstr(T.ERROR, { code: "rate_limited",
+                              message: "Too many connection attempts - try again in a few minutes." }));
+      return ws.close(1013, "rate_limited");
+    }
     const hash = await sha256Hex(secret);
     let row = this.nameRow(canon);
     if (row && row.blocked) {
@@ -412,16 +462,31 @@ export class Hub {
       // /claim still ends up with a consistent, owned identity.
       const uuid = cleanUuid(msg.uuid);
       const uid = this.nextUid();
-      this.sql.exec(
-        "INSERT INTO names (name, display, secret_hash, uuid, uid, created) VALUES (?, ?, ?, ?, ?, ?)",
-        canon, display, hash, uuid, uid, nowSeconds(),
-      );
-      row = this.nameRow(canon);
+      try {
+        this.sql.exec(
+          "INSERT INTO names (name, display, secret_hash, uuid, uid, created) VALUES (?, ?, ?, ?, ?, ?)",
+          canon, display, hash, uuid, uid, nowSeconds(),
+        );
+      } catch (e) {
+        // Two hellos racing the same fresh name interleave at the sha256Hex
+        // await above; the loser hits the names PRIMARY KEY. Re-read and
+        // fall through to the row-existed semantics instead of throwing out
+        // of the socket handler (an unhandled exception here drops the
+        // socket with a 1101-style error and strands the client until its
+        // next reconnect).
+        row = this.nameRow(canon);
+        if (!row || row.blocked || !constantTimeEqual(row.secret_hash || "", hash)) {
+          ws.send(jstr(T.ERROR, { code: "not_yours", message: "That name belongs to another computer." }));
+          return ws.close(1008, "not_yours");
+        }
+      }
+      if (!row) row = this.nameRow(canon);
     }
     const uid = this.ensureUid(row);
 
     const wasOnline = this.isOnline(canon);
     ws.serializeAttachment({
+      ip,                      // keep the upgrade-time IP for later hello retries
       name: canon,
       display: row.display,
       version: typeof msg.version === "string" ? msg.version : null,
@@ -440,7 +505,10 @@ export class Hub {
     if (typeof msg.uid === "string") {
       const uid = uidInt(msg.uid);
       const target = uid === null ? null : this.nameByUid(uid);
-      if (!target) {
+      // A moderation-blocked account is treated as nonexistent everywhere
+      // else (/name/, /uid/ 404 it) - the in-game mod's name path let it
+      // through, so gate both paths identically.
+      if (!target || target.blocked) {
         return this.sendTo(me, T.SYSTEM,
           { text: `No Cubeon user with ID ${msg.uid}.` });
       }
@@ -449,7 +517,7 @@ export class Hub {
       other = canonName(msg.name);
       if (!other || other === me) return;
       const target = this.nameRow(other);
-      if (!target) return this.sendTo(me, T.SYSTEM, { text: `No Cubeon user named "${msg.name}".` });
+      if (!target || target.blocked) return this.sendTo(me, T.SYSTEM, { text: `No Cubeon user named "${msg.name}".` });
     }
     if (!other || other === me) return;
     if (this.areFriends(me, other)) return;
@@ -499,7 +567,24 @@ export class Hub {
   onDm(ws, me, myDisplay, msg) {
     const to = canonName(msg.to);
     const text = cleanText(msg.text);
-    if (!to || !text || !this.areFriends(me, to)) return;
+    // Refusals must reach the SENDER: the UI renders its own message
+    // optimistically and only treats it as delivered when this echo comes
+    // back, so a silent drop made a failed DM look like "sent but the other
+    // person is ignoring me". Say why instead (the service toasts T.ERROR).
+    if (!to) {
+      ws.send(jstr(T.ERROR, { code: "dm_bad_recipient",
+                              message: "That recipient name isn't valid." }));
+      return;
+    }
+    if (!text) {
+      ws.send(jstr(T.ERROR, { code: "dm_empty", message: "Empty message not sent." }));
+      return;
+    }
+    if (!this.areFriends(me, to)) {
+      ws.send(jstr(T.ERROR, { code: "dm_not_friends",
+                              message: "You can only message friends - add them first." }));
+      return;
+    }
     const conv = dmConv(me, to);
     const ts = nowSeconds();
     const mid = typeof msg.id === "string" ? msg.id.slice(0, 32) : crypto.randomUUID();
@@ -605,8 +690,20 @@ export class Hub {
     } else {
       return;
     }
+    // Newest HISTORY_KEEP messages, presented oldest-first for rendering.
+    // A bare `ORDER BY ts ASC LIMIT ?` would return the OLDEST page - once a
+    // conversation outgrew the retained window, a fresh backfill would show
+    // exactly the stale prefix and never the recent messages (the trim in
+    // store() keeps only the newest rows, so the oldest are the first that
+    // should go). The subquery selects the newest first (rowid, projected as
+    // `rid`, breaks ties for same-second messages so the trim and this read
+    // agree), then the outer ORDER BY re-orders chronologically for the
+    // client. rowid must be projected or the outer sort can't reference it.
     const rows = this.sql.exec(
-      "SELECT display, text, ts, mid, sender FROM messages WHERE conv=? ORDER BY ts ASC LIMIT ?",
+      `SELECT display, text, ts, mid, sender FROM (
+         SELECT display, text, ts, mid, sender, rowid AS rid FROM messages
+         WHERE conv=? ORDER BY ts DESC, rowid DESC LIMIT ?
+       ) ORDER BY ts ASC, rid ASC`,
       conv, HISTORY_KEEP,
     ).toArray();
     const messages = rows.map((r) => ({ from: r.display, text: r.text, ts: r.ts, id: r.mid }));
@@ -621,6 +718,13 @@ export class Hub {
   onCallInvite(me, myDisplay, msg) {
     const to = canonName(msg.to);
     if (!to || !this.areFriends(me, to)) return;
+    // Each invite mints a room row (calls table) even if the receiver never
+    // answers; unbounded inviting would grow that table without bound, so
+    // invites share the same abuse budget as friend requests.
+    if (!this.allow(`call:${me}`, 10, 60_000)) {
+      return this.sendTo(me, T.SYSTEM,
+        { text: "Too many call invites too fast - try again in a minute." });
+    }
     const room = "r_" + crypto.randomUUID().slice(0, 12);
     this.sql.exec("INSERT OR IGNORE INTO calls (room, member) VALUES (?, ?)", room, me);
     this.sql.exec("INSERT OR IGNORE INTO calls (room, member) VALUES (?, ?)", room, to);

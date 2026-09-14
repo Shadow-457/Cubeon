@@ -110,10 +110,22 @@ const MAX_REPORT_BODY = 1024;
 // short enough to reclaim KV without a cron.
 const REPORT_TTL = 60 * 60 * 24 * 30;
 
+// decodeURIComponent throws URIError on a malformed escape sequence, and an
+// unhandled throw in fetch() surfaces as a Cloudflare "error 1101" page. A
+// URL can't hold a raw invalid %-sequence, so the encoded pathname is a safe
+// fallback - worst case the route patterns 404 it, which is right for garbage.
+function safePathname(url) {
+  try {
+    return decodeURIComponent(url.pathname);
+  } catch {
+    return url.pathname;
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const path = decodeURIComponent(url.pathname);
+    const path = safePathname(url);
 
     // Write routes first, so the read-only guard below can't swallow them.
     if (path === "/api/heartbeat") {
