@@ -2,7 +2,7 @@
 
 A free desktop Minecraft launcher for playing with friends - offline/cracked
 accounts, one-click modded launches, a shared skin network so players can see
-each other's skins on **any** server, and built-in world hosting via tunnels.
+each other's skins on **any** server yoo, and built-in world hosting via tunnels.
 
 Built with Python + Flet. No Mojang account, no paywall.
 
