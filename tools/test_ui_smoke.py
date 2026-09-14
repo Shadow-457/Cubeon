@@ -379,12 +379,11 @@ except Exception as ex:
     import traceback
     check("uploaded cape row builds", False, traceback.format_exc())
 
-print("\n5c. one search box per pane (filter-only, no fetch-player flow)")
-# The Skin/Cape Browse panes used to stack a search TextField AND a separate
-# "Load a real player" TextField - two boxes doing the same job. The panes now
-# use a single filter-as-you-type box each. The old "type a name to fetch"
-# flow was removed 2026-09-11 - pin that no fetch-player copy or Get button
-# survives and the field is filter-only.
+print("\n5c. no browse/gallery area (removed; the section is upload + installed only)")
+# The Browse panes (searchable local-library galleries with GET tiles) were
+# removed 2026-09-14 - the section is now just upload + installed management.
+# Pin that: no search field, no gallery copy, and the old fetch-player flow
+# (removed earlier) still never comes back.
 try:
     _skin_section = build_skin_section(
         FakePage(), {"username": "tester", "active_skin": None},
@@ -395,39 +394,25 @@ try:
     )
     _fields = [c for c in walk(_skin_section) if isinstance(c, ft.TextField)]
     _hints = " | ".join((getattr(f, "hint_text", "") or "").lower() for f in _fields)
-    check("no duplicate 'load a real player' search bar",
-          "load a real player" not in _hints, _hints)
+    check("no search box remains (no browse pane to filter)",
+          not _fields and "search skins" not in _hints and "search capes" not in _hints,
+          _hints)
     _txt_all = " | ".join(all_text(_skin_section)).lower()
+    check("no gallery/browse copy remains",
+          "library folder" not in _txt_all and "results for" not in _txt_all
+          and "browse" not in _txt_all,
+          _txt_all[:200])
     check("no fetch-player copy or Get button remains",
           "get player" not in _txt_all and "fetch" not in _txt_all
           and "on mojang" not in _txt_all,
           _txt_all[:200])
-    _search_fields = [f for f in _fields
-                      if (getattr(f, "hint_text", "") or "").lower().startswith("search")]
-    check("gallery search is filter-only (no submit fetch)",
-          _search_fields and all(not getattr(f, "on_submit", None)
-                                 for f in _search_fields),
-          f"{len(_search_fields)} search field(s)")
-    # Typing a name filters the LOCAL library (files in skin_library/), and
-    # an empty library reports the drop-folder hint rather than a fetch.
-    _skin_search = next(f for f in _fields
-                        if (getattr(f, "hint_text", "") or "").lower()
-                        .startswith("search skins"))
-    _skin_search.value = "jeb"
-    _skin_search.on_change(None)
-    _txt = " | ".join(all_text(_skin_section)).lower()
-    check("search filters the local library, no-match says so",
-          ("results for" in _txt or "skin_library" in _txt)
-          and "recommended" not in _txt, _txt[:200])
 except Exception as ex:
     import traceback
-    check("one search box per pane", False, traceback.format_exc())
+    check("no browse/gallery area", False, traceback.format_exc())
 
-print("\n5d. clicking Installed actually flips the pane (not just the underline)")
-# The Browse | Installed tabs once updated view_state + the tab highlight but
-# never flipped the two columns' .visible - so the underline moved and the
-# content did not, which users read as "Installed shows nothing". Pin that a
-# tab click toggles the columns, not only the label styling.
+print("\n5d. no Browse|Installed tabs; the installed list is always shown")
+# The Browse | Installed split only existed to host the gallery views; with
+# browse removed the tab rows are gone too and the installed grid IS the pane.
 try:
     _skin_section = build_skin_section(
         FakePage(), {"username": "tester", "active_skin": None},
@@ -436,42 +421,27 @@ try:
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
 
     )
-    _installed_tab = None
-    for _c in walk(_skin_section):
-        if getattr(_c, "on_click", None) is not None and \
-                " ".join(all_text(_c)).strip().lower().startswith("installed"):
-            _installed_tab = _c
-            break
-    if _installed_tab is not None:
-        _installed_tab.on_click(None)
-    # Find the columns by a text unique to each, then read .visible.
-    _browse_vis = _installed_vis = None
-    for _c in walk(_skin_section):
-        if not isinstance(_c, ft.Column):
-            continue
-        _txt = " ".join(all_text(_c)).lower()
-        if "skin library folder" in _txt and "no uploaded skins yet" not in _txt:
-            _browse_vis = _c.visible
-        if "no uploaded skins yet" in _txt and "skin library folder" not in _txt:
-            _installed_vis = _c.visible
-    check("Installed tab reveals the Installed column",
-          _installed_tab is not None and _installed_vis is True,
-          f"tab={_installed_tab is not None} installed_visible={_installed_vis}")
-    check("Installed tab hides the Browse column",
-          _browse_vis is False, f"browse_visible={_browse_vis}")
+    _tabs = [" ".join(all_text(c)).strip().lower()
+             for c in walk(_skin_section)
+             if getattr(c, "on_click", None) is not None
+             and " ".join(all_text(c)).strip().lower() in ("browse", "installed")]
+    check("no Browse/Installed view tabs", not _tabs, str(_tabs))
+    _txt = " | ".join(all_text(_skin_section)).lower()
+    check("installed empty-state is visible without any tab click",
+          "no uploaded skins yet" in _txt and "upload skin" in _txt,
+          _txt[:200])
 except Exception as ex:
     import traceback
-    check("Installed tab flips the pane", False, traceback.format_exc())
+    check("installed list always shown", False, traceback.format_exc())
 
-print("\n5e. skin search filters in place (no per-keystroke rebuild, no dead-end button)")
-# Search used to rebuild every tile and re-base64 every preview on each
-# keystroke (slow/janky). Now the grid is built once and search flips
-# .visible; pin that. Seeds two files into the real skin_library folder so
-# there is something to filter.
+print("\n5e. library files are never surfaced (browse fully removed)")
+# Files dropped into the local skin_library folder once appeared as GET tiles
+# in the Browse grid. The browse area is gone - pin that a seeded library file
+# shows up nowhere in the section (no tile, no name, no gallery row).
+_seed = []
 try:
     import cubeon.gallery as _gal
     _gal.ensure_gallery()
-    _seed = []
     for _n in ("jeb_test", "zed_test"):
         _p = os.path.join(_gal.SKIN_LIBRARY_DIR, _n + ".png")
         _PILImage.new("RGBA", (64, 64), (120, 120, 220, 255)).save(_p, "PNG")
@@ -483,35 +453,18 @@ try:
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
     )
     _txt_all = " | ".join(all_text(_skin_section)).lower()
-    check("no 'Look up ... on Mojang' button remains",
-          "look up" not in _txt_all and "on mojang" not in _txt_all,
-          _txt_all[:200])
-
+    check("library file names never appear", "jeb_test" not in _txt_all
+          and "zed_test" not in _txt_all, _txt_all[:200])
     _tiles = [c for c in walk(_skin_section)
               if isinstance(getattr(c, "data", None), dict)
               and "skin_gid" in c.data]
-    _tile_ids = {id(c) for c in _tiles}
-    _search = next((f for f in walk(_skin_section)
-                    if isinstance(f, ft.TextField)
-                    and (getattr(f, "hint_text", "") or "").lower()
-                    .startswith("search skins")), None)
-    _search.value = "jeb"
-    _search.on_change(None)
-    _after = [c for c in walk(_skin_section)
-              if isinstance(getattr(c, "data", None), dict)
-              and "skin_gid" in c.data]
-    check("search does not rebuild the tile objects",
-          {id(c) for c in _after} == _tile_ids,
-          f"before={len(_tile_ids)} after={len(_after)}")
-    _jeb = next((c for c in _after if c.data["skin_gid"].lower().startswith("jeb")), None)
-    _other = next((c for c in _after if not c.data["skin_gid"].lower().startswith("jeb")), None)
-    check("matching tile is shown, non-matching hidden",
-          _jeb is not None and _jeb.visible is True
-          and _other is not None and _other.visible is False,
-          f"jeb={getattr(_jeb, 'visible', None)} other={getattr(_other, 'visible', None)}")
+    check("no gallery tiles are built", not _tiles, f"tiles={len(_tiles)}")
+    check("no 'Look up ... on Mojang' button remains",
+          "look up" not in _txt_all and "on mojang" not in _txt_all,
+          _txt_all[:200])
 except Exception as ex:
     import traceback
-    check("skin search filters in place", False, traceback.format_exc())
+    check("library files never surfaced", False, traceback.format_exc())
 finally:
     for _p in _seed:
         try:

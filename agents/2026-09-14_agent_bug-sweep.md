@@ -134,3 +134,22 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
   (prior-session skin/gallery/sandbox work). Push FAILED: origin HTTPS auth
   invalid/missing token — needs credentials or SSH remote to publish.
 - mod/.gradle/* churn deliberately left uncommitted (build-state noise).
+
+## Skins/Profile: browse area removed (user request)
+- ui/skin_tab.py 1139 -> 649 lines: the local-library Browse experience is
+  gone - skin gallery, cape gallery, search rows, "Open folder" buttons,
+  GET tiles, and the per-pane Browse|Installed view machinery (_view_tabs/
+  _view_pane/view_state/view_sync, ensure_gallery() call, _open_folder).
+  Each Skin/Cape pane is now: preview box + label + installed card grid +
+  upload CTA + status. Skin/Cape underline tabs and the installed-card flow
+  are untouched.
+- LESSON: when bulk-deleting by anchor line, indented duplicates of the
+  anchor (e.g. `refresh_skin_gallery()` inside a handler) match first and
+  the deletion silently eats unrelated code - my pass wiped the whole cape
+  picker wiring (caught by test_ui_smoke's NameError, restored by hand).
+  After any such sweep: py_compile + full test_ui_smoke, not just grep.
+- tools/test_ui_smoke.py: 5c/5d/5e rewritten to pin the new reality (no
+  search box, no browse copy, no view tabs, installed list always visible,
+  seeded library files never surface). 5f+ unchanged. Suite: 114/114 green;
+  test_gallery 25/25 green (core library module kept for the forget_file
+  bookkeeping + possible future use).

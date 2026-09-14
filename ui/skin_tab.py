@@ -21,14 +21,10 @@ import flet as ft
 from cubeon.theme import (
     RADIUS,        # blocky corner radius (design system single source)
     attach_hover,  # hover-state helper for hand-built Container "buttons"
-    ACCENT_HI,     # brighter green - hover fill on the ACCENT hero
     ACCENT_TINT, ACCENT_TINT_HI,  # selected/hover washes for tiles/cards
-    SURFACE_MAX,   # top-elevation surface - hover fill on selected hat tiles
-    ON_ACCENT,     # explicit dark foreground on an ACCENT fill (same value as BG)
     text_tab,      # underline-style segment tab (same chrome as Mods' content types)
     CARD_FILL, CARD_BORDER,  # translucent panel fills/outlines (Mods-tab language)
     ROW_HOVER,     # quiet hover lift for borderless rows/cards
-    TEXT_FAINT,    # tertiary hints/placeholders
 )
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
 
@@ -40,23 +36,6 @@ import launcher_core as core
 # which ft.Image.src resolves against the app's assets_dir, so it shows up
 # whenever no custom cape is selected instead of leaving the box blank.
 DEFAULT_CAPE_PREVIEW_SRC = "capes/cubeon_cape_preview.png"
-
-
-def _open_folder(path: str) -> None:
-    """Open a folder in the OS file manager. Best-effort: if there's no file
-    manager (or the launch fails) the browse pane still works - the button is
-    a convenience, not a requirement. Never raises."""
-    import subprocess
-    import sys
-    try:
-        if sys.platform.startswith("win"):
-            os.startfile(path)  # noqa: S606 - user-requested, fixed path
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", path])
-        else:
-            subprocess.Popen(["xdg-open", path])
-    except Exception:
-        pass
 
 
 # Preview bytes are immutable once written, so base64-encoding them once and
@@ -100,11 +79,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ft.Column: The skin section's content, ready to drop into the
         Profile tab's layout.
     """
-
-    # The Browse panes read the local drop-folders; make sure they exist
-    # (with the old Mojang browse gone, an empty-but-present folder plus its
-    # "Open folder" button IS the browse UX, so it must be there on first run).
-    core.ensure_gallery()
 
     # =====================================================================
     # CUSTOM SKIN UPLOAD - lets the user pick a local 64x64 (or legacy
@@ -150,21 +124,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     skins_label.tooltip = skin_visibility_note()
 
     # Installed items render as a wrapping card grid (see _owned_card below),
-    # exactly like Browse - one visual language, and the pane wraps it in a
-    # fixed-height scroll region so it never becomes an endless scroll.
+    # wrapped in a fixed-height scroll region so it never becomes an endless
+    # scroll.
     skins_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
-
-    # View state for the Browse | Installed split (same pattern the Mods tab
-    # uses), plus a late-bound sync hook: refresh_skins_list/refresh_capes_list
-    # also run during the build, before the view-tab rows exist, so they only
-    # ping the hook once it's set (it re-renders the "Installed (N)" counts).
-    view_state = {"skin": "browse", "cape": "browse"}
-    view_sync = {"fn": None}
-    # pane_id -> (browse_column, installed_column). The two views are both
-    # mounted and switching flips `.visible`; this registry is how the tab
-    # click reaches the columns (they're built after the tab row).
-    view_panes = {}
-
 
     def render_preview_for(filename: str):
         # With a hat worn, preview exactly what the game will show: the
@@ -203,11 +165,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         render_preview_for(filename)
         upload_status.value = "Active skin set to this one."
         refresh_skins_list()
-        # Reflect the new active state in Browse too: the gallery grid may be
-        # showing this same player's art, and an upload just now makes it
-        # "Installed". Network-free.
-        skin_tiles_sig["ids"] = None
-        refresh_skin_gallery()
         page.update()
 
     def delete_skin(filename: str):
@@ -220,16 +177,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             else:
                 render_preview_for(filename)
         core.delete_custom_skin(filename)
-        # If this file came from the gallery, un-map it so Browse stops
-        # advertising it as Installed.
         core.forget_file("skin", filename)
         refresh_skins_list()
-        skin_tiles_sig["ids"] = None
-        refresh_skin_gallery()
         page.update()
 
     # --- Installed cards -------------------------------------------------
-    # Installed items use the SAME wrapping card grid as Browse - one visual
+    # Installed items use one wrapping card grid language for both panes, and
     # language, and the pane wraps the grid in a fixed-height scroll region
     # (see _grid_scroll below) instead of paging. Each card shows a real
     # preview; the active item is highlighted, and hover reveals Use/Delete.
@@ -355,19 +308,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 on_delete=lambda e, fn=s["filename"]: delete_skin(fn),
             ))
 
-        if view_sync["fn"]:
-            view_sync["fn"]()
-
     def handle_skin_files(files):
         if not files:
             return
         picked = files[0]
-        # Both upload CTAs (Browse + Installed) share this handler; write the
-        # progress/result to both status lines so the feedback is always in
-        # the pane the click actually came from.
-        upload_status.value = skin_browse_upload_status.value = "Uploading..."
+        upload_status.value = "Uploading..."
         thread_safe_ui.refresh(upload_status)
-        thread_safe_ui.refresh(skin_browse_upload_status)
         try:
             display_name = os.path.splitext(picked.name)[0]
             entry = core.add_custom_skin(picked.path, display_name)
@@ -377,9 +323,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             msg = str(ve)
         except Exception as ex:
             msg = f"Upload failed: {ex}"
-        upload_status.value = skin_browse_upload_status.value = msg
+        upload_status.value = msg
         thread_safe_ui.refresh(upload_status)
-        thread_safe_ui.refresh(skin_browse_upload_status)
 
     def on_files_picked(e):
         # Old-Flet path: pick_files() ran synchronously and the result
@@ -429,209 +374,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     refresh_skins_list()
     if cfg.get("active_skin") or cfg.get("cosmetic_hat"):
         render_preview_for(cfg.get("active_skin"))
-
-    # =====================================================================
-    # SKIN LIBRARY (cubeon/gallery.py) - the local drop-folder. Browse what
-    # you've collected; one search box filters the grid fuzzy; each tile's
-    # GET installs and wears that skin through the upload pipeline.
-    # =====================================================================
-
-    skin_browse_status = ft.Text("", size=12, color=TEXT_DIM)
-    skin_gallery_caption = ft.Text("", size=12, color=TEXT_DIM)
-    skin_empty_hint = ft.Text("", size=12, color=TEXT_DIM)
-    skin_gallery_row = ft.Row(spacing=10, wrap=True)
-
-    def gallery_tile(name, preview_src, installed, on_get, *, img_w, img_h, tip=None):
-        """One browse-grid tile: preview art, name, and a Get/Installed state.
-        Shared by the skin and cape galleries so both read the same way. The
-        preview is rendered at this exact size (see gallery._ensure_previews)
-        so the pixels stay crisp instead of being rescaled by the client."""
-        btn = (
-            ft.Container(
-                content=ft.Text(
-                    "INSTALLED", size=9, color=TEXT_DIM,
-                    weight=ft.FontWeight.W_700,
-                    style=ft.TextStyle(letter_spacing=0.6)),
-                border=ft.border.Border.all(1, BORDER),
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-            )
-            if installed else
-            attach_hover(ft.Container(
-                content=ft.Text("GET", size=10.5, color=ACCENT,
-                                weight=ft.FontWeight.W_800,
-                                style=ft.TextStyle(letter_spacing=0.6)),
-                border=ft.border.Border.all(1, ACCENT_DIM),
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
-                ink=False, on_click=on_get,
-            ), None, ACCENT_TINT)
-        )
-        tile = ft.Container(
-            content=ft.Column(
-                [
-                    (ft.Image(src=preview_src, width=img_w, height=img_h,
-                              fit=ft.BoxFit.CONTAIN) if preview_src else
-                     ft.Container(width=img_w, height=img_h,
-                                  content=ft.Icon(ft.Icons.CHECKROOM_ROUNDED,
-                                                  color=TEXT_DIM, size=28),
-                                  alignment=ft.Alignment.CENTER)),
-                    ft.Text(name, size=10.5, color=TEXT if not installed else TEXT_DIM,
-                            weight=ft.FontWeight.W_600, max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS,
-                            width=img_w + 20,
-                            text_align=ft.TextAlign.CENTER),
-                    btn,
-                ],
-                spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                tight=True,
-            ),
-            bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
-            border_radius=RADIUS, padding=10, width=img_w + 40,
-        )
-        if tip:
-            tile.tooltip = tip
-        return attach_hover(tile, CARD_FILL, ROW_HOVER)
-
-    skin_tiles_sig = {"ids": None}
-
-    def refresh_skin_gallery():
-        """Builds the skin grid once (all cached + recommended tiles) then
-        filters by flipping tile visibility. No tree rebuild, so a search
-        keystroke is instant and images never reload/flicker. Installed gallery
-        skins show the INSTALLED pill instead of a GET button."""
-        q = (skin_search.value or "").strip()
-        try:
-            items = core.all_gallery_items("skin")
-        except Exception as ex:
-            skin_browse_status.value = f"Couldn't load the gallery: {ex}"
-            return
-        ids = tuple(it["id"] for it in items)
-        if ids != skin_tiles_sig["ids"]:
-            skin_tiles_sig["ids"] = ids
-            skin_gallery_row.controls.clear()
-        if not skin_gallery_row.controls:
-            installed_ids = set()
-            try:
-                for s in core.list_custom_skins():
-                    gid = core.gallery_id_for_file("skin", s["filename"])
-                    if gid:
-                        installed_ids.add(gid)
-            except Exception:
-                pass
-            for item in items:
-                is_installed = item["id"] in installed_ids
-                cached = item.get("cached", True)
-                tile = gallery_tile(
-                    item["name"], _img_b64(item["preview_path"]), is_installed,
-                    lambda e, gid=item["id"], ok=cached: get_gallery_skin(gid, ok),
-                    img_w=48, img_h=96,
-                        tip=("Already in your skins - find it under Installed."
-                         if is_installed else
-                         "Install and wear this skin right away."))
-                tile.data = {"skin_gid": item["id"], "cached": cached,
-                             "name": item["name"], "featured": item.get("featured")}
-                skin_gallery_row.controls.append(tile)
-        all_items = {it["id"]: it for it in items}
-        shown = 0
-        for tile in skin_gallery_row.controls:
-            meta = getattr(tile, "data", None)
-            if not isinstance(meta, dict) or "skin_gid" not in meta:
-                continue
-            item = all_items.get(meta["skin_gid"], {"id": meta["skin_gid"],
-                                                    "name": meta["name"],
-                                                    "tags": [], "cached": meta["cached"]})
-            visible = core.matches_query(item, q)
-            tile.visible = visible
-            shown += int(visible)
-        skin_gallery_caption.value = (
-            f'Results for "{q}"' if q
-            else "Your skin library folder")
-        skin_empty_hint.value = (
-            (f'No match for "{q}"' if q else
-             "Drop skin PNGs into ~/.cubeon_launcher/skin_library")
-            if not shown else "")
-
-    def get_gallery_skin(gid, cached=True):
-        def do_install():
-            try:
-                entry = core.install_gallery_skin(cfg, gid)
-            except Exception as ex:
-                with thread_safe_ui.TREE_LOCK:
-                    skin_browse_status.value = f"Couldn't install: {ex}"
-                page.update()
-                return
-            with thread_safe_ui.TREE_LOCK:
-                # entry["name"] may be absent under test stubs - fall back to id.
-                skin_browse_status.value = (
-                    f"Installed '{entry.get('name', gid)}' - "
-                    "it's your active skin now.")
-                render_preview_for(entry["filename"])
-                refresh_skins_list()
-                skin_tiles_sig["ids"] = None
-                refresh_skin_gallery()
-            page.update()
-
-        if cached:
-            do_install()
-        else:
-            # A recommended player whose art isn't cached yet - downloading is
-            # network, so do it off the UI thread.
-            skin_browse_status.value = f"Loading {gid}'s skin\u2026"
-            page.update()
-            threading.Thread(target=do_install, daemon=True,
-                             name="cubeon-skin-get").start()
-
-    # Search filters the cached/recommended grid instantly (fuzzy). No
-    # "type a name to fetch" flow - the gallery is browsed, not queried.
-    skin_search = ft.TextField(
-        hint_text="Search skins\u2026",
-        prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        expand=True, dense=True,
-        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
-        bgcolor=CARD_FILL, border_color=CARD_BORDER,
-        focused_border_color=ACCENT_DIM, cursor_color=ACCENT,
-        color=TEXT, hint_style=ft.TextStyle(color=TEXT_FAINT),
-        on_change=lambda e: refresh_skin_gallery(),
-    )
-    def open_skin_folder(e=None):
-        _open_folder(core.SKIN_LIBRARY_DIR)
-
-    skin_search_row = ft.Row(
-        [skin_search,
-         ft.IconButton(ft.Icons.FOLDER_OPEN_ROUNDED, icon_size=18,
-                       icon_color=TEXT_DIM, tooltip="Open your skin library "
-                       "folder (drop skin PNGs here)",
-                       on_click=open_skin_folder)],
-        spacing=8)
-
-    # Your own PNG is the other way to get a skin, so the upload CTA lives
-    # here in Browse too (not only under Installed) - "browse the library /
-    # upload your own" reads as one grouped action.
-    # A Flet control can only live in ONE pane, so this is a second instance
-    # sharing the same picker closures as the Installed-pane button.
-    skin_browse_upload_status = ft.Text("", size=12, color=TEXT_DIM)
-    skin_browse_upload = attach_hover(ft.Container(
-        content=ft.Row(
-            [
-                ft.Icon(ft.Icons.ADD_ROUNDED, color=ACCENT, size=18),
-                ft.Text("Upload your own skin PNG",
-                        color=ACCENT, weight=ft.FontWeight.W_700, size=13),
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            spacing=8,
-            tight=True,
-        ),
-        border=ft.border.Border.all(1, ACCENT_DIM),
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=18),
-        alignment=ft.Alignment.CENTER,
-        ink=False,
-        on_click=open_picker,
-    ), None, SURFACE_HI)
-
-    refresh_skin_gallery()
-
 
     # =====================================================================
     # CUSTOM CAPE - upload/store a cape PNG, preview its visible face, set
@@ -684,9 +426,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             show_default_cape_preview()
             cape_status.value = "Using the default Cubeon cape."
         refresh_capes_list()
-        # Keep Browse's Installed pills honest after an upload / switch.
-        cape_tiles_sig["ids"] = None
-        refresh_cape_gallery()
         page.update()
 
     def delete_cape(filename):
@@ -694,11 +433,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             core.set_active_cape(cfg, None)
             show_default_cape_preview()
         core.delete_custom_cape(filename)
-        # Un-map a gallery cape so Browse doesn't keep it as Installed.
         core.forget_file("cape", filename)
         refresh_capes_list()
-        cape_tiles_sig["ids"] = None
-        refresh_cape_gallery()
         page.update()
 
     def refresh_capes_list():
@@ -736,17 +472,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 ft.Text("No uploaded capes yet.", size=12, color=TEXT_DIM)
             )
 
-        if view_sync["fn"]:
-            view_sync["fn"]()
-
     def handle_cape_files(files):
         if not files:
             return
         picked = files[0]
-        # Both upload CTAs (Browse + Installed) share this handler; write the
-        # progress/result to both status lines so the feedback is always in
-        # the pane the click actually came from.
-        cape_status.value = cape_browse_upload_status.value = "Uploading..."
+        cape_status.value = "Uploading..."
         page.update()
         try:
             display_name = os.path.splitext(picked.name)[0]
@@ -757,7 +487,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             msg = str(ve)
         except Exception as ex:
             msg = f"Upload failed: {ex}"
-        cape_status.value = cape_browse_upload_status.value = msg
+        cape_status.value = msg
         page.update()
 
     def on_cape_files_picked(e):
@@ -805,127 +535,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         # preview with it rather than leaving the box hidden on first paint.
         show_default_cape_preview()
 
-    # =====================================================================
-    # CAPE GALLERY (cubeon/gallery.py) - ready-made capes to browse and
-    # wear with one click, so uploading a PNG is only for people who
-    # genuinely made their own. Same "Get installs and wears it" flow as
-    # the skin gallery.
-    # =====================================================================
-
-    cape_browse_status = ft.Text("", size=12, color=TEXT_DIM)
-    cape_gallery_caption = ft.Text("", size=12, color=TEXT_DIM)
-    cape_empty_hint = ft.Text("", size=12, color=TEXT_DIM)
-    cape_gallery_row = ft.Row(spacing=10, wrap=True)
-
-    cape_tiles_sig = {"ids": None}
-
-    def refresh_cape_gallery():
-        """Builds the cape grid once, then filters by flipping visibility. One
-        search box filters fuzzy; no rebuild per keystroke, no image flicker."""
-        q = (cape_search.value or "").strip()
-        try:
-            items = core.all_gallery_items("cape")
-        except Exception as ex:
-            cape_browse_status.value = f"Couldn't load the gallery: {ex}"
-            return
-        ids = tuple(it["id"] for it in items)
-        if ids != cape_tiles_sig["ids"]:
-            cape_tiles_sig["ids"] = ids
-            cape_gallery_row.controls.clear()
-        if not cape_gallery_row.controls:
-            installed_ids = set()
-            try:
-                for c in core.list_custom_capes():
-                    gid = core.gallery_id_for_file("cape", c["filename"])
-                    if gid:
-                        installed_ids.add(gid)
-            except Exception:
-                pass
-            for item in items:
-                is_installed = item["id"] in installed_ids
-                cached = item.get("cached", True)
-                tile = gallery_tile(
-                    item["name"], _img_b64(item["preview_path"]), is_installed,
-                    lambda e, gid=item["id"], ok=cached: get_gallery_cape(gid, ok),
-                    img_w=60, img_h=96,
-                        tip=("Already installed - find it under Installed."
-                         if is_installed else
-                         "Install and wear this cape right away."))
-                tile.data = {"cape_gid": item["id"], "cached": cached,
-                             "name": item["name"], "featured": item.get("featured")}
-                cape_gallery_row.controls.append(tile)
-        all_items = {it["id"]: it for it in items}
-        shown = 0
-        for tile in cape_gallery_row.controls:
-            meta = getattr(tile, "data", None)
-            if not isinstance(meta, dict) or "cape_gid" not in meta:
-                continue
-            item = all_items.get(meta["cape_gid"], {"id": meta["cape_gid"],
-                                                    "name": meta["name"],
-                                                    "tags": [], "cached": meta["cached"]})
-            visible = core.matches_query(item, q)
-            tile.visible = visible
-            shown += int(visible)
-        cape_gallery_caption.value = (
-            f'Results for "{q}"' if q
-            else "Your cape library folder")
-        cape_empty_hint.value = (
-            (f'No match for "{q}"' if q else
-             "Drop cape images into ~/.cubeon_launcher/cape_library")
-            if not shown else "")
-
-    def get_gallery_cape(gid, cached=True):
-        def do_install():
-            try:
-                entry = core.install_gallery_cape(cfg, gid)
-            except Exception as ex:
-                with thread_safe_ui.TREE_LOCK:
-                    cape_browse_status.value = f"Couldn't install: {ex}"
-                page.update()
-                return
-            with thread_safe_ui.TREE_LOCK:
-                cape_browse_status.value = (
-                    f"Installed '{entry.get('name', gid)}' - "
-                    "you're wearing it now.")
-                render_cape_preview_for(entry["filename"])
-                refresh_capes_list()
-                cape_tiles_sig["ids"] = None
-                refresh_cape_gallery()
-            page.update()
-
-        if cached:
-            do_install()
-        else:
-            cape_browse_status.value = f"Loading {gid}'s cape\u2026"
-            page.update()
-            threading.Thread(target=do_install, daemon=True,
-                             name="cubeon-cape-get").start()
-
-    # Search filters the cached/recommended grid instantly (fuzzy). No
-    # "type a name to fetch" flow - the gallery is browsed, not queried.
-    cape_search = ft.TextField(
-        hint_text="Search capes\u2026",
-        prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        expand=True, dense=True,
-        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
-        bgcolor=CARD_FILL, border_color=CARD_BORDER,
-        focused_border_color=ACCENT_DIM, cursor_color=ACCENT,
-        color=TEXT, hint_style=ft.TextStyle(color=TEXT_FAINT),
-        on_change=lambda e: refresh_cape_gallery(),
-    )
-    def open_cape_folder(e=None):
-        _open_folder(core.CAPE_LIBRARY_DIR)
-
-    cape_search_row = ft.Row(
-        [cape_search,
-         ft.IconButton(ft.Icons.FOLDER_OPEN_ROUNDED, icon_size=18,
-                       icon_color=TEXT_DIM, tooltip="Open your cape library "
-                       "folder (drop cape images here)",
-                       on_click=open_cape_folder)],
-        spacing=8)
-
-    refresh_cape_gallery()
-
     # --- Build the skin section layout. ---
     #
     # Organization: one underline-tab bar (Skin / Cape - the same
@@ -970,111 +579,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                          "for now.")
         return label
 
-    # --- The three panes -------------------------------------------------
-    # Skin and Cape now use the Mods tab's Browse | Installed split: Browse
-    # = the searchable ready-made gallery, Installed = the uploads and
-    # gallery installs you manage yourself. Both sub-panes stay mounted and
-    # switching only flips .visible (no rebuild), exactly like mods_tab's
-    # view_segment_row pattern.
-
-    def _apply_view(pane_id):
-        """Flips Browse/Installed visibility for one pane. The columns are
-        built once and kept mounted, so this is the ONLY thing that changes
-        what the user sees - without it the tab underline moved but the
-        content stayed on Browse, which read as "Installed shows nothing"."""
-        pair = view_panes.get(pane_id)
-        if not pair:
-            return
-        browse, installed = pair
-        browse.visible = view_state[pane_id] == "browse"
-        installed.visible = view_state[pane_id] == "installed"
-
-    def _view_tabs(pane_id, views):
-        """Builds the underline tab row for one pane's Browse/Installed views.
-        views: [(view_id, label_fn)] - label_fn is re-evaluated on every
-        rebuild so the Installed label can carry a live count."""
-        row = ft.Row(spacing=18)
-
-        def rebuild():
-            row.controls.clear()
-            for vid, label_fn in views:
-                row.controls.append(text_tab(
-                    label_fn(),
-                    selected=view_state[pane_id] == vid,
-                    # pane_id comes from _view_tabs' closure (one invocation
-                    # per pane), so only v is passed - a second positional
-                    # arg overflows switch_view(vid) at click time.
-                    on_click=lambda e, v=vid: switch_view(v)))
-
-        def switch_view(vid):
-            if view_state[pane_id] == vid:
-                return
-            view_state[pane_id] = vid
-            _apply_view(pane_id)
-            rebuild()
-            page.update()
-
-        rebuild()
-        return row, rebuild
-
-    def _installed_count(list_fn):
-        try:
-            return len(list_fn())
-        except Exception:
-            return 0
-
-    skin_views_row, rebuild_skin_views = _view_tabs(
-        "skin",
-        [("browse", lambda: "Browse"),
-         ("installed", lambda: f"Installed "
-          f"({_installed_count(core.list_custom_skins)})")])
-
-    cape_views_row, rebuild_cape_views = _view_tabs(
-        "cape",
-        [("browse", lambda: "Browse"),
-         ("installed", lambda: f"Installed "
-          f"({_installed_count(core.list_custom_capes)})")])
-
-    def _view_pane(pane_id, views_row, browse_children, installed_children):
-        browse = ft.Column(browse_children, spacing=6, visible=(view_state[pane_id] == "browse"))
-        installed = ft.Column(installed_children, spacing=8,
-                              visible=(view_state[pane_id] == "installed"))
-        view_panes[pane_id] = (browse, installed)
-        return browse, installed
-
-    skin_browse_pane, skin_installed_pane = _view_pane(
-        "skin", skin_views_row,
-        [skin_search_row, ft.Container(height=4), skin_gallery_caption,
-         ft.Container(height=2), skin_empty_hint,
-         ft.Container(height=6), _grid_scroll(skin_gallery_row),
-         ft.Container(height=2), skin_browse_status],
-        [skins_label, _grid_scroll(skins_list_col), ft.Container(height=2),
-         upload_button, upload_status])
-
-    cape_browse_pane, cape_installed_pane = _view_pane(
-        "cape", cape_views_row,
-        [cape_search_row, ft.Container(height=4), cape_gallery_caption,
-         ft.Container(height=2), cape_empty_hint,
-         ft.Container(height=6), _grid_scroll(cape_gallery_row),
-         ft.Container(height=2), cape_browse_status],
-        [_cape_label_with_note(), _grid_scroll(capes_list_col),
-         ft.Container(height=2), cape_upload_button, cape_status])
-
-    # Late-bound count sync: the installed lists call this whenever they
-    # rebuild so the "Installed (N)" tab labels stay honest.
-    def sync_installed_counts():
-        rebuild_skin_views()
-        rebuild_cape_views()
-
-    view_sync["fn"] = sync_installed_counts
-
     skin_pane = ft.Row(
         [
             skin_preview_box,
             ft.Container(width=16),
             ft.Column(
-                [skin_views_row, ft.Container(height=6),
-                 skin_browse_pane, skin_installed_pane],
+                [skins_label, _grid_scroll(skins_list_col),
+                 ft.Container(height=2), upload_button, upload_status],
                 spacing=6, expand=True,
             ),
         ],
@@ -1086,14 +597,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             cape_preview_box,
             ft.Container(width=16),
             ft.Column(
-                [cape_views_row, ft.Container(height=6),
-                 cape_browse_pane, cape_installed_pane],
+                [_cape_label_with_note(), _grid_scroll(capes_list_col),
+                 ft.Container(height=2), cape_upload_button, cape_status],
                 spacing=6, expand=True,
             ),
         ],
         vertical_alignment=ft.CrossAxisAlignment.START,
     )
-
 
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for
