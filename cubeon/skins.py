@@ -115,8 +115,10 @@ def _load_skins_meta() -> dict:
 
 
 def _save_skins_meta(meta: dict) -> None:
-    with open(SKINS_META_PATH, "w") as f:
-        json.dump(meta, f, indent=2)
+    # Atomic: a crash mid-write used to corrupt skins.json and lose every
+    # registered custom skin (the loader falls back to {"skins": []}).
+    from .atomicio import write_json
+    write_json(SKINS_META_PATH, meta)
 
 
 def validate_skin_file(path: str) -> tuple[bool, str]:
@@ -327,9 +329,12 @@ def _load_publish_state() -> dict:
 
 
 def _save_publish_state(state: dict) -> None:
+    # Atomic: losing skin_net.json used to make the next launch re-upload the
+    # skin (wasting scarce free-tier KV writes) or, worse, half-write the
+    # retry cooldown and the identity half on different passes.
     try:
-        with open(_PUBLISH_STATE_PATH, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=2)
+        from .atomicio import write_json
+        write_json(_PUBLISH_STATE_PATH, state)
     except OSError:
         pass
 

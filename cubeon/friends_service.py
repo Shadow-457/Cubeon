@@ -50,6 +50,7 @@ from cubeon import e2ee
 from cubeon import friends
 from cubeon import p2p
 from cubeon import worldgate
+from cubeon.paths import CUBEON_HOME
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,14 @@ _MAX_CHAT = 200
 
 # The "most recent messages" page size GET /chat serves on a first sync.
 _CHAT_PAGE = 40
+
+# Where the decrypted rings persist (chat_store.json). This is the disappearing-
+# messages fix: the rings live in memory only, and a launcher restart empties
+# them. The relay's stored history CANNOT restore your own sent messages - they
+# are E2EE-sealed to the recipient's key (a sender can't decrypt its own
+# envelope), so only the live echo ever files them. Without this file, every
+# message you ever sent vanished the moment you closed the launcher.
+CHAT_STORE_PATH = os.path.join(CUBEON_HOME, "chat_store.json")
 
 # Pending P2P invites we haven't accepted yet, keyed by friend. Bounded because
 # a friend who invites, cancels, invites again... used to add a dead room id per
@@ -257,6 +266,12 @@ class FriendsService:
         self._chat = {}            # canon peer -> {"next_seq": int, "msgs": deque}
         self._chat_seeded = set()  # peers we've asked the relay for history on
         self._chat_read = {}       # canon peer -> highest seq marked seen
+        # Hydrate the rings from chat_store.json BEFORE anything can append, so
+        # a restart resumes every conversation exactly where it left off. The
+        # file is the only copy of your own sent messages (see CHAT_STORE_PATH).
+        self._hydrate_chat_store()
+        self._chat_dirty = False
+        self._chat_save_timer = None
         # Plaintext of messages we've sent, waiting on the relay's echo as the
         # "it was stored" confirmation before they enter the ring. A sender can
         # never decrypt its own envelope (the shared secret needs the *peer's*
@@ -389,6 +404,13 @@ class FriendsService:
         join - they die with the process.
         """
         FriendsService._active = None
+        # Get any not-yet-written chat ring onto disk BEFORE the process can
+        # exit - the last chance to keep a just-sent message from disappearing
+        # (see CHAT_STORE_PATH; sent messages have no relay-side copy).
+        try:
+            self.flush_chat_store()
+        except Exception:
+            log.debug("chat store flush on stop failed", exc_info=True)
         try:
             from cubeon import local_api
             local_api.stop()
@@ -831,6 +853,91 @@ class FriendsService:
                 "seq": room["next_seq"], "dir": direction,
                 "name": name, "text": text, "ts": int(ts or 0)})
             room["next_seq"] += 1
+        # Persist before returning: an append that never reached the file is a
+        # message that vanishes on the next restart (the exact bug this fixes).
+        self._schedule_chat_save()
+
+    # -------------------------------------------------------------------
+    # chat_store.json - the ring's disk copy (the disappearing-messages fix)
+    # -------------------------------------------------------------------
+
+    def _hydrate_chat_store(self) -> None:
+        """Load the persisted rings into memory. Never raises: a missing or
+        corrupt file just means the rings start empty (still the old behavior)."""
+        try:
+            with open(CHAT_STORE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        for canon, saved in (data.get("peers") or {}).items():
+            if not isinstance(canon, str) or not isinstance(saved, dict):
+                continue
+            msgs = saved.get("msgs")
+            if not isinstance(msgs, list) or not msgs:
+                continue
+            room = self._chat_room(canon)
+            for m in msgs[-_MAX_CHAT:]:
+                if isinstance(m, dict) and m.get("text"):
+                    room["msgs"].append({
+                        "seq": m.get("seq") or room["next_seq"],
+                        "dir": m.get("dir") or "in",
+                        "name": m.get("name") or canon,
+                        "text": m["text"],
+                        "ts": int(m.get("ts") or 0)})
+                    room["next_seq"] = max(room["next_seq"],
+                                           (m.get("seq") or 0) + 1)
+            read = saved.get("read")
+            if isinstance(read, int) and read > 0:
+                self._chat_read[canon] = max(
+                    self._chat_read.get(canon, 0), read)
+
+    def _schedule_chat_save(self) -> None:
+        """Mark the store dirty and write it after a short quiet period, so a
+        burst of messages (a fetched history page, a paste) writes once. The
+        timer is replaced rather than joined: the file write is small and the
+        next burst supersedes it."""
+        self._chat_dirty = True
+        timer = self._chat_save_timer
+        if timer is not None:
+            timer.cancel()
+        timer = threading.Timer(1.0, self._write_chat_store)
+        timer.daemon = True
+        self._chat_save_timer = timer
+        timer.start()
+
+    def _write_chat_store(self) -> None:
+        """Write every ring (bounded to its last _MAX_CHAT messages) to
+        chat_store.json. Atomic-replace: write the sibling, then rename, so a
+        crash mid-write can't corrupt the one copy of your sent messages.
+        Never raises: losing a save must not kill whatever thread got here."""
+        try:
+            with self._chat_lock:
+                peers = {}
+                for canon, room in self._chat.items():
+                    peers[canon] = {
+                        "next_seq": room["next_seq"],
+                        "read": self._chat_read.get(canon, 0),
+                        "msgs": list(room["msgs"])[-_MAX_CHAT:]}
+            tmp = CHAT_STORE_PATH + ".tmp"
+            os.makedirs(CUBEON_HOME, exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"peers": peers}, f)
+            os.replace(tmp, CHAT_STORE_PATH)
+            self._chat_dirty = False
+        except Exception:
+            log.debug("chat_store save failed", exc_info=True)
+
+    def flush_chat_store(self) -> None:
+        """Write any pending change now (the stop path). Cancel the debounce
+        timer first so it can't fire again after the write."""
+        timer = self._chat_save_timer
+        if timer is not None:
+            timer.cancel()
+            self._chat_save_timer = None
+        if self._chat_dirty:
+            self._write_chat_store()
 
     def _on_dm(self, p) -> None:
         """A DM frame arrived over the socket - either from a friend, or the

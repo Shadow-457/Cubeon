@@ -1,22 +1,19 @@
 """
-Gallery - browse REAL Minecraft players and wear their real gear.
+Gallery - the LOCAL skins/capes library.
 
-Before this module, the gallery shipped procedurally-drawn placeholder skins
-and capes. Now it fetches the real thing from the free, keyless, 24/7 APIs the
-vanilla game itself uses (see cubeon/remotes.py): Mojang for the player's real
-skin and cape. "Get" on a tile installs that player's actual skin/cape through
-the exact same pipeline an upload uses (cubeon/skins.py / cubeon/capes.py).
+The Mojang "browse real players" system is GONE (remotes.py's real-player
+fetch, the featured list, the prefetch): Browse is now a pair of ordinary
+folders you drop files into, and "Get" installs a file through the exact same
+pipeline a manual upload uses (cubeon/skins.py / cubeon/capes.py).
 
-This is deliberately REAL content, not invented pixels: the id for every tile
-is a real Minecraft username, and the previews are the player's actual art.
+  ~/.cubeon_launcher/skin_library/   <- drop skin PNGs here (64x64 or 64x32)
+  ~/.cubeon_launcher/cape_library/   <- drop cape images here (any shape)
 
-Installed bookkeeping (installed.json: {skin:{gid:filename}, cape:{...}} ->
-installed filename) and the install-flow shapes are unchanged from the earlier
-generation-based design, so the Browse|Installed UI and its tests keep working.
-
-Fetching is cached under CUBEON_HOME/remotes/ by remotes.py (24h TTL with
-offline fallback); the list functions here are NETWORK-FREE - they only read
-the cache, so the Profile dialog never hits the internet just to draw a grid.
+Everything is local and network-free: the catalog lists the folders, the
+previews are rendered from the actual pixels once and cached, and search is a
+filter over the file names. Uploading your own PNG (Installed view) still works
+exactly as before - the library is just a second intake for people who collect
+skins as files.
 """
 import json
 import os
@@ -25,40 +22,41 @@ from PIL import Image
 
 from .paths import CUBEON_HOME
 from . import capes as _capes
-from . import remotes as _remotes
 from . import skins as _skins
 
-# Public cache root for this module's preview renditions (the raw skins/capes
-# themselves live under CUBEON_HOME/remotes/ - see cubeon/remotes.py). Kept at
-# the same CUBEON_HOME/gallery root the old module used so existing dirs stay
-# tidy.
 GALLERY_DIR = os.path.join(CUBEON_HOME, "gallery")
 PREVIEW_DIR = os.path.join(GALLERY_DIR, "previews")
-# Raw player art lives under remotes.REMOTE_DIR (cubeon/remotes.py); this
-# module only adds preview renditions + the installed.json bookkeeping below.
+# The drop-folders, next to everything else Cubeon stores under CUBEON_HOME.
+SKIN_LIBRARY_DIR = os.path.join(CUBEON_HOME, "skin_library")
+CAPE_LIBRARY_DIR = os.path.join(CUBEON_HOME, "cape_library")
 INSTALLED_PATH = os.path.join(GALLERY_DIR, "installed.json")
+
+_VALID_LIBRARY_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
 
 def ensure_gallery():
-    """Make sure every directory the gallery touches exists. Does NOT hit the
-    network (the list functions are network-free by design)."""
-    os.makedirs(GALLERY_DIR, exist_ok=True)
-    os.makedirs(PREVIEW_DIR, exist_ok=True)
+    """Make sure every directory the gallery touches exists. Network-free."""
+    for d in (GALLERY_DIR, PREVIEW_DIR, SKIN_LIBRARY_DIR, CAPE_LIBRARY_DIR):
+        os.makedirs(d, exist_ok=True)
+
+
+def library_dir(kind: str) -> str:
+    """The drop-folder for one kind ('skin' or 'cape')."""
+    return SKIN_LIBRARY_DIR if kind == "skin" else CAPE_LIBRARY_DIR
 # ---------------------------------------------------------------------------
-# Previews - rendered once from the cached real data, then reused
+# Previews - rendered once from the actual pixels, then reused
 # ---------------------------------------------------------------------------
 
 def _preview_path(pid: str, kind: str) -> str:
-    # "_v2": the tile previews are now rendered at their exact display size
-    # (see _ensure_previews), so previews made by the older builds have the
-    # wrong dimensions and must not be reused.
+    # "_v2": previews are rendered at their exact display size; stale sizes
+    # from older builds must not be reused.
     return os.path.join(PREVIEW_DIR, f"{pid}_{kind}_v2.png")
 
 
 def _cape_back_panel(sheet: Image.Image, scale: int = 6) -> Image.Image:
     """Crop a cape's visible back panel (10x16 region at (1,1)) and upscale it
-    with nearest-neighbour, mirroring capes.render_cape_preview. HD capes are
-    reduced to their logical grid first. scale=6 -> a crisp 60x96 tile."""
+    with nearest-neighbour. HD capes are reduced to their logical grid first.
+    scale=6 -> a crisp 60x96 tile."""
     n = max(1, sheet.width // 64)
     back = sheet.crop((1 * n, 1 * n, 11 * n, 17 * n))
     if n > 1:
@@ -66,62 +64,37 @@ def _cape_back_panel(sheet: Image.Image, scale: int = 6) -> Image.Image:
     return back.resize((10 * scale, 16 * scale), Image.NEAREST)
 
 
-def _ensure_previews(snap: dict) -> dict:
-    """Render (if missing) the skin/cape previews for a cached real
-    player. Returns a preview-path-per-kind dict; pieces with no source stay
-    absent. Only READS the cache (no network).
-
-    The skin body is rendered at scale=3 -> exactly 48x96, and the cape back
-    at scale=6 -> exactly 60x96 - the same sizes the grid draws them at, so
-    the client never rescales pixel art (which is what made the previews look
-    soft)."""
+def _ensure_previews(path: str, kind: str, gid: str) -> str:
+    """Render (if missing) the display preview for one library file and return
+    its path. Reads only local pixels - no network. On any failure the raw
+    file itself is the preview (the grid scales it down; still honest)."""
     ensure_gallery()
-    out = {}
-    sid = snap["id"]
-    if snap.get("skin_path"):
-        dst = _preview_path(sid, "skin")
-        if not os.path.isfile(dst):
-            try:
-                _skins.render_local_skin_preview(
-                    sid, dst, scale=3, src_path=snap["skin_path"])
-            except Exception:
-                dst = snap["skin_path"]  # fall back to the raw sheet
-        out["skin"] = dst
-    if snap.get("cape_path"):
-        dst = _preview_path(sid, "cape")
-        if not os.path.isfile(dst):
-            try:
-                with Image.open(snap["cape_path"]) as im:
+    dst = _preview_path(gid, kind)
+    if not os.path.isfile(dst):
+        try:
+            if kind == "skin":
+                _skins.render_local_skin_preview(gid, dst, scale=3,
+                                                 src_path=path)
+            else:
+                with Image.open(path) as im:
                     _cape_back_panel(im.convert("RGBA")).save(dst)
-            except Exception:
-                dst = snap["cape_path"]
-        out["cape"] = dst
-    return out
-# ---------------------------------------------------------------------------
-# Catalog (network-free)
-# ---------------------------------------------------------------------------
-
-def _snap_for_catalog(pid: str) -> dict | None:
-    try:
-        return _remotes.ensure_player(pid)
-    except Exception:
-        return None
-
+        except Exception:
+            return path
+    return dst
 
 # ---------------------------------------------------------------------------
-# Search: fuzzy enough that users don't need exact Minecraft names
+# Search: fuzzy enough that users don't need exact file names
 # ---------------------------------------------------------------------------
 
 def _norm(text: str) -> str:
-    """Lowercase + keep only [a-z0-9] - so 'Captain_Sparklez', 'captain
-    sparklez' and 'CaptainSparklez' all collapse to the same token."""
+    """Lowercase + keep only [a-z0-9] - so 'Cool Skin v2', 'cool_skin-v2'
+    and 'coolskinv2' all collapse to the same token."""
     return "".join(ch for ch in (text or "").lower() if ch.isalnum())
 
 
 def _match_score(query: str, name: str, tags: list[str]) -> int:
     """0 = no match; higher = better. Exact, prefix, substring, subsequence
-    (typo/abbreviation tolerant: 'jeb' finds 'jeb_', 'dslime' finds
-    'slicedlime'), then tag substring."""
+    (typo tolerant), then tag substring."""
     q = _norm(query)
     if not q:
         return 1
@@ -134,8 +107,6 @@ def _match_score(query: str, name: str, tags: list[str]) -> int:
         return 85
     if q in n:
         return 70
-    # Subsequence: every query char appears in order (handles dropped vowels
-    # and skipped words). Only for queries long enough to be meaningful.
     if len(q) >= 3:
         it = iter(n)
         if all(ch in it for ch in q):
@@ -147,13 +118,9 @@ def _match_score(query: str, name: str, tags: list[str]) -> int:
     return 0
 
 
-def _featured_rank() -> dict:
-    return {n.lower(): i for i, n in enumerate(_remotes.featured_names())}
-
-
 def _apply_query(items: list[dict], query: str | None, limit: int | None) -> list[dict]:
-    """Filter + sort a catalog. No query -> curated order (featured first),
-    cached art only. With a query -> best match first."""
+    """Filter + sort a catalog. No query -> name order (the folder is already
+    the user's curation). With a query -> best match first."""
     q = (query or "").strip()
     if q:
         scored = []
@@ -164,187 +131,115 @@ def _apply_query(items: list[dict], query: str | None, limit: int | None) -> lis
         scored.sort(key=lambda pair: (-pair[0], pair[1]["name"].lower()))
         out = [it for _, it in scored]
     else:
-        # Recommended view: never a wall of blank placeholder tiles - only
-        # show players whose real art is actually in the cache.
-        items = [it for it in items if it.get("cached", True)]
-        rank = _featured_rank()
-
-        def sort_key(it):
-            featured = bool(it.get("featured"))
-            return (0 if featured else 1,
-                    rank.get(it["id"], 999) if featured else 0,
-                    it["name"].lower())
-        out = sorted(items, key=sort_key)
+        out = sorted(items, key=lambda it: it["name"].lower())
     if limit is not None:
         out = out[:limit]
     return out
 
+# ---------------------------------------------------------------------------
+# Catalog - one item per file in the library folder (network-free)
+# ---------------------------------------------------------------------------
 
-def _catalog(kind: str, query: str | None = None, *,
-             include_uncached: bool | None = None) -> list[dict]:
-    """One item per cached real player that has the requested art:
-    [{id, name, tags, sheet_path, preview_path, featured, cached}].
-
-    Network-free. When `include_uncached` (default: only when a `query` is
-    present), uncached featured players are ALSO included as placeholder items
-    (sheet_path=None) so a search always offers a suggestion even before the
-    background prefetch has pulled that player into the cache."""
-    if include_uncached is None:
-        include_uncached = bool((query or "").strip())
-    featured = {n.lower() for n in _remotes.featured_names()}
-    items = []
-    seen = set()
-    for pid in _remotes.cached_player_ids():
-        snap = _snap_for_catalog(pid)
-        if not snap:
+def _library_files(kind: str) -> "list[tuple[str, float]]":
+    """(stem, mtime) for every image in the kind's drop-folder, sorted by
+    name. Non-image extensions and dotfiles are skipped."""
+    d = library_dir(kind)
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return []
+    out = []
+    for name in sorted(names):
+        stem, ext = os.path.splitext(name)
+        if not stem or name.startswith("_") or ext.lower() not in _VALID_LIBRARY_EXTENSIONS:
             continue
-        path = snap.get(f"{kind}_path")
-        if not path:
+        path = os.path.join(d, name)
+        try:
+            out.append((name, os.path.getmtime(path)))
+        except OSError:
             continue
-        previews = _ensure_previews(snap)
-        tags = ["real"]
-        if snap.get("model"):
-            tags.append(snap["model"])
-        tags.extend(_remotes.featured_tags(snap["name"]))
-        seen.add(pid.lower())
-        items.append({
-            "id": pid, "name": snap["name"], "tags": tags,
-            "sheet_path": path,
-            "preview_path": previews.get(kind, path),
-            "featured": pid in featured,
-            "cached": True,
-        })
-    if include_uncached:
-        cape_only = kind == "cape"
-        allowed = set(_remotes.featured_cape_names()) if cape_only else None
-        for name in _remotes.featured_names():
-            if name.lower() in seen:
-                continue
-            if allowed is not None and name not in allowed:
-                continue
-            items.append({
-                "id": name, "name": name,
-                "tags": _remotes.featured_tags(name),
-                "sheet_path": None, "preview_path": None,
-                "featured": True, "cached": False,
-            })
-    return items
+    return out
 
-
-# The catalog only changes when the remotes cache gains/loses a player (the
-# prefetch runs in the background), so rebuild it only then. Without this the
-# browse grid re-read every profile + re-rendered previews on every keystroke,
-# which is what made search feel slow.
+# The catalog only changes when a library file is added/changed/removed, so
+# rebuild it only then. Without this the browse grid re-read the folder and
+# re-rendered previews on every keystroke, which made search feel slow.
 _CATALOG_MEMO: dict[str, tuple] = {}
 
 
-def _cached_catalog(kind: str) -> list[dict]:
-    sig = tuple(_remotes.cached_player_ids())
+def _catalog(kind: str) -> list[dict]:
+    """One item per library file that could be the requested kind:
+    [{id, name, tags, sheet_path, preview_path, cached}].
+
+    'id' is the file NAME (unique within the folder) - it is what Get passes
+    to the install flow. Network-free."""
+    files = _library_files(kind)
+    sig = tuple(files)
     hit = _CATALOG_MEMO.get(kind)
     if hit is not None and hit[0] == sig:
         return hit[1]
-    items = _catalog(kind, include_uncached=True)
+    items = []
+    d = library_dir(kind)
+    for name, _mtime in files:
+        path = os.path.join(d, name)
+        stem = os.path.splitext(name)[0]
+        items.append({
+            "id": name, "name": stem, "tags": ["local"],
+            "sheet_path": path,
+            "preview_path": _ensure_previews(path, kind, name),
+            "cached": True,
+        })
     _CATALOG_MEMO[kind] = (sig, items)
     return items
 
 
 def all_gallery_items(kind: str) -> list[dict]:
-    """The universal tile set for one browse grid: every cached player plus
-    every not-yet-cached recommended player (placeholder art). Network-free and
-    memoized. The UI builds one tile per item ONCE and filters a search by
-    flipping `.visible` - no tree rebuild, so no image reload/flicker."""
-    return [dict(it) for it in _cached_catalog(kind)]
+    """Everything Browse shows for one kind, no query. Network-free."""
+    return _catalog(kind)
 
 
 def matches_query(item: dict, query: str | None) -> bool:
-    """Whether a catalog item should be visible for `query`. Empty query shows
-    the cached Recommended set; a query uses the same fuzzy matcher as search.
-    Pure/network-free - safe to call per keystroke."""
-    q = (query or "").strip()
-    if not q:
-        return bool(item.get("cached", True))
-    return _match_score(q, item["name"], item.get("tags", [])) > 0
+    """True when the item survives the (fuzzy) query. Empty query = all."""
+    return _match_score(query or "", item.get("name", ""),
+                        item.get("tags", [])) > 0
 
 
 def list_gallery_skins(query: str | None = None, limit: int | None = None) -> list[dict]:
-    """Real players' real skins as gallery tiles. Network-free. `query` filters
-    with fuzzy matching (and may surface not-yet-cached recommended players);
-    `limit` caps the result count."""
-    return _apply_query(_cached_catalog("skin"), query, limit)
+    return _apply_query(all_gallery_items("skin"), query, limit)
 
 
 def list_gallery_capes(query: str | None = None, limit: int | None = None) -> list[dict]:
-    """Real players' real capes (only accounts that own one). Network-free;
-    same query/limit behaviour as list_gallery_skins."""
-    return _apply_query(_cached_catalog("cape"), query, limit)
+    return _apply_query(all_gallery_items("cape"), query, limit)
+
+# ---------------------------------------------------------------------------
+# Removed-with-the-Mojang-system stubs. The names stay exported (launcher_core
+# re-exports them and the fuzz harness probes them); they are honest no-ops now.
+# ---------------------------------------------------------------------------
+
+def featured_count() -> int:
+    return 0
 
 
 def featured_cached_count() -> int:
-    """How many recommended players are already cached (network-free)."""
-    return _remotes.featured_cached_count()
-
-
-def featured_count() -> int:
-    """Size of the curated recommended list (network-free)."""
-    return _remotes.featured_count()
+    return 0
 
 
 def prefetch_featured(limit: int | None = None, *, force: bool = False) -> list[str]:
-    """Fetch the recommended players' real looks into the cache (network).
-    Never raises; call OFF the UI thread. Returns the resolved ids."""
-    return _remotes.prefetch_featured(limit=limit, force=force)
+    return []
 
 
-def suggest_player(name: str) -> str | None:
-    """The closest cached/featured player name to `name`, or None.
-
-    The free Mojang API only resolves EXACT names, so a typo means "not
-    found". This is the wrapper that turns that dead end into "did you mean
-    ...?": it fuzzy-matches against the curated list plus everything already
-    cached. Network-free."""
-    q = (name or "").strip()
-    if not q:
-        return None
-    candidates = list(_remotes.featured_names())
-    candidates.extend(_remotes.cached_display_names())
-    best = None
-    best_score = 0
-    for cand in candidates:
-        if _norm(cand) == _norm(q):
-            return cand  # exact (ignoring punctuation/case) - no "did you mean"
-        score = _match_score(q, cand, [])
-        if score > best_score:
-            best, best_score = cand, score
-    return best if best_score >= 45 else None
+def suggest_player(query: str | None = None) -> list[dict]:
+    return []
 
 
-# ---------------------------------------------------------------------------
-# Public load (network - the one place the gallery touches the internet)
-# ---------------------------------------------------------------------------
 def load_player(name: str, *, force: bool = False) -> dict:
-    """Fetch + cache a real player (via cubeon/remotes.py) and return a dict:
-    {id, name, model, has_skin, has_cape, skin_preview, cape_preview}. Raises
-    ValueError (honest, human message) when the name can't be resolved or the
-    network is unavailable."""
-    if not (name or "").strip():
-        raise ValueError("Enter a Minecraft username first.")
-    snap = _remotes.ensure_player(name, force=force)
-    if snap is None:
-        raise ValueError(
-            f"Couldn't find '{name}' - double-check the spelling (it must be a "
-            "real Mojang account) and that you're online.")
-    previews = _ensure_previews(snap)
-    return {
-        "id": snap["id"], "name": snap["name"], "model": snap.get("model", "classic"),
-        "has_skin": bool(snap.get("skin_path")),
-        "has_cape": bool(snap.get("cape_path")),
-        "skin_preview": previews.get("skin"),
-        "cape_preview": previews.get("cape"),
-    }
-
+    """Gone with the Mojang lookup. Returns an empty snapshot shape so any
+    leftover caller gets a harmless 'no art' answer instead of a crash."""
+    return {"id": name, "name": name, "model": "classic",
+            "has_skin": False, "has_cape": False,
+            "skin_preview": None, "cape_preview": None}
 
 # ---------------------------------------------------------------------------
-# Installed bookkeeping (unchanged shape from the old design)
+# Installed bookkeeping (unchanged shape)
 # ---------------------------------------------------------------------------
 
 def _load_installed() -> dict:
@@ -382,37 +277,42 @@ def forget_file(kind: str, filename: str) -> None:
     if filename in state.get(kind, {}).values():
         state[kind] = {gid: fn for gid, fn in state[kind].items() if fn != filename}
         _save_installed(state)
+
 # ---------------------------------------------------------------------------
 # Install flows - go through the SAME pipeline as a manual upload
 # ---------------------------------------------------------------------------
 
-def _finalize_gallery(pid: str) -> dict:
-    snap = _remotes.ensure_player(pid)
-    if snap is None:
-        raise ValueError(f"Player '{pid}' isn't cached - load them first.")
-    return snap
+def _library_file(gid: str, kind: str) -> str:
+    """Resolve an item id back to its library file. 'gid' is the file name
+    inside the drop-folder; a bare stem is accepted too, so an old bookmark
+    (or a typo in a caller) still resolves when there's exactly one match."""
+    path = os.path.join(library_dir(kind), gid)
+    if os.path.isfile(path):
+        return path
+    stem_matches = [n for n, _ in _library_files(kind)
+                    if os.path.splitext(n)[0] == gid]
+    if len(stem_matches) == 1:
+        return os.path.join(library_dir(kind), stem_matches[0])
+    raise ValueError(f"'{gid}' is no longer in your {kind} library folder.")
 
 
 def install_gallery_skin(cfg: dict, gid: str) -> dict:
-    """Installs a real player's real skin and wears it immediately. Returns
-    the skins.py metadata entry. 'gid' is the player's canonical username."""
-    snap = _finalize_gallery(gid)
-    if not snap.get("skin_path"):
-        raise ValueError(f"{snap['name']} has no own skin to install.")
-    entry = _skins.add_custom_skin(snap["skin_path"], snap["name"])
+    """Installs a skin from the library folder and wears it immediately.
+    Returns the skins.py metadata entry."""
+    path = _library_file(gid, "skin")
+    name = os.path.splitext(os.path.basename(path))[0]
+    entry = _skins.add_custom_skin(path, name)
     _skins.set_active_skin(cfg, entry["filename"])
     _mark("skin", gid, entry["filename"])
     return entry
 
 
 def install_gallery_cape(cfg: dict, gid: str) -> dict:
-    """Installs a real player's real cape (if they own one) and wears it.
-    Returns the capes.py metadata entry. Raises ValueError when the account
-    has no cape - better honest than silently wearing the wrong thing."""
-    snap = _finalize_gallery(gid)
-    if not snap.get("cape_path"):
-        raise ValueError(f"{snap['name']} doesn't have a cape to install.")
-    entry = _capes.add_custom_cape(snap["cape_path"], snap["name"])
+    """Installs a cape from the library folder and wears it. Returns the
+    capes.py metadata entry."""
+    path = _library_file(gid, "cape")
+    name = os.path.splitext(os.path.basename(path))[0]
+    entry = _capes.add_custom_cape(path, name)
     _capes.set_active_cape(cfg, entry["filename"])
     _mark("cape", gid, entry["filename"])
     return entry

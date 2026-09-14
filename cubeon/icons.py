@@ -37,7 +37,7 @@ from .paths import CUBEON_HOME
 ICON_DIR = os.path.join(CUBEON_HOME, "cache", "icons")
 
 # The one User-Agent Modrinth's CDN expects on image requests.
-_HEADERS = {"User-Agent": "fuckarch/cubeon/1.0"}
+_HEADERS = {"User-Agent": "Cubeon/cubeon/1.0"}
 
 _lock = threading.Lock()
 

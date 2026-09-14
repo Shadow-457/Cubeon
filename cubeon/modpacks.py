@@ -91,7 +91,8 @@ from . import global_mod_cache
 from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-MODRINTH_HEADERS = {"User-Agent": f"fuckarch/{APP_NAME.lower()}/1.0"}
+MODRINTH_HEADERS = {"User-Agent": f"Cubeon/{APP_NAME.lower()}/1.0"}
+
 
 # Manifest key -> Cubeon loader id. These are the only loader dependencies the
 # `.mrpack` spec defines; "minecraft" (handled separately) is the game version.

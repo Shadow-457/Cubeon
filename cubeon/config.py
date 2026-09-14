@@ -170,8 +170,11 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+    # Atomic (temp + os.replace): a crash mid-write used to leave a truncated
+    # config.json behind, and load_config() then silently reset every setting
+    # to defaults. Same guarantee _write_auth_key() gives auth_key.json.
+    from .atomicio import write_json
+    write_json(CONFIG_PATH, cfg)
 
 
 # ---------------------------------------------------------------------------

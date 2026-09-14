@@ -114,13 +114,14 @@ from cubeon.cosmetics import (
     render_hat_preview, preview_composed_body, hat_requirement, hat_unlocked,
 )
 
-# --- gallery (browseable ready-made skins + capes; see cubeon/gallery.py) ---
+# --- gallery (LOCAL skins/capes library; see cubeon/gallery.py) ---
 from cubeon.gallery import (
     list_gallery_skins, list_gallery_capes,
     install_gallery_skin, install_gallery_cape,
     load_player, gallery_id_for_file, forget_file, ensure_gallery,
     featured_cached_count, prefetch_featured, suggest_player,
     featured_count, all_gallery_items, matches_query,
+    SKIN_LIBRARY_DIR, CAPE_LIBRARY_DIR,
 )
 
 

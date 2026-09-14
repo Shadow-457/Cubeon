@@ -57,7 +57,8 @@ from . import global_mod_cache
 from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-MODRINTH_HEADERS = {"User-Agent": f"fuckarch/{APP_NAME.lower()}/1.0"}
+MODRINTH_HEADERS = {"User-Agent": f"Cubeon/{APP_NAME.lower()}/1.0"}
+
 
 
 def modrinth_search_index(query: "str | None") -> str:
@@ -478,6 +479,12 @@ def list_mods(mc_version: str | None, loader: str | None) -> list[dict]:
 def toggle_mod(mc_version: str | None, loader: str | None, filename: str) -> None:
     profile_dir = get_profile_dir(mc_version, loader)
     full = os.path.join(profile_dir, filename)
+    # Stale-UI guard: the mod list is a snapshot; the file can vanish (user
+    # deleted it in another tab/instance, or the link target is gone) between
+    # render and click. Rename would raise FileNotFoundError from a click
+    # handler - say what happened instead.
+    if not os.path.lexists(full):
+        raise ValueError("That mod is no longer on disk - refresh the mod list.")
     if is_protected_mod(_read_meta(profile_dir, filename), filename):
         raise ValueError(
             "That mod is managed by Cubeon and can't be disabled. "
@@ -489,6 +496,11 @@ def toggle_mod(mc_version: str | None, loader: str | None, filename: str) -> Non
 def delete_mod(mc_version: str | None, loader: str | None, filename: str) -> None:
     profile_dir = get_profile_dir(mc_version, loader)
     full = os.path.join(profile_dir, filename)
+    # Same stale-UI guard as toggle_mod(): deleting an already-gone entry is a
+    # no-op (the goal - it not being in the profile - is already achieved), not
+    # a crash. Missing sidecar/meta cleanup below is already exists()-guarded.
+    if not os.path.lexists(full):
+        return
     if is_protected_mod(_read_meta(profile_dir, filename), filename):
         raise ValueError(
             "That mod is managed by Cubeon and can't be removed. "
@@ -498,16 +510,29 @@ def delete_mod(mc_version: str | None, loader: str | None, filename: str) -> Non
     # is False for a dead link, so removing "the file" used to do nothing -
     # leaving the link behind forever while its sidecar was deleted. lexists
     # removes the link itself (unlink doesn't need the target to exist).
-    if os.path.lexists(full):
-        os.remove(full)
+    # (The guard above already returned when it's gone, so this always runs.)
+    os.remove(full)
     meta = _meta_path(profile_dir, filename)
     if os.path.exists(meta):
         os.remove(meta)
 
 
+def _safe_jar_filename(raw_name: str) -> str:
+    """Sanitize a user-supplied basename before it becomes a file in the
+    profile dir. A file-picked name can carry characters that are legal on
+    the OS it came from but not everywhere Cubeon runs (':' from a macOS/
+    Windows filename breaks Windows; '/' or a NUL escapes/lonks oddly), and
+    Windows also rejects names ending in a dot or space. Replace the bad
+    characters instead of rejecting the install - the user picked the file,
+    not its name."""
+    stem, ext = os.path.splitext(raw_name)
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", stem).strip(" .") or "mod"
+    return stem + (ext if ext else ".jar")
+
+
 def add_mod_file(mc_version: str | None, loader: str | None, src_path: str) -> None:
     profile_dir = get_profile_dir(mc_version, loader)
-    fname = os.path.basename(src_path)
+    fname = _safe_jar_filename(os.path.basename(src_path))
     global_mod_cache.put_file(src_path, os.path.join(profile_dir, fname))
 
 
@@ -542,7 +567,7 @@ def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
     require_loader_and_version(mc_version, loader, "install a mod")
 
     profile_dir = get_profile_dir(mc_version, loader)
-    filename = os.path.basename(src_path)
+    filename = _safe_jar_filename(os.path.basename(src_path))
     dest = os.path.join(profile_dir, filename)
 
     # Avoid clobbering an existing mod with the same filename - add a

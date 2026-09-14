@@ -59,6 +59,29 @@ class FakeRequests:
         raise RuntimeError("no route for " + url)
 
 
+_NET_GET_JSON_ORIG = mods.net.get_json
+
+
+def net_routes(routes):
+    """Route metadata reads through the fake at the layer mods.py actually
+    uses. Since the net refactor, mods.py fetches via net.get_json (retry +
+    backoff); `mods.requests` is kept only for its exception types. Faking
+    mods.requests alone let these sections silently hit the REAL Modrinth
+    API on a cold local_cache (24h TTL) - a 404 for a fake project became a
+    DownloadError after 3 real retries and failed the suite."""
+    def fake_get_json(url, **kw):
+        for frag, payload in routes.items():
+            if frag in url:
+                return payload
+        raise mods.net.DownloadError("no route for " + url)
+    mods.net.get_json = fake_get_json
+    mods.requests = FakeRequests(routes)  # any legacy direct use
+
+
+def restore_net():
+    mods.net.get_json = _NET_GET_JSON_ORIG
+
+
 def write_jar(profile_dir, filename, project_id=None, slug=None):
     os.makedirs(profile_dir, exist_ok=True)
     path = os.path.join(profile_dir, filename)
@@ -93,7 +116,7 @@ DETAIL = {
     "license": {"name": "LGPL-3.0"},
     "updated": "2026-09-01", "published": "2020-01-01",
 }
-mods.requests = FakeRequests({"/project/sodium": DETAIL})
+net_routes({"/project/sodium": DETAIL})
 d = mods.get_mod_details("sodium")
 check("title parsed", d and d["title"] == "Sodium", f"{d!r}")
 check("license flattened", d and d["license"] == "LGPL-3.0", f"{d!r}")
@@ -102,7 +125,7 @@ check("featured gallery image comes first",
 check("body kept", d and "Fast." in d["body"], f"{d!r}")
 
 # Offline: a project whose name can't be resolved returns None, not a crash.
-mods.requests = FakeRequests({})  # no route -> RuntimeError -> cached_call raises
+net_routes({})  # no route -> DownloadError -> cached_call raises
 try:
     mods.get_mod_details("does-not-exist-xyz")
     got_none = False
@@ -131,7 +154,7 @@ VERSIONS = [
      "files": [{"filename": "sodium-0.5.0.jar", "url": "u1",
                 "size": 1024, "primary": True, "hashes": {}}]},
 ]
-mods.requests = FakeRequests({"/version": VERSIONS})
+net_routes({"/version": VERSIONS})
 vs = mods.get_mod_versions("sodium", mc_version="1.20.1", loader="fabric")
 check("both versions returned", len(vs) == 2, f"{vs!r}")
 check("matching version marked compatible",
@@ -147,7 +170,7 @@ print("\n2b. get_mod_download() skips a release with no downloadable file")
 # A release whose `files` list is empty must not shadow an older, usable build:
 # taking versions[0] blindly returned None and made the doctor wrongly DISABLE
 # a mod that does have a downloadable build.
-mods.requests = FakeRequests({"/version": [
+net_routes({"/version": [
     {"version_number": "9.9", "files": []},
     {"version_number": "1.2", "files": [{"filename": "goodmod-1.2.jar",
                                           "url": "dl", "size": 4096,
@@ -337,6 +360,8 @@ print("\n7. clicking an installed mod opens its full detail menu")
 # installed mod, find that row's click handler, and confirm it mounts a dialog
 # and renders the fetched details - with the two network calls stubbed. This is
 # the guard against "the menu button silently does nothing".
+restore_net()  # the UI section stubs at the core layer; give net back
+
 import importlib  # noqa: E402
 import time  # noqa: E402
 

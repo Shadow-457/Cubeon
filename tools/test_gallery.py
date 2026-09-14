@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
 """
-Tests for the REAL-player cosmetics gallery (cubeon/remotes.py + gallery.py).
+Tests for the LOCAL skins/capes library (cubeon/gallery.py).
 
 Run with:
     python tools/test_gallery.py
 
-No real network, no real .minecraft: HOME is pointed at a temp dir and all
-HTTP goes through remotes.TEST_HANDLER (the testable hook), serving a fake
-Mojang session + textures server for one fake player.
+No network, no real store: HOME is pointed at a temp dir and the tests drop
+files into the library folders the way a user would.
 
-Covers: fetching real content into the cache (resolve -> session -> texture,
-http->https upgrade, cape absence), that the catalog list
-functions are NETWORK-FREE and reflect the cache, caching (fresh short-
-circuit, stale offline fallback), the install flows landing in skins.py /
-capes.py state and wearing immediately, installed bookkeeping round-trips,
-and honest failures (unknown player, capless account). Exit code 0 iff every
-check passes.
+Covers: the drop-folders are created, the catalog reflects their contents
+(network-free), previews render from the actual pixels, the install flows land
+in skins.py / capes.py state and wear immediately, installed bookkeeping
+round-trips, fuzzy search, and the honest no-op stubs left where the Mojang
+browse system used to be. Exit code 0 iff every check passes.
 """
-import base64
 import io
-import json
 import os
 import sys
 import types
@@ -36,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PIL import Image                                     # noqa: E402
 
-from cubeon import gallery, capes, skins, remotes  # noqa: E402
+from cubeon import gallery, capes, skins  # noqa: E402
 
 _checks = []
 
@@ -52,199 +47,97 @@ def _png(size, color):
     return buf.getvalue()
 
 
-SKIN_BYTES = _png((64, 64), (21, 119, 199, 255))
-CAPE_BYTES = _png((64, 32), (230, 60, 40, 255))
-
-U = "11111111111111111111111111111111"
-_hits = {"n": 0}
-
-
-def _tex_payload(cape=True):
-    textures = {"SKIN": {"url": "http://textures.minecraft.net/texture/aaaa"}}
-    if cape:
-        textures["CAPE"] = {"url": "http://textures.minecraft.net/texture/bbbb"}
-    val = base64.b64encode(json.dumps({"textures": textures}).encode()).decode()
-    return json.dumps({
-        "id": U, "name": "RealPlayer",
-        "properties": [{"name": "textures", "value": val}],
-    }).encode()
-
-
-def _handler(url, cape=True):
-    _hits["n"] += 1
-    if "users/profiles/minecraft" in url:
-        return json.dumps({"id": U, "name": "RealPlayer"}).encode()
-    if "/session/minecraft/profile" in url:
-        return _tex_payload(cape=cape)
-    if "textures.minecraft.net/texture/aaaa" in url:
-        return SKIN_BYTES
-    if "textures.minecraft.net/texture/bbbb" in url:
-        return CAPE_BYTES
-    raise RuntimeError("fake server hit an unexpected url: " + url)
-
-
-# 1. Fetch into the cache (real content, not generated)
-# ------------------------------------------------------
-remotes.TEST_HANDLER = lambda url: _handler(url, cape=True)
+# 1. Folders exist, catalogs start empty
+# --------------------------------------
 gallery.ensure_gallery()
+check("skin library folder created", os.path.isdir(gallery.SKIN_LIBRARY_DIR))
+check("cape library folder created", os.path.isdir(gallery.CAPE_LIBRARY_DIR))
+check("catalog is empty before any drop", not gallery.list_gallery_skins())
+check("cape catalog empty before any drop", not gallery.list_gallery_capes())
 
-check("gallery lists are empty before any fetch", not gallery.list_gallery_skins())
-check("cape list empty before any fetch", not gallery.list_gallery_capes())
+# 2. Drop files in the way a user would
+# -------------------------------------
+open(os.path.join(gallery.SKIN_LIBRARY_DIR, "Cool Skin.png"), "wb").write(
+    _png((64, 64), (21, 119, 199, 255)))
+open(os.path.join(gallery.SKIN_LIBRARY_DIR, "_ignored.png"), "wb").write(
+    _png((64, 64), (0, 0, 0, 255)))  # underscore-prefixed: skipped
+open(os.path.join(gallery.SKIN_LIBRARY_DIR, "notes.txt"), "w").write("no")
+open(os.path.join(gallery.CAPE_LIBRARY_DIR, "red.png"), "wb").write(
+    _png((64, 32), (230, 60, 40, 255)))
 
-player = gallery.load_player("realplayer")
-check("load_player resolves a real player",
-      player["id"] == "realplayer" and player["name"] == "RealPlayer", player["id"])
-check("real skin + cape present",
-      player["has_skin"] and player["has_cape"], str(player))
-check("skin preview was rendered", bool(player.get("skin_preview")
-      and os.path.isfile(player["skin_preview"])), str(player.get("skin_preview")))
+skin_items = gallery.list_gallery_skins()
+check("skin catalog lists only the dropped image",
+      [i["id"] for i in skin_items] == ["Cool Skin.png"],
+      str([i["id"] for i in skin_items]))
+check("cape catalog lists the dropped cape",
+      [i["id"] for i in gallery.list_gallery_capes()] == ["red.png"])
+first = skin_items[0]
+check("item carries the file as its sheet",
+      first["sheet_path"].endswith("Cool Skin.png"), first["sheet_path"])
+check("preview was rendered from the actual pixels",
+      first["preview_path"].endswith("_v2.png")
+      and os.path.isfile(first["preview_path"]), first["preview_path"])
+check("catalog is network-free by shape (no remote fields)",
+      all("remote" not in k for i in skin_items for k in i))
 
-items = gallery.list_gallery_skins()
-check("cached player shows in the (network-free) skin catalog",
-      any(i["id"] == "realplayer" and i["name"] == "RealPlayer"
-          and os.path.isfile(i["sheet_path"]) for i in items),
-      str([i.get("id") for i in items]))
-
-cape_items = gallery.list_gallery_capes()
-check("cached player's cape shows in the cape catalog",
-      any(i["id"] == "realplayer" and os.path.isfile(i["sheet_path"]) for i in cape_items))
-
-# 2. Caching: fresh short-circuit + stale offline fallback
-# --------------------------------------------------------
-_hits["n"] = 0
-snap_a = remotes.ensure_player("realplayer")          # fresh cache -> no network
-check("fresh cache short-circuits the network", _hits["n"] == 0, str(_hits["n"]))
-check("cached snapshot still has the art", bool(snap_a and snap_a["skin_path"]))
-
-prof = remotes._load_profile("realplayer")
-prof["fetched_at"] = 0                                # ancient
-with open(remotes._profile_path("realplayer"), "w", encoding="utf-8") as f:
-    json.dump(prof, f)
-remotes.TEST_HANDLER = lambda url: (_ for _ in ()).throw(RuntimeError("offline"))
-snap_b = remotes.ensure_player("realplayer")
-check("offline with stale cache still returns a snapshot",
-      bool(snap_b and snap_b["skin_path"]), str(snap_b))
-remotes.TEST_HANDLER = lambda url: _handler(url, cape=True)
-
-# 3. Install flows (real player -> your own skin/cape, worn immediately)
+# 3. Install flows - same pipeline as a manual upload, worn immediately
 # ---------------------------------------------------------------------
-cfg = {"username": "tester"}
+cfg = {}
+entry = gallery.install_gallery_skin(cfg, "Cool Skin.png")
+check("install lands in the skins store", entry["filename"] in
+      {s["filename"] for s in skins.list_custom_skins()})
+check("install wears the skin immediately",
+      cfg.get("active_skin") == entry["filename"], str(cfg.get("active_skin")))
+check("installed bookkeeping maps gid -> file",
+      gallery.gallery_id_for_file("skin", entry["filename"]) == "Cool Skin.png")
 
-entry = gallery.install_gallery_skin(cfg, "realplayer")
-check("real skin registers in skins meta",
-      any(x["filename"] == entry["filename"] for x in skins.list_custom_skins()))
-check("real skin becomes the active skin", cfg.get("active_skin") == entry["filename"])
-check("skin sync wrote LocalSkin/<USERNAME>.png",
-      os.path.isfile(os.path.join(skins.CSL_LOCAL_SKINS_DIR, "tester.png")))
-check("installed skin maps back to its player id",
-      gallery.gallery_id_for_file("skin", entry["filename"]) == "realplayer")
+cape_entry = gallery.install_gallery_cape(cfg, "red.png")
+check("cape install wears it",
+      cfg.get("active_cape") == cape_entry["filename"], str(cfg.get("active_cape")))
 
-entry_c = gallery.install_gallery_cape(cfg, "realplayer")
-check("real cape registers in capes meta",
-      any(x["filename"] == entry_c["filename"] for x in capes.list_custom_capes()))
-check("real cape becomes the active cape", cfg.get("active_cape") == entry_c["filename"])
-check("cape sync wrote LocalSkin/capes/<USERNAME>.png",
-      os.path.isfile(os.path.join(capes.CSL_LOCAL_CAPES_DIR, "tester.png")))
-check("installed cape maps back to its player id",
-      gallery.gallery_id_for_file("cape", entry_c["filename"]) == "realplayer")
+# Stem form resolves too (one match by name without the extension). The store
+# may dedup a re-install under a fresh filename - what matters is that the
+# resolution worked and the entry is really in the store.
+entry2 = gallery.install_gallery_skin(cfg, "Cool Skin")
+check("a bare stem resolves to the file", entry2["filename"] in
+      {s["filename"] for s in skins.list_custom_skins()})
 
-entry2 = gallery.install_gallery_cape(cfg, "realplayer")
-check("re-installing the same cape works", cfg.get("active_cape") == entry2["filename"])
-check("mapping follows the newest install",
-      gallery.gallery_id_for_file("cape", entry2["filename"]) == "realplayer")
-
-# 5. Honest failures + bookkeeping round-trip
-# -------------------------------------------
-remotes.TEST_HANDLER = lambda url: (_ for _ in ()).throw(RuntimeError("offline"))
 raised = False
 try:
-    gallery.load_player("no-such-player")
+    gallery.install_gallery_skin(cfg, "no-such-file")
 except ValueError:
     raised = True
-check("unresolvable player raises ValueError (honest)", raised)
+check("an id no longer in the folder raises ValueError", raised)
 
-
-def cape_less_handler(url):
-    if "users/profiles" in url:
-        return json.dumps({"id": U, "name": "RealPlayer"}).encode()
-    if "/session" in url:
-        return _tex_payload(cape=False)
-    if "textures.minecraft.net/texture/aaaa" in url:
-        return SKIN_BYTES
-    raise RuntimeError("cape-less fake server unexpected url: " + url)
-
-
-remotes.TEST_HANDLER = cape_less_handler
-p2 = gallery.load_player("realplayer", force=True)
-check("cape-less player reported honestly",
-      p2["has_skin"] and not p2["has_cape"], str(p2))
-raised = False
-try:
-    gallery.install_gallery_cape(cfg, "realplayer")
-except ValueError:
-    raised = True
-check("installing a cape the player doesn't have raises ValueError", raised)
-remotes.TEST_HANDLER = lambda url: _handler(url, cape=True)
-
-capes.delete_custom_cape(entry_c["filename"]); gallery.forget_file("cape", entry_c["filename"])
-check("forget clears a deleted cape's mapping",
-      gallery.gallery_id_for_file("cape", entry_c["filename"]) is None)
-skins.delete_custom_skin(entry["filename"]); gallery.forget_file("skin", entry["filename"])
+# 4. Forget round-trips
+# ---------------------
+skins.delete_custom_skin(entry["filename"])
+gallery.forget_file("skin", entry["filename"])
 check("forget clears a deleted skin's mapping",
       gallery.gallery_id_for_file("skin", entry["filename"]) is None)
-gallery.forget_file("cape", entry_c["filename"])
+gallery.forget_file("skin", entry["filename"])
 check("forget is safe to call twice", True)
 
-# 6. Fuzzy search + curated recommendations (all network-free)
-# ------------------------------------------------------------
-check("featured list is curated and capped sensibly",
-      0 < gallery.featured_count() <= 30, str(gallery.featured_count()))
-
-# Normalisation ignores case + punctuation, so these all collapse to one token.
-check("_norm strips case and punctuation",
-      gallery._norm("Captain_Sparklez") == gallery._norm("captain sparklez")
-      == "captainsparklez")
-
-# A typo drops a vowel; subsequence matching still finds the player.
-fuzzy = gallery.list_gallery_skins("realplayr")
-check("fuzzy (subsequence) query finds the player",
-      any(i["id"] == "realplayer" for i in fuzzy),
+# 5. Fuzzy search (network-free)
+# ------------------------------
+fuzzy = gallery.list_gallery_skins("coolskin")
+check("fuzzy query finds the file",
+      any(i["id"] == "Cool Skin.png" for i in fuzzy),
       str([i["id"] for i in fuzzy]))
 check("nonsense query matches nothing", not gallery.list_gallery_skins("zzqqxx"))
 check("query is applied before limit",
-      all(i["id"] == "realplayer" for i in gallery.list_gallery_skins("real", limit=1)))
+      all(i["id"] == "Cool Skin.png" for i in gallery.list_gallery_skins("cool", limit=1)))
+check("no-query view is name-sorted",
+      [i["name"] for i in gallery.list_gallery_skins()] == sorted(
+          i["name"] for i in gallery.list_gallery_skins()))
 
-# The exact-name Mojang API can't do typos; suggest_player is the wrapper that
-# turns a miss into a "did you mean". It returns the exact casing of the match.
-check("suggest_player recovers from a typo",
-      gallery.suggest_player("realplayr") == "RealPlayer",
-      str(gallery.suggest_player("realplayr")))
-check("suggest_player ignores unrelated input",
-      gallery.suggest_player("qqzzxx") is None)
-
-# The curated tags power the search and the cape catalog.
-check("featured tags are exposed for search",
-      "cape" in remotes.featured_tags("jeb_") and
-      remotes.featured_tags("nobody-here") == [])
-
-# A search must offer suggestions even before the background prefetch has
-# cached them, or a fresh install returns "nothing matches" for every name.
-sugg = gallery.list_gallery_skins("jeb")
-check("search surfaces a not-yet-cached featured player",
-      any(i["id"] == "jeb_" and not i.get("cached") for i in sugg),
-      str([(i["id"], i.get("cached")) for i in sugg]))
-check("recommended (no-query) view stays cached-only",
-      all(i.get("cached") for i in gallery.list_gallery_skins()))
-
-# Cape suggestions only include featured players we know own a cape.
-cape_sugg = gallery.list_gallery_capes("notch")
-check("cape search excludes featured players without a cape",
-      not any(i["id"] == "notch" for i in cape_sugg),
-      str([i["id"] for i in cape_sugg]))
-cape_sugg2 = gallery.list_gallery_capes("grian")
-check("cape search surfaces a cape-owning featured player",
-      any(i["id"] == "Grian" for i in cape_sugg2),
-      str([i["id"] for i in cape_sugg2]))
+# 6. The Mojang browse system is gone - honest no-ops
+# ---------------------------------------------------
+check("featured_count is 0", gallery.featured_count() == 0)
+check("prefetch_featured is a no-op", gallery.prefetch_featured() == [])
+check("suggest_player is a no-op list", gallery.suggest_player() == [])
+check("load_player returns an honest empty snapshot",
+      gallery.load_player("Dream")["has_skin"] is False)
 
 # Summary
 # -------

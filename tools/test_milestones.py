@@ -100,7 +100,19 @@ def fresh_state(**over):
 
 
 def drain_sync():
-    """Wait for any sync_unlocks daemon thread to finish so posts are countable."""
+    """Wait for any sync_unlocks daemon thread to finish so posts are countable.
+    First OBSERVE the thread, then wait for it to vanish: if sync_unlocks() has
+    not spawned it yet (a scheduling delay), an immediate enumerate() sees none
+    and returns early - the count check then races the POST. Flaked once."""
+    deadline = time.time() + 5
+    seen = False
+    while time.time() < deadline:
+        if any(t.name == "cubeon-milestones-sync" for t in threading.enumerate()):
+            seen = True
+            break
+        time.sleep(0.02)
+    if not seen:
+        return
     deadline = time.time() + 5
     while time.time() < deadline:
         if not any(t.name == "cubeon-milestones-sync"

@@ -120,3 +120,17 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
   regressions. Note: element screenshots of mid-page sections will show the
   sticky nav slicing the heading — screenshot artifact, not a page bug
   (scroll-into-view then element capture overlaps the fixed header).
+
+## Hero type fix + git commit (post-review)
+- User flagged hero text looking bad at wide viewports: .h-xl capped at 112px
+  pushed Minecraftia past its bitmap grid (glyph strokes merged into mush on
+  "with"/"friends."), and line-height 1.12 + the inline-block .pop highlight
+  cropped glyphs. Fix: cap .h-xl at clamp(40px,5.6vw,76px), heading line-height
+  1.24, letter-spacing .02em, .pop padding .06em/.1em. Re-verified hero at
+  1440 / 1828 / 390px — three clean lines, highlight contains full glyphs.
+  GOTCHA: Minecraftia must not exceed ~80px display size; it's an 8px-grid
+  bitmap face, past ~80px letterforms fuse.
+- Committed in 2 commits: 3f53c02 (bug sweep + landing + font) and e97e0c9
+  (prior-session skin/gallery/sandbox work). Push FAILED: origin HTTPS auth
+  invalid/missing token — needs credentials or SSH remote to publish.
+- mod/.gradle/* churn deliberately left uncommitted (build-state noise).

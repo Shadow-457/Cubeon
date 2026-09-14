@@ -31,7 +31,6 @@ from cubeon.theme import (
     TEXT_FAINT,    # tertiary hints/placeholders
 )
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
-from cubeon import remotes  # TEST_HANDLER gate for the featured prefetch
 
 # Our own launcher core module - contains logic for skin storage/rendering
 import launcher_core as core
@@ -42,102 +41,31 @@ import launcher_core as core
 # whenever no custom cape is selected instead of leaving the box blank.
 DEFAULT_CAPE_PREVIEW_SRC = "capes/cubeon_cape_preview.png"
 
-# The most recently built section registers a "re-read the gallery catalog"
-# hook here. main.py's background prefetch fills the real-player cache off
-# the UI thread; when it has new tiles to show it calls refresh_active_galleries()
-# instead of digging the (rebuilt-every-time) closures out of the tree.
-_ACTIVE_GALLERY_REFRESH = {"fn": None}
 
-# Preview bytes are immutable once written, so base64-encoding them once and
-# keeping the string in memory spares every grid rebuild a disk read + encode.
-# Keyed by path with the file mtime, so a re-rendered preview self-invalidates.
-_IMG_MEMO: dict[str, tuple[float, str]] = {}
-
-
-def _img_b64(path):
-    """base64 of a preview PNG, memoized. None for a missing/placeholder path."""
-    if not path:
-        return None
+def _open_folder(path: str) -> None:
+    """Open a folder in the OS file manager. Best-effort: if there's no file
+    manager (or the launch fails) the browse pane still works - the button is
+    a convenience, not a requirement. Never raises."""
+    import subprocess
+    import sys
     try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return None
-    hit = _IMG_MEMO.get(path)
-    if hit is not None and hit[0] == mtime:
-        return hit[1]
-    try:
-        with open(path, "rb") as f:
-            data = base64.b64encode(f.read()).decode("ascii")
-    except OSError:
-        return None
-    _IMG_MEMO[path] = (mtime, data)
-    return data
-
-
-def refresh_active_galleries() -> None:
-    """Re-read the (network-free) gallery catalogs and repaint whichever skin
-    section is currently mounted. Safe to call from the prefetch worker; a
-    no-op before the first build. Never raises."""
-    fn = _ACTIVE_GALLERY_REFRESH.get("fn")
-    if not fn:
-        return
-    try:
-        with thread_safe_ui.TREE_LOCK:
-            fn()
-    except Exception:  # a refresh must never kill the prefetch thread
+        if sys.platform.startswith("win"):
+            os.startfile(path)  # noqa: S606 - user-requested, fixed path
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+    except Exception:
         pass
 
 
-def _start_featured_prefetch(page, *, limit: int = 5) -> None:
-    """Kick off a background fill of the recommended-players cache so the
-    Recommended grid isn't empty on a fresh install. Fetches in small batches
-    and repaints after each one (tiles appear fast), continuing until the whole
-    curated list is cached or a pass makes no progress (offline / dead name).
-    Only ever runs one prefetch at a time."""
-    if _ACTIVE_GALLERY_REFRESH.get("prefetching"):
-        return
-    if remotes.TEST_HANDLER is not None:
-        return  # tests drive the fake network themselves - no real prefetch
-    try:
-        already = core.featured_cached_count()
-        target = core.featured_count()
-    except Exception:
-        return
-    if already >= target:
-        return
-    _ACTIVE_GALLERY_REFRESH["prefetching"] = True
-
-    def worker():
-        try:
-            cached = already
-            # Bounded: target/limit batches is enough to fill the list; the
-            # extra couple cover names that resolve to a cape-less snapshot.
-            for _ in range((target // max(1, limit)) + 3):
-                if cached >= target:
-                    break
-                core.prefetch_featured(limit=limit)
-                refresh_active_galleries()
-                try:
-                    page.update()
-                except Exception:
-                    pass
-                now = core.featured_cached_count()
-                if now <= cached:
-                    break  # no progress (offline, or a name won't resolve)
-                cached = now
-        finally:
-            _ACTIVE_GALLERY_REFRESH["prefetching"] = False
-
-    threading.Thread(target=worker, daemon=True,
-                     name="cubeon-featured-prefetch").start()
-
-
-
+# Preview bytes are immutable once written, so base64-encoding them once and
+# keeping the string in memory spares every grid rebuild a disk read + encode.
 def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider,
                         BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                         TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO=None,
                         mc_version=None, mc_loader=None, file_picker=None,
-                        cape_file_picker=None, start_prefetch=True):
+                        cape_file_picker=None):
     """
     Builds the skin-management section shown inside the Profile tab:
     a preview of the active skin, an upload button, and the list of
@@ -172,6 +100,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ft.Column: The skin section's content, ready to drop into the
         Profile tab's layout.
     """
+
+    # The Browse panes read the local drop-folders; make sure they exist
+    # (with the old Mojang browse gone, an empty-but-present folder plus its
+    # "Open folder" button IS the browse UX, so it must be there on first run).
+    core.ensure_gallery()
 
     # =====================================================================
     # CUSTOM SKIN UPLOAD - lets the user pick a local 64x64 (or legacy
@@ -270,7 +203,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         render_preview_for(filename)
         upload_status.value = "Active skin set to this one."
         refresh_skins_list()
-        refresh_hat_row()
         # Reflect the new active state in Browse too: the gallery grid may be
         # showing this same player's art, and an upload just now makes it
         # "Installed". Network-free.
@@ -292,7 +224,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         # advertising it as Installed.
         core.forget_file("skin", filename)
         refresh_skins_list()
-        refresh_hat_row()
         skin_tiles_sig["ids"] = None
         refresh_skin_gallery()
         page.update()
@@ -372,6 +303,23 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             content=ft.Column([grid], scroll=ft.ScrollMode.AUTO),
             height=height,
         )
+
+    # Preview bytes are immutable once written, so base64-encoding them once
+    # and keeping the string in memory spares every list rebuild a disk read
+    # + encode.
+    _IMG_MEMO = {}
+
+    def _img_b64(path):
+        hit = _IMG_MEMO.get(path)
+        if hit is not None:
+            return hit
+        try:
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+        except Exception:
+            return None
+        _IMG_MEMO[path] = b64
+        return b64
 
     def _skin_card_b64(filename):
         out = os.path.join(core.SKINS_DIR, f"_thumb_{filename}.png")
@@ -483,9 +431,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         render_preview_for(cfg.get("active_skin"))
 
     # =====================================================================
-    # SKIN GALLERY (cubeon/gallery.py) - real players' real skins, so nobody
-    # has to hunt down a PNG. One search box filters the grid fuzzy (no exact
-    # name needed); each tile's GET installs and wears that player's skin.
+    # SKIN LIBRARY (cubeon/gallery.py) - the local drop-folder. Browse what
+    # you've collected; one search box filters the grid fuzzy; each tile's
+    # GET installs and wears that skin through the upload pipeline.
     # =====================================================================
 
     skin_browse_status = ft.Text("", size=12, color=TEXT_DIM)
@@ -560,7 +508,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             return
         ids = tuple(it["id"] for it in items)
         if ids != skin_tiles_sig["ids"]:
-            # The catalog gained/lost a player (background prefetch) - rebuild.
             skin_tiles_sig["ids"] = ids
             skin_gallery_row.controls.clear()
         if not skin_gallery_row.controls:
@@ -579,8 +526,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     item["name"], _img_b64(item["preview_path"]), is_installed,
                     lambda e, gid=item["id"], ok=cached: get_gallery_skin(gid, ok),
                     img_w=48, img_h=96,
-                    tip=("Recommended. " if item.get("featured") else "") +
-                        ("Already in your skins - find it under Installed."
+                        tip=("Already in your skins - find it under Installed."
                          if is_installed else
                          "Install and wear this skin right away."))
                 tile.data = {"skin_gid": item["id"], "cached": cached,
@@ -600,10 +546,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             shown += int(visible)
         skin_gallery_caption.value = (
             f'Results for "{q}"' if q
-            else "Recommended players")
+            else "Your skin library folder")
         skin_empty_hint.value = (
             (f'No match for "{q}"' if q else
-             "Loading recommended players...")
+             "Drop skin PNGs into ~/.cubeon_launcher/skin_library")
             if not shown else "")
 
     def get_gallery_skin(gid, cached=True):
@@ -622,7 +568,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     "it's your active skin now.")
                 render_preview_for(entry["filename"])
                 refresh_skins_list()
-                refresh_hat_row()
                 skin_tiles_sig["ids"] = None
                 refresh_skin_gallery()
             page.update()
@@ -649,11 +594,20 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         color=TEXT, hint_style=ft.TextStyle(color=TEXT_FAINT),
         on_change=lambda e: refresh_skin_gallery(),
     )
-    skin_search_row = ft.Row([skin_search], spacing=8)
+    def open_skin_folder(e=None):
+        _open_folder(core.SKIN_LIBRARY_DIR)
+
+    skin_search_row = ft.Row(
+        [skin_search,
+         ft.IconButton(ft.Icons.FOLDER_OPEN_ROUNDED, icon_size=18,
+                       icon_color=TEXT_DIM, tooltip="Open your skin library "
+                       "folder (drop skin PNGs here)",
+                       on_click=open_skin_folder)],
+        spacing=8)
 
     # Your own PNG is the other way to get a skin, so the upload CTA lives
-    # here in Browse too (not only under Installed) - "browse ready-made /
-    # fetch a real player / upload your own" reads as one grouped action.
+    # here in Browse too (not only under Installed) - "browse the library /
+    # upload your own" reads as one grouped action.
     # A Flet control can only live in ONE pane, so this is a second instance
     # sharing the same picker closures as the Installed-pane button.
     skin_browse_upload_status = ft.Text("", size=12, color=TEXT_DIM)
@@ -678,196 +632,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     refresh_skin_gallery()
 
-
-    # =====================================================================
-    # COSMETICS - hat picker. Hats are pixel art baked into the skin's
-    # hat layer and flow to the game through the same CustomSkinLoader
-    # sync as the skin itself - no extra mods, nothing new at launch.
-    # =====================================================================
-
-    hat_status = ft.Text("", size=12, color=TEXT_DIM, visible=False)
-    hat_row = ft.Row(spacing=10, wrap=True)
-
-    # A big live preview of the current skin+hat, mirroring the Skin/Cape
-    # panes' left-hand stage. Picking a hat is then a visual choice: the
-    # stage updates on every click, so the tile names don't have to carry
-    # the whole story in text.
-    hat_preview = ft.Image(src="icon.svg", width=140, height=232,
-                           fit=ft.BoxFit.CONTAIN, visible=False)
-    hat_preview_caption = ft.Text("No hat", size=12, color=TEXT_DIM,
-                                  weight=ft.FontWeight.W_600)
-
-    # The hat catalogue is already "everything ready-made", so its browser is
-    # just a search box over the grid - no upload flow applies to hats.
-    hat_search = ft.TextField(
-        hint_text="Search hats...",
-        prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        expand=True, dense=True,
-        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
-        bgcolor=CARD_FILL, border_color=CARD_BORDER,
-        focused_border_color=ACCENT_DIM, cursor_color=ACCENT,
-        color=TEXT, hint_style=ft.TextStyle(color=TEXT_FAINT),
-        on_change=lambda e: refresh_hat_row(),
-    )
-
-    def hat_name(hat_id):
-        for h in core.list_hats():
-            if h["id"] == hat_id:
-                return h["name"]
-        return hat_id
-
-    def render_hat_stage():
-        """Repaints the big preview to exactly what the game shows with the
-        current hat (default Steve if no skin), and names it underneath."""
-        out_path = os.path.join(core.SKINS_DIR, "_hat_stage.png")
-        try:
-            core.preview_composed_body(cfg, out_path, scale=8)
-            with open(out_path, "rb") as f:
-                hat_preview.src = base64.b64encode(f.read()).decode("ascii")
-            hat_preview.visible = True
-        except Exception:
-            pass  # the stage is decoration - wearing still works without it
-        worn = cfg.get("cosmetic_hat")
-        hat_preview_caption.value = hat_name(worn) if worn else "No hat"
-
-    def set_hat_status(msg):
-        """Single-line status under the grid; hidden when empty so the pane
-        stays quiet unless there's something worth reading."""
-        hat_status.value = msg or ""
-        hat_status.visible = bool(msg)
-
-    def hat_progress(hat_id):
-        """(current, goal) for a locked hat's requirement, or None when the
-        hat is unlocked/free. Drives the mini progress bar on locked tiles."""
-        from cubeon import milestones
-        req = core.hat_requirement(hat_id)
-        if req is None or core.hat_unlocked(hat_id):
-            return None
-        for m in milestones.MILESTONES:
-            if m["id"] == req:
-                return milestones.progress(m)
-        return None
-
-    def hat_earn_hint(hat_id):
-        """Short "how to earn this" for a locked hat (e.g. '7.4 / 10 h in
-        game'). Returns '' for unlocked hats."""
-        from cubeon import milestones
-        req = core.hat_requirement(hat_id)
-        if req is None or core.hat_unlocked(hat_id):
-            return ""
-        for m in milestones.MILESTONES:
-            if m["id"] == req:
-                cur, goal = milestones.progress(m)
-                if m["kind"] == "hours_played":
-                    return f"{cur:.1f} / {goal:.0f} h in game"
-                if m["kind"] == "friends":
-                    return f"{int(cur)} / {int(goal)} friends"
-                if m["kind"] == "hosted":
-                    return f"{int(cur)} / {int(goal)} hosted"
-                return m["desc"]
-        return "Keep playing to earn this"
-
-    def wear_hat(e, hat_id=None):
-        try:
-            core.set_hat(cfg, hat_id)
-        except PermissionError:
-            set_hat_status(f"Locked - {hat_earn_hint(hat_id)}")
-            refresh_hat_row()
-            page.update()
-            return
-        except Exception as ex:
-            set_hat_status(f"Couldn't apply hat: {ex}")
-            page.update()
-            return
-        set_hat_status("")  # the big stage + selected tile say what's worn
-        render_preview_for(cfg.get("active_skin"))
-        refresh_hat_row()
-        page.update()
-
-    def refresh_hat_row():
-        hat_row.controls.clear()
-        worn = cfg.get("cosmetic_hat")
-
-        def tile(label, hat_id, preview_src=None, locked=False):
-            selected = (worn or None) == hat_id
-            img = (ft.Image(src=preview_src, width=48, height=96, fit=ft.BoxFit.CONTAIN)
-                   if preview_src else
-                   ft.Container(width=48, height=96, alignment=ft.Alignment.CENTER,
-                                content=ft.Icon(ft.Icons.NO_MEETING_ROOM_OUTLINED,
-                                                color=TEXT_DIM, size=26)))
-            if locked:
-                # Dim the art and badge it - a locked hat must look locked,
-                # not like a broken tile. The lock glyph overlaps the art.
-                img = ft.Stack(
-                    [img,
-                     ft.Container(
-                         content=ft.Icon(ft.Icons.LOCK_OUTLINED,
-                                         color=TEXT_DIM, size=16),
-                         bgcolor=SURFACE_MAX, border_radius=99,
-                         padding=2, right=0, bottom=0)],
-                    width=52, height=96)
-            content = ft.Column(
-                [
-                    img,
-                    ft.Text(label, size=11,
-                            color=ACCENT if selected else TEXT_DIM,
-                            weight=ft.FontWeight.W_600 if selected else ft.FontWeight.W_500,
-                            text_align=ft.TextAlign.CENTER),
-                ],
-                spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True,
-            )
-            if locked:
-                # Show "how close am I" as a bar, not a paragraph: the
-                # tooltip keeps the exact numbers, the bar carries the gist.
-                cur, goal = hat_progress(hat_id) or (0.0, 1.0)
-                content.controls.append(ft.ProgressBar(
-                    value=(cur / goal) if goal else 0.0,
-                    width=52, height=4, color=ACCENT_DIM, bgcolor=SURFACE,
-                    border_radius=2,
-                ))
-            # Locked tiles carry the earn hint as their tooltip so the
-            # requirement is discoverable on hover without a click that
-            # would just say "locked".
-            container = ft.Container(
-                content,
-                bgcolor=ACCENT_TINT if selected else CARD_FILL,
-                border=ft.border.Border.all(1, ACCENT if selected else CARD_BORDER),
-                border_radius=RADIUS,
-                padding=10,
-                ink=False,
-                on_click=lambda e, h=hat_id: wear_hat(e, h),
-            )
-            if locked:
-                container.tooltip = hat_earn_hint(hat_id) or "Locked"
-                container.bgcolor = CARD_FILL
-                container.content.controls[1].color = TEXT_DIM
-            return attach_hover(
-                container,
-                ACCENT_TINT if selected else CARD_FILL,
-                ACCENT_TINT_HI if selected else ROW_HOVER,
-            )
-
-        hat_row.controls.append(tile("None", None))
-        hq = (hat_search.value or "").strip().lower()
-        for h in core.list_hats():
-            if hq and hq not in h["name"].lower():
-                continue
-            out_path = os.path.join(core.SKINS_DIR, f"_hat_{h['id']}.png")
-            src = None
-            try:
-                core.render_hat_preview(h["id"], cfg, out_path, scale=6)
-                with open(out_path, "rb") as f:
-                    src = base64.b64encode(f.read()).decode("ascii")
-            except Exception:
-                pass  # tile falls back to the bare glyph; wearing still works
-            locked = h.get("require") and not core.hat_unlocked(h["id"])
-            hat_row.controls.append(tile(h["name"], h["id"], src,
-                                         locked=bool(locked)))
-
-        # Repaint the big stage last so it reflects whatever is now worn.
-        render_hat_stage()
-
-    refresh_hat_row()
 
     # =====================================================================
     # CUSTOM CAPE - upload/store a cape PNG, preview its visible face, set
@@ -1084,8 +848,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     item["name"], _img_b64(item["preview_path"]), is_installed,
                     lambda e, gid=item["id"], ok=cached: get_gallery_cape(gid, ok),
                     img_w=60, img_h=96,
-                    tip=("Recommended. " if item.get("featured") else "") +
-                        ("Already installed - find it under Installed."
+                        tip=("Already installed - find it under Installed."
                          if is_installed else
                          "Install and wear this cape right away."))
                 tile.data = {"cape_gid": item["id"], "cached": cached,
@@ -1105,10 +868,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             shown += int(visible)
         cape_gallery_caption.value = (
             f'Results for "{q}"' if q
-            else "Recommended capes")
+            else "Your cape library folder")
         cape_empty_hint.value = (
             (f'No match for "{q}"' if q else
-             "Loading recommended capes...")
+             "Drop cape images into ~/.cubeon_launcher/cape_library")
             if not shown else "")
 
     def get_gallery_cape(gid, cached=True):
@@ -1150,13 +913,22 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         color=TEXT, hint_style=ft.TextStyle(color=TEXT_FAINT),
         on_change=lambda e: refresh_cape_gallery(),
     )
-    cape_search_row = ft.Row([cape_search], spacing=8)
+    def open_cape_folder(e=None):
+        _open_folder(core.CAPE_LIBRARY_DIR)
+
+    cape_search_row = ft.Row(
+        [cape_search,
+         ft.IconButton(ft.Icons.FOLDER_OPEN_ROUNDED, icon_size=18,
+                       icon_color=TEXT_DIM, tooltip="Open your cape library "
+                       "folder (drop cape images here)",
+                       on_click=open_cape_folder)],
+        spacing=8)
 
     refresh_cape_gallery()
 
     # --- Build the skin section layout. ---
     #
-    # Organization: one underline-tab bar (Skin / Cosmetics / Cape - the same
+    # Organization: one underline-tab bar (Skin / Cape - the same
     # text_tab chrome the Mods tab uses for Mods/Packs/Shaders, so the
     # launcher speaks one visual language) with ONE pane visible at a time.
     # Previously all three sections stacked into a very long scroll: the
@@ -1190,12 +962,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     # The hats/capes notes are tooltips on their pane labels rather than
     # visible paragraphs - same detail, none of the wall of text.
-    def _hat_label_with_note():
-        label = section_label("Hat")
-        label.tooltip = ("Only you see hats right now - like your skin. "
-                         "Hats with a lock are earned by playing - hover one "
-                         "to see how close you are.")
-        return label
 
     def _cape_label_with_note():
         label = section_label("Your Capes")
@@ -1328,36 +1094,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         vertical_alignment=ft.CrossAxisAlignment.START,
     )
 
-    # Cosmetics pane: same two-column shape as Skin/Cape - a big live stage
-    # on the left (what the game will show), search + hat grid on the right.
-    # The stage makes picking a hat a visual choice and lets the tiles stay
-    # light on text. Locked tiles carry a small progress bar, not a paragraph.
-    cosmetics_pane = ft.Row(
-        [
-            ft.Container(
-                content=ft.Column(
-                    [hat_preview, ft.Container(height=6), hat_preview_caption],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=4,
-                ),
-                bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
-                border_radius=RADIUS, padding=12,
-                width=180, height=290, alignment=ft.Alignment.CENTER,
-            ),
-            ft.Container(width=16),
-            ft.Column(
-                [
-                    _hat_label_with_note(),
-                    hat_search,
-                    ft.Container(height=6),
-                    _grid_scroll(hat_row, height=290),
-                    hat_status,
-                ],
-                spacing=8, expand=True,
-            ),
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.START,
-    )
 
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for
@@ -1366,7 +1102,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     PANES = [
         ("skin", "Skin", skin_pane),
-        ("cosmetics", "Cosmetics", cosmetics_pane),
         ("cape", "Cape", cape_pane),
     ]
 
@@ -1400,15 +1135,5 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ],
         spacing=6,
     )
-
-    # Let the background featured-prefetch (and anything else that fills the
-    # cache) repaint the grids without holding a reference to these closures.
-    def _refresh_galleries():
-        refresh_skin_gallery()
-        refresh_cape_gallery()
-
-    _ACTIVE_GALLERY_REFRESH["fn"] = _refresh_galleries
-    if start_prefetch:
-        _start_featured_prefetch(page)
 
     return skin_section

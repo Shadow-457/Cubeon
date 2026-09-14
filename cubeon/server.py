@@ -44,7 +44,8 @@ from . import local_cache
 from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-MODRINTH_HEADERS = {"User-Agent": f"cubeon-thing/{APP_NAME.lower()}/1.0"}
+MODRINTH_HEADERS = {"User-Agent": f"Cubeon/{APP_NAME.lower()}/1.0"}
+
 
 SERVER_TYPE_PAPER = "paper"
 SERVER_TYPES = {

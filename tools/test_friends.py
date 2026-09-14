@@ -286,6 +286,14 @@ check("worker resolves an add-by-uid frame",
       "nameByUid" in worker_src and "msg.uid" in worker_src,
       "the worker's onAdd must accept {uid} as well as {name}")
 
+# A refused DM must TELL the sender why (the UI renders optimistically and
+# only confirms delivery on the echo - a silent drop looks like being ignored).
+dm_error_codes = ["dm_bad_recipient", "dm_empty", "dm_not_friends"]
+dm_missing = [c for c in dm_error_codes if c not in worker_src]
+check("worker's onDm refuses with an error frame, not silence",
+      all(c in worker_src for c in dm_error_codes) and "T.ERROR" in worker_src,
+      f"missing DM refusal codes in worker: {dm_missing}")
+
 
 # --------------------------------------------------------------------------
 shutil.rmtree(_scratch, ignore_errors=True)

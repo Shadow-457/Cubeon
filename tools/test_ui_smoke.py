@@ -292,46 +292,25 @@ try:
         section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
         **THEME,
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
-        start_prefetch=False,
+
     )
     check("build_skin_section accepts **THEME", section is not None)
 except Exception as ex:
     check("build_skin_section accepts **THEME", False, f"{type(ex).__name__}: {ex}")
 
-# Earnable hats: the cosmetics row must build with locked tiles present and
-# must never call page.update() during the build (refresh()/page plumbing is
-# exercised elsewhere; this pins "locked rendering doesn't crash headless").
-# Since the section became tabbed (Skin/Cosmetics/Cape), the hat names live
-# in the cosmetics pane - reachable by clicking its tab, which must work
-# headless (FakePage absorbs the update).
+# Hats were removed with the Mojang browse system (2026-09-13 user request:
+# "remove the hat BROWSE shit too"). What must remain true headless: the
+# section builds, the Cosmetics tab is GONE, and no hat tiles leak through.
 try:
     import cubeon.milestones as _mile
     _mile.load_state()
-    # Find the clickable "Cosmetics" tab: a control with on_click whose
-    # entire subtree text is exactly "cosmetics" (the tab label).
-    # (.parent isn't set until the control mounts, so climbing from the
-    # Text isn't reliable headless.)
-    _clicked = False
-    for c in walk(section):
-        if getattr(c, "on_click", None) is not None:
-            sub = " ".join(all_text(c)).strip()
-            if sub == "cosmetics":
-                c.on_click(None)
-                _clicked = True
-                break
-    _sec_txt = " | ".join(all_text(section))
-    check("hat row renders earnable hat names",
-          _clicked and "veteran" in _sec_txt and "party" in _sec_txt,
-          f"clicked={_clicked} " + _sec_txt[:200])
-    # 2026-09-11 cosmetics rework: the pane leads with a big live stage and
-    # locked hats carry a mini progress bar instead of a text paragraph.
-    _imgs = [c for c in walk(section) if isinstance(c, ft.Image)]
-    _bars = [c for c in walk(section) if isinstance(c, ft.ProgressBar)]
-    check("cosmetics pane is preview-based (stage image + locked bars)",
-          _clicked and len(_imgs) >= 2 and len(_bars) >= 1,
-          f"clicked={_clicked} images={len(_imgs)} bars={len(_bars)}")
+    _sec_txt = " | ".join(all_text(section)).lower()
+    check("hat browse is gone (no cosmetics tab, no hat tiles)",
+          "cosmetics" not in _sec_txt
+          and "veteran" not in _sec_txt and "party" not in _sec_txt,
+          _sec_txt[:200])
 except Exception as ex:
-    check("hat row renders earnable hat names", False,
+    check("hat browse is gone (no cosmetics tab, no hat tiles)", False,
           f"{type(ex).__name__}: {ex}")
 
 check("DANGER is a required argument, not a drifting default",
@@ -368,7 +347,7 @@ try:
         section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
         **THEME,
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
-        start_prefetch=False,
+
     )
     # The Cape pane only hangs off the tab bar's click until switched to;
     # click it (same trick as the Cosmetics check above) so it's walkable.
@@ -412,7 +391,7 @@ try:
         section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
         **THEME,
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
-        start_prefetch=False,
+
     )
     _fields = [c for c in walk(_skin_section) if isinstance(c, ft.TextField)]
     _hints = " | ".join((getattr(f, "hint_text", "") or "").lower() for f in _fields)
@@ -429,18 +408,17 @@ try:
           _search_fields and all(not getattr(f, "on_submit", None)
                                  for f in _search_fields),
           f"{len(_search_fields)} search field(s)")
-    # Typing a name must yield suggestions from the FULL curated list even when
-    # nothing is cached yet (fresh install), not "nothing matches". The
-    # not-yet-cached tiles render a placeholder (preview_path is None) - that
-    # must not crash _img_b64 / the tile builder.
+    # Typing a name filters the LOCAL library (files in skin_library/), and
+    # an empty library reports the drop-folder hint rather than a fetch.
     _skin_search = next(f for f in _fields
                         if (getattr(f, "hint_text", "") or "").lower()
                         .startswith("search skins"))
     _skin_search.value = "jeb"
     _skin_search.on_change(None)
     _txt = " | ".join(all_text(_skin_section)).lower()
-    check("searching offers not-yet-cached recommendations",
-          "jeb_" in _txt, _txt[:200])
+    check("search filters the local library, no-match says so",
+          ("results for" in _txt or "skin_library" in _txt)
+          and "recommended" not in _txt, _txt[:200])
 except Exception as ex:
     import traceback
     check("one search box per pane", False, traceback.format_exc())
@@ -456,7 +434,7 @@ try:
         section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
         **THEME,
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
-        start_prefetch=False,
+
     )
     _installed_tab = None
     for _c in walk(_skin_section):
@@ -472,9 +450,9 @@ try:
         if not isinstance(_c, ft.Column):
             continue
         _txt = " ".join(all_text(_c)).lower()
-        if "recommended players" in _txt and "no uploaded skins yet" not in _txt:
+        if "skin library folder" in _txt and "no uploaded skins yet" not in _txt:
             _browse_vis = _c.visible
-        if "no uploaded skins yet" in _txt and "recommended players" not in _txt:
+        if "no uploaded skins yet" in _txt and "skin library folder" not in _txt:
             _installed_vis = _c.visible
     check("Installed tab reveals the Installed column",
           _installed_tab is not None and _installed_vis is True,
@@ -487,15 +465,22 @@ except Exception as ex:
 
 print("\n5e. skin search filters in place (no per-keystroke rebuild, no dead-end button)")
 # Search used to rebuild every tile and re-base64 every preview on each
-# keystroke (slow/janky), and an empty result offered a "Look up ... on Mojang"
-# button. Now the grid is built once and search flips .visible; pin both.
+# keystroke (slow/janky). Now the grid is built once and search flips
+# .visible; pin that. Seeds two files into the real skin_library folder so
+# there is something to filter.
 try:
+    import cubeon.gallery as _gal
+    _gal.ensure_gallery()
+    _seed = []
+    for _n in ("jeb_test", "zed_test"):
+        _p = os.path.join(_gal.SKIN_LIBRARY_DIR, _n + ".png")
+        _PILImage.new("RGBA", (64, 64), (120, 120, 220, 255)).save(_p, "PNG")
+        _seed.append(_p)
     _skin_section = build_skin_section(
         FakePage(), {"username": "tester", "active_skin": None},
         section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
         **THEME,
         mc_version="1.21.11", mc_loader="fabric", file_picker=ft.FilePicker(),
-        start_prefetch=False,
     )
     _txt_all = " | ".join(all_text(_skin_section)).lower()
     check("no 'Look up ... on Mojang' button remains",
@@ -527,6 +512,12 @@ try:
 except Exception as ex:
     import traceback
     check("skin search filters in place", False, traceback.format_exc())
+finally:
+    for _p in _seed:
+        try:
+            os.remove(_p)
+        except OSError:
+            pass
 
 print("\n5f. Installed skin cards show a real preview in a wrapping grid")
 # The Installed pane used to render a generic icon chip per row (and later a
@@ -542,7 +533,8 @@ try:
         FakePage(), {"username": "tester", "active_skin": None},
         section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
         **THEME, mc_version="1.21.11", mc_loader="fabric",
-        file_picker=ft.FilePicker(), start_prefetch=False)
+        file_picker=ft.FilePicker())
+
     for _c in walk(_sec):
         if getattr(_c, "on_click", None) is not None and \
                 " ".join(all_text(_c)).strip().lower().startswith("installed"):

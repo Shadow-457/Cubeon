@@ -187,6 +187,15 @@ def build(**kw):
     """A started service wired to fakes. Returns (service, client, core)."""
     client = FakeClient()
     core = FakeCore()
+    # The chat rings now persist to chat_store.json (the disappearing-messages
+    # fix) - and like a real relaunch, a new service hydrates whatever the last
+    # one wrote. Tests that assume fresh conversations must start from a clean
+    # store, so remove it (and any stray .tmp) before constructing.
+    for p in (fs.CHAT_STORE_PATH, fs.CHAT_STORE_PATH + ".tmp"):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
     cfg = {"username": "Steve", "ram_mb": 2048, "width": 854, "height": 480}
     cfg.update(kw.pop("cfg", {}))
     state = {"selected_version": "fabric-loader-0.16.9-1.21.1", "mod_loader": "fabric"}
