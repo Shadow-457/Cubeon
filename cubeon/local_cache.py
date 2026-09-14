@@ -145,7 +145,13 @@ def cached_call(namespace: str, key: object, fetch, max_age: int = 86400,
             value = fetch()
             set(namespace, key, value)
         except Exception:
-            pass  # keep the stale copy; the next call tries again
+            # keep the stale copy; the next call tries again - but leave a
+            # trail (bugs-and-flaws #13): silent refresh failures made
+            # stale-forever results impossible to diagnose.
+            import logging
+            logging.getLogger(__name__).debug(
+                "cache background refresh failed for %s", namespace,
+                exc_info=True)
         finally:
             _INFLIGHT.discard(kk)
 
@@ -164,3 +170,37 @@ def cached_call(namespace: str, key: object, fetch, max_age: int = 86400,
     return set(namespace, key, value)
 
 
+
+def invalidate(namespace: str | None = None) -> int:
+    """Explicit cache invalidation (bugs-and-flaws #16).
+
+    The stale-while-revalidate flow self-heals search/browse results on the
+    next open, but there was no way to FORCE a refresh (e.g. a future
+    Settings 'clear content cache' button, or 'a mod was yanked and users
+    keep seeing it for a day'). Drops the memory tier and, for the given
+    namespace (or everything when None), the disk files. Returns the number
+    of disk entries removed."""
+    import glob
+    with _MEM_LOCK:
+        if namespace is None:
+            _MEM.clear()
+        else:
+            for kk in [k for k in list(_MEM) if k[0] == namespace]:
+                _MEM.pop(kk, None)
+    removed = 0
+    if namespace is None:
+        pattern = "*.json"
+    else:
+        safe_ns = "".join(ch if ch.isalnum() or ch in "._-" else "_"
+                          for ch in namespace)
+        pattern = f"{safe_ns}_*.json"
+    try:
+        for p in glob.glob(os.path.join(CACHE_DIR, pattern)):
+            try:
+                os.remove(p)
+                removed += 1
+            except OSError:
+                pass
+    except Exception:
+        pass
+    return removed

@@ -164,3 +164,16 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
 - Gotcha: wrangler hangs silently at its banner when the stored OAuth token
   needs refresh and no TTY - rerun with CI=true and </dev/null; it then
   refreshes and proceeds. Deploy = upload ~10s + triggers ~5s.
+
+## Rough-edges pass (post beta-readiness review)
+- #13 (worker-thread exceptions swallowed): worker-path backstops now log
+  with exc_info to the central file log (skins publish, mod-repair,
+  name-contest, backup scheduler, launch Java scan, p2p session loops,
+  local_cache refresh). UI best-effort catches left silent on purpose.
+- #14: too-old-Java fallback logs required vs found. #17: skin section
+  rebuild falls back to cfg['last_version'] when the dropdown hasn't
+  populated. #16: local_cache.invalidate(namespace=None) added (no UI wiring
+  yet - a Settings 'clear content cache' button can call it).
+- #15 kept (all callers intend creation). #18/#19 left documented.
+- Suites green: ui_smoke 114, mod_detail 66, modpacks 51, versions_manifest
+  10, net 21.

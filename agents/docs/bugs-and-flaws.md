@@ -193,27 +193,25 @@ That can't happen. A Durable Object runs one event handler at a time, and `onAdd
 
 ---
 
-## Medium: Background Thread Exceptions Silently Swallowed
+## Medium: Background Thread Exceptions Silently Swallowed — FIXED 2026-09-14 (worker paths)
 
 **Files:** `main.py`, `cubeon/skins.py`, `cubeon/launch.py`, `cubeon/p2p.py`
 
 Throughout the codebase, daemon threads catch `Exception` at the top level and discard it:
 
-```python
-# skins.py
-except Exception:
-    pass  # "Backstop only"
-
-# main.py
-except Exception:
-    pass
-```
-
-While this prevents crashes, it also means bugs in background threads (skin publish failures, WebSocket errors, P2P transport errors) are completely invisible. There is no log output, no metric, no way to know something went wrong.
+**Fix (2026-09-14):** the worker-path backstops now log with full traceback
+via the central `logging_setup` file log (console only at WARNING):
+`skins._publish_skin` ("best-effort, will retry"), main.py's name-contest
+check / mod-repair / late window worker / backup scheduler, `launch.py`'s
+system-Java scan, and `p2p.py`'s session loops. Intentionally-silent UI
+best-effort catches (window geometry, dev toggles, scrim hide) were left as
+`pass` - they fail on machines without xrandr etc. by design, and logging
+them would be noise. `local_cache.cached_call`'s background refresh also
+logs its failures now instead of a bare pass.
 
 ---
 
-## Low: `find_java_for_version()` May Return Too-Old Java
+## Low: `find_java_for_version()` May Return Too-Old Java — FIXED 2026-09-14 (logged)
 
 **File:** `cubeon/launch.py`, `find_java_for_version()` (line ~88)
 
@@ -238,7 +236,7 @@ A "get" function that creates state as a side effect. Any code that calls `get_p
 
 ---
 
-## Low: Modrinth Cache Never Invalidates
+## Low: Modrinth Cache Never Invalidates — FIXED 2026-09-14 (`local_cache.invalidate()`)
 
 **File:** `cubeon/local_cache.py`, `get()` (line ~12)
 
@@ -259,7 +257,7 @@ There is no manual cache invalidation mechanism and no way for the user to force
 
 ---
 
-## Low: `version_dropdown.value` Used Before Population
+## Low: `version_dropdown.value` Used Before Population — FIXED 2026-09-14 (falls back to cfg last_version)
 
 **File:** `main.py`, `rebuild_skin_section()` (line ~620)
 
@@ -322,11 +320,11 @@ The relay-first hybrid handover strategy is partially implemented. The `HybridSe
 | 10 | ✅ Fixed 2026-09-14 | `toggle_mod()` / `delete_mod()` no existence check — `lexists` guards | `mods.py` |
 | 11 | ✅ Fixed 2026-09-14 | DM refusal was a silent drop — now `T.ERROR` frames to the sender (parity-tested) | `cubeon-friends.js` |
 | 12 | ✅ Verified non-issue 2026-09-14 (stale claim) | Mutual-add "race": a DO runs message handlers one at a time and `onAdd`/`onAccept` are fully synchronous (no awaits), so the second add always sees the first's request row and auto-accepts | `cubeon-friends.js` |
-| 13 | 🟡 Medium | Background thread exceptions silently discarded | Multiple files |
-| 14 | 🟢 Low | `find_java_for_version()` fallback may return too-old Java | `launch.py` |
-| 15 | 🟢 Low | `get_profile_dir()` creates state as side effect | `mods.py` |
-| 16 | 🟢 Low | Modrinth cache never invalidates (24h TTL) | `local_cache.py` |
-| 17 | 🟢 Low | Version dropdown used before population | `main.py` |
+| 13 | ✅ Fixed 2026-09-14 (worker paths log; UI best-effort left silent by design) | Background thread exceptions silently discarded | Multiple files |
+| 14 | ✅ Fixed 2026-09-14 (fallback now logs required-vs-found to the launcher log) | `find_java_for_version()` fallback may return too-old Java | `launch.py` |
+| 15 | 🟢 Low (kept) | `get_profile_dir()` creates state as side effect — every current caller intends creation; changing the contract buys nothing pre-beta | `mods.py` |
+| 16 | ✅ Fixed 2026-09-14 (`invalidate()` API added; SWR already self-heals) | Modrinth cache never invalidates (24h TTL) | `local_cache.py` |
+| 17 | ✅ Fixed 2026-09-14 (rebuild falls back to cfg last_version) | Version dropdown used before population | `main.py` |
 | 18 | 🟢 Low | Circular import workaround in cosmetics | `cosmetics.py` |
 | 19 | 🟢 Low | P2P hybrid handover incomplete | `p2p.py` |
 | 20 | ✅ Fixed 2026-09-14 (visual) | Chat self-avatar rendered as a blank square — `ft.Image(src=<absolute path>)` never loads in Flet 0.86; now base64 bytes with chip fallback | `chat_tab.py` |

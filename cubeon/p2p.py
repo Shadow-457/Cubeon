@@ -927,7 +927,7 @@ class PunchSession:
             try:
                 self._send_raw(self._frame(self._FIN, 0, max(0, self._rx_next - 1)))
             except Exception:
-                pass
+                logging.getLogger(__name__).warning("background worker error", exc_info=True)
         self._stop.set()
         self._wake_outbound()  # unblock the outbound loop so it can exit
         for sock in (self._tcp_sock, self._local_listener, self._sock):
@@ -1148,7 +1148,7 @@ class HybridSession(PunchSession):
         try:
             self._send_signal(payload)
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
     def _evaluate_handover(self) -> None:
         if self._active_pipe == "udp" or not self._direct_rx.is_set():

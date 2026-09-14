@@ -12,6 +12,8 @@ The code uses Flet for UI and relies on launcher_core.py for backend logic
 """
 
 # Standard library imports
+import logging
+
 import os          # For file path/mtime handling (used for avatar cache-busting)
 import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
 import re          # For regular expressions (used to clean mod slugs and parse version strings)
@@ -977,7 +979,7 @@ def main(page: ft.Page):
                     set_status("Note: another Cubeon player recently used "
                                "this name - others may see their skin on it.")
             except Exception:
-                pass
+                logging.getLogger(__name__).warning("background worker error", exc_info=True)
         threading.Thread(target=_warn_if_contested, daemon=True,
                          name="cubeon-name-contested-check").start()
         page.update()
@@ -996,7 +998,8 @@ def main(page: ft.Page):
             page, cfg,
             section_label=section_label, pixel_divider=pixel_divider,
             **THEME,
-            mc_version=version_dropdown.value, mc_loader=state.get("mod_loader"),
+            mc_version=version_dropdown.value or cfg.get("last_version"),
+            mc_loader=state.get("mod_loader"),
             file_picker=skin_file_picker,
             cape_file_picker=cape_file_picker,
         )
@@ -3223,13 +3226,13 @@ def main(page: ft.Page):
             try:
                 set_status(f"Fixed {fixed} mod problem(s)")
             except Exception:
-                pass
+                logging.getLogger(__name__).warning("background worker error", exc_info=True)
             refresh = (_tab_cbs.get("mods") or {}).get("refresh")
             if callable(refresh):
                 try:
                     refresh()
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
         threading.Thread(target=worker, name="mod-repair", daemon=True).start()
 
@@ -3831,7 +3834,7 @@ def main(page: ft.Page):
             if webbrowser.open("https://connect.minekube.com/"):
                 return
         except Exception:
-            pass
+            logging.getLogger(__name__).warning("background worker error", exc_info=True)
         _show_snack("Cubeon servers are powered by Minekube Connect. "
                     "Visit https://connect.minekube.com/",
                     duration=8000)
@@ -4213,7 +4216,7 @@ def main(page: ft.Page):
             try:
                 webbrowser.open(info["url"])
             except Exception:
-                pass
+                logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
         _show_snack(f"Cubeon {info['version']} is available",
                     duration=10000, action=_open_release, action_label="Get it")
@@ -4222,7 +4225,7 @@ def main(page: ft.Page):
         from cubeon import updater
         updater.check_in_background(_offer_update, token=cfg.get("update_token"))
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
     # -----------------------------------------------------------------
     # FIRST-RUN ONBOARDING

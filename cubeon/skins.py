@@ -42,6 +42,8 @@ Mojang resolves skins by username even for offline players - so without the
 ExtraList entry cubeon/csl.py registers, a user whose name matches a real
 premium account would silently get that account's skin instead of this file.
 """
+import logging
+
 import base64
 import hashlib
 import io
@@ -482,8 +484,11 @@ def _publish_skin(cfg: dict) -> None:
             # the identity half already saved above stays accurate as-is.
     except Exception:
         # Backstop only. A daemon thread that raised would dump a traceback to
-        # the console over a purely cosmetic, best-effort feature.
-        pass
+        # the console over a purely cosmetic, best-effort feature - but the
+        # failure must not be invisible: log it (file log; console at WARNING).
+        logging.getLogger(__name__).warning(
+            "skin publish failed (best-effort, will retry on next sync)",
+            exc_info=True)
 
 
 def _publish_skin_async(cfg: dict) -> None:

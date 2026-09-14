@@ -13,6 +13,8 @@ CustomSkinLoader has to be in the profile *before* the mods sync, or a jar
 downloaded on this launch would only reach the game on the next one. See
 cubeon/csl.py.
 """
+import logging
+
 import collections
 import copy
 import inspect
@@ -122,7 +124,7 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
         for d in mll.java_utils.find_system_java_versions():
             candidates.append(os.path.join(d, "bin", "java"))
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
     best, best_major = None, 10_000
     for c in candidates:
@@ -136,7 +138,18 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
             best, best_major = c, maj
     if best:
         return best
-    return java_path or sys_java or "java"
+    fallback = java_path or sys_java or "java"
+    # Honest breadcrumb: we're handing back a Java that may be too old, so
+    # Minecraft's own (cryptic) class-version error has a paper trail in the
+    # launcher log explaining exactly what was required vs. what was found.
+    try:
+        import logging
+        logging.getLogger(__name__).warning(
+            "no Java >= %s found for %s - falling back to %s (major=%s)",
+            required, version_id, fallback, java_major_version(fallback))
+    except Exception:
+        pass
+    return fallback
 
 
 # Minimal argument set that any modern (1.13+) client needs to start. Used only
