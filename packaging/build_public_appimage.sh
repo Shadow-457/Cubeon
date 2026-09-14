@@ -22,6 +22,7 @@ python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "templates:templates" \
   --collect-all flet \
   --collect-all flet_desktop \
+  --collect-all minecraft_launcher_lib \
   --collect-submodules templates main.py
 APPDIR=dist/AppDir
 rm -rf "$APPDIR"

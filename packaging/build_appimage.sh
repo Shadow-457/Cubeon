@@ -23,6 +23,7 @@ python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "templates:templates" \
   --add-data "mod/brackets.json:mod" \
   --collect-all flet \
+  --collect-all minecraft_launcher_lib \
   --collect-all flet_desktop \
   --collect-submodules templates \
   main.py

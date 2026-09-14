@@ -47,6 +47,7 @@ def main() -> None:
         f"--add-data=mod{sep}mod",
         "--collect-all", "flet",
         "--collect-all", "flet_desktop",
+        "--collect-all", "minecraft_launcher_lib",
         "--collect-submodules", "templates",
         "main.py",
     ]

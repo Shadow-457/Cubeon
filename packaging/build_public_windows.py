@@ -41,6 +41,7 @@ try:
                     f"--add-data=templates{sep}templates",
                     "--collect-all", "flet",
                     "--collect-all", "flet_desktop",
+                    "--collect-all", "minecraft_launcher_lib",
                     "--collect-submodules", "templates", "main.py"],
                    check=True)
     zip_path = ROOT / "dist" / "Cubeon-public-Windows-x64.zip"

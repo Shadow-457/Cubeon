@@ -68,6 +68,7 @@ def main():
         f"--add-data=templates{SEP}templates",
         f"--add-data=mod{SEP}mod",
         "--collect-all", "flet",
+        "--collect-all", "minecraft_launcher_lib",
         "--collect-all", "flet_desktop",
         "--collect-submodules", "templates",
         "main.py",
