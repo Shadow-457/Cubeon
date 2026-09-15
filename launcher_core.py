@@ -85,9 +85,14 @@ from cubeon.modpacks import (
 from cubeon.content import (
     CONTENT_TYPES, content_dir, category_choices,
     list_content, delete_content, install_local_content, open_content_folder,
-    is_installed as content_installed,
+    is_installed as content_installed, content_compat,
     search_content, get_recommended_content, get_content_download, download_content,
 )
+
+# The doctor: mods (cubeon/mods.py) PLUS resource packs, shaders, modpacks and
+# server plugins (cubeon/doctor.py). One call covers every content type, which
+# is what the "Fix problems" action and the pre-launch pass use.
+from cubeon.doctor import run_doctor
 
 # --- emoji (Discord-style :shortcode: expansion for chat) ---
 from cubeon.emoji import expand_emoji, all_shortcodes, SHORTCODES

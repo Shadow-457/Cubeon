@@ -23,40 +23,61 @@
     },
     {
       "index": 4,
-      "state": "tab_server_console",
-      "file": "04_tab_server_console.png",
+      "state": "tab_chat",
+      "file": "04_tab_chat.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 5,
-      "state": "tab_server_settings",
-      "file": "05_tab_server_settings.png",
+      "state": "tab_profile",
+      "file": "05_tab_profile.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 6,
-      "state": "tab_profile",
-      "file": "06_tab_profile.png",
+      "state": "tab_server_console",
+      "file": "06_tab_server_console.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 7,
-      "state": "dialog_delete_confirm",
-      "file": "07_dialog_delete_confirm.png",
+      "state": "tab_server_plugins",
+      "file": "07_tab_server_plugins.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 8,
+      "state": "tab_server_settings",
+      "file": "08_tab_server_settings.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 9,
+      "state": "tab_stats",
+      "file": "09_tab_stats.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 10,
+      "state": "dialog_delete_confirm",
+      "file": "10_dialog_delete_confirm.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 11,
       "state": "dialog_create_modpack",
-      "file": "08_dialog_create_modpack.png",
+      "file": "11_dialog_create_modpack.png",
       "reached": true,
       "captured": true
     }
   ],
   "empty_mode": false,
-  "count": 8
+  "count": 11
 }

@@ -29,10 +29,15 @@ import uuid
 from .paths import APP_NAME, RESOURCEPACKS_DIR, SHADERPACKS_DIR
 from . import local_cache
 from . import net
+from . import packformat
 # Reuse the exact same Modrinth browse-sort / relevance-banding logic the Mods
 # tab uses, so "browse" and search behave identically across content types
 # instead of drifting into two subtly different rankings.
 from .mods import MODRINTH_API, MODRINTH_HEADERS, modrinth_search_index, rank_search_hits
+
+import logging
+
+log = logging.getLogger(__name__)
 
 
 # Everything that differs between a resource pack and a shader, in one table,
@@ -107,10 +112,16 @@ def category_choices(content_type: str) -> list:
 # Installed-content CRUD (over the shared game folder - no profiles)
 # ---------------------------------------------------------------------------
 
-def list_content(content_type: str) -> list[dict]:
+def list_content(content_type: str, mc_version: str | None = None,
+                 version_id: str | None = None) -> list[dict]:
     """Every pack/shader currently installed for this type. Unlike mods there's
     no enabled/disabled state to track here - the game itself owns which packs
-    are active - so this just reports the files present."""
+    are active - so this just reports the files present.
+
+    Pass mc_version (and/or version_id) to also get a "compat" verdict per
+    item, which is what lets the list warn about a pack the game would show as
+    Incompatible. Omitting it skips the check (cheaper: one zip read per
+    item)."""
     d = content_dir(content_type)
     exts = _cfg(content_type)["exts"]
     items = []
@@ -120,11 +131,15 @@ def list_content(content_type: str) -> list[dict]:
             continue
         if not fname.lower().endswith(exts):
             continue
-        items.append({
+        item = {
             "filename": fname,
             "display_name": os.path.splitext(fname)[0],
             "size_kb": round(os.path.getsize(full) / 1024, 1),
-        })
+        }
+        if mc_version or version_id:
+            item["compat"] = content_compat(content_type, fname, mc_version,
+                                            version_id)
+        items.append(item)
     return items
 
 
@@ -140,11 +155,19 @@ def delete_content(content_type: str, filename: str) -> None:
         os.remove(target)
 
 
-def install_local_content(content_type: str, src_path: str) -> str:
+def install_local_content(content_type: str, src_path: str,
+                          mc_version: str | None = None,
+                          version_id: str | None = None,
+                          fix_cb=None) -> str:
     """Copies a .zip the user already has on disk straight into the shared
     folder for this content type - the same place download_content() writes
     to. Returns the filename it was stored as, adding a short suffix rather
-    than clobbering an existing pack with the same name."""
+    than clobbering an existing pack with the same name.
+
+    The copy is then checked against the installed versions and repaired if the
+    game would have rejected it (a pack.mcmeta format that doesn't cover the
+    version being played is the classic "Incompatible" report), so a pack
+    dragged in by hand lands in a state the game accepts."""
     exts = _cfg(content_type)["exts"]
     label = _cfg(content_type)["label"].lower()
     if not src_path.lower().endswith(exts):
@@ -160,6 +183,7 @@ def install_local_content(content_type: str, src_path: str) -> str:
         filename = f"{base}_{uuid.uuid4().hex[:6]}{ext}"
         dest = os.path.join(d, filename)
     shutil.copyfile(src_path, dest)
+    _verify_and_fix(content_type, dest, mc_version, version_id, fix_cb)
     return filename
 
 
@@ -177,6 +201,91 @@ def open_content_folder(content_type: str) -> None:
 
 def is_installed(content_type: str, filename: str) -> bool:
     return os.path.isfile(os.path.join(content_dir(content_type), filename))
+
+
+# ---------------------------------------------------------------------------
+# Compatibility: stop a pack from ever showing "Incompatible" in-game
+#
+# Everything here is offline (cubeon/packformat.py reads the pack's own
+# pack.mcmeta and the target versions' client jars). Two entry points:
+#
+#   _verify_and_fix()  - runs on every install, so nothing incompatible lands
+#   content_compat()   - what the installed list shows the user per item
+# ---------------------------------------------------------------------------
+
+def _verify_and_fix(content_type: str, path: str, mc_version: str | None = None,
+                    version_id: str | None = None, fix_cb=None) -> dict:
+    """Check a just-installed pack and repair it if the game would reject it.
+
+    Returns {"checked", "changed", "reason"}. Never raises and never blocks an
+    install: a pack that can't be checked is left exactly as it was."""
+    report = {"checked": False, "changed": False, "reason": ""}
+    try:
+        if content_type == "shader":
+            verdict = packformat.shader_verdict(path)
+            report["checked"] = True
+            if verdict["ok"]:
+                return report
+            wrapper = verdict.get("wrapper")
+            if wrapper and packformat.flatten_pack(path, wrapper):
+                report["changed"] = True
+                report["reason"] = (f"moved shaders/ up out of '{wrapper}/' so "
+                                    "the game can find it")
+            else:
+                report["reason"] = verdict["reason"]
+            return report
+
+        # Resource pack. The targets are EVERY installed version, not just the
+        # selected one: resourcepacks/ is a single shared folder the game reads
+        # for whichever version launches.
+        targets = packformat.installed_resource_formats(mc_version, version_id)
+        verdict = packformat.pack_verdict(path, targets)
+        report["checked"] = True
+        if verdict["ok"] is not False:
+            return report
+        repair = packformat.repair_pack(path, targets)
+        if repair.get("changed"):
+            after = repair.get("after") or {}
+            rng = after.get("supported_formats") or [None, None]
+            report["changed"] = True
+            report["reason"] = (
+                f"adjusted its resource format range to {rng[0]}-{rng[1]} so it "
+                "loads on your installed versions")
+        else:
+            report["reason"] = repair.get("reason") or verdict["reason"]
+    except Exception:
+        log.warning("content compatibility check failed for %s", path,
+                    exc_info=True)
+    if report["changed"] and fix_cb:
+        try:
+            fix_cb(report)
+        except Exception:
+            log.debug("fix callback failed", exc_info=True)
+    return report
+
+
+def content_compat(content_type: str, filename: str,
+                   mc_version: str | None = None,
+                   version_id: str | None = None) -> dict | None:
+    """The compatibility verdict for one installed item, for the UI.
+
+    Resource packs: {"ok", "reason", "declared", "range", "targets"} - ok is
+    True (every installed version accepts it), False (something will show it as
+    Incompatible) or None (target version's format is unknown).
+    Shaders: {"ok", "reason"} - structure only, they carry no format.
+    None when the file can't be found/read at all."""
+    path = os.path.join(content_dir(content_type), filename)
+    if not os.path.isfile(path):
+        return None
+    try:
+        if content_type == "shader":
+            return packformat.shader_verdict(path)
+        return packformat.pack_verdict(
+            path, packformat.installed_resource_formats(mc_version, version_id))
+    except Exception:
+        log.warning("compat check failed for %s", path, exc_info=True)
+        return None
+
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +391,9 @@ def get_content_download(content_type: str, project_id_or_slug: str,
 
 
 def download_content(content_type: str, download_url: str, filename: str,
-                     progress_cb=None, hashes: dict | None = None) -> str:
+                     progress_cb=None, hashes: dict | None = None, *,
+                     mc_version: str | None = None,
+                     version_id: str | None = None, fix_cb=None) -> str:
     """Streams a pack/shader file into the shared folder for this content type.
 
     Goes through cubeon.net like every other download: retry with backoff,
@@ -307,4 +418,10 @@ def download_content(content_type: str, download_url: str, filename: str,
     expected_pair = (algo, expected) if algo and expected else None
     net.download_to(dest, download_url, headers=MODRINTH_HEADERS, timeout=60,
                     expected_hash=expected_pair, progress_cb=progress_cb)
+    # Last step before the file is considered installed: make sure the game
+    # will actually accept it. Modrinth's version metadata says which Minecraft
+    # versions the AUTHOR thinks it supports; the pack's own pack.mcmeta is
+    # what the game reads, and the two disagree often enough that this is the
+    # difference between "installed" and "shows Incompatible in game".
+    _verify_and_fix(content_type, dest, mc_version, version_id, fix_cb)
     return dest

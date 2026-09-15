@@ -528,12 +528,18 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # skipped here (handled at install time) but a version conflict is still
     # resolved, since that is a guaranteed crash. Best-effort - a failed check
     # must never block playing.
+    # Resource packs and shaders ride along because they live in ONE shared
+    # folder that this version also reads: a pack whose pack.mcmeta is built
+    # for another version shows up in THIS game as a red "Incompatible"
+    # (cubeon/packformat.py explains and repairs that).
     try:
-        from .mods import mod_doctor
-        fixed = len(mod_doctor(mc_version, loader, auto_fix=True,
-                               check_online=False).get("fixed") or [])
+        from .doctor import run_doctor
+        report = run_doctor(mc_version, loader, auto_fix=True,
+                            check_online=False, version_id=version_id,
+                            include=("mods", "resourcepacks", "shaders"))
+        fixed = len(report.get("fixed") or [])
         if fixed and status_cb:
-            status_cb(f"Fixed {fixed} mod problem(s)")
+            status_cb(f"Fixed {fixed} content problem(s)")
     except Exception:
         pass
 

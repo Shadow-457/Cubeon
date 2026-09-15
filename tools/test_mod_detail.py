@@ -576,7 +576,9 @@ print("\n8. launch runs a fast, network-free repair before the game starts")
 _launch_src = open(os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "cubeon", "launch.py"), encoding="utf-8").read()
-check("launch calls mod_doctor", "mod_doctor(" in _launch_src)
+check("launch calls the unified doctor (mods + packs + shaders)",
+      "run_doctor(" in _launch_src and
+      '"mods", "resourcepacks", "shaders"' in _launch_src)
 check("launch repair is filesystem-only (check_online=False)",
       "check_online=False" in _launch_src)
 

@@ -3216,7 +3216,11 @@ def main(page: ft.Page):
 
         def worker():
             try:
-                report = core.mod_doctor(mc, loader, auto_fix=True,
+                # The full doctor: mods + resource packs + shaders + modpacks +
+                # server plugins (cubeon/doctor.py). This runs after an install,
+                # which is exactly when new content lands on disk and needs to
+                # be verified against the versions that will read it.
+                report = core.run_doctor(mc, loader, auto_fix=True,
                                          check_online=True)
             except Exception:
                 return

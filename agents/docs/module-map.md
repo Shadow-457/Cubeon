@@ -1262,3 +1262,26 @@ Still-true invariants from the pre-local era:
 - `web/index.html` landing page is a single self-contained file (no build, inline CSS/JS). `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
 
 - `ui/skin_tab.py` (Profile > Skin/Cape panes) has NO browse/gallery area anymore (removed 2026-09-14): each pane is preview + installed card grid + upload CTA. `cubeon/gallery.py` survives only as core bookkeeping (`forget_file` in delete flows) + its tests; do not re-add library browsing without asking.
+
+## Content compatibility + the unified doctor (cubeon/packformat.py, cubeon/doctor.py)
+- **packformat.py** is the single source of truth for "will the game accept
+  this file?": `pack_verdict(zip, targets)` for resource packs (pack_format /
+  supported_formats / min-max keys, nested-wrapper and corrupt-zip detection)
+  and `shader_verdict` (shaders/ folder structure). `repair_pack` widens the
+  declared range to cover the installed versions — it NEVER invents a format
+  for packs that declare none, and `_rewrite_zip` is temp-file + os.replace
+  (a crash mid-repair can't leave a half-written pack).
+- **doctor.py `run_doctor(mc, loader, auto_fix, include=...)`** is the ONE
+  entry point covering mods (delegates to mods.mod_doctor), resourcepacks,
+  shaders, modpacks (marker-vs-profile) and server plugins. Sections are
+  independent; `include=` scopes a run. Report contract: `{checked, problems,
+  fixed, unfixed, sections}` per-entry keys `section/kind/item/detail/fixed/fix`.
+  Unfixable things (corrupt zips, gutted packs) are REPORTED, never deleted.
+- **Browse filtering:** `content.py` drops search results whose file list has
+  no build for the selected MC version BEFORE they render, and `get_content_download`
+  re-checks at download time (defense in depth). Installed-but-incompatible
+  items still show — with a badge + one-click doctor fix.
+- **Launch pre-repair:** `launch.py` calls `run_doctor(..., include=("mods",
+  "resourcepacks", "shaders"), check_online=False)` before every game start —
+  best-effort, a failed check must never block playing.
+- Suite: `tools/test_content_doctor.py` (88 checks, offline, sandboxed home).

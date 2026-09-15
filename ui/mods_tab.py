@@ -270,7 +270,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         else:
             vanilla_mods_notice.visible = False
             shader_notice.visible = (_ct() == "shader")
-            all_mods = core.list_content(_ct())
+            # Version info is what lets each installed row say whether the game
+            # will actually accept it (see cubeon/packformat.py): packs live in
+            # one shared folder read by every installed version.
+            all_mods = core.list_content(
+                _ct(), state["selected_mc_version"], version_dropdown.value)
         query = installed_filter_field.value.strip().lower()
         mods = [m for m in all_mods if query in m["display_name"].lower()] if query else all_mods
 
@@ -367,21 +371,39 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         thread_safe_ui.refresh(repair_btn)
 
     def run_mod_repair(e=None):
-        """Check the current profile for the usual breakage and fix it:
-        leftover duplicate copies, missing required dependencies, jars built
-        for a different loader/version, and two mods that declare they can't
-        run together. Never destructive beyond disabling/deleting an older
-        copy - see cubeon/mods.py:mod_doctor."""
-        if not _is_mod() or state["mod_loader"] == "vanilla":
-            return
+        """Check the current tab's content for the usual breakage and fix it.
+
+        Mods: leftover duplicate copies, missing required dependencies, jars
+        built for a different loader/version, and two mods that declare they
+        can't run together (cubeon/mods.py:mod_doctor).
+
+        Resource packs / shaders: the pack.mcmeta format range that makes the
+        game show a pack as "Incompatible", and shader zips whose shaders/
+        folder is buried a level too deep (cubeon/doctor.py).
+
+        Plugin and modpack checks live in the same doctor and run from the
+        automatic passes (after an install and before a launch), which is where
+        they matter; this button stays scoped to the tab being looked at so it
+        can't spend a minute checking a server that isn't relevant."""
+        sections = []
+        if _is_mod():
+            if state["mod_loader"] == "vanilla":
+                return
+            sections = ["mods", "modpacks"]
+        elif _ct() == "shader":
+            sections = ["shaders"]
+        else:
+            sections = ["resourcepacks"]
         repair_btn.disabled = True
-        _set_repair_status("Checking your mods...")
+        _set_repair_status("Checking...")
 
         def worker():
             try:
-                report = core.mod_doctor(
+                report = core.run_doctor(
                     state["selected_mc_version"], state["mod_loader"],
-                    auto_fix=True, status_cb=_set_repair_status)
+                    auto_fix=True, check_online=True,
+                    status_cb=_set_repair_status, include=sections,
+                    version_id=version_dropdown.value)
             except Exception as ex:
                 _set_repair_status(f"Couldn't check: {ex}")
                 _finish_repair()
@@ -398,6 +420,27 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         threading.Thread(target=worker, daemon=True).start()
 
     repair_btn.on_click = run_mod_repair
+
+    def _compat_lines(m):
+        """The one-line compatibility verdict for an installed pack/shader.
+
+        Silence means "the game will load it" - a positive line on every row
+        would just add noise. A pack the game would show as Incompatible is the
+        whole reason this exists, so that one is called out in red with the
+        full explanation in a tooltip (and the row is what "Fix problems"
+        repairs)."""
+        compat = m.get("compat")
+        if not compat or compat.get("ok") is True:
+            return []
+        detail = (compat.get("reason") or "").strip()
+        if compat.get("ok") is False:
+            return [ft.Text(
+                "Incompatible - press Fix problems",
+                size=10.5, color=DANGER,
+                tooltip=detail or "The game would show this as incompatible.")]
+        return [ft.Text(
+            "Can't check the format for this version", size=10.5,
+            color=TEXT_FAINT, tooltip=detail)]
 
     def build_installed_row(m):
         """
@@ -433,6 +476,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                             weight=ft.FontWeight.W_600),
                                     ft.Text(f"{m['size_kb']:,.0f} KB", size=10.5,
                                             color=TEXT_FAINT, font_family=FONT_MONO),
+                                    *_compat_lines(m),
                                 ],
                                 spacing=2, expand=True,
                             ),
@@ -1591,6 +1635,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # with no deps_note bound at all -> UnboundLocalError, caught
                     # by the generic except and misreported as a failed install.
                     deps_note = ""
+                    # Any compatibility repair the install needed, so the user
+                    # is told why a pack they just installed was touched.
+                    fix_note = {"text": ""}
+
+                    def _note_fix(rep):
+                        fix_note["text"] = rep.get("reason") or ""
+
                     if _is_mod():
                         # mc_version/loader must be passed explicitly - without
                         # them this silently lands in the wrong profile folder
@@ -1625,12 +1676,24 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         # hashes = Modrinth's per-file sha512/sha1; passing them
                         # makes the install reject a corrupt/truncated transfer
                         # instead of dropping bad bytes into resourcepacks/.
-                        core.download_content(_ct(), file_info["url"],
-                                              file_info["filename"],
-                                              progress_cb=_progress,
-                                              hashes=file_info.get("hashes"))
+                        # mc_version/version_id/fix_cb: the core then checks the
+                        # pack's own pack.mcmeta against every installed version
+                        # and widens its range if the game would show it as
+                        # Incompatible (an author's Modrinth version list is not
+                        # what the game reads).
+                        core.download_content(
+                            _ct(), file_info["url"], file_info["filename"],
+                            progress_cb=_progress,
+                            hashes=file_info.get("hashes"),
+                            mc_version=state["selected_mc_version"],
+                            version_id=version_dropdown.value,
+                            fix_cb=_note_fix)
 
-                    download_btn_text.value = "Installed" + deps_note
+                    download_btn_text.value = ("Installed (pack format fixed)"
+                                               if fix_note["text"] else
+                                               "Installed" + deps_note)
+                    if fix_note["text"]:
+                        download_btn.tooltip = fix_note["text"]
                     download_btn_text.color = TEXT_FAINT
                     download_btn.bgcolor = None
                     download_btn.content.controls[0].name = ft.Icons.CHECK_ROUNDED
