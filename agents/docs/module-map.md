@@ -1182,6 +1182,14 @@ Still-true invariants from the pre-local era:
   Windows build actually booted AND painted (a running frozen build also emits
   endless `d3d11_swapchain_Present1` fixme lines, i.e. frames are rendering).
   Checking Linux `~/.cubeon_launcher/` for a Windows run tells you nothing.
+  The CLI forms of the two Windows scripts are `packaging/build_windows.py`
+  (onedir -> zip) and `packaging/build_windows_single.py` (onefile); both now
+  carry `--collect-all minecraft_launcher_lib`. Bundling only
+  `mod/brackets.json` instead of the whole `mod/` directory is equivalent
+  (build_appimage.sh does exactly that and the app runs fine), but note an
+  ad-hoc `--name Cubeon-single` run leaves a stray `Cubeon-single.spec` in the
+  repo root - delete it, or invoke the script, which renames its output to
+  `dist/Cubeon-Windows-x64-single.exe` for you.
 - **GOTCHA: artifacts go stale silently if you edit sources mid-build.**
   PyInstaller snapshots module sources at ANALYSIS time (~20 s in), so an edit
   made after that is NOT in the bundle even though the build runs for minutes
