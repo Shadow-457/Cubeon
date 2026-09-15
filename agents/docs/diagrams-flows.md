@@ -1,6 +1,9 @@
 # Visual Flow Diagrams
 
-> ASCII diagrams showing how data moves through the two most complex flows in Cubeon: mod profile sync and skin network.
+> ASCII diagrams of Cubeon's core flows: mod profile sync, skin network,
+> server hosting, friends/P2P, backups — plus content compatibility/doctor
+> and modpack install (added 2026-09-15). This is a MAIN reference: when a
+> flow changes in code, change it here too.
 
 ---
 
@@ -43,19 +46,32 @@ User clicks "Download" on Modrinth search result
                     │
                     ▼
     ┌───────────────────────────────────┐
-    │  mods.py: download_mod()          │
+    │  mods.py:                         │
+    │  install_mod_with_dependencies()  │
     │                                   │
     │  1. Resolve profile directory:    │
     │     mod_profiles/1.20.1-fabric/   │
     │                                   │
     │  2. Download jar from Modrinth    │
-    │     (via global cache for dedup)  │
+    │     (via global cache for dedup,  │
+    │     byte progress reported)       │
     │                                   │
     │  3. Save jar to profile folder    │
     │                                   │
-    │  4. Write sidecar metadata:       │
+    │  4. Pull REQUIRED dependencies    │
+    │     the profile doesn't have yet  │
+    │     (Fabric API is the classic)   │
+    │     - same download path          │
+    │                                   │
+    │  5. Write sidecar metadata:       │
     │     sodium.cubeon.json            │
     │     {"slug": "sodium"}            │
+    │                                   │
+    │  Progress is reported in FILE     │
+    │  UNITS across the whole install:  │
+    │  "Downloading… 42% (file 2/3)"    │
+    │  - one continuous climb, it never │
+    │  restarts per dependency          │
     └───────────────────────────────────┘
                     │
                     ▼
@@ -110,6 +126,19 @@ User clicks PLAY
 │  4. CSL setup                                                 │
 │                                                               │
 │  5. ┌─────────────────────────────────────────────────────┐   │
+│     │  doctor.py: run_doctor(mc, loader, auto_fix=True)   │   │
+│     │                                                     │   │
+│     │  Pre-repair BEFORE the game reads the folder:       │   │
+│     │  - mods: duplicates, version conflicts, deps        │   │
+│     │  - resourcepacks: pack_format vs THIS version       │   │
+│     │    (repair_pack widens the declared range,          │   │
+│     │    atomic temp-file + os.replace)                   │   │
+│     │  - shaders: shaders/ folder structure               │   │
+│     │  Fast + offline. Best-effort: a failed check        │   │
+│     │  must never block playing.                          │   │
+│     └─────────────────────────────────────────────────────┘   │
+│                                                               │
+│  6. ┌─────────────────────────────────────────────────────┐   │
 │     │  mods.py: sync_mods_to_game("1.20.1", "fabric")    │   │
 │     │                                                     │   │
 │     │  Step A: WIPE .minecraft/mods/                      │   │
@@ -130,9 +159,9 @@ User clicks PLAY
 │     │  (Only .jar files are copied, not .disabled)        │   │
 │     └─────────────────────────────────────────────────────┘   │
 │                                                               │
-│  6. Build java command                                        │
-│  7. Start subprocess                                         │
-│  8. Game reads .minecraft/mods/ → loads iris, skips sodium   │
+│  7. Build java command                                        │
+│  8. Start subprocess                                         │
+│  9. Game reads .minecraft/mods/ → loads iris, skips sodium   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -534,10 +563,21 @@ User types "BlueFox" and clicks "Claim"
 │  3. Hash the secret (SHA-256)                  │
 │  4. INSERT INTO names:                         │
 │     (bluefox, BlueFox, hash, uuid, created)    │
+│     RACE-SAFE: two launchers claiming the      │
+│     same name simultaneously both hit the DB;  │
+│     the PRIMARY KEY violation is caught +      │
+│     re-read, the loser gets a clean 409        │
+│     (never a 500, never a double claim)        │
 │  5. Return {ok: true, name, uuid}              │
 │                                               │
 │  Client saves identity.json:                   │
 │  {name: "BlueFox", secret: "abc123..."}        │
+│  DEPLOYED (2026-09-15): all four workers run   │
+│  the swept code - per-IP pre-auth WS flood     │
+│  gate, blocked-account gating, body caps,      │
+│  enforced rate limiters. cubeon-invites is     │
+│  LIVE too (KV-backed; was never deployed       │
+│  before this).                                 │
 └───────────────────────────────────────────────┘
 ```
 
@@ -699,4 +739,153 @@ User picks a backup .zip
 │  Result: settings restored, mods restored,     │
 │          any new stuff since backup preserved  │
 └───────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Content Compatibility & Doctor Flow
+
+The answer to "why does my resourcepack show as Incompatible in game?".
+Two halves: keep broken content OUT of browse results, and REPAIR what's
+already installed. `cubeon/packformat.py` decides, `cubeon/doctor.py` acts.
+
+### Browse-Time Filter (never offer what can't work)
+
+```
+User opens Mods/Resourcepacks/Shaders browse
+        │
+        ▼
+┌────────────────────────────────────────────────┐
+│  content.py: search_content(mc_version, ...)   │
+│                                                │
+│  For each search result:                       │
+│  1. Ask Modrinth for its file list             │
+│  2. Is there a build for THIS MC version?      │
+│     NO  → dropped BEFORE rendering             │
+│           (the user never sees it)             │
+│     YES → shown                                │
+│                                                │
+│  Download time re-checks (defense in depth):   │
+│  get_content_download() refuses a file with    │
+│  no build for the selected version             │
+└────────────────────────────────────────────────┘
+```
+
+### Installed-Content Verdict (packformat.py)
+
+```
+┌────────────────────────────────────────────────┐
+│  pack_verdict(zip_path, targets)               │
+│                                                │
+│  Reads pack.mcmeta INSIDE the zip:             │
+│  ├── not a zip / unreadable                    │
+│  │     → ok=False  "truncated download?"       │
+│  ├── pack.mcmeta inside a folder               │
+│  │     → ok=False  "game never reads it"       │
+│  ├── no pack.mcmeta / invalid JSON             │
+│  │     → ok=False                              │
+│  ├── declares no pack_format                   │
+│  │     → ok=False  (never guessed at)          │
+│  └── pack_format / supported_formats /         │
+│      min-max keys vs targets (one per          │
+│      installed MC version)                     │
+│        all covered    → ok=True                │
+│        any missing    → ok=False + WHY         │
+│  targets unknown (snapshot) → ok=None          │
+│  (never treated as a problem)                  │
+│                                                │
+│  shader_verdict(): same idea, but shaders      │
+│  have no pack_format - it checks the           │
+│  shaders/ folder STRUCTURE instead             │
+└────────────────────────────────────────────────┘
+```
+
+### The Unified Doctor (doctor.py: run_doctor)
+
+```
+         run_doctor(mc, loader, auto_fix, include=(...))
+                          │
+     ┌────────┬───────────┼────────────┬─────────────┐
+     ▼        ▼           ▼            ▼             ▼
+   mods   resourcepacks  shaders   modpacks      plugins
+ (delegates  pack_format  shaders/  marker vs    server
+  to mods.   verdicts +   folder    profile:     plugin
+  mod_doctor) repair       structure missing MC   checks
+     │        │           │       version,        │
+     │        │           │       gutted mods,    │
+     │        │           │       lying marker    │
+     ▼        ▼           ▼            ▼             ▼
+┌────────────────────────────────────────────────┐
+│  Report: {checked, problems, fixed, unfixed,   │
+│  sections}; entries: section/kind/item/        │
+│  detail/fixed/fix                              │
+│                                                │
+│  SAFETY RULES:                                 │
+│  - unfixable things (corrupt zip, gutted       │
+│    pack) are REPORTED, never deleted           │
+│  - repairs are atomic (temp file +             │
+│    os.replace) - a crash can never leave a     │
+│    half-written pack                           │
+│  - packs with no declared format are never     │
+│    "fixed" into one                            │
+└────────────────────────────────────────────────┘
+```
+
+The doctor runs from THREE places: at every game launch (offline, fast,
+best-effort), from the Mods tab with a one-click fix on flagged items,
+and per-section for future UI hooks. Suite: tools/test_content_doctor.py.
+
+---
+
+## 7. Modpack Install Flow
+
+Modpacks are the two-phase content: download the ARCHIVE, then build a
+whole isolated profile from it. Each phase reports its own progress.
+
+```
+User clicks Install on a pack (row or detail dialog)
+        │
+        ▼
+┌────────────────────────────────────────────────┐
+│  PHASE 1: get the archive                      │
+│  Modrinth:  get_modpack_file(version=None)     │
+│             → newest build for the selected    │
+│             MC version, else newest overall    │
+│             (detail dialog can pin an EXACT    │
+│             published version instead)         │
+│  CurseForge: same idea, different API          │
+│  → run_install(url, ...)                       │
+│     URL must pass the trusted-host ALLOWLIST   │
+│     (before a single byte is fetched)          │
+│  → download_content(url, progress_cb)          │
+│     "Downloading modpack... 42%" (byte pct)    │
+│     retry + resume supported                   │
+└────────────────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────┐
+│  PHASE 2: build the profile                    │
+│  install_modpack_from_url(archive)             │
+│                                                │
+│  1. Detect manifest (Modrinth .mrpack /        │
+│     CurseForge manifest.json / mcbrawlers)     │
+│  2. Read the pack's DECLARED Minecraft version │
+│     + loader - the pack installs its OWN       │
+│     version, the Play-tab selection doesn't    │
+│     matter (that's the point of the version    │
+│     picker)                                    │
+│  3. Create isolated profile dir + mods/,       │
+│     resourcepacks/, shaderpacks/ inside it     │
+│  4. Resolve + download every mod the pack      │
+│     lists (through the global cache dedup)     │
+│  5. Write the tracking marker the doctor and   │
+│     the modpacks tab both read                 │
+└────────────────────────────────────────────────┘
+        │
+        ▼
+  Play tab lists the pack as its own entry;
+  launching it uses the pack's version + loader.
+  If its mods later vanish or its MC version is
+  uninstalled, run_doctor's modpacks section is
+  the thing that notices and says what to do.
 ```
