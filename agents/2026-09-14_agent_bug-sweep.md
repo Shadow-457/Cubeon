@@ -186,3 +186,11 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
   ModuleNotFoundError/tracebacks. Public (Friends-disabled) variants NOT
   rebuilt yet - run build_public_windows.py equivalents before publishing
   those. dist/ is gitignored: binaries live only in dist/ here.
+
+## Download progress visibility (user report)
+- Mods/resourcepack/shader browse rows and the mods detail dialog showed a
+  static "Downloading..." despite the backend already supporting
+  progress_cb(downloaded, total). All row-download paths + _run_install now
+  render coalesced whole-percent "Downloading… N%" on the button/status text
+  (packs already had a progress bar; plugins a banner with KB counter).
+  Callback flood guard: update only on integer percent change.

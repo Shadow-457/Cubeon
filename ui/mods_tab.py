@@ -1057,6 +1057,18 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return re.sub(r"\s+", " ", t).strip()
 
         def _run_install(v, details, *, on_status, on_done, on_error):
+            # Coalesced byte progress on whatever control shows status:
+            # whole-percent only, so page.update() isn't flooded on fast links.
+            _pct = {"v": -1}
+
+            def _install_progress(done, total):
+                if not total:
+                    return
+                pct = int(done * 100 / total)
+                if pct != _pct["v"]:
+                    _pct["v"] = pct
+                    on_status(f"Downloading… {pct}%")
+
             def worker():
                 try:
                     loader = browse_loader()
@@ -1067,7 +1079,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         slug=details.get("slug"),
                         project_id=details.get("project_id"),
                         hashes=v.get("hashes"),
-                        status_cb=on_status,
+                        status_cb=on_status, progress_cb=_install_progress,
                     )
                     # Automatic repair: an install is exactly when a stale
                     # duplicate or a missing dependency tends to appear.
@@ -1522,6 +1534,23 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
                     download_btn_text.value = "Downloading..."
                     page.update()
+                    # Byte-accurate progress on the button itself (bugs-and-
+                    # flaws follow-up: a static "Downloading..." gave no way
+                    # to tell a 2 MB shader from a 400 MB pack). Coalesced to
+                    # whole percent so page.update() isn't flooded.
+                    _pct = {"v": -1}
+
+                    def _progress(done, total):
+                        if not total:
+                            return
+                        pct = int(done * 100 / total)
+                        if pct != _pct["v"]:
+                            _pct["v"] = pct
+                            download_btn_text.value = f"Downloading… {pct}%"
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
                     # Set for BOTH branches: the success line below appends it,
                     # and the resource-pack/shader path used to reach that line
                     # with no deps_note bound at all -> UnboundLocalError, caught
@@ -1545,7 +1574,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             mc_version=state["selected_mc_version"], loader=browse_loader(),
                             slug=mod.get("slug"), project_id=mod.get("project_id"),
                             hashes=file_info.get("hashes"),
-                            status_cb=_dep_status,
+                            status_cb=_dep_status, progress_cb=_progress,
                         )
                         deps_note = f" +{len(result['installed']) - 1} deps" \
                             if len(result["installed"]) > 1 else ""
@@ -1563,6 +1592,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         # instead of dropping bad bytes into resourcepacks/.
                         core.download_content(_ct(), file_info["url"],
                                               file_info["filename"],
+                                              progress_cb=_progress,
                                               hashes=file_info.get("hashes"))
 
                     download_btn_text.value = "Installed" + deps_note
