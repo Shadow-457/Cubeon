@@ -946,6 +946,18 @@ Still-true invariants from the pre-local era:
   `{installed, skipped, failed}` and never raises for a failed dep.
   `ui/mods_tab.py` on_download uses it and reports "Installed +N deps" /
   per-dep failures. Verified live: iris→sodium resolved, junk→[].
+- **Batch install progress is in FILE UNITS (2026-09-15)**: `install_mod_with_
+  dependencies()` amortises the whole batch as `(whole files finished + the
+  current file's fraction, TOTAL FILE COUNT)` - a total that is FINAL before
+  the first byte moves - so one click climbs 0→100 once instead of restarting
+  per dependency (the reported "1-100% doesn't work" bug). Success finishes at
+  exactly 100; a failed dep holds the floor short of 100. The UI label is
+  `ui/mods_tab.batch_progress_text(value, total)` → "Downloading… 42%
+  (file 2/3)" (plain percent when total <= 1). Single-file callers
+  (resourcepack/shader via `content.download_content`) still report BYTES and
+  pass their own `_bytes_label`; don't feed byte counts to
+  `batch_progress_text`. Contract pinned by `tools/test_mod_install_progress.py`
+  (39 checks, offline, fakes cubeon.mods).
 - **Legacy gate**: versions below 1.20 (numeric only, `_is_legacy_version`)
   are hidden from BOTH the installed and online lists until the user enables
   it. The **Legacy toggle lives in Settings → "Game versions"** (a real

@@ -1640,48 +1640,92 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     skipped = 0
     failed: list[str] = []
 
-    download_mod(download_url, filename, progress_cb=progress_cb,
-                 slug=slug, mc_version=mc_version, loader=loader,
-                 hashes=hashes, project_id=project_id)
-    installed.append(filename)
-
-    have = installed_project_ids(mc_version, loader)
-    # The main mod is installed now, so its own id can't come back as a
-    # dependency we still need; make sure a self/circular entry can't loop.
-    if project_id:
-        have.add(project_id)
-    if slug:
-        have.add(slug)
-
+    # Resolve the project identity BEFORE the download, then resolve the
+    # dependency list - and therefore the total file count - before the first
+    # byte moves. Both orderings matter for the progress bar: the count can
+    # only be known once the project is known, and a batch whose size is
+    # discovered *after* the main file has to re-scale mid-flight, which reads
+    # as the percent falling backwards (100% -> 25%). Resolving first makes the
+    # UI's percent a single clean climb from 0 to 100.
+    #
     # project_id may be unknown to the caller (browse rows carry it, drag-drop
-    # doesn't); resolve it from the filename's meta when needed.
-    main_project = project_id
-    if not main_project and slug:
-        main_project = slug
+    # doesn't); resolve it from the filename's meta when needed. Reading the
+    # meta *before* the install is also the correct order: for a re-dropped jar
+    # the sidecar still describes the real project, whereas download_mod
+    # rewrites it from the (possibly unknown) caller args.
+    main_project = project_id or slug
     if not main_project:
         try:
             main_project = (_read_meta(get_profile_dir(mc_version, loader),
                                        filename) or {}).get("project_id")
         except Exception:
             main_project = None
-    if main_project:
-        have.add(main_project)
 
-    if status_cb:
-        status_cb("Checking dependencies...")
-    for dep in required_dependencies(main_project or slug or filename,
-                                     mc_version, loader):
-        dep_id = dep.get("project_id")
-        if dep_id and dep_id in have:
-            skipped += 1
-            continue
+    have = installed_project_ids(mc_version, loader)
+    # The main mod is about to be installed, so its own id can't come back as a
+    # dependency we still need; make sure a self/circular entry can't loop.
+    for _ident in (project_id, slug, main_project):
+        if _ident:
+            have.add(_ident)
+
+    pending: list[dict] = []
+    if main_project:
         if status_cb:
-            status_cb(f"Installing dependency: {name_stem(dep.get('filename') or '')}")
+            status_cb("Checking dependencies...")
+        for dep in required_dependencies(main_project, mc_version, loader):
+            dep_id = dep.get("project_id")
+            if dep_id and dep_id in have:
+                skipped += 1
+                continue
+            pending.append(dep)
+
+    # Batch-aggregated progress (bugs-and-flaws follow-up): a mod like Sodium
+    # pulls 2-4 dependencies, and a per-file percent that resets to 0 on every
+    # dependency reads as broken. This reports progress in FILE UNITS
+    # (whole files finished + the current file's fraction) across the entire
+    # batch, so one mod with 3 dependencies is one 0->100 climb rather than
+    # four separate 0->100 restarts. The floor is belt-and-braces: if a batch
+    # ever does grow after it started, the reported value holds instead of
+    # jumping back.
+    _batch = {"done": 0.0, "total": float(1 + len(pending)), "floor": 0.0}
+
+    def _batch_progress(done, total):
+        if not progress_cb:
+            return
         try:
-            download_mod(dep["url"], dep["filename"], mc_version=mc_version,
-                         loader=loader, project_id=dep_id,
-                         hashes=dep.get("hashes"))
+            frac = (done / total) if total else 0.0
+            value = _batch["done"] + frac
+            if value < _batch["floor"]:
+                value = _batch["floor"]
+            else:
+                _batch["floor"] = value
+            progress_cb(value, _batch["total"])
+        except Exception:
+            pass
+
+    download_mod(download_url, filename, progress_cb=_batch_progress,
+                 slug=slug, mc_version=mc_version, loader=loader,
+                 hashes=hashes, project_id=project_id)
+    _batch["done"] = 1.0
+    installed.append(filename)
+
+    for i, dep in enumerate(pending, start=2):
+        dep_id = dep.get("project_id")
+        if status_cb:
+            status_cb(f"Dependency {i}/{int(_batch['total'])}: "
+                      f"{name_stem(dep.get('filename') or '')}")
+        try:
+            download_mod(dep["url"], dep["filename"],
+                         mc_version=mc_version, loader=loader,
+                         project_id=dep_id, hashes=dep.get("hashes"),
+                         progress_cb=_batch_progress)
             installed.append(dep["filename"])
+            # Count only files that actually landed: incrementing per success
+            # (rather than assigning the loop index) means a failed dependency
+            # leaves the bar short of 100 instead of silently claiming its
+            # slot - the UI's "Installed, but failed: ..." line is what carries
+            # that message.
+            _batch["done"] += 1.0
             if dep_id:
                 have.add(dep_id)
         except Exception:

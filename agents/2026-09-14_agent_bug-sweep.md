@@ -194,3 +194,27 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
   render coalesced whole-percent "Downloading… N%" on the button/status text
   (packs already had a progress bar; plugins a banner with KB counter).
   Callback flood guard: update only on integer percent change.
+
+## Multi-file install progress aggregation (user follow-up)
+- Reported: "the 1-100% doesn't work quite good when install multiple mods".
+  Root cause: cubeon/mods.py reported progress PER FILE, so a mod with deps
+  ran 100% -> 0% -> 100% once per dependency, and dependency downloads passed
+  NO progress_cb at all (only the main file reported).
+- Fix in cubeon/mods.py:install_mod_with_dependencies(): resolve the full dep
+  list (and its total) BEFORE the first byte moves, then report the batch as
+  (whole files done + current file's fraction, total files), with a "floor"
+  so a grown batch can never jump backwards. Success == exactly 100; a failed
+  dep leaves it short of 100 and is named in the result (unchanged).
+- Fix in ui/mods_tab.py: one label helper batch_progress_text(value, total) ->
+  "Downloading… 42% (file 2/3)" (plain percent when total <= 1), used by BOTH
+  the browse-row install and the detail-dialog version rows. The browse row
+  now builds two reporters off one shared percent guard: _batch_progress
+  (file units, mod path) and _progress/_bytes_label (bytes, resourcepack +
+  shader path via content.download_content) - the units differ, so they must
+  not share a label.
+- New suite tools/test_mod_install_progress.py (39 checks, offline, fakes
+  cubeon.mods, sandboxed HOME): pins monotonic percent, final pre-resolved
+  total, 100-on-success, skipped deps not inflating the total, dep failure
+  reported not raised, plus the label formatting rules.
+- GREEN: test_mod_install_progress 39, ui_smoke 114, mega_smoke 16,
+  mod_detail 66, mod_store 21, modpacks 51, net 21.

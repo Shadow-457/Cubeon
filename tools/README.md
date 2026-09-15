@@ -18,6 +18,7 @@ stubbed or pointed at localhost). Run from the repo root:
 | `python3 tools/test_modpacks_cf_keyless.py` | CurseForge packs without an API key: zip→mrpack conversion, the keyless download path |
 | `python3 tools/test_p2p_*.py` | P2P transport/session layers (`_stress` variant is long) |
 | `python3 tools/test_launch_indicator.py` | the Play tab's launch progress bar: phase ordering, no stalls, no backwards jumps |
+| `python3 tools/test_mod_install_progress.py` | install progress for a mod **plus its auto-installed dependencies**: one monotonic 0→100 climb over the whole batch (never restarts per file), a total that's final before the first byte, 100 exactly on success, and the UI's "Downloading… 42% (file 2/3)" label rules |
 | `python3 tools/test_ui_smoke.py` | boots the Flet UI headless-ish smoke test |
 | `python3 tools/test_mega_smoke.py` | **one-command deep gate**: syntax → imports → type/contract → control flow → headless runtime (`--static` skips runtime, `--suites` also runs the harnesses below, `--json` for machines) |
 | `python3 tools/test_fuzz.py` | UI chaos monkey: builds the real UI headless under safe stubs, fires every handler with a hostile corpus, plus directed scenarios (play/delete/export/content-install) |

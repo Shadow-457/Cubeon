@@ -32,6 +32,24 @@ from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 
 
+def batch_progress_text(value: float, total: float) -> str:
+    """The download label for one batch of files.
+
+    A single click can install several files: a mod plus its required
+    dependencies (Sodium -> Fabric API) are reported by the core as ONE batch
+    counted in FILE UNITS - int(value) files are already done, so int(value)+1
+    is the file being fetched now. Saying "file 2/3" is what stops a
+    multi-file install from reading as a stuck 0-100 loop, and the percent is
+    still of the WHOLE batch, so it never falls back to 0 between files.
+    """
+    files = int(total) if total else 1
+    pct = int(value * 100 / total) if total else 0
+    if files <= 1:
+        return f"Downloading… {pct}%"
+    now = min(int(value) + 1, files)
+    return f"Downloading… {pct}% (file {now}/{files})"
+
+
 def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.Dropdown, *,
                     section_label,
                     BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
@@ -1057,8 +1075,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return re.sub(r"\s+", " ", t).strip()
 
         def _run_install(v, details, *, on_status, on_done, on_error):
-            # Coalesced byte progress on whatever control shows status:
-            # whole-percent only, so page.update() isn't flooded on fast links.
+            # Progress on whatever control shows status: whole-percent only, so
+            # page.update() isn't flooded on fast links. The core reports the
+            # mod + its required dependencies as ONE batch counted in FILE UNITS,
+            # so the label says "file 2/3" and the percent is of the whole batch
+            # - a single file no longer restarts the bar at 0 (see
+            # batch_progress_text).
             _pct = {"v": -1}
 
             def _install_progress(done, total):
@@ -1067,7 +1089,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 pct = int(done * 100 / total)
                 if pct != _pct["v"]:
                     _pct["v"] = pct
-                    on_status(f"Downloading… {pct}%")
+                    on_status(batch_progress_text(done, total))
 
             def worker():
                 try:
@@ -1534,23 +1556,36 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
                     download_btn_text.value = "Downloading..."
                     page.update()
-                    # Byte-accurate progress on the button itself (bugs-and-
-                    # flaws follow-up: a static "Downloading..." gave no way
-                    # to tell a 2 MB shader from a 400 MB pack). Coalesced to
-                    # whole percent so page.update() isn't flooded.
+                    # Progress on the button itself (bugs-and-flaws follow-up: a
+                    # static "Downloading..." gave no way to tell a 2 MB shader
+                    # from a 400 MB mod). Coalesced to whole percent so
+                    # page.update() isn't flooded. The two callers below report
+                    # in DIFFERENT units, so each gets its own label: the mod
+                    # path counts the whole install (the mod + its required
+                    # dependencies) in FILE UNITS, the resourcepack/shader path
+                    # counts bytes.
                     _pct = {"v": -1}
 
-                    def _progress(done, total):
-                        if not total:
-                            return
-                        pct = int(done * 100 / total)
-                        if pct != _pct["v"]:
+                    def _reporter(label_fn):
+                        def _report(done, total):
+                            if not total:
+                                return
+                            pct = int(done * 100 / total)
+                            if pct == _pct["v"]:
+                                return
                             _pct["v"] = pct
-                            download_btn_text.value = f"Downloading… {pct}%"
+                            download_btn_text.value = label_fn(done, total)
                             try:
                                 page.update()
                             except Exception:
                                 pass
+                        return _report
+
+                    def _bytes_label(done, total):
+                        return f"Downloading… {int(done * 100 / total)}%"
+
+                    _progress = _reporter(_bytes_label)
+                    _batch_progress = _reporter(batch_progress_text)
                     # Set for BOTH branches: the success line below appends it,
                     # and the resource-pack/shader path used to reach that line
                     # with no deps_note bound at all -> UnboundLocalError, caught
@@ -1574,7 +1609,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             mc_version=state["selected_mc_version"], loader=browse_loader(),
                             slug=mod.get("slug"), project_id=mod.get("project_id"),
                             hashes=file_info.get("hashes"),
-                            status_cb=_dep_status, progress_cb=_progress,
+                            status_cb=_dep_status, progress_cb=_batch_progress,
                         )
                         deps_note = f" +{len(result['installed']) - 1} deps" \
                             if len(result["installed"]) > 1 else ""
