@@ -1169,6 +1169,27 @@ Still-true invariants from the pre-local era:
   space syntax is mangled by wine). Output identical to CI's
   packaging/build_windows.py layout. See
   agents/2026-09-07_agent_wine-windows-build.md for the full recipe. Re-run 2026-09-14 for the launcher-lib fix: add `--collect-all minecraft_launcher_lib` to the wine command (bundled + verified).
+- **Windows-build verification recipe (2026-09-15)**: `wine
+  /home/<user>/winpython/py311/python.exe -m PyInstaller ...` works with a
+  plain UNIX path - no `Z:\...\` escaping needed, which makes the command far
+  easier to run from a shell/agent (the double-backslash form is what silently
+  broke earlier attempts). The wine build mirrors `packaging/build_windows.py`
+  but bundles only `mod/brackets.json`, not the whole `mod/` dir (verified
+  against the produced `_internal/`).
+  **A frozen Windows launcher keeps its state in the WINE PREFIX, not the
+  Linux home**: `~/.wine/drive_c/users/<user>/.cubeon_launcher/` holds
+  `cubeon.log` and the `ui_painted_ok` marker - that is where to prove a
+  Windows build actually booted AND painted (a running frozen build also emits
+  endless `d3d11_swapchain_Present1` fixme lines, i.e. frames are rendering).
+  Checking Linux `~/.cubeon_launcher/` for a Windows run tells you nothing.
+- **GOTCHA: artifacts go stale silently if you edit sources mid-build.**
+  PyInstaller snapshots module sources at ANALYSIS time (~20 s in), so an edit
+  made after that is NOT in the bundle even though the build runs for minutes
+  more and still says "Build complete". Verify with `stat -c %w` (birth) on the
+  build log vs. the newest source mtime, or just rebuild after editing.
+  Grepping a built exe for a NEW Python symbol does not work as a check (the
+  PYZ is zlib-compressed and the name matches nothing) - use packed data-TOC
+  names such as `minecraft_launcher_lib`, which ARE greppable.
 - **GOTCHA: `dist/Cubeon` is a contested name.** build_appimage.sh does
   `mv dist/Cubeon/* AppDir/usr/bin/` then `rmdir dist/Cubeon`, so the LINUX
   PyInstaller output must own that path. A wine/Windows onedir build lands on
