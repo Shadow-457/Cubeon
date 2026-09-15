@@ -177,3 +177,12 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
 - #15 kept (all callers intend creation). #18/#19 left documented.
 - Suites green: ui_smoke 114, mod_detail 66, modpacks 51, versions_manifest
   10, net 21.
+
+## Windows builds rebuilt with the launcher-lib fix (wine)
+- dist/Cubeon (onedir, 153M) + Cubeon-Windows-x64.zip (128M) +
+  Cubeon-Windows-x64-single.exe (127M) rebuilt via the wine recipe with
+  --collect-all minecraft_launcher_lib. Verified: lib present in
+  _internal/, onedir exe AND single exe boot under wine with zero
+  ModuleNotFoundError/tracebacks. Public (Friends-disabled) variants NOT
+  rebuilt yet - run build_public_windows.py equivalents before publishing
+  those. dist/ is gitignored: binaries live only in dist/ here.

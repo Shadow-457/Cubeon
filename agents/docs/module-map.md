@@ -1156,7 +1156,7 @@ Still-true invariants from the pre-local era:
   templates main.py` (Z: drive paths; `--add-data=` EQUALS syntax only —
   space syntax is mangled by wine). Output identical to CI's
   packaging/build_windows.py layout. See
-  agents/2026-09-07_agent_wine-windows-build.md for the full recipe.
+  agents/2026-09-07_agent_wine-windows-build.md for the full recipe. Re-run 2026-09-14 for the launcher-lib fix: add `--collect-all minecraft_launcher_lib` to the wine command (bundled + verified).
 - Release flow: bump cubeon/updater.py APP_VERSION -> tag vN.N.N -> push ->
   gh release create with the built artifacts.
 
