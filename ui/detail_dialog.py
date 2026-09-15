@@ -158,7 +158,6 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
             bgcolor=None if install_disabled else theme.get("ACCENT"),
             border_radius=theme.get("RADIUS"),
             padding=ft.padding.Padding.symmetric(horizontal=18, vertical=9),
-            ink=not install_disabled,
             on_click=None if install_disabled else
             (lambda e: (dialogs.close_dialog(page, dlg), on_install(e))[1]),
         )
