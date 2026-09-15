@@ -275,3 +275,11 @@ corrupt pack is intentionally reported forever (now asserts repair-stuck +
 corrupt-still-reported). Also updated test_mod_detail's launch check to the
 run_doctor contract. Batch: doctor 88, ui 114, mega-static 12, mod_detail
 66, mod_store 21, modpacks 54, net 21, install_progress 39 - all green.
+
+## Artifact rebuild with the compat system (0b6d1a9)
+All four dist/ artifacts rebuilt from HEAD and boot-verified 2026-09-15
+~18:35-18:42: AppImage (websocket x2, 0 errors), Windows onedir + zip
+(ui_painted_ok, 2446 frames), single exe (needed an 80s window - onefile
+self-extraction eats the first ~20s, so a 40s timeout looks like 'no
+websocket'; 3365 frames on the longer run). Sequential builds only: the
+AppImage onedir stage and the Windows build share the dist/Cubeon name.
