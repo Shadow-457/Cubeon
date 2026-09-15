@@ -33,6 +33,7 @@ from cubeon import icons as _icons  # disk cache for Modrinth project art
 import launcher_core as core
 from cubeon import modpacks as modpacks_backend
 from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
+from ui.detail_dialog import open_project_detail
 from cubeon.paths import CUBEON_HOME
 
 
@@ -704,6 +705,32 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         if not is_installed:
             install_btn.on_click = on_install
 
+        # Row click opens the shared project detail dialog (bugs-and-flaws
+        # follow-up: packs had no preview popup at all). CurseForge-only hits
+        # have no Modrinth ref - the dialog then shows the row's own blurb and
+        # the install CTA instead of an empty pane.
+        _pack_theme = {"RADIUS": RADIUS, "ACCENT": ACCENT, "ACCENT_TINT": None,
+                       "CARD_FILL": CARD_FILL, "CARD_BORDER": CARD_BORDER,
+                       "TEXT": TEXT, "TEXT_DIM": TEXT_DIM,
+                       "TEXT_FAINT": TEXT_FAINT, "ON_ACCENT": ON_ACCENT,
+                       "SURFACE": SURFACE, "BG": BG, "DANGER": DANGER,
+                       "FONT_DISPLAY": FONT_DISPLAY, "FONT_MONO": FONT_MONO}
+
+        def _open_pack_detail(e=None, _pack=pack, _installed=is_installed,
+                              _theme=_pack_theme, _install=on_install):
+            open_project_detail(
+                page, ref=_pack.get("project_id") or "",
+                theme=_theme,
+                title=_pack.get("title") or "Modpack",
+                icon_url=_pack.get("icon_url"),
+                blurb=_pack.get("description") or "",
+                install_label="Install",
+                on_install=None if _installed else _install,
+                install_disabled=_installed,
+                install_hint=("Installs its own Minecraft version and loader -"
+                              " it doesn't have to match the Play tab."),
+            )
+
         description = (pack.get("description") or "")
         if len(description) > 90:
             description = description[:87] + "..."
@@ -757,6 +784,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 ),
                 border_radius=RADIUS,
                 padding=ft.padding.Padding.symmetric(horizontal=10, vertical=10),
+                on_click=_open_pack_detail,
             ),
             "transparent", ROW_HOVER,
         )

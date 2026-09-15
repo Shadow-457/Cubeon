@@ -22,6 +22,7 @@ from cubeon.theme import (  # design system (radius, toggles, faint text tier, u
 
 import launcher_core as core
 from cubeon import icons as _icons  # disk cache for Modrinth project art
+from ui.detail_dialog import open_project_detail
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 
 
@@ -1714,6 +1715,31 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             on_click=None if is_installed else _install_plugin_handler(hit),
         )
 
+        # Row click opens the shared project detail dialog (packs/plugins had
+        # no preview popup - mods tab parity). Ref is the Modrinth id/slug.
+        _plug_theme = {"RADIUS": RADIUS, "ACCENT": ACCENT, "ACCENT_TINT": ACCENT_TINT,
+                       "CARD_FILL": CARD_FILL, "CARD_BORDER": CARD_BORDER,
+                       "TEXT": TEXT, "TEXT_DIM": TEXT_DIM,
+                       "TEXT_FAINT": TEXT_FAINT, "ON_ACCENT": ON_ACCENT,
+                       "SURFACE": SURFACE, "BG": BG, "DANGER": DANGER,
+                       "FONT_DISPLAY": FONT_DISPLAY, "FONT_MONO": FONT_MONO}
+
+        def _open_plugin_detail(e=None, _hit=hit, _installed=is_installed,
+                                _theme=_plug_theme,
+                                _install=_install_plugin_handler):
+            open_project_detail(
+                page, ref=_hit.get("project_id") or _hit.get("slug") or "",
+                theme=_theme,
+                title=_hit.get("title") or _hit.get("slug") or "Plugin",
+                icon_url=_hit.get("icon_url"),
+                blurb=_hit.get("description") or desc,
+                install_label="Install",
+                on_install=None if _installed else _install,
+                install_disabled=_installed,
+                install_hint="Server plugins install into the server's plugins folder.",
+                loader=None,
+            )
+
         return attach_hover(
             ft.Container(
                 content=ft.Row(
@@ -1744,6 +1770,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 ),
                 border_radius=RADIUS,
                 padding=ft.padding.Padding.symmetric(horizontal=10, vertical=10),
+                on_click=_open_plugin_detail,
             ),
             "transparent", ROW_HOVER,
         )
