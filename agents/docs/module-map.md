@@ -1169,6 +1169,22 @@ Still-true invariants from the pre-local era:
   space syntax is mangled by wine). Output identical to CI's
   packaging/build_windows.py layout. See
   agents/2026-09-07_agent_wine-windows-build.md for the full recipe. Re-run 2026-09-14 for the launcher-lib fix: add `--collect-all minecraft_launcher_lib` to the wine command (bundled + verified).
+- **GOTCHA: `dist/Cubeon` is a contested name.** build_appimage.sh does
+  `mv dist/Cubeon/* AppDir/usr/bin/` then `rmdir dist/Cubeon`, so the LINUX
+  PyInstaller output must own that path. A wine/Windows onedir build lands on
+  the SAME name and gets silently absorbed + deleted by the next AppImage
+  build. Keep the Windows onedir as `dist/Cubeon-Windows-x64/` (matches the
+  zip name) before running build_appimage.sh; the zip is the durable artifact
+  anyway.
+- **Modpack install progress, two phases**: `install_modpack_from_url()` /
+  `install_modpack_from_cf()` download the pack ARCHIVE first (tens of MB, size
+  unknown to the caller) - that phase reports its own whole-percent through
+  `_archive_progress_status(prefix, status_cb)` fed to `_download_to`'s
+  `progress_cb` (`"Downloading modpack... 42%"`), then `_install_from_zip()`
+  drives the real bar via `progress_cb`/`max_cb` with `status_cb` giving
+  `"Downloading mods... 12/345"`. `ui/modpacks_tab.py`'s `status_cb` repaints
+  the status line + bar on EVERY call, so anything feeding status_cb must
+  coalesce to whole percent (net throttles to >= 33 ms / >= 1% on top of that).
 - Release flow: bump cubeon/updater.py APP_VERSION -> tag vN.N.N -> push ->
   gh release create with the built artifacts.
 

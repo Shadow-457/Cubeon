@@ -451,6 +451,37 @@ def main():
     check("get_modpack_file: sorts by date_published, not list position",
           ordered is not None and ordered["version_number"] == "NEW-BUT-SECOND", ordered)
 
+    # --- pack ARCHIVE download reports its own percent ---
+    # Regression coverage: "Downloading modpack..." was a static line for the
+    # whole archive transfer (tens of MB for a big pack) - the one download
+    # phase whose size the caller doesn't know, so it read as "just shows
+    # downloading". The archive path now feeds byte progress into the status
+    # line, whole-percent only (net already throttles to >=33ms/1%, and
+    # status_cb repaints the bar per call).
+    lines = []
+    report = modpacks._archive_progress_status("Downloading modpack...", lines.append)
+    report(0, 100)
+    report(1000, 4000)   # 25%
+    report(2000, 4000)   # 50%
+    report(2001, 4000)   # still 50% - must NOT be repainted
+    report(4000, 4000)   # 100%
+    check("archive progress: 0/25/50/100% reported, duplicate percent suppressed",
+          lines == ["Downloading modpack... 0%", "Downloading modpack... 25%",
+                    "Downloading modpack... 50%", "Downloading modpack... 100%"],
+          lines)
+
+    cf = modpacks._archive_progress_status("Downloading CurseForge modpack...", lines.append)
+    cf(5, 10)
+    check("archive progress: the prefix is carried through (CurseForge path)",
+          lines[-1] == "Downloading CurseForge modpack... 50%", lines[-1])
+
+    unknown = modpacks._archive_progress_status("Downloading modpack...", lines.append)
+    before = len(lines)
+    unknown(5, 0)   # no content-length: nothing sensible to say
+    unknown(5, None)
+    check("archive progress: an unknown total reports nothing at all",
+          len(lines) == before, lines[before:])
+
     print(f"\n{_passed} passed, {_failed} failed")
     return 1 if _failed else 0
 

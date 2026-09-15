@@ -619,6 +619,31 @@ def install_modpack_from_file(path: str, *, progress_cb=None, status_cb=None, ma
     )
 
 
+def _archive_progress_status(prefix: str, status_cb):
+    """A `progress_cb` that shows byte progress for the pack ARCHIVE itself.
+
+    The archive is downloaded before anything else happens, and it is the one
+    phase whose size is unknown to the caller (tens of MB for a big pack), so
+    a bare "Downloading modpack..." left the user staring at an indeterminate
+    bar for the whole transfer. Reports whole-percent only: cubeon.net already
+    throttles to >= 33 ms / >= 1%, and status_cb repaints the status line and
+    the bar on every call (modpacks_tab), so duplicate percents would be
+    wasted repaints.
+    """
+    seen = {"pct": -1}
+
+    def report(done, total):
+        if not total:
+            return
+        pct = int(done * 100 / total)
+        if pct == seen["pct"]:
+            return
+        seen["pct"] = pct
+        status_cb(f"{prefix} {pct}%")
+
+    return report
+
+
 def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_cb=None) -> dict:
     """Download a `.mrpack` (from a browse result) and install it. The pack
     archive itself must come from the same trusted host allowlist as its
@@ -630,7 +655,8 @@ def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_
     fd, tmp = tempfile.mkstemp(suffix=".mrpack")
     os.close(fd)
     try:
-        _download_to(tmp, [url], None)
+        _download_to(tmp, [url], None,
+                     _archive_progress_status("Downloading modpack...", status_cb))
         return _install_from_zip(tmp, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb)
     finally:
         try:
@@ -816,7 +842,9 @@ def install_modpack_from_cf(project_id: str, file_id, *,
     fd, tmp_mrpack = tempfile.mkstemp(suffix=".mrpack")
     os.close(fd)
     try:
-        _download_to(tmp_zip, [_cf_download_url(project_id, file_id)], None)
+        _download_to(tmp_zip, [_cf_download_url(project_id, file_id)], None,
+                     _archive_progress_status("Downloading CurseForge modpack...",
+                                              status_cb))
         _cf_manifest_to_mrpack(tmp_zip, tmp_mrpack, status_cb=status_cb)
         return _install_from_zip(tmp_mrpack, progress_cb=progress_cb,
                                  status_cb=status_cb, max_cb=max_cb)

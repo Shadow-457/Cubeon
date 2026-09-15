@@ -218,3 +218,21 @@ one at a time and `onAdd` has no awaits; doc updated with the mechanism.
   reported not raised, plus the label formatting rules.
 - GREEN: test_mod_install_progress 39, ui_smoke 114, mega_smoke 16,
   mod_detail 66, mod_store 21, modpacks 51, net 21.
+
+## Pack archive download now shows its own percent
+- Same report, modpack half: install_modpack_from_url / install_modpack_from_
+  cf sat on a static "Downloading modpack..." for the whole ARCHIVE transfer -
+  the one phase whose size the caller doesn't know (tens of MB), with the bar
+  indeterminate. New cubeon/modpacks.py:_archive_progress_status(prefix,
+  status_cb) is fed to _download_to as progress_cb and emits whole percent
+  only (net already throttles >=33ms/1%, and modpacks_tab's status_cb repaints
+  the status line + bar per call, so duplicates are wasted repaints).
+- test_modpacks.py gained 3 checks (54 now): percent sequence + duplicate
+  suppression, the CurseForge prefix, and "unknown total reports nothing".
+- Artifact gotcha hit while verifying: started the AppImage rebuild BEFORE the
+  modpacks.py edit landed, so the first AppImage (mksquashfs at 17:06) had the
+  pre-edit bundle. PyInstaller snapshots sources at ANALYSIS time (~20 s in),
+  so any source edit after that is NOT in the artifact - check `stat` birth
+  time of the build log against file mtimes, or just rebuild. Also note
+  grepping the exe for a new symbol name does NOT work (the PYZ is zlib
+  compressed).
