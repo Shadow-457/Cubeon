@@ -716,6 +716,15 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                        "SURFACE": SURFACE, "BG": BG, "DANGER": DANGER,
                        "FONT_DISPLAY": FONT_DISPLAY, "FONT_MONO": FONT_MONO}
 
+        def _install_chosen_version(v, _pack=pack):
+            """User picked a specific published version in the detail dialog.
+            run_install's raw-URL path is host-allowlisted inside
+            install_modpack_from_url, and packs install their own MC version,
+            so no Play-tab compatibility check applies here."""
+            url = (v or {}).get("url")
+            if url:
+                run_install(url=url)
+
         def _open_pack_detail(e=None, _pack=pack, _installed=is_installed,
                               _theme=_pack_theme, _install=on_install):
             open_project_detail(
@@ -729,6 +738,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 install_disabled=_installed,
                 install_hint=("Installs its own Minecraft version and loader -"
                               " it doesn't have to match the Play tab."),
+                on_install_version=(None if _installed else
+                                    _install_chosen_version),
             )
 
         description = (pack.get("description") or "")

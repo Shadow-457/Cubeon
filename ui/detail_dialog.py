@@ -70,7 +70,7 @@ def _icon_ctrl(url, theme, size=64):
                         alignment=ft.Alignment.CENTER)
 
 
-def _versions_section(versions, theme):
+def _versions_section(versions, theme, on_install_version=None):
     """Newest handful of releases - informational only (the footer Install
     button drives the tab's own version-picking install pipeline)."""
     rows = []
@@ -81,6 +81,17 @@ def _versions_section(versions, theme):
         tag = " \u00b7 ".join([str(x).title() for x in (v.get("loaders") or [])[:2]]
                               + [", ".join(gv[:3]) + ("\u2026" if len(gv) > 3 else "")])
         date = str(v.get("date_published") or "")[:10]
+        v_install = None
+        if on_install_version is not None and v.get("url"):
+            v_install = ft.Container(
+                content=ft.Text("Install", size=11.5,
+                                color=theme.get("ACCENT"),
+                                weight=ft.FontWeight.W_700),
+                bgcolor=theme.get("ACCENT_TINT"),
+                border_radius=theme.get("RADIUS"),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=5),
+                on_click=lambda e, _v=v: on_install_version(_v),
+            )
         rows.append(ft.Container(
             content=ft.Row(
                 [ft.Column(
@@ -90,7 +101,8 @@ def _versions_section(versions, theme):
                              font_family=theme.get("FONT_MONO"), max_lines=1)],
                     spacing=2, expand=True),
                  ft.Text(date, size=11, color=theme.get("TEXT_FAINT"),
-                         font_family=theme.get("FONT_MONO"))],
+                         font_family=theme.get("FONT_MONO")),
+                 *((v_install,) if v_install is not None else ())],
                 spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=theme.get("CARD_FILL"), border_radius=theme.get("RADIUS"),
             padding=ft.padding.Padding.symmetric(horizontal=8, vertical=7)))
@@ -111,7 +123,8 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                         install_label: str = "Install", on_install=None,
                         install_disabled: bool = False,
                         install_hint: str = "", loader=None,
-                        mc_version=None) -> bool:
+                        mc_version=None,
+                        on_install_version=None) -> bool:
     """Opens the generic detail dialog for one Modrinth project.
 
     Returns True when a dialog was opened. `ref` is a Modrinth project id or
@@ -242,7 +255,8 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                     body, selectable=True,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                     shrink_wrap=True))
-            vs = _versions_section(versions, theme)
+            vs = _versions_section(versions, theme,
+                                   on_install_version=on_install_version)
             if vs is not None:
                 controls.append(ft.Container(height=2))
                 controls.append(vs)
