@@ -1,8 +1,17 @@
 {
+  "tool": "tools/ux_capture.py",
+  "generated_at": "2026-09-16 17:41:19",
+  "empty_mode": false,
+  "pixel_ratio": 1.0,
+  "count": 30,
+  "captured": 30,
+  "reached": 25,
   "states": [
     {
       "index": 1,
       "state": "tab_play",
+      "category": "Core tabs",
+      "note": "First paint: hero, version picker, PLAY affordance.",
       "file": "01_tab_play.png",
       "reached": true,
       "captured": true
@@ -10,6 +19,8 @@
     {
       "index": 2,
       "state": "tab_mods",
+      "category": "Core tabs",
+      "note": "Mods tab default: content type tabs, search, browse grid density.",
       "file": "02_tab_mods.png",
       "reached": true,
       "captured": true
@@ -17,6 +28,8 @@
     {
       "index": 3,
       "state": "tab_modpacks",
+      "category": "Core tabs",
+      "note": "Modpacks browse: pack rows with install affordances.",
       "file": "03_tab_modpacks.png",
       "reached": true,
       "captured": true
@@ -24,6 +37,8 @@
     {
       "index": 4,
       "state": "tab_chat",
+      "category": "Core tabs",
+      "note": "Chat with no conversation: empty-state copy and the friends rail.",
       "file": "04_tab_chat.png",
       "reached": true,
       "captured": true
@@ -31,6 +46,8 @@
     {
       "index": 5,
       "state": "tab_profile",
+      "category": "Core tabs",
+      "note": "Cosmetics: skin pane, live preview, installed cards.",
       "file": "05_tab_profile.png",
       "reached": true,
       "captured": true
@@ -38,46 +55,227 @@
     {
       "index": 6,
       "state": "tab_server_console",
+      "category": "Core tabs",
+      "note": "Server console with no instance: honest empty state vs. fake controls.",
       "file": "06_tab_server_console.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 7,
-      "state": "tab_server_plugins",
-      "file": "07_tab_server_plugins.png",
+      "state": "tab_server_settings",
+      "category": "Core tabs",
+      "note": "Server settings form: does it read as a form, are units/hints present?",
+      "file": "07_tab_server_settings.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 8,
-      "state": "tab_server_settings",
-      "file": "08_tab_server_settings.png",
+      "state": "tab_stats",
+      "category": "Core tabs",
+      "note": "Stats: counters and card rhythm; do zero-values look broken?",
+      "file": "08_tab_stats.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 9,
-      "state": "tab_stats",
-      "file": "09_tab_stats.png",
+      "state": "tab_settings",
+      "category": "Core tabs",
+      "note": "Settings (gear): grouped options, destructive items clearly separated.",
+      "file": "09_tab_settings.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 10,
-      "state": "dialog_delete_confirm",
-      "file": "10_dialog_delete_confirm.png",
+      "state": "mods_browse_mods",
+      "category": "Mods tab",
+      "note": "Mods browse grid: tile art, name/description truncation, install CTA.",
+      "file": "10_mods_browse_mods.png",
       "reached": true,
       "captured": true
     },
     {
       "index": 11,
+      "state": "mods_browse_resourcepack",
+      "category": "Mods tab",
+      "note": "Resource Packs browse: is the pack's purpose obvious from the tile?",
+      "file": "11_mods_browse_resourcepack.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 12,
+      "state": "mods_browse_shader",
+      "category": "Mods tab",
+      "note": "Shaders browse: same grid with a different domain's labels.",
+      "file": "12_mods_browse_shader.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 13,
+      "state": "mods_installed_mods",
+      "category": "Mods tab",
+      "note": "Installed mods: enabled/disabled chips, size, remove action.",
+      "file": "13_mods_installed_mods.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 14,
+      "state": "mods_installed_resourcepacks",
+      "category": "Mods tab",
+      "note": "Installed packs: compatibility badges (the 'Incompatible' hint lives here).",
+      "file": "14_mods_installed_resourcepacks.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 15,
+      "state": "mods_installed_shaders",
+      "category": "Mods tab",
+      "note": "Installed shaders: same list contract for a third content type.",
+      "file": "15_mods_installed_shaders.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 16,
+      "state": "mods_search_typed",
+      "category": "Mods tab",
+      "note": "Search field with a real query: contrast of hint vs. value, clear button.",
+      "file": "16_mods_search_typed.png",
+      "reached": false,
+      "captured": true
+    },
+    {
+      "index": 17,
+      "state": "mods_filters_open",
+      "category": "Mods tab",
+      "note": "Expanded category chips: wrapping, tap targets, selected state.",
+      "file": "17_mods_filters_open.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 18,
+      "state": "mods_fix_problems",
+      "category": "Mods tab",
+      "note": "'Fix problems' result line: is the doctor's outcome legible and calm?",
+      "file": "18_mods_fix_problems.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 19,
+      "state": "modpacks_installed",
+      "category": "Modpacks tab",
+      "note": "Installed packs list: the second view of that tab, after a pack exists.",
+      "file": "19_modpacks_installed.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 20,
+      "state": "server_plugins_browse",
+      "category": "Server tab",
+      "note": "Plugins browse: search + grid for a server-side domain.",
+      "file": "20_server_plugins_browse.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 21,
+      "state": "server_plugins_installed",
+      "category": "Server tab",
+      "note": "Plugins installed: protected-plugin notes and the remove control.",
+      "file": "21_server_plugins_installed.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 22,
+      "state": "chat_composer_draft",
+      "category": "Chat",
+      "note": "Composer with an unsent draft: multiline growth, send affordance.",
+      "file": "22_chat_composer_draft.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 23,
+      "state": "profile_pane_cape",
+      "category": "Cosmetics",
+      "note": "Cape pane: does the pane switch read clearly against the skin pane?",
+      "file": "23_profile_pane_cape.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 24,
+      "state": "dialog_mod_detail",
+      "category": "Dialogs",
+      "note": "Mod detail: hero, pills, markdown body, version list, install CTA.",
+      "file": "24_dialog_mod_detail.png",
+      "reached": false,
+      "captured": true
+    },
+    {
+      "index": 25,
+      "state": "dialog_resourcepack_detail",
+      "category": "Dialogs",
+      "note": "Resource pack detail: same dialog, non-mod kind (pills/versions differ).",
+      "file": "25_dialog_resourcepack_detail.png",
+      "reached": false,
+      "captured": true
+    },
+    {
+      "index": 26,
+      "state": "dialog_modpack_detail",
+      "category": "Dialogs",
+      "note": "Pack detail: version picker with per-version Install (the new feature).",
+      "file": "26_dialog_modpack_detail.png",
+      "reached": false,
+      "captured": true
+    },
+    {
+      "index": 27,
+      "state": "dialog_plugin_detail",
+      "category": "Dialogs",
+      "note": "Plugin detail reached from the server tab.",
+      "file": "27_dialog_plugin_detail.png",
+      "reached": false,
+      "captured": true
+    },
+    {
+      "index": 28,
+      "state": "dialog_delete_confirm",
+      "category": "Dialogs",
+      "note": "Destructive confirm: is the risk stated, is Cancel the safe default?",
+      "file": "28_dialog_delete_confirm.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 29,
       "state": "dialog_create_modpack",
-      "file": "11_dialog_create_modpack.png",
+      "category": "Dialogs",
+      "note": "Create modpack form: validation affordances, obvious primary action.",
+      "file": "29_dialog_create_modpack.png",
+      "reached": true,
+      "captured": true
+    },
+    {
+      "index": 30,
+      "state": "panel_account",
+      "category": "Dialogs",
+      "note": "Account slide-over: avatar, username fields, pfp upload/remove states.",
+      "file": "30_panel_account.png",
       "reached": true,
       "captured": true
     }
-  ],
-  "empty_mode": false,
-  "count": 11
+  ]
 }
