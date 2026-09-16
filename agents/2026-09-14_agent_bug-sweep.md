@@ -284,3 +284,16 @@ All four dist/ artifacts rebuilt from HEAD and boot-verified 2026-09-15
 self-extraction eats the first ~20s, so a 40s timeout looks like 'no
 websocket'; 3365 frames on the longer run). Sequential builds only: the
 AppImage onedir stage and the Windows build share the dist/Cubeon name.
+
+## Bug hunt (second pass, same day)
+Full batch green (ui 114, mod_detail 66, mod_store 21, modpacks 54, net 21,
+install_progress 39, doctor 88+3, mega-static 12, versions_manifest 10).
+Found + fixed 1 real bug in the fresh compat code: _format_from_jar and
+resource_format_for cached None results, so a version installed (or a
+snapshot jar appearing) mid-session stayed "can't tell" for the whole
+process lifetime - packs silently skipped verdicts for it. Both now cache
+positive results only; regression section 9 added to test_content_doctor
+(proves None -> 88 in-session). Also audited and cleared: _covers legacy
+semantics, repair_pack's corrupt-zip guard, _rewrite_zip duplicate/case
+cases, plugins-section dedup and running-server guard, search facet
+scoping, get_content_download malformed-response guards.

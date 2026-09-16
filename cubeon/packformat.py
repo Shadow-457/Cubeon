@@ -157,7 +157,13 @@ def _format_from_jar(version_id: str | None) -> int | None:
         if fmt is not None:
             break
 
-    _jar_format_cache[version_id] = fmt
+    # Cache POSITIVE results only. A cached None would pin "can't tell"
+    # for the whole process lifetime: a version installed (or a snapshot
+    # jar appearing) after an earlier lookup would keep every later check
+    # in this session blind for it - packs would silently skip verdicts.
+    # A failed lookup is one listdir + table probe; not worth the risk.
+    if fmt is not None:
+        _jar_format_cache[version_id] = fmt
     return fmt
 
 
@@ -223,7 +229,11 @@ def resource_format_for(mc_version: str | None,
     if fmt is None:
         fmt = _format_from_table(mc_version or version_id)
 
-    _format_cache[cache_key] = fmt
+    # Same rule as _format_from_jar: never cache a miss. A None here is
+    # "unknown / not installed yet", which can become a concrete format
+    # the moment the version is installed - within this same session.
+    if fmt is not None:
+        _format_cache[cache_key] = fmt
     return fmt
 
 

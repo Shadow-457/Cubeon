@@ -534,3 +534,32 @@ check("a gutted pack is NOT auto-deleted (only a reinstall can rebuild it)",
 check("and it stays in the unfixed list for the user",
       any(p["kind"] == "pack-mods-missing" for p in rep["unfixed"]),
       rep["unfixed"])
+
+# ---------------------------------------------------------------------------
+print("\n9. format caches never pin a miss (a version installed mid-session")
+print("   must become checkable immediately)")
+# ---------------------------------------------------------------------------
+pf._jar_format_cache.clear()
+pf._format_cache.clear()
+
+LATE_VD = os.path.join(MINECRAFT, "versions", "26w99test")
+os.makedirs(LATE_VD, exist_ok=True)
+
+check("an unknown (not-yet-installed) version is NOT cached as None",
+      pf.resource_format_for("26w99test") is None and
+      "26w99test" not in pf._format_cache)
+
+_late_jar = os.path.join(LATE_VD, "26w99test.jar")
+with zipfile.ZipFile(_late_jar, "w") as _zf:
+    _zf.writestr("version.json", json.dumps(
+        {"id": "26w99test",
+         "pack_version": {"resource": 88, "data": 99}}))
+
+check("the same session sees the format the moment the jar exists",
+      pf.resource_format_for("26w99test") == 88,
+      pf.resource_format_for("26w99test"))
+check("installed_resource_formats picks it up for pack verdicts",
+      88 in pf.installed_resource_formats("26w99test"),
+      pf.installed_resource_formats("26w99test"))
+pf._jar_format_cache.clear()
+pf._format_cache.clear()
