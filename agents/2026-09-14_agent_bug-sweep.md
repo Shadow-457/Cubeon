@@ -1,4 +1,5 @@
 # Bug sweep — 2026-09-14
+glm 5.3 flash and deepseek v4.1 flash and deepseek v4 flash contorbuted in it
 
 Deep-research pass: ran every harness in `tools/`, cross-checked
 `agents/docs/bugs-and-flaws.md` against today's code, fixed what was real.
