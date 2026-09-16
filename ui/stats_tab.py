@@ -9,7 +9,7 @@ Design notes
   the tab costs nothing until visited - same lazy-tab discipline as the
   other tabs.
 - All data comes from sources that already exist: milestones.json
-  (playtime, hosted sessions, friend high-water, unlock ledger), the
+  (playtime, hosted sessions, friend high-water), the
   version/profile/content/plugin folder scans and the skins/capes
   metadata. No new state files, no new counters to maintain.
 - Scans are strictly read-only: they glob folders directly instead of
@@ -29,7 +29,6 @@ from cubeon import milestones
 from cubeon.versions import get_installed_versions
 from cubeon.skins import list_custom_skins
 from cubeon.capes import list_custom_capes
-from cubeon.cosmetics import HATS
 
 
 def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
@@ -48,14 +47,14 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         return ft.Text(label.upper(), size=11, color=TEXT_DIM,
                        font_family=FONT_MONO, weight=ft.FontWeight.W_600)
 
-    playtime_value, sessions_value, friends_value, hats_value = _value(), _value(), _value(), _value()
+    playtime_value, sessions_value, friends_value = _value(), _value(), _value()
     versions_value, mods_value, packs_value, content_value, plugins_value = \
         _value(), _value(), _value(), _value(), _value()
     skins_value, capes_value, member_value = _value(), _value(), _value()
 
     _CAPTIONS = {
         "playtime": "Time in game", "sessions": "Sessions hosted",
-        "friends": "Friends", "hats": "Hats unlocked",
+        "friends": "Friends",
         "versions": "Versions installed", "mods": "Mods installed",
         "packs": "Modpacks installed", "content": "Packs & shaders",
         "plugins": "Server plugins", "skins": "Custom skins",
@@ -64,7 +63,6 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
     playtime_caption = _caption(_CAPTIONS["playtime"])
     sessions_caption = _caption(_CAPTIONS["sessions"])
     friends_caption = _caption(_CAPTIONS["friends"])
-    hats_caption = _caption(_CAPTIONS["hats"])
     versions_caption = _caption(_CAPTIONS["versions"])
     mods_caption = _caption(_CAPTIONS["mods"])
     packs_caption = _caption(_CAPTIONS["packs"])
@@ -156,14 +154,13 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         playtime_value.value = f"{seconds / 3600:,.1f} h"
         sessions_value.value = f"{ms.get('sessions_hosted', 0):,}"
         friends_value.value = f"{ms.get('friends_count_high', 0):,}"
-        hats_value.value = f"{len(ms.get('unlocked', []))} / {len(HATS)}"
 
         first = ms.get("first_seen_at")
         member_value.value = time.strftime("%b %Y", time.localtime(first)) if first else "-"
 
         from cubeon import thread_safe_ui
         for ctrl in (playtime_value, sessions_value, friends_value,
-                     hats_value, member_value):
+                     member_value):
             thread_safe_ui.refresh(ctrl)
 
         gen = _stats_gen["v"] + 1
@@ -217,8 +214,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
             section_label("Playtime"),
             _stat_row([_pair(playtime_value, playtime_caption),
                        _pair(sessions_value, sessions_caption),
-                       _pair(friends_value, friends_caption),
-                       _pair(hats_value, hats_caption)]),
+                       _pair(friends_value, friends_caption)]),
             _rule(),
 
             section_label("Library"),

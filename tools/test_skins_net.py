@@ -131,7 +131,7 @@ Image.new("RGBA", (64, 64), (200, 100, 100, 255)).save(_content_src)
 _content = skins.add_custom_skin(_content_src, "Content")
 
 default_cfg = {"username": "TestUser", "active_skin": _content["filename"],
-               "cosmetic_hat": None, "manage_skin_mod": True}
+               "manage_skin_mod": True}
 png = skins._composed_skin_png(default_cfg)
 check("composed sheet passes the Worker's PNG guard", worker_is_skin_png(png),
       f"{len(png)}B")
@@ -140,7 +140,7 @@ check("composed sheet is well under the 24KB skin cap", len(png) < 24 * 1024, f"
 # ---------------------------------------------------------------------------
 # 2. Happy path WITH content: first publish fires heartbeat THEN upload
 #
-# default_cfg carries a real uploaded skin - a no-skin/no-hat player must NOT
+# default_cfg carries a real uploaded skin - a no-skin player must NOT
 # upload anything (see section 5), so the full two-call contract needs actual
 # custom content.
 # ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ skins._publish_skin({"username": "", "active_skin": None})
 check("empty username never uploads", _calls == [])
 
 # ---------------------------------------------------------------------------
-# 5. A VANILLA player (no skin, no hat): heartbeat only, never an upload
+# 5. A VANILLA player (no skin): heartbeat only, never an upload
 #
 # The whole point of the pointer: a default-Steve Cubeon player heartbeats on
 # first launch, which creates pointer:<name> -> <uuid> - and that pointer is
@@ -296,8 +296,7 @@ check("empty username never uploads", _calls == [])
 # and make the Worker serve Steve-as-a-skin instead of a clean cape-only
 # profile.
 # ---------------------------------------------------------------------------
-vanilla_cfg = {"username": "VanillaUser", "active_skin": None,
-               "cosmetic_hat": None}
+vanilla_cfg = {"username": "VanillaUser", "active_skin": None}
 clear_marker()
 reset_calls()
 ok_all()
@@ -327,17 +326,17 @@ check("a vanilla rename fires exactly one heartbeat",
 # done, so exactly one upload call).
 skins._save_publish_state({"username": "LateSkin", "uuid": stable_uuid(),
                            "base": skins.csl.CUBEON_API_BASE})
-hat_cfg = {"username": "LateSkin", "active_skin": None, "cosmetic_hat": "somehat.png"}
+hat_cfg = {"username": "LateSkin", "active_skin": "late.png", "manage_skin_mod": True}
 reset_calls()
 ok_all()
-# cosmetic_hat truthy -> has_custom True; stub the compose to a tiny valid PNG
-# instead of relying on hat template assets.
-_orig_compose = skins.cosmetics.compose_skin_with_hat
-skins.cosmetics.compose_skin_with_hat = lambda cfg: Image.new("RGBA", (64, 64), (1, 2, 3, 255))
+# active_skin set -> has_custom True; stub the compose to a tiny valid PNG
+# so the test doesn't depend on the file on disk.
+_orig_compose = skins.compose_skin
+skins.compose_skin = lambda cfg: Image.new("RGBA", (64, 64), (1, 2, 3, 255))
 try:
     skins._publish_skin(hat_cfg)
 finally:
-    skins.cosmetics.compose_skin_with_hat = _orig_compose
+    skins.compose_skin = _orig_compose
 uploads = [c for c in _calls if c["url"] == skins._UPLOAD_URL]
 heartbeats = [c for c in _calls if c["url"] == skins._HEARTBEAT_URL]
 check("adding content later triggers ONLY the upload (no duplicate heartbeat)",
@@ -366,7 +365,7 @@ clear_marker()
 reset_calls()
 ok_all()
 skins._publish_skin({"username": "SlimUser", "active_skin": slim["filename"],
-                     "cosmetic_hat": None, "manage_skin_mod": True})
+                     "manage_skin_mod": True})
 uploads = [c for c in _calls if c["url"] == skins._UPLOAD_URL]
 check("slim skin uploads model:'slim'", uploads and uploads[0]["json"]["model"] == "slim")
 
@@ -404,23 +403,23 @@ published = []
 skins._publish_skin_async = lambda cfg: published.append(dict(cfg))
 
 skins.sync_local_skin_to_csl({"username": "Wired", "active_skin": classic["filename"],
-                              "cosmetic_hat": None, "manage_skin_mod": True})
+                              "manage_skin_mod": True})
 check("sync publishes when managed and a skin is set", len(published) == 1, len(published))
 
 published.clear()
 skins.sync_local_skin_to_csl({"username": "Wired", "active_skin": classic["filename"],
-                              "cosmetic_hat": None, "manage_skin_mod": False})
+                              "manage_skin_mod": False})
 check("sync does NOT publish when skin-mod management is off", published == [])
 
 published.clear()
 skins.sync_local_skin_to_csl({"username": "Empty", "active_skin": None,
-                              "cosmetic_hat": None, "manage_skin_mod": True})
+                              "manage_skin_mod": True})
 check("sync DOES publish for a vanilla player too (heartbeat -> pointer -> cape)",
       len(published) == 1, len(published))
 
 published.clear()
 skins.sync_local_skin_to_csl({"username": "", "active_skin": None,
-                              "cosmetic_hat": None, "manage_skin_mod": True})
+                              "manage_skin_mod": True})
 check("sync never publishes without a username", published == [])
 
 # ---------------------------------------------------------------------------

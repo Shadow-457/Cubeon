@@ -2624,17 +2624,11 @@ def main(page: ft.Page):
                 # this launch is already over and leave the result alone.
                 with _exit_lock:
                     exited["done"] = True
-                # Milestones: credit this session's playtime (clamped inside)
-                # and evaluate unlocks - a fresh Veteran hat shows as a toast
-                # without disturbing the status flow below. Reads the on-disk
-                # session record written at launch, so it works even if the
-                # launcher was re-exec'd while the game ran.
+                # Credit this session's playtime (clamped inside). Reads the
+                # on-disk session record written at launch, so it works even
+                # if the launcher was re-exec'd while the game ran.
                 try:
                     core.milestones_end_play_session()
-                    fresh = core.milestones_evaluate()
-                    if fresh:
-                        for m in fresh:
-                            set_status(f"Unlocked: {core.milestone_name(m)} hat!")
                 except Exception:
                     pass  # cosmetic - never let it break the exit path
                 # Tell friends this user stopped playing (presence -> online).
@@ -3450,17 +3444,6 @@ def main(page: ft.Page):
     else:
         friends_client = None
         friends_service = None
-
-    # Milestones: one evaluate() at startup. Counters persist on disk and
-    # the cached roster just re-fed the friend count, so a user who crossed
-    # a threshold yesterday (10h played, 3 friends) sees the hat/toast on
-    # next launch instead of after their NEXT session ends. Purely cosmetic
-    # - guarded so it can never block or break startup.
-    try:
-        for _m in core.milestones_evaluate():
-            set_status(f"Unlocked: {core.milestone_name(_m)} hat!")
-    except Exception:
-        pass
 
     # -----------------------------------------------------------------
     # SETTINGS TAB

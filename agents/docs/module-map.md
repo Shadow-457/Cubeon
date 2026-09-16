@@ -1309,3 +1309,12 @@ Still-true invariants from the pre-local era:
   per tick.
 - Onboarding (_onboard_finish) publishes the username via the shared
   _publish_username synchronously - do not reintroduce a debounced fire there.
+
+## Hats (REMOVED 2026-09-16)
+Hats are gone: cubeon/cosmetics.py deleted, no cosmetic_hat config key, no
+hat/unlock code anywhere. cubeon/milestones.py is now ONLY the activity-stats
+store (seconds_played, sessions_hosted, friends_count_high, first_seen_at in
+milestones.json + play_session.json crash-survival) - the Stats tab reads it.
+The base-skin composer lives in cubeon/skins.py (compose_skin: active skin or
+built-in default Steve) - vanilla players still publish a sheet so the shared
+Cubeon cape resolves.

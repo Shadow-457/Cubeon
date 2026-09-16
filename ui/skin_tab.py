@@ -132,19 +132,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     def _render_big_preview(filename: str):
         """The actual PIL work - worker-thread only."""
-        # With a hat worn, preview exactly what the game will show: the
-        # composed sheet (active skin or built-in default + hat), not the
-        # raw uploaded file.
         out_path = (os.path.join(core.SKINS_DIR, f"_preview_{filename}.png")
                     if filename else
                     os.path.join(core.SKINS_DIR, "_preview_default.png"))
         try:
-            if cfg.get("cosmetic_hat"):
-                core.preview_composed_body(cfg, out_path, scale=8)
-            elif filename:
-                core.render_local_skin_preview(filename, out_path, scale=8)
-            else:
+            if not filename:
                 return
+            core.render_local_skin_preview(filename, out_path, scale=8)
             # ft.Image.src resolves relative strings against assets_dir and
             # can otherwise only load actual URLs - SKINS_DIR lives under the
             # user's home folder (~/.cubeon_launcher), nowhere near the app's
@@ -202,12 +196,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         try:
             if cfg.get("active_skin") == filename:
                 core.set_active_skin(cfg, None)
-                # With a hat worn there's still a composed skin to show (hat on
-                # the built-in default), so only hide the preview when bare.
-                if not cfg.get("cosmetic_hat"):
-                    custom_preview.visible = False
-                else:
-                    render_preview_for(filename)
+                custom_preview.visible = False
             core.delete_custom_skin(filename)
             core.forget_file("skin", filename)
         except Exception as ex:
@@ -501,7 +490,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     ), None, SURFACE_HI)
 
     refresh_skins_list()
-    if cfg.get("active_skin") or cfg.get("cosmetic_hat"):
+    if cfg.get("active_skin"):
         render_preview_for(cfg.get("active_skin"))
 
     # =====================================================================

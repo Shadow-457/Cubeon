@@ -712,10 +712,9 @@ class FriendsClient:
         # state after it rebuilds (e.g. switching to the Friends tab) without a
         # round-trip. Seeded from the on-disk cache for an instant first paint.
         self.roster = load_cached_roster()
-        # Milestones: seed the friend-count high-water mark (Party hat) from
-        # the cached roster so a user who hit 3 friends yesterday sees the
-        # hat on next launch, not after the next roster frame. _connect()
-        # will re-feed the live count anyway. Cosmetic - guarded.
+        # Stats: seed the friend-count high-water mark from the cached
+        # roster so the Stats tab is right on first paint. _connect() will
+        # re-feed the live count anyway. Cosmetic - guarded.
         try:
             from . import milestones as _milestones
             _milestones.note_friends_count(len(self.roster["friends"]))
@@ -862,10 +861,10 @@ class FriendsClient:
                 "groups": msg.get("groups", []),
             }
             save_cached_roster(self.roster)
-            # Milestones: friend-count high-water mark for the Party hat.
-            # The roster is the single authoritative update point, so the
-            # feed lives here rather than in every consumer. Cosmetic -
-            # guarded so a milestone failure can never break presence.
+            # Stats: friend-count high-water mark. The roster is the single
+            # authoritative update point, so the feed lives here rather than
+            # in every consumer. Cosmetic - guarded so a stats failure can
+            # never break presence.
             try:
                 from . import milestones as _milestones
                 _milestones.note_friends_count(len(self.roster["friends"]))

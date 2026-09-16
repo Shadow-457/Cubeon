@@ -274,8 +274,7 @@ def section_contracts():
     hint_bad = []
     for name in ("cubeon.config", "cubeon.paths", "cubeon.versions",
                  "cubeon.mod_loaders", "cubeon.friends", "cubeon.e2ee",
-                 "cubeon.skins", "cubeon.capes", "cubeon.cosmetics",
-                 "cubeon.milestones", "cubeon.thread_safe_ui"):
+                 "cubeon.skins", "cubeon.capes", "cubeon.milestones", "cubeon.thread_safe_ui"):
         try:
             mod = importlib.import_module(name)
         except Exception:

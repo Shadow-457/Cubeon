@@ -365,3 +365,25 @@ now run to completion.
 Verified: mega 16/16, ui_smoke 116/116 (new section 5g pins the async thumbs),
 net 21, install_progress 39, gallery 25, mod_detail 66, mod_store 21,
 modpacks 54, content_doctor 100 oks rc=0.
+
+## Hats removed for good
+User: stats still counted hats though the hat BROWSE was already gone -
+choose full removal. Removed: cubeon/cosmetics.py (hat catalogue, template
+painting, wear/persist/previews), the hat half of cubeon/milestones.py
+(evaluate/is_unlocked/progress, the KV unlock-ledger sync, MILESTONES table,
+FOUNDER_CUTOFF), core exports (set_hat/list_hats/preview_composed_body/... ,
+milestones_evaluate, milestone_name), the cosmetic_hat config key read sites
+(skins.py CSL sync has_custom, skin_tab preview branches, stats Hats tile),
+unlock toasts in main.py/server_tab.py, and the evaluate() calls in
+friends_service/server_tab. KEPT (not hats): the milestones.py activity-
+stats store - playtime/play-session persistence + reconcile, hosted
+sessions, friends high-water, first_seen - because the Stats tab's Playtime/
+Sessions/Friends/Member-since numbers read milestones.json. The base-skin
+composer (default Steve + active skin) moved from cosmetics into skins.py
+(compose_skin), so vanilla players still get the shared Cubeon cape and
+avatars still render. Stale 'unlocked'/'synced_unlocked' keys in existing
+milestones.json files are simply ignored by the new _defaults load. Tests:
+test_milestones.py rewritten to the stats store (22 checks), test_skins_net
+compose stub + cfg keys updated, test_mega_smoke module list updated.
+Green: milestones 22, skins_net, ui_smoke 116, mega 16/16, doctor, gallery,
+net, modpacks, mod_detail 66, install_progress 39.

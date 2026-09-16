@@ -1172,13 +1172,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             if active_version["value"] == version_id:
                 append_console(f"[server exited, code {code}]")
                 set_running_ui(False)
-            # Milestones: hosting a server for friends counts once per
-            # start->exit cycle. Clean exit or crash both count - the
-            # world WAS hosted either way.
+            # Hosting a server for friends counts once per start->exit cycle.
+            # Clean exit or crash both count - the world WAS hosted either way.
             try:
                 core.milestones_add_hosted()
-                for m in core.milestones_evaluate():
-                    append_console(f"[unlocked: {core.milestone_name(m)} hat]")
             except Exception:
                 pass  # cosmetic; the console must never die on this
 

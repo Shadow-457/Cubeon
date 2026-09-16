@@ -67,9 +67,87 @@ from .paths import (
 )
 from .config import save_config, stable_secret, stable_uuid
 from . import csl
-from . import cosmetics
 
 _VALID_SKIN_SIZES = {(64, 64), (64, 32)}
+
+
+# --- Base-skin composition ---------------------------------------------------
+# The sheet that should currently be in-game: the active custom skin, or a
+# built-in Steve-style default so an otherwise-vanilla player still gets the
+# shared Cubeon cape via CSL. (This used to live in cubeon/cosmetics.py and
+# bake a pixel hat on top; hats were removed - 2026-09-16.)
+
+def _rgba(img, x, y, color):
+    img.putpixel((x, y), color)
+
+
+def _rect(img, x0, y0, x1, y1, color):
+    for yy in range(y0, y1):
+        for xx in range(x0, x1):
+            img.putpixel((xx, yy), color)
+
+
+def default_base_skin() -> Image.Image:
+    """A built-in Steve-style 64x64 skin. Only the head really matters for
+    the avatar/face crops, but CSL expects a whole valid sheet, so the body
+    is filled in too."""
+    s = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    skin = (200, 144, 108, 255)
+    skin_shade = (180, 131, 107, 255)
+    hair = (59, 42, 26, 255)
+    shirt, shirt_shade = (15, 169, 169, 255), (12, 143, 143, 255)
+    jeans, shoes = (58, 75, 168, 255), (86, 86, 86, 255)
+    white, iris = (255, 255, 255, 255), (82, 61, 137, 255)
+
+    # Head - base faces.
+    _rect(s, 8, 8, 16, 16, skin)        # face
+    _rect(s, 0, 8, 8, 16, skin)         # right
+    _rect(s, 16, 8, 24, 16, skin)       # left
+    _rect(s, 24, 8, 32, 16, skin)       # back
+    _rect(s, 16, 0, 24, 8, skin_shade)  # chin/underside
+    # Hair: top of the head plus a fringe around the upper sides.
+    _rect(s, 8, 0, 16, 8, hair)
+    for hx in (0, 16, 24):              # right / left / back side faces
+        _rect(s, hx, 8, hx + 8, 11, hair)
+    _rect(s, 24, 8, 32, 13, hair)       # back of the head is mostly hair
+    # Face: eyes with the classic white-outside/purple-inside layout, nose, mouth.
+    _rgba(s, 9, 11, white); _rgba(s, 10, 11, iris)
+    _rgba(s, 13, 11, iris); _rgba(s, 14, 11, white)
+    _rect(s, 11, 12, 13, 13, skin_shade)
+    _rect(s, 11, 13, 13, 14, (126, 79, 61, 255))
+
+    # Body: teal shirt, bare arms (classic Steve), jeans with grey shoes.
+    _rect(s, 20, 20, 28, 32, shirt)
+    _rect(s, 20, 20, 28, 21, shirt_shade)
+    for ax, ay in ((44, 20), (36, 52)):
+        _rect(s, ax, ay, ax + 4, ay + 12, skin)
+        _rect(s, ax, ay + 10, ax + 4, ay + 12, skin_shade)   # hands
+    for lx, ly in ((4, 20), (20, 52)):
+        _rect(s, lx, ly, lx + 4, ly + 12, jeans)
+        _rect(s, lx, ly + 9, lx + 4, ly + 12, shoes)         # shoes
+    return s
+
+
+def _base_skin_for(cfg) -> Image.Image:
+    """The active custom skin if there is one on disk, else the built-in
+    default."""
+    filename = cfg.get("active_skin")
+    if filename:
+        path = os.path.join(SKINS_DIR, filename)
+        if os.path.isfile(path):
+            try:
+                with Image.open(path) as sheet:
+                    return sheet.convert("RGBA")
+            except OSError:
+                pass
+    return default_base_skin()
+
+
+def compose_skin(cfg) -> Image.Image:
+    """The full skin sheet that should currently be in-game: the active
+    skin, or the built-in default Steve when none is set."""
+    return _base_skin_for(cfg)
+
 
 # --- Network identity + skin publishing -------------------------------------
 # Timeout kept short: publishing runs on a background thread that must never
@@ -207,34 +285,31 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
     """
     username = (cfg.get("username") or "").strip()
     filename = cfg.get("active_skin")
-    hat = cfg.get("cosmetic_hat")
     previous = cfg.get("csl_synced_name")
     if not username:
         return
 
     # Clean up the file we last wrote if the name changed (otherwise a rename
-    # leaves <OLDNAME>.png behind) or there's nothing left to show (no skin
-    # AND no hat). Only ever delete a name this launcher recorded writing, so
+    # leaves <OLDNAME>.png behind) or there's nothing left to show (no skin). Only ever delete a name this launcher recorded writing, so
     # a skin the user dropped into LocalSkin by hand is never clobbered.
-    if previous and (previous != username or not (filename or hat)):
+    if previous and (previous != username or not filename):
         _remove_local_skin(previous)
         cfg["csl_synced_name"] = None
 
     # --- LocalSkin mirror: only when there IS custom content to mirror -------
-    # With no skin and no hat we deliberately write nothing: vanilla Steve
+    # With no skin we deliberately write nothing: vanilla Steve
     # stays vanilla locally. The network half below still runs, though -
     # that's what puts the shared Cubeon cape on an otherwise-vanilla player.
-    if filename or hat:
+    if filename:
         src = get_custom_skin_path(filename) if filename else None
         if src is not None and not os.path.isfile(src):
             src = None
-        if src is not None or hat:
+        if src is not None:
             try:
                 os.makedirs(CSL_LOCAL_SKINS_DIR, exist_ok=True)
                 # The composed sheet is what lands in CSL: the active skin
-                # (or the built-in default when none is set) with the worn
-                # hat, if any, baked into its hat layer.
-                sheet = cosmetics.compose_skin_with_hat(cfg)
+                # (or the built-in default when none is set).
+                sheet = compose_skin(cfg)
                 sheet.save(os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png"))
                 cfg["csl_synced_name"] = username
             except OSError:
@@ -244,7 +319,7 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
     # Even a vanilla player heartbeats once on first launch and once per
     # rename, because the heartbeat creates pointer:<name> -> <uuid> - and
     # that pointer is what makes serveProfile hand them the shared cape.
-    # Without it, default-Steve-no-hat players would be capeless (and worse,
+    # Without it, default-Steve players would be capeless (and worse,
     # indistinguishable from non-Cubeon players). Gated on the master skin-
     # mod opt-out, best-effort, pushed onto a background thread so a slow
     # request never delays a launch or a click. _publish_skin decides what
@@ -272,24 +347,23 @@ def _remove_local_skin(username: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _composed_skin_png(cfg: dict) -> bytes:
-    """The current composed sheet (active skin or default Steve, hat baked on)
-    as PNG bytes - the exact image written to LocalSkin, so friends see what
+    """The current sheet (active skin or default Steve) as PNG bytes - the exact image written to LocalSkin, so friends see what
     the player sees. Always 64x64 or legacy 64x32, which is precisely the
     dimensions the Worker's PNG guard accepts."""
-    sheet = cosmetics.compose_skin_with_hat(cfg)
+    sheet = compose_skin(cfg)
     buf = io.BytesIO()
     sheet.save(buf, format="PNG")
     return buf.getvalue()
 
 
 def _compose_face_png(cfg: dict, size: int = 128) -> bytes | None:
-    """The head crop of the composed sheet - face base layer + hat layer,
-    alpha-composited - as an upscaled square PNG. This is the avatar the
+    """The head crop of the current sheet (base layer + the sheet's own hat
+    layer, alpha-composited) as an upscaled square PNG. This is the avatar the
     Worker serves at /faces/<name>.png (Discord presence, web). Never
     raises; returns None when composition fails so the upload just omits
     the face and the Worker falls back to the full sheet."""
     try:
-        sheet = cosmetics.compose_skin_with_hat(cfg).convert("RGBA")
+        sheet = compose_skin(cfg).convert("RGBA")
         legacy = sheet.size == (64, 32)
         face = sheet.crop((8, 8, 16, 16))                     # base head front
         if not legacy:
@@ -399,7 +473,7 @@ def _publish_skin(cfg: dict) -> None:
 
         # Real content only. The sheet is composed (and hashed) lazily, so a
         # vanilla sync costs zero PIL work as well as zero upload bytes.
-        has_custom = bool(cfg.get("active_skin") or cfg.get("cosmetic_hat"))
+        has_custom = bool(cfg.get("active_skin"))
         if has_custom:
             png = _composed_skin_png(cfg)
             digest = hashlib.sha256(png).hexdigest()
