@@ -3558,18 +3558,51 @@ def main(page: ft.Page):
     _update_ram_warning(cfg["ram_mb"])
 
     def on_ram_change(e):
-        """Updates the RAM label, thumb/track color, warning, and saves the config."""
+        """Per-tick: visual only - label, thumb/track colour, warning.
+
+        Deliberately does NOT touch the config here. This handler fires for
+        every integer step of a drag (the slider has ~64 divisions), and it
+        used to call core.save_config(cfg) - i.e. serialise and rewrite the
+        whole config JSON to disk up to dozens of times per drag, on the UI
+        thread. That is the bulk of the "chunky slider" feel.
+
+        Persisting is deferred to on_ram_change_end (drag/keyboard release).
+        The repaint is control-level, not page.update(): a full-tree diff on
+        every tick is the other half of the jank - only three controls change.
+        """
         value = int(ram_slider.value)
         color = _ram_color(value)
         ram_slider.active_color = color
         ram_slider.thumb_color = color
         ram_label.value = f"{value} MB allocated"
         _update_ram_warning(value)
+        thread_safe_ui.refresh(ram_slider)
+        thread_safe_ui.refresh(ram_label)
+        thread_safe_ui.refresh(ram_warning)
+
+    def on_ram_change_end(e):
+        """Persist the allocation once, when the user lets go of the slider.
+
+        Guarded so a read-only config (or a full disk) surfaces as a message
+        instead of an exception escaping a UI handler, which Flet swallows -
+        leaving the user staring at a slider that "didn't stick".
+        """
+        value = int(ram_slider.value)
+        if int(cfg.get("ram_mb", 0)) == value:
+            return  # nothing changed (e.g. a stray change_end after load)
         cfg["ram_mb"] = value
-        core.save_config(cfg)
-        page.update()
+        try:
+            core.save_config(cfg)
+        except Exception as ex:
+            ram_warning.value = f"⚠ Couldn't save the RAM setting: {ex}"
+            ram_warning.visible = True
+            thread_safe_ui.refresh(ram_warning)
 
     ram_slider.on_change = on_ram_change
+    # on_change_end exists in this Flet generation (0.86.x) and fires on drag
+    # release / keyboard step. Unknown control attrs are silently dropped by
+    # Flet, so this is a no-op on a build without it rather than a crash.
+    ram_slider.on_change_end = on_ram_change_end
 
     # Width and height input fields
     width_field = ft.TextField(
@@ -4287,7 +4320,17 @@ def main(page: ft.Page):
                 page.update()
                 return
             profile_username_field.value = name
-            on_profile_username_change()   # validates, saves, syncs skins/avatars
+            # Publish the new name NOW, synchronously. The old call here
+            # (on_profile_username_change) was removed by the account-panel
+            # debounce rework and this call site was missed - every first
+            # run crashed both "Start playing" and Enter in the welcome
+            # dialog with NameError. Point the shared publisher at this
+            # field and publish directly: the debounced path would fire
+            # 1.2s later, after this handler has already saved cfg and
+            # closed the dialog.
+            _name_state["field"] = profile_username_field
+            _cancel_pending_name()
+            _publish_username()
             cfg["onboarded"] = True
             core.save_config(cfg)
             _close_dialog(onboard_dlg)

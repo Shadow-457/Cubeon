@@ -18,6 +18,7 @@ Design notes
 """
 import os
 import time
+import threading
 
 import flet as ft
 
@@ -138,9 +139,18 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
             total += _count_jars(os.path.join(SERVERS_DIR, sid, "plugins"))
         return total
 
+    _stats_gen = {"v": 0}
+
     def refresh_stats():
-        """Recompute every number in place. Cheap (folder globs + one JSON
-        read); called when the tab opens."""
+        """Instant numbers now, directory-scan numbers off-thread.
+
+        The milestone block is one JSON read and stays synchronous. The rest
+        walks mod folders across every profile, content dirs, and every
+        server's plugin folder - cheap on a fresh install, a visible tab-open
+        hitch on a large library, so those counters are computed on a worker
+        and each control is patched as its own number lands. A generation
+        counter discards writes from a stale run, so rapid tab flips can't
+        let a slow older scan overwrite a newer one's results."""
         ms = milestones.load_state()
         seconds = float(ms.get("seconds_played") or 0)
         playtime_value.value = f"{seconds / 3600:,.1f} h"
@@ -151,33 +161,40 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         first = ms.get("first_seen_at")
         member_value.value = time.strftime("%b %Y", time.localtime(first)) if first else "-"
 
-        try:
-            versions_value.value = f"{len(get_installed_versions()):,}"
-        except Exception:
-            versions_value.value = "-"
-
-        mods_value.value = f"{_count_mods_all_profiles():,}"
-
-        try:
-            from cubeon.modpacks import list_installed_modpacks
-            packs_value.value = f"{len(list_installed_modpacks()):,}"
-        except Exception:
-            packs_value.value = "-"
-
-        content_value.value = f"{_count_content():,}"
-        plugins_value.value = f"{_count_plugins_all_servers():,}"
-
-        try:
-            skins_value.value = f"{len(list_custom_skins()):,}"
-            capes_value.value = f"{len(list_custom_capes()):,}"
-        except Exception:
-            skins_value.value = capes_value.value = "-"
-
         from cubeon import thread_safe_ui
-        for ctrl in (playtime_value, sessions_value, friends_value, hats_value,
-                     versions_value, mods_value, packs_value, content_value,
-                     plugins_value, skins_value, capes_value, member_value):
+        for ctrl in (playtime_value, sessions_value, friends_value,
+                     hats_value, member_value):
             thread_safe_ui.refresh(ctrl)
+
+        gen = _stats_gen["v"] + 1
+        _stats_gen["v"] = gen
+
+        def _scan():
+            def put(ctrl, compute):
+                try:
+                    val = f"{compute():,}"
+                except Exception:
+                    val = "-"
+                if _stats_gen["v"] != gen:
+                    return  # a newer refresh superseded this scan
+                ctrl.value = val
+                thread_safe_ui.refresh(ctrl)
+
+            put(versions_value, lambda: len(get_installed_versions()))
+            put(mods_value, _count_mods_all_profiles)
+            try:
+                from cubeon.modpacks import list_installed_modpacks
+                put(packs_value, lambda: len(list_installed_modpacks()))
+            except Exception:
+                packs_value.value = "-"
+                thread_safe_ui.refresh(packs_value)
+            put(content_value, _count_content)
+            put(plugins_value, _count_plugins_all_servers)
+            put(skins_value, lambda: len(list_custom_skins()))
+            put(capes_value, lambda: len(list_custom_capes()))
+
+        threading.Thread(target=_scan, daemon=True,
+                         name="ux-stats-scan").start()
 
     # --- layout -------------------------------------------------------------
     stats_tab = ft.Column(

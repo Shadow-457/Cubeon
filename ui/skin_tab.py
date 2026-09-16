@@ -128,7 +128,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # scroll.
     skins_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
 
-    def render_preview_for(filename: str):
+    _preview_state = {"running": False, "queued": None}
+
+    def _render_big_preview(filename: str):
+        """The actual PIL work - worker-thread only."""
         # With a hat worn, preview exactly what the game will show: the
         # composed sheet (active skin or built-in default + hat), not the
         # raw uploaded file.
@@ -159,25 +162,59 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             custom_preview.visible = True
         except Exception as ex:
             upload_status.value = f"Couldn't render preview: {ex}"
+            thread_safe_ui.refresh(upload_status)
+        finally:
+            _preview_state["running"] = False
+            nxt = _preview_state["queued"]
+            _preview_state["queued"] = None
+            if nxt is not None:
+                render_preview_for(nxt)
+
+    def render_preview_for(filename: str):
+        # The 8x body composite is hundreds of ms of PIL work - too heavy for
+        # the UI thread every time the Profile tab opens or a Use click lands.
+        # Single-flight: at most one render runs; a newer request while one is
+        # in flight replaces the queued one (the newest intent wins), and the
+        # finally block re-runs it when the current render finishes.
+        if _preview_state["running"]:
+            _preview_state["queued"] = filename
+            return
+        _preview_state["running"] = True
+        threading.Thread(target=_render_big_preview, args=(filename,),
+                         daemon=True, name="ux-skin-preview").start()
 
     def set_active(filename: str):
-        core.set_active_skin(cfg, filename)
+        try:
+            core.set_active_skin(cfg, filename)
+        except Exception as ex:
+            upload_status.value = f"Couldn't switch skin: {ex}"
+            thread_safe_ui.refresh(upload_status)
+            return
         render_preview_for(filename)
         upload_status.value = "Active skin set to this one."
         refresh_skins_list()
         page.update()
 
     def delete_skin(filename: str):
-        if cfg.get("active_skin") == filename:
-            core.set_active_skin(cfg, None)
-            # With a hat worn there's still a composed skin to show (hat on
-            # the built-in default), so only hide the preview when bare.
-            if not cfg.get("cosmetic_hat"):
-                custom_preview.visible = False
-            else:
-                render_preview_for(filename)
-        core.delete_custom_skin(filename)
-        core.forget_file("skin", filename)
+        # Unguarded, a missing file or corrupt skins.json escaped the click
+        # handler - Flet swallows handler exceptions, so the card just sat
+        # there "undeletable" with no feedback. Surface it instead.
+        try:
+            if cfg.get("active_skin") == filename:
+                core.set_active_skin(cfg, None)
+                # With a hat worn there's still a composed skin to show (hat on
+                # the built-in default), so only hide the preview when bare.
+                if not cfg.get("cosmetic_hat"):
+                    custom_preview.visible = False
+                else:
+                    render_preview_for(filename)
+            core.delete_custom_skin(filename)
+            core.forget_file("skin", filename)
+        except Exception as ex:
+            upload_status.value = f"Couldn't delete: {ex}"
+            thread_safe_ui.refresh(upload_status)
+            return
+        _THUMB_MEMO.pop(("skin", filename), None)
         refresh_skins_list()
         page.update()
 
@@ -186,11 +223,36 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # language, and the pane wraps the grid in a fixed-height scroll region
     # (see _grid_scroll below) instead of paging. Each card shows a real
     # preview; the active item is highlighted, and hover reveals Use/Delete.
-    def _owned_card(*, src, label, sublabel, active, on_use, on_delete,
-                    preview_w=64, preview_h=92):
+    def _owned_card(*, label, sublabel, active, on_use, on_delete,
+                    src=None, lazy_thumb=None, preview_w=64, preview_h=92):
         """A selectable installed item: preview on top, name below, hover
         actions at the bottom. The active card swaps the Use button for an
-        outlined ACTIVE pill and gets the accent border."""
+        outlined ACTIVE pill and gets the accent border.
+
+        src: ready preview bytes/asset path (default cape, already-cached b64).
+        lazy_thumb: ("skin"|"cape", filename) - build the card immediately with
+        a placeholder and let the thumb worker fill the image in; the grid
+        never waits on PIL. Pass neither for a permanent "not an image" icon.
+        """
+        if src:
+            preview_img = ft.Image(src=src, width=preview_w, height=preview_h,
+                                   fit=ft.BoxFit.CONTAIN)
+            placeholder = None
+        elif lazy_thumb:
+            # Visible only once the worker thread lands real bytes. The
+            # placeholder keeps the card's height stable meanwhile, so the
+            # grid doesn't reflow as thumbs pop in.
+            preview_img = ft.Image(src="icon.svg", width=preview_w,
+                                   height=preview_h, fit=ft.BoxFit.CONTAIN,
+                                   visible=False)
+            placeholder = ft.Icon(ft.Icons.IMAGE_OUTLINED, color=TEXT_DIM,
+                                  size=22)
+            _PENDING_THUMBS.append((preview_img, placeholder,
+                                    lazy_thumb[0], lazy_thumb[1]))
+        else:
+            preview_img, placeholder = None, ft.Icon(
+                ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED, color=TEXT_DIM, size=22)
+        preview_stack = [c for c in (preview_img, placeholder) if c is not None]
         actions = [
             ft.Container(
                 content=ft.Text("ACTIVE", size=9.5, color=ACCENT,
@@ -222,11 +284,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             content=ft.Column(
                 [
                     ft.Container(
-                        content=(ft.Image(src=src, width=preview_w, height=preview_h,
-                                          fit=ft.BoxFit.CONTAIN)
-                                 if src else
-                                 ft.Icon(ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED,
-                                         color=TEXT_DIM, size=22)),
+                        content=ft.Row(preview_stack,
+                                       alignment=ft.MainAxisAlignment.CENTER,
+                                       spacing=0),
                         height=preview_h + 8, alignment=ft.Alignment.CENTER,
                     ),
                     ft.Text(label, size=12, color=ACCENT if active else TEXT,
@@ -274,21 +334,70 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         _IMG_MEMO[path] = b64
         return b64
 
-    def _skin_card_b64(filename):
-        out = os.path.join(core.SKINS_DIR, f"_thumb_{filename}.png")
+    # --- card thumbnails: cached, lazily rendered --------------------------
+    # Every card needs a PIL composite (decode + body assemble + upscale +
+    # PNG encode). Doing that inside refresh_* blocked the UI thread once per
+    # card on every list rebuild - open the Cosmetics tab with ten skins and
+    # the tab froze for the sum of ten composites. Now refresh_* builds every
+    # card INSTANTLY (cached b64 if we have one, quiet placeholder if not)
+    # and the composites happen on a worker thread that patches the image
+    # control per-card via thread_safe_ui.
+    _THUMB_MEMO = {}   # (kind, filename) -> b64 (bytes are immutable once written)
+    _PENDING_THUMBS = []  # (image_ctl, placeholder_ctl, kind, filename)
+
+    def _render_thumb(kind, filename):
+        """PIL-heavy thumbnail render -> b64, or None. Worker-thread only."""
+        folder = core.SKINS_DIR if kind == "skin" else core.CAPES_DIR
+        out = os.path.join(folder, f"_thumb_{filename}.png")
+        src = os.path.join(folder, filename)
         try:
-            core.render_local_skin_preview(filename, out, scale=3)
+            # The preview is a pure function of the sheet, so an up-to-date
+            # thumb file on disk IS the render - skip the composite entirely.
+            # Without this, every rebuild re-encoded every thumb (the UI jank
+            # half), and with the async path it would also mean N threads
+            # redoing finished work each time the tab is opened.
+            if not (os.path.exists(out)
+                    and os.path.getmtime(out) >= os.path.getmtime(src)):
+                if kind == "skin":
+                    core.render_local_skin_preview(filename, out, scale=3)
+                else:
+                    core.render_cape_preview(filename, out, scale=3)
+            b64 = _img_b64(out)
+            if b64:
+                _THUMB_MEMO[(kind, filename)] = b64
+            return b64
         except Exception:
-            return None
-        return _img_b64(out)
+            return None  # unreadable/missing sheet: the placeholder stays
+
+    def _flush_pending_thumbs():
+        """Render queued card thumbs off-thread, one worker for the batch."""
+        if not _PENDING_THUMBS:
+            return
+        jobs, _PENDING_THUMBS[:] = list(_PENDING_THUMBS), []
+
+        def _worker():
+            for img, ph, kind, fn in jobs:
+                b64 = _render_thumb(kind, fn)
+                if not b64:
+                    continue
+                img.src = b64
+                img.visible = True
+                thread_safe_ui.refresh(img)
+                if ph is not None:
+                    ph.visible = False
+                    thread_safe_ui.refresh(ph)
+
+        threading.Thread(target=_worker, daemon=True,
+                         name="ux-thumb-render").start()
+
+    def _skin_card_b64(filename):
+        # Synchronous path kept for callers that truly need the bytes now;
+        # the grid itself uses lazy_thumb instead so it never waits on PIL.
+        return _render_thumb("skin", filename)
 
     def _cape_card_b64(filename):
-        out = os.path.join(core.CAPES_DIR, f"_thumb_{filename}.png")
-        try:
-            core.render_cape_preview(filename, out, scale=3)
-        except Exception:
-            return None
-        return _img_b64(out)
+        return _render_thumb("cape", filename)
+
 
     def refresh_skins_list():
         skins = core.list_custom_skins()
@@ -299,32 +408,52 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             )
         for s in skins:
             is_active = cfg.get("active_skin") == s["filename"]
+            # Ready bytes if the thumb was already rendered this session;
+            # otherwise build the card around a placeholder and let the
+            # worker thread fill it in - the grid never waits on PIL.
+            cached = _THUMB_MEMO.get(("skin", s["filename"]))
             skins_list_col.controls.append(_owned_card(
-                src=_skin_card_b64(s["filename"]),
+                src=cached,
+                lazy_thumb=None if cached else ("skin", s["filename"]),
                 label=s["name"] + (" (slim)" if s.get("slim") else ""),
                 sublabel="",
                 active=is_active,
                 on_use=lambda e, fn=s["filename"]: set_active(fn),
                 on_delete=lambda e, fn=s["filename"]: delete_skin(fn),
             ))
+        _flush_pending_thumbs()
 
     def handle_skin_files(files):
         if not files:
             return
         picked = files[0]
+        # Validate + PIL-probe + copy + CSL sync + preview render is a
+        # multi-hundred-ms chain; it used to run inside the picker callback
+        # on the UI thread (same freeze class as the old profile-picture
+        # upload). Work happens on a thread; the button is parked so a
+        # double-click can't start two uploads of the same file.
+        upload_button.disabled = True
         upload_status.value = "Uploading..."
         thread_safe_ui.refresh(upload_status)
-        try:
-            display_name = os.path.splitext(picked.name)[0]
-            entry = core.add_custom_skin(picked.path, display_name)
-            set_active(entry["filename"])
-            msg = f"Uploaded and set '{entry['name']}' as active skin."
-        except ValueError as ve:
-            msg = str(ve)
-        except Exception as ex:
-            msg = f"Upload failed: {ex}"
-        upload_status.value = msg
-        thread_safe_ui.refresh(upload_status)
+        thread_safe_ui.refresh(upload_button)
+
+        def _work():
+            try:
+                display_name = os.path.splitext(picked.name)[0]
+                entry = core.add_custom_skin(picked.path, display_name)
+                set_active(entry["filename"])
+                msg = f"Uploaded and set '{entry['name']}' as active skin."
+            except ValueError as ve:
+                msg = str(ve)
+            except Exception as ex:
+                msg = f"Upload failed: {ex}"
+            upload_status.value = msg
+            upload_button.disabled = False
+            thread_safe_ui.refresh(upload_status)
+            thread_safe_ui.refresh(upload_button)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="ux-skin-upload").start()
 
     def on_files_picked(e):
         # Old-Flet path: pick_files() ran synchronously and the result
@@ -399,7 +528,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Wrapping card grid, same as the skins installed list (see _owned_card).
     capes_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
 
-    def render_cape_preview_for(filename: str):
+    _cape_preview_state = {"running": False, "queued": None}
+
+    def _render_big_cape_preview(filename: str):
         out_path = os.path.join(core.CAPES_DIR, f"_preview_{filename}.png")
         try:
             core.render_cape_preview(filename, out_path, scale=10)
@@ -408,6 +539,23 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             cape_preview.visible = True
         except Exception as ex:
             cape_status.value = f"Couldn't render preview: {ex}"
+            thread_safe_ui.refresh(cape_status)
+        finally:
+            _cape_preview_state["running"] = False
+            nxt = _cape_preview_state["queued"]
+            _cape_preview_state["queued"] = None
+            if nxt is not None:
+                render_cape_preview_for(nxt)
+
+    def render_cape_preview_for(filename: str):
+        # Same single-flight worker-thread shape as the skin preview: the
+        # 10x face composite never runs on the UI thread.
+        if _cape_preview_state["running"]:
+            _cape_preview_state["queued"] = filename
+            return
+        _cape_preview_state["running"] = True
+        threading.Thread(target=_render_big_cape_preview, args=(filename,),
+                         daemon=True, name="ux-cape-preview").start()
 
     def show_default_cape_preview():
         # No custom cape selected == wearing the shared Cubeon cape, which the
@@ -418,7 +566,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         cape_preview.visible = True
 
     def set_active_cape(filename):
-        core.set_active_cape(cfg, filename)
+        try:
+            core.set_active_cape(cfg, filename)
+        except Exception as ex:
+            cape_status.value = f"Couldn't switch cape: {ex}"
+            thread_safe_ui.refresh(cape_status)
+            return
         if filename:
             render_cape_preview_for(filename)
             cape_status.value = "Active cape set to this one."
@@ -429,11 +582,19 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         page.update()
 
     def delete_cape(filename):
-        if cfg.get("active_cape") == filename:
-            core.set_active_cape(cfg, None)
-            show_default_cape_preview()
-        core.delete_custom_cape(filename)
-        core.forget_file("cape", filename)
+        # Same guarded shape as delete_skin: silent handler exceptions made
+        # a failed delete look like a dead button.
+        try:
+            if cfg.get("active_cape") == filename:
+                core.set_active_cape(cfg, None)
+                show_default_cape_preview()
+            core.delete_custom_cape(filename)
+            core.forget_file("cape", filename)
+        except Exception as ex:
+            cape_status.value = f"Couldn't delete: {ex}"
+            thread_safe_ui.refresh(cape_status)
+            return
+        _THUMB_MEMO.pop(("cape", filename), None)
         refresh_capes_list()
         page.update()
 
@@ -457,8 +618,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ))
         for c in capes:
             is_active = cfg.get("active_cape") == c["filename"]
+            cached = _THUMB_MEMO.get(("cape", c["filename"]))
             capes_list_col.controls.append(_owned_card(
-                src=_cape_card_b64(c["filename"]),
+                src=cached,
+                lazy_thumb=None if cached else ("cape", c["filename"]),
                 label=c["name"],
                 sublabel="",
                 active=is_active,
@@ -471,24 +634,37 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             capes_list_col.controls.append(
                 ft.Text("No uploaded capes yet.", size=12, color=TEXT_DIM)
             )
+        _flush_pending_thumbs()
 
     def handle_cape_files(files):
         if not files:
             return
         picked = files[0]
+        # Threaded for the same reason as handle_skin_files; also replaces
+        # the bare page.update() (unsafe from a worker thread) with
+        # control-level thread_safe_ui refreshes.
+        cape_upload_button.disabled = True
         cape_status.value = "Uploading..."
-        page.update()
-        try:
-            display_name = os.path.splitext(picked.name)[0]
-            entry = core.add_custom_cape(picked.path, display_name)
-            set_active_cape(entry["filename"])
-            msg = f"Uploaded and set '{entry['name']}' as active cape."
-        except ValueError as ve:
-            msg = str(ve)
-        except Exception as ex:
-            msg = f"Upload failed: {ex}"
-        cape_status.value = msg
-        page.update()
+        thread_safe_ui.refresh(cape_status)
+        thread_safe_ui.refresh(cape_upload_button)
+
+        def _work():
+            try:
+                display_name = os.path.splitext(picked.name)[0]
+                entry = core.add_custom_cape(picked.path, display_name)
+                set_active_cape(entry["filename"])
+                msg = f"Uploaded and set '{entry['name']}' as active cape."
+            except ValueError as ve:
+                msg = str(ve)
+            except Exception as ex:
+                msg = f"Upload failed: {ex}"
+            cape_status.value = msg
+            cape_upload_button.disabled = False
+            thread_safe_ui.refresh(cape_status)
+            thread_safe_ui.refresh(cape_upload_button)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="ux-cape-upload").start()
 
     def on_cape_files_picked(e):
         # Untyped for the same version-spanning reason as on_files_picked.

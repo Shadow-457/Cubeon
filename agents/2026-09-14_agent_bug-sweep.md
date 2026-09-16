@@ -322,3 +322,46 @@ thread_safe_ui refreshes. (3) scrim-retire timer now no-ops if the panel was
 reopened inside its 0.25s window (was: open panel left with no dim/click-
 catcher). (4) remove-pfp guarded (no picture -> no-op; IO errors reported).
 Suites: ui 114, mod_detail 66, modpacks 54, mod_store 21 - green.
+
+## UX capture tool rebuilt; polish pass on cosmetics/settings/server/stats
+
+**tools/ux_capture.py** rewritten: ~34 states (every tab, both settings
+surfaces, all 3 content types x both views, filters, capes pane, composer
+draft, fix-problems, and 7 dialogs/panels), tour-only rich seeding (fake
+browse hits + detail payloads so grids/dialogs aren't empty), robust
+key-based navigation, --only/--list/--software-gl flags + auto-retry on
+software GL (the Mesa/Polaris first-frame SIGSEGV), and a generated
+README.md index in agents/docs/ux_shots/. app_driver's `shots` subcommand
+delegates to it unchanged.
+
+**Polish fixes (the "remaining smooth" pass):**
+- main.py RAM slider: per-tick handler used to rewrite config JSON on every
+  division (~64/drag) with a full page.update(); now visual-only per tick,
+  persisted once on_change_end (guarded).
+- settings_tab: _save_on_blur guarded (a rejected int or unwritable file used
+  to escape the handler silently); on_submit halves isolated.
+- skin_tab (cosmetics): card thumbs were PIL-composited synchronously per card
+  per rebuild - now built around placeholders and rendered on one worker
+  thread with an mtime skip (up-to-date thumb file == render done); big
+  skin/cape previews single-flight off-thread; uploads threaded with the
+  button parked; delete/set-active guarded with status feedback; cape upload
+  no longer uses bare page.update().
+- stats_tab: directory-scan counters (mods/packs/content/plugins/skins/vers)
+  moved off the tab-open click onto a worker, per-control refresh, generation
+  counter so a stale slow scan can't overwrite a newer one.
+- server_tab: command worker no longer fires a redundant full-tree
+  page.update() next to the coalesced console flush.
+
+**Real bug caught by test_mega_smoke:** the onboarding dialog still called
+on_profile_username_change (removed by the account-panel debounce rework) ->
+NameError on "Start playing"/Enter for every first run. Now points the
+shared publisher at the field and publishes synchronously.
+
+**Latent broken test fixed:** test_content_doctor.py used
+CONTENT_TYPES["shaderpack"] and delete_content("resourcepacks") - wrong keys
+(it had been crashing mid-run, not passing 97). Both corrected; 100 checks
+now run to completion.
+
+Verified: mega 16/16, ui_smoke 116/116 (new section 5g pins the async thumbs),
+net 21, install_progress 39, gallery 25, mod_detail 66, mod_store 21,
+modpacks 54, content_doctor 100 oks rc=0.

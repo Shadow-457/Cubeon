@@ -18,6 +18,7 @@ Run: python3 tools/test_ui_smoke.py
 """
 import os
 import sys
+import time
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -518,6 +519,55 @@ finally:
         except Exception:
             pass
 
+print("\n5g. card thumbnails render off-thread and fill in (no UI-thread PIL)")
+# Regression for the cosmetics-tab freeze: refresh_skins_list/refresh_capes_list
+# used to run a full PIL composite per card synchronously, so opening the tab
+# with N skins blocked the UI thread N times. The grid must now build instantly
+# around placeholders, and a worker must land the real bytes into the (already
+# mounted) Image control shortly after.
+_thumb_src = os.path.join(core.SKINS_DIR, "_regress_thumb_src.png")
+_PILImage.new("RGBA", (64, 64), (60, 120, 200, 255)).save(_thumb_src, "PNG")
+_thumb_skin = None
+try:
+    _thumb_skin = core.add_custom_skin(_thumb_src, "Regress Thumb Skin")
+    os.remove(_thumb_src)
+    _sec2 = build_skin_section(
+        FakePage(), {"username": "tester", "active_skin": None},
+        section_label=theme_mod.section_label, pixel_divider=theme_mod.pixel_divider,
+        **THEME, mc_version="1.21.11", mc_loader="fabric",
+        file_picker=ft.FilePicker())
+    # Scope to the installed grid's card image (the big preview box is also a
+    # placeholder by design when no skin is active).
+    _grid2 = next((x for x in walk(_sec2)
+                   if isinstance(x, ft.Row) and getattr(x, "wrap", False)
+                   and "regress thumb skin" in " ".join(all_text(x)).lower()),
+                  None)
+    _img = next((x for x in (walk(_grid2) if _grid2 is not None else [])
+                 if isinstance(x, ft.Image)
+                 and x.src in (None, "", "icon.svg")), None)
+    check("grid builds instantly around a placeholder image", _img is not None)
+    # The worker needs a moment to composite; poll rather than sleep-fixed.
+    _deadline = time.time() + 6
+    _filled = False
+    while time.time() < _deadline:
+        if _img is not None and _img.src not in (None, "", "icon.svg"):
+            _filled = True
+            break
+        time.sleep(0.1)
+    check("thumbnail bytes land in the image control after build", _filled)
+except Exception:
+    import traceback
+    check("grid builds instantly around a placeholder image", False,
+          traceback.format_exc())
+    check("thumbnail bytes land in the image control after build", False)
+finally:
+    if _thumb_skin:
+        try:
+            core.delete_custom_skin(_thumb_skin["filename"])
+        except Exception:
+            pass
+
+print("\n6. rebuilding is idempotent (catches leaked module-level state)")
 print("\n6. rebuilding is idempotent (catches leaked module-level state)")
 # A refactor that hoists per-session state to module level breaks on the second
 # build, not the first - so build twice and assert it still works.

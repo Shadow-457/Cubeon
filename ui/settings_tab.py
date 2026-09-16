@@ -309,15 +309,39 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # --- instant save on blur (width/height/java) ---------------------------
     # The old "Save settings" button is gone: leaving the field saves.
     def _save_on_blur(e=None):
-        save_width_height_java()
+        """Persist width/height/java_path.
+
+        Guarded: this runs from on_blur AND on_submit, and it used to call
+        save_width_height_java() bare. A rejected value (e.g. "abc" in the
+        width field, which int() refuses) or an unwritable config file would
+        raise straight out of the handler - Flet swallows handler exceptions,
+        so the field simply looked dead: no save, no error, no feedback.
+        """
+        try:
+            save_width_height_java()
+        except Exception as ex:
+            set_status(f"Couldn't save settings: {ex}")
+            return
         set_status("Settings saved")
 
     width_field.on_blur = _save_on_blur
     height_field.on_blur = _save_on_blur
     java_path_field.on_blur = _save_on_blur
-    # Enter in the field also saves (and feels instant).
+    # Enter in the field also saves (and feels instant). The previous submit
+    # handler is preserved, but each half is isolated so a failure in one
+    # can't stop the other (previously `(p and p(e), _save_on_blur(e))` would
+    # abort the whole tuple eval if p(e) raised).
     for f in (width_field, height_field, java_path_field):
         prev = f.on_submit
-        f.on_submit = (lambda e, p=prev: (p and p(e), _save_on_blur(e)))
+
+        def _submit(e, p=prev):
+            if p:
+                try:
+                    p(e)
+                except Exception:
+                    pass
+            _save_on_blur(e)
+
+        f.on_submit = _submit
 
     return host

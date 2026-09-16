@@ -1334,7 +1334,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 append_console(f"> {text}")
             except Exception as ex:
                 append_console(f"[couldn't send command: {ex}]")
-            page.update()
+            # No page.update() here: append_console schedules the coalesced
+            # console repaint (control-level), and a full-tree diff from a
+            # worker thread is exactly the redundant work the flush exists
+            # to avoid.
         threading.Thread(target=worker, daemon=True).start()
 
     def on_send_command(e=None):

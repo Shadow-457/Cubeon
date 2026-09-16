@@ -1296,3 +1296,16 @@ Still-true invariants from the pre-local era:
   GOTCHAS hit while testing: run_doctor's auto_fix defaults TRUE (a detect
   probe must pass auto_fix=False); test fixtures that install fake versions
   leak their pack formats into every later section's targets - clean them up.
+
+## Polish surfaces (cosmetics/settings/stats/server)
+- ui/skin_tab.py renders card thumbs LAZILY (one worker per refresh batch,
+  mtime-skipped; _THUMB_MEMO closure state) - never call _render_thumb on the
+  UI thread. Big previews are single-flight off-thread. Upload handlers park
+  their button while working.
+- ui/stats_tab.py refresh_stats: milestone block is sync (1 JSON read); the
+  directory-scan counters run on a worker guarded by _stats_gen. Tests must
+  not expect scan counters synchronously after refresh_stats().
+- settings persist on on_change_end (RAM) / on_blur/on_submit (fields), not
+  per tick.
+- Onboarding (_onboard_finish) publishes the username via the shared
+  _publish_username synchronously - do not reintroduce a debounced fire there.

@@ -645,7 +645,7 @@ check("a folder-in-shaders that is a resource pack is reported",
 # content listing + delete for folder packs
 from cubeon import content as content_mod
 content_mod.CONTENT_TYPES["resourcepack"]["dir"] = DOC_PACKS
-content_mod.CONTENT_TYPES["shaderpack"]["dir"] = DOC_SHADERS
+content_mod.CONTENT_TYPES["shader"]["dir"] = DOC_SHADERS
 listing = content_mod.list_content("resourcepack", mc_version="1.21.11")
 names = {i["filename"] for i in listing}
 check("folder packs appear in the installed list",
@@ -655,6 +655,6 @@ check("they are flagged as folder entries with real sizes",
       all(i.get("folder") and i["size_kb"] > 0
           for i in listing if i["filename"].endswith("Folder Pack")),
       [(i["filename"], i.get("folder"), i["size_kb"]) for i in listing])
-content_mod.delete_content("resourcepacks", "Old Folder Pack")
+content_mod.delete_content("resourcepack", "Old Folder Pack")
 check("a folder pack can be deleted without escaping the folder",
       not os.path.exists(old_dir) and os.path.isdir(DOC_PACKS))
