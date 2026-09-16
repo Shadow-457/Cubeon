@@ -387,3 +387,29 @@ test_milestones.py rewritten to the stats store (22 checks), test_skins_net
 compose stub + cfg keys updated, test_mega_smoke module list updated.
 Green: milestones 22, skins_net, ui_smoke 116, mega 16/16, doctor, gallery,
 net, modpacks, mod_detail 66, install_progress 39.
+
+## Mods tab installed-view sweep (the last unswept surface)
+Four real defects in ui/mods_tab.py, all fixed:
+1. on_toggle/on_delete/on_delete_content called core.toggle_mod/delete_mod/
+   delete_content BARE - core raises ValueError for stale rows ("no longer on
+   disk") and protected mods, Flet swallowed it, the switch/delete looked
+   dead. Now guarded with an installed_status line under the Installed header
+   (success + failure feedback), and the list re-syncs on failure so a stale
+   row can't linger.
+2. on_delete didn't re-render the browse page (only the pack/shader delete
+   did) - a deleted mod kept reading as Installed with no Download button
+   until a re-search. Now calls _render_browse_page() like the content path.
+3. handle_local_mod_files ran install_local_mod/_content (global-store copy,
+   sidecar meta; packs: full zip verify/fix) PLUS run_mod_repair (doctor with
+   check_online=True) inline in the FilePicker result handler - UI thread.
+   Now threaded (cubeon-local-mod-install), "Install from file" button parked
+   during the run (double-pick guard), control-level repaints only.
+4. _fetch_missing_icons worker fired a full-tree page.update() from a thread
+   next to the TREE_LOCK-protected holder swaps. Now a control-level refresh
+   of mods_list_view only.
+Pinned in test_ui_smoke (section 8x, 8 new checks -> 124 total): guarded
+mutators, browse re-render, threaded local install + parked button, icon
+worker list-region-only repaint. Note: the source-pin regexes read raw source
+- don't write "page.update()" in comments inside pinned functions.
+Green: ui_smoke 124, mega 16/16 (dynamic pass, 0 raised handlers), doctor
+100, modpacks 54, net 21.

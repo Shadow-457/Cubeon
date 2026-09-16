@@ -1318,3 +1318,10 @@ milestones.json + play_session.json crash-survival) - the Stats tab reads it.
 The base-skin composer lives in cubeon/skins.py (compose_skin: active skin or
 built-in default Steve) - vanilla players still publish a sheet so the shared
 Cubeon cape resolves.
+- ui/mods_tab.py installed rows: toggle/delete handlers are guarded and report
+  through installed_status; mod delete re-renders the browse page. Local
+  "Install from file" runs on the cubeon-local-mod-install worker with the
+  button parked - never call core.install_local_* on the UI thread. The
+  slug->icon worker repaints mods_list_view only, never the full page.
+- Gotcha: test_ui_smoke source-pins read raw source; avoid the literal
+  "page.update()" in comments inside pinned functions (it trips the pins).

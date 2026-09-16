@@ -1065,6 +1065,54 @@ check("view toggle flips pane visibility only",
       "browse_pane.visible" in _mods_src and "installed_pane.visible" in _mods_src,
       "toggling views must not re-create the panes")
 
+# --- installed-row handlers must fail loudly, not silently (2026-09-16) --------
+# core.toggle_mod raises ValueError for a stale row ("no longer on disk") and
+# for protected mods; the row handlers used to call it bare, the exception
+# died inside Flet, and the switch/delete just looked dead. Same silent-death
+# class the cosmetics deletes had.
+_toggle_src = _fn_src(_mods_src, "on_toggle")
+_delete_src = _fn_src(_mods_src, "on_delete")
+_delcontent_src = _fn_src(_mods_src, "on_delete_content")
+check("installed toggle surfaces its failure",
+      "try:" in _toggle_src and "_set_installed_status" in _toggle_src
+      and "except Exception" in _toggle_src,
+      "on_toggle must guard core.toggle_mod and show the reason")
+check("installed delete surfaces its failure",
+      "try:" in _delete_src and "_set_installed_status" in _delete_src,
+      "on_delete must guard core.delete_mod and show the reason")
+check("content delete surfaces its failure",
+      "try:" in _delcontent_src and "_set_installed_status" in _delcontent_src,
+      "on_delete_content must guard core.delete_content")
+# A deleted mod used to keep reading as Installed on the browse page (only
+# the pack/shader delete re-rendered it) - the Download button stayed hidden.
+check("mod delete re-renders the browse page",
+      "_render_browse_page()" in _delete_src,
+      "on_delete must refresh the browse view like on_delete_content does")
+
+# --- local 'Install from file' must not run on the UI thread --------------------
+# install_local_mod/_content is real disk work (global-store copy, meta write,
+# for packs a full zip verify) and run_mod_repair does network checks. It used
+# to run inline in the FilePicker result handler.
+_local_src = _fn_src(_mods_src, "handle_local_mod_files")
+check("local install runs on a worker thread",
+      "threading.Thread" in _local_src and "cubeon-local-mod-install" in _mods_src,
+      "handle_local_mod_files must not block the UI thread")
+check("local install parks its button",
+      "local_install_btn.disabled = True" in _local_src
+      and "local_install_btn.disabled = False" in _local_src,
+      "the Install-from-file button must be parked while installing")
+check("local install repaints via control refresh, not page.update",
+      "page.update()" not in _local_src
+      and "thread_safe_ui.refresh(local_install_status)" in _local_src,
+      "full-tree page.update() from the worker is the jank anti-pattern")
+
+# --- icon worker must not fire a full-tree page.update() from a thread ----------
+_icons_src = _fn_src(_mods_src, "_fetch_missing_icons")
+check("icon worker repaints the list region only",
+      "page.update()" not in _icons_src
+      and "thread_safe_ui.refresh(mods_list_view)" in _icons_src,
+      "the slug->icon worker must not full-tree update")
+
 # --- Stats tab (2026-09-09) ----------------------------------------------------
 _stats_src = open(os.path.join(_app_root, "ui", "stats_tab.py"), encoding="utf-8").read()
 _main_src = open(os.path.join(_app_root, "main.py"), encoding="utf-8").read()

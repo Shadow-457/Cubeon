@@ -93,6 +93,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     installed_count_text = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     installed_show_all = {"value": False}
 
+    # Row-action feedback line (under the Installed header): toggle/remove
+    # failures used to raise out of the click handler, which Flet swallows -
+    # the switch/delete just looked dead. Surface the reason instead.
+    installed_status = ft.Text("", size=11.5, color=TEXT_DIM,
+                               font_family=FONT_MONO, visible=False)
+
+    def _set_installed_status(t):
+        installed_status.value = t
+        installed_status.visible = True
+        thread_safe_ui.refresh(installed_status)
+
     # --- Installed-mod icons -------------------------------------------------
     # Installed jars only record their Modrinth *slug* in a sidecar file - the
     # icon the browse row showed isn't stored anywhere. So the installed list
@@ -157,7 +168,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     for holder in pending_icon_holders.get(s, []):
                         holder.content = _icon_image(url)
                 pending_icon_holders.clear()
-            page.update()
+            # Control-level repaint scoped to the list region only: a
+            # full-tree update from a worker thread is the redundant-diff
+            # anti-pattern (the worker already mutated the tree under
+            # TREE_LOCK above).
+            thread_safe_ui.refresh(mods_list_view)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -455,7 +470,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         """
         if not _is_mod():
             def on_delete_content(e):
-                core.delete_content(_ct(), m["filename"])
+                # Stale-UI guard: the row is a snapshot; the pack may already
+                # be gone (deleted elsewhere, folder moved). core.delete_content
+                # raises for that and for anything suspicious - show it instead
+                # of letting the exception die inside Flet (dead button).
+                try:
+                    core.delete_content(_ct(), m["filename"])
+                except Exception as ex:
+                    _set_installed_status(f"Couldn't remove: {ex}")
+                    return
+                _set_installed_status(f"Removed '{m['display_name']}'.")
                 refresh_mods_list()
                 # The browse section above still shows this item as Installed
                 # (a disabled checkmark) until it is re-rendered against the
@@ -495,14 +519,39 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         def on_toggle(e):
             if m.get("protected"):
                 return  # Cubeon-managed mod - core would refuse anyway
-            core.toggle_mod(state["selected_mc_version"], state["mod_loader"], m["filename"])  # Enable/disable the mod
-            refresh_mods_list()  # Refresh the list to reflect the new state
+            # Stale-UI guard: core.toggle_mod raises ValueError when the jar
+            # already left the disk between render and click (or the mod is
+            # protected). That used to escape the handler, Flet swallowed it,
+            # and the switch silently did nothing. Say what happened, and
+            # re-sync the list either way so a stale row can't linger.
+            try:
+                core.toggle_mod(state["selected_mc_version"],
+                                state["mod_loader"], m["filename"])
+            except Exception as ex:
+                _set_installed_status(str(ex))
+                refresh_mods_list()
+                return
+            _set_installed_status(
+                f"{'Disabled' if m['enabled'] else 'Enabled'} '{m['display_name']}'.")
+            refresh_mods_list()
 
         def on_delete(e):
             if m.get("protected"):
                 return  # Cubeon-managed mod - core would refuse anyway
-            core.delete_mod(state["selected_mc_version"], state["mod_loader"], m["filename"])  # Delete the mod file
+            # Same stale-UI guard as on_toggle; delete is a no-op in core when
+            # the file is already gone, but protected/other failures surface.
+            try:
+                core.delete_mod(state["selected_mc_version"],
+                                state["mod_loader"], m["filename"])
+            except Exception as ex:
+                _set_installed_status(f"Couldn't remove: {ex}")
+                refresh_mods_list()
+                return
+            _set_installed_status(f"Removed '{m['display_name']}'.")
             refresh_mods_list()
+            # A deleted mod must stop reading as Installed on the browse page
+            # (same re-render the content delete path already did).
+            _render_browse_page()
             # Re-render the browse page so a just-deleted mod that is still on
             # it stops reading as Installed and offers Download again.
             _render_browse_page()
@@ -584,24 +633,40 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         picked = files[0]
         local_install_status.value = "Installing..."
         local_install_status.visible = True
-        page.update()
-        try:
-            if _is_mod():
-                core.install_local_mod(picked.path, state["selected_mc_version"], state["mod_loader"])
-            else:
-                core.install_local_content(_ct(), picked.path)
-            local_install_status.value = f"Installed '{picked.name}'."
-            refresh_mods_list()
-            if _is_mod():
-                # A just-added file is the classic moment for a duplicate or a
-                # missing dependency to bite - check and fix quietly.
-                run_mod_repair()
-        except ValueError as ve:
-            local_install_status.value = str(ve)
-        except Exception as ex:
-            local_install_status.value = f"Install failed: {ex}"
-        local_install_status.visible = True
-        page.update()
+        thread_safe_ui.refresh(local_install_status)
+        # Park the trigger so a double-pick can't run two installs into the
+        # same profile; the worker below restores it.
+        local_install_btn.disabled = True
+        thread_safe_ui.refresh(local_install_btn)
+
+        # The install is real disk work (global-store copy/link, sidecar meta;
+        # for packs a full copy + pack.mcmeta verify/fix) and run_mod_repair
+        # even does network checks - none of it belongs on the UI thread
+        # (same treatment the cosmetics uploads got).
+        def worker():
+            try:
+                if _is_mod():
+                    core.install_local_mod(picked.path, state["selected_mc_version"],
+                                           state["mod_loader"])
+                else:
+                    core.install_local_content(_ct(), picked.path)
+                local_install_status.value = f"Installed '{picked.name}'."
+                refresh_mods_list()
+                if _is_mod():
+                    # A just-added file is the classic moment for a duplicate
+                    # or a missing dependency to bite - check and fix quietly.
+                    run_mod_repair()
+            except ValueError as ve:
+                local_install_status.value = str(ve)
+            except Exception as ex:
+                local_install_status.value = f"Install failed: {ex}"
+            local_install_status.visible = True
+            thread_safe_ui.refresh(local_install_status)
+            local_install_btn.disabled = False
+            thread_safe_ui.refresh(local_install_btn)
+
+        threading.Thread(target=worker, daemon=True,
+                         name="cubeon-local-mod-install").start()
 
     def on_local_mod_picked(e):
         # Old-Flet path: pick_files() ran synchronously and the result
@@ -1842,6 +1907,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 spacing=12,
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             repair_status,
+            installed_status,
             ft.Container(height=10),
             installed_filter_field,
             ft.Container(height=10),
@@ -1926,6 +1992,20 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # wrapped the results AND the installed list in bordered filled panels -
     # boxes around rows that were themselves boxes. Both wrappers are gone:
     # lists float directly on the surface, sections are separated by a single
+    # Header action: "Install from file" (ghost button). Named so the local-
+    # install worker can park it while an install runs (double-pick guard).
+    local_install_btn = attach_hover(ft.Container(
+        content=ft.Row(
+            [ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=TEXT_DIM, size=16),
+             ft.Text("Install from file", color=TEXT_DIM, size=13,
+                     weight=ft.FontWeight.W_600)],
+            spacing=6,
+        ),
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
+        ink=False, on_click=open_local_mod_picker,
+    ), "transparent", ROW_HOVER)
+
     # hairline divider, and spacing snaps to one consistent scale instead of
     # alternating huge gaps with dense slabs.
     mods_tab = ft.Column(
@@ -1938,17 +2018,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         spacing=2,
                     ),
                     ft.Container(expand=True),
-                    attach_hover(ft.Container(
-                        content=ft.Row(
-                            [ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=TEXT_DIM, size=16),
-                             ft.Text("Install from file", color=TEXT_DIM, size=13,
-                                     weight=ft.FontWeight.W_600)],
-                            spacing=6,
-                        ),
-                        border_radius=RADIUS,
-                        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
-                        ink=False, on_click=open_local_mod_picker,
-                    ), "transparent", ROW_HOVER),
+                    local_install_btn,
                     ft.Container(width=6),
                     attach_hover(ft.Container(
                         content=ft.Row(
