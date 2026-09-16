@@ -310,3 +310,15 @@ own section-9 fixture (fake version jar) leaked format 88 into section 10
 targets - the multi-version rule then correctly 'repaired' healthy packs.
 Both now documented. Batch green: ui 114, mod_detail 66, mod_store 21,
 modpacks 54, net 21, install_progress 39, mega-static 12, doctor 97.
+
+## Account panel / profile sidebar hardening
+Four fixes in main.py: (1) the Account username field ran the FULL pipeline
+(CSL sync x2 + save + refresh + a 3s contest-check thread) per KEYSTROKE -
+now shares ONE debounce slot with the Play field (also kills the race where
+two pending timers could overwrite each other's name; newest edit wins).
+(2) Profile-picture upload (PIL decode + LANCZOS resize, 100s of ms for big
+photos) moved off the UI thread with disabled buttons + per-control
+thread_safe_ui refreshes. (3) scrim-retire timer now no-ops if the panel was
+reopened inside its 0.25s window (was: open panel left with no dim/click-
+catcher). (4) remove-pfp guarded (no picture -> no-op; IO errors reported).
+Suites: ui 114, mod_detail 66, modpacks 54, mod_store 21 - green.

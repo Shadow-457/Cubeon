@@ -799,18 +799,36 @@ def main(page: ft.Page):
             return
         picked = files[0]
         profile_pfp_status.value = "Uploading..."
+        profile_pfp_upload_btn.disabled = True
+        profile_pfp_remove_btn.disabled = True
         page.update()
-        try:
-            core.set_profile_picture(picked.path)
-            cfg["profile_picture"] = "avatar.png"
-            core.save_config(cfg)
-            refresh_avatars()
-            profile_pfp_status.value = "Profile picture updated."
-        except ValueError as ve:
-            profile_pfp_status.value = str(ve)
-        except Exception as ex:
-            profile_pfp_status.value = f"Upload failed: {ex}"
-        page.update()
+
+        def _work():
+            # The upload runs OFF the UI thread: set_profile_picture decodes
+            # and LANCZOS-resizes the chosen image, which is hundreds of ms
+            # for a big photo - on the UI thread it froze typing/scrolling
+            # for the whole resize.
+            try:
+                core.set_profile_picture(picked.path)
+                cfg["profile_picture"] = "avatar.png"
+                core.save_config(cfg)
+                refresh_avatars()
+                profile_pfp_status.value = "Profile picture updated."
+            except ValueError as ve:
+                profile_pfp_status.value = str(ve)
+            except Exception as ex:
+                profile_pfp_status.value = f"Upload failed: {ex}"
+            finally:
+                profile_pfp_upload_btn.disabled = False
+                profile_pfp_remove_btn.disabled = False
+                # Per-control diffs from this background thread - a
+                # page.update() here would stomp on whatever the user is
+                # doing in the foreground.
+                thread_safe_ui.refresh(account_panel)
+                thread_safe_ui.refresh(top_bar)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="cubeon-pfp-upload").start()
 
     def on_pfp_picked(e):
         # Old-Flet path: pick_files() ran synchronously and the result
@@ -918,7 +936,15 @@ def main(page: ft.Page):
             pass
 
     def on_remove_pfp(e=None):
-        core.clear_profile_picture(cfg)
+        if not cfg.get("profile_picture"):
+            return  # nothing to remove - don't flash a pointless status
+        try:
+            core.clear_profile_picture(cfg)
+        except Exception:
+            logging.getLogger(__name__).warning("pfp removal failed", exc_info=True)
+            profile_pfp_status.value = "Couldn't remove the profile picture."
+            page.update()
+            return
         refresh_avatars()
         profile_pfp_status.value = "Profile picture removed."
         page.update()
@@ -927,7 +953,8 @@ def main(page: ft.Page):
     # Mirrors the Play tab's username field - offline accounts are keyed
     # entirely off the username, so editing it here changes the signed-in
     # account exactly the same way editing it on Play does. Both fields
-    # stay in sync via refresh_avatars()/sync_username_fields() below.
+    # stay in sync via the SHARED username publish machinery below (one
+    # debounce slot, newest edit wins - see on_name_keystroke).
 
     profile_username_field = ft.TextField(
         value=cfg["username"],
@@ -946,32 +973,55 @@ def main(page: ft.Page):
         suffix_icon=ft.Icons.EDIT_ROUNDED,
     )
 
-    def on_profile_username_change(e=None):
-        name = profile_username_field.value.strip()
+    # --- SHARED username publish machinery (Account + Play fields) ---
+    # Both fields edit the same account name, so they share ONE debounce
+    # slot. This fixes two real bugs the independent handlers had:
+    #   1. the Account field ran the full pipeline (CSL sync x2, config
+    #      save, avatar refresh, a 3s contest-check THREAD) on EVERY
+    #      keystroke - the Play field was debounced, this one wasn't, so
+    #      typing in the account panel read as laggy/chunky;
+    #   2. two independent pending timers could race: an older pending name
+    #      from one field could overwrite a newer one just published by the
+    #      other. One slot means the newest edit always wins.
+    _name_state = {"timer": None, "pending": None, "field": None}
+
+    def _name_validate_into(field):
+        name = field.value.strip()
         ok, err = core.validate_username(name)
-        if not ok:
-            profile_username_field.error_text = err
-            page.update()
+        field.error_text = None if ok else err
+        return ok, name
+
+    def _publish_username():
+        # Runs 1.2s after the last keystroke (or on blur): read the CURRENT
+        # value of whichever field was edited last - a name captured at
+        # keystroke time could be stale.
+        field = _name_state.get("field")
+        if field is None:
             return
-        profile_username_field.error_text = None
+        ok, name = _name_validate_into(field)
+        if not ok or name == cfg.get("username"):
+            try:
+                page.update()
+            except Exception:
+                pass
+            return
         cfg["username"] = name
-        # CustomSkinLoader looks the skin up by <USERNAME>.png, so a rename
-        # has to move the synced file or the skin stops resolving.
+        # CustomSkinLoader looks the skin up by <USERNAME>.png (and the cape
+        # as LocalSkin/capes/<USERNAME>.png), so a rename must move both
+        # synced files or the cosmetics stop resolving.
         core.sync_local_skin_to_csl(cfg)
-        # A rename moves the cape file too, same reason (CSL reads it as
-        # LocalSkin/capes/<USERNAME>.png).
         core.sync_local_cape_to_csl(cfg)
         core.save_config(cfg)
+        # Mirror into the sibling field without re-triggering its handler.
+        for other in (username_field, profile_username_field):
+            if other is not field and other.value != name:
+                other.value = name
         refresh_avatars()
-        # Keep the Play tab's username field showing the same name, without
-        # re-triggering its own on_change (which would just redo this work).
-        if username_field.value != name:
-            username_field.value = name
         # Name-collision warning: the heartbeat (fired by the sync above,
-        # async) records whether a DIFFERENT Cubeon player also claimed this
-        # name recently. The publish runs on a daemon thread, so give it a
-        # beat, then check once. Cosmetic - a missed warning just means the
-        # user finds out the way they always did.
+        # async) records whether a DIFFERENT Cubeon player also claimed
+        # this name recently. ONE background check per publish - not per
+        # keystroke. Cosmetic: a missed warning just means the user finds
+        # out the way they always did.
         def _warn_if_contested():
             time.sleep(3.0)
             try:
@@ -982,10 +1032,43 @@ def main(page: ft.Page):
                 logging.getLogger(__name__).warning("background worker error", exc_info=True)
         threading.Thread(target=_warn_if_contested, daemon=True,
                          name="cubeon-name-contested-check").start()
-        page.update()
+        try:
+            page.update()
+        except Exception:
+            pass
 
-    profile_username_field.on_change = on_profile_username_change
-    profile_username_field.on_blur = on_profile_username_change
+    def _cancel_pending_name():
+        t = _name_state.get("timer")
+        if t:
+            _name_state["timer"] = None
+            t.cancel()
+        _name_state["pending"] = None
+
+    def _fire_pending_name(e=None):
+        pub = _name_state.get("pending")
+        if pub:
+            _name_state["pending"] = None
+            _name_state["timer"] = None
+            pub()
+
+    def on_name_keystroke(field):
+        # Cheap half per keystroke: validate + mirror the error state.
+        # Everything expensive waits for the shared 1.2s debounce (or blur).
+        _name_validate_into(field)
+        _name_state["field"] = field
+        _cancel_pending_name()
+        try:
+            page.update()
+        except Exception:
+            pass
+        t = threading.Timer(1.2, _fire_pending_name)
+        t.daemon = True
+        _name_state["timer"] = t
+        _name_state["pending"] = _publish_username
+        t.start()
+
+    profile_username_field.on_change = lambda e=None: on_name_keystroke(profile_username_field)
+    profile_username_field.on_blur = _fire_pending_name
 
     # --- Skin section container - rebuilt each time the dialog opens, so
     # the CustomSkinLoader-installed notice reflects whatever version/mod
@@ -1077,6 +1160,12 @@ def main(page: ft.Page):
             # so the visible=False below never reached the client. The scrim
             # (a full-window click-catcher) then stayed mounted at opacity 0
             # forever and swallowed every click on the launcher.
+            #
+            # Guard: if the panel was REOPENED inside the 0.25s window, the
+            # scrim is legitimately visible again - hiding it now would leave
+            # an open panel with no dim and no click-catcher.
+            if account_panel.right != -ACCOUNT_PANEL_W:
+                return
             try:
                 account_scrim.visible = False
                 thread_safe_ui.refresh(account_scrim)
@@ -1210,80 +1299,22 @@ def main(page: ft.Page):
         height=48,
     )
 
-    def on_username_change(e=None):
-        """
-        Live-updates the in-game display name as soon as the username changes,
-        instead of waiting for Play to be clicked. The username is now purely a
-        display/impersonable name: the account's real UUID comes from the stable
-        auth_key.json identity (core.stable_uuid()), so a rename keeps the same
-        player UUID, cosmetics, and friends account - only the visible name and
-        the CustomSkinLoader <USERNAME>.png mirror move. Refreshed here so the
-        sidebar and skin preview reflect the new name immediately.
-
-        on_change fires on EVERY KEYSROKE, and the sync below costs a
-        heartbeat POST to the skins Worker (writes there are metered), so the
-        network half is debounced: only the final name (or on_blur) actually
-        publishes. The local UI updates immediately regardless.
-        """
-        name = username_field.value.strip()
-        ok, err = core.validate_username(name)
-        if not ok:
-            username_field.error_text = err
-            page.update()
-            return
-        username_field.error_text = None
-        if name == cfg.get("username"):
-            return
-
-        # Update the in-memory name now; everything expensive (LocalSkin
-        # file mirrors + the network heartbeat) is debounced below so a
-        # rename costs one publish, not one per keystroke.
-        cfg["username"] = name
-
-    def _publish_rename():
-        # Read the CURRENT field value: this fires 1.2s after the last
-        # keystroke, so a name captured at keystroke time could be stale.
-        name = username_field.value.strip()
-        ok, err = core.validate_username(name)
-        if not ok or name == cfg.get("username"):
-            return
-        cfg["username"] = name
-        # CustomSkinLoader looks the skin up by <USERNAME>.png, so a rename
-        # has to move the synced file or the skin stops resolving. Same for
-        # the cape (LocalSkin/capes/<USERNAME>.png).
-        core.sync_local_skin_to_csl(cfg)
-        core.sync_local_cape_to_csl(cfg)
-        core.save_config(cfg)
-        refresh_avatars()
-        if profile_username_field.value != name:
-            profile_username_field.value = name
-        try:
-            page.update()
-        except Exception:
-            pass
-
-    def _fire_pending_rename():
-        t = getattr(on_username_change, "_timer", None)
-        if t:
-            on_username_change._timer = None
-            t.cancel()
-        pending = getattr(on_username_change, "_pending", None)
-        if pending:
-            on_username_change._pending = None
-            pending()
+    # The Play tab's username field shares the Account field's single
+    # debounce slot (defined up with the Account field): same account, one
+    # publish path, newest edit wins. (The old code kept two independent
+    # timers whose pending names could overwrite each other.)
+    #
+    # Why the name is safe to change at all: the username is purely a
+    # display/impersonable name - the account's real UUID comes from the
+    # stable auth_key.json identity (core.stable_uuid()), so a rename keeps
+    # the same player UUID, cosmetics, and friends account; only the visible
+    # name and the CustomSkinLoader <USERNAME>.png mirror move.
 
     # Debounce: 1.2s after the last keystroke, or immediately on blur.
     # (Flet events don't carry a type tag, so blur can't be told apart from
-    # change here - the blur handler below just fires whatever is pending.)
-    if getattr(on_username_change, "_timer", None):
-        on_username_change._timer.cancel()
-    on_username_change._pending = _publish_rename
-    on_username_change._timer = threading.Timer(1.2, _fire_pending_rename)
-    on_username_change._timer.daemon = True
-    on_username_change._timer.start()
-
-    username_field.on_change = on_username_change
-    username_field.on_blur = lambda e=None: _fire_pending_rename()
+    # change here - the blur handler just fires whatever is pending.)
+    username_field.on_change = lambda e=None: on_name_keystroke(username_field)
+    username_field.on_blur = _fire_pending_name
 
     # Dropdown to select a Minecraft version (installed or available online)
     version_dropdown = ft.Dropdown(
