@@ -62,6 +62,9 @@ _PLUGIN_NAME_RE = re.compile(r"^\s*name\s*:\s*[\"']?([^\"'\n#]+)", re.MULTILINE)
 
 
 def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
+               # NOTE: auto_fix defaults to True ("fix what you find"). A
+               # caller that only wants a REPORT must pass auto_fix=False
+               # explicitly - the default quietly repairs.
                auto_fix: bool = True, check_online: bool = True,
                status_cb=None, include=None,
                version_id: str | None = None) -> dict:
@@ -170,16 +173,21 @@ def _mods_section(mc_version, loader, auto_fix, check_online, status_cb) -> tupl
 # Section: resource packs (pack.mcmeta format vs every installed version)
 # ---------------------------------------------------------------------------
 
-def _iter_content_zips(directory: str):
+def _iter_content_packs(directory: str):
+    """(name, path) for every pack in a content folder: .zip files AND
+    folder packs (an unpacked pack directory is just as loadable to the
+    game - skipping those used to leave them invisible to the doctor)."""
     try:
         names = sorted(os.listdir(directory))
     except OSError:
         return
     for name in names:
-        if not name.lower().endswith(".zip"):
+        if name.startswith("."):
             continue
         full = os.path.join(directory, name)
-        if os.path.isfile(full):
+        if os.path.isdir(full):
+            yield name, full
+        elif os.path.isfile(full) and name.lower().endswith(".zip"):
             yield name, full
 
 
@@ -187,7 +195,7 @@ def _resourcepacks_section(mc_version, version_id, auto_fix, status_cb) -> tuple
     targets = packformat.installed_resource_formats(mc_version, version_id)
     checked = 0
     entries = []
-    for name, path in _iter_content_zips(RESOURCEPACKS_DIR):
+    for name, path in _iter_content_packs(RESOURCEPACKS_DIR):
         checked += 1
         verdict = packformat.pack_verdict(path, targets)
         if verdict["ok"] is not False:
@@ -224,7 +232,7 @@ def _resourcepacks_section(mc_version, version_id, auto_fix, status_cb) -> tuple
 def _shaders_section(auto_fix, status_cb) -> tuple:
     checked = 0
     entries = []
-    for name, path in _iter_content_zips(SHADERPACKS_DIR):
+    for name, path in _iter_content_packs(SHADERPACKS_DIR):
         checked += 1
         verdict = packformat.shader_verdict(path)
         if verdict["ok"]:

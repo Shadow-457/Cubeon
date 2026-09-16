@@ -563,3 +563,98 @@ check("installed_resource_formats picks it up for pack verdicts",
       pf.installed_resource_formats("26w99test"))
 pf._jar_format_cache.clear()
 pf._format_cache.clear()
+# TEARDOWN: the fake version MUST leave the versions/ tree, or every later
+# section's targets silently include its format 88 (section 10's "healthy"
+# packs get "repaired" because of it - a lesson in fixture hygiene).
+shutil.rmtree(LATE_VD, ignore_errors=True)
+
+# ---------------------------------------------------------------------------
+print("\n10. folder packs (unzipped packs the game accepts but we")
+print("    used to ignore entirely)")
+# ---------------------------------------------------------------------------
+DOC_PACKS = os.path.join(SCRATCH, "doc-packs")
+DOC_SHADERS = os.path.join(SCRATCH, "doc-shaders")
+
+def write_meta_dir(pack_dir, meta):
+    with open(os.path.join(pack_dir, "pack.mcmeta"), "w", encoding="utf-8") as fh:
+        fh.write(meta)
+
+# a plain folder pack built for an old format
+old_dir = os.path.join(DOC_PACKS, "Old Folder Pack")
+os.makedirs(old_dir, exist_ok=True)
+write_meta_dir(old_dir, meta_bytes(34, [34, 40]))
+os.makedirs(os.path.join(old_dir, "assets", "minecraft"), exist_ok=True)
+with open(os.path.join(old_dir, "assets", "minecraft", "x.png"), "wb") as fh:
+    fh.write(b"png")
+
+# a folder pack wrapped in its own subfolder (the classic download shape)
+wrapped_dir = os.path.join(DOC_PACKS, "Wrapped Folder Pack")
+os.makedirs(os.path.join(wrapped_dir, "Wrapped Folder Pack", "assets"), exist_ok=True)
+write_meta_dir(os.path.join(wrapped_dir, "Wrapped Folder Pack"), meta_bytes(75))
+with open(os.path.join(wrapped_dir, "Wrapped Folder Pack", "assets", "y.png"), "wb") as fh:
+    fh.write(b"png")
+
+# a healthy folder pack
+fine_dir = os.path.join(DOC_PACKS, "Fine Folder Pack")
+os.makedirs(fine_dir, exist_ok=True)
+write_meta_dir(fine_dir, meta_bytes(75))
+
+# and a folder in shaderpacks/ that is actually a resource pack
+wrong_dir = os.path.join(DOC_SHADERS, "Not A Shader Dir")
+os.makedirs(os.path.join(wrong_dir, "assets"), exist_ok=True)
+write_meta_dir(wrong_dir, meta_bytes(75))
+
+# auto_fix defaults to True - a detect-only probe MUST say so explicitly
+# (this exact trap made the first version of this check repair silently).
+check("a folder pack with a stale format is reported (detect-only run)",
+      any(p["item"] == "Old Folder Pack" for p in doctor.run_doctor(
+          "1.21.11", "fabric", auto_fix=False,
+          include=("resourcepacks",))["problems"]),
+      [p["item"] for p in doctor.run_doctor(
+          "1.21.11", "fabric", auto_fix=False,
+          include=("resourcepacks",))["problems"]])
+
+rep = doctor.run_doctor("1.21.11", "fabric", auto_fix=True,
+                        include=("resourcepacks", "shaders"))
+fixed_items = {f["item"] for f in rep["fixed"]}
+check("an old folder pack is repaired (meta widened)",
+      "Old Folder Pack" in fixed_items, rep["fixed"])
+targets = pf.installed_resource_formats("1.21.11")
+check("the repaired folder pack now passes EVERY installed version",
+      pf.pack_verdict(old_dir, targets)["ok"] is True,
+      (targets, pf.pack_verdict(old_dir, targets)))
+check("a wrapped folder pack is flattened and fixed",
+      "Wrapped Folder Pack" in fixed_items and
+      os.path.isfile(os.path.join(wrapped_dir, "pack.mcmeta")) and
+      not os.path.isdir(os.path.join(wrapped_dir, "Wrapped Folder Pack")),
+      os.listdir(wrapped_dir))
+# The multi-version rule bites here on purpose: the modpack section above
+# installed a version whose format is 84, so a pack declaring only 75 is
+# GENUINELY incompatible with it and must be widened (this was the "healthy
+# pack got repaired" false alarm - the verdict is right, the pack list is
+# shared).
+check("a pack fine for one version is widened for the rest",
+      "Fine Folder Pack" in fixed_items and
+      pf.pack_verdict(fine_dir, targets)["ok"] is True,
+      (fixed_items, pf.pack_verdict(fine_dir, targets)))
+check("a folder-in-shaders that is a resource pack is reported",
+      any(p["item"] == "Not A Shader Dir" and p["kind"] == "shader-structure"
+          for p in rep["problems"]),
+      [(p["kind"], p["item"]) for p in rep["problems"]])
+
+# content listing + delete for folder packs
+from cubeon import content as content_mod
+content_mod.CONTENT_TYPES["resourcepack"]["dir"] = DOC_PACKS
+content_mod.CONTENT_TYPES["shaderpack"]["dir"] = DOC_SHADERS
+listing = content_mod.list_content("resourcepack", mc_version="1.21.11")
+names = {i["filename"] for i in listing}
+check("folder packs appear in the installed list",
+      {"Old Folder Pack", "Wrapped Folder Pack", "Fine Folder Pack"} <= names,
+      names)
+check("they are flagged as folder entries with real sizes",
+      all(i.get("folder") and i["size_kb"] > 0
+          for i in listing if i["filename"].endswith("Folder Pack")),
+      [(i["filename"], i.get("folder"), i["size_kb"]) for i in listing])
+content_mod.delete_content("resourcepacks", "Old Folder Pack")
+check("a folder pack can be deleted without escaping the folder",
+      not os.path.exists(old_dir) and os.path.isdir(DOC_PACKS))

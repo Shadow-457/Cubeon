@@ -358,7 +358,13 @@ def read_pack_meta(zip_path: str) -> tuple:
 
     meta is None when the file is missing OR isn't valid JSON - repair_pack
     rewrites it either way, which is why the entry name is returned
-    separately."""
+    separately.
+
+    Accepts a FOLDER pack too (the game reads unpacked pack directories in
+    resourcepacks/ just like zips): entry/wrapper keep the same relative-path
+    meaning, just rooted at the folder."""
+    if os.path.isdir(zip_path):
+        return _read_pack_meta_dir(zip_path)
     try:
         with zipfile.ZipFile(zip_path) as zf:
             names = [i.filename for i in zf.infolist() if not i.is_dir()]
@@ -376,6 +382,72 @@ def read_pack_meta(zip_path: str) -> tuple:
     except (OSError, zipfile.BadZipFile):
         return None, None, None
     return (meta if isinstance(meta, dict) else None), entry, wrapper
+
+
+def _walk_files(root: str) -> list:
+    """Every regular file under `root`, as '/'-separated relative paths."""
+    out = []
+    for dirpath, _dirs, files in os.walk(root):
+        for f in files:
+            rel = os.path.relpath(os.path.join(dirpath, f), root)
+            out.append(rel.replace(os.sep, "/"))
+    return out
+
+
+def _read_pack_meta_dir(pack_dir: str) -> tuple:
+    try:
+        names = _walk_files(pack_dir)
+    except OSError:
+        return None, None, None
+    wrapper = _wrapper_dir(names)
+    metas = [n for n in names
+             if n.lower().endswith("pack.mcmeta") and not _is_junk(n)]
+    root = [n for n in metas if "/" not in n]
+    entry = root[0] if root else (metas[0] if metas else None)
+    meta = None
+    if entry:
+        try:
+            with open(os.path.join(pack_dir, *entry.split("/")), "rb") as fh:
+                meta = json.loads(fh.read().decode("utf-8-sig", "replace"))
+        except (OSError, ValueError):
+            meta = None
+    return (meta if isinstance(meta, dict) else None), entry, wrapper
+
+
+def _flatten_dir(pack_dir: str, wrapper: str) -> bool:
+    """Folder-pack equivalent of the zip flatten: move everything inside
+    `wrapper/` up one level. Refuses to merge over an existing root entry -
+    a blind move could overwrite real files, so the pack stays nested and
+    keeps being reported instead."""
+    inner = os.path.join(pack_dir, wrapper)
+    if not os.path.isdir(inner):
+        return False
+    try:
+        if any(os.path.exists(os.path.join(pack_dir, name))
+               for name in os.listdir(inner)):
+            return False
+        for name in os.listdir(inner):
+            os.replace(os.path.join(inner, name), os.path.join(pack_dir, name))
+        os.rmdir(inner)
+    except OSError:
+        log.warning("flattening folder pack %s failed", pack_dir,
+                    exc_info=True)
+        return False
+    return True
+
+
+def _repair_dir(pack_dir: str, wrapper: str | None, payload: bytes) -> None:
+    """Write a repaired pack.mcmeta at a FOLDER pack's root (atomically),
+    after flattening a wrapper subfolder if there is one."""
+    if wrapper:
+        _flatten_dir(pack_dir, wrapper)
+    target = os.path.join(pack_dir, "pack.mcmeta")
+    tmp = target + ".cubeon-new"
+    with open(tmp, "wb") as fh:
+        fh.write(payload)
+    os.replace(tmp, target)
+    log.info("resource pack folder repaired: %s",
+             os.path.basename(pack_dir))
 
 
 def _as_targets(targets) -> list:
@@ -429,7 +501,7 @@ def pack_verdict(zip_path: str, targets) -> dict:
         verdict["reason"] = ("can't tell which resource format this Minecraft "
                              "version expects")
         return verdict
-    if not zipfile.is_zipfile(zip_path):
+    if not os.path.isdir(zip_path) and not zipfile.is_zipfile(zip_path):
         verdict.update(ok=False, blocked=list(target_list),
                        reason="the file isn't a readable zip (a truncated "
                               "download?)")
@@ -535,7 +607,7 @@ def repair_pack(zip_path: str, targets, *, dry_run: bool = False) -> dict:
     if not target_list:
         return {"changed": False,
                 "reason": verdict["reason"] or "unknown target format"}
-    if not zipfile.is_zipfile(zip_path):
+    if not os.path.isdir(zip_path) and not zipfile.is_zipfile(zip_path):
         # Nothing to repair: rewriting a non-zip would only destroy whatever
         # the file actually is. Reported so the user can re-download it.
         return {"changed": False, "reason": verdict["reason"]}
@@ -580,18 +652,24 @@ def repair_pack(zip_path: str, targets, *, dry_run: bool = False) -> dict:
     new_meta = dict(meta) if isinstance(meta, dict) else {}
     new_meta["pack"] = new_section
     payload = json.dumps(new_meta, indent=2).encode("utf-8")
-    # Where the game will actually look for it: the zip root, after any
-    # wrapper folder is flattened away. Only a meta that lands exactly at the
-    # root can be REPLACED - a missing one (or one buried too deep) has to be
-    # written fresh, which is the whole point for packs that have none.
-    rel_entry = _entry
-    if wrapper and _entry and _entry.startswith(wrapper + "/"):
-        rel_entry = _entry[len(wrapper) + 1:]
-    if rel_entry == "pack.mcmeta":
-        _rewrite_zip(zip_path, wrapper=wrapper,
-                     replace=("pack.mcmeta", payload))
+    if os.path.isdir(zip_path):
+        # Folder pack: no zip to rewrite - flatten a wrapper subfolder and
+        # write the meta straight into the pack root.
+        _repair_dir(zip_path, wrapper, payload)
     else:
-        _rewrite_zip(zip_path, wrapper=wrapper, add=[("pack.mcmeta", payload)])
+        # Where the game will actually look for it: the zip root, after any
+        # wrapper folder is flattened away. Only a meta that lands exactly at
+        # the root can be REPLACED - a missing one (or one buried too deep)
+        # has to be written fresh, which is the whole point for packs that
+        # have none.
+        rel_entry = _entry
+        if wrapper and _entry and _entry.startswith(wrapper + "/"):
+            rel_entry = _entry[len(wrapper) + 1:]
+        if rel_entry == "pack.mcmeta":
+            _rewrite_zip(zip_path, wrapper=wrapper,
+                         replace=("pack.mcmeta", payload))
+        else:
+            _rewrite_zip(zip_path, wrapper=wrapper, add=[("pack.mcmeta", payload)])
     log.info("resource pack format repaired: %s %s -> %s (targets %s)",
              os.path.basename(zip_path), before, after, target_list)
     return {"changed": True, "before": before, "after": after,
@@ -605,12 +683,19 @@ def shader_verdict(zip_path: str) -> dict:
     `shaders/` folder), so the only real failure here is structure: a zip whose
     shaders live one folder down, or a file that isn't a shader pack at all
     (a resource pack dropped into shaderpacks/ is the classic)."""
-    try:
-        with zipfile.ZipFile(zip_path) as zf:
-            names = [i.filename for i in zf.infolist() if not i.is_dir()]
-    except (OSError, zipfile.BadZipFile):
-        return {"ok": False, "wrapper": None,
-                "reason": "the file is unreadable (not a zip)"}
+    if os.path.isdir(zip_path):
+        try:
+            names = _walk_files(zip_path)
+        except OSError:
+            return {"ok": False, "wrapper": None,
+                    "reason": "the pack folder can't be read"}
+    else:
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                names = [i.filename for i in zf.infolist() if not i.is_dir()]
+        except (OSError, zipfile.BadZipFile):
+            return {"ok": False, "wrapper": None,
+                    "reason": "the file is unreadable (not a zip)"}
     wrapper = _wrapper_dir(names)
 
     def relative(name: str) -> str:
@@ -631,8 +716,18 @@ def shader_verdict(zip_path: str) -> dict:
 
 
 def flatten_pack(zip_path: str, wrapper: str | None = None) -> bool:
-    """Move a wrapped pack up to the zip root (what the game actually reads).
-    Returns True when the zip was rewritten."""
+    """Move a wrapped pack up to the root (zip root or pack-folder root -
+    whatever the game actually reads). Returns True when it was rewritten."""
+    if os.path.isdir(zip_path):
+        if wrapper is None:
+            _meta, _entry, wrapper = read_pack_meta(zip_path)
+        if not wrapper:
+            return False
+        moved = _flatten_dir(zip_path, wrapper)
+        if moved:
+            log.info("flattened wrapped folder pack: %s (removed '%s/')",
+                     os.path.basename(zip_path), wrapper)
+        return moved
     if wrapper is None:
         _meta, _entry, wrapper = read_pack_meta(zip_path)
     if not wrapper:

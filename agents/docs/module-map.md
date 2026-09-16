@@ -1285,3 +1285,14 @@ Still-true invariants from the pre-local era:
   "resourcepacks", "shaders"), check_online=False)` before every game start —
   best-effort, a failed check must never block playing.
 - Suite: `tools/test_content_doctor.py` (88 checks, offline, sandboxed home).
+
+- **Folder packs are first-class (2026-09-16):** packformat verdicts/repair,
+  the doctor's content scan (`_iter_content_packs`), and
+  `content.list_content`/`delete_content` all accept UNZIPPED pack
+  directories (the game loads those too). Dir repair = atomic pack.mcmeta
+  write + `_flatten_dir` (refuses to merge over an existing root entry).
+  list_content items carry `folder: True`. CONTENT_TYPES keys are singular
+  ("resourcepack", "shaderpack") - list_content('resourcepacks') raises.
+  GOTCHAS hit while testing: run_doctor's auto_fix defaults TRUE (a detect
+  probe must pass auto_fix=False); test fixtures that install fake versions
+  leak their pack formats into every later section's targets - clean them up.

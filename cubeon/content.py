@@ -127,14 +127,21 @@ def list_content(content_type: str, mc_version: str | None = None,
     items = []
     for fname in sorted(os.listdir(d)):
         full = os.path.join(d, fname)
-        if not os.path.isfile(full):
+        if fname.startswith("."):
             continue
-        if not fname.lower().endswith(exts):
+        if os.path.isdir(full):
+            # A folder pack: the game accepts unpacked packs, so it belongs
+            # in the list (and the doctor's verdicts cover it too).
+            pass
+        elif os.path.isfile(full) and fname.lower().endswith(exts):
+            pass
+        else:
             continue
         item = {
             "filename": fname,
             "display_name": os.path.splitext(fname)[0],
-            "size_kb": round(os.path.getsize(full) / 1024, 1),
+            "size_kb": round(_path_size(full) / 1024, 1),
+            "folder": os.path.isdir(full),
         }
         if mc_version or version_id:
             item["compat"] = content_compat(content_type, fname, mc_version,
@@ -143,15 +150,35 @@ def list_content(content_type: str, mc_version: str | None = None,
     return items
 
 
+def _path_size(path: str) -> float:
+    """File size, or the total size of a folder pack's contents."""
+    if os.path.isfile(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+    total = 0
+    for dirpath, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, f))
+            except OSError:
+                pass
+    return total
+
+
 def delete_content(content_type: str, filename: str) -> None:
-    """Removes one installed pack/shader. Guards against a filename that
-    escapes the content folder (a caller passing '../something'), the same
-    path-escape check delete_version uses, since this deletes a real file."""
+    """Removes one installed pack/shader (a .zip file or a folder pack).
+    Guards against a filename that escapes the content folder (a caller
+    passing '../something'), the same path-escape check delete_version uses,
+    since this deletes real files."""
     d = content_dir(content_type)
     target = os.path.join(d, filename)
     if os.path.dirname(os.path.abspath(target)) != os.path.abspath(d):
         raise ValueError("Refusing to delete a path outside the content folder.")
-    if os.path.isfile(target):
+    if os.path.isdir(target) and not os.path.islink(target):
+        shutil.rmtree(target)
+    elif os.path.isfile(target):
         os.remove(target)
 
 

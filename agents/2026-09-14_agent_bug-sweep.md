@@ -297,3 +297,16 @@ positive results only; regression section 9 added to test_content_doctor
 semantics, repair_pack's corrupt-zip guard, _rewrite_zip duplicate/case
 cases, plugins-section dedup and running-server guard, search facet
 scoping, get_content_download malformed-response guards.
+
+## Folder packs (the doctor blind spot I documented earlier)
+Unzipped pack dirs are now verdict-checked, repaired, listed and deletable:
+packformat reads/writes pack.mcmeta on disk (atomic), flattens wrapped
+dir-packs (refuses merging over existing root entries), shader_verdict walks
+dirs, doctor scans dirs, content.list_content shows them (folder: True) and
+delete_content rmtree's them (escape guard kept). test_content_doctor now
+97 checks incl. section 10. Test-debugging war stories: a git checkout
+-- during debug reverted my uncommitted doctor work (re-applied), and my
+own section-9 fixture (fake version jar) leaked format 88 into section 10
+targets - the multi-version rule then correctly 'repaired' healthy packs.
+Both now documented. Batch green: ui 114, mod_detail 66, mod_store 21,
+modpacks 54, net 21, install_progress 39, mega-static 12, doctor 97.
