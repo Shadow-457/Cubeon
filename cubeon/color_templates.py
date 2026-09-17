@@ -7,6 +7,13 @@ This is the entire mechanism - there is no other colour plumbing:
     python main.py --color1        # green    (true black + green, the default)
     python main.py --color2        # obsidian (graphite monochrome)
     python main.py --color3        # lapis    (navy + lapis blue)
+    python main.py --color8        # autumn   (the seasonal palette, Sep-Nov)
+    python main.py --color=list    # every palette, with its accent
+
+Seasons (autumn/spring/winter/summer, aliases 8-11) are ordinary templates that
+cubeon/seasonal.py picks automatically from the user's timezone + today's date;
+passing --color explicitly PINS one and switches the seasonal look off for that
+launch. See cubeon/seasonal.py for the detection and the precedence rules.
 
 `--color=<name>` / `--color <name>` work too, as does `--color list`.
 The hook that calls apply_template() lives at the bottom of cubeon/__init__.py,
@@ -39,14 +46,24 @@ TEMPLATE_MODULES = {
     "carbon": "templates.color_carbon",
     "amethyst": "templates.color_amethyst",
     "diamond": "templates.color_diamond",
+    # Seasonal palettes (8-11). These are picked automatically by
+    # cubeon/seasonal.py from the user's timezone + the date, but they are
+    # ordinary templates: --color autumn works, and so does pinning one for a
+    # screenshot (CUBEON_SEASON=autumn). See templates/color_autumn.py.
+    "autumn": "templates.color_autumn",
+    "spring": "templates.color_spring",
+    "winter": "templates.color_winter",
+    "summer": "templates.color_summer",
 }
 ALIASES = {
     "1": "green", "2": "obsidian", "3": "lapis", "4": "redstone",
     "5": "carbon", "6": "amethyst", "7": "diamond",
+    "8": "autumn", "9": "spring", "10": "winter", "11": "summer",
 }
 ALIAS_OF = {
     "green": "1", "obsidian": "2", "lapis": "3", "redstone": "4",
     "carbon": "5", "amethyst": "6", "diamond": "7",
+    "autumn": "8", "spring": "9", "winter": "10", "summer": "11",
 }
 
 # Keys a palette must define (everything else is derived).

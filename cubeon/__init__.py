@@ -26,17 +26,21 @@ skin_tab.py don't need to change their imports.
 # any tokens - so `python main.py --color1` launches with that palette and
 # every UI module simply receives the patched values.
 #
-# DEFAULT: with no --color argument, the "green" template (--color1) is
-# applied, making it the app's default palette. An explicit --color<name> still
-# overrides it. Set DEFAULT_COLOR_TEMPLATE to None to fall back to theme.py's
-# built-in green tokens instead.
+# SEASONS: when no --color is given, the palette is chosen by cubeon/seasonal.py
+# from the user's timezone + today's date (autumn/spring/winter/summer), unless
+# the user has turned the seasonal look off in Settings. An explicit --color
+# always wins and is reported to the UI as "pinned" - it pauses the seasonal
+# layer for that launch, because a palette can only be chosen while the package
+# is being imported (see the module map: tokens are bound at import time).
+#
+# DEFAULT_COLOR_TEMPLATE is the fallback for (a) --color given, (b) the seasonal
+# look turned off, and (c) a seasonal template that fails to load. Set it to
+# None to fall back to theme.py's built-in green tokens instead.
 DEFAULT_COLOR_TEMPLATE = "green"
 
 
-def _load_color_template():
-    import sys
-
-    argv = sys.argv[1:]
+def _color_arg(argv):
+    """Pulls an explicit --color[=]value out of argv, or None."""
     name = None
     for i, arg in enumerate(argv):
         if arg == "--color" and i + 1 < len(argv):
@@ -47,10 +51,33 @@ def _load_color_template():
             name = arg[len("--color"):]
         if name:
             break
-    # No explicit flag -> use the default template (carbon). Tools and tests
-    # import cubeon without a --color arg too, but patching only the theme
-    # palette is harmless there (they don't build the themed UI), and keeps
-    # "what the app looks like by default" defined in one place.
+    return name
+
+
+def _load_color_template():
+    import sys
+
+    name = _color_arg(sys.argv[1:])
+    if name:
+        # Pinned by the user for this launch: apply it and tell the seasonal
+        # layer, so the badge/settings do not claim the season picked it.
+        try:
+            from cubeon import seasonal
+            seasonal.note_palette_pinned(name)
+        except Exception:      # noqa: BLE001 - a broken resolver must not pin-block
+            pass
+    else:
+        # No explicit flag: ask the season. It reads config.json for the
+        # seasonal on/off switch and any manual override, and caches its answer
+        # for the UI (seasonal.current()). Any failure falls through to the
+        # default template - the launcher must always start.
+        try:
+            from cubeon.seasonal import boot
+            name, _info = boot()
+        except Exception as ex:
+            print(f"[cubeon] seasonal theme: {ex}", file=sys.stderr)
+            name = None
+
     if not name:
         name = DEFAULT_COLOR_TEMPLATE
     if not name:

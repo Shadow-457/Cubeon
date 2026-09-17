@@ -31,6 +31,7 @@ SECTIONS = [
     ("memory", ft.Icons.MEMORY_ROUNDED, "Memory"),
     ("display", ft.Icons.MONITOR_ROUNDED, "Display"),
     ("java", ft.Icons.COFFEE_ROUNDED, "Java"),
+    ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
     ("privacy", ft.Icons.PRIVACY_TIP_ROUNDED, "Privacy"),
     ("backups", ft.Icons.BACKUP_ROUNDED, "Backups"),
 ]
@@ -90,12 +91,22 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        include_saves_switch, keep_last_field,
                        backup_status_text, backup_now_btn, open_folder_btn,
                        restore_btn, minekube_badge,
+                       seasonal_switch, season_dropdown, seasonal_status_icon,
+                       seasonal_status_text, seasonal_source_text,
+                       seasonal_restart_btn, seasonal_restart_note,
+                       season_pin_note,
+                       season_pet_switch, season_ambience_switch,
                        BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO):
     """Assembles the two-pane Settings tab from main.py's existing controls.
 
     `save_width_height_java` is main.py's save_settings() minus the button
     click - called on field blur so width/height/java persist instantly.
+
+    The seasonal_* controls are built in main.py like every other control here:
+    this module only arranges them (see the Seasonal pane). They are required
+    rather than optional so a caller that forgets one fails the smoke test
+    instead of silently rendering a settings page with the feature missing.
     """
 
     active_section = {"value": "versions"}
@@ -176,6 +187,73 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         spacing=8, visible=False,
     )
 
+    seasonal_pane = ft.Column(
+        [
+            section_label("Seasonal"),
+            ft.Container(height=2),
+            ft.Text(
+                "Cubeon wears the season you're actually in - warm orange in "
+                "autumn, ice in winter. It reads your timezone (never your "
+                "location), and you can pick a season yourself below.",
+                size=12, color=TEXT_DIM,
+            ),
+            ft.Container(height=12),
+            # The detection block: the switch, then WHAT it decided and WHY, in
+            # one panel - because "it thinks it's spring and I'm in Sydney" is
+            # the only confusing thing about this feature, and the fix is right
+            # here (the Season dropdown) rather than somewhere else.
+            ft.Container(
+                content=ft.Column(
+                    [
+                        _setting_row(
+                            "Seasonal look",
+                            "A palette for the season where you are",
+                            seasonal_switch, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+                        ),
+                        ft.Container(height=6),
+                        ft.Row(
+                            [seasonal_status_icon, seasonal_status_text],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        seasonal_source_text,
+                        ft.Container(height=12),
+                        _setting_row(
+                            "Season",
+                            "Auto follows your timezone",
+                            season_dropdown, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+                        ),
+                        season_pin_note,
+                    ],
+                    spacing=6,
+                ),
+                bgcolor=SURFACE_HI, border_radius=RADIUS, padding=14,
+            ),
+            ft.Container(height=10),
+            # The palette is bound while Cubeon's package is imported, so a new
+            # choice lands on the next start. Saying that out loud - and
+            # offering the restart - is the whole reason this row exists.
+            ft.Row(
+                [seasonal_restart_btn, seasonal_restart_note],
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Container(height=18),
+            _setting_row(
+                "Seasonal buddy",
+                "A little companion in the top bar",
+                season_pet_switch, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+            ),
+            ft.Container(height=10),
+            _setting_row(
+                "Weather effects",
+                "Leaves, snow or petals drifting in the corner",
+                season_ambience_switch, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+            ),
+        ],
+        spacing=8, visible=False,
+    )
+
     privacy_pane = ft.Column(
         [
             section_label("Privacy"),
@@ -240,6 +318,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     panes = {
         "versions": versions_pane, "memory": memory_pane,
         "display": display_pane, "java": java_pane,
+        "seasonal": seasonal_pane,
         "privacy": privacy_pane, "backups": backups_pane,
     }
 
@@ -343,5 +422,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             _save_on_blur(e)
 
         f.on_submit = _submit
+
+    # Exposed so another surface can deep-link a section. The seasonal badge in
+    # the top bar uses it ("click to change"); a notification or a milestone
+    # card would use the same hook. Flet controls are plain Python objects, so
+    # the attribute sticks through page.update().
+    host.select_section = _select_section
 
     return host

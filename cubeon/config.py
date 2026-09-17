@@ -148,6 +148,31 @@ DEFAULT_CONFIG = {
     # shown as the big icon next to the activity, and its hover text.
     "discord_large_image": "1a92fe8fac941f333d508efe568a88ffccfc8af1b7ccb66ff62bf93822a9b47a",
     "discord_large_text": "Cubeon",
+
+    # --- Seasonal look (see cubeon/seasonal.py) ---------------------------
+    # Wear the palette of the season the user is actually in, detected from the
+    # timezone at startup (autumn/spring/winter/summer templates). The palette
+    # is bound at import time, so changing this needs a relaunch - the Settings
+    # pane says so, and offers to do it. Turning it off just keeps the normal
+    # green identity.
+    "seasonal_theme": True,
+    # "auto" = follow the detected season. A season name overrides the guess,
+    # for the two cases detection can't win: a user who disagrees with it, and
+    # the tropics/equator, where "autumn" is a fiction either way. The Settings
+    # override ALWAYS outranks the timezone tables.
+    "season_override": "auto",
+    # The little companion in the top bar (assets/pets/<season>.gif). Pure
+    # decoration - it costs no timer of its own, the GIF animates itself.
+    "season_pet": True,
+    # Falling leaves / snow / petals / fireflies in the corner. Opt-in AND
+    # off by default: it is the only part of the seasonal layer that needs a
+    # repaint clock, so it ships disabled until it has been measured on real
+    # hardware (CUBEON_PERF=1).
+    "season_ambience": False,
+    # "2026-autumn" - the last season the greeting card was shown for, so the
+    # once-a-season hello happens once, including across the Dec->Jan boundary
+    # (see seasonal.season_year).
+    "season_seen": None,
 }
 
 

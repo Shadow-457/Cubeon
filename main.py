@@ -84,6 +84,12 @@ def _dispatch_controller(kind: str, arg) -> None:
 _tray_runtime = {"controller": None, "reopen": None, "quit": None,
                  "friends_service": None, "friends_client": None,
                  "reopen_at": 0.0}
+# A user-requested relaunch ("Restart to apply" in Settings > Seasonal, and any
+# future "apply and restart" flow). The tray's reopen path only re-execs in tray
+# mode, so a foreground user needs their own request the __main__ loop honours
+# after this session ends - doing the execv from inside main() would orphan the
+# flet client as a ghost window, because `_kill_flet_client()` never gets to run.
+_relaunch = {"request": None}
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
@@ -93,6 +99,14 @@ from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab build
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetics counters
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
+from ui.seasonal_ui import (  # Seasonal badge/companion/ambience (the runtime half of cubeon/seasonal.py)
+    SeasonalAnimator, build_ambience, build_badge as build_season_badge,
+    build_perch as build_season_perch, icon_for as season_icon,
+    pet_src as season_pet_src, quip_for as season_quip,
+    reflow_ambience as season_reflow_ambience,
+    update_badge as season_update_badge, update_pet as season_update_pet,
+)
+from cubeon import seasonal as cubeon_seasonal  # Season detection/caching; the palette half runs in cubeon/__init__
 from cubeon import friends  # Realtime social client (identity, presence, chat, calls)
 from cubeon.friends_service import FriendsService  # Headless owner of friends/P2P (launcher Chat tab + in-game mod)
 from cubeon.features import friends_enabled  # Development vs. public (no-Friends) builds
@@ -685,6 +699,37 @@ def main(page: ft.Page):
         padding=ft.padding.Padding.only(left=12, top=10, bottom=2),
     )
 
+    # -----------------------------------------------------------------
+    # SEASONAL LAYER - the runtime half (see cubeon/seasonal.py).
+    #
+    # The PALETTE was decided while `cubeon` was being imported (the hook at the
+    # bottom of cubeon/__init__.py), and `cubeon_seasonal.current()` returns
+    # that very decision - cached, not re-detected - so the badge can never
+    # advertise a season the window isn't actually wearing.
+    #
+    # The badge and the companion are built HERE, before the top bar, because
+    # the bar mounts them. Their click handlers are late-bound lambdas (the
+    # account button does the same): _open_seasonal_settings and _on_pet_clicked
+    # are defined further down, next to the Settings tab they belong to.
+    # -----------------------------------------------------------------
+    season_info = cubeon_seasonal.current()
+    # Built but NOT mounted in the top bar (user request: the chip cluttered
+    # the row next to Account). It stays alive so _season_controls_sync can
+    # keep it correct; the Seasonal pane in Settings is the way in.
+    season_badge = build_season_badge(
+        season_info, on_click=lambda e: _open_seasonal_settings())
+    # The companion lives on a perch lane (a short clipped strip) so it can
+    # WANDER - walk, pause, turn around - instead of hopping in place.
+    # season_perch is what the bar mounts; season_pet_ctrl is the sprite
+    # inside it (kept named for the click bounce and the visibility toggle);
+    # season_pet is the state dict the animator's wander machine drives.
+    season_perch, season_pet = build_season_perch(
+        season_info, on_click=lambda e: _on_pet_clicked())
+    season_pet_ctrl = season_pet["ctrl"]
+    # Decoration must be off when the layer is off: "Seasonal look: off" plus a
+    # seasonal fox in the bar would read as a bug.
+    season_perch.visible = bool(cfg.get("season_pet", True)) and season_info.seasonal
+
     def _build_top_bar():
         """The bar itself: brand mark on the left, the five nav icons dead
         center, Account and Settings on the right. Account opens the identity
@@ -714,6 +759,10 @@ def main(page: ft.Page):
                 [
                     ft.Container(width=8),
                     sidebar_brand,
+                    # The companion's perch lane sits with the wordmark, like a
+                    # mascot strolling a shop sign - not in the right-hand
+                    # cluster where the account/settings icons live.
+                    season_perch,
                     ft.Row([ft.Container(expand=True), nav_row,
                             ft.Container(expand=True)], expand=True),
                     account_btn,
@@ -2834,10 +2883,16 @@ def main(page: ft.Page):
         cubeon_dialogs.close_dialog(page, dlg)
 
     def _show_snack(msg, *, duration=4000, action=None, action_label=None):
-        """Toast popup used everywhere (thread-safe, never raises)."""
+        """Toast popup used everywhere (thread-safe, never raises).
+
+        text_color is TEXT, never ON_ACCENT: ON_ACCENT is designed to sit on
+        the bright ACCENT fill, and on the dark SURFACE_HI toast its contrast
+        was 1.06:1 - invisible text, the exact bug that motivates the WCAG-AA
+        checks in tools/test_seasonal.py. TEXT on SURFACE_HI is 15.7:1.
+        """
         cubeon_dialogs.show_snack(page, msg, duration=duration, action=action,
                                   action_label=action_label,
-                                  bgcolor=SURFACE_HI, text_color=ON_ACCENT)
+                                  bgcolor=SURFACE_HI, text_color=TEXT)
 
     def _selected_installed_id():
         """The selected version id iff it's actually installed, else None -
@@ -3739,7 +3794,7 @@ def main(page: ft.Page):
         page.update()
 
     backup_enabled_switch.on_change = theme.toggle_wrap(on_backup_enabled_change, backup_enabled_switch)
-    frequency_dropdown.on_change = on_backup_setting_change
+    frequency_dropdown.on_select = on_backup_setting_change
     include_saves_switch.on_change = theme.toggle_wrap(on_backup_setting_change, include_saves_switch)
     keep_last_field.on_blur = on_backup_setting_change
 
@@ -3897,6 +3952,219 @@ def main(page: ft.Page):
         on_click=_open_minekube,
     )
 
+    # -----------------------------------------------------------------
+    # SEASONAL SETTINGS (see cubeon/seasonal.py + ui/seasonal_ui.py)
+    #
+    # Every control here saves instantly, like the rest of the Settings tab. The
+    # one thing that CANNOT take effect immediately is said out loud: the palette
+    # is bound while Cubeon's package is imported, so a new season needs a fresh
+    # start - and the Restart button does it (module-level `_relaunch`, honoured
+    # by the __main__ session loop).
+    #
+    # `_season_rt` holds the runtime pieces the LAYOUT section builds later (the
+    # ambience band, its particles, the one shared ticker). The handlers below
+    # reach into it at CLICK time, never at definition time, which is why an
+    # empty dict here is fine.
+    # -----------------------------------------------------------------
+    _season_rt = {"animator": None, "band": None, "strip": None,
+                  "particles": None, "bounds": None}
+
+    _SEASON_CHOICES = [("auto", "Auto (from my timezone)")] + [
+        (key, cubeon_seasonal.PRETTY[key]) for key in cubeon_seasonal.SEASONS
+    ] + [("off", "Off (keep the normal colors)")]
+
+    seasonal_status_icon = ft.Icon(season_icon(cubeon_seasonal.current()),
+                                   size=16, color=ACCENT)
+    seasonal_status_text = ft.Text("", size=13, color=TEXT,
+                                   weight=ft.FontWeight.W_600)
+    seasonal_source_text = ft.Text("", size=11.5, color=TEXT_FAINT)
+    # A pin that outranks the picker must be VISIBLE where the picker lives -
+    # a tiny source line is easy to miss and reads as "the dropdown is broken".
+    _env_pin_season = cubeon_seasonal.env_pin()
+    season_pin_note = ft.Text(
+        f"CUBEON_SEASON={_env_pin_season} is set in your environment and is "
+        "outranking this picker. Run Cubeon without it (unset CUBEON_SEASON) "
+        "to choose freely.",
+        size=11.5, color=DANGER, visible=bool(_env_pin_season),
+    )
+
+    def _season_controls_sync(info=None):
+        """Repaints the Settings block from a resolution.
+
+        One function for every trigger (initial build, switch, dropdown) so the
+        label and the "why" line can never disagree with each other.
+        """
+        info = info or cubeon_seasonal.current()
+        seasonal_status_icon.name = season_icon(info)
+        seasonal_status_text.value = f"{info.label} - {info.place}"
+        seasonal_source_text.value = cubeon_seasonal.describe_source(info)
+        for ctrl in (seasonal_status_icon, seasonal_status_text,
+                     seasonal_source_text):
+            thread_safe_ui.refresh(ctrl)
+        # The RUNTIME half follows the new season immediately - badge chip,
+        # companion sprite, weather strip - so picking a season visibly does
+        # something even though the palette itself waits for a relaunch (see
+        # the module map: tokens are bound at import; don't fight that).
+        season_update_badge(season_badge, info)
+        season_update_pet(season_pet, info)
+        thread_safe_ui.refresh(season_badge)
+        thread_safe_ui.refresh(season_perch)
+
+    seasonal_switch = ft.Checkbox(
+        label="", value=bool(cfg.get("seasonal_theme", True)), active_color=ACCENT,
+    )
+    season_dropdown = ft.Dropdown(
+        value=str(cfg.get("season_override") or "auto").lower(),
+        options=[ft.dropdown.Option(key=k, text=label)
+                 for k, label in _SEASON_CHOICES],
+        width=250, bgcolor=SURFACE_HI, border_color=BORDER,
+        focused_border_color=ACCENT, border_radius=RADIUS,
+        text_style=ft.TextStyle(color=TEXT, size=13),
+        label_style=ft.TextStyle(color=TEXT_DIM),
+    )
+    season_pet_switch = ft.Checkbox(
+        label="", value=bool(cfg.get("season_pet", True)), active_color=ACCENT,
+    )
+    season_ambience_switch = ft.Checkbox(
+        label="", value=bool(cfg.get("season_ambience", False)), active_color=ACCENT,
+    )
+
+    def _on_restart_click(e=None):
+        """Ask the __main__ loop to relaunch Cubeon after this session ends.
+
+        The re-exec happens THERE, never here: execv from inside main() would
+        replace the interpreter while the flet client is still running, and
+        `_kill_flet_client()` (which only runs in __main__) would never get to
+        clean it up - leaving a ghost window. So this sets the request and closes
+        the window, nothing more.
+        """
+        try:
+            core.save_config(cfg)
+        except Exception:
+            pass  # an unwritable config must not block the relaunch
+        if _relaunch["request"] is None:
+            # No request event (an unusual entry point): fall back to advice
+            # rather than pretending to act.
+            _show_snack("Close Cubeon and open it again to apply the seasonal "
+                        "colors.", duration=6000)
+            return
+        _relaunch["request"].set()
+        seasonal_restart_btn.disabled = True
+        seasonal_restart_note.value = "Restarting..."
+        thread_safe_ui.refresh(seasonal_restart_btn)
+        thread_safe_ui.refresh(seasonal_restart_note)
+        try:
+            page.run_task(page.window.close)
+        except Exception:
+            _relaunch["request"].clear()
+            seasonal_restart_btn.disabled = False
+            seasonal_restart_note.value = "Close and reopen Cubeon to apply."
+            thread_safe_ui.refresh(seasonal_restart_btn)
+            thread_safe_ui.refresh(seasonal_restart_note)
+
+    seasonal_restart_btn = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.RESTART_ALT_ROUNDED, size=15, color=ON_ACCENT),
+                ft.Text("Restart to apply", color=ON_ACCENT,
+                        weight=ft.FontWeight.W_700, size=13),
+            ],
+            spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        bgcolor=ACCENT, border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(vertical=10, horizontal=16),
+        ink=False, on_click=_on_restart_click,
+    )
+    seasonal_restart_note = ft.Text(
+        "Colors change on the next start.", size=11.5, color=TEXT_FAINT,
+    )
+
+    # --- seasonal handlers --------------------------------------------------
+    # Each one: write cfg -> save -> re-resolve -> repaint the block -> apply the
+    # runtime half (`_season_runtime_apply`, defined in the layout section where
+    # the ambience band and the ticker are actually built).
+    def _on_seasonal_toggle(e=None):
+        cfg["seasonal_theme"] = bool(seasonal_switch.value)
+        try:
+            core.save_config(cfg)
+        except Exception:
+            pass
+        _season_controls_sync(cubeon_seasonal.refresh(cfg))
+        _season_runtime_apply()
+        set_status("Seasonal look on" if seasonal_switch.value else
+                   "Seasonal look off - the next start uses the normal colors")
+
+    def _on_season_change(e=None):
+        choice = str(season_dropdown.value or "auto").lower()
+        if choice == "off":
+            # "Off" in the Season list means the same as the master switch:
+            # no seasonal layer at all. Keeping them in sync matters - two
+            # controls that disagree about the same setting is how a settings
+            # page starts lying.
+            cfg["seasonal_theme"] = False
+            seasonal_switch.value = False
+        else:
+            cfg["season_override"] = choice
+            if choice in cubeon_seasonal.SEASONS:
+                cfg["seasonal_theme"] = True     # picking a season implies wanting it
+                seasonal_switch.value = True
+        try:
+            core.save_config(cfg)
+        except Exception as ex:
+            # A silent save failure was reported by a user as "my pick keeps
+            # reverting to autumn" - the config on disk still said auto. If
+            # saving fails, SAY so; a launcher that lies is worse than one
+            # that complains.
+            traceback.print_exc()
+            set_status(f"Couldn't save your season choice: {ex}")
+            _show_snack(f"Couldn't save the season choice ({ex}) - it will "
+                        "revert on the next start.", duration=6000)
+        _season_controls_sync(cubeon_seasonal.refresh(cfg))
+        _season_runtime_apply()
+        thread_safe_ui.refresh(seasonal_switch)
+        _season_controls_sync()
+        # The env pin outranks this setting BY DESIGN (it is the test and
+        # screenshot contract) - but a pick that is silently ignored reads as
+        # "the picker is broken". Name the winner out loud.
+        env_pin = cubeon_seasonal.env_pin()
+        if env_pin:
+            _show_snack(
+                f"Saved: you picked {cubeon_seasonal.PRETTY.get(choice, choice)}."
+                f" But this terminal has CUBEON_SEASON={env_pin} set, which "
+                "outranks the picker - run Cubeon from a terminal without it "
+                "(or `unset CUBEON_SEASON`) to see your choice.",
+                duration=8000)
+            set_status(f"Saved {cubeon_seasonal.PRETTY.get(choice, choice)} - "
+                       f"but CUBEON_SEASON={env_pin} is pinning this launch")
+        else:
+            set_status("Season set to "
+                       + (cubeon_seasonal.PRETTY.get(choice) or "Auto")
+                       + " - restart to apply")
+
+    def _on_season_pet_toggle(e=None):
+        cfg["season_pet"] = bool(season_pet_switch.value)
+        try:
+            core.save_config(cfg)
+        except Exception:
+            pass
+        _season_runtime_apply()
+
+    def _on_season_ambience_toggle(e=None):
+        cfg["season_ambience"] = bool(season_ambience_switch.value)
+        try:
+            core.save_config(cfg)
+        except Exception:
+            pass
+        _season_runtime_apply()
+        set_status("Weather effects on" if season_ambience_switch.value
+                   else "Weather effects off")
+
+    seasonal_switch.on_change = _on_seasonal_toggle
+    season_dropdown.on_select = _on_season_change
+    season_pet_switch.on_change = _on_season_pet_toggle
+    season_ambience_switch.on_change = _on_season_ambience_toggle
+    _season_controls_sync(season_info)
+
     # Build the Settings tab UI - two panes (section rail + content), all
     # controls prebuilt above, arranged by ui/settings_tab.py. Every field
     # saves instantly on blur/submit; there is no Save button anymore.
@@ -3919,6 +4187,15 @@ def main(page: ft.Page):
         backup_status_text=backup_status_text,
         backup_now_btn=backup_now_btn, open_folder_btn=open_folder_btn,
         restore_btn=restore_btn, minekube_badge=minekube_badge,
+        seasonal_switch=seasonal_switch, season_dropdown=season_dropdown,
+        seasonal_status_icon=seasonal_status_icon,
+        seasonal_status_text=seasonal_status_text,
+        seasonal_source_text=seasonal_source_text,
+        seasonal_restart_btn=seasonal_restart_btn,
+        seasonal_restart_note=seasonal_restart_note,
+        season_pin_note=season_pin_note,
+        season_pet_switch=season_pet_switch,
+        season_ambience_switch=season_ambience_switch,
         **THEME,
     )
 
@@ -4031,8 +4308,121 @@ def main(page: ft.Page):
         expand=True,
     )
 
+    # --- SEASONAL RUNTIME (the ambience band + the one shared ticker) --------
+    # The weather lives in its OWN LAYOUT BAND between the top bar and the
+    # content surface, not as an overlay on top of the tabs. An overlay in the
+    # corner would sit over the content surface and swallow clicks in whatever
+    # happened to be underneath it - and a decoration must never eat an
+    # interaction. A 56px band costs nothing, is always visible, and reads as
+    # weather across the top of the window rather than as a stray box.
+    #
+    # `width` is the window width at build time: particles are spread over it
+    # once, and keep their positions if the window is later resized (they wrap
+    # within that width). Re-flowing them on every resize would mean listening
+    # to window events for a decoration.
+    _season_strip_w = max(360, int(getattr(page.window, "width", 0) or 1180) - 40)
+    season_strip, season_particles, season_bounds = build_ambience(
+        season_info, width=_season_strip_w, height=56,
+    )
+    season_band = ft.Container(
+        content=season_strip,
+        height=56,
+        visible=False,          # flipped by _season_runtime_apply() below
+        padding=ft.padding.Padding.only(left=12, right=12),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
+    _season_rt.update({"band": season_band, "strip": season_strip,
+                       "particles": season_particles, "bounds": season_bounds,
+                       "season": season_info.season})
+    season_animator = SeasonalAnimator()
+    _season_rt["animator"] = season_animator
+
+    def _season_runtime_apply():
+        """Applies the seasonal runtime switches (pet, weather) immediately.
+
+        These two are the halves of the feature that do NOT need a relaunch -
+        only the palette does - so toggling them must be instant. Registration
+        is rebuilt from cfg rather than diffed: there are at most two entries,
+        and rebuilding can't drift out of sync with the checkboxes.
+        """
+        info = cubeon_seasonal.current()
+        pet_on = bool(cfg.get("season_pet", True)) and info.seasonal
+        weather_on = bool(cfg.get("season_ambience")) and info.seasonal
+
+        if season_perch.visible != pet_on:
+            season_perch.visible = pet_on
+            thread_safe_ui.refresh(season_perch)
+        if _season_rt["band"].visible != weather_on:
+            _season_rt["band"].visible = weather_on
+            thread_safe_ui.refresh(_season_rt["band"])
+
+        animator = _season_rt["animator"]
+        animator.clear()
+        if weather_on and _season_rt.get("season") != info.season:
+            # A live season change re-seeds the weather for the new season
+            # (same particle controls, new palette/behavior) - the palette
+            # itself still waits for a relaunch.
+            _season_rt["bounds"] = season_reflow_ambience(
+                _season_rt["particles"], _season_rt["bounds"], info)
+            _season_rt["season"] = info.season
+            thread_safe_ui.refresh(_season_rt["strip"])
+        if pet_on:
+            animator.add_pet(season_pet)
+        if weather_on:
+            animator.add_ambience(_season_rt["strip"], _season_rt["particles"],
+                                  _season_rt["bounds"])
+        if animator.has_work:
+            animator.start()
+        else:
+            animator.stop()
+
+    _season_runtime_apply()
+
+    # -----------------------------------------------------------------
+    # SEASONAL ACTIONS - the deferred half of the badge/pet wiring
+    # (their click handlers were built with the top bar, above)
+    # -----------------------------------------------------------------
+    def _open_seasonal_settings(e=None):
+        """The badge's job: land the user ON the Seasonal pane, not just the
+        Settings tab. A season they disagree with is fixed there."""
+        try:
+            switch_tab("settings")
+            settings_tab.select_section("seasonal")
+        except Exception:
+            traceback.print_exc()
+
+    def _on_pet_clicked(e=None):
+        """The companion is a mood, never a feature: it bounces and says one
+        line. The bounce lifts the sprite inside its perch lane (top, like the
+        animator's idle hops) so it can't fight the wander machine.
+
+        Every step is guarded - decoration that can raise is worse than no
+        decoration, and this runs off a click in the top bar.
+        """
+        try:
+            season_pet_ctrl.top = -10
+            thread_safe_ui.refresh(season_pet_ctrl)
+
+            def _settle():
+                try:
+                    season_pet_ctrl.top = 0
+                    thread_safe_ui.refresh(season_pet_ctrl)
+                except Exception:
+                    pass  # window gone mid-hop - the hop is over anyway
+
+            _t = threading.Timer(0.22, _settle)
+            _t.daemon = True
+            _t.start()
+        except Exception:
+            pass
+        try:
+            _show_snack(season_quip(cubeon_seasonal.current()), duration=3500)
+        except Exception:
+            pass
+
     page.add(ft.Container(
-        content=ft.Column([top_bar, subnav_bar, content_surface], expand=True, spacing=0),
+        content=ft.Column([top_bar, subnav_bar, season_band, content_surface],
+                          expand=True, spacing=0),
         expand=True,
     ))
 
@@ -4340,6 +4730,79 @@ def main(page: ft.Page):
 
 
 
+    # -----------------------------------------------------------------
+    # SEASONAL GREETING
+    # Once per season per year: the "the season changed and the launcher
+    # noticed" moment, which is the whole point of a seasonal update. It is
+    # deliberately NON-modal (an informative card must never trap anyone),
+    # skipped on a brand-new install (the onboarding dialog is already up -
+    # two dialogs at once is how a first run feels broken), and every step is
+    # guarded, because a missed greeting must never break startup.
+    #
+    # `season_seen` stores "2026-autumn"; seasonal.season_year() is what makes
+    # winter greet ONCE across the December->January boundary instead of again
+    # in January.
+    # -----------------------------------------------------------------
+    try:
+        _greet_info = cubeon_seasonal.current()
+        _greet_key = _greet_info.slug
+        if ("onboarded" in cfg and _greet_info.seasonal
+                and cfg.get("season_seen") != _greet_key):
+            def _dismiss_greeting(e=None):
+                cfg["season_seen"] = _greet_key
+                try:
+                    core.save_config(cfg)
+                except Exception:
+                    pass  # the greeting is already seen; a save failure is not
+                _close_dialog(greet_dlg)
+
+            def _open_seasonal_from_greeting(e=None):
+                _dismiss_greeting()
+                _open_seasonal_settings()
+
+            greet_dlg = ft.AlertDialog(
+                title=ft.Row(
+                    [
+                        ft.Image(src=season_pet_src(_greet_info), width=34,
+                                 height=34, fit=ft.BoxFit.CONTAIN),
+                        ft.Text(f"Happy {_greet_info.label.lower()}",
+                                color=TEXT, font_family=FONT_DISPLAY, size=20),
+                    ],
+                    spacing=12,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                content=ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text(
+                                f"Autumn where you are, so Cubeon is wearing "
+                                f"autumn colors - and a friend moved in."
+                                if _greet_info.season == cubeon_seasonal.AUTUMN
+                                else f"It's {_greet_info.label.lower()} in "
+                                     f"{_greet_info.place}, so the launcher "
+                                     f"changed with it.",
+                                size=13, color=TEXT_DIM,
+                            ),
+                            ft.Text(cubeon_seasonal.describe_source(_greet_info),
+                                    size=11.5, color=TEXT_FAINT),
+                        ],
+                        tight=True, spacing=10,
+                    ),
+                    width=380,
+                ),
+                actions=[
+                    ft.TextButton("See what changed",
+                                  on_click=_open_seasonal_from_greeting,
+                                  style=ft.ButtonStyle(color=ACCENT)),
+                    ft.TextButton("Nice", on_click=_dismiss_greeting,
+                                  style=ft.ButtonStyle(color=TEXT_DIM)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            _open_dialog(greet_dlg)
+    except Exception:
+        pass  # a missed seasonal hello must not break startup
+
     # --- Clear the Discord activity when the launcher window closes ---
     # Without this, the "Playing / in the launcher" presence can linger on the
     # player's profile after they quit Cubeon. Best-effort and version-tolerant:
@@ -4419,6 +4882,13 @@ def main(page: ft.Page):
         _save_geometry_now()
         _rpc.clear()
         _rpc.close()
+        # The winter leaves must stop falling when the window is gone: the
+        # seasonal ticker is a per-session thread, and in tray mode the process
+        # parks with no window to animate.
+        try:
+            season_animator.stop()
+        except Exception:
+            pass  # a stopped ticker is not worth an error on the way out
         # The session's page is gone; the process-scoped controller watcher
         # must stop routing events at it (parked mode drops them instead).
         _tray_runtime["controller_page"] = None
@@ -4525,6 +4995,13 @@ def main(page: ft.Page):
             _tray_runtime["reopen"] = threading.Event()
         if _tray_runtime["quit"] is None:
             _tray_runtime["quit"] = threading.Event()
+
+    # "Restart to apply" (Settings > Seasonal) gets its own request event for
+    # every entry point, not just tray mode - the button must work with the
+    # tray off too. The session loop checks it the moment ft.run returns and
+    # re-execs into a fresh launcher (see _session_loop).
+    if _relaunch["request"] is None:
+        _relaunch["request"] = threading.Event()
 
     # Escape closes the Account panel (an overlay panel has no dialog-managed
     # Escape handling of its own), F12 toggles the inspector (same
@@ -4795,6 +5272,31 @@ if __name__ == "__main__":
                 if os.environ.get("CUBEON_PERF"):
                     print(thread_safe_ui.perf_report()
                           or "cubeon repaint profile: no repaints recorded")
+
+                # A pending "Restart to apply" (Settings > Seasonal) outranks
+                # every session-end classification: the ghost client is already
+                # reaped above, so this execv cannot strand one. It goes
+                # straight to the fresh launcher - no GL-fallback retry, no
+                # parking; if re-exec itself fails there is no good in-process
+                # recovery left (ft.run is once-per-process), so exit.
+                _rl = _relaunch.get("request")
+                if _rl is not None and _rl.is_set():
+                    print("cubeon: restart requested - relaunching to apply "
+                          "seasonal settings")
+                    _ctrl = _tray_runtime["controller"]
+                    if _ctrl is not None:
+                        _ctrl.stop()
+                    try:
+                        os.environ["CUBEON_TRAY_REOPEN"] = "1"
+                        if getattr(sys, "frozen", False):
+                            os.execv(sys.executable,
+                                     [sys.executable] + sys.argv[1:])
+                        os.execv(sys.executable,
+                                 [sys.executable, os.path.abspath(__file__)]
+                                 + sys.argv[1:])
+                    except OSError as ex:
+                        print(f"cubeon: relaunch via re-exec failed ({ex})")
+                    return  # nothing sane left in this process
 
                 _cleanup = _session_end["handler"]
                 _session_end["handler"] = None

@@ -34,7 +34,14 @@ from common errors in plain English.
 - **Host-a-world / tunneling** - invite codes that turn into tunnel addresses
   (`cubeon/invites.py`, `cubeon/tunnel_tab.py`).
 - **Modpacks** - install/manage modpacks per version+loader profile.
-- **Settings** - RAM slider, window resolution, custom Java path.
+- **Settings** - RAM slider (bounded by your actual RAM), window resolution,
+  custom Java path.
+- **Tuned Java** - every launch gets an Aikar-derived G1GC argument set
+  (matching `-Xms`/`-Xmx`, short pause target) for smooth frame times, with the
+  flags that hurt low-RAM machines deliberately left out. See
+  `CLIENT_JVM_FLAGS` in `cubeon/launch.py`.
+- **Seasonal look** - the launcher picks a palette from your timezone, with a
+  little season companion; change or disable it in Settings.
 
 ## Project layout
 
@@ -60,6 +67,10 @@ cubeon/                  ALL business logic (no UI imports):
   server.py      local server lifecycle  p2p.py / voice.py / playit.py  networking
 
 templates/               Color-theme palettes, loaded by cubeon/color_templates.py
+                         The launcher picks one automatically from your
+                         timezone (autumn/spring/winter/summer - see
+                         cubeon/seasonal.py); --color1..11 or --color=<name>
+                         pins a palette for that launch.
 
 worker/                  Cloudflare Workers (free tier) - see worker/README.md
   cubeon-skins.js        identity + skin API (heartbeat, uploads, CSL lookups)
