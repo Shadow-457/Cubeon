@@ -50,13 +50,14 @@ public final class Bridge {
     private static final Duration CONNECT_TIMEOUT = Duration.ofMillis(900);
     private static final Duration READ_TIMEOUT = Duration.ofMillis(2_000);
     /**
-     * POST /rename re-claims the name against Cubeon's server, so it is slow.
+     * POST /invite etc. can block on a launcher REST round trip, so they get
+     * a generous budget.
      *
-     * <p>30s, not 15: /rename is the one action that still blocks on a REST
-     * round trip inside the launcher (friends.claim(), itself on a 15s budget),
-     * so a 15s limit here could time out an action that was about to succeed and
-     * report "Couldn't reach the Cubeon launcher" for a rename that actually
-     * landed. Every other POST answers in microseconds.
+     * <p>30s, not 15: the launcher's slowest action (a server-side claim
+     * round trip, on a 15s budget) used to be reachable from here, and a 15s
+     * limit could time out an action that was about to succeed and report
+     * "Couldn't reach the Cubeon launcher" for a rename that actually landed.
+     * Every ordinary POST answers in microseconds; the slack costs nothing.
      */
     private static final Duration ACTION_TIMEOUT = Duration.ofSeconds(30);
 
@@ -159,12 +160,13 @@ public final class Bridge {
      * rather than on every single poll.
      */
     public record Snapshot(boolean launcherUp, boolean connected, boolean available,
-                           String you, List<Friend> friends, List<String> requestsIn,
+                           String you, String youUid, List<Friend> friends,
+                           List<String> requestsIn,
                            List<String> requestsOut, Session session, String problem,
                            String modStamp) {
 
         public static final Snapshot DOWN = new Snapshot(
-                false, false, true, "", List.of(), List.of(), List.of(), Session.NONE,
+                false, false, true, "", "", List.of(), List.of(), List.of(), Session.NONE,
                 "Looking for the Cubeon launcher...", "");
 
         /** True once a Cubeon name is owned by this machine. */
@@ -182,7 +184,13 @@ public final class Bridge {
             return n;
         }
 
-        /** The header line: who you are and whether presence is flowing. */
+        /** The header line: whether presence is flowing. The account's NAME
+         * is deliberately not part of this line - the account is the Cubeon
+         * ID (youUid); the visible name is just the player's Minecraft
+         * username, which the screen shows on the Account tab where it
+         * belongs. The old "Connected as <claimed-name>" advertised the
+         * relay's internal handle, which is exactly the identity confusion
+         * the UID system exists to remove. */
         public String connectionLine() {
             if (!launcherUp) {
                 return "Cubeon launcher not found";
@@ -191,9 +199,10 @@ public final class Bridge {
                 return "Realtime add-on missing in the launcher";
             }
             if (!claimed()) {
-                return "No Cubeon name yet";
+                return "Cubeon account not set up yet";
             }
-            return connected ? "Connected as " + you : "Offline - reconnecting as " + you;
+            return connected ? "Connected to Cubeon"
+                             : "Offline - reconnecting...";
         }
     }
 
@@ -644,7 +653,7 @@ public final class Bridge {
 
     private Snapshot down(String problem) {
         downStreak++;
-        return new Snapshot(false, false, true, "", List.of(), List.of(), List.of(),
+        return new Snapshot(false, false, true, "", "", List.of(), List.of(), List.of(),
                 Session.NONE, problem, "");
     }
 
@@ -695,6 +704,10 @@ public final class Bridge {
                 Json.bool(root, "connected", true),
                 Json.bool(root, "available", true),
                 Json.str(root, "you", ""),
+                // The 12-digit public Cubeon ID - the account's real handle.
+                // The internal claimed name above is plumbing; this is what
+                // the Account tab shows and what friends add you by.
+                Json.str(root, "you_uid", ""),
                 List.copyOf(friends),
                 Json.strings(root, "requests_in"),
                 Json.strings(root, "requests_out"),
@@ -987,10 +1000,6 @@ public final class Bridge {
 
     public Result removeFriend(String name) {
         return post("/remove", Json.object("name", name));
-    }
-
-    public Result rename(String name) {
-        return post("/rename", Json.object("name", name));
     }
 
     public Result setWhitelisted(String name, boolean on) {

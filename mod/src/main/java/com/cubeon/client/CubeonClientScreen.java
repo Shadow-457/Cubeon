@@ -223,15 +223,6 @@ public class CubeonClientScreen extends Screen {
      */
     private String draft = "";
 
-    /**
-     * The name the ACCOUNT tab's text box was last seeded with, "" once never
-     * seeded. The box is pre-filled with the current name so the field IS the
-     * place your name shows - editable in place, not a hint you have to retype
-     * over. Cleared whenever the seeded name no longer matches reality (a
-     * rename succeeded), so the box picks the new name up.
-     */
-    private String nameSeeded = "";
-
     private String status = "";
     private boolean statusIsError;
     private int statusTicks;
@@ -646,7 +637,10 @@ public class CubeonClientScreen extends Screen {
             case REQUESTS -> snap.requestsIn().isEmpty()
                     ? "Requests"
                     : "Requests (" + snap.requestsIn().size() + ")";
-            case ACCOUNT -> snap.claimed() ? "Account" : "Set up";
+            // The UID system: the account IS the Cubeon ID, minted by the
+            // launcher - there is no "set up" phase and no name to pick, so
+            // this tab is always just "Account".
+            case ACCOUNT -> "Account";
         };
     }
 
@@ -824,16 +818,36 @@ public class CubeonClientScreen extends Screen {
 
     /** The prose block: the account tab, every empty list, and nowhere at all
      * while the sync report is up (the sync labels own that region). */
+    /**
+     * The player's visible name: their Minecraft username, exactly as the
+     * game received it from the launcher (the launcher passes --username at
+     * launch, so this IS the name the player set in the launcher's account
+     * field). Under the UID system this is the DISPLAY name only - the
+     * account itself is the immutable Cubeon ID.
+     */
+    private String myName() {
+        try {
+            String n = Minecraft.getInstance().getUser().getName();
+            return (n == null || n.isBlank()) ? "Player" : n;
+        } catch (Throwable ignored) {
+            return "Player";    // fail-soft: a label, never a crash
+        }
+    }
+
     private void applyInfo(Snapshot snap) {
         List<Component> lines = new ArrayList<>();
         if (tab == Tab.ACCOUNT) {
-            // Say who you are plainly - the one place in the mod where your own
-            // identity is on show, so it reads as "You are X", not a field
-            // name. Green when it's settled: this line is the standing answer to
-            // "did the rename work?", which the status line only says once.
-            lines.add(colored(snap.claimed() ? "You are " + snap.you() + "."
-                    : "Claim your Cubeon name",
+            // Say who you are plainly - the one place in the mod where your
+            // own identity is on show. The NAME is the Minecraft username the
+            // player set in the launcher; the ACCOUNT is the Cubeon ID, which
+            // never changes and never needs claiming. Green on the name line
+            // keeps the settled feel it always had.
+            lines.add(colored("You are " + myName() + ".",
                     snap.claimed() ? ChatFormatting.GREEN : ChatFormatting.GOLD));
+            if (snap.claimed() && !snap.youUid().isEmpty()) {
+                lines.add(colored("Cubeon ID: " + snap.youUid(),
+                        ChatFormatting.AQUA));
+            }
             lines.add(Component.empty());
             for (String line : wrap(accountBody(snap), panelW - 8)) {
                 lines.add(colored(line, ChatFormatting.GRAY));
@@ -897,12 +911,15 @@ public class CubeonClientScreen extends Screen {
                     + "Python it runs on.";
         }
         if (!snap.claimed()) {
-            return "Your Cubeon name is how friends find you: 3 to 16 letters, numbers or "
-                    + "underscores. Claim one below and it's yours.";
+            return "The launcher hasn't finished setting up your Cubeon account yet. "
+                    + "Open it once and this screen catches up on its own.";
         }
-        return "Your name is in the box below - edit it and press Rename. Friends, "
-                + "skins and worlds all stay; only the name others see changes. "
-                + "It fails if somebody already took the new one.";
+        // The UID system, stated in one breath: name = display only, ID =
+        // identity, and nothing here is renameable any more.
+        return "Your name is your Minecraft username - change it in the Cubeon "
+                + "launcher whenever you like, and it follows you everywhere. "
+                + "Your account is the Cubeon ID above: it is yours alone, never "
+                + "changes, and is how friends find and add you.";
     }
 
     private String emptyHead(Snapshot snap) {
@@ -924,13 +941,19 @@ public class CubeonClientScreen extends Screen {
                     ? "Start Cubeon and this screen fills in by itself." : snap.problem();
         }
         if (!snap.claimed()) {
-            return "Open the Set up tab and pick one.";
+            return "Open the Cubeon launcher once to finish setting up.";
         }
         if (tab == Tab.REQUESTS) {
             return "Friend requests from other players show up here.";
         }
-        return "Type a Cubeon name below and press Add. Your friends can add you as "
-                + snap.you() + ".";
+        // Add-by-ID: the UID is the address. Names are display only, so the
+        // ID is both what you type and what you hand out.
+        String idLine = snap.youUid().isEmpty()
+                ? "Your ID appears once the launcher connects."
+                : "Your friends can add you with your Cubeon ID: "
+                  + snap.youUid() + ".";
+        return "Type a friend's 12-digit Cubeon ID below and press Add. "
+                + idLine;
     }
 
     /**
@@ -1242,35 +1265,20 @@ public class CubeonClientScreen extends Screen {
                 }
                 typing = true;
                 input.setMaxLength(16);
-                input.setHint(Component.literal("Add by Cubeon name"));
+                // The Cubeon ID is the address (12 digits); a friend's name
+                // still works, but IDs are the thing you copy and share.
+                input.setHint(Component.literal("Add by Cubeon ID or name"));
                 label(primary, "Add");
                 primary.action = this::submitAdd;
                 primary.button.active = !busy && snap.claimed();
             }
             case ACCOUNT -> {
-                typing = true;
-                input.setMaxLength(16);
-                if (snap.claimed()) {
-                    // Pre-fill the box with the current name once per name:
-                    // the field is the visible place your name lives, and
-                    // renaming means editing it right there rather than
-                    // retyping it into an empty box. Never overwrites what the
-                    // player is already typing (a non-empty draft wins), and
-                    // it re-seeds after a successful rename so the box tracks
-                    // the new name.
-                    if (!nameSeeded.equals(snap.you()) && draft.isEmpty()) {
-                        nameSeeded = snap.you();
-                        input.setValue(nameSeeded);
-                    }
-                    input.setHint(Component.literal("Your Cubeon name"));
-                    label(primary, "Rename");
-                } else {
-                    nameSeeded = "";
-                    input.setHint(Component.literal("Pick a name"));
-                    label(primary, "Claim");
-                }
-                primary.action = this::submitName;
-                primary.button.active = !busy && snap.launcherUp();
+                // The account has no editable field: your name is your
+                // Minecraft username (change it in the launcher, like any
+                // username) and your identity is the Cubeon ID, which the
+                // launcher owns. There is nothing to type and nothing to
+                // rename - the old Rename box was the name-based identity
+                // the UID system replaced.
             }
             case REQUESTS -> {
                 // No text entry on this tab.
@@ -1281,7 +1289,9 @@ public class CubeonClientScreen extends Screen {
             // In gate mode the primary IS the Save/Join button, on every tab.
             primary.button.visible = true;
         } else {
-            primary.button.visible = tab != Tab.REQUESTS && !subViewOpen();
+            // The Account tab is pure information - no action button, no box.
+            primary.button.visible = tab != Tab.REQUESTS && tab != Tab.ACCOUNT
+                    && !subViewOpen();
         }
         primary.button.active = primary.button.active && primary.button.visible;
         input.visible = typing;
@@ -1422,7 +1432,10 @@ public class CubeonClientScreen extends Screen {
             return;
         }
         Snapshot snap = bridge.snapshot();
-        if (name.equalsIgnoreCase(snap.you())) {
+        // Can't add yourself - by the relay's internal name, or (the realistic
+        // case under the UID system) by your own Cubeon ID.
+        if (name.equalsIgnoreCase(snap.you())
+                || (!snap.youUid().isEmpty() && name.equals(snap.youUid()))) {
             flash("You can't add yourself.");
             return;
         }
@@ -1435,28 +1448,6 @@ public class CubeonClientScreen extends Screen {
         submit("Sending a request to " + name + "...",
                 "Friend request sent to " + name + ".",
                 () -> clearInputOnSuccess(bridge.addFriend(name)));
-    }
-
-    private void submitName() {
-        String name = input.getValue().trim();
-        String problem = Bridge.checkName(name);
-        if (problem != null) {
-            flash(problem);
-            return;
-        }
-        Snapshot snap = bridge.snapshot();
-        if (snap.claimed() && name.equalsIgnoreCase(snap.you())) {
-            flash("That's already your name.");
-            return;
-        }
-        boolean claimed = bridge.snapshot().claimed();
-        // Sticky, because the launcher publishes its own notice for the same
-        // rename a fraction of a second later. Without this the confirmation the
-        // player reads is whichever of the two happened to land last - which is
-        // exactly the "it doesn't say I'm set now" confusion.
-        submit(claimed ? "Changing your name to " + name + "..." : "Claiming " + name + "...",
-                claimed ? "You are now " + name + "." : "Welcome, " + name + ".",
-                () -> clearInputOnSuccess(bridge.rename(name)), true);
     }
 
     /**

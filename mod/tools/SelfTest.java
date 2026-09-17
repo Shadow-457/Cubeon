@@ -343,11 +343,11 @@ public final class SelfTest {
         ok(Bridge.readResult(200, "{\"ok\": true}").ok(), "ok:true");
         Bridge.Result e = Bridge.readResult(200, "{\"ok\": false, \"error\": \"not connected\"}");
         ok(!e.ok() && e.error().equals("not connected"), "error field surfaced");
-        // /rename relays friends.claim(), which reports through "message".
+        // A server-side action (e.g. a claim round trip) reports through "message".
         Bridge.Result m = Bridge.readResult(200,
                 "{\"ok\": false, \"message\": \"That name is taken.\"}");
         ok(!m.ok() && m.error().equals("That name is taken."),
-                "claim()'s message field surfaced, not a generic failure");
+                "the message field surfaced, not a generic failure");
         ok(Bridge.readResult(401, "{}").error().contains("Restart"),
                 "401 tells the player what to do");
         ok(Bridge.readResult(404, "{}").error().contains("older"),
@@ -392,13 +392,22 @@ public final class SelfTest {
         section("Snapshot: header line");
         ok(Bridge.Snapshot.DOWN.connectionLine().contains("not found"),
                 "no launcher");
-        ok(Bridge.parseSnapshot("{\"you\": \"\"}", "{}").connectionLine().contains("No Cubeon name"),
+        ok(Bridge.parseSnapshot("{\"you\": \"\"}", "{}").connectionLine().contains("not set up"),
                 "launcher up, nothing claimed");
+        // The UID system: the header never advertises the internal claimed
+        // name - identity is the Cubeon ID, shown on the Account tab.
+        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"you_uid\": \"123456789012\", \"connected\": true}", "{}")
+                .connectionLine().equals("Connected to Cubeon"), "claimed and connected");
+        ok(Bridge.parseSnapshot(
+                "{\"you\": \"H\", \"you_uid\": \"123456789012\", \"connected\": true}", "{}")
+                .youUid().equals("123456789012"), "you_uid parsed from /state");
         ok(Bridge.parseSnapshot("{\"you\": \"H\", \"connected\": true}", "{}")
-                .connectionLine().equals("Connected as H"), "claimed and connected");
-        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"connected\": false}", "{}")
+                .youUid().isEmpty(), "older launcher without you_uid degrades to empty");
+        ok(Bridge.parseSnapshot(
+                "{\"you\": \"H\", \"you_uid\": \"123456789012\", \"connected\": false}", "{}")
                 .connectionLine().contains("reconnecting"), "claimed but socket down");
-        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"available\": false}", "{}")
+        ok(Bridge.parseSnapshot(
+                "{\"you\": \"H\", \"you_uid\": \"123456789012\", \"available\": false}", "{}")
                 .connectionLine().contains("add-on"), "launcher lacks websocket-client");
     }
 
