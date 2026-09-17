@@ -195,18 +195,34 @@ _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 # -Xmx (done in build_launch_command) removes the mid-game heap-growth hitches
 # where a long session suddenly stutters as the heap resizes.
 #
-# Deliberately lighter than the server's Aikar set (cubeon/server.py): a client
-# heap is far smaller, and always-pre-touch / huge region sizes just slow
-# startup here for no frame-rate gain. Kept to flags that exist on Java 8
-# through 25, since Cubeon launches versions across that whole range.
+# This is Aikar's well-known client set (github.com/Aikar/timings), trimmed of
+# everything that could HURT an ordinary player's machine, per the repo rule
+# that performance must never cost stability:
+#   - no AlwaysPreTouch: commits and faults the whole heap at startup, which
+#     punishes low-RAM machines and doubles launch time for no FPS gain;
+#   - no huge G1HeapRegionSize beyond 16M: a client heap is small;
+#   - nothing newer than Java 8 supports, since Cubeon launches versions
+#     across Java 8 through 25.
+# UnlockExperimentalVMOptions comes FIRST because every G1 tuning flag below
+# it is experimental-gated. PerfDisableSharedMem stops the JVM writing perf
+# statistics to a mmap'd file, a known source of periodic micro-stutter.
 CLIENT_JVM_FLAGS = [
     "-XX:+UseG1GC",
     "-XX:+ParallelRefProcEnabled",
-    "-XX:MaxGCPauseMillis=50",
+    "-XX:MaxGCPauseMillis=40",
     "-XX:+UnlockExperimentalVMOptions",
     "-XX:+DisableExplicitGC",
-    "-XX:G1NewSizePercent=20",
+    "-XX:G1NewSizePercent=30",
+    "-XX:G1MaxNewSizePercent=40",
+    "-XX:G1HeapRegionSize=16M",
     "-XX:G1ReservePercent=20",
+    "-XX:G1MixedGCCountTarget=4",
+    "-XX:InitiatingHeapOccupancyPercent=15",
+    "-XX:G1MixedGCLiveThresholdPercent=90",
+    "-XX:G1RSetUpdatingPauseTimePercent=5",
+    "-XX:SurvivorRatio=32",
+    "-XX:MaxTenuringThreshold=1",
+    "-XX:+PerfDisableSharedMem",
 ]
 
 
