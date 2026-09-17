@@ -46,6 +46,23 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   synced by _season_controls_sync, but the top-bar Row no longer contains it.
   The Settings > Seasonal pane is the entry point. Don't re-add the chip to
   the bar, and don't delete the widget (its sync calls would break).
+- CONTENT DIR LAYOUT: MINECRAFT_DIR is `~/.cubeon_minecraft` (Cubeon's own
+  private game folder, NOT ~/.minecraft). `CUBEON_GAME_DIR` env wins over the
+  default and is THE sandbox hook for content tests (set it before importing
+  cubeon.paths — dirs are computed at import). Game staging folders:
+  resourcepacks/, shaderpacks/ inside it; stores: global_mods/,
+  global_content/ (siblings the sync never wipes).
+- PER-INSTANCE CONTENT (commit ec581b9): packs/shaders use the mods model —
+  global store + (version,loader) profile of links + launch-time staging
+  (launch.py calls content.sync_content_to_game(mc_version, loader)).
+  Signature gotcha: `list_content(type, mc_version, version_id=None,
+  loader=None)` — the THIRD positional is version_id; always pass loader as a
+  kwarg or you silently get [] (cost me two probe rounds).
+- `.cubeon-staged.json` state files live INSIDE the staging folders — any
+  test counting game-folder entries must filter dotfiles.
+- Regression guard: tools/test_content_instance.py (registered in mega_smoke
+  SUITES). If "packs don't change between instances" is reported again, run
+  it first — it reproduces the whole bug headlessly in ~2s.
 - PRECEDENCE GOTCHA: `CUBEON_SEASON` env outranks `season_override` config
   BY DESIGN. A user with the var set sees their picker pick ignored. The UI
   surfaces this via `seasonal.env_pin()` (red note in the Seasonal pane +
