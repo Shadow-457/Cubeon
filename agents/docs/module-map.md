@@ -63,6 +63,14 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
 - Regression guard: tools/test_content_instance.py (registered in mega_smoke
   SUITES). If "packs don't change between instances" is reported again, run
   it first — it reproduces the whole bug headlessly in ~2s.
+- VERSION INSTALL INTEGRITY (commit 60b3c40): mll's downloader has no
+  resume/checksums. `versions.install_version` now verifies size+sha1
+  post-install, removes partial jars on any failure, and
+  `get_installed_versions` runs `_client_jar_problem` over EVERY entry
+  (size vs manifest, zip magic) — a truncated jar shows "(incomplete)",
+  never "installed". Regression guard: tools/test_version_integrity.py
+  (14 checks, fake mll injection via `V.mll = _Fake`). Loader profiles
+  (inheritsFrom) carry no jar of their own — never jar-check those.
 - PRECEDENCE GOTCHA: `CUBEON_SEASON` env outranks `season_override` config
   BY DESIGN. A user with the var set sees their picker pick ignored. The UI
   surfaces this via `seasonal.env_pin()` (red note in the Seasonal pane +
