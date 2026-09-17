@@ -108,9 +108,19 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     new_ids = [v["id"] for v in after if v["id"] not in before]
     for vid in new_ids:
         if mc_version in vid:
+            new_entry = next(v for v in after if v["id"] == vid)
+            if new_entry.get("incomplete"):
+                # A loader install is tiny (one json), so an incomplete one
+                # means the net died mid-write. Don't return a version id the
+                # UI will mark installed - the scan already flagged it, so
+                # surface that instead. (The base MC version install this
+                # builds on is verified separately by install_version.)
+                raise RuntimeError(
+                    f"The {loader_id} install didn't finish (network "
+                    "interrupted). Try again once you're back online.")
             return vid
-    if new_ids:
-        return new_ids[0]
+    for vid in new_ids:
+        return vid
     # Nothing new appeared (e.g. already installed) - best-effort match.
     for v in after:
         if loader_id in v["id"].lower() and mc_version in v["id"]:
