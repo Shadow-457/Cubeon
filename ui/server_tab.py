@@ -232,7 +232,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             dd.color = color_by_option.get(dd.value, TEXT)
             page.update()
 
-        dd.on_change = sync_color
+        dd.on_select = sync_color
         dd._sync_color = sync_color  # exposed so callers can re-sync after setting .value directly
         return dd
 

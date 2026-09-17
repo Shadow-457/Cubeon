@@ -322,7 +322,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 mods_column.controls.append(cb)
             page.update()
 
-        profile_dd.on_change = rebuild_mods
+        profile_dd.on_select = rebuild_mods
 
         def close_dlg():
             # Shared cross-Flet dialog plumbing (Flet 0.86: pop_dialog).
