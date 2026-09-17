@@ -267,7 +267,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         "ComplementaryReimagined_r5.5.zip"). Best-effort, never wrong in a way
         that blocks a download: a miss just shows "Download" again."""
         tokens = set()
-        for it in core.list_content(_ct()):
+        for it in core.list_content(_ct(), state["selected_mc_version"],
+                                    loader_for_content()):
             tokens.add(re.sub(r"[^a-z0-9]+", "", it["display_name"].lower()))
         return tokens
 
@@ -286,10 +287,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             vanilla_mods_notice.visible = False
             shader_notice.visible = (_ct() == "shader")
             # Version info is what lets each installed row say whether the game
-            # will actually accept it (see cubeon/packformat.py): packs live in
-            # one shared folder read by every installed version.
+            # will actually accept it (see cubeon/packformat.py). The list is
+            # this instance's profile: packs follow the version+loader now,
+            # exactly like mods do.
             all_mods = core.list_content(
-                _ct(), state["selected_mc_version"], version_dropdown.value)
+                _ct(), state["selected_mc_version"], version_dropdown.value,
+                loader_for_content())
         query = installed_filter_field.value.strip().lower()
         mods = [m for m in all_mods if query in m["display_name"].lower()] if query else all_mods
 
@@ -475,7 +478,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 # raises for that and for anything suspicious - show it instead
                 # of letting the exception die inside Flet (dead button).
                 try:
-                    core.delete_content(_ct(), m["filename"])
+                    core.delete_content(_ct(), m["filename"],
+                                        state["selected_mc_version"],
+                                        loader_for_content())
                 except Exception as ex:
                     _set_installed_status(f"Couldn't remove: {ex}")
                     return
@@ -617,7 +622,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if _is_mod():
             core.open_mods_folder(state["selected_mc_version"], state["mod_loader"])
         else:
-            core.open_content_folder(_ct())
+            core.open_content_folder(_ct(), state["selected_mc_version"],
+                                     loader_for_content())
 
     # --- Install from file: lets the user pick a .jar already on their
     # disk and drop it straight into the current profile's mods folder,
@@ -649,7 +655,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     core.install_local_mod(picked.path, state["selected_mc_version"],
                                            state["mod_loader"])
                 else:
-                    core.install_local_content(_ct(), picked.path)
+                    core.install_local_content(
+                        _ct(), picked.path, state["selected_mc_version"],
+                        version_dropdown.value, loader_for_content())
                 local_install_status.value = f"Installed '{picked.name}'."
                 refresh_mods_list()
                 if _is_mod():
@@ -802,6 +810,15 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _is_mod() -> bool:
         return active_content["type"] == "mod"
+
+    def loader_for_content() -> str | None:
+        """The loader half of the profile key a pack is stored under.
+
+        Content has no loader of its own, but the profile that OWNS it does: a
+        Vanilla instance gets its own set of packs instead of sharing the
+        modded instance's (which matters because a shader is only usable where
+        Iris/OptiFine is actually installed)."""
+        return state.get("mod_loader")
 
     def _type_label() -> str:
         """Singular human label for the active non-mod type, e.g. 'resource pack'."""
@@ -1752,6 +1769,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             hashes=file_info.get("hashes"),
                             mc_version=state["selected_mc_version"],
                             version_id=version_dropdown.value,
+                            loader=loader_for_content(),
                             fix_cb=_note_fix)
 
                     download_btn_text.value = ("Installed (pack format fixed)"
@@ -1928,7 +1946,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 # because refresh_mods_list also calls _build_view_segment.
                 try:
                     n = len(core.list_mods(state["selected_mc_version"], state["mod_loader"])) \
-                        if _is_mod() else len(core.list_content(_ct()))
+                        if _is_mod() else len(core.list_content(
+                            _ct(), state["selected_mc_version"],
+                            loader_for_content()))
                     count_note = f" ({n})" if n else ""
                 except Exception:
                     count_note = ""

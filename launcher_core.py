@@ -81,11 +81,12 @@ from cubeon.modpacks import (
     list_installed_modpacks, export_mrpack, forget_modpack_for_version,
 )
 
-# --- resource packs & shaders (shared, version-agnostic game folders) ---
+# --- resource packs & shaders (PER INSTANCE: store + profile links, staged
+# into the game folders at launch - exactly like mods) ---
 from cubeon.content import (
-    CONTENT_TYPES, content_dir, category_choices,
+    CONTENT_TYPES, content_dir, store_dir, profile_dir, category_choices,
     list_content, delete_content, install_local_content, open_content_folder,
-    is_installed as content_installed, content_compat,
+    is_installed as content_installed, content_compat, sync_content_to_game,
     search_content, get_recommended_content, get_content_download, download_content,
 )
 

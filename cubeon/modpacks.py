@@ -43,18 +43,25 @@ A modpack install therefore:
   - installs the pack's Minecraft version + loader (so it appears on Play),
   - writes every `mods/*.jar` the pack lists into that profile - the exact
     folder sync_mods_to_game() copies into the game at launch,
-  - copies the pack's `overrides/` (configs, resourcepacks, shaders) straight
-    into the game folder.
+  - writes the pack's `resourcepacks/` and `shaderpacks/` entries into that
+    same profile (cubeon/content.py's per-instance content folders, staged
+    into the game at launch like the mods),
+  - copies the rest of `overrides/` (configs, options.txt, ...) into the game
+    folder, where the game reads them regardless of instance.
 
 A pack brings its own Minecraft version, so it does NOT have to match whatever
 is selected on the Play tab - version-locked packs (RLCraft is 1.12.2-only)
 must stay installable regardless of what the user currently has selected.
 
-The overrides being shared is a deliberate MVP trade: a cracked launcher's
-users run one pack at a time, and keeping the single game dir is what
-lets a pack's world/saves live right next to everything else instead of in an
-isolated instance. Isolated instances would be a much larger change to the
-launch flow; this is not that.
+WHY THE PACKS ARE PER-INSTANCE NOW (they used to be shared): with one shared
+resourcepacks/ folder, installing a second modpack mixed its packs and shaders
+into the first one's permanently - one folder cannot describe two instances -
+and two packs shipping a file at the same relative path silently overwrote each
+other. Mods never had that problem because they are staged from the profile at
+launch, so packs now use the identical store + profile-link + launch-sync
+pattern. Configs still live in the shared game folder: that keeps a pack's
+world/saves sitting next to everything else, and splitting configs per instance
+is a much larger change with its own trade-offs.
 
 SECURITY
 
@@ -86,6 +93,11 @@ from .paths import APP_NAME, MINECRAFT_DIR, PROFILES_DIR, MOD_META_SUFFIX
 from .versions import install_version, get_installed_versions
 from .mod_loaders import install_mod_loader, find_installed_loader_version, MOD_CAPABLE_LOADERS
 from .mods import get_profile_dir, modrinth_search_index, rank_search_hits, record_mod_source
+# Bundled resource packs/shaders belong to the INSTANCE, like the bundled mods
+# do - so they are routed into the pack's own profile rather than the shared
+# game folder (see _dest_is_content). Reuses content.py's profile layout so a
+# pack-installed pack and a Mods-tab-installed one land in the same place.
+from .content import CONTENT_TYPES, profile_dir as content_profile_dir
 from . import local_cache
 from . import global_mod_cache
 from . import net
@@ -252,6 +264,38 @@ def _dest_is_mod(rel_path: str) -> bool:
     return p.startswith("mods/") and p.endswith(".jar")
 
 
+# A pack's bundled resource packs / shaders are per-INSTANCE (see
+# cubeon/content.py), so they are routed into the pack's own profile like its
+# mods are. Before this they went into the shared game folder, which is how two
+# installed modpacks ended up permanently mixed - and how one pack's overrides
+# silently overwrote the other's when both shipped the same relative path.
+_CONTENT_PREFIXES = {cfg["subdir"] + "/": key for key, cfg in CONTENT_TYPES.items()}
+
+
+def _content_type_for(rel_path: str) -> str | None:
+    """The content type a pack-relative path belongs to, or None if it isn't
+    a resource pack/shader (configs, options.txt, ... stay where they are)."""
+    p = rel_path.replace("\\", "/").lstrip("/").lower()
+    for prefix, content_type in _CONTENT_PREFIXES.items():
+        if p.startswith(prefix):
+            return content_type
+    return None
+
+
+def _content_profile_dest(rel_path: str, mc_version: str, loader: str) -> str | None:
+    """Where a bundled pack/shader lands for this instance, or None when the
+    path isn't content. Keeps the pack's own filename (the folder inside a
+    profile is already the content type, so the prefix is dropped)."""
+    content_type = _content_type_for(rel_path)
+    if not content_type or not mc_version or not loader:
+        return None
+    name = rel_path.replace("\\", "/").rstrip("/").split("/")[-1]
+    if not name:
+        return None
+    return _safe_relpath(content_profile_dir(content_type, mc_version, loader),
+                         name)
+
+
 def _wanted_on_client(file_entry: dict) -> bool:
     """Skip files the pack marks as not for the client (server-only mods)."""
     env = file_entry.get("env") or {}
@@ -334,10 +378,12 @@ def _noop(*_a, **_k):
     pass
 
 
-def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb) -> int:
+def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
+                       mc_version: str = "", loader: str = "") -> int:
     """Copy the pack's override files into place: anything under mods/ goes to
-    the profile (so sync_mods_to_game picks it up), everything else
-    (config/, resourcepacks/, shaderpacks/, options.txt, ...) into the shared
+    the profile (so sync_mods_to_game picks it up), bundled resource
+    packs/shaders go to the profile's content folders (so they follow THIS
+    instance), and everything else (config/, options.txt, ...) into the shared
     game dir. Returns how many override mod jars were written."""
     override_mods = 0
     for info in zf.infolist():
@@ -359,7 +405,10 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb) -> int:
             dest = _safe_relpath(profile_dir, os.path.basename(rel))
             override_mods += 1
         else:
-            dest = _safe_relpath(MINECRAFT_DIR, rel)
+            # A bundled pack/shader belongs to this instance; everything else
+            # (configs, options.txt, ...) keeps its existing shared location.
+            dest = _content_profile_dest(rel, mc_version, loader) \
+                or _safe_relpath(MINECRAFT_DIR, rel)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with zf.open(info) as src, open(dest, "wb") as out:
             shutil.copyfileobj(src, out)
@@ -495,18 +544,21 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
                 record_mod_source(profile_dir, filename,
                                   project_id=project_id, url=url)
 
-        # 4) Non-mod declared files (resourcepacks/shaders/etc.) into the game dir.
+        # 4) Declared non-mod files (resourcepacks/shaders and the odd config).
+        #    A declared pack/shader belongs to THIS instance (see
+        #    _content_profile_dest); anything else keeps the shared game dir.
         for f in other_files:
             n += 1
             path = f.get("path", "")
             status_cb("Downloading pack resources...")
-            dest = _safe_relpath(MINECRAFT_DIR, path)
+            dest = _content_profile_dest(path, mc_version, loader_id) \
+                or _safe_relpath(MINECRAFT_DIR, path)
             _download_to(dest, f.get("downloads") or [], f.get("hashes"))
             progress_cb(n)
 
         # 5) Overrides (bundled configs + any non-Modrinth-hosted jars).
         status_cb("Applying pack config")
-        _extract_overrides(zf, profile_dir, status_cb)
+        _extract_overrides(zf, profile_dir, status_cb, mc_version, loader_id)
 
         # 6) Record the pack so the tab can list it and Play can select it.
         meta = {

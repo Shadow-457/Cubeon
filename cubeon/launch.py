@@ -537,6 +537,17 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     except Exception:
         pass
 
+    # Packs and shaders are staged BEFORE the doctor pass below, so what gets
+    # checked and repaired is exactly the set of packs this instance will
+    # launch with (see cubeon/content.py: the game folder is rebuilt from the
+    # active profile on every launch, which is what makes packs follow the
+    # instance switch).
+    try:
+        from .content import sync_content_to_game
+        sync_content_to_game(mc_version, loader)
+    except Exception:
+        pass
+
     # Last-chance repair before the game reads the folder: a leftover second
     # copy of a mod - or two mods that Fabric says can't run together - is the
     # classic "it crashed on startup" cause, and the user will never see it in
@@ -544,9 +555,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # skipped here (handled at install time) but a version conflict is still
     # resolved, since that is a guaranteed crash. Best-effort - a failed check
     # must never block playing.
-    # Resource packs and shaders ride along because they live in ONE shared
-    # folder that this version also reads: a pack whose pack.mcmeta is built
-    # for another version shows up in THIS game as a red "Incompatible"
+    # Resource packs and shaders ride along: a pack whose pack.mcmeta is built
+    # for another version shows up in this game as a red "Incompatible"
     # (cubeon/packformat.py explains and repairs that).
     try:
         from .doctor import run_doctor

@@ -52,15 +52,25 @@ MODS_DIR = os.path.join(MINECRAFT_DIR, "mods")
 # sibling the sync never touches.
 GLOBAL_MODS_DIR = os.path.join(MINECRAFT_DIR, "global_mods")
 
-# Resource packs and shaders are NOT per-version the way mods are: Minecraft
-# reads them straight out of these two shared folders regardless of which
-# version launches, and the game itself decides which are actually applied
-# (via the in-game menu / options.txt). So unlike MODS_DIR there's no
-# per-profile copy or launch-time sync step - installing here is all it takes
-# for the game to see them. Shaders additionally need Iris or OptiFine present
-# to have any effect, but the file still just lives here either way.
+# Resource packs and shaders now follow the SAME model as mods: a real copy
+# lives in the global content store, the (version, loader) profile holds a
+# link to it, and the game folder is a staging area rebuilt at every launch
+# from the active profile.
+#
+# These two folders are what the GAME reads. They are staging, exactly like
+# MODS_DIR: sync_content_to_game() empties what Cubeon staged and re-links the
+# active profile's packs here before the game starts, which is what finally
+# makes packs and shaders change when the user changes instance. A file the
+# user drops in here by hand is adopted into the profile being played (never
+# deleted), so nothing anyone placed manually can go missing.
 RESOURCEPACKS_DIR = os.path.join(MINECRAFT_DIR, "resourcepacks")
 SHADERPACKS_DIR = os.path.join(MINECRAFT_DIR, "shaderpacks")
+
+# The visible global content store - the packs/shaders equivalent of
+# GLOBAL_MODS_DIR: one human-named copy of each pack per content type, with
+# profiles linking into it. Deliberately OUTSIDE the two staging folders
+# above, for the same reason the mod store is: the launch sync rebuilds those.
+GLOBAL_CONTENT_DIR = os.path.join(MINECRAFT_DIR, "global_content")
 
 CUBEON_HOME = str(Path.home() / ".cubeon_launcher")
 CONFIG_PATH = os.path.join(CUBEON_HOME, "config.json")
@@ -152,7 +162,7 @@ def ensure_dirs() -> None:
     for d in (
         MINECRAFT_DIR, MODS_DIR, GLOBAL_MODS_DIR, CUBEON_HOME, CACHE_DIR, SKINS_DIR,
         CAPES_DIR, PFP_DIR, SERVERS_DIR, PROFILES_DIR, BIN_DIR,
-        RESOURCEPACKS_DIR, SHADERPACKS_DIR,
+        RESOURCEPACKS_DIR, SHADERPACKS_DIR, GLOBAL_CONTENT_DIR,
     ):
         try:
             os.makedirs(d, exist_ok=True)

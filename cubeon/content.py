@@ -1,21 +1,48 @@
 """
 Resource pack and shader management: Modrinth search/download plus CRUD over
-the two shared game folders (.minecraft/resourcepacks, .minecraft/shaderpacks).
+the two game folders (.minecraft/resourcepacks, .minecraft/shaderpacks).
 
---- Why this is deliberately simpler than mods.py ---
+--- How a pack is stored (same model as mods) ---
 
-Mods are per-(version, loader): each combo gets its own profile folder, and
-launch_game() has to sync the active profile's enabled jars into
-MINECRAFT_DIR/mods every launch (see cubeon/mods.py for the bugs that caused).
+A resource pack or shader belongs to an INSTANCE, exactly like a mod does:
 
-Resource packs and shaders are NOT like that. Minecraft reads them straight
-out of the single shared resourcepacks/ and shaderpacks/ folders no matter
-which version launches, and the *game* decides which are actually applied
-(via its own in-game menu / options.txt), not the launcher. So there are no
-profiles here, no enable/disable-by-rename, and no sync step - dropping a
-.zip into the right folder is the whole install. That also means these are
-version-agnostic: a pack installed once is visible to every version, exactly
-like it is when you install one by hand.
+    <game dir>/global_content/resourcepacks/Faithful.zip   <- one real copy
+    <profiles>/<version>-<loader>/resourcepacks/Faithful.zip <- a symlink
+    <game dir>/resourcepacks/Faithful.zip                  <- staged at launch
+
+Three locations, three jobs, and every one of them is load-bearing:
+
+  - the GLOBAL STORE holds the only real bytes, named for a human so the
+    folder is browsable (mirrors global_mod_cache's mod store);
+  - the PROFILE holds a link, so "which packs does this instance have" is
+    answered by a folder listing and two instances can differ;
+  - the GAME FOLDER is staging. Minecraft only ever reads this one folder, so
+    sync_content_to_game() rebuilds it from the active profile right before
+    the game starts - that rebuild is what makes packs and shaders follow the
+    instance switch.
+
+--- Why this is no longer "simpler than mods.py" ---
+
+It used to be: packs and shaders went straight into the shared game folder
+with no profiles, because that folder is what the game reads and the game
+picks which packs are active. That is true, but it had a consequence users
+hit immediately - installing a second modpack mixed its resource packs and
+shaders into the first one's, and the two could never be separated again,
+because *one* folder cannot describe two instances. Modpacks made it worse:
+two packs shipping a file at the same relative path silently overwrote each
+other (see modpacks._extract_overrides).
+
+Mods already solved exactly this with the store + link + launch-sync pattern,
+so packs now use it too. Two deliberate differences from mods:
+
+  - No enabled/disabled toggle. A pack in a profile is simply present, and
+    which packs are actually APPLIED stays the game's business (its own menu /
+    options.txt) - the launcher never rewrites that choice.
+  - Hand-dropped files are ADOPTED, never deleted. A .zip sitting in the game
+    folder that Cubeon didn't stage is moved into the store and linked into
+    the profile being played (see _adopt_foreign_entries), so a user who
+    installed a pack by hand - or by dragging it in from the file manager -
+    keeps it, and it follows that instance from then on.
 
 Shaders additionally need Iris (Fabric) or OptiFine installed to have any
 effect in-game, but the .zip still just lives in shaderpacks/ either way, so
@@ -24,9 +51,9 @@ that's the mod-loader layer's concern, not this module's.
 import json
 import os
 import shutil
-import uuid
 
-from .paths import APP_NAME, RESOURCEPACKS_DIR, SHADERPACKS_DIR
+from .paths import APP_NAME, GLOBAL_CONTENT_DIR, RESOURCEPACKS_DIR, SHADERPACKS_DIR
+from . import global_mod_cache
 from . import local_cache
 from . import net
 from . import packformat
@@ -34,6 +61,10 @@ from . import packformat
 # tab uses, so "browse" and search behave identically across content types
 # instead of drifting into two subtly different rankings.
 from .mods import MODRINTH_API, MODRINTH_HEADERS, modrinth_search_index, rank_search_hits
+# The per-instance plumbing is shared with mods on purpose: same profile
+# folders (get_profile_dir), same link-into-place engine, same loud failure
+# when a caller forgets which profile it is acting on.
+from .mods import get_profile_dir, require_loader_and_version
 
 import logging
 
@@ -44,7 +75,10 @@ log = logging.getLogger(__name__)
 # so every function below stays a single code path keyed by content_type
 # instead of forking into near-duplicate resourcepack/shader variants.
 #
-#   dir          -> the shared game folder the file installs into
+#   dir          -> the game folder this content type is STAGED into (the one
+#                   folder Minecraft reads; rebuilt per launch)
+#   subdir       -> the per-type folder name inside the global store and the
+#                   profile (same name in both, so the two are comparable)
 #   project_type -> Modrinth's own project_type facet value
 #   exts         -> accepted local-file extensions (both ship as .zip)
 #   categories   -> (facet_id, label) quick-filter chips for this type; the
@@ -52,6 +86,7 @@ log = logging.getLogger(__name__)
 CONTENT_TYPES = {
     "resourcepack": {
         "dir": RESOURCEPACKS_DIR,
+        "subdir": "resourcepacks",
         "project_type": "resourcepack",
         "label": "Resource pack",
         "label_plural": "Resource packs",
@@ -69,6 +104,7 @@ CONTENT_TYPES = {
     },
     "shader": {
         "dir": SHADERPACKS_DIR,
+        "subdir": "shaderpacks",
         "project_type": "shader",
         "label": "Shader",
         "label_plural": "Shaders",
@@ -109,20 +145,153 @@ def category_choices(content_type: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# The three locations: store (real bytes) / profile (links) / game (staging)
+# ---------------------------------------------------------------------------
+
+# Marker written INSIDE a staging folder, listing the entries Cubeon put there.
+# Its whole job is to make "which files may this sync delete?" a recorded fact
+# instead of a guess: anything not in the list was not staged by us, so it is
+# adopted (never removed).
+_STAGED_MARKER = ".cubeon-staged.json"
+
+# The store's collision tag: a pack stored as "Faithful.zip" that collides
+# with DIFFERENT bytes of the same name becomes "<stem>.<8 of sha256>.zip", so
+# neither file overwrites the other (the promise the mod store also makes).
+_COLLISION_TAG = 8
+
+
+def store_dir(content_type: str) -> str:
+    """The global, human-browsable store this content type shares with every
+    profile - the packs/shaders twin of GLOBAL_MODS_DIR."""
+    d = os.path.join(GLOBAL_CONTENT_DIR, _cfg(content_type)["subdir"])
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def profile_dir(content_type: str, mc_version: str | None,
+                loader: str | None) -> str:
+    """Where THIS instance's packs of this type live (a folder of links).
+
+    Fails loudly on a missing version/loader rather than resolving to the
+    'unknown-vanilla' folder, for the same reason mods.require_loader_and_version
+    exists: a silently wrong profile is how packs end up "installed" somewhere
+    the game never looks."""
+    require_loader_and_version(
+        mc_version, loader, f"manage {_cfg(content_type)['label_plural'].lower()}")
+    d = os.path.join(get_profile_dir(mc_version, loader),
+                     _cfg(content_type)["subdir"])
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _sha256(path: str) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _dir_sha256(path: str) -> str:
+    """Stable content hash for an unpacked (folder) pack: every file's relative
+    path + bytes. Only feeds the name-collision check, so 'stable' matters
+    more than 'cryptographic'."""
+    import hashlib
+    h = hashlib.sha256()
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames.sort()
+        for fname in sorted(filenames):
+            full = os.path.join(dirpath, fname)
+            h.update(os.path.relpath(full, path).encode("utf-8", "replace"))
+            try:
+                with open(full, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 16), b""):
+                        h.update(chunk)
+            except OSError:
+                continue
+    return h.hexdigest()
+
+
+def _entry_hash(path: str) -> str:
+    return _dir_sha256(path) if os.path.isdir(path) else _sha256(path)
+
+
+def _store_entry(content_type: str, src_path: str,
+                 human_name: str | None = None) -> str:
+    """Puts a real pack file/folder into the global store, returning the stored
+    path. Reuses the stored copy when the exact same bytes are already there
+    (hashed first, so nothing is copied just to find that out)."""
+    store = store_dir(content_type)
+    name = (human_name or os.path.basename(src_path.rstrip("/\\"))).strip()
+    if not name:
+        name = _cfg(content_type)["subdir"] + ".zip"
+    src_hash = _entry_hash(src_path)
+
+    candidate = os.path.join(store, name)
+    if os.path.exists(candidate):
+        try:
+            if _entry_hash(candidate) == src_hash:
+                return candidate          # exact-match reuse, no copy
+        except OSError:
+            pass
+        stem, ext = os.path.splitext(name)
+        candidate = os.path.join(store, f"{stem}.{src_hash[:_COLLISION_TAG]}{ext}")
+
+    if os.path.exists(candidate):
+        return candidate                  # same bytes, already disambiguated
+
+    if os.path.isdir(src_path):
+        shutil.copytree(src_path, candidate)
+    else:
+        shutil.copyfile(src_path, candidate)
+    return candidate
+
+
+def link_into_profile(content_type: str, stored_path: str,
+                      mc_version: str | None, loader: str | None) -> str:
+    """Links a stored pack into an instance's profile; returns the linked path.
+
+    Links (symlink, then hardlink, then copy - global_mod_cache.link_into_place)
+    rather than copying: the profile stays cheap metadata and the store stays
+    the single place the bytes actually live."""
+    dest = os.path.join(profile_dir(content_type, mc_version, loader),
+                        os.path.basename(stored_path))
+    if os.path.isdir(stored_path):
+        # link_into_place handles files only, so a folder pack is linked as a
+        # symlink to the stored folder (or copied where symlinks are refused).
+        if os.path.islink(dest) or os.path.isfile(dest):
+            os.remove(dest)
+        elif os.path.isdir(dest):
+            shutil.rmtree(dest)
+        try:
+            os.symlink(stored_path, dest)
+        except OSError:
+            shutil.copytree(stored_path, dest)
+        return dest
+    global_mod_cache.link_into_place(stored_path, dest)
+    return dest
+
+
+# ---------------------------------------------------------------------------
 # Installed-content CRUD (over the shared game folder - no profiles)
 # ---------------------------------------------------------------------------
 
 def list_content(content_type: str, mc_version: str | None = None,
-                 version_id: str | None = None) -> list[dict]:
-    """Every pack/shader currently installed for this type. Unlike mods there's
-    no enabled/disabled state to track here - the game itself owns which packs
-    are active - so this just reports the files present.
+                 version_id: str | None = None, loader: str | None = None) -> list[dict]:
+    """Every pack/shader installed for THIS instance. No enabled/disabled state:
+    a pack in the profile is present, and the game itself decides which packs
+    are actually applied (its own menu / options.txt) - the launcher never
+    rewrites that choice.
 
-    Pass mc_version (and/or version_id) to also get a "compat" verdict per
-    item, which is what lets the list warn about a pack the game would show as
-    Incompatible. Omitting it skips the check (cheaper: one zip read per
-    item)."""
-    d = content_dir(content_type)
+    Needs mc_version AND loader: without them there is no instance to report
+    on, so the answer is an empty list rather than a misleading union of every
+    profile. Pass mc_version (and/or version_id) to also get a "compat" verdict
+    per item, which is what lets the list warn about a pack the game would show
+    as Incompatible (skipping that is cheaper: one zip read per item)."""
+    if not mc_version or not loader:
+        return []
+    d = profile_dir(content_type, mc_version, loader)
     exts = _cfg(content_type)["exts"]
     items = []
     for fname in sorted(os.listdir(d)):
@@ -142,10 +311,14 @@ def list_content(content_type: str, mc_version: str | None = None,
             "display_name": os.path.splitext(fname)[0],
             "size_kb": round(_path_size(full) / 1024, 1),
             "folder": os.path.isdir(full),
+            # A link whose target is gone (store file deleted, or a profile
+            # copied between machines) has no bytes, so it isn't installed -
+            # the same gate list_mods() applies to a dead mod link.
+            "missing": not os.path.exists(full) and not os.path.islink(full),
         }
         if mc_version or version_id:
             item["compat"] = content_compat(content_type, fname, mc_version,
-                                            version_id)
+                                            version_id, loader)
         items.append(item)
     return items
 
@@ -167,34 +340,63 @@ def _path_size(path: str) -> float:
     return total
 
 
-def delete_content(content_type: str, filename: str) -> None:
-    """Removes one installed pack/shader (a .zip file or a folder pack).
-    Guards against a filename that escapes the content folder (a caller
-    passing '../something'), the same path-escape check delete_version uses,
-    since this deletes real files."""
-    d = content_dir(content_type)
+def delete_content(content_type: str, filename: str,
+                   mc_version: str | None = None, loader: str | None = None,
+                   *, purge_store: bool = False) -> None:
+    """Removes a pack/shader from THIS instance's profile (the link), leaving
+    the store copy alone - another instance may be using it, and re-installing
+    is then instant. `purge_store=True` also deletes the stored bytes, for a
+    caller that means "get rid of this entirely" (nothing uses it yet).
+
+    Guards against a filename that escapes the content folder (a caller passing
+    '../something'), the same path-escape check delete_version uses, since this
+    deletes real files."""
+    d = profile_dir(content_type, mc_version, loader)
     target = os.path.join(d, filename)
     if os.path.dirname(os.path.abspath(target)) != os.path.abspath(d):
         raise ValueError("Refusing to delete a path outside the content folder.")
+    stored = _store_target_of(target) if purge_store else None
     if os.path.isdir(target) and not os.path.islink(target):
         shutil.rmtree(target)
-    elif os.path.isfile(target):
+    elif os.path.isfile(target) or os.path.islink(target):
         os.remove(target)
+    if stored:
+        try:
+            if os.path.isdir(stored):
+                shutil.rmtree(stored)
+            else:
+                os.remove(stored)
+        except OSError:
+            log.debug("couldn't purge stored pack %s", stored, exc_info=True)
+
+
+def _store_target_of(link_path: str) -> str | None:
+    """The store file a profile link points at, or None when the profile holds
+    a real copy instead of a link (the copy fallback on filesystems that allow
+    no links)."""
+    if not os.path.islink(link_path):
+        return None
+    try:
+        target = os.path.realpath(link_path)
+    except OSError:
+        return None
+    return target if os.path.exists(target) else None
 
 
 def install_local_content(content_type: str, src_path: str,
                           mc_version: str | None = None,
                           version_id: str | None = None,
+                          loader: str | None = None,
                           fix_cb=None) -> str:
-    """Copies a .zip the user already has on disk straight into the shared
-    folder for this content type - the same place download_content() writes
-    to. Returns the filename it was stored as, adding a short suffix rather
-    than clobbering an existing pack with the same name.
+    """Puts a .zip the user already has on disk into the global store and links
+    it into the CURRENT instance's profile. Returns the profile filename it was
+    linked as (disambiguated in the store rather than clobbering an existing
+    pack with the same name).
 
-    The copy is then checked against the installed versions and repaired if the
-    game would have rejected it (a pack.mcmeta format that doesn't cover the
-    version being played is the classic "Incompatible" report), so a pack
-    dragged in by hand lands in a state the game accepts."""
+    The stored copy is then checked against the profile's version and repaired
+    if the game would have rejected it (a pack.mcmeta format that doesn't cover
+    the version being played is the classic "Incompatible" report), so a pack
+    added by hand lands in a state the game accepts."""
     exts = _cfg(content_type)["exts"]
     label = _cfg(content_type)["label"].lower()
     if not src_path.lower().endswith(exts):
@@ -202,20 +404,25 @@ def install_local_content(content_type: str, src_path: str,
     if not os.path.isfile(src_path):
         raise ValueError("Couldn't find that file.")
 
-    d = content_dir(content_type)
-    filename = os.path.basename(src_path)
-    dest = os.path.join(d, filename)
-    if os.path.exists(dest):
-        base, ext = os.path.splitext(filename)
-        filename = f"{base}_{uuid.uuid4().hex[:6]}{ext}"
-        dest = os.path.join(d, filename)
-    shutil.copyfile(src_path, dest)
+    stored = _store_entry(content_type, src_path)
+    dest = link_into_profile(content_type, stored, mc_version, loader)
     _verify_and_fix(content_type, dest, mc_version, version_id, fix_cb)
-    return filename
+    return os.path.basename(dest)
 
 
-def open_content_folder(content_type: str) -> None:
-    d = content_dir(content_type)
+def open_content_folder(content_type: str, mc_version: str | None = None,
+                        loader: str | None = None) -> None:
+    """Opens the folder this content type lives in FOR THE ACTIVE INSTANCE.
+
+    The profile folder, not the game folder: the game folder is rebuilt at
+    every launch, so deleting a file there would only look like it worked
+    until the next launch put it back. Pass no profile to open the game folder
+    (where the staged copies are), which is what a caller with no instance
+    selected gets."""
+    if mc_version and loader:
+        d = profile_dir(content_type, mc_version, loader)
+    else:
+        d = content_dir(content_type)
     if os.name == "nt":
         os.startfile(d)
     elif os.uname().sysname == "Darwin":
@@ -226,8 +433,15 @@ def open_content_folder(content_type: str) -> None:
         subprocess.Popen(["xdg-open", d])
 
 
-def is_installed(content_type: str, filename: str) -> bool:
-    return os.path.isfile(os.path.join(content_dir(content_type), filename))
+def is_installed(content_type: str, filename: str,
+                 mc_version: str | None = None, loader: str | None = None) -> bool:
+    """Is this pack in the active instance's profile? (A folder pack counts -
+    the game accepts unpacked packs, and list_content lists them.)"""
+    if mc_version and loader:
+        target = os.path.join(profile_dir(content_type, mc_version, loader), filename)
+    else:
+        target = os.path.join(content_dir(content_type), filename)
+    return os.path.isdir(target) or os.path.isfile(target)
 
 
 # ---------------------------------------------------------------------------
@@ -262,10 +476,11 @@ def _verify_and_fix(content_type: str, path: str, mc_version: str | None = None,
                 report["reason"] = verdict["reason"]
             return report
 
-        # Resource pack. The targets are EVERY installed version, not just the
-        # selected one: resourcepacks/ is a single shared folder the game reads
-        # for whichever version launches.
-        targets = packformat.installed_resource_formats(mc_version, version_id)
+        # Resource pack. The targets are the version that OWNS this pack: now
+        # that a pack belongs to an instance, judging it by every installed
+        # version would be wrong - and it was exactly why the verdict never
+        # changed when the user switched instance.
+        targets = _profile_formats(mc_version, version_id)
         verdict = packformat.pack_verdict(path, targets)
         report["checked"] = True
         if verdict["ok"] is not False:
@@ -291,24 +506,43 @@ def _verify_and_fix(content_type: str, path: str, mc_version: str | None = None,
     return report
 
 
+def _profile_formats(mc_version: str | None, version_id: str | None) -> list[int]:
+    """The resource formats a pack in a profile is judged by: the version that
+    owns it.
+
+    This used to be EVERY installed version (packformat.installed_resource_formats)
+    because one shared folder was read by all of them. Packs are per-instance
+    now, so only the owning version matters - and that change is what makes the
+    verdict actually move when the user switches instance. With no version known
+    at all there is no profile to judge for, so every installed version is the
+    honest fallback."""
+    fmt = packformat.resource_format_for(mc_version, version_id)
+    if fmt is not None:
+        return [fmt]
+    return packformat.installed_resource_formats(mc_version, version_id)
+
+
 def content_compat(content_type: str, filename: str,
                    mc_version: str | None = None,
-                   version_id: str | None = None) -> dict | None:
+                   version_id: str | None = None,
+                   loader: str | None = None) -> dict | None:
     """The compatibility verdict for one installed item, for the UI.
 
     Resource packs: {"ok", "reason", "declared", "range", "targets"} - ok is
-    True (every installed version accepts it), False (something will show it as
-    Incompatible) or None (target version's format is unknown).
+    True (this instance's version accepts it), False (the game would show it as
+    Incompatible) or None (the version's format is unknown).
     Shaders: {"ok", "reason"} - structure only, they carry no format.
     None when the file can't be found/read at all."""
-    path = os.path.join(content_dir(content_type), filename)
-    if not os.path.isfile(path):
+    if mc_version and loader:
+        path = os.path.join(profile_dir(content_type, mc_version, loader), filename)
+    else:
+        path = os.path.join(content_dir(content_type), filename)
+    if not os.path.exists(path):     # isdir too: a folder pack has no isfile
         return None
     try:
         if content_type == "shader":
             return packformat.shader_verdict(path)
-        return packformat.pack_verdict(
-            path, packformat.installed_resource_formats(mc_version, version_id))
+        return packformat.pack_verdict(path, _profile_formats(mc_version, version_id))
     except Exception:
         log.warning("compat check failed for %s", path, exc_info=True)
         return None
@@ -420,7 +654,8 @@ def get_content_download(content_type: str, project_id_or_slug: str,
 def download_content(content_type: str, download_url: str, filename: str,
                      progress_cb=None, hashes: dict | None = None, *,
                      mc_version: str | None = None,
-                     version_id: str | None = None, fix_cb=None) -> str:
+                     version_id: str | None = None,
+                     loader: str | None = None, fix_cb=None) -> str:
     """Streams a pack/shader file into the shared folder for this content type.
 
     Goes through cubeon.net like every other download: retry with backoff,
@@ -431,24 +666,197 @@ def download_content(content_type: str, download_url: str, filename: str,
     to the user as a hard "network error" instead of quietly retrying.)
 
     hashes: the Modrinth file's {"sha512"/"sha1": ...} when known; a mismatch
-    is rejected rather than installing corrupt bytes. progress_cb(downloaded,
-    total) is throttled inside net. Returns the final path. No profile/version
-    keying is needed - packs and shaders live in one shared, version-agnostic
-    folder the game reads directly."""
-    d = content_dir(content_type)
-    dest = os.path.join(d, filename)
+    is rejected rather than installing corrupt bytes. The verify-and-repair
+    pass runs on the downloaded file BEFORE it becomes the stored copy, so the
+    store never holds a pack the game would reject. progress_cb(downloaded,
+    total) is throttled inside net. Returns the profile path it was linked at."""
+    store = store_dir(content_type)
+    tmp = os.path.join(store, f".fetch-{os.getpid()}-{os.path.basename(filename)}.part")
     algo, expected = None, None
     for a in ("sha512", "sha1"):
         if (hashes or {}).get(a):
             algo, expected = a, hashes[a].lower()
             break
     expected_pair = (algo, expected) if algo and expected else None
-    net.download_to(dest, download_url, headers=MODRINTH_HEADERS, timeout=60,
-                    expected_hash=expected_pair, progress_cb=progress_cb)
-    # Last step before the file is considered installed: make sure the game
-    # will actually accept it. Modrinth's version metadata says which Minecraft
-    # versions the AUTHOR thinks it supports; the pack's own pack.mcmeta is
-    # what the game reads, and the two disagree often enough that this is the
-    # difference between "installed" and "shows Incompatible in game".
-    _verify_and_fix(content_type, dest, mc_version, version_id, fix_cb)
-    return dest
+    try:
+        net.download_to(tmp, download_url, headers=MODRINTH_HEADERS, timeout=60,
+                        expected_hash=expected_pair, progress_cb=progress_cb)
+        # Last step before the bytes are kept: make sure the game will accept
+        # them. Modrinth's metadata says which Minecraft versions the AUTHOR
+        # thinks a pack supports; the pack's own pack.mcmeta is what the game
+        # reads, and the two disagree often enough that this is the difference
+        # between "installed" and "shows Incompatible in game".
+        _verify_and_fix(content_type, tmp, mc_version, version_id, fix_cb)
+        stored = _store_entry(content_type, tmp, human_name=filename)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+    return link_into_profile(content_type, stored, mc_version, loader)
+
+
+# ---------------------------------------------------------------------------
+# Launch-time staging: the step that makes packs follow the instance
+# ---------------------------------------------------------------------------
+
+def _read_staged(content_type: str) -> list[str]:
+    """The entries Cubeon staged into the game folder last time (empty when the
+    marker is missing/corrupt - treating it as "nothing was staged" is the safe
+    read, since it only means foreign files get adopted rather than removed)."""
+    try:
+        with open(os.path.join(content_dir(content_type), _STAGED_MARKER),
+                  "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return [n for n in data if isinstance(n, str)]
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def _write_staged(content_type: str, names: list[str]) -> None:
+    path = os.path.join(content_dir(content_type), _STAGED_MARKER)
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(sorted(names), f)
+        os.replace(tmp, path)
+    except OSError:
+        log.debug("couldn't record staged %s", content_type, exc_info=True)
+
+
+def _store_from_game_folder(content_type: str, path: str, name: str) -> str:
+    """Moves a game-folder entry into the store, returning the stored path.
+
+    A link already pointing into the store just resolves; a real file/folder
+    (hand-dropped, or left by a Cubeon build that had no profiles) is ingested,
+    and the original is removed only AFTER the store has the bytes - so a
+    failure leaves the user's file exactly where it was instead of losing it."""
+    if os.path.islink(path):
+        real = os.path.realpath(path)
+        store_root = os.path.realpath(store_dir(content_type))
+        if os.path.exists(real) and real.startswith(store_root + os.sep):
+            return real
+    stored = _store_entry(content_type, path, human_name=name)
+    if os.path.realpath(stored) != os.path.realpath(path):
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+    return stored
+
+
+def _adopt_foreign_entries(content_type: str, staged: list[str],
+                           mc_version: str | None, loader: str | None) -> int:
+    """Takes ownership of anything in the game folder this sync did not put
+    there: a pack the user dropped in by hand, dragged from a file manager, or
+    installed with a build of Cubeon that had no profiles.
+
+    It is MOVED into the store and linked into the profile being played, so the
+    bytes are never deleted and the pack follows this instance from now on.
+    Leaving it instead would keep it visible in every instance, which is the
+    exact behaviour this change exists to remove."""
+    d = content_dir(content_type)
+    exts = _cfg(content_type)["exts"]
+    adopted = 0
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return 0
+    for fname in names:
+        if fname.startswith(".") or fname in staged:
+            continue
+        full = os.path.join(d, fname)
+        if not (os.path.isdir(full)
+                or (os.path.isfile(full) and fname.lower().endswith(exts))):
+            continue
+        try:
+            stored = _store_from_game_folder(content_type, full, fname)
+            link_into_profile(content_type, stored, mc_version, loader)
+            adopted += 1
+        except Exception:      # noqa: BLE001 - never break a launch over this
+            log.warning("couldn't adopt %s from the game folder", full,
+                        exc_info=True)
+    return adopted
+
+
+def sync_content_to_game(mc_version: str | None, loader: str | None) -> None:
+    """Rebuilds the game's resourcepacks/ and shaderpacks/ from THIS instance's
+    profile - the packs/shaders twin of mods.sync_mods_to_game(), and the step
+    that makes them change when the user changes instance.
+
+    Order matters: adopt foreign entries first (so nothing the user placed by
+    hand is ever removed), then drop whatever this sync staged for a DIFFERENT
+    instance, then link the current profile's packs in. Unlike mods there is no
+    version-aware de-duplication: two builds of the same pack in one profile are
+    the user's business, not a guaranteed crash the way two mod builds are.
+
+    Best-effort by design - a pack that can't be staged must never stop a
+    launch."""
+    require_loader_and_version(mc_version, loader, "sync packs into the game")
+    for content_type in ("resourcepack", "shader"):
+        try:
+            _sync_content_type(content_type, mc_version, loader)
+        except Exception:      # noqa: BLE001
+            log.warning("couldn't sync %s into the game", content_type,
+                        exc_info=True)
+
+
+def _sync_content_type(content_type: str, mc_version: str,
+                       loader: str) -> None:
+    d = content_dir(content_type)
+    staged = _read_staged(content_type)
+    _adopt_foreign_entries(content_type, staged, mc_version, loader)
+
+    profile = profile_dir(content_type, mc_version, loader)
+    wanted = [n for n in sorted(os.listdir(profile)) if not n.startswith(".")]
+
+    # Drop what we staged for an instance that is no longer selected. Only ever
+    # an entry we recorded - a file we didn't stage is never a candidate here.
+    for fname in staged:
+        if fname in wanted:
+            continue
+        leftover = os.path.join(d, fname)
+        try:
+            if os.path.isdir(leftover) and not os.path.islink(leftover):
+                shutil.rmtree(leftover)
+            elif os.path.exists(leftover):
+                os.remove(leftover)
+        except OSError:
+            log.debug("couldn't unstage %s", leftover, exc_info=True)
+
+    for fname in wanted:
+        src = os.path.join(profile, fname)
+        if not os.path.exists(src):
+            continue          # dead link: store copy gone, so nothing to stage
+        dst = os.path.join(d, fname)
+        if os.path.isdir(src):
+            if os.path.islink(dst):
+                os.remove(dst)
+            if not os.path.exists(dst):
+                try:
+                    os.symlink(src, dst)
+                except OSError:
+                    shutil.copytree(src, dst)
+            continue
+        if os.path.lexists(dst):
+            try:
+                already = os.path.samefile(src, dst)
+            except OSError:
+                already = False
+            if already:
+                continue       # same inode: this is already our staging link
+            if os.path.islink(dst):
+                os.remove(dst)  # our own symlink - safe to re-point
+            else:
+                # A real file with this name that isn't ours. Never overwrite
+                # bytes we didn't stage; adoption will take it next launch.
+                continue
+        try:
+            os.link(src, dst)      # hard link first: same disk, so it's free
+        except OSError:
+            shutil.copyfile(src, dst)
+
+    _write_staged(content_type, wanted)
