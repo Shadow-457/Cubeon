@@ -728,7 +728,7 @@ def main(page: ft.Page):
     season_pet_ctrl = season_pet["ctrl"]
     # Decoration must be off when the layer is off: "Seasonal look: off" plus a
     # seasonal fox in the bar would read as a bug.
-    season_perch.visible = bool(cfg.get("season_pet", True)) and season_info.seasonal
+    season_perch.visible = bool(cfg.get("season_pet", False)) and season_info.seasonal
 
     def _build_top_bar():
         """The bar itself: brand mark on the left, the five nav icons dead
@@ -2266,7 +2266,13 @@ def main(page: ft.Page):
             play_button_icon.name = ft.Icons.ERROR_OUTLINE_ROUNDED
             play_button_text.value = "INCOMPLETE INSTALL"
             play_button.disabled = True
-        page.update()  # Refresh UI to show changes
+        # Scoped repaint: every icon/text/fill mutated above lives inside
+        # play_button, so diffing just its subtree (~3 controls) paints the
+        # change instead of page.update()'s whole-page diff (~hundreds of
+        # controls re-sent over the websocket on every selection change).
+        # Same visibility guarantee: refresh() routes through the loop like
+        # the patched page.update() does, from any thread.
+        thread_safe_ui.refresh(play_button)  # Refresh UI to show changes
 
     def _refresh_pack_index():
         """Rebuild the (mc_version, loader) -> modpack-name lookup from disk.
@@ -2394,6 +2400,12 @@ def main(page: ft.Page):
             version_issue_text.visible = False
             set_button_mode("download")
             prefetch_version(version_id)
+        # Mirror a live game: re-selecting the version that is currently
+        # running must show GAME RUNNING..., not PLAY (the old code happily
+        # offered a second launch of the same instance). One in-process dict
+        # read - no psutil, no disk - so it adds nothing to the selection path.
+        if state.get("running_version") == version_id:
+            set_button_mode("running")
 
         # Fix any existing mod problems for this profile in the background now,
         # rather than waiting for the launch-time pass (which is filesystem-only
@@ -2546,6 +2558,24 @@ def main(page: ft.Page):
         version_id = version_dropdown.value
         if not version_id:
             return
+
+        # Bulletproof double-launch guard. The button's "running" paint can in
+        # principle be stale for a beat (a background repaint racing this
+        # click), so the click itself re-verifies the claim against the
+        # watchdog before committing. Exceptions count as "maybe alive" -
+        # refusing a launch is recoverable, launching a second copy of the
+        # same instance (profile lock contention, double playtime) is not.
+        if state.get("running_version") == version_id:
+            try:
+                from cubeon import watchdog as _watchdog
+                live = _watchdog.stale_session()
+            except Exception:
+                live = {"session_id": "?"}   # cannot prove it dead: stay safe
+            if live is not None:
+                set_button_mode("running")
+                _show_snack("That version is already running", duration=4000)
+                return
+            state["running_version"] = None  # stale claim - clear and proceed
 
         # Save config with current username and last selected version
         cfg["username"] = username
@@ -2719,32 +2749,63 @@ def main(page: ft.Page):
                     latest = None
                 if latest is not None and latest.get("session_id") != session_id:
                     return
-                # Tell friends this user stopped playing (presence -> online).
-                with _launch_state_lock:
-                    if friends_service is not None:
-                        friends_service.set_version(None)
-                    # Discord presence: back to just "in the launcher".
-                    _rpc.set_activity(details="Cubeon", state="In the launcher",
-                                      large_image=_discord_img, large_text=_discord_img_text)
-                    state["running_version"] = None  # version is safe to delete again
-                    progress_bar.visible = False
-                    crashed = bool(code)
-                if crashed:
-                    # A non-zero exit is a crash or a refused launch. Saying so
-                    # matters: the old code hid this entirely, so a failed
-                    # launch looked identical to a normal quit and the user was
-                    # left staring at a Play button with no idea what happened.
-                    reason = _explain_exit(code, lines)
-                    progress_label.value = reason
-                    progress_label.visible = True
-                    progress_spinner.visible = False
-                    set_status("Crashed")
-                else:
-                    progress_bar.visible = False
-                    progress_label.visible = False
-                    progress_spinner.visible = False
-                    set_status("Ready")
-                page.update()
+                # Bulletproof: everything below is UI + presence teardown. A
+                # failure here must never strand the running claim - the
+                # fallback guarantees the state is cleared and the button
+                # returns to its honest mode even if the pretty path dies.
+                def _exit_fallback_reset():
+                    try:
+                        with _launch_state_lock:
+                            state["running_version"] = None
+                        if version_dropdown.value == version_id:
+                            set_button_mode("play" if version_id in state["installed"]
+                                            else "download")
+                        page.update()
+                    except Exception:
+                        pass  # window gone or repaint machinery dead - nothing left
+
+                try:
+                    # Tell friends this user stopped playing (presence -> online).
+                    with _launch_state_lock:
+                        if friends_service is not None:
+                            friends_service.set_version(None)
+                        # Discord presence: back to just "in the launcher".
+                        _rpc.set_activity(details="Cubeon", state="In the launcher",
+                                          large_image=_discord_img, large_text=_discord_img_text)
+                        state["running_version"] = None  # version is safe to delete again
+                        progress_bar.visible = False
+                        crashed = bool(code)
+                    if crashed:
+                        # A non-zero exit is a crash or a refused launch. Saying so
+                        # matters: the old code hid this entirely, so a failed
+                        # launch looked identical to a normal quit and the user was
+                        # left staring at a Play button with no idea what happened.
+                        reason = _explain_exit(code, lines)
+                        progress_label.value = reason
+                        progress_label.visible = True
+                        progress_spinner.visible = False
+                        set_status("Crashed")
+                    else:
+                        progress_bar.visible = False
+                        progress_label.visible = False
+                        progress_spinner.visible = False
+                        set_status("Ready")
+                    # Put the play button back: on_exit is the ONLY place that
+                    # owns the "running" mode, but it never reset it - a closed
+                    # game left the button stuck on GAME RUNNING... until some
+                    # unrelated selection forced a recompute. Reset only when
+                    # the user is still looking at this launch's version
+                    # (otherwise the selection handler owns the button).
+                    if version_dropdown.value == version_id:
+                        set_button_mode("play" if version_id in state["installed"]
+                                        else "download")
+                    page.update()
+                except Exception:
+                    # Never let a repaint/presence hiccup strand the "running"
+                    # claim or the button: the fallback is the minimal honest
+                    # reset and is itself exception-proof.
+                    traceback.print_exc()
+                    _exit_fallback_reset()
 
             # launch_game() returns as soon as the process has *started* - it
             # does not wait for the game to close. So the button must switch
@@ -2772,6 +2833,34 @@ def main(page: ft.Page):
             set_button_mode("running")
             state["running_version"] = version_id  # block deleting it mid-game
             page.update()
+
+            # Belt-and-braces liveness watch: on_exit() is the normal path,
+            # but a single callback must never be a single point of failure -
+            # if its thread dies, or the game is killed in a way the watcher
+            # misses, the button would sit on GAME RUNNING... forever. This
+            # daemon polls the watchdog every 5s ONLY while this launch's
+            # claim is live (a psutil probe, no disk, no network) and
+            # self-heals via the same reconcile the Play tab uses if the
+            # game dies without on_exit ever clearing the claim. At most one
+            # such thread exists per process.
+            if not any(t.name == "running-liveness" and t.is_alive()
+                       for t in threading.enumerate()):
+                def _liveness_watch():
+                    while True:
+                        time.sleep(5)
+                        claimed = state.get("running_version")
+                        if claimed != version_id:
+                            return  # on_exit handled this launch (or a newer one)
+                        try:
+                            from cubeon import watchdog as _watchdog
+                            if _watchdog.stale_session() is not None:
+                                continue  # still alive
+                        except Exception:
+                            return  # watchdog unavailable: on_exit stays the owner
+                        _reconcile_running_button()
+                        return
+                threading.Thread(target=_liveness_watch,
+                                 name="running-liveness", daemon=True).start()
 
             # The pack lookup above may have changed the resolved loader; carry
             # that SAME loader into launch_game so a vanilla fallback or pack
@@ -4053,7 +4142,7 @@ def main(page: ft.Page):
         thread_safe_ui.refresh(season_perch)
 
     seasonal_switch = ft.Checkbox(
-        label="", value=bool(cfg.get("seasonal_theme", True)), active_color=ACCENT,
+        label="", value=bool(cfg.get("seasonal_theme", False)), active_color=ACCENT,
     )
     season_dropdown = ft.Dropdown(
         value=str(cfg.get("season_override") or "auto").lower(),
@@ -4065,7 +4154,7 @@ def main(page: ft.Page):
         label_style=ft.TextStyle(color=TEXT_DIM),
     )
     season_pet_switch = ft.Checkbox(
-        label="", value=bool(cfg.get("season_pet", True)), active_color=ACCENT,
+        label="", value=bool(cfg.get("season_pet", False)), active_color=ACCENT,
     )
     season_ambience_switch = ft.Checkbox(
         label="", value=bool(cfg.get("season_ambience", False)), active_color=ACCENT,
@@ -4262,6 +4351,34 @@ def main(page: ft.Page):
     }
     SERVER_GROUP_KEYS = {"server_console", "server_plugins", "server_settings"}
 
+    def _reconcile_running_button():
+        """Self-heal the play button against a dead session record.
+
+        on_exit() is the normal path, but a launcher re-exec (GPU-crash
+        recovery, tray Open) drops the in-process on_exit watcher while the
+        game record lives on - leaving state["running_version"] set forever
+        and the button stuck on GAME RUNNING... Re-sync against the
+        watchdog (cheap: one psutil probe, and only when a running version
+        is even claimed).
+        """
+        vid = state.get("running_version")
+        if not vid:
+            return
+        try:
+            from cubeon import watchdog as _watchdog
+            live = _watchdog.stale_session()
+        except Exception:
+            return  # watchdog unavailable: leave the state untouched
+        if live is None:
+            # Nothing actually alive - the record is stale. Clear it and, if
+            # the user is looking at the version it claimed, repaint the
+            # honest mode. (A different selected version already owns its
+            # own correct mode from on_version_selected.)
+            state["running_version"] = None
+            if version_dropdown.value == vid:
+                sel = vid
+                set_button_mode("play" if sel in state["installed"] else "download")
+
     def switch_tab(key):
         """
         Switches the active tab. Updates the navigation buttons' appearance
@@ -4315,6 +4432,7 @@ def main(page: ft.Page):
             _cb("chat", "refresh")()
         elif key == "play":
             refresh_server_status_panel()
+            _reconcile_running_button()
         # Scoped repaint, NOT page.update(): a whole-page diff re-sends every
         # control of every mounted tab over the websocket (~hundreds) - a
         # visible frame hitch exactly at the moment of the switch. Diffing
@@ -4968,6 +5086,16 @@ def main(page: ft.Page):
     # All pystray callbacks arrive on pystray's own thread; they only touch
     # plain threading events here, never Flet objects directly.
     def _tray_activate():
+        # A window is already open: do nothing. The old behavior re-exec'd a
+        # brand-new launcher for every click, which killed the live session
+        # (open dialogs, scroll position, in-flight launches feedback) and
+        # repainted a fresh window - the opposite of smooth, and it made
+        # "Open" feel like a coin toss while quitting mid-teardown. The
+        # controller_page slot is set when a session mounts and cleared the
+        # moment its cleanup runs, so this guard is accurate even while a
+        # previous window is mid-teardown (its slot was already cleared).
+        if _tray_runtime.get("controller_page") is not None:
+            return
         ev = _tray_runtime["reopen"]
         if ev is not None:
             # Every click is recorded, whenever it arrives - including while

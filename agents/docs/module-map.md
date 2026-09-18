@@ -1,8 +1,39 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-17 (seasonal themes: timezone-driven palettes, pet, ambience, restart-to-apply). If a fact here contradicts
-the code, the
+Last updated: 2026-09-18 (smoothness pass: play-button truth, seasonal off
+by default, tray-open guard). If a fact here contradicts the
+code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+
+## Play-button state machine (2026-09-18) — INVARIANT
+- The play button's mode is computed by `set_button_mode()` in `main.py`,
+  which repaints ONLY the button subtree (`thread_safe_ui.refresh(play_button)`)
+  — never a whole page.update(). If a call site needs a broader repaint, it
+  must call `page.update()` itself.
+- `state["running_version"]` is the single source of truth for "a game is
+  live". Writers: `do_install_and_launch` sets it after spawn; `on_exit()`
+  clears it AND resets the button (the old code never reset it — the button
+  stuck on GAME RUNNING... forever). `on_version_selected()` re-paints
+  "running" when the selected version is the live one, and
+  `_reconcile_running_button()` (Play-tab entry) clears a claim the watchdog
+  proves dead — needed because re-exec paths lose the in-process on_exit
+  watcher. Any new writer must do the same or the button sticks again.
+- Defense in depth (2026-09-18 round 2): `on_play_click()` re-verifies a
+  running claim against the watchdog before launching (refuses a double
+  launch of the same version; overlapping launches of DIFFERENT versions
+  remain allowed), and a `running-liveness` daemon thread (one per process)
+  self-heals a claim whose game died without on_exit firing. All three
+  mechanisms must stay in sync with any change to the claim's lifecycle.
+
+## Tray/session lifecycle (2026-09-18) — INVARIANT
+- `_tray_runtime["controller_page"]` doubles as the "a window session is
+  live" flag: set when a session mounts, cleared by session-end cleanup.
+  `_tray_activate()` (tray Open) ignores clicks while it is set — do not
+  remove that guard or tray clicks will re-exec the launcher under an open
+  window.
+- Seasonal layer defaults OFF (`seasonal_theme`/`season_pet` are False in
+  `cubeon/config.py`); `CUBEON_SEASON=<season>` still pins for tests and
+  screenshots.
 
 ## Relay username metadata (2026-09-17, plan step 2)
 - `cubeon/friends.py` exposes `minecraft_username(value)` -> the value when it

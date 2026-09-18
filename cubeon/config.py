@@ -157,8 +157,11 @@ DEFAULT_CONFIG = {
     # timezone at startup (autumn/spring/winter/summer templates). The palette
     # is bound at import time, so changing this needs a relaunch - the Settings
     # pane says so, and offers to do it. Turning it off just keeps the normal
-    # green identity.
-    "seasonal_theme": True,
+    # green identity. OFF BY DEFAULT (2026-09-18 smoothness pass): the season
+    # detection + palette swap + greeting card are pure decoration, and the
+    # default experience should be the plain green identity unless the user
+    # asks for seasons.
+    "seasonal_theme": False,
     # "auto" = follow the detected season. A season name overrides the guess,
     # for the two cases detection can't win: a user who disagrees with it, and
     # the tropics/equator, where "autumn" is a fiction either way. The Settings
@@ -166,7 +169,8 @@ DEFAULT_CONFIG = {
     "season_override": "auto",
     # The little companion in the top bar (assets/pets/<season>.gif). Pure
     # decoration - it costs no timer of its own, the GIF animates itself.
-    "season_pet": True,
+    # Off with the rest of the seasonal layer by default.
+    "season_pet": False,
     # Falling leaves / snow / petals / fireflies in the corner. Opt-in AND
     # off by default: it is the only part of the seasonal layer that needs a
     # repaint clock, so it ships disabled until it has been measured on real
