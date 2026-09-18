@@ -33,6 +33,7 @@ import hashlib
 import json
 import os
 import re
+import zipfile
 
 from .paths import CUBEON_HOME
 from . import global_mod_cache
@@ -100,7 +101,9 @@ def parse_mc_version(text: str | None) -> tuple[int, int, int] | None:
     """
     if not text:
         return None
-    matches = _MC_VERSION_RE.findall(str(text))
+    text = re.split(r"-(?:forge|fabric|quilt|neoforge)(?:-|$)", str(text), maxsplit=1, flags=re.I)[0]
+    text = re.sub(r"-(?:pre|rc)-?\d+$", "", text, flags=re.I)
+    matches = _MC_VERSION_RE.findall(text)
     if not matches:
         return None
     parts = [int(p) for p in matches[-1].split(".")]
@@ -173,6 +176,32 @@ def mod_stamp(mc_version: str | None) -> str:
 _mod_stamp_cache: dict = {}
 
 
+def _jar_info(path):
+    try:
+        stat = os.stat(path)
+        key = (path, stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns)
+        if key in _jar_info_cache:
+            return _jar_info_cache[key]
+        with open(path, "rb") as fh:
+            if fh.read(4) != b"PK\x03\x04":
+                return None
+            fh.seek(0)
+            digest = hashlib.sha256(fh.read()).digest()
+        with zipfile.ZipFile(path) as jar:
+            metadata = jar.getinfo("fabric.mod.json")
+            json.loads(jar.read(metadata))
+            stamp = max(item.date_time for item in jar.infolist())
+        result = (digest, stamp)
+        _jar_info_cache.clear()
+        _jar_info_cache[key] = result
+        return result
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+        return None
+
+
+_jar_info_cache = {}
+
+
 def find_jar(mc_version: str | None) -> str | None:
     """The built jar for mc_version, looked up in the shipped layouts.
 
@@ -191,10 +220,16 @@ def find_jar(mc_version: str | None) -> str | None:
                   _resource_path("assets", "jars", name),
                   os.path.join(_REPO, "assets", "jars", name),
                   os.path.join(_REPO, "mod", "build", "libs", name)]
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    return None
+    valid = [(path, info) for path in dict.fromkeys(candidates)
+             if (info := _jar_info(path)) is not None]
+    if not valid:
+        return None
+    path, info = valid[0]
+    if path == candidates[0]:
+        bundled = next(((p, i) for p, i in valid if p in candidates[1:3]), None)
+        if bundled and info[0] != bundled[1][0] and info[1] <= bundled[1][1]:
+            return bundled[0]
+    return path
 
 
 def _remove_other_jars(profile_dir: str, keep: str | None) -> None:

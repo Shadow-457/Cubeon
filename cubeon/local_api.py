@@ -115,6 +115,14 @@ def set_retry_handler(fn) -> None:
     _providers["retry"] = fn
 
 
+def set_worldgate_handler(fn) -> None:
+    _providers["worldgate"] = fn
+
+
+def set_joinpassword_handler(fn) -> None:
+    _providers["joinpassword"] = fn
+
+
 def set_roster_provider(fn) -> None:
     _providers["roster"] = fn
 
@@ -252,7 +260,15 @@ class _Handler(BaseHTTPRequestHandler):
                         "requests_out": requests_out,
                         "connected": bool(roster.get("connected", True)),
                         "available": bool(roster.get("available", True)),
-                        "you": roster.get("you") or ""})
+                        "you": roster.get("you") or "",
+                        "you_uid": roster.get("you_uid") or "",
+                        "you_minecraft_username": roster.get("you_minecraft_username") or "",
+                        "you_display_name": roster.get("you_display_name") or "Player",
+                        "mod_stamp": roster.get("mod_stamp") or "",
+                        "requests_in_details": [r for r in (roster.get("requests_in_details") or [])
+                                                if isinstance(r, dict) and r.get("name")],
+                        "requests_out_details": [r for r in (roster.get("requests_out_details") or [])
+                                                 if isinstance(r, dict) and r.get("name")]})
         elif parts.path == "/status":
             fn = _providers["status"]
             self._json(fn() if fn else {})
@@ -348,6 +364,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": "no invite handler"}, 503)
                 return
             self._call(lambda: fn(name))
+        elif route == "rename":
+            self._json({"ok": False,
+                        "error": "Change your Minecraft username in the launcher. Your Cubeon ID stays the same."})
         elif route in _NAME_ROUTES:
             name = str(body.get("name") or "").strip()
             if not name:

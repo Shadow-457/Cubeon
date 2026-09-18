@@ -1,6 +1,6 @@
 # --- never commit: huge or machine-local ---
 archive/
-cline/
+.claude/
 mod/build/
 dist/
 build/
@@ -10,8 +10,20 @@ __pycache__/
 *.pyc
 .DS_Store
 .directory
+.kilo/worktrees/
 
 # --- local secrets (tokens, keys) ---
 .env
 *.token
 Cubeon.spec
+
+# --- IDE/editors ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- OS ---
+Thumbs.db
+ehthumbs.db
+Desktop.ini

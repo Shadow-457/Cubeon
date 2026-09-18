@@ -18,6 +18,7 @@ import io
 import os
 import sys
 import types
+from unittest.mock import patch
 
 import _sandbox_home
 _home = _sandbox_home.isolate()
@@ -138,6 +139,44 @@ check("prefetch_featured is a no-op", gallery.prefetch_featured() == [])
 check("suggest_player is a no-op list", gallery.suggest_player() == [])
 check("load_player returns an honest empty snapshot",
       gallery.load_player("Dream")["has_skin"] is False)
+
+prior_state = gallery._load_installed()
+with open(gallery.INSTALLED_PATH, "rb") as f:
+    prior_bytes = f.read()
+for failure in ("serialize", "replace"):
+    raised = False
+    try:
+        if failure == "serialize":
+            gallery._save_installed({"skin": {"bad": object()}, "cape": {}})
+        else:
+            with patch("cubeon.atomicio.os.replace", side_effect=OSError("write failed")):
+                gallery._save_installed({"skin": {}, "cape": {}})
+    except (TypeError, OSError):
+        raised = True
+    with open(gallery.INSTALLED_PATH, "rb") as f:
+        check(f"gallery {failure} failure preserves prior bytes", raised and f.read() == prior_bytes)
+    check(f"gallery {failure} failure preserves mappings", gallery._load_installed() == prior_state)
+check("gallery failed writes clean temporary files",
+      not any(n.startswith(".atomic-") for n in os.listdir(os.path.dirname(gallery.INSTALLED_PATH))))
+
+cape_path = os.path.join(gallery.CAPE_LIBRARY_DIR, "red.png")
+preview = gallery.list_gallery_capes()[0]["preview_path"]
+with Image.open(preview) as im:
+    before_pixel = im.getpixel((0, 0))
+with open(cape_path, "wb") as f:
+    f.write(_png((64, 32), (20, 40, 240, 255)))
+stat = os.stat(cape_path)
+os.utime(cape_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1000000000))
+gallery.list_gallery_capes()
+with Image.open(preview) as im:
+    check("replacing same-name cape refreshes rendered pixels", im.getpixel((0, 0)) != before_pixel)
+stat = os.stat(cape_path)
+with open(cape_path, "wb") as f:
+    f.write(_png((128, 64), (40, 220, 30, 255)))
+os.utime(cape_path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+gallery.list_gallery_capes()
+with Image.open(preview) as im:
+    check("size-only library change invalidates catalog and preview", im.getpixel((0, 0)) == (40, 220, 30, 255))
 
 # Summary
 # -------

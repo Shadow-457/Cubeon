@@ -51,6 +51,7 @@ that's the mod-loader layer's concern, not this module's.
 import json
 import os
 import shutil
+import tempfile
 
 from .paths import APP_NAME, GLOBAL_CONTENT_DIR, RESOURCEPACKS_DIR, SHADERPACKS_DIR
 from . import global_mod_cache
@@ -64,7 +65,7 @@ from .mods import MODRINTH_API, MODRINTH_HEADERS, modrinth_search_index, rank_se
 # The per-instance plumbing is shared with mods on purpose: same profile
 # folders (get_profile_dir), same link-into-place engine, same loud failure
 # when a caller forgets which profile it is acting on.
-from .mods import get_profile_dir, require_loader_and_version
+from .mods import get_profile_dir, resolve_profile_dir, require_loader_and_version
 
 import logging
 
@@ -168,6 +169,13 @@ def store_dir(content_type: str) -> str:
     return d
 
 
+def resolve_content_profile_dir(content_type: str, mc_version: str | None,
+                                loader: str | None) -> str:
+    require_loader_and_version(mc_version, loader, "read content")
+    return os.path.join(resolve_profile_dir(mc_version, loader),
+                        _cfg(content_type)["subdir"])
+
+
 def profile_dir(content_type: str, mc_version: str | None,
                 loader: str | None) -> str:
     """Where THIS instance's packs of this type live (a folder of links).
@@ -242,9 +250,21 @@ def _store_entry(content_type: str, src_path: str,
         return candidate                  # same bytes, already disambiguated
 
     if os.path.isdir(src_path):
-        shutil.copytree(src_path, candidate)
+        tmp = tempfile.mkdtemp(prefix=".store-", dir=store)
     else:
-        shutil.copyfile(src_path, candidate)
+        fd, tmp = tempfile.mkstemp(prefix=".store-", dir=store)
+        os.close(fd)
+    try:
+        if os.path.isdir(src_path):
+            shutil.copytree(src_path, tmp, dirs_exist_ok=True)
+        else:
+            shutil.copyfile(src_path, tmp)
+        os.replace(tmp, candidate)
+    finally:
+        if os.path.isdir(tmp):
+            shutil.rmtree(tmp)
+        elif os.path.lexists(tmp):
+            os.remove(tmp)
     return candidate
 
 
@@ -277,7 +297,7 @@ def link_into_profile(content_type: str, stored_path: str,
 # Installed-content CRUD (over the shared game folder - no profiles)
 # ---------------------------------------------------------------------------
 
-def list_content(content_type: str, mc_version: str | None = None,
+def list_content(content_type: str, mc_version: str | None = None, *,
                  version_id: str | None = None, loader: str | None = None) -> list[dict]:
     """Every pack/shader installed for THIS instance. No enabled/disabled state:
     a pack in the profile is present, and the game itself decides which packs
@@ -291,7 +311,9 @@ def list_content(content_type: str, mc_version: str | None = None,
     as Incompatible (skipping that is cheaper: one zip read per item)."""
     if not mc_version or not loader:
         return []
-    d = profile_dir(content_type, mc_version, loader)
+    d = resolve_content_profile_dir(content_type, mc_version, loader)
+    if not os.path.isdir(d):
+        return []
     exts = _cfg(content_type)["exts"]
     items = []
     for fname in sorted(os.listdir(d)):
@@ -438,7 +460,7 @@ def is_installed(content_type: str, filename: str,
     """Is this pack in the active instance's profile? (A folder pack counts -
     the game accepts unpacked packs, and list_content lists them.)"""
     if mc_version and loader:
-        target = os.path.join(profile_dir(content_type, mc_version, loader), filename)
+        target = os.path.join(resolve_content_profile_dir(content_type, mc_version, loader), filename)
     else:
         target = os.path.join(content_dir(content_type), filename)
     return os.path.isdir(target) or os.path.isfile(target)
@@ -534,7 +556,7 @@ def content_compat(content_type: str, filename: str,
     Shaders: {"ok", "reason"} - structure only, they carry no format.
     None when the file can't be found/read at all."""
     if mc_version and loader:
-        path = os.path.join(profile_dir(content_type, mc_version, loader), filename)
+        path = os.path.join(resolve_content_profile_dir(content_type, mc_version, loader), filename)
     else:
         path = os.path.join(content_dir(content_type), filename)
     if not os.path.exists(path):     # isdir too: a folder pack has no isfile
@@ -832,31 +854,43 @@ def _sync_content_type(content_type: str, mc_version: str,
         if not os.path.exists(src):
             continue          # dead link: store copy gone, so nothing to stage
         dst = os.path.join(d, fname)
-        if os.path.isdir(src):
-            if os.path.islink(dst):
-                os.remove(dst)
-            if not os.path.exists(dst):
-                try:
-                    os.symlink(src, dst)
-                except OSError:
-                    shutil.copytree(src, dst)
-            continue
         if os.path.lexists(dst):
-            try:
-                already = os.path.samefile(src, dst)
-            except OSError:
-                already = False
-            if already:
-                continue       # same inode: this is already our staging link
-            if os.path.islink(dst):
-                os.remove(dst)  # our own symlink - safe to re-point
-            else:
-                # A real file with this name that isn't ours. Never overwrite
-                # bytes we didn't stage; adoption will take it next launch.
+            if fname not in staged:
                 continue
+            try:
+                if os.path.samefile(src, dst):
+                    continue
+            except OSError:
+                pass
+        fd, tmp = tempfile.mkstemp(prefix=".stage-", dir=d)
+        os.close(fd)
+        os.remove(tmp)
         try:
-            os.link(src, dst)      # hard link first: same disk, so it's free
-        except OSError:
-            shutil.copyfile(src, dst)
+            if os.path.isdir(src):
+                try:
+                    os.symlink(src, tmp, target_is_directory=True)
+                except OSError:
+                    shutil.copytree(src, tmp)
+            else:
+                try:
+                    os.link(src, tmp)
+                except OSError:
+                    shutil.copyfile(src, tmp)
+            if os.path.isdir(dst) and not os.path.islink(dst):
+                backup = tmp + ".old"
+                os.replace(dst, backup)
+                try:
+                    os.replace(tmp, dst)
+                except OSError:
+                    os.replace(backup, dst)
+                    raise
+                shutil.rmtree(backup)
+            else:
+                os.replace(tmp, dst)
+        finally:
+            if os.path.isdir(tmp) and not os.path.islink(tmp):
+                shutil.rmtree(tmp)
+            elif os.path.lexists(tmp):
+                os.remove(tmp)
 
     _write_staged(content_type, wanted)

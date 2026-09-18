@@ -128,9 +128,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # scroll.
     skins_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
 
-    _preview_state = {"running": False, "queued": None}
+    _preview_state = {"running": False, "queued": None, "generation": 0}
+    _preview_lock = threading.RLock()
 
-    def _render_big_preview(filename: str):
+    def _render_big_preview(filename: str, generation):
         """The actual PIL work - worker-thread only."""
         out_path = (os.path.join(core.SKINS_DIR, f"_preview_{filename}.png")
                     if filename else
@@ -152,17 +153,24 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             # control field), so the client never got the new image and kept
             # showing the last real `src` value (the placeholder cube icon).
             with open(out_path, "rb") as f:
-                custom_preview.src = base64.b64encode(f.read()).decode("ascii")
-            custom_preview.visible = True
+                src = base64.b64encode(f.read()).decode("ascii")
+            with _preview_lock:
+                if generation == _preview_state["generation"]:
+                    custom_preview.src = src
+                    custom_preview.visible = True
+                    thread_safe_ui.refresh(custom_preview)
         except Exception as ex:
-            upload_status.value = f"Couldn't render preview: {ex}"
-            thread_safe_ui.refresh(upload_status)
+            with _preview_lock:
+                if generation == _preview_state["generation"]:
+                    upload_status.value = f"Couldn't render preview: {ex}"
+                    thread_safe_ui.refresh(upload_status)
         finally:
-            _preview_state["running"] = False
-            nxt = _preview_state["queued"]
-            _preview_state["queued"] = None
-            if nxt is not None:
-                render_preview_for(nxt)
+            with _preview_lock:
+                _preview_state["running"] = False
+                nxt = _preview_state["queued"]
+                _preview_state["queued"] = None
+                if nxt is not None:
+                    render_preview_for(nxt)
 
     def render_preview_for(filename: str):
         # The 8x body composite is hundreds of ms of PIL work - too heavy for
@@ -170,12 +178,20 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         # Single-flight: at most one render runs; a newer request while one is
         # in flight replaces the queued one (the newest intent wins), and the
         # finally block re-runs it when the current render finishes.
-        if _preview_state["running"]:
-            _preview_state["queued"] = filename
-            return
-        _preview_state["running"] = True
-        threading.Thread(target=_render_big_preview, args=(filename,),
-                         daemon=True, name="ux-skin-preview").start()
+        with _preview_lock:
+            _preview_state["generation"] += 1
+            generation = _preview_state["generation"]
+            if not filename:
+                _preview_state["queued"] = None
+                custom_preview.visible = False
+                thread_safe_ui.refresh(custom_preview)
+                return
+            if _preview_state["running"]:
+                _preview_state["queued"] = filename
+                return
+            _preview_state["running"] = True
+            threading.Thread(target=_render_big_preview, args=(filename, generation),
+                             daemon=True, name="ux-skin-preview").start()
 
     def set_active(filename: str):
         try:
@@ -196,7 +212,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         try:
             if cfg.get("active_skin") == filename:
                 core.set_active_skin(cfg, None)
-                custom_preview.visible = False
+                render_preview_for(None)
             core.delete_custom_skin(filename)
             core.forget_file("skin", filename)
         except Exception as ex:
@@ -517,42 +533,57 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Wrapping card grid, same as the skins installed list (see _owned_card).
     capes_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
 
-    _cape_preview_state = {"running": False, "queued": None}
+    _cape_preview_state = {"running": False, "queued": None, "generation": 0}
+    _cape_preview_lock = threading.RLock()
 
-    def _render_big_cape_preview(filename: str):
+    def _render_big_cape_preview(filename: str, generation):
         out_path = os.path.join(core.CAPES_DIR, f"_preview_{filename}.png")
         try:
             core.render_cape_preview(filename, out_path, scale=10)
             with open(out_path, "rb") as f:
-                cape_preview.src = base64.b64encode(f.read()).decode("ascii")
-            cape_preview.visible = True
+                src = base64.b64encode(f.read()).decode("ascii")
+            with _cape_preview_lock:
+                if generation == _cape_preview_state["generation"]:
+                    cape_preview.src = src
+                    cape_preview.visible = True
+                    thread_safe_ui.refresh(cape_preview)
         except Exception as ex:
-            cape_status.value = f"Couldn't render preview: {ex}"
-            thread_safe_ui.refresh(cape_status)
+            with _cape_preview_lock:
+                if generation == _cape_preview_state["generation"]:
+                    cape_status.value = f"Couldn't render preview: {ex}"
+                    thread_safe_ui.refresh(cape_status)
         finally:
-            _cape_preview_state["running"] = False
-            nxt = _cape_preview_state["queued"]
-            _cape_preview_state["queued"] = None
-            if nxt is not None:
-                render_cape_preview_for(nxt)
+            with _cape_preview_lock:
+                _cape_preview_state["running"] = False
+                nxt = _cape_preview_state["queued"]
+                _cape_preview_state["queued"] = None
+                if nxt is not None:
+                    render_cape_preview_for(nxt)
 
     def render_cape_preview_for(filename: str):
         # Same single-flight worker-thread shape as the skin preview: the
         # 10x face composite never runs on the UI thread.
-        if _cape_preview_state["running"]:
-            _cape_preview_state["queued"] = filename
-            return
-        _cape_preview_state["running"] = True
-        threading.Thread(target=_render_big_cape_preview, args=(filename,),
-                         daemon=True, name="ux-cape-preview").start()
+        with _cape_preview_lock:
+            _cape_preview_state["generation"] += 1
+            generation = _cape_preview_state["generation"]
+            if _cape_preview_state["running"]:
+                _cape_preview_state["queued"] = filename
+                return
+            _cape_preview_state["running"] = True
+            threading.Thread(target=_render_big_cape_preview, args=(filename, generation),
+                             daemon=True, name="ux-cape-preview").start()
 
     def show_default_cape_preview():
         # No custom cape selected == wearing the shared Cubeon cape, which the
         # Worker serves to everyone. Show its bundled preview asset (resolved
         # against assets_dir) so the box is never blank and the default reads
         # as a real, selected choice.
-        cape_preview.src = DEFAULT_CAPE_PREVIEW_SRC
-        cape_preview.visible = True
+        with _cape_preview_lock:
+            _cape_preview_state["generation"] += 1
+            _cape_preview_state["queued"] = None
+            cape_preview.src = DEFAULT_CAPE_PREVIEW_SRC
+            cape_preview.visible = True
+            thread_safe_ui.refresh(cape_preview)
 
     def set_active_cape(filename):
         try:

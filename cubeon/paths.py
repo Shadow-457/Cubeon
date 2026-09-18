@@ -34,7 +34,7 @@ def _default_minecraft_dir() -> str:
     """
     override = os.environ.get("CUBEON_GAME_DIR")
     if override:
-        return override
+        return os.path.abspath(os.path.expanduser(override))
     return str(Path.home() / ".cubeon_minecraft")
 
 
@@ -133,9 +133,12 @@ def ensure_disk_space(dest_dir: str, needed_bytes: int, what: str = "download") 
     """
     import shutil
     try:
-        directory = dest_dir or os.getcwd()
-        if not os.path.isdir(directory):
-            directory = os.path.dirname(directory) or os.getcwd()
+        directory = os.path.abspath(os.path.expanduser(dest_dir or os.getcwd()))
+        while not os.path.isdir(directory):
+            parent = os.path.dirname(directory)
+            if parent == directory:
+                return
+            directory = parent
         free = shutil.disk_usage(directory).free
     except OSError:
         return

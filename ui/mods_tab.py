@@ -268,7 +268,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         that blocks a download: a miss just shows "Download" again."""
         tokens = set()
         for it in core.list_content(_ct(), state["selected_mc_version"],
-                                    loader_for_content()):
+                                    loader=loader_for_content()):
             tokens.add(re.sub(r"[^a-z0-9]+", "", it["display_name"].lower()))
         return tokens
 
@@ -291,8 +291,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # this instance's profile: packs follow the version+loader now,
             # exactly like mods do.
             all_mods = core.list_content(
-                _ct(), state["selected_mc_version"], version_dropdown.value,
-                loader_for_content())
+                _ct(), state["selected_mc_version"], version_id=version_dropdown.value,
+                loader=loader_for_content())
         query = installed_filter_field.value.strip().lower()
         mods = [m for m in all_mods if query in m["display_name"].lower()] if query else all_mods
 
@@ -920,6 +920,20 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         loader) rather than sending an invalid facet."""
         return state["mod_loader"] if state["mod_loader"] != "vanilla" else "fabric"
 
+    browse_generation = {"value": 0}
+
+    def _browse_key():
+        return (mod_search_field.value.strip(), state.get("selected_mc_version"),
+                version_dropdown.value, state.get("mod_loader"), _ct(),
+                active_category["value"])
+
+    def _begin_browse():
+        browse_generation["value"] += 1
+        return browse_generation["value"], _browse_key()
+
+    def _browse_current(token):
+        return token == (browse_generation["value"], _browse_key())
+
     def load_recommended_mods():
         """
         Fetches items for the current version+category and displays them in the
@@ -927,8 +941,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         top mods in a category); for resource packs / shaders it's the most
         popular of that type, so switching categories changes what's shown.
         """
+        token = _begin_browse()
+        content_type, mc_version, loader = _ct(), current_mc_version_for_search(), browse_loader()
         cat = active_category["value"]
-        if _is_mod():
+        if content_type == "mod":
             cat_label = dict(core.MOD_CATEGORIES).get(cat, "")
             default_title = "RECOMMENDED"
         else:
@@ -942,16 +958,18 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         # Run the network request in a background thread
         def worker():
             try:
-                mc_version = current_mc_version_for_search()
-                if _is_mod():
-                    results = core.get_recommended_mods(mc_version=mc_version, loader=browse_loader(), category=cat)
+                if content_type == "mod":
+                    results = core.get_recommended_mods(mc_version=mc_version, loader=loader, category=cat)
                 else:
-                    results = core.get_recommended_content(_ct(), mc_version=mc_version, category=cat or None)
+                    results = core.get_recommended_content(content_type, mc_version=mc_version, category=cat or None)
             except Exception as ex:
+                if not _browse_current(token):
+                    return
                 browse_status_text.value = f"Couldn't load recommendations: {ex}"
-                page.update()
+                thread_safe_ui.refresh(browse_status_text)
                 return
-            render_browse_results(results, empty_msg="Nothing found for this version/category.")
+            if _browse_current(token):
+                render_browse_results(results, empty_msg="Nothing found for this version/category.")
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -965,6 +983,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if not query:
             load_recommended_mods()
             return
+        token = _begin_browse()
+        content_type, mc_version, loader = _ct(), current_mc_version_for_search(), browse_loader()
+        cat = active_category["value"]
         browse_title_text.value = f'RESULTS FOR "{query.upper()}"'
         browse_status_text.value = "Searching..."
         browse_results_view.controls.clear()
@@ -976,23 +997,24 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         def worker():
             try:
-                mc_version = current_mc_version_for_search()
-                cat = active_category["value"]
-                if _is_mod():
+                if content_type == "mod":
                     results = core.search_mods(
-                        query, mc_version=mc_version, loader=browse_loader(),
+                        query, mc_version=mc_version, loader=loader,
                         categories=[cat] if cat else None,
                     )
                 else:
                     results = core.search_content(
-                        _ct(), query, mc_version=mc_version,
+                        content_type, query, mc_version=mc_version,
                         categories=[cat] if cat else None,
                     )
             except Exception as ex:
+                if not _browse_current(token):
+                    return
                 browse_status_text.value = f"Search failed: {ex}"
                 thread_safe_ui.refresh(browse_status_text)
                 return
-            render_browse_results(results, empty_msg="Nothing found for that search.")
+            if _browse_current(token):
+                render_browse_results(results, empty_msg="Nothing found for that search.")
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1088,7 +1110,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             border=None if accent else ft.border.Border.all(1, CARD_BORDER),
         )
 
-    def open_mod_detail(mod):
+    def open_mod_detail(mod, content_type=None):
         """Open the full menu for one mod, keyed by its Modrinth id or slug.
         Manually dropped-in files have neither, so there is nothing to look
         up - those rows simply don't open a menu."""
@@ -1096,6 +1118,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if not ref:
             return
 
+        content_type = content_type or _ct()
+        detail_mc = state["selected_mc_version"]
+        detail_version = version_dropdown.value
+        detail_search_mc = current_mc_version_for_search()
+        detail_loader = browse_loader() if content_type == "mod" else loader_for_content()
         title = mod.get("title") or mod.get("display_name") or "Mod"
         icon_url = mod.get("icon_url")
         blurb = (mod.get("description") or "").strip()
@@ -1170,8 +1197,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         installed_now = {}
         try:
-            for m in core.list_mods(state["selected_mc_version"],
-                                    state["mod_loader"]):
+            items = (core.list_mods(detail_mc, detail_loader) if content_type == "mod"
+                     else core.list_content(content_type, detail_mc,
+                                            version_id=detail_version, loader=detail_loader))
+            for m in items:
                 if m.get("filename"):
                     installed_now[m["filename"]] = m
         except Exception:
@@ -1219,23 +1248,35 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
             def worker():
                 try:
-                    loader = browse_loader()
-                    core.install_mod_with_dependencies(
-                        v["url"], v["filename"],
-                        mc_version=state["selected_mc_version"],
-                        loader=loader,
-                        slug=details.get("slug"),
-                        project_id=details.get("project_id"),
-                        hashes=v.get("hashes"),
-                        status_cb=on_status, progress_cb=_install_progress,
-                    )
+                    result = {"failed": []}
+                    if content_type == "mod":
+                        result = core.install_mod_with_dependencies(
+                            v["url"], v["filename"],
+                            mc_version=detail_mc, loader=detail_loader,
+                            slug=details.get("slug"), project_id=details.get("project_id"),
+                            hashes=v.get("hashes"),
+                            status_cb=on_status, progress_cb=_install_progress,
+                        )
+                    else:
+                        core.download_content(
+                            content_type, v["url"], v["filename"],
+                            mc_version=detail_mc, version_id=detail_version,
+                            loader=detail_loader, hashes=v.get("hashes"),
+                            progress_cb=lambda done, total: on_status(
+                                f"Downloading… {int(done * 100 / total)}%") if total else None)
+                    if result.get("failed"):
+                        refresh_mods_list()
+                        on_error(RuntimeError("Installed, but dependencies failed: "
+                                              + ", ".join(result["failed"])))
+                        return
                     # Automatic repair: an install is exactly when a stale
                     # duplicate or a missing dependency tends to appear.
                     fixed = 0
                     try:
-                        report = core.mod_doctor(
-                            state["selected_mc_version"], loader,
+                        report = (core.mod_doctor(
+                            detail_mc, detail_loader,
                             auto_fix=True, status_cb=on_status)
+                            if content_type == "mod" else {})
                         fixed = len(report.get("fixed") or [])
                     except Exception:
                         fixed = 0
@@ -1586,8 +1627,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 details = {}
             try:
                 versions = core.get_mod_versions(
-                    ref, mc_version=current_mc_version_for_search(),
-                    loader=browse_loader())
+                    ref, mc_version=detail_search_mc,
+                    loader=detail_loader if content_type == "mod" else None)
             except Exception:
                 versions = []
             if not details and not versions:
@@ -1628,6 +1669,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         action is a restrained green wash instead of a solid block, so five
         rows don't stack five loud buttons.
         """
+        row_content_type = _ct()
         # The download button's text and icon change based on installed status
         download_btn_text = ft.Text(
             "Installed" if is_installed else "Download",
@@ -1655,11 +1697,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             Handles the download of a mod. It finds the appropriate file (compatible with
             current Minecraft version and loader), then downloads it and refreshes the installed list.
             """
+            content_type = row_content_type
+            selected_mc = state["selected_mc_version"]
+            selected_version = version_dropdown.value
+            search_mc_version = current_mc_version_for_search()
+            selected_loader = browse_loader() if content_type == "mod" else loader_for_content()
             download_btn.disabled = True
             download_btn_text.value = "Finding file..."
             download_btn_text.color = TEXT_DIM
             download_btn.bgcolor = ROW_HOVER
-            page.update()
+            thread_safe_ui.refresh(download_btn)
 
             def worker():
                 try:
@@ -1670,18 +1717,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # mod ends up in the profile the game reads. Resource packs
                     # and shaders have no profile: they go straight into their
                     # shared game folder.
-                    search_mc_version = current_mc_version_for_search()
-                    if _is_mod():
-                        file_info = core.get_mod_download(mod["project_id"], mc_version=search_mc_version, loader=browse_loader())
+                    if content_type == "mod":
+                        file_info = core.get_mod_download(mod["project_id"], mc_version=search_mc_version, loader=selected_loader)
                     else:
-                        file_info = core.get_content_download(_ct(), mod["project_id"], mc_version=search_mc_version)
+                        file_info = core.get_content_download(content_type, mod["project_id"], mc_version=search_mc_version)
                     if not file_info:
                         download_btn_text.value = "No matching file"
-                        page.update()
+                        thread_safe_ui.refresh(download_btn)
                         return
 
                     download_btn_text.value = "Downloading..."
-                    page.update()
+                    thread_safe_ui.refresh(download_btn)
                     # Progress on the button itself (bugs-and-flaws follow-up: a
                     # static "Downloading..." gave no way to tell a 2 MB shader
                     # from a 400 MB mod). Coalesced to whole percent so
@@ -1701,10 +1747,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                 return
                             _pct["v"] = pct
                             download_btn_text.value = label_fn(done, total)
-                            try:
-                                page.update()
-                            except Exception:
-                                pass
+                            thread_safe_ui.refresh(download_btn)
                         return _report
 
                     def _bytes_label(done, total):
@@ -1724,7 +1767,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     def _note_fix(rep):
                         fix_note["text"] = rep.get("reason") or ""
 
-                    if _is_mod():
+                    if content_type == "mod":
                         # mc_version/loader must be passed explicitly - without
                         # them this silently lands in the wrong profile folder
                         # (get_profile_dir(None, None) => "unknown-vanilla") and
@@ -1736,10 +1779,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         # actually results in a mod that loads in-game.
                         def _dep_status(t):
                             download_btn_text.value = t
-                            page.update()
+                            thread_safe_ui.refresh(download_btn)
                         result = core.install_mod_with_dependencies(
                             file_info["url"], file_info["filename"],
-                            mc_version=state["selected_mc_version"], loader=browse_loader(),
+                            mc_version=selected_mc, loader=selected_loader,
                             slug=mod.get("slug"), project_id=mod.get("project_id"),
                             hashes=file_info.get("hashes"),
                             status_cb=_dep_status, progress_cb=_batch_progress,
@@ -1751,7 +1794,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                                        + ", ".join(result["failed"]))
                             download_btn_text.color = DANGER
                             download_btn.bgcolor = ACCENT_TINT
-                            page.update()
+                            thread_safe_ui.refresh(download_btn)
                             refresh_mods_list()
                             return
                     else:
@@ -1764,12 +1807,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         # Incompatible (an author's Modrinth version list is not
                         # what the game reads).
                         core.download_content(
-                            _ct(), file_info["url"], file_info["filename"],
+                            content_type, file_info["url"], file_info["filename"],
                             progress_cb=_progress,
                             hashes=file_info.get("hashes"),
-                            mc_version=state["selected_mc_version"],
-                            version_id=version_dropdown.value,
-                            loader=loader_for_content(),
+                            mc_version=selected_mc,
+                            version_id=selected_version,
+                            loader=selected_loader,
                             fix_cb=_note_fix)
 
                     download_btn_text.value = ("Installed (pack format fixed)"
@@ -1781,11 +1824,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     download_btn.bgcolor = None
                     download_btn.content.controls[0].name = ft.Icons.CHECK_ROUNDED
                     download_btn.content.controls[0].color = TEXT_FAINT
-                    page.update()
+                    thread_safe_ui.refresh(download_btn)
                     refresh_mods_list()  # Update the installed list
                     # Automatic repair: catch a duplicate/missing dependency
                     # introduced by this install before it can crash a launch.
-                    run_mod_repair()
+                    if (content_type == "mod" and selected_mc == state["selected_mc_version"]
+                            and selected_loader == browse_loader()):
+                        run_mod_repair()
                 except Exception as ex:
                     # Say WHY in one line - "Failed" alone left the user with
                     # no idea whether to retry, free up disk, or pick another
@@ -1796,7 +1841,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     download_btn_text.color = DANGER
                     download_btn.disabled = False
                     download_btn.bgcolor = ACCENT_TINT
-                    page.update()
+                    thread_safe_ui.refresh(download_btn)
 
             threading.Thread(target=worker, daemon=True).start()
 
@@ -1849,7 +1894,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             ),
             "transparent", ROW_HOVER,
         )
-        row.on_click = lambda e: open_mod_detail(mod)
+        row.on_click = lambda e: open_mod_detail(mod, row_content_type)
         return row
 
     # Warning shown when Vanilla is selected - mods never load without a mod
@@ -1948,7 +1993,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     n = len(core.list_mods(state["selected_mc_version"], state["mod_loader"])) \
                         if _is_mod() else len(core.list_content(
                             _ct(), state["selected_mc_version"],
-                            loader_for_content()))
+                            loader=loader_for_content()))
                     count_note = f" ({n})" if n else ""
                 except Exception:
                     count_note = ""

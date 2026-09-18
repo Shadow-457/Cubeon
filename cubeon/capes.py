@@ -73,8 +73,8 @@ def _load_capes_meta() -> dict:
 
 
 def _save_capes_meta(meta: dict) -> None:
-    with open(CAPES_META_PATH, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2)
+    from .atomicio import write_json
+    write_json(CAPES_META_PATH, meta)
 
 
 def _frame_sheet_size(w: int, h: int) -> tuple[int, int]:

@@ -119,7 +119,7 @@ def get_version_art(version: "str | None") -> "str | None":
     with _mem_lock:
         if version in _mem:
             hit = _mem[version]
-            if hit and os.path.isfile(hit):
+            if hit is None or os.path.isfile(hit):
                 return hit
     hit = _cache_probe(version)
     if hit:

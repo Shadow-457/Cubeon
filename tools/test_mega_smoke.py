@@ -418,7 +418,7 @@ SUITES = [
     "test_capes.py", "test_ui_smoke.py", "test_invites.py",
     "test_modpacks.py", "test_mod_store.py", "test_net.py",
     "test_fuzz.py", "test_production.py", "test_content_instance.py",
-    "test_version_integrity.py",
+    "test_version_integrity.py", "test_local_api_gate.py",
 ]
 
 

@@ -25,6 +25,10 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
+from functools import wraps
+
+from .atomicio import write_json
 
 # minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
 # nothing here needs it until the user actually installs/launches, so it
@@ -42,6 +46,30 @@ from .skins import sync_local_skin_to_csl
 # to contain a Java stack trace or a mod-loading error without holding the whole
 # log (Minecraft writes megabytes) in memory.
 GAME_LOG_TAIL = 200
+_spawn_lock = threading.Lock()
+_client_json_lock = threading.RLock()
+_active_logs = set()
+GAME_LOG_LIMIT = 8
+
+
+def _client_json_transaction(fn):
+    @wraps(fn)
+    def locked(*args, **kwargs):
+        with _client_json_lock:
+            return fn(*args, **kwargs)
+    return locked
+
+
+def _prune_game_logs():
+    try:
+        paths = [os.path.join(CUBEON_HOME, name) for name in os.listdir(CUBEON_HOME)
+                 if re.fullmatch(r"game-[0-9a-f]{32}\.log", name)]
+        paths.sort(key=os.path.getmtime, reverse=True)
+        for path in paths[GAME_LOG_LIMIT:]:
+            if path not in _active_logs:
+                os.unlink(path)
+    except OSError:
+        logging.getLogger(__name__).debug("game log pruning failed", exc_info=True)
 
 
 def find_java() -> str | None:
@@ -59,7 +87,7 @@ def _parse_version(v: str) -> tuple:
     for piece in str(v).split("."):
         m = re.match(r"(\d+)", piece)
         parts.append(int(m.group(1)) if m else 0)
-    return tuple(parts) if parts else (0,)
+    return tuple((parts + [0, 0, 0])[:3])
 
 
 def required_java_major(version_id: str) -> int:
@@ -143,7 +171,6 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
     # Minecraft's own (cryptic) class-version error has a paper trail in the
     # launcher log explaining exactly what was required vs. what was found.
     try:
-        import logging
         logging.getLogger(__name__).warning(
             "no Java >= %s found for %s - falling back to %s (major=%s)",
             required, version_id, fallback, java_major_version(fallback))
@@ -226,6 +253,7 @@ CLIENT_JVM_FLAGS = [
 ]
 
 
+@_client_json_transaction
 def _restore_emptied_arguments(version_id: str) -> bool:
     """Rebuilds an arguments block that an older Cubeon emptied. Returns True if repaired.
 
@@ -287,17 +315,10 @@ def _restore_emptied_arguments(version_id: str) -> bool:
 
 def _write_client_json(json_path: str, data: dict) -> bool:
     """Atomically replaces a client.json. Never leaves a half-written file."""
-    tmp = json_path + ".cubeon-tmp"
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-        os.replace(tmp, json_path)
+        write_json(json_path, data)
         return True
     except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
         return False
 
 
@@ -325,6 +346,7 @@ def _repair_argument_entry(entry: dict) -> dict | None:
     return None  # genuinely nothing to launch with
 
 
+@_client_json_transaction
 def _sanitize_client_json(version_id: str) -> None:
     """Rewrites a version's client.json so mll's command builder can read it.
 
@@ -445,6 +467,9 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
             f"try reinstalling this version, or downloading the vanilla version instead."
         ) from e
 
+    collector = re.compile(r"-XX:[+-]Use(?:G1|Parallel|ParallelOld|Serial|ConcMarkSweep|ParNew|Z|Shenandoah|Epsilon)GC$")
+    command = [arg for arg in command if not collector.fullmatch(arg)]
+    command.insert(1, "-XX:+UseG1GC")
     return command
 
 
@@ -506,7 +531,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         from .mods import get_profile_dir
         from . import cubeonfriends
         _profile_dir = get_profile_dir(mc_version, loader)
-        if not friends_enabled() or not cfg.get("client_mod_enabled", True):
+        if not friends_enabled() or not (cfg or {}).get("client_mod_enabled", True):
             # Off: either a public build (no Friends backend at all) or the
             # user's Settings toggle. Both must also REMOVE any jar a
             # previous run left behind - a stale copy would still load.
@@ -518,7 +543,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 status_cb("Cubeon Friends mod not built for this Minecraft "
                           "version - the in-game Friends button will be missing")
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("friends mod setup failed", exc_info=True)
 
     # The Cubeon Client is a social mod and draws almost nothing; the actual
     # frame-rate win comes from Sodium + Lithium, fetched here for the same
@@ -536,40 +561,6 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 status_cb("FPS boost installed")
     except Exception:
         pass
-
-    # Packs and shaders are staged BEFORE the doctor pass below, so what gets
-    # checked and repaired is exactly the set of packs this instance will
-    # launch with (see cubeon/content.py: the game folder is rebuilt from the
-    # active profile on every launch, which is what makes packs follow the
-    # instance switch).
-    try:
-        from .content import sync_content_to_game
-        sync_content_to_game(mc_version, loader)
-    except Exception:
-        pass
-
-    # Last-chance repair before the game reads the folder: a leftover second
-    # copy of a mod - or two mods that Fabric says can't run together - is the
-    # classic "it crashed on startup" cause, and the user will never see it in
-    # time. The duplicate pass is filesystem-only; the dependency pass is
-    # skipped here (handled at install time) but a version conflict is still
-    # resolved, since that is a guaranteed crash. Best-effort - a failed check
-    # must never block playing.
-    # Resource packs and shaders ride along: a pack whose pack.mcmeta is built
-    # for another version shows up in this game as a red "Incompatible"
-    # (cubeon/packformat.py explains and repairs that).
-    try:
-        from .doctor import run_doctor
-        report = run_doctor(mc_version, loader, auto_fix=True,
-                            check_online=False, version_id=version_id,
-                            include=("mods", "resourcepacks", "shaders"))
-        fixed = len(report.get("fixed") or [])
-        if fixed and status_cb:
-            status_cb(f"Fixed {fixed} content problem(s)")
-    except Exception:
-        pass
-
-    sync_mods_to_game(mc_version, loader)
 
     command = build_launch_command(version_id, username, ram_mb, width, height, java_path)
 
@@ -599,7 +590,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     #
     # stdin is /dev/null for the same reason: an inherited terminal stdin
     # would make the game a background-job SIGTTIN casualty.
-    log_path = os.path.join(CUBEON_HOME, "game.log")
+    session_id = uuid.uuid4().hex
+    log_path = os.path.join(CUBEON_HOME, f"game-{session_id}.log")
     try:
         os.makedirs(CUBEON_HOME, exist_ok=True)
         log_fh = open(log_path, "wb")
@@ -621,16 +613,57 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                               "LIBGL_DRM_DEVICE")}
     popen_kwargs["env"] = _game_env
 
-    process = subprocess.Popen(
-        command,
-        cwd=MINECRAFT_DIR,
-        stdin=subprocess.DEVNULL,
-        stdout=(log_fh or subprocess.DEVNULL),
-        stderr=subprocess.STDOUT,
-        **popen_kwargs,
-    )
-    if log_fh is not None:
-        log_fh.close()  # the child owns its own dup now
+    from . import watchdog
+    try:
+        with _spawn_lock:
+            try:
+                from .content import sync_content_to_game
+                sync_content_to_game(mc_version, loader)
+            except Exception:
+                logging.getLogger(__name__).warning("content staging failed", exc_info=True)
+            try:
+                from .doctor import run_doctor
+                report = run_doctor(mc_version, loader, auto_fix=True,
+                                    check_online=False, version_id=version_id,
+                                    include=("mods", "resourcepacks", "shaders"))
+                fixed = len(report.get("fixed") or [])
+                if fixed and status_cb:
+                    status_cb(f"Fixed {fixed} content problem(s)")
+            except Exception:
+                logging.getLogger(__name__).warning("launch doctor failed", exc_info=True)
+            sync_mods_to_game(mc_version, loader)
+            process = subprocess.Popen(
+                command,
+                cwd=MINECRAFT_DIR,
+                stdin=subprocess.DEVNULL,
+                stdout=(log_fh or subprocess.DEVNULL),
+                stderr=subprocess.STDOUT,
+                **popen_kwargs,
+            )
+            process.session_id = session_id
+            _active_logs.add(log_path)
+            _prune_game_logs()
+            try:
+                watchdog.register(process.pid, version_id, username,
+                                  process=process, session_id=session_id)
+            except Exception:
+                logging.getLogger(__name__).debug("game metadata registration failed", exc_info=True)
+    except BaseException:
+        if log_fh is not None:
+            log_fh.close()
+        try:
+            os.unlink(log_path)
+        except OSError:
+            pass
+        raise
+    finally:
+        if log_fh is not None:
+            log_fh.close()
+    try:
+        from .friends_service import FriendsService
+        FriendsService.reconcile_username_active()
+    except Exception:
+        logging.getLogger(__name__).debug("game username reconciliation failed", exc_info=True)
 
     # We still want the game's output live (progress + the last lines to show
     # when a launch fails), so we TAIL the log file instead of owning a pipe.
@@ -665,34 +698,37 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     drain = threading.Thread(target=_drain, name="mc-stdout", daemon=True)
     drain.start()
 
-    # Watchdog record: lets the NEXT launcher run notice an orphaned game
-    # (launcher killed mid-session) instead of leaving the user to fight
-    # mystery file locks. Cleared the moment the process is confirmed dead.
-    from . import watchdog
-    watchdog.register(process.pid, version_id)
-
     # Playtime: persist the session start next to the watchdog record. The
     # in-process on_exit watcher credits and clears it on a clean exit; if the
     # launcher is re-exec'd/crashes first, the next startup reconciles it (see
     # milestones.reconcile_play_session) so the game's time isn't lost.
     from . import milestones
-    milestones.begin_play_session(process.pid)
+    milestones.begin_play_session(process.pid, None, session_id)
 
     def _watch():
         process.wait()
-        watchdog.clear()
+        try:
+            watchdog.clear(session_id)
+            from .friends_service import FriendsService
+            FriendsService.reconcile_username_active()
+        except Exception:
+            logging.getLogger(__name__).debug("game exit reconciliation failed", exc_info=True)
         # Let the reader finish flushing what the game wrote on its way out,
         # so a crash report isn't truncated. Bounded so a stuck pipe can't
         # keep this thread alive forever.
         drain.join(timeout=5.0)
+        milestones.end_play_session(session_id=session_id)
+        with _spawn_lock:
+            _active_logs.discard(log_path)
+            _prune_game_logs()
         if on_exit:
-            _call_on_exit(on_exit, process.returncode, list(recent))
+            _call_on_exit(on_exit, process.returncode, list(recent), session_id)
     threading.Thread(target=_watch, daemon=True).start()
 
     return process
 
 
-def _call_on_exit(on_exit, code: int, lines: list[str]) -> None:
+def _call_on_exit(on_exit, code: int, lines: list[str], session_id=None) -> None:
     """Calls on_exit(code, lines), falling back to on_exit(code).
 
     The second argument was added so a failed launch can show the game's own
@@ -701,10 +737,12 @@ def _call_on_exit(on_exit, code: int, lines: list[str]) -> None:
     daemon thread, where nobody would ever see it.
     """
     try:
-        takes_lines = len(inspect.signature(on_exit).parameters) >= 2
+        count = len(inspect.signature(on_exit).parameters)
     except (TypeError, ValueError):
-        takes_lines = False
-    if takes_lines:
+        count = 1
+    if count >= 3:
+        on_exit(code, lines, session_id)
+    elif count >= 2:
         on_exit(code, lines)
     else:
         on_exit(code)

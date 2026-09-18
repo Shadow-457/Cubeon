@@ -62,6 +62,8 @@ import re
 import shutil
 import tempfile
 import time
+import zipfile
+import zlib
 
 from .paths import APP_NAME, SERVERS_DIR
 from .server import (
@@ -247,17 +249,22 @@ def plugin_jar_path(version_id: str) -> str:
     return os.path.join(get_plugins_dir(version_id), PLUGIN_NAME)
 
 
-def is_plugin_installed(version_id: str) -> bool:
-    path = plugin_jar_path(version_id)
-    if not os.path.isfile(path):
-        return False
-    if os.path.getsize(path) < MIN_PLUGIN_BYTES:
-        return False
+def _plugin_jar_valid(path: str) -> bool:
     try:
-        with open(path, "rb") as f:
-            return f.read(2) == b"PK"  # every .jar is a zip archive
-    except OSError:
+        if os.path.getsize(path) < MIN_PLUGIN_BYTES:
+            return False
+        with zipfile.ZipFile(path) as archive:
+            meta = archive.read("plugin.yml").decode("utf-8")
+            if not re.search(r"^\s*name\s*:\s*['\"]?connect['\"]?\s*(?:#.*)?$",
+                             meta, re.MULTILINE | re.IGNORECASE):
+                return False
+            return archive.testzip() is None
+    except (OSError, zipfile.BadZipFile, zlib.error, KeyError, UnicodeError, RuntimeError, EOFError):
         return False
+
+
+def is_plugin_installed(version_id: str) -> bool:
+    return _plugin_jar_valid(plugin_jar_path(version_id))
 
 
 def find_local_plugin(search_dirs: list[str] | None = None) -> str | None:
@@ -270,8 +277,6 @@ def find_local_plugin(search_dirs: list[str] | None = None) -> str | None:
     rather than by filename alone: "I downloaded a jar" and "this is the
     right jar" are different claims, and the wrong jar fails at server boot
     with nothing pointing back here."""
-    import zipfile
-
     if search_dirs is None:
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         search_dirs = [os.path.join(app_dir, "assets", "jars"), app_dir,
@@ -292,14 +297,7 @@ def find_local_plugin(search_dirs: list[str] | None = None) -> str | None:
             if "connect" not in low:
                 continue
             path = os.path.join(directory, name)
-            try:
-                if os.path.getsize(path) < MIN_PLUGIN_BYTES:
-                    continue
-                with zipfile.ZipFile(path) as z:
-                    meta = z.read("plugin.yml").decode("utf-8", errors="replace")
-            except (OSError, zipfile.BadZipFile, KeyError):
-                continue  # not a jar / not this plugin - skip, don't fail
-            if re.search(r"^\s*name\s*:\s*connect\b", meta, re.MULTILINE | re.IGNORECASE):
+            if _plugin_jar_valid(path):
                 try:
                     candidates.append((os.path.getmtime(path), path))
                 except OSError:
@@ -316,7 +314,7 @@ def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
 
     Uses a local copy when find_local_plugin() can verify one (no download
     at all), otherwise fetches the latest release. Atomic (.part then
-    rename), size-floored and zip-magic-checked either way: a captive
+    rename), size-floored and archive-validated either way: a captive
     portal returning HTML with status 200 must surface as "download
     failed", not as a plugin that mysteriously never loads. Skipped
     entirely when a healthy copy is already present unless force=True.
@@ -329,45 +327,35 @@ def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
     if not force and is_plugin_installed(version_id):
         return dest
 
-    local = find_local_plugin()
-    if local:
-        if status_cb:
-            status_cb(f"Using your Connect plugin ({os.path.basename(local)})")
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copyfile(local, dest)
-        log.info("minekube: installed %s from local %s", dest, local)
-        return dest
-
-    if status_cb:
-        status_cb("Downloading the Minekube Connect plugin...")
-
     from . import net
+    local = find_local_plugin()
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    # net.download_to gives retry+backoff+Range-resume and an atomic replace;
-    # the jar-validity checks below still gate what gets moved into place.
-    tmp = dest + ".connect.part"
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dest), prefix=".connect-", suffix=".part")
+    os.close(fd)
     try:
-        net.download_to(tmp, PLUGIN_URL, timeout=HTTP_TIMEOUT,
-                        headers={"User-Agent": f"{APP_NAME}-launcher/1.0"},
-                        progress_cb=progress_cb)
-        if os.path.getsize(tmp) < MIN_PLUGIN_BYTES:
-            raise MinekubeError(
-                "The Connect plugin came back far too small to be real. "
-                "Try again.")
-        with open(tmp, "rb") as f:
-            if f.read(2) != b"PK":
-                raise MinekubeError(
-                    "The Connect plugin didn't arrive as a valid jar - "
-                    "usually a network intercepting the download.")
+        if local:
+            if status_cb:
+                status_cb(f"Using your Connect plugin ({os.path.basename(local)})")
+            shutil.copyfile(local, tmp)
+        else:
+            if status_cb:
+                status_cb("Downloading the Minekube Connect plugin...")
+            net.download_to(tmp, PLUGIN_URL, timeout=HTTP_TIMEOUT,
+                            headers={"User-Agent": f"{APP_NAME}-launcher/1.0"},
+                            progress_cb=progress_cb)
+        if not _plugin_jar_valid(tmp):
+            raise MinekubeError("The Connect plugin is incomplete or invalid. Try again.")
         os.replace(tmp, dest)
     except net.DownloadError as ex:
         raise MinekubeError(
             "Couldn't download the Minekube Connect plugin. Check your "
             "internet and try again.") from ex
+    except OSError as ex:
+        raise MinekubeError("Couldn't install the Connect plugin. Try again.") from ex
     finally:
-        if os.path.exists(tmp):
+        for path in (tmp, tmp + ".part"):
             try:
-                os.unlink(tmp)
+                os.unlink(path)
             except OSError:
                 pass
 
@@ -391,7 +379,8 @@ def uninstall_plugin(version_id: str) -> bool:
 # latest.log copy of them, or startup banners:
 #   [connect] Your public address: live-beru.play.minekube.net
 _ADDRESS_RE = re.compile(
-    r"\b((?:[a-z0-9][a-z0-9-]*\.)+(?:minekube\.(?:net|com)|play\.minekube\.net))(?::\d{1,5})?\b",
+    r"(?<![a-z0-9_.-])((?:[a-z0-9-]+\.)+minekube\.(?:net|com)"
+    r"(?::[^\s,;)\]}>\"']*)?)(?![a-z0-9_:-]|\.[a-z0-9])",
     re.IGNORECASE)
 
 # Log words that shouldn't be mistaken for the tunnel address even though
@@ -424,7 +413,13 @@ def read_public_address(version_id: str, *, log_lines: str | None = None) -> str
         if any(bad in low for bad in _ADDRESS_EXCLUDE):
             continue
         for match in _ADDRESS_RE.finditer(line):
-            candidate = match.group(1).lower()
+            candidate = match.group(1).lower().rstrip(".")
+            host, separator, port = candidate.partition(":")
+            if not _HOSTNAME_RE.fullmatch(host):
+                continue
+            if separator and (not re.fullmatch(r"[0-9]{1,5}", port)
+                              or not 1 <= int(port) <= 65535):
+                continue
             if any(bad in candidate for bad in _ADDRESS_EXCLUDE):
                 continue
             return candidate  # newest line first: freshest announcement wins

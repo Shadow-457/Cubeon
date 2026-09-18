@@ -24,6 +24,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import zipfile
+import zlib
 
 # Lazy: `requests` costs ~97ms to import and every module that pulls it in
 # eagerly puts that on the startup path, even for a session that never
@@ -283,6 +285,7 @@ DEFAULT_SERVER_PROPERTIES = {
 
 # One live subprocess per version at most - keyed by version id.
 _server_processes: "dict[str, subprocess.Popen]" = {}
+_server_processes_lock = threading.Lock()
 
 
 def world_lock_holder(version_id: str) -> int | None:
@@ -408,6 +411,34 @@ def _migrate_legacy_jar(version_id: str) -> None:
             pass
 
 
+MIN_SERVER_BYTES = 1_000_000
+
+
+def _server_jar_valid(path: str, *, complete: bool = False) -> bool:
+    try:
+        if os.path.getsize(path) < MIN_SERVER_BYTES:
+            return False
+        with zipfile.ZipFile(path) as archive:
+            names = set(archive.namelist())
+            if not names:
+                return False
+            if complete:
+                manifest = archive.read("META-INF/MANIFEST.MF").decode("utf-8")
+                manifest = re.sub(r"\r?\n ", "", manifest)
+                main = re.search(r"^Main-Class:\s*(\S+)", manifest, re.MULTILINE)
+                if not main:
+                    return False
+                entry = main.group(1).replace(".", "/") + ".class"
+                if entry not in names or not (
+                    "paperclip" in entry.lower() or entry.startswith("org/bukkit/craftbukkit/")
+                ):
+                    return False
+                return archive.testzip() is None
+            return True
+    except (OSError, zipfile.BadZipFile, zlib.error, KeyError, UnicodeError, RuntimeError, EOFError):
+        return False
+
+
 def is_server_installed(version_id: str, server_type: str | None = None) -> bool:
     """Whether a server jar is cached for this version. With no
     server_type, checks the currently active type (what Start/Update
@@ -416,14 +447,14 @@ def is_server_installed(version_id: str, server_type: str | None = None) -> bool
     installed while Vanilla is the active type."""
     _migrate_legacy_jar(version_id)
     check_type = server_type or get_server_type(version_id)
-    return os.path.isfile(_typed_jar_path(version_id, check_type))
+    return _server_jar_valid(_typed_jar_path(version_id, check_type))
 
 
 def get_installed_server_types(version_id: str) -> list[str]:
     """All server types that currently have a cached jar for this
     version, in SERVER_TYPES order."""
     _migrate_legacy_jar(version_id)
-    return [t for t in SERVER_TYPES if os.path.isfile(_typed_jar_path(version_id, t))]
+    return [t for t in SERVER_TYPES if _server_jar_valid(_typed_jar_path(version_id, t))]
 
 
 # ---------------------------------------------------------------------------
@@ -614,67 +645,52 @@ def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
     ensure_disk_space(server_dir, 512 * 1024 * 1024, "server install")
 
     final_path = _typed_jar_path(version_id, SERVER_TYPE_PAPER)
-    tmp_path = final_path + ".part"
-
-    if using_local:
-        if status_cb:
-            status_cb(f"Using your Paper jar ({os.path.basename(local)})")
-        ensure_disk_space(server_dir, os.path.getsize(local), "server jar")
-        shutil.copyfile(local, tmp_path)
-        if progress_cb and max_cb:
-            try:
+    fd, tmp_path = tempfile.mkstemp(dir=server_dir, prefix=".server-", suffix=".part")
+    os.close(fd)
+    try:
+        if using_local:
+            if status_cb:
+                status_cb(f"Using your Paper jar ({os.path.basename(local)})")
+            ensure_disk_space(server_dir, os.path.getsize(local), "server jar")
+            shutil.copyfile(local, tmp_path)
+            if progress_cb and max_cb:
                 size = os.path.getsize(local)
                 max_cb(size)
                 progress_cb(size)
-            except OSError:
-                pass
-    else:
-        url, build = _get_paper_download_url(version_id)
-        if status_cb:
-            status_cb(f"Downloading Paper {build} server.jar")
-        dl_headers = {"User-Agent": f"{APP_NAME}-launcher/1.0 (https://github.com/{APP_NAME.lower()})"}
-        try:
-            probe = requests.head(url, headers=dl_headers, timeout=10,
-                                  allow_redirects=True)
-            total = int(probe.headers.get("content-length", 0))
-        except (requests.RequestException, ValueError):
-            total = 0
-        if max_cb and total:
-            max_cb(total)
-        try:
-            size = net.download_to(tmp_path, url, headers=dl_headers, timeout=30,
-                                   progress_cb=(lambda done, _total: progress_cb(done))
-                                   if total else None)
-        except net.DownloadError as ex:
-            raise RuntimeError(str(ex)) from ex
-        if max_cb and not total:
-            max_cb(size)
-        if progress_cb and not total:
-            progress_cb(size)
-
-    # Sanity gate before anything is recorded: an HTML error page saved as
-    # a jar would otherwise fail only at server boot with a cryptic error.
-    # Every .jar is a zip archive, so it must start with the zip magic "PK".
-    try:
-        with open(tmp_path, "rb") as f:
-            head = f.read(2)
-        if head != b"PK":
+        else:
+            url, build = _get_paper_download_url(version_id)
+            if status_cb:
+                status_cb(f"Downloading Paper {build} server.jar")
+            dl_headers = {"User-Agent": f"{APP_NAME}-launcher/1.0 (https://github.com/{APP_NAME.lower()})"}
             try:
-                os.unlink(tmp_path)
+                probe = requests.head(url, headers=dl_headers, timeout=10,
+                                      allow_redirects=True)
+                total = int(probe.headers.get("content-length", 0))
+            except (requests.RequestException, ValueError):
+                total = 0
+            if max_cb and total:
+                max_cb(total)
+            try:
+                size = net.download_to(tmp_path, url, headers=dl_headers, timeout=30,
+                                       progress_cb=(lambda done, _total: progress_cb(done))
+                                       if progress_cb is not None and total else None)
+            except net.DownloadError as ex:
+                raise RuntimeError(str(ex)) from ex
+            if max_cb and not total:
+                max_cb(size)
+            if progress_cb and not total:
+                progress_cb(size)
+
+        if not _server_jar_valid(tmp_path, complete=True):
+            raise RuntimeError("Server download integrity check failed. "
+                               "Choose a complete Paper download and try again.")
+        os.replace(tmp_path, final_path)
+    finally:
+        for path in (tmp_path, tmp_path + ".part"):
+            try:
+                os.unlink(path)
             except OSError:
                 pass
-            raise RuntimeError(
-                "That file isn't a valid server jar (jars are zip "
-                "archives). If you placed a Paper jar yourself, check "
-                "it downloaded completely.")
-    except RuntimeError:
-        raise
-    except OSError:
-        pass
-
-    # Only now, with a complete jar on disk, do we touch anything
-    # that's part of the app's recorded state.
-    os.replace(tmp_path, final_path)
     set_server_type(version_id, SERVER_TYPE_PAPER)
 
     # First-time scaffolding only - an update should never reset settings.
@@ -930,7 +946,8 @@ def start_server(version_id: str, ram_mb: int, java_path: str | None = None,
         start_new_session=(os.name != "nt"),
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
-    _server_processes[version_id] = process
+    with _server_processes_lock:
+        _server_processes[version_id] = process
 
     if on_output:
         def _pump_output():
@@ -941,7 +958,9 @@ def start_server(version_id: str, ram_mb: int, java_path: str | None = None,
     if on_exit:
         def _watch():
             process.wait()
-            _server_processes.pop(version_id, None)
+            with _server_processes_lock:
+                if _server_processes.get(version_id) is process:
+                    _server_processes.pop(version_id, None)
             on_exit(process.returncode)
         threading.Thread(target=_watch, daemon=True).start()
 

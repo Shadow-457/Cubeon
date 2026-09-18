@@ -118,5 +118,11 @@ check("heap Xms/Xmx are matched in the built args",
           os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        "cubeon", "launch.py"), encoding="utf-8").read())
 
+_wire([{"slug": "sodium-extra", "display_name": "Sodium Extra",
+        "filename": "sodium-extra-fabric-0.9.2.jar"}])
+check("Sodium Extra never satisfies Sodium", "sodium" not in perf._present("1.20.1", "fabric"))
+_wire([{"project_id": "AANobbMI"}, {"project_id": "gvQqBUqZ"}])
+check("opaque performance project IDs are recognized", perf._present("1.20.1", "fabric") == {"sodium", "lithium"})
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

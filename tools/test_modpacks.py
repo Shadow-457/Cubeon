@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 import zipfile
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -211,8 +212,17 @@ def main():
           os.path.isfile(sodium) and open(sodium, "rb").read() == b"FAKE SODIUM JAR CONTENT")
     check("route: server-only mod SKIPPED",
           not os.path.isfile(os.path.join(profile_dir, "server-only.jar")))
-    check("route: resourcepack -> game dir",
-          os.path.isfile(os.path.join(game_dir, "resourcepacks", "pack.zip")))
+    content_pack = os.path.join(modpacks.content_profile_dir(
+        "resourcepack", "1.20.1", "fabric"), "pack.zip")
+    check("route: resourcepack -> instance profile, not shared staging",
+          os.path.isfile(content_pack)
+          and not os.path.exists(os.path.join(game_dir, "resourcepacks", "pack.zip")))
+    nested = modpacks._content_profile_dest("resourcepacks/MyPack/assets/demo/texture.png", "1.20.1", "fabric")
+    check("folder pack preserves validated nested relative path",
+          nested == os.path.join(os.path.dirname(content_pack), "MyPack", "assets", "demo", "texture.png"))
+    check("folder pack metadata remains under its pack folder",
+          modpacks._content_profile_dest("resourcepacks/MyPack/pack.mcmeta", "1.20.1", "fabric")
+          == os.path.join(os.path.dirname(content_pack), "MyPack", "pack.mcmeta"))
     check("route: override config -> game dir",
           os.path.isfile(os.path.join(game_dir, "config", "sodium-options.json")))
     check("route: override mod -> profile",
@@ -221,6 +231,58 @@ def main():
           not os.path.isfile(os.path.join(game_dir, "config", "server.txt")))
     check("meta: modpack manifest written",
           os.path.isfile(os.path.join(profile_dir, modpacks.MODPACK_META_FILENAME)))
+
+    cache = modpacks.global_mod_cache
+    shared = os.path.join(scratch, "shared.jar")
+    old_bytes, new_bytes = b"SHARED ORIGINAL", b"PRIVATE OVERRIDE"
+    with open(shared, "wb") as f:
+        f.write(old_bytes)
+    first_link = os.path.join(scratch, "override-profile1", "shared.jar")
+    second_link = os.path.join(scratch, "override-profile2", "shared.jar")
+    cache.put_file(shared, first_link)
+    cache.put_file(shared, second_link)
+    old_sha = hashlib.sha256(old_bytes).hexdigest()
+    new_sha = hashlib.sha256(new_bytes).hexdigest()
+    old_store = cache.cache_path_if_present(old_sha)
+    check("override: two profiles initially share one store jar",
+          os.path.samefile(first_link, second_link) and os.path.samefile(first_link, old_store))
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("overrides/mods/shared.jar", new_bytes)
+    real_replace = os.replace
+    observed = []
+
+    def observe_replace(src, dest):
+        if dest == first_link:
+            with open(dest, "rb") as f:
+                observed.append(f.read() == old_bytes and os.path.islink(src))
+        return real_replace(src, dest)
+
+    with zipfile.ZipFile(archive) as zf, patch.object(modpacks.os, "replace", observe_replace):
+        count = modpacks._extract_overrides(zf, os.path.dirname(first_link), lambda *_: None)
+    check("override: old profile entry remains until atomic replacement", observed == [True])
+    with open(first_link, "rb") as f:
+        check("override: first profile receives new bytes", count == 1 and f.read() == new_bytes)
+    with open(second_link, "rb") as f:
+        check("override: second profile bytes unchanged", f.read() == old_bytes)
+    new_store = cache.cache_path_if_present(new_sha)
+    check("override: profile points at newly indexed store jar",
+          new_store is not None and os.path.samefile(first_link, new_store))
+    check("override: old and new cached sha resolve to correct bytes",
+          cache._hash_file(cache.cache_path_if_present(old_sha)) == old_sha
+          and new_store is not None and cache._hash_file(new_store) == new_sha)
+    check("override: no profile staging directory remains",
+          os.listdir(os.path.dirname(first_link)) == ["shared.jar"])
+    raised = False
+    with zipfile.ZipFile(archive) as zf, patch.object(cache, "put_file", side_effect=OSError("ingest failed")):
+        try:
+            modpacks._extract_overrides(zf, os.path.dirname(first_link), lambda *_: None)
+        except OSError:
+            raised = True
+    with open(first_link, "rb") as f:
+        check("override: failed ingest preserves profile and cleans staging",
+              raised and f.read() == new_bytes
+              and os.listdir(os.path.dirname(first_link)) == ["shared.jar"])
 
     # --- reinstall: stale _modpack.json is dropped the moment a rebuild starts ---
     # Regression coverage: reinstalling a pack that was already installed (an

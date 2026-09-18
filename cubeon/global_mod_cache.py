@@ -36,6 +36,7 @@ import hashlib
 import json
 import os
 import shutil
+import tempfile
 import threading
 
 from .paths import GLOBAL_MODS_DIR
@@ -126,24 +127,18 @@ def link_into_place(cached_path: str, dest_path: str) -> None:
     """Symlink engine: place a stored file at dest_path via a real OS
     symlink first, hardlink second, plain copy as the last-resort fallback -
     in that order of preference, cheapest/most-correct first."""
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    if os.path.exists(dest_path) or os.path.islink(dest_path):
-        os.remove(dest_path)
-    try:
-        os.symlink(cached_path, dest_path)
-        return
-    except OSError:
-        # Windows without Developer Mode/admin (SeCreateSymbolicLinkPrivilege)
-        # refuses plain os.symlink - try a hardlink before giving up on
-        # linking entirely.
-        pass
-    try:
-        os.link(cached_path, dest_path)
-        return
-    except OSError:
-        # Cross-filesystem, or the OS/filesystem allows neither link type -
-        # a real copy still works, just isn't free.
-        shutil.copyfile(cached_path, dest_path)
+    parent = os.path.dirname(os.path.abspath(dest_path))
+    os.makedirs(parent, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".link-", dir=parent) as staging:
+        staged = os.path.join(staging, "payload")
+        try:
+            os.symlink(os.path.abspath(cached_path), staged)
+        except OSError:
+            try:
+                os.link(cached_path, staged)
+            except OSError:
+                shutil.copyfile(cached_path, staged)
+        os.replace(staged, dest_path)
 
 
 def _choose_store_name(sha256_hex: str, human_name: str | None, index: dict) -> str:
@@ -253,7 +248,8 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
     # Store miss - fetch once, hash the real bytes, store under a human
     # name, remember the manifest hash -> sha256 alias for next time.
     os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
-    tmp_path = _store_path(f".fetch-{os.getpid()}-{hash(dest_path) & 0xffffff:x}.part")
+    fd, tmp_path = tempfile.mkstemp(prefix=".fetch-", suffix=".part", dir=GLOBAL_MODS_DIR)
+    os.close(fd)
     try:
         fetch_fn(tmp_path)
         stored = _ingest(tmp_path, human_name, hashes)
@@ -285,7 +281,8 @@ def put_file(src_path: str, dest_path: str, hashes: dict = None) -> str:
             return dest_path
 
     os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
-    tmp_path = _store_path(f".fetch-{os.getpid()}-{abs(hash(src_path)) & 0xffffff:x}.part")
+    fd, tmp_path = tempfile.mkstemp(prefix=".fetch-", suffix=".part", dir=GLOBAL_MODS_DIR)
+    os.close(fd)
     try:
         shutil.copyfile(src_path, tmp_path)
         stored = _ingest(tmp_path, os.path.basename(dest_path.replace("\\", "/")), hashes)

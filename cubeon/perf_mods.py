@@ -24,7 +24,7 @@ this Minecraft version, a dead network, or a jar the user manages by hand all
 just mean the boost is unchanged. Nothing here can stop the game from starting.
 """
 from .mod_loaders import MOD_CAPABLE_LOADERS
-from .mods import download_mod, get_mod_download, list_mods
+from .mods import download_mod, get_mod_download, list_mods, name_stem
 
 # Modrinth slugs, in install order. Chosen for pure client FPS: Sodium is
 # rendering, Lithium is tick logic. Nothing here changes gameplay.
@@ -49,12 +49,11 @@ def _present(mc_version: str | None, loader: str | None) -> set:
     except Exception:
         return found
     for mod in mods:
-        blob = " ".join(
-            str(mod.get(key) or "")
-            for key in ("slug", "display_name", "project_id", "filename")
-        ).lower()
-        for slug in PERF_MOD_SLUGS:
-            if slug in blob:
+        identities = {str(mod.get(key) or "").lower()
+                      for key in ("slug", "display_name", "project_id")}
+        identities.add(name_stem(mod.get("filename") or ""))
+        for slug, project_id in (("sodium", "aanobbmi"), ("lithium", "gvqqbuqz")):
+            if slug in identities or project_id in identities:
                 found.add(slug)
     return found
 

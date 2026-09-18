@@ -590,6 +590,17 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         results_view.controls.clear()
         page.update()
         wanted_mc = state.get("selected_mc_version")
+        provider_results = {"modrinth": [], "curseforge": []}
+        provider_lock = threading.Lock()
+
+        def publish(provider, hits):
+            with provider_lock:
+                if gen != search_gen["v"]:
+                    return
+                provider_results[provider] = hits or []
+                merged = core.merge_modpack_hits(
+                    provider_results["modrinth"], provider_results["curseforge"], query)
+                render_results(merged, empty_msg="No modpacks found for that search.")
 
         def mr_worker():
             try:
@@ -602,23 +613,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 return
             if gen != search_gen["v"]:
                 return
-            render_results(results, empty_msg="No modpacks found for that search.")
+            publish("modrinth", results)
 
         def cf_worker():
             try:
                 cf = core.search_modpacks_curseforge(query, mc_version=wanted_mc)
             except Exception:
                 return  # CF is optional; Modrinth results already rendered
-            if gen != search_gen["v"] or not cf:
-                return
-            merged = core.merge_modpack_hits(
-                browse_state.get("results") or [], cf, query)
-            render_results(merged, empty_msg="No modpacks found for that search.")
-            if any(h.get("source") == "curseforge" for h in merged):
-                browse_status.value = f"{len(merged)} packs found."
-                browse_status.tooltip = (
-                    "Results mix Modrinth and CurseForge classics. A free "
-                    "CurseForge key unlocks the full CurseForge catalogue.")
+            publish("curseforge", cf)
 
         threading.Thread(target=mr_worker, daemon=True).start()
         threading.Thread(target=cf_worker, daemon=True).start()

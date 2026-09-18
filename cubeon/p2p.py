@@ -182,6 +182,9 @@ SESSIONS_DIR = os.path.join(CUBEON_HOME, "p2p_sessions")
 RELAY_CHUNK_BYTES = 48_000          # raw bytes per chunk (~64 KB base64'd)
 RELAY_IDLE_TIMEOUT_S = 120.0        # no traffic for this long => peer is gone
 
+MOD_MAX_FILE_BYTES = 128 * 1024 * 1024
+MOD_MAX_CHUNKS = 65536
+MOD_MAX_PENDING = 1000
 MOD_CHUNK_BYTES = 48_000
 MOD_SYNC_TIMEOUT_S = 120.0  # base64'd, stays comfortably under typical WS frame limits
 ASSET_SYNC_TIMEOUT_S = 120.0
@@ -262,7 +265,7 @@ def _parse_xor_mapped_address(data: bytes, txn_id: bytes) -> "tuple[str, int] | 
             port = int.from_bytes(value[2:4], "big")
             ip_bytes = value[4:8]
             return ".".join(str(b) for b in ip_bytes), port
-        i += 4 + attr_len + (attr_len % 4)  # attributes are padded to 4 bytes
+        i += 4 + attr_len + (-attr_len % 4)  # attributes are padded to 4 bytes
     return None
 
 
@@ -1642,6 +1645,44 @@ def local_mod_hashes(mc_version: str, loader: str) -> "list[dict]":
     return build_mod_list(mc_version, loader)
 
 
+def _mod_target(dest_dir: str, filename: str) -> str:
+    if (not isinstance(filename, str) or not filename or "\\" in filename
+            or "/" in filename or filename in (".", "..") or ":" in filename
+            or "\0" in filename or not filename.lower().endswith(".jar")):
+        raise P2PError("Unsafe mod filename")
+    root = os.path.realpath(dest_dir)
+    target = os.path.join(root, filename)
+    if os.path.commonpath([root, os.path.realpath(target)]) != root:
+        raise P2PError("Mod path escaped its profile")
+    return target
+
+
+def _accept_chunk(item: dict, seq, total, chunk, size_limit: int, chunk_limit: int) -> bool:
+    size = item.get("size", size_limit)
+    if type(size) is not int or not 0 <= size <= size_limit:
+        raise P2PError("Invalid file size")
+    max_encoded = ((size + 2) // 3) * 4
+    max_chunks = min(MOD_MAX_CHUNKS, max(1, (max_encoded + 3) // 4))
+    if (type(seq) is not int or type(total) is not int or not 1 <= total <= max_chunks
+            or not 0 <= seq < total or not isinstance(chunk, str)
+            or len(chunk) > chunk_limit or len(chunk) % 4
+            or (total > 1 and not chunk)):
+        raise P2PError("Invalid file chunk")
+    try:
+        base64.b64decode(chunk, validate=True)
+    except Exception:
+        raise P2PError("Invalid file chunk encoding") from None
+    if item.get("total") not in (None, total):
+        raise P2PError("File chunk count changed")
+    parts = item.setdefault("parts", {})
+    used = item.get("bytes", 0) - len(parts.get(seq, "")) + len(chunk)
+    if used > max_encoded:
+        raise P2PError("File exceeds its size limit")
+    item["total"], item["bytes"] = total, used
+    parts[seq] = chunk
+    return len(parts) == total
+
+
 def resolve_missing_mod_from_cache(sha256_hex: str, dest_dir: str, filename: str) -> "str | None":
     """Step 1 of the resolution order: if the global cache already has a
     jar under this exact sha256 (from an earlier Modrinth install, another
@@ -1649,10 +1690,10 @@ def resolve_missing_mod_from_cache(sha256_hex: str, dest_dir: str, filename: str
     the joiner's profile and skip asking the host entirely. Returns the
     linked path, or None on an actual cache miss - never raises, since a
     miss here just means "fall through to asking the peer", not an error."""
+    dest_path = _mod_target(dest_dir, filename)
     cached_path = global_mod_cache.cache_path_if_present(sha256_hex)
     if not cached_path:
         return None
-    dest_path = os.path.join(dest_dir, filename)
     global_mod_cache.link_into_place(cached_path, dest_path)
     return dest_path
 
@@ -1669,11 +1710,12 @@ class ModSyncSession:
     branch), since the host has no diffing to do.
     """
 
-    def __init__(self, *, mc_version: str, loader: str, send_signal):
+    def __init__(self, *, mc_version: str, loader: str, send_signal, on_error=None):
         self.mc_version = mc_version
         self.loader = loader
         self.profile_dir = mods_module.get_profile_dir(mc_version, loader)
         self._send_signal = send_signal  # (data: dict) -> None, already bound to (room, host_name)
+        self.on_error = on_error
         self.pending: "dict[str, dict]" = {}   # sha256 -> {filename, chunks: [str,...], total}
         self.linked_paths: "list[str]" = []
         self.disabled_paths: "list[dict]" = []  # extra local mods temporarily disabled for this session
@@ -1683,15 +1725,39 @@ class ModSyncSession:
         self._done = threading.Event()
         self._started_at = None
         self._last_progress = time.monotonic()
+        self._mutation_lock = threading.RLock()
+        self._cancelled = False
+        self.journal = lambda: None
+
+    def cancel(self):
+        with self._mutation_lock:
+            self._cancelled = True
+            self.pending.clear()
+            self._done.set()
+
+    def wait(self):
+        self._done.wait()
 
     def is_complete(self) -> bool:
         return self._done.is_set()
 
     def start(self, host_mod_list: "list[dict]") -> None:
+        with self._mutation_lock:
+            if not self._cancelled:
+                self._start(host_mod_list)
+
+    def _start(self, host_mod_list: "list[dict]") -> None:
         """Call once, as soon as the p2p_modlist signal arrives. Links
         every already-cached mod immediately (no network round trip) and
         sends one p2p_modreq per genuine miss."""
         try:
+            if len(host_mod_list) > MOD_MAX_PENDING:
+                raise P2PError("Too many mods in this session")
+            for entry in host_mod_list:
+                _mod_target(self.profile_dir, entry["filename"])
+                size = entry.get("size", MOD_MAX_FILE_BYTES)
+                if type(size) is not int or not 0 <= size <= MOD_MAX_FILE_BYTES:
+                    raise P2PError("Invalid mod size")
             self._started_at = time.monotonic()
             self._last_progress = self._started_at
             threading.Thread(target=self._timeout_watchdog,
@@ -1712,8 +1778,9 @@ class ModSyncSession:
                 disabled = original + ".disabled"
                 if os.path.exists(disabled):
                     continue
-                os.rename(original, disabled)
                 self.disabled_paths.append({"original": original, "disabled": disabled})
+                self.journal()
+                os.rename(original, disabled)
 
             missing = diff_missing_mods(local, host_mod_list)
             if not missing:
@@ -1722,10 +1789,14 @@ class ModSyncSession:
 
             still_missing = []
             for entry in missing:
+                target = _mod_target(self.profile_dir, entry["filename"])
+                if os.path.lexists(target):
+                    raise P2PError("A different mod already uses that filename")
+                self.linked_paths.append(target)
+                self.journal()
                 linked = resolve_missing_mod_from_cache(
                     entry["sha256"], self.profile_dir, entry["filename"])
                 if linked:
-                    self.linked_paths.append(linked)
                     self.newly_linked_from_cache.append(linked)
                 else:
                     still_missing.append(entry)
@@ -1736,7 +1807,8 @@ class ModSyncSession:
 
             for entry in still_missing:
                 sha = entry["sha256"].lower()
-                self.pending[sha] = {"filename": entry["filename"], "chunks": [], "total": None}
+                self.pending[sha] = {"filename": entry["filename"], "parts": {},
+                                     "size": entry.get("size", MOD_MAX_FILE_BYTES), "total": None}
                 self.awaiting_peer.add(sha)
                 self._send_signal({"kind": "p2p_modreq", "sha256": sha})
         except Exception as e:
@@ -1761,9 +1833,19 @@ class ModSyncSession:
                     "Check both launchers are online and try again."
                 )
                 self._done.set()
+                if self.on_error:
+                    try:
+                        self.on_error(self.error)
+                    except Exception:
+                        log.debug("sync error callback failed", exc_info=True)
                 return
 
     def on_modchunk(self, data: dict) -> None:
+        with self._mutation_lock:
+            if not self._cancelled and not self._done.is_set():
+                self._on_modchunk(data)
+
+    def _on_modchunk(self, data: dict) -> None:
         """Feed each incoming p2p_modchunk signal here. Reassembles and
         links a mod into the profile once every chunk for it has arrived;
         marks the whole session done once nothing's left outstanding."""
@@ -1771,30 +1853,20 @@ class ModSyncSession:
         entry = self.pending.get(sha)
         if not entry:
             return  # a chunk for a mod we didn't ask for, or already finished - ignore
-        self._last_progress = time.monotonic()
-        seq = data.get("seq")
-        total = data.get("total")
-        chunk = data.get("data_b64", "")
-        if seq is None or total is None:
+        try:
+            complete = _accept_chunk(entry, data.get("seq"), data.get("total"),
+                                     data.get("data_b64"), MOD_MAX_FILE_BYTES, MOD_CHUNK_BYTES)
+        except P2PError as ex:
+            self.error = str(ex)
+            self._done.set()
             return
-        entry["total"] = total
-        # Chunks can arrive out of order over a lossy UDP-backed session;
-        # pad the list so seq always lands at the right index regardless of
-        # arrival order.
-        while len(entry["chunks"]) < total:
-            entry["chunks"].append(None)
-        if 0 <= seq < total:
-            entry["chunks"][seq] = chunk
-
-        if all(c is not None for c in entry["chunks"]):
+        self._last_progress = time.monotonic()
+        if complete:
             try:
                 dest = fetch_missing_mod_via_peer(
-                    sha, entry["chunks"], self.profile_dir, entry["filename"])
-                # Stored once under its real (human) name in the global mods
-                # store and linked into the profile, so list_mods()/
-                # sync_mods_to_game() (which key off filename, not hash) see
-                # it correctly and future joins reuse it with no re-fetch.
-                self.linked_paths.append(dest)
+                    sha, [entry["parts"][i] for i in range(entry["total"])],
+                    self.profile_dir, entry["filename"])
+                self.journal()
             except Exception as e:
                 self.error = f"Couldn't fetch {entry['filename']} from your friend: {e}"
                 self._done.set()
@@ -1832,8 +1904,8 @@ def fetch_missing_mod_via_peer(sha256_hex: str, chunks: "list[str]", dest_dir: s
             f"mismatch) - not installing it."
         )
 
-    filename = os.path.basename((filename or f"{sha256_hex}.jar").replace("\\", "/"))
-    dest_path = os.path.join(dest_dir, filename)
+    filename = filename or f"{sha256_hex}.jar"
+    dest_path = _mod_target(dest_dir, filename)
 
     def _fetch_fn(tmp_path: str) -> None:
         with open(tmp_path, "wb") as f:
@@ -1919,9 +1991,12 @@ def build_asset_manifest() -> list[dict]:
 
 def _asset_target(kind: str, rel: str) -> str:
     rel = _safe_asset_relpath(rel)
-    root = os.path.abspath(_asset_root(kind))
+    root = os.path.realpath(_asset_root(kind))
+    exts = ASSET_ROOTS[kind][1]
+    if not rel.lower().endswith(exts if isinstance(exts, str) else tuple(exts)):
+        raise P2PError("Unsupported P2P asset extension")
     target = os.path.abspath(os.path.join(root, *rel.split("/")))
-    if os.path.commonpath([root, target]) != root:
+    if os.path.commonpath([root, os.path.realpath(target)]) != root:
         raise P2PError("P2P asset path escaped its root")
     return target
 
@@ -1935,19 +2010,30 @@ def read_chunks_for_asset(path: str) -> list[str]:
     return [b64[i:i + ASSET_CHUNK_BYTES] for i in range(0, len(b64), ASSET_CHUNK_BYTES)] or [""]
 
 
-class AssetSyncSession:
-    def __init__(self, *, send_signal):
+class AssetSyncSession(ModSyncSession):
+    def __init__(self, *, send_signal, on_error=None):
         self._send_signal = send_signal
+        self.on_error = on_error
         self.pending, self.added_paths, self.backups = {}, [], []
         self.error = None
         self._done = threading.Event()
         self._last_progress = time.monotonic()
+        self._mutation_lock = threading.RLock()
+        self._cancelled = False
+        self.journal = lambda: None
 
     def is_complete(self) -> bool:
         return self._done.is_set()
 
     def start(self, host_manifest: list[dict]) -> None:
+        with self._mutation_lock:
+            if not self._cancelled:
+                self._start_assets(host_manifest)
+
+    def _start_assets(self, host_manifest: list[dict]) -> None:
         try:
+            if len(host_manifest) > ASSET_MAX_FILES:
+                raise P2PError("Too many assets")
             threading.Thread(target=self._watchdog, name="cubeon-p2p-asset-timeout", daemon=True).start()
             local = {(e["kind"], e["path"]): e for e in build_asset_manifest()}
             for entry in host_manifest:
@@ -1961,10 +2047,13 @@ class AssetSyncSession:
                 target = _asset_target(kind, rel)
                 if os.path.isfile(target):
                     backup = target + ".cubeon-p2p-backup"
-                    if os.path.exists(backup):
-                        os.remove(backup)
-                    os.replace(target, backup)
+                    if os.path.lexists(backup):
+                        raise P2PError("An earlier asset backup still exists")
                     self.backups.append({"original": target, "backup": backup})
+                    self.journal()
+                    os.replace(target, backup)
+                self.added_paths.append(target)
+                self.journal()
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 self.pending[(kind, rel)] = {"sha256": sha, "size": size, "chunks": [], "total": None}
                 self._send_signal({"kind": "p2p_assetreq", "asset_kind": kind, "path": rel, "sha256": sha})
@@ -1979,33 +2068,43 @@ class AssetSyncSession:
             if time.monotonic() - self._last_progress >= ASSET_SYNC_TIMEOUT_S:
                 self.error = "Resource/config synchronization timed out while waiting for your friend."
                 self._done.set()
+                if self.on_error:
+                    try:
+                        self.on_error(self.error)
+                    except Exception:
+                        log.debug("sync error callback failed", exc_info=True)
                 return
 
     def on_chunk(self, data: dict):
+        with self._mutation_lock:
+            if not self._cancelled and not self._done.is_set():
+                self._on_chunk(data)
+
+    def _on_chunk(self, data: dict):
         try:
             kind, rel = data.get("asset_kind"), _safe_asset_relpath(data.get("path"))
             item = self.pending.get((kind, rel))
             if not item:
                 return
-            seq, total = int(data.get("seq")), int(data.get("total"))
-            chunk = data.get("data_b64", "")
-            if total <= 0 or total > 100000 or seq < 0 or seq >= total or not isinstance(chunk, str):
-                raise P2PError("Invalid P2P asset chunk")
+            complete = _accept_chunk(item, data.get("seq"), data.get("total"),
+                                     data.get("data_b64"), ASSET_MAX_FILE_BYTES, ASSET_CHUNK_BYTES)
             self._last_progress = time.monotonic()
-            while len(item["chunks"]) < total:
-                item["chunks"].append(None)
-            item["total"], item["chunks"][seq] = total, chunk
-            if not all(x is not None for x in item["chunks"]):
+            if not complete:
                 return
-            raw = base64.b64decode("".join(item["chunks"]), validate=True)
+            raw = base64.b64decode("".join(item["parts"][i] for i in range(item["total"])), validate=True)
             if len(raw) != item["size"] or hashlib.sha256(raw).hexdigest().lower() != item["sha256"]:
                 raise P2PError(f"Received {rel} failed its SHA-256 verification")
             target = _asset_target(kind, rel)
-            tmp = target + ".cubeon-p2p.tmp"
-            with open(tmp, "wb") as f:
-                f.write(raw)
-            os.replace(tmp, target)
-            self.added_paths.append(target)
+            import tempfile
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".cubeon-p2p-")
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(raw)
+                _asset_target(kind, rel)
+                os.replace(tmp, target)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
             self.pending.pop((kind, rel), None)
             if not self.pending:
                 self._done.set()
@@ -2034,8 +2133,8 @@ def record_session_links(room: str, mc_version: str, loader: str, linked_paths: 
     state = {"mc_version": mc_version, "loader": loader,
              "linked_paths": linked_paths, "disabled_paths": disabled_paths or [],
              "asset_paths": asset_paths or [], "asset_backups": asset_backups or []}
-    with open(_session_state_path(room), "w", encoding="utf-8") as f:
-        json.dump(state, f)
+    from .atomicio import write_json
+    write_json(_session_state_path(room), state)
 
 
 def teardown(room: str) -> None:

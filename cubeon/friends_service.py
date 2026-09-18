@@ -66,6 +66,10 @@ _MAX_CHAT = 200
 # The "most recent messages" page size GET /chat serves on a first sync.
 _CHAT_PAGE = 40
 
+# History request timeout: if the relay doesn't reply within this many seconds,
+# the request is considered failed and will be retried on the next poll.
+_HISTORY_REQ_TIMEOUT = 10.0
+
 # Where the decrypted rings persist (chat_store.json). This is the disappearing-
 # messages fix: the rings live in memory only, and a launcher restart empties
 # them. The relay's stored history CANNOT restore your own sent messages - they
@@ -115,6 +119,13 @@ _NOTICE_DEDUPE_SECONDS = 10.0
 # (joiner walked away / closed the game). The punch path's own idle timeout is
 # 30s on live traffic; a human typing a password gets a bit more than that.
 _GATE_TIMEOUT = 60.0
+
+# How long a peer's advertised E2EE public key stays trusted (S15). A peer
+# that rotates their key (lost identity.json, re-claimed) would otherwise get
+# messages sealed to a dead key forever - encryption with a stale-but-valid
+# key succeeds silently. TTL bounds the damage; reconnect invalidation covers
+# the "my friend just fixed it, retry now" case.
+_PUBKEY_TTL_S = 900.0
 
 
 def _mod_stem(filename):
@@ -234,6 +245,10 @@ class FriendsService:
         # Guards the session dict *reference* and the pending-invite map. Not
         # the contents of a session: see the module docstring.
         self._lock = threading.RLock()
+        self._metadata_lock = threading.RLock()
+        self._peer_metadata = {}
+        self._username_lock = threading.RLock()
+        self._minecraft_username = None
         # Active P2P world session, or None.
         # state: "hosting_wait_port" | "ringing_out" | "ringing_in" |
         #        "connecting" | "connected" | "launching" | "ended" | "failed"
@@ -264,8 +279,9 @@ class FriendsService:
         # WS thread never blocks the state-machine lock.
         self._chat_lock = threading.RLock()
         self._chat = {}            # canon peer -> {"next_seq": int, "msgs": deque}
-        self._chat_seeded = set()  # peers we've asked the relay for history on
+        self._chat_seeded = {}     # canon -> {"gen": int, "t": float} | "done"
         self._chat_read = {}       # canon peer -> highest seq marked seen
+        self._connect_gen = 0      # bumped on every (re)connect for history reseed
         # Hydrate the rings from chat_store.json BEFORE anything can append, so
         # a restart resumes every conversation exactly where it left off. The
         # file is the only copy of your own sent messages (see CHAT_STORE_PATH).
@@ -282,11 +298,15 @@ class FriendsService:
         self._e2ee_priv = None
         self._e2ee_pubkey = None
         self._pubkey_published = False
-        # canon peer -> advertised public key, so the pubkey lookup that gates
-        # every encrypted send is paid once per friend per process instead of on
-        # every message. Both send_chat() and the Sync channel run on threads a
-        # UI is blocking on, so a repeated 4-second REST round trip there reads
-        # as lag in the one place it is most visible.
+        # canon peer -> (public key, cached-at monotonic), so the pubkey lookup
+        # that gates every encrypted send is paid once per friend per TTL
+        # window instead of on every message. Both send_chat() and the Sync
+        # channel run on threads a UI is blocking on, so a repeated 4-second
+        # REST round trip there reads as lag in the one place it is most
+        # visible. Entries expire after _PUBKEY_TTL_S and are invalidated on
+        # every reconnect: a peer that rotated their key (S15) would otherwise
+        # receive messages sealed to a dead key FOREVER, because encryption
+        # with a stale-but-valid key succeeds silently.
         self._peer_pubkeys = {}
 
         # ---- profile Sync (the mod's Sync view) -------------------------------
@@ -327,25 +347,9 @@ class FriendsService:
         # constructor. Cleared on shutdown so a stale reference can't eat
         # notices meant for the next session.
         FriendsService._active = self
-
-        if not self._handlers_bound:
-            self._handlers_bound = True
-            c = self.client
-            c.on("state", self._on_state)
-            c.on("roster", self._on_roster)
-            c.on("presence", self._on_presence)
-            c.on("request", self._on_request)
-            c.on("friend_added", self._on_friend_added)
-            c.on("friend_removed", self._on_friend_removed)
-            c.on("system", self._on_system)
-            c.on("error", self._on_error)
-            c.on("call_invite", self._on_call_invite)
-            c.on("call_accept", self._on_call_accept)
-            c.on("call_decline", self._on_call_decline)
-            c.on("call_end", self._on_call_end)
-            c.on("signal", self._on_signal)
-            c.on("dm", self._on_dm)
-            c.on("history", self._on_history)
+        self.reconcile_username()
+        self._remember_roster(self.client.roster)
+        self._bind_client_handlers()
 
         # p2p.cleanup_stale_sessions() had no caller anywhere in the launcher,
         # so ~/.cubeon_launcher/p2p_sessions accumulated a file per crashed or
@@ -602,6 +606,199 @@ class FriendsService:
             return ""
         return friends.canonical_uid(ident.get("uid")) or ""
 
+    def _effective_username(self) -> str:
+        try:
+            from cubeon import watchdog
+            return friends.minecraft_username(
+                watchdog.effective_username(self.cfg.get("username")))
+        except Exception:
+            return friends.minecraft_username(self.cfg.get("username"))
+
+    def reconcile_username(self) -> str:
+        with self._username_lock:
+            username = self._effective_username()
+            if username != self._minecraft_username:
+                self._minecraft_username = username
+                self._changed()
+            try:
+                self.client.set_minecraft_username(username)
+            except Exception:
+                log.debug("username publication failed", exc_info=True)
+            return username
+
+    @classmethod
+    def reconcile_username_active(cls) -> str:
+        try:
+            return cls._active.reconcile_username() if cls._active else ""
+        except Exception:
+            log.debug("active username reconciliation failed", exc_info=True)
+            return ""
+
+    def _remember_metadata(self, row, handle=None, fill_missing_only=False) -> None:
+        if not isinstance(row, dict):
+            return
+        name = handle if isinstance(handle, str) else row.get("name")
+        canon = friends.canonical_name(name) if isinstance(name, str) else None
+        if not canon:
+            return
+        with self._metadata_lock:
+            saved = self._peer_metadata.setdefault(canon, {"name": name})
+            uid = friends.canonical_uid(row.get("uid"))
+            username = friends.minecraft_username(row.get("minecraft_username"))
+            if fill_missing_only:
+                if uid and not saved.get("uid"):
+                    saved["uid"] = uid
+                if username and not saved.get("minecraft_username"):
+                    saved["minecraft_username"] = username
+            else:
+                if uid:
+                    saved["uid"] = uid
+                if username:
+                    saved["minecraft_username"] = username
+
+    def _remember_event(self, payload) -> None:
+        if not isinstance(payload, dict):
+            return
+        rows = [(k, v) for k, v in payload.items()
+                if isinstance(v, dict) and not isinstance(v.get("name"), str)
+                and ("uid" in v or "minecraft_username" in v)]
+        if rows and not any(k in payload for k in ("name", "from", "to", "peer")):
+            for handle, row in rows:
+                self._remember_metadata(row, handle)
+            self._changed()
+            return
+        self._remember_roster(self.client.roster)
+        # "name" prefix: metadata events and friend_added carry authoritative
+        # uid/username for a single handle - overwrite existing (not fill-missing).
+        for prefix in ("name",):
+            handle = payload.get(prefix)
+            if isinstance(handle, str):
+                self._remember_metadata({
+                    "uid": payload.get("uid"),
+                    "minecraft_username": payload.get("minecraft_username"),
+                }, handle)
+        for prefix in ("from", "to", "peer"):
+            handle = payload.get(prefix)
+            if isinstance(handle, dict):
+                self._remember_metadata(handle, fill_missing_only=True)
+            elif isinstance(handle, str):
+                self._remember_metadata({
+                    "uid": payload.get(prefix + "_uid"),
+                    "minecraft_username": payload.get(prefix + "_minecraft_username"),
+                }, handle, fill_missing_only=True)
+        self._changed()
+
+    def _bind_client_handlers(self) -> None:
+        """Bind every relay event exactly once. The single binding contract for
+        start() and any test/consumer that wants the handler set without the
+        bridge or reconcile threads."""
+        if self._handlers_bound:
+            return
+        self._handlers_bound = True
+        c = self.client
+        for event, fn in (("state", self._on_state),
+                          ("metadata", self._remember_event),
+                          ("hello_ok", self._remember_event),
+                          ("roster", self._on_roster),
+                          ("presence", self._on_presence),
+                          ("request", self._on_request),
+                          ("friend_added", self._on_friend_added),
+                          ("friend_removed", self._on_friend_removed),
+                          ("system", self._on_system),
+                          ("error", self._on_error),
+                          ("call_invite", self._on_call_invite),
+                          ("call_accept", self._on_call_accept),
+                          ("call_decline", self._on_call_decline),
+                          ("call_end", self._on_call_end),
+                          ("signal", self._on_signal),
+                          ("dm", self._on_dm),
+                          ("history", self._on_history)):
+            c.on(event, fn)
+
+    def _remember_roster(self, roster) -> None:
+        """Learn identity fields from a roster view (S3+S4).
+
+        Two trust tiers. The client's own `peer_metadata` cache is
+        authoritative: FriendsClient merges every T_METADATA event into it
+        BEFORE dispatching, so at handler time it is the freshest known
+        state, and it is mirrored unconditionally. Raw friend/request detail
+        rows are only a legacy fallback: they gap-fill handles and fields
+        the service doesn't know yet, and can never overwrite a value a
+        live event already delivered - so a reordered or lagging snapshot
+        can't resurrect a stale username."""
+        if not isinstance(roster, dict):
+            return
+        cached = roster.get("peer_metadata")
+        if not isinstance(cached, dict):
+            cached = roster.get("metadata")
+        authoritative = {}
+        if isinstance(cached, dict):
+            for handle, row in cached.items():
+                if isinstance(handle, str) and isinstance(row, dict):
+                    authoritative[handle] = row
+        known_canons = {friends.canonical_name(h) for h in authoritative}
+        gapfill = {}
+        for key in ("friends", "requests_in_details", "requests_out_details"):
+            values = roster.get(key)
+            if not isinstance(values, list):
+                continue
+            for row in values:
+                if not isinstance(row, dict):
+                    continue
+                handle = row.get("name")
+                if not isinstance(handle, str):
+                    continue
+                canon = friends.canonical_name(handle)
+                if not canon or canon in known_canons:
+                    continue
+                if row.get("uid") or row.get("minecraft_username"):
+                    gapfill[handle] = row
+        with self._metadata_lock:
+            for handle, row in authoritative.items():
+                self._remember_metadata(row, handle)
+            for handle, row in gapfill.items():
+                canon = friends.canonical_name(handle)
+                known = self._peer_metadata.get(canon, {})
+                uid = friends.canonical_uid(row.get("uid"))
+                username = friends.minecraft_username(row.get("minecraft_username"))
+                if ((uid and not known.get("uid"))
+                        or (username and not known.get("minecraft_username"))):
+                    self._remember_metadata(row, handle)
+
+    def peer_metadata(self, handle) -> dict:
+        name = handle if isinstance(handle, str) else ""
+        canon = friends.canonical_name(name) or ""
+        if not canon and not isinstance(handle, dict):
+            data = {}
+        else:
+            self._remember_roster(self.client.roster)
+            with self._metadata_lock:
+                data = dict(self._peer_metadata.get(canon, {}))
+        if isinstance(handle, dict):
+            uid = friends.canonical_uid(handle.get("uid"))
+            username = friends.minecraft_username(handle.get("minecraft_username"))
+        else:
+            uid = friends.canonical_uid(data.get("uid")) or ""
+            username = friends.minecraft_username(data.get("minecraft_username"))
+        if canon and canon == friends.canonical_name(self._my_name()):
+            uid = self._my_uid()
+            username = self._effective_username()
+        return {"name": name, "uid": uid, "minecraft_username": username,
+                "display_name": username or (f"Cubeon ID {uid}" if uid else "Player")}
+
+    def peer_label(self, handle) -> str:
+        data = self.peer_metadata(handle)
+        label = data["display_name"]
+        if data["minecraft_username"] and data["uid"]:
+            label += f" (Cubeon ID {data['uid']})"
+        return label
+
+    def _peer_fields(self, handle) -> dict:
+        data = self.peer_metadata(handle)
+        return {"peer_uid": data["uid"],
+                "peer_minecraft_username": data["minecraft_username"],
+                "peer_display_name": data["display_name"]}
+
     @staticmethod
     def _ok() -> dict:
         return {"ok": True, "error": ""}
@@ -619,6 +816,12 @@ class FriendsService:
         renders its own presence line, so nothing pre-rendered goes over the
         bridge."""
         roster = self.client.roster or {}
+        self._remember_roster(roster)
+        you = friends.current_name() or ""
+        you_metadata = self.peer_metadata(you)
+        requests = {key: [r for r in (roster.get(key) or [])
+                          if isinstance(r, str) and r]
+                    for key in ("requests_in", "requests_out")}
         version_id = self.state.get("selected_version")
         with self._lock:
             invited = set(self._invited_by)
@@ -639,14 +842,19 @@ class FriendsService:
                 msgs = list(room["msgs"]) if room else []
                 read = self._chat_read.get(conv, 0)
             last = msgs[-1] if msgs else None
+            meta = self.peer_metadata(name)
             out.append({
-                "name": name,
-                "uid": str(f.get("uid") or ""),
+                **meta,
                 "online": bool(f.get("online")),
                 "version": f.get("version") or "",
                 "status": f.get("status") or "",
                 "invited": conv in invited,
-                "whitelisted": name.strip().lower() in whitelist,
+                # The server whitelist is keyed by MINECRAFT username, never
+                # by the internal relay handle: a handle in whitelist.json
+                # would whitelist nobody (S12).
+                "whitelisted": (meta["minecraft_username"].strip().lower()
+                                in whitelist if meta["minecraft_username"]
+                                else False),
                 "last_text": (last.get("text") or "") if last else "",
                 "last_ts": int(last.get("ts") or 0) if last else 0,
                 "last_dir": (last.get("dir") or "") if last else "",
@@ -654,15 +862,16 @@ class FriendsService:
                               if m.get("dir") == "in" and m.get("seq", 0) > read),
             })
         return {
-            "you": friends.current_name() or "",
+            "you": you,
             "you_uid": self._my_uid(),
+            "you_minecraft_username": you_metadata["minecraft_username"],
+            "you_display_name": you_metadata["display_name"],
             "connected": bool(self.client.is_connected),
             "available": bool(self.client.is_available),
             "friends": out,
-            "requests_in": [r for r in (roster.get("requests_in") or [])
-                            if isinstance(r, str) and r],
-            "requests_out": [r for r in (roster.get("requests_out") or [])
-                             if isinstance(r, str) and r],
+            **requests,
+            "requests_in_details": [self.peer_metadata(r) for r in requests["requests_in"]],
+            "requests_out_details": [self.peer_metadata(r) for r in requests["requests_out"]],
             # Freshness fingerprint of the jar this launcher WOULD install.
             # The running mod hashes its own jar and compares; a mismatch
             # means the game is running an old mod and needs a relaunch.
@@ -694,7 +903,7 @@ class FriendsService:
         players = []
         if you:
             players.append({
-                "name": you,
+                **self.peer_metadata(you),
                 "online": True,
                 "skin": _local_skin_name(self.cfg),
                 "cape": _local_cape_name(self.cfg),
@@ -705,7 +914,7 @@ class FriendsService:
             if you and f["name"].strip().lower() == you.lower():
                 continue
             players.append({
-                "name": f["name"],
+                **self.peer_metadata(f["name"]),
                 "online": bool(f.get("online")),
                 # A friend's skin/cape lives on their launcher; the shared
                 # backend serves the pixels to the game itself (CSL), so the
@@ -765,6 +974,7 @@ class FriendsService:
         return {
             "state": state_,
             "peer": p.get("peer") or "",
+            **self._peer_fields(p.get("peer")),
             "error": p.get("error"),
             "is_host": bool(p.get("is_host")),
             # Only meaningful once a transport exists; the banner likewise only
@@ -843,19 +1053,39 @@ class FriendsService:
                         "msgs": collections.deque(maxlen=_MAX_CHAT)})
 
     def _chat_append(self, canon: str, direction: str, name: str,
-                     text: str, ts) -> None:
+                     text: str, ts, mid: str = "", envelope: str = "") -> bool:
         """One decrypted message into the peer's ring, with the next seq for
         that conversation. seq is per-conversation and monotonic for the life
-        of the process, so the mod's poll cursor is a plain int compare."""
+        of the process, so the mod's poll cursor is a plain int compare.
+
+        Returns True if appended, False if deduplicated (already present).
+        Deduplication uses the relay's message id (mid) when available,
+        otherwise a fingerprint of the sealed envelope - NEVER the plaintext,
+        which may legitimately repeat ("hello again" twice must not collapse).
+        """
         with self._chat_lock:
             room = self._chat_room(canon)
+            # Dedupe under the same lock as append: race-free.
+            if mid:
+                for x in room["msgs"]:
+                    if x.get("id") == mid:
+                        return False
+            elif envelope:
+                # Fingerprint the sealed envelope (ciphertext), not the plaintext.
+                env_fp = envelope
+                for x in room["msgs"]:
+                    if x.get("envelope") == env_fp:
+                        return False
             room["msgs"].append({
                 "seq": room["next_seq"], "dir": direction,
-                "name": name, "text": text, "ts": int(ts or 0)})
+                "name": name, "text": text, "ts": int(ts or 0),
+                **({"id": mid} if mid else {}),
+                **({"envelope": envelope} if envelope else {})})
             room["next_seq"] += 1
         # Persist before returning: an append that never reached the file is a
         # message that vanishes on the next restart (the exact bug this fixes).
         self._schedule_chat_save()
+        return True
 
     # -------------------------------------------------------------------
     # chat_store.json - the ring's disk copy (the disappearing-messages fix)
@@ -952,6 +1182,7 @@ class FriendsService:
         recipient owns - so the echo is used purely as the relay's "stored"
         confirmation, which is when the plaintext kept by send_chat() enters
         the ring. Never raises: this runs on the socket thread."""
+        self._remember_event(p)
         try:
             raw = p.get("text")
             if not isinstance(raw, str) or not raw:
@@ -978,11 +1209,13 @@ class FriendsService:
         if not canon or not sender:
             return
         ts = envelope.get("ts") or (int(p.get("ts") or 0) * 1000)
-        self._chat_append(canon, "in", sender, plain, ts)
+        mid = str(p.get("id") or "")
+        env_str = str(p.get("text") or "")
+        self._chat_append(canon, "in", sender, plain, ts, mid=mid, envelope=env_str)
         # A message that arrived on its own should be visible even when the
         # mod isn't on this conversation - the screen's status line is fed
         # from this events ring. Our own echo is already the Send feedback.
-        self._notify(f"New message from {sender}.")
+        self._notify(f"New message from {self.peer_label(sender)}.")
         self._changed()
 
     def _file_own_echo(self, envelope: dict, recipient: str) -> None:
@@ -998,11 +1231,13 @@ class FriendsService:
             queue = self._out_pending.get(key)
             if not queue:
                 return   # nothing remembered (sent before this process, or replay)
-            plain = queue.pop(0)
+            plain = queue.pop(0)["text"]
             if not queue:
                 del self._out_pending[key]
         ts = envelope.get("ts") or int(time.time() * 1000)
-        self._chat_append(canon, "out", mine, plain, ts)
+        mid = str(envelope.get("id") or "")
+        env_str = json.dumps(envelope, separators=(",", ":"))
+        self._chat_append(canon, "out", mine, plain, ts, mid=mid, envelope=env_str)
         self._changed()
 
     def _on_history(self, p) -> None:
@@ -1037,17 +1272,17 @@ class FriendsService:
                 continue
             from_name = str(m.get("from") or peer)
             ts = envelope.get("ts") or (int(m.get("ts") or 0) * 1000)
-            # The relay keeps only recent messages, but a live DM could still
-            # have landed between our seed request and this reply - skip dups.
-            with self._chat_lock:
-                room = self._chat.get(canon)
-                if room and any(x["name"] == from_name and x["text"] == plain
-                                for x in room["msgs"]):
-                    continue
-            self._chat_append(canon, "in", from_name, plain, ts)
-            added += 1
+            mid = str(m.get("id") or "")
+            # Atomic dedupe+append under _chat_lock (inside _chat_append).
+            # Uses relay's message id when present, else envelope fingerprint.
+            if self._chat_append(canon, "in", from_name, plain, ts, mid=mid, envelope=raw):
+                added += 1
         if added:
             self._changed()
+        # Mark this conversation as successfully seeded (relay replied, even if
+        # it had no history). This prevents re-requesting on every poll.
+        with self._chat_lock:
+            self._chat_seeded[canon] = "done"
 
     def _publish_async(self) -> None:
         """Fire-and-forget version of _ensure_pubkey_published().
@@ -1063,18 +1298,22 @@ class FriendsService:
                          name="cubeon-pubkey-publish").start()
 
     def _peer_pubkey(self, name: str) -> dict:
-        """A friend's advertised E2EE public key, cached per process.
+        """A friend's advertised E2EE public key, cached per TTL window.
 
         Returns {"ok", "pubkey"} on success or {"ok": False, "error"} with a
         finished sentence. Capped at friends.FAST_TIMEOUT because every caller
         is inside an action the mod is blocking on - a friend whose key we
-        already hold costs nothing at all."""
+        already hold costs nothing at all. Entries expire after
+        _PUBKEY_TTL_S and drop on reconnect (see _on_state), so a rotated key
+        is re-fetched instead of silently sealing to a dead one (S15)."""
         canon = friends.canonical_name(name) or (name or "").strip().lower()
         if not canon:
             return {"ok": False, "error": "That doesn't look like a Cubeon name."}
         cached = self._peer_pubkeys.get(canon)
         if cached:
-            return {"ok": True, "pubkey": cached}
+            pubkey, cached_at = cached
+            if time.monotonic() - cached_at <= _PUBKEY_TTL_S:
+                return {"ok": True, "pubkey": pubkey}
         try:
             lookup = self.client.fetch_pubkey(name, timeout=friends.FAST_TIMEOUT)
         except TypeError:
@@ -1091,17 +1330,16 @@ class FriendsService:
             return {"ok": False, "error": "Couldn't reach the Cubeon friends server."}
         lookup = lookup or {}
         if not lookup.get("ok"):
-            return {"ok": False,
-                    "error": (lookup.get("message")
-                              or "Couldn't reach the Cubeon friends server.")}
+            return {"ok": False, "error": "Couldn't reach the Cubeon friends server."}
         if not lookup.get("exists"):
-            return {"ok": False, "error": f'No Cubeon user named "{name}".'}
+            return {"ok": False, "error": "That Cubeon player couldn't be found."}
+        self._remember_metadata(lookup, name)
         pubkey = lookup.get("pubkey") or ""
         if not pubkey:
             return {"ok": False,
-                    "error": (f"{name} hasn't set up encrypted chat yet - ask "
+                    "error": (f"{self.peer_label(name)} hasn't set up encrypted chat yet - ask "
                               f"them to open their friends list once.")}
-        self._peer_pubkeys[canon] = pubkey
+        self._peer_pubkeys[canon] = (pubkey, time.monotonic())
         return {"ok": True, "pubkey": pubkey}
 
     def send_chat(self, to: str, text: str) -> dict:
@@ -1136,41 +1374,88 @@ class FriendsService:
         except Exception:
             log.warning("couldn't encrypt the message", exc_info=True)
             return self._err("Couldn't encrypt that message.")
-        if not self.client.send_dm(to, json.dumps(envelope)):
-            return self._err(_NOT_CONNECTED)
+        serialized = json.dumps(envelope)
+        if len(serialized) > friends.MAX_DM_ENVELOPE_CHARS:
+            return self._err("Message too long to send. Try a shorter one.")
         # Remember the plaintext for _file_own_echo(), which fires when the
         # relay's echo proves the message landed. Bounded: the echo for a
         # message the relay accepted should arrive in the same second.
         canon = friends.canonical_name(to) or to.lower()
+        key = (canon, envelope["ts"])
+        pending = {"text": text}
         with self._chat_lock:
-            self._out_pending.setdefault((canon, envelope["ts"]), []).append(text)
+            self._out_pending.setdefault(key, []).append(pending)
             while len(self._out_pending) > 64:
                 self._out_pending.pop(next(iter(self._out_pending)))
+        try:
+            sent = self.client.send_dm(to, serialized)
+        except Exception:
+            log.debug("couldn't send the message", exc_info=True)
+            sent = False
+        if not sent:
+            with self._chat_lock:
+                queue = self._out_pending.get(key)
+                if queue:
+                    queue[:] = [entry for entry in queue if entry is not pending]
+                    if not queue:
+                        del self._out_pending[key]
+            return self._err(_NOT_CONNECTED)
         self._changed()
         return self._ok()
 
     def chat_payload(self, friend: str, after) -> dict:
         """GET /chat. friend=<name>, after=-1 means "most recent page" (and the
-        first time a conversation is opened, asks the relay for its stored
-        history); after>=0 returns everything with seq > after, ascending."""
+        first time a conversation is opened — or the first access after a
+        reconnect — asks the relay for its stored history so offline messages
+        backfill even into a conversation that already has local lines);
+        after>=0 returns everything with seq > after, ascending."""
         peer = (friend or "").strip()
         canon = friends.canonical_name(peer) or peer.lower()
         you = self._my_name() or ""
         with self._chat_lock:
             room = self._chat.get(canon)
             msgs = list(room["msgs"]) if room else []
-            empty = not msgs
-            seeded = canon in self._chat_seeded
-        try:
-            after = int(after) if after is not None else -1
-        except (TypeError, ValueError):
-            after = -1
+            seeded = self._chat_seeded.get(canon)
+            connected = bool(getattr(self.client, "is_connected", False))
+            now = time.monotonic()
+            # Determine if we need to (re)request history:
+            # - never requested (None)
+            # - marked for retry ("retry")
+            # - previous attempt timed out (dict with gen mismatch or timeout)
+            # - reconnect bumped _connect_gen (gen mismatch)
+            need_seed = False
+            if canon and connected:
+                if seeded is None or seeded == "retry":
+                    need_seed = True
+                elif isinstance(seeded, dict):
+                    gen = seeded.get("gen", 0)
+                    last_req = seeded.get("t", 0)
+                    attempts = seeded.get("attempts", 0)
+                    if gen != self._connect_gen:
+                        need_seed = True
+                    elif now - last_req > _HISTORY_REQ_TIMEOUT:
+                        # Request timed out - mark for retry with backoff
+                        need_seed = True
+                    # else: request in flight, wait for reply
+            try:
+                after = int(after) if after is not None else -1
+            except (TypeError, ValueError):
+                after = -1
         if after >= 0:
+            # Polling for new messages: if we haven't successfully seeded yet,
+            # trigger a request so gaps get filled.
+            if need_seed:
+                with self._chat_lock:
+                    self._chat_seeded[canon] = {
+                        "gen": self._connect_gen, "t": time.monotonic(), "attempts": 1}
+                if peer:
+                    self.client.request_history(peer=peer)
             return {"friend": peer, "you": you,
                     "messages": [m for m in msgs if m["seq"] > after]}
-        if empty and not seeded and canon:
+        if need_seed:
             with self._chat_lock:
-                self._chat_seeded.add(canon)
+                self._chat_seeded[canon] = {
+                    "gen": self._connect_gen, "t": time.monotonic(), "attempts": 1}
             if peer:
                 self.client.request_history(peer=peer)
         return {"friend": peer, "you": you,
@@ -1196,6 +1481,7 @@ class FriendsService:
             else:
                 changed = False
         if changed:
+            self._schedule_chat_save()
             self._changed()
         return self._ok()
 
@@ -1279,7 +1565,7 @@ class FriendsService:
             "download_done": 0,
             "download_total": 0,
             "needs_relaunch": False,
-            "lines": [f"Asking {name} what they're running..."],
+            "lines": [f"Asking {self.peer_label(name)} what they're running..."],
             # ---- internals, stripped before this dict is served -------------
             "_room": None,
             "_touched": time.monotonic(),
@@ -1290,6 +1576,7 @@ class FriendsService:
             "_gone": set(),       # sha256s the friend said they no longer have
         }
         old_room = None
+        evicted_rooms = []
         with self._sync_lock:
             previous = self._syncs.get(canon)
             if previous:
@@ -1304,9 +1591,12 @@ class FriendsService:
                     break
                 del self._syncs[victim_canon]
                 self._sync_rooms.pop(victim.get("_room"), None)
-        if old_room:
+                evicted_rooms.append(victim.get("_room"))
+        for closed_room in [old_room, *evicted_rooms]:
+            if not closed_room:
+                continue
             try:
-                self.client.call_end(old_room)
+                self.client.call_end(closed_room)
             except Exception:
                 pass
         return rep
@@ -1332,7 +1622,12 @@ class FriendsService:
         mine = self._my_name() or ""
         keypair = self._ensure_e2ee()
         canon = friends.canonical_name(peer) or (peer or "").lower()
-        pubkey = self._peer_pubkeys.get(canon)
+        # Use _peer_pubkey which enforces TTL and re-fetches rotated keys.
+        # This runs on the sync worker thread, so blocking on FAST_TIMEOUT is OK.
+        lookup = self._peer_pubkey(peer)
+        if not lookup.get("ok"):
+            return {"kind": "cubeon_sync", "open": payload}
+        pubkey = lookup["pubkey"]
         if keypair and pubkey and e2ee.is_available():
             try:
                 envelope = e2ee.encrypt_dm(keypair[0], pubkey, mine, peer,
@@ -1381,13 +1676,13 @@ class FriendsService:
         state_ = rep["state"]
         you, them = rep["you"], rep["them"]
         if state_ == "asking":
-            lines.append(f"Asking {rep['friend']} what they're running...")
+            lines.append(f"Asking {self.peer_label(rep['friend'])} what they're running...")
         elif state_ == "error":
             lines.append(rep["error"] or "Sync failed.")
         else:
             lines.append(f"You: {you['version'] or '?'} {you['loader'] or '?'}"
                          f" - {you['mods']} mods")
-            lines.append(f"{rep['friend']}: {them['version'] or '?'} "
+            lines.append(f"{self.peer_label(rep['friend'])}: {them['version'] or '?'} "
                          f"{them['loader'] or '?'} - {them['mods']} mods")
             if not rep["version_ok"]:
                 lines.append(f"Minecraft version differs. Switch the Play tab to "
@@ -1463,7 +1758,7 @@ class FriendsService:
             if not rep:
                 return
             if not rep["_room_event"].wait(_SYNC_REPLY_TIMEOUT_S):
-                self._sync_fail(canon, f"Couldn't open a channel to {peer}.")
+                self._sync_fail(canon, f"Couldn't open a channel to {self.peer_label(peer)}.")
                 return
             if rep["state"] == "error":
                 return
@@ -1471,7 +1766,7 @@ class FriendsService:
                 self._sync_fail(canon, _NOT_CONNECTED)
                 return
             if not rep["_reply_event"].wait(_SYNC_REPLY_TIMEOUT_S):
-                self._sync_fail(canon, f"{peer} didn't answer. They may have "
+                self._sync_fail(canon, f"{self.peer_label(peer)} didn't answer. They may have "
                                        f"closed Minecraft.")
         except Exception as ex:
             log.debug("sync open failed", exc_info=True)
@@ -1492,9 +1787,9 @@ class FriendsService:
         except Exception:
             log.debug("couldn't answer a sync request", exc_info=True)
 
-    def _sync_on_reply(self, canon: str, payload: dict, encrypted: bool) -> None:
+    def _sync_on_reply(self, canon: str, payload: dict, encrypted: bool, room=None) -> None:
         rep = self._sync_get(canon)
-        if not rep:
+        if not rep or (room is not None and rep.get("_room") != room):
             return
         mine = self._sync_profile()
         their_mods = [m for m in (payload.get("mods") or []) if isinstance(m, dict)]
@@ -1562,7 +1857,7 @@ class FriendsService:
                     "missing": [], "extra": [], "can_download": False,
                     "download_done": 0, "download_total": 0,
                     "needs_relaunch": False,
-                    "lines": [f"Compare your Minecraft with {peer}'s."]}
+                    "lines": [f"Compare your Minecraft with {self.peer_label(peer)}'s."]}
         rep["_touched"] = time.monotonic()
         return {k: v for k, v in rep.items() if not k.startswith("_")}
 
@@ -1629,8 +1924,10 @@ class FriendsService:
                     self._changed()
                     continue
                 event = threading.Event()
+                rep["_chunk_events"].clear()
+                rep["_chunks"].clear()
                 rep["_chunk_events"][sha] = event
-                rep["_chunks"].pop(sha, None)
+                rep["_requests"] = {sha: {"room": rep["_room"], "size": entry.get("size", p2p.MOD_MAX_FILE_BYTES)}}
                 if not self._sync_send(peer, rep["_room"],
                                        {"op": "modreq", "sha256": sha}):
                     self._sync_fail(canon, _NOT_CONNECTED)
@@ -1664,7 +1961,7 @@ class FriendsService:
             rep["can_download"] = bool(rep["missing"])
             self._sync_render(rep)
             if got:
-                self._notify(f"Downloaded {got} mod(s) from {peer}. "
+                self._notify(f"Downloaded {got} mod(s) from {self.peer_label(peer)}. "
                              f"Relaunch Minecraft to load them.")
             self._changed()
         except Exception as ex:
@@ -1708,7 +2005,7 @@ class FriendsService:
             return self._err(_NOT_CONNECTED)
         if not self.client.call_invite(peer, kind="askjoin"):
             return self._err(_NOT_CONNECTED)
-        self._notify(f"Asked {peer} to open their world to you.")
+        self._notify(f"Asked {self.peer_label(peer)} to open their world to you.")
         self._changed()
         return self._ok()
 
@@ -1734,7 +2031,7 @@ class FriendsService:
                              name="cubeon-sync-answer", daemon=True).start()
             return
         if op == "reply":
-            self._sync_on_reply(canon, payload, encrypted)
+            self._sync_on_reply(canon, payload, encrypted, room)
             return
         if op == "modreq":
             sha = str(payload.get("sha256") or "").lower()
@@ -1766,25 +2063,27 @@ class FriendsService:
                              daemon=True).start()
             return
         rep = self._sync_get(canon)
-        if not rep:
+        sha = str(payload.get("sha256") or "").lower()
+        request = (rep or {}).get("_requests", {}).get(sha)
+        if (not rep or rep.get("_room") != room or rep.get("state") != "downloading"
+                or not request or request.get("room") != room
+                or sha not in rep["_chunk_events"]):
             return
         if op == "modchunk":
-            sha = str(payload.get("sha256") or "").lower()
+            if sha not in rep["_chunks"] and len(rep["_chunks"]) >= _MAX_PENDING_ROOMS:
+                return
+            held = rep["_chunks"].get(sha) or {"size": request["size"]}
             try:
-                seq = int(payload.get("seq"))
-                total = int(payload.get("total"))
-            except (TypeError, ValueError):
+                complete = p2p._accept_chunk(held, payload.get("seq"), payload.get("total"),
+                                             payload.get("data_b64"), p2p.MOD_MAX_FILE_BYTES,
+                                             p2p.MOD_CHUNK_BYTES)
+            except p2p.P2PError:
                 return
-            chunk = payload.get("data_b64")
-            if not isinstance(chunk, str) or total <= 0:
-                return
-            held = rep["_chunks"].setdefault(sha, {"total": total, "parts": {}})
-            held["parts"][seq] = chunk
+            rep["_chunks"][sha] = held
             rep["_touched"] = time.monotonic()
-            if len(held["parts"]) >= held["total"]:
-                ev = rep["_chunk_events"].get(sha)
-                if ev:
-                    ev.set()
+            if complete:
+                rep["_requests"].pop(sha, None)
+                rep["_chunk_events"][sha].set()
             return
         if op == "modmiss":
             sha = str(payload.get("sha256") or "").lower()
@@ -1826,9 +2125,11 @@ class FriendsService:
             }
         self._changed()
 
+        invited_session = self._session_get()
+
         def on_port_found(port: int):
             p = self._session_get()
-            if not p or p.get("state") != "hosting_wait_port":
+            if p is not invited_session or p.get("state") != "hosting_wait_port":
                 return  # cancelled while we were waiting
             p["lan_port"] = port
             # The worldgate decision comes FIRST: the mod shows its password
@@ -1850,7 +2151,7 @@ class FriendsService:
 
                 def on_game_exit(returncode, last_lines=None):
                     p = self._session_get()
-                    if not p:
+                    if p is not invited_session:
                         return
                     if p.get("punch"):
                         p["punch"].close()
@@ -1896,8 +2197,8 @@ class FriendsService:
                 )
             except Exception as ex:
                 p = self._session_get()
-                if p:
-                    self._set_failed(p, f"Couldn't start the world: {ex}")
+                if p is invited_session:
+                    self._fail_p2p(f"Couldn't start the world: {ex}", p)
                 else:
                     self._changed()
 
@@ -1910,14 +2211,22 @@ class FriendsService:
     # withheld until a proof lands.
     # ------------------------------------------------------------------
 
-    def _ring_out_pending_invite(self, p: dict) -> None:
+    def _ring_out_pending_invite(self, p: dict) -> bool:
         """Sends the P2P invite the session has been holding in gate_wait.
 
         Marks the room as a P2P world at invite time, so the receiver lights
         up this friend's Join button immediately (as ringing_out always did)."""
         p["state"] = "ringing_out"
-        self.client.call_invite(p["peer"], kind="p2p")
+        p["gate_required"] = worldgate.has_password()
+        p["gate_authorized"] = not p["gate_required"]
+        try:
+            sent = self.client.call_invite(p["peer"], kind="p2p")
+        except Exception:
+            sent = False
+        if not sent:
+            self._fail_p2p(_NOT_CONNECTED, p)
         self._changed()
+        return bool(sent)
 
     def worldgate_set(self, password: "str | None") -> dict:
         """The host's password decision, from the mod's password prompt.
@@ -1940,13 +2249,14 @@ class FriendsService:
             # The password itself is NEVER echoed into chat - a streamer's
             # chat is public. The friend gets asked for it by the gate; the
             # host tells them out of band.
-            self._notify(f"Your world is live - {p['peer']} has been invited. "
+            self._notify(f"Your world is live - {self.peer_label(p['peer'])} has been invited. "
                          f"They'll be asked for the world password.")
         else:
             worldgate.clear()
-            self._notify(f"Your world is live - {p['peer']} has been invited "
+            self._notify(f"Your world is live - {self.peer_label(p['peer'])} has been invited "
                          f"(no password).")
-        self._ring_out_pending_invite(p)
+        if not self._ring_out_pending_invite(p):
+            return self._err(_NOT_CONNECTED)
         return self._ok()
 
     def join(self, name: str) -> dict:
@@ -1961,7 +2271,7 @@ class FriendsService:
                 return self._err("A P2P world session is already running.")
             room = self._pending_rooms.get(conv)
             if not room:
-                return self._err(f"No P2P invite from {peer} to join. Ask them "
+                return self._err(f"No P2P invite from {self.peer_label(peer)} to join. Ask them "
                                  f"to invite you from their launcher.")
             self._session = {
                 "room": room, "peer": peer, "is_host": False,
@@ -2032,14 +2342,14 @@ class FriendsService:
             proof = worldgate.compute_proof(
                 p.get("gate_challenge") or "", p.get("gate_password") or "",
                 salt, iterations)
-        except (ValueError, TypeError):
-            self._fail_p2p("That password can't be used - type it again.")
-            return
-        p["gate_password"] = None
-        p["state"] = "connecting"
-        self.client.signal(p["room"], p["peer"], {
-            "kind": "gate_proof", "proof_hex": proof,
-        })
+            if p is not self._session_get():
+                return
+            p["state"] = "connecting"
+            self._send_gate(p, {"kind": "gate_proof", "proof_hex": proof})
+        except Exception:
+            self._fail_p2p("That password can't be used - type it again.", p)
+        finally:
+            p["gate_password"] = None
         self._changed()
 
     def retry(self) -> dict:
@@ -2105,11 +2415,11 @@ class FriendsService:
                 continue
             other = entry.get("name") or ""
             if (friends.canonical_name(other) or other.lower()) == canon:
-                return self._err(f"{other} is already your friend.")
+                return self._err(f"{self.peer_label(other)} is already your friend.")
         for pending in (roster.get("requests_out") or []):
             if isinstance(pending, str) and \
                     (friends.canonical_name(pending) or pending.lower()) == canon:
-                return self._err(f"You've already asked {pending}. "
+                return self._err(f"You've already asked {self.peer_label(pending)}. "
                                  f"Waiting on their answer.")
         for incoming in (roster.get("requests_in") or []):
             if isinstance(incoming, str) and \
@@ -2118,12 +2428,12 @@ class FriendsService:
                 # tell the truth about what the button just did.
                 if not self.client.add_friend(name):
                     return self._err(_NOT_CONNECTED)
-                self._notify(f"{incoming} asked you first - you're friends now.")
+                self._notify(f"{self.peer_label(incoming)} asked you first - you're friends now.")
                 self._changed()
                 return self._ok()
         if not self.client.add_friend(name):
             return self._err(_NOT_CONNECTED)
-        self._notify(f"Friend request sent to {name}.")
+        self._notify(f"Friend request sent to {self.peer_label(name)}.")
         self._changed()
         # Guaranteed answer for a typo'd or unclaimed name. The relay normally
         # replies T_SYSTEM 'No Cubeon user named "X".' on its own, but that
@@ -2146,8 +2456,10 @@ class FriendsService:
         if not (isinstance(lookup, dict) and lookup.get("ok")):
             return   # the lookup itself failed - nothing to add
         if lookup.get("exists"):
-            return   # a real person; the request is legitimately in flight
-        self._notify(f'No Cubeon user named "{name}".', error=True)
+            self._remember_metadata(lookup, name)
+            return
+        self._notify("That Cubeon player couldn't be found. Check their Cubeon ID.",
+                     error=True)
 
     def _add_friend_uid(self, uid: str) -> dict:
         """The UID half of add_friend(). Kept separate because the "already
@@ -2167,9 +2479,9 @@ class FriendsService:
             return self._err("The launcher needs an update to add friends by ID.")
         roster = self.client.roster or {}
         for entry in (roster.get("friends") or []):
-            if isinstance(entry, dict) and str(entry.get("uid") or "") == uid:
+            if isinstance(entry, dict) and friends.canonical_uid(entry.get("uid")) == uid:
                 other = entry.get("name") or ""
-                return self._err(f"{other} is already your friend."
+                return self._err(f"{self.peer_label(other)} is already your friend."
                                  if other else "You've already added that friend.")
         if not adder(uid):
             return self._err(_NOT_CONNECTED)
@@ -2194,7 +2506,9 @@ class FriendsService:
         if not (isinstance(lookup, dict) and lookup.get("ok")):
             return   # the lookup itself failed - nothing to add
         if lookup.get("exists"):
-            return   # a real person; the request is legitimately in flight
+            self._remember_metadata(lookup)
+            self._changed()
+            return
         self._notify(f"No Cubeon user with ID {uid}.", error=True)
 
     def accept(self, name: str) -> dict:
@@ -2219,9 +2533,14 @@ class FriendsService:
         return self._ok()
 
     def set_whitelisted(self, name: str, on: bool) -> dict:
-        """One tap adds/removes this friend's exact name on the selected
-        server's whitelist.json (live via the console when the server is
-        running)."""
+        """One tap adds/removes this friend on the selected server's
+        whitelist.json (live via the console when the server is running).
+
+        The whitelist is keyed by MINECRAFT username: the relay handle the
+        bridge sends must first resolve to the friend's validated
+        minecraft_username, and a friend with no known username is refused
+        rather than silently whitelisting a name the game would never see
+        (S12)."""
         name = (name or "").strip()
         if not name:
             return self._err("Which friend?")
@@ -2229,15 +2548,20 @@ class FriendsService:
         if not version_id:
             return self._err("Install a server first (Servers tab) to manage "
                              "its whitelist.")
+        meta = self.peer_metadata(name)
+        mc_name = friends.minecraft_username(meta.get("minecraft_username"))
+        if not mc_name:
+            return self._err(f"{self.peer_label(name)} has no known Minecraft "
+                             f"username to whitelist yet.")
         core = _core()
         try:
             if on:
-                core.add_to_whitelist(version_id, name)
-                self._notify(f"{name} is whitelisted. Only whitelisted players "
+                core.add_to_whitelist(version_id, mc_name)
+                self._notify(f"{self.peer_label(name)} is whitelisted. Only whitelisted players "
                              f"can join while the gate is on.")
             else:
-                core.remove_from_whitelist(version_id, name)
-                self._notify(f"{name} removed from the server whitelist. They "
+                core.remove_from_whitelist(version_id, mc_name)
+                self._notify(f"{self.peer_label(name)} removed from the server whitelist. They "
                              f"can no longer join.")
         except ValueError as ex:
             return self._err(str(ex))
@@ -2247,78 +2571,14 @@ class FriendsService:
         return self._ok()
 
     def rename(self, name: str) -> dict:
-        """Re-claim this machine's Cubeon name. friends.claim() re-claims under
-        the machine's stable secret, so a rename keeps the same account/uuid."""
-        name = (name or "").strip()
-        was = self._my_name() or ""
-        result = friends.claim(name)
-        if not result.get("ok"):
-            # claim()'s message is already a finished human sentence.
-            return self._err(result.get("message") or "Couldn't claim that name.")
-        return self._finish_rename(result["name"], was)
+        return self._err("Change your Minecraft username in the launcher. "
+                         "Your Cubeon ID and friends stay the same.")
 
     def rename_unique(self, base: str) -> dict:
-        """Rename to `base` made unique with this machine's secret discriminator
-        ("Dragon" -> "Dragon4821"). The Chat tab's rename field uses this so a
-        chosen name never has to be checked for collisions by hand.
-
-        friends.unique_name() is deterministic, so the first candidate is the
-        one every machine with this secret would compute. If another machine
-        already holds it (a genuine 1-in-10k clash, or a user who deliberately
-        claimed the exact handle), walk the discriminator forward a few times
-        rather than handing the user a "taken" error for a name they never
-        typed. Any *other* failure is real and stops immediately."""
-        was = self._my_name() or ""
-        last = None
-        for attempt in range(8):
-            candidate = friends.unique_name(base, attempt=attempt)
-            result = friends.claim(candidate)
-            if result.get("ok"):
-                return self._finish_rename(result["name"], was)
-            last = result
-            if result.get("error") != "name_taken":
-                break
-        return self._err((last or {}).get("message") or "Couldn't claim that name.")
+        return self.rename(base)
 
     def _finish_rename(self, name: str, was: str) -> dict:
-        """Everything a successful claim owes the rest of the app: persist the
-        name, re-hello presence, republish the E2EE key under the new name, tell
-        the player, and nudge the UI."""
-        # The tab's claim path persisted the new name; the bridge's rename path
-        # didn't, so an in-game rename was forgotten on the next launch. Both
-        # go through here now.
-        self.cfg["cubeon_name"] = name
-        try:
-            self._save_config()
-        except Exception:
-            log.warning("couldn't save the renamed Cubeon name", exc_info=True)
-        # Re-hello so presence moves to the new name. On a worker thread, never
-        # on the caller's (this may be local_api's HTTP thread).
-        threading.Thread(target=self.client.connect, daemon=True,
-                         name="cubeon-bridge-reconnect").start()
-        # The server keyed our E2EE public key to the old name; the new name has
-        # no key published, so friends couldn't write to us until this re-publishes
-        # (the key itself is preserved across the identity rewrite). Reset the
-        # idempotence flag and republish once the reconnect above lands.
-        self._pubkey_published = False
-        threading.Thread(target=self._publish_when_connected, daemon=True,
-                         name="cubeon-pubkey-republish").start()
-        # The confirmation. It used to read "You're X. Add friends by their
-        # Cubeon name." - a sentence whose subject is the *next* thing to do, so
-        # the one fact the player was waiting for ("did the rename work?") was
-        # buried in a clause. Worse, this notice reaches the mod through
-        # /events and overwrites the mod's own "You are now X." on the status
-        # line, so the only wording the player actually sees is this one. It is
-        # now unambiguous on its own, and the result carries the name so the mod
-        # can pin it in place rather than let the next toast wipe it.
-        confirmed = (f"Your Cubeon name is now {name}."
-                     if was and was.lower() != name.lower()
-                     else f"Your Cubeon name is {name}.")
-        self._notify(confirmed)
-        self._changed()
-        return {"ok": True, "error": "", "name": name,
-                "renamed": bool(was and was.lower() != name.lower()),
-                "message": confirmed}
+        return self.rename(name)
 
     # =====================================================================
     # P2P worlds (cubeon/p2p.py, roadmap Phase 2b). Host and joiner share one
@@ -2348,9 +2608,25 @@ class FriendsService:
         self._notify(message, error=True)
         self._changed()
 
-    def _fail_p2p(self, message: str) -> None:
+    def _cancel_syncs(self, p):
+        p["gate_password"] = None
+        for key in ("mod_sync", "asset_sync"):
+            sync = p.get(key)
+            if sync and hasattr(sync, "cancel"):
+                sync.cancel()
+
+    def _transport_allowed(self, p):
+        if p is not self._session_get() or p.get("state") in ("failed", "ended"):
+            return False
+        required = p.get("gate_required", bool(p.get("is_host") and worldgate.has_password()))
+        return not required or p.get("gate_authorized") is True
+
+    def _fail_p2p(self, message: str, expected=None) -> None:
         p = self._session_get()
+        if expected is not None and p is not expected:
+            return
         if p:
+            self._cancel_syncs(p)
             room = p.get("room")
             if p.get("punch"):
                 p["punch"].close()
@@ -2393,16 +2669,16 @@ class FriendsService:
         this session's mod symlinks) happens in _on_call_end so there's exactly
         one teardown path whether we or the peer hung up."""
         p = self._session_get()
-        if p and p.get("room"):
-            self.client.call_end(p["room"])
-        else:
-            # Never got a room (e.g. cancelled during hosting_wait_port, before
-            # the invite even went out) - nothing for the server to tear down,
-            # just clear local state.
-            if p and p.get("punch"):
-                p["punch"].close()
-            self._session_set(None)
-            self._changed()
+        if not p:
+            return
+        self._cancel_syncs(p)
+        room = p.get("room")
+        self._on_call_end({"room": room})
+        if room:
+            try:
+                self.client.call_end(room)
+            except Exception:
+                pass
 
     def _watch_p2p_transport(self, session, room) -> None:
         """Surface transport failures instead of leaving the UI looking
@@ -2431,11 +2707,11 @@ class FriendsService:
                             self._switch_to_minekube("direct connection failed")
                         else:
                             self._notify(f"Couldn't open a direct connection to "
-                                         f"{current['peer']} - the world is on "
+                                         f"{self.peer_label(current['peer'])} - the world is on "
                                          f"Cubeon's relay (higher ping, same "
                                          f"world).")
                     elif prev_mode in ("relay", "handover") and mode == "direct":
-                        self._notify(f"Direct connection to {current['peer']} "
+                        self._notify(f"Direct connection to {self.peer_label(current['peer'])} "
                                      f"established. Ping just improved.")
                 prev_mode = mode
                 # The old tab repainted the banner at most every 2s; the same
@@ -2556,6 +2832,10 @@ class FriendsService:
         p = self._session_get()
         if not p or p.get("relay_active"):
             return
+        if p.get("is_host") and not self._transport_allowed(p):
+            self._fail_p2p("The world password was never verified - not falling "
+                           "back to the relay.", p)
+            return
         p["relay_active"] = True
         # The reason used to be accepted and dropped on the floor, so a user
         # watching a session silently get slower had no idea why.
@@ -2577,7 +2857,8 @@ class FriendsService:
         if not p["is_host"]:
             # Joiner: mirror the punch-success flow - state must be
             # "connecting" for _maybe_finish_join() to fire.
-            p["state"] = "connected"
+            if not p.get("join_launch_started"):
+                p["state"] = "connecting"
             self._changed()
             self._maybe_finish_join()
         else:
@@ -2763,6 +3044,10 @@ class FriendsService:
             return
         if not p or not p.get("punch"):
             return
+        if p.get("is_host") and not self._transport_allowed(p):
+            self._fail_p2p("The world password was never verified - not falling "
+                           "back to the relay.", p)
+            return
         p["state"] = "connecting"
         self._changed()
 
@@ -2798,39 +3083,84 @@ class FriendsService:
     # =====================================================================
 
     def _on_state(self, payload) -> None:
+        if isinstance(payload, dict) and payload.get("connected"):
+            with self._chat_lock:
+                self._connect_gen += 1
+                for canon, seeded in self._chat_seeded.items():
+                    if seeded != "done":
+                        self._chat_seeded[canon] = "retry"
+            # A reconnect re-resolves peer keys on next use: a friend who
+            # rotated their key while we were offline must not keep receiving
+            # messages sealed to the cached dead key (S15).
+            with self._metadata_lock:
+                self._peer_pubkeys.clear()
+            self.reconcile_username()
         self._changed()
 
-    def _on_roster(self, _) -> None:
+    def _on_roster(self, payload) -> None:
+        self._remember_roster(payload)
+        self._remember_roster(self.client.roster)
         self._changed()
 
     def _on_presence(self, p) -> None:
-        # Update the cached roster entry in place so roster_payload() reflects
-        # it without waiting for a fresh full roster frame.
-        for f in self.client.roster.get("friends", []):
-            if (friends.canonical_name(f["name"]) or "") == \
-                    (friends.canonical_name(p["name"]) or ""):
-                f.update(p)
-                break
-        self._changed()
+        self._remember_event(p)
+        canon = friends.canonical_name(p.get("name") or "")
+        if canon:
+            for friend in ((self.client.roster or {}).get("friends") or []):
+                if not isinstance(friend, dict):
+                    continue
+                if friends.canonical_name(friend.get("name") or "") != canon:
+                    continue
+                for field in ("online", "version", "status"):
+                    if field in p and friend.get(field) != p[field]:
+                        friend[field] = p[field]
+        self._remember_roster(self.client.roster)
 
     def _on_request(self, p) -> None:
-        self._notify(f"{p.get('from')} sent you a friend request.")
-        # roster frame follows from the server; nothing else to do.
+        self._remember_roster(self.client.roster)
+        self._remember_event(p)
+        self._notify(f"{self.peer_label(p.get('from'))} sent you a friend request.")
 
     def _on_friend_added(self, p) -> None:
-        self._notify(f"{p.get('name')} accepted your friend request.")
+        self._remember_event(p)
+        self._notify(f"{self.peer_label(p.get('name'))} accepted your friend request.")
 
     def _on_friend_removed(self, p) -> None:
-        self._notify(f"{p.get('name')} removed you.", error=True)
+        self._remember_event(p)
+        self._notify(f"{self.peer_label(p.get('name'))} removed you.", error=True)
 
     def _on_system(self, p) -> None:
-        self._notify(p.get("text", ""), error=True)
+        self._remember_event(p)
+        self._notify(self._relay_notice(p), error=True)
 
     def _on_error(self, p) -> None:
-        self._notify(p.get("message") or p.get("code") or "Something went wrong.",
+        self._remember_event(p)
+        messages = {
+            "rate_limited": "Too many requests. Try again in a moment.",
+            "dm_bad_recipient": "Pick a friend to message.",
+            "dm_empty": "Type a message first.",
+            "dm_too_large": "Message too long to send. Try a shorter one.",
+            "dm_not_friends": "Add this player as a friend before messaging.",
+        }
+        self._notify(messages.get(p.get("code"),
+                                  "Couldn't complete that request. Try again."),
                      error=True)
 
+    def _relay_notice(self, payload, peer=None) -> str:
+        text = str(payload.get("message") or payload.get("text") or "")
+        target = peer or payload.get("peer") or payload.get("to") or payload.get("from")
+        if "offline" in text.lower():
+            return f"{self.peer_label(target)} is offline."
+        if text.startswith("No Cubeon user with ID "):
+            uid = friends.canonical_uid(text[len("No Cubeon user with ID "):].rstrip("."))
+            if uid:
+                return f"No Cubeon user with ID {uid}."
+        if text.startswith("No Cubeon user named "):
+            return "That Cubeon player couldn't be found. Check their Cubeon ID."
+        return "The friends server couldn't complete that action. Try again."
+
     def _on_call_invite(self, p) -> None:
+        self._remember_event(p)
         room = p.get("room")
         kind = p.get("kind")
         if p.get("outgoing"):
@@ -2864,7 +3194,7 @@ class FriendsService:
                 self.client.call_decline(room)
                 return
             self._remember_pending(conv, room)
-            self._notify(f"{p.get('from')} invited you to a P2P world.")
+            self._notify(f"{self.peer_label(p.get('from'))} invited you to a P2P world.")
             self._changed()
             return
         if kind == "sync":
@@ -2880,7 +3210,7 @@ class FriendsService:
             # "Can I play?" - a ping, not a session. Answering is the player
             # pressing Invite, so close the room immediately rather than leave
             # one open per ask.
-            self._notify(f"{p.get('from')} wants to join your world - "
+            self._notify(f"{self.peer_label(p.get('from'))} wants to join your world - "
                          f"press Invite on their row.")
             self._changed()
             if room:
@@ -2909,6 +3239,48 @@ class FriendsService:
         # voice call, on both sides.
         self._send_p2p_offer(pr, room)
 
+    def _send_gate(self, pr, payload):
+        try:
+            mine = self._my_name()
+            keys = self._ensure_e2ee()
+            peer = pr["peer"]
+            pub = self._peer_pubkey(peer).get("pubkey")
+            if not mine or not keys or not pub or not e2ee.is_available():
+                raise ValueError("Encryption unavailable")
+            body = dict(payload, room=pr["room"])
+            envelope = e2ee.encrypt_dm(keys[0], pub, mine, peer, json.dumps(body))
+            if pr is not self._session_get():
+                return False
+            if not self.client.signal(pr["room"], peer, {"kind": payload["kind"], "sealed": envelope}):
+                raise ValueError("Signal unavailable")
+            return True
+        except Exception:
+            self._fail_p2p("Couldn't securely check the world password. Reopen both launchers and try again.", pr)
+            return False
+
+    def _open_gate(self, pr, frame):
+        try:
+            data = frame.get("data") or frame
+            envelope = data["sealed"]
+            mine = self._my_name()
+            keys = self._ensure_e2ee()
+            if not mine or not keys:
+                return None
+            peer = str(envelope.get("from") or "")
+            canon = friends.canonical_name(peer) or peer.lower()
+            if (pr.get("room") is None and canon != (friends.canonical_name(pr.get("peer") or "")
+                                                     or (pr.get("peer") or "").lower())):
+                return None
+            body = json.loads(e2ee.decrypt_dm(keys[0], mine, envelope))
+            if str(body.get("kind") or "") != str(data.get("kind") or ""):
+                return None
+            room = body.get("room") if pr.get("room") is None else pr.get("room")
+            if room is not None and body.get("room") != room:
+                return None
+            return body
+        except Exception:
+            return None
+
     def _host_send_gate_challenge(self, pr: dict) -> None:
         """One challenge round, host side. Fresh 128-bit nonce per round, so a
         proof can never be replayed into a later session."""
@@ -2917,12 +3289,13 @@ class FriendsService:
         pr["gate_attempts"] = pr.get("gate_attempts") or 0
         pr["state"] = "verifying"
         record = worldgate.record()
-        self.client.signal(pr["room"], pr["peer"], {
+        if not self._send_gate(pr, {
             "kind": "gate_challenge", "challenge": challenge,
             "salt_hex": record["salt_hex"] if record else "",
             "iterations": record["iterations"] if record
                           else worldgate.PBKDF2_ITERATIONS,
-        })
+        }):
+            return
         self._changed()
         threading.Thread(target=self._gate_challenge_watchdog,
                          args=(pr["room"], challenge),
@@ -2954,9 +3327,13 @@ class FriendsService:
                 and pr.get("state") == "verifying"):
             return
         challenge = pr.get("gate_challenge") or ""
-        if worldgate.verify(challenge, str(data.get("proof_hex") or "")):
+        opened = self._open_gate(p, {"kind": "gate_proof", "data": data})
+        if opened is None or opened.get("proof_hex") is None:
+            return
+        if worldgate.verify(challenge, str(opened.get("proof_hex") or "")):
             pr["gate_challenge"] = None
             pr["gate_attempts"] = 0
+            pr["gate_authorized"] = True
             # The offer build (STUN + hashing) must leave the dispatch thread.
             threading.Thread(target=self._send_p2p_offer, args=(pr, room),
                              name="p2p-host-offer", daemon=True).start()
@@ -2976,12 +3353,13 @@ class FriendsService:
         challenge = worldgate.new_challenge()
         pr["gate_challenge"] = challenge
         record = worldgate.record()
-        self.client.signal(room, pr["peer"], {
+        if not self._send_gate(pr, {
             "kind": "gate_fail", "left": left, "challenge": challenge,
             "salt_hex": record["salt_hex"] if record else "",
             "iterations": record["iterations"] if record
                           else worldgate.PBKDF2_ITERATIONS,
-        })
+        }):
+            return
         self._changed()
         threading.Thread(target=self._gate_challenge_watchdog,
                          args=(room, challenge),
@@ -2999,8 +3377,16 @@ class FriendsService:
         Only ever reached past the worldgate (or with no gate armed)."""
 
         def prepare_offer():
+            session = None
             try:
-                session = p2p.HybridSession(is_host=True, lan_port=pr["lan_port"])
+                if not self._transport_allowed(pr):
+                    raise p2p.P2PError("The world password was never verified")
+
+                def _bound(payload):
+                    self.client.signal(room, pr["peer"], payload)
+
+                session = p2p.HybridSession(is_host=True, lan_port=pr["lan_port"],
+                                            send_signal=_bound)
                 pr["punch"] = session
                 # Relay pipe FIRST (strategy step 1): guaranteed connectivity
                 # before any NAT work, so the joiner can enter the world while
@@ -3054,6 +3440,18 @@ class FriendsService:
                 # stays on the relay.
             except Exception as e:
                 log.debug("p2p offer build failed", exc_info=True)
+                if session is not None:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+                    if pr.get("punch") is session:
+                        pr["punch"] = None
+                if room:
+                    try:
+                        self.client.call_end(room)
+                    except Exception:
+                        pass
                 self._set_failed(
                     pr, f"Couldn't prepare your world for your friend: {e}")
 
@@ -3070,7 +3468,7 @@ class FriendsService:
             return
         pr = self._session_get()
         if pr and pr.get("room") == room:
-            self._notify(f"{pr.get('peer')} declined.", error=True)
+            self._notify(f"{self.peer_label(pr.get('peer'))} declined.", error=True)
             if pr.get("punch"):
                 pr["punch"].close()
             if not pr.get("is_host") and room:
@@ -3096,9 +3494,9 @@ class FriendsService:
         if canon is None:
             return False
         rep = self._sync_get(canon)
-        message = p.get("message") or ""
+        message = self._relay_notice(p, canon) if p.get("message") else ""
         if rep and rep.get("_room") in (room, None):
-            self._sync_fail(canon, message or f"{rep['friend']} closed the "
+            self._sync_fail(canon, message or f"{self.peer_label(rep['friend'])} closed the "
                                               f"connection.")
         elif message:
             self._notify(message, error=True)
@@ -3115,9 +3513,20 @@ class FriendsService:
         if self._sync_room_closed(p):
             return
         pr = self._session_get()
+        # The Worker's "X is offline." reply echoes a relay-allocated room the
+        # host never learned (no accept echo came back), so a strict room match
+        # would strand a ringing_out host forever. Peer hangups never carry
+        # reason:"offline", so this only fires on the server's own reply.
+        if (pr and room and pr.get("room") != room
+                and p.get("reason") == "offline"
+                and pr.get("is_host") and pr.get("state") == "ringing_out"
+                and pr.get("room") is None
+                and pr.get("peer") == p.get("to")):
+            pr["room"] = room
         if pr and (not room or pr.get("room") == room):
+            self._cancel_syncs(pr)
             if p.get("message"):
-                self._notify(p["message"], error=True)
+                self._notify(self._relay_notice(p, pr.get("peer")), error=True)
             if pr.get("punch"):
                 pr["punch"].close()
             # pr["room"] can be None (host cancelled during hosting_wait_port,
@@ -3155,7 +3564,11 @@ class FriendsService:
 
         if kind == "gate_proof":
             # Host: the joiner's password answer (see _on_gate_proof).
-            self._on_gate_proof(p)
+            pr = self._session_get()
+            if (pr and pr.get("is_host") and p.get("room") == pr.get("room")
+                    and pr.get("state") == "verifying"
+                    and self._open_gate(pr, p) is not None):
+                self._on_gate_proof(p)
             return
 
         if kind == "gate_challenge":
@@ -3167,10 +3580,14 @@ class FriendsService:
             pr = self._session_get()
             if not pr or pr.get("is_host") or p.get("room") != pr.get("room"):
                 return
-            pr["gate_challenge"] = str(data.get("challenge") or "")
-            pr["gate_salt"] = str(data.get("salt_hex") or "")
+            opened = self._open_gate(pr, p)
+            if opened is None:
+                self._fail_p2p("Couldn't securely check the world password. Reopen both launchers and try again.", pr)
+                return
+            pr["gate_challenge"] = str(opened.get("challenge") or "")
+            pr["gate_salt"] = str(opened.get("salt_hex") or "")
             try:
-                pr["gate_iters"] = int(data.get("iterations")
+                pr["gate_iters"] = int(opened.get("iterations")
                                        or worldgate.PBKDF2_ITERATIONS)
             except (TypeError, ValueError):
                 pr["gate_iters"] = worldgate.PBKDF2_ITERATIONS
@@ -3178,7 +3595,7 @@ class FriendsService:
                 self._answer_gate_challenge(pr)
             else:
                 pr["state"] = "password_needed"
-                self._notify(f"{pr.get('peer')}'s world needs a password.")
+                self._notify(f"{self.peer_label(pr.get('peer'))}'s world needs a password.")
                 self._changed()
             return
 
@@ -3187,6 +3604,8 @@ class FriendsService:
             # its own signal - nothing to do here beyond clearing the round.
             pr = self._session_get()
             if not pr or pr.get("is_host") or p.get("room") != pr.get("room"):
+                return
+            if self._open_gate(pr, p) is None:
                 return
             pr["gate_challenge"] = None
             pr["gate_salt"] = None
@@ -3199,15 +3618,18 @@ class FriendsService:
             pr = self._session_get()
             if not pr or pr.get("is_host") or p.get("room") != pr.get("room"):
                 return
-            pr["gate_challenge"] = str(data.get("challenge") or "")
-            pr["gate_salt"] = str(data.get("salt_hex") or "")
+            opened = self._open_gate(pr, p)
+            if opened is None:
+                return
+            pr["gate_challenge"] = str(opened.get("challenge") or "")
+            pr["gate_salt"] = str(opened.get("salt_hex") or "")
             try:
-                pr["gate_iters"] = int(data.get("iterations")
+                pr["gate_iters"] = int(opened.get("iterations")
                                        or worldgate.PBKDF2_ITERATIONS)
             except (TypeError, ValueError):
                 pr["gate_iters"] = worldgate.PBKDF2_ITERATIONS
             try:
-                left = int(data.get("left"))
+                left = int(opened.get("left"))
             except (TypeError, ValueError):
                 left = 0
             pr["gate_password"] = None
@@ -3236,6 +3658,15 @@ class FriendsService:
             return
 
         if kind == "p2p_answer":
+            pr = self._session_get()
+            if not (pr and pr.get("is_host") and p.get("room") == pr.get("room")
+                    and (friends.canonical_name(p.get("from", ""))
+                         or (p.get("from") or "").lower())
+                    == (friends.canonical_name(pr.get("peer") or "")
+                        or (pr.get("peer") or "").lower())
+                    and pr.get("state") in ("verifying", "connected")
+                    and pr.get("punch") is not None):
+                return
             self._run_host_punch(data)
             return
 
@@ -3312,8 +3743,13 @@ class FriendsService:
             def _send(payload):
                 self.client.signal(pr["room"], pr["peer"], payload)
 
+            def _sync_error(message):
+                self._record_links(pr, mc_version, loader)
+                self._fail_p2p(message, pr)
+
             sync = p2p.ModSyncSession(mc_version=mc_version, loader=loader,
-                                      send_signal=_send)
+                                      send_signal=_send, on_error=_sync_error)
+            sync.journal = lambda: self._record_links(pr, mc_version, loader)
             pr["mod_sync"] = sync
 
             def worker():
@@ -3341,7 +3777,14 @@ class FriendsService:
             def _send_asset(payload):
                 self.client.signal(pr["room"], pr["peer"], payload)
 
-            sync = p2p.AssetSyncSession(send_signal=_send_asset)
+            def _asset_error(message):
+                self._record_links(pr, pr.get("mc_version"), pr.get("loader"))
+                self._fail_p2p(message, pr)
+
+            sync = p2p.AssetSyncSession(send_signal=_send_asset,
+                                        on_error=_asset_error)
+            sync.journal = lambda: self._record_links(pr, pr.get("mc_version"),
+                                                      pr.get("loader"))
             pr["asset_sync"] = sync
 
             def asset_worker():

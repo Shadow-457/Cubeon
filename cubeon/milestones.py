@@ -21,6 +21,7 @@ import threading
 import time
 
 from .paths import CUBEON_HOME
+from .atomicio import write_json
 
 MILESTONES_PATH = os.path.join(CUBEON_HOME, "milestones.json")
 
@@ -125,20 +126,33 @@ def _read_play_session() -> dict | None:
 
 
 def _write_play_session(rec: dict) -> None:
-    tmp = PLAY_SESSION_PATH + ".tmp"
     try:
-        os.makedirs(CUBEON_HOME, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(rec, f)
-        os.replace(tmp, PLAY_SESSION_PATH)
+        write_json(PLAY_SESSION_PATH, rec)
     except OSError:
-        pass  # session tracking is best-effort, never a launch blocker
+        pass
 
 
-def begin_play_session(pid: int, started_at: float | None = None) -> None:
-    """Record a launching game (called right after Popen, by launch_game)."""
-    _write_play_session({"started": float(started_at or time.time()),
-                         "pid": int(pid or 0)})
+def _read_play_sessions():
+    try:
+        with open(PLAY_SESSION_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            if isinstance(data.get("sessions"), dict):
+                return data["sessions"]
+            if isinstance(data.get("started"), (int, float)):
+                return {"legacy": data}
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def begin_play_session(pid: int, started_at: float | None = None,
+                       session_id: str | None = None) -> None:
+    with _session_lock:
+        records = _read_play_sessions()
+        records[session_id or "legacy"] = {"started": float(started_at or time.time()),
+                                           "pid": int(pid or 0), "session_id": session_id}
+        _write_play_session({"sessions": records})
 
 
 def _play_session_elapsed(rec: dict, now: float) -> float:
@@ -152,7 +166,9 @@ def _play_session_elapsed(rec: dict, now: float) -> float:
     preferable to minting hours from idle time."""
     end = rec["started"]  # no log evidence -> no credit
     try:
-        mtime = os.path.getmtime(_GAME_LOG_PATH)
+        session_id = rec.get("session_id")
+        log_path = os.path.join(CUBEON_HOME, f"game-{session_id}.log") if session_id else _GAME_LOG_PATH
+        mtime = os.path.getmtime(log_path)
         if mtime > rec["started"]:
             end = min(now, mtime)
     except OSError:
@@ -160,17 +176,15 @@ def _play_session_elapsed(rec: dict, now: float) -> float:
     return max(0.0, end - rec["started"])
 
 
-def end_play_session(now: float | None = None) -> float:
+def end_play_session(now: float | None = None, session_id: str | None = None) -> float:
     """Credit and clear the on-disk play session. Idempotent: the first caller
     wins, the second finds no record and credits nothing. Returns seconds."""
     with _session_lock:
-        rec = _read_play_session()
+        records = _read_play_sessions()
+        rec = records.pop(session_id or "legacy", None)
         if rec is None:
             return 0.0
-        try:
-            os.unlink(PLAY_SESSION_PATH)
-        except OSError:
-            pass
+        _write_play_session({"sessions": records})
         seconds = _play_session_elapsed(rec, time.time() if now is None else now)
     if seconds > 0:
         add_play_seconds(seconds)
@@ -183,22 +197,12 @@ def reconcile_play_session(pid_alive=None) -> None:
     game is somehow STILL running - watches its pid so the rest is credited
     when it finally exits. Never raises."""
     try:
-        rec = _read_play_session()
-        if rec is None:
-            return
+        with _session_lock:
+            records = _read_play_sessions()
         if pid_alive is None:
             from .watchdog import _pid_alive as pid_alive
-        alive = False
-        if rec["pid"] > 0:
-            try:
-                alive = bool(pid_alive(rec["pid"]))
-            except Exception:
-                alive = False
-        if not alive:
-            end_play_session()
-            return
 
-        def _poll():
+        def _poll(rec, session_id):
             while True:
                 time.sleep(30.0)
                 try:
@@ -206,10 +210,20 @@ def reconcile_play_session(pid_alive=None) -> None:
                         break
                 except Exception:
                     break
-            end_play_session()
+            end_play_session(session_id=session_id)
 
-        threading.Thread(target=_poll, daemon=True,
-                         name="cubeon-playtime-reconcile").start()
+        for session_id, rec in records.items():
+            alive = False
+            if rec["pid"] > 0:
+                try:
+                    alive = bool(pid_alive(rec["pid"]))
+                except Exception:
+                    pass
+            if not alive:
+                end_play_session(session_id=session_id)
+            else:
+                threading.Thread(target=_poll, args=(rec, session_id), daemon=True,
+                                 name="cubeon-playtime-reconcile").start()
     except Exception:
         pass  # best-effort - never block startup on it
 

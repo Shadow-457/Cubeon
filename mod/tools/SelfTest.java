@@ -222,9 +222,26 @@ public final class SelfTest {
         ok(!hosting.detail().isEmpty(), "hosting explains what happens next");
 
         Bridge.Session connected = Bridge.parseSession(
-                "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"Direct - 42 ms\"}");
+                "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"Direct - 42 ms\","
+                        + " \"peer_uid\": \"000000000042\","
+                        + " \"peer_minecraft_username\": \"Steve\"}");
         ok(!connected.working() && connected.endable(), "connected is idle but leavable");
-        ok(connected.headline().contains("Ali"), "connected names the peer");
+        ok(connected.headline().contains("Steve")
+                && connected.headline().contains("000000000042"),
+                "connected names the peer by Minecraft username with the Cubeon ID");
+        ok(!connected.headline().contains("Ali"), "the relay handle never reaches the headline");
+        ok(connected.peerDisplayName().equals("Steve"), "display name is the Minecraft username");
+        Bridge.Session connectedOld = Bridge.parseSession(
+                "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"Direct - 42 ms\","
+                        + " \"peer_uid\": \"000000000042\"}");
+        ok(connectedOld.headline().contains("Cubeon ID 000000000042"),
+                "an older payload without a username shows the Cubeon ID");
+        ok(!connectedOld.headline().contains("Ali"),
+                "an older payload never shows the internal handle");
+        Bridge.Session connectedBlank = Bridge.parseSession(
+                "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"\"}");
+        ok(connectedBlank.peerDisplayName().equals("Player"),
+                "no metadata at all degrades to a neutral name");
         ok(connected.detail().equals("Direct - 42 ms"), "quality shown verbatim from launcher");
 
         Bridge.Session failed = Bridge.parseSession(

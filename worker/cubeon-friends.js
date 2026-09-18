@@ -93,7 +93,7 @@ const T = {
   GROUP_LEAVE: "group_leave", VERSION: "version", STATUS: "status",
   HISTORY: "history", CALL_INVITE: "call_invite", CALL_ACCEPT: "call_accept",
   CALL_DECLINE: "call_decline", CALL_END: "call_end", SIGNAL: "signal",
-  TYPING: "typing",
+  TYPING: "typing", METADATA: "metadata",
   // server -> client
   HELLO_OK: "hello_ok", ERROR: "error", ROSTER: "roster", PRESENCE: "presence",
   REQUEST: "request", FRIEND_ADDED: "friend_added", FRIEND_REMOVED: "friend_removed",
@@ -101,6 +101,7 @@ const T = {
 };
 
 const MAX_TEXT = 2000;        // one chat message
+export const MAX_DM_ENVELOPE_CHARS = 2000;
 const MAX_GROUP_NAME = 32;
 const MAX_GROUP_MEMBERS = 50;
 const HISTORY_KEEP = 50;      // messages retained per conversation
@@ -195,6 +196,10 @@ export class Hub {
     try {
       this.sql.exec("ALTER TABLE names ADD COLUMN uid INTEGER");
     } catch (e) { /* already added */ }
+    if (!this.sql.exec("PRAGMA table_info(names)").toArray()
+        .some((column) => column.name === "minecraft_username")) {
+      this.sql.exec("ALTER TABLE names ADD COLUMN minecraft_username TEXT");
+    }
   }
 
   async fetch(request) {
@@ -334,7 +339,7 @@ export class Hub {
     if (!NAME_RE.test(canon)) return new Response("Not Found", { status: 404 });
     const row = this.nameRow(canon);
     if (!row || row.blocked) return new Response("Not Found", { status: 404 });
-    return json({ name: row.display, online: this.isOnline(canon) });
+    return json({ ...this.identityOf(canon), online: this.isOnline(canon) });
   }
 
   // Resolves the public 12-digit ID a user typed to the account behind it. The
@@ -345,8 +350,7 @@ export class Hub {
     if (uid === null) return new Response("Not Found", { status: 404 });
     const row = this.nameByUid(uid);
     if (!row || row.blocked) return new Response("Not Found", { status: 404 });
-    return json({ name: row.display, uid: uidStr(row.uid),
-                  online: this.isOnline(row.name) });
+    return json({ ...this.identityOf(row.name), online: this.isOnline(row.name) });
   }
 
   // ------------------------------------------------------ WebSocket handlers
@@ -394,6 +398,7 @@ export class Hub {
       case T.GROUP_NEW: return this.onGroupNew(me, myDisplay, msg);
       case T.GROUP_MSG: return this.onGroupMsg(ws, me, myDisplay, msg);
       case T.GROUP_LEAVE: return this.onGroupLeave(me, msg);
+      case T.METADATA: return this.onMetadata(me, msg);
       case T.VERSION: return this.onVersion(ws, me, msg);
       case T.STATUS: return this.onStatus(ws, me, msg);
       case T.HISTORY: return this.onHistory(ws, me, msg);
@@ -492,7 +497,9 @@ export class Hub {
       version: typeof msg.version === "string" ? msg.version : null,
       status: typeof msg.status === "string" ? msg.status : "online",
     });
-    ws.send(jstr(T.HELLO_OK, { name: row.display, uuid: row.uuid, uid: uidStr(uid) }));
+    const metadataChanged = this.updateMetadata(canon, msg.minecraft_username);
+    ws.send(jstr(T.HELLO_OK, { ...this.identityOf(canon), uuid: row.uuid, uid: uidStr(uid) }));
+    if (metadataChanged) this.broadcastMetadata(canon);
     this.sendRoster(canon);
     // First socket for this user => let friends see them come online.
     if (!wasOnline) this.broadcastPresence(canon);
@@ -552,6 +559,7 @@ export class Hub {
     if (!other) return;
     this.sql.exec("DELETE FROM requests WHERE requester=? AND target=?", other, me);
     this.sendRoster(me);
+    this.sendRoster(other);
   }
 
   onRemove(me, msg) {
@@ -566,7 +574,12 @@ export class Hub {
 
   onDm(ws, me, myDisplay, msg) {
     const to = canonName(msg.to);
-    const text = cleanText(msg.text);
+    if (typeof msg.text === "string" && msg.text.length > MAX_DM_ENVELOPE_CHARS) {
+      ws.send(jstr(T.ERROR, { code: "dm_too_large",
+                              message: "Message too long to send. Try a shorter one." }));
+      return;
+    }
+    const text = typeof msg.text === "string" ? msg.text.trim() : null;
     // Refusals must reach the SENDER: the UI renders its own message
     // optimistically and only treats it as delivered when this echo comes
     // back, so a silent drop made a failed DM look like "sent but the other
@@ -665,6 +678,33 @@ export class Hub {
     this.sendRoster(me);
   }
 
+  updateMetadata(me, value) {
+    const username = minecraftUsername(value);
+    const row = this.nameRow(me);
+    if (!username || !row || row.blocked || row.minecraft_username === username) return false;
+    this.sql.exec("UPDATE names SET minecraft_username=? WHERE name=?", username, me);
+    return true;
+  }
+
+  broadcastMetadata(me) {
+    const peers = new Set([me, ...this.friendsOf(me)]);
+    for (const row of this.sql.exec(
+      "SELECT requester, target FROM requests WHERE requester=? OR target=?", me, me).toArray()) {
+      peers.add(row.requester);
+      peers.add(row.target);
+    }
+    for (const row of this.sql.exec(
+      "SELECT member FROM group_members WHERE gid IN (SELECT gid FROM group_members WHERE member=?)", me).toArray()) {
+      peers.add(row.member);
+    }
+    const metadata = this.identityOf(me);
+    for (const peer of peers) this.sendTo(peer, T.METADATA, metadata);
+  }
+
+  onMetadata(me, msg) {
+    if (this.updateMetadata(me, msg.minecraft_username)) this.broadcastMetadata(me);
+  }
+
   onVersion(ws, me, msg) {
     const version = typeof msg.version === "string" ? msg.version.slice(0, 64) : null;
     this.updateAttachment(me, { version });
@@ -678,12 +718,14 @@ export class Hub {
   }
 
   onHistory(ws, me, msg) {
+    const knownIdentityFields = (canon, prefix) => Object.fromEntries(
+      Object.entries(this.identityFields(canon, prefix)).filter(([, value]) => value));
     let conv = null, key = {};
     if (typeof msg.peer === "string") {
       const other = canonName(msg.peer);
       if (!other || !this.areFriends(me, other)) return;
       conv = dmConv(me, other);
-      key = { peer: this.displayOf(other) };
+      key = { peer: this.displayOf(other), ...knownIdentityFields(other, "peer") };
     } else if (typeof msg.gid === "string" && this.inGroup(msg.gid, me)) {
       conv = "g:" + msg.gid;
       key = { gid: msg.gid };
@@ -706,7 +748,8 @@ export class Hub {
        ) ORDER BY ts ASC, rid ASC`,
       conv, HISTORY_KEEP,
     ).toArray();
-    const messages = rows.map((r) => ({ from: r.display, text: r.text, ts: r.ts, id: r.mid }));
+    const messages = rows.map((r) => ({ from: r.display, text: r.text, ts: r.ts, id: r.mid,
+      ...knownIdentityFields(r.sender, "from") }));
     ws.send(jstr(T.HISTORY, { ...key, messages }));
   }
 
@@ -731,6 +774,7 @@ export class Hub {
     if (!this.isOnline(to)) {
       this.sql.exec("DELETE FROM calls WHERE room=?", room);
       return this.sendTo(me, T.CALL_END, { room, reason: "offline",
+        to: msg.to, kind: typeof msg.kind === "string" ? msg.kind.slice(0, 32) : null,
         message: `${this.displayOf(to)} is offline.` });
     }
     // ``kind`` is optional and intentionally opaque to the Worker. It lets
@@ -841,7 +885,9 @@ export class Hub {
   groupInfo(gid) {
     const g = this.sql.exec("SELECT gid, name FROM groups WHERE gid=?", gid).toArray()[0];
     if (!g) return null;
-    return { gid, name: g.name, members: this.groupMembers(gid).map((m) => this.displayOf(m)) };
+    const members = this.groupMembers(gid);
+    return { gid, name: g.name, members: members.map((m) => this.displayOf(m)),
+      member_details: members.map((m) => this.identityOf(m)) };
   }
 
   inCall(room, member) {
@@ -886,15 +932,14 @@ export class Hub {
   }
 
   presenceOf(canon) {
-    const row = this.nameRow(canon);
-    const uid = row ? uidStr(this.ensureUid(row)) : "";
+    const identity = this.identityOf(canon);
     const socks = this.socketsFor(canon);
     if (socks.length) {
       const att = socks[0].deserializeAttachment();
-      return { name: att.display, uid, online: true, status: att.status || "online",
+      return { ...identity, online: true, status: att.status || "online",
                version: att.version || null };
     }
-    return { name: this.displayOf(canon), uid, online: false, status: "offline", version: null };
+    return { ...identity, online: false, status: "offline", version: null };
   }
 
   updateAttachment(canon, patch) {
@@ -911,8 +956,34 @@ export class Hub {
 
   // ------------------------------------------------------------------- send
 
+  identityOf(canon) {
+    const row = this.nameRow(canon);
+    return { name: row ? row.display : canon,
+      uid: row ? uidStr(this.ensureUid(row)) : "",
+      minecraft_username: row ? minecraftUsername(row.minecraft_username) : "" };
+  }
+
+  identityFields(canon, prefix) {
+    const identity = this.identityOf(canon);
+    return { [`${prefix}_uid`]: identity.uid,
+      [`${prefix}_minecraft_username`]: identity.minecraft_username };
+  }
+
+  enrichIdentity(type, payload) {
+    const out = { ...payload };
+    if ([T.HELLO_OK, T.PRESENCE, T.METADATA, T.FRIEND_ADDED,
+         T.FRIEND_REMOVED].includes(type) && canonName(out.name)) {
+      Object.assign(out, this.identityOf(canonName(out.name)));
+    }
+    for (const key of ["from", "to", "peer"]) {
+      const canon = canonName(out[key]);
+      if (canon) Object.assign(out, this.identityFields(canon, key));
+    }
+    return out;
+  }
+
   sendTo(canon, type, payload) {
-    const frame = jstr(type, payload);
+    const frame = jstr(type, this.enrichIdentity(type, payload));
     for (const ws of this.socketsFor(canon)) {
       try { ws.send(frame); } catch { /* a dead socket close-handler will clean up */ }
     }
@@ -920,20 +991,28 @@ export class Hub {
 
   sendRoster(canon) {
     const friends = this.friendsOf(canon).map((f) => this.presenceOf(f));
-    const requests_in = this.sql.exec(
+    const requests_in_details = this.sql.exec(
       "SELECT requester FROM requests WHERE target=?", canon)
-      .toArray().map((r) => this.displayOf(r.requester));
-    const requests_out = this.sql.exec(
+      .toArray().map((r) => this.presenceOf(r.requester));
+    const requests_out_details = this.sql.exec(
       "SELECT target FROM requests WHERE requester=?", canon)
-      .toArray().map((r) => this.displayOf(r.target));
+      .toArray().map((r) => this.presenceOf(r.target));
+    const requests_in = requests_in_details.map((r) => r.name);
+    const requests_out = requests_out_details.map((r) => r.name);
     const groups = this.sql.exec(
       "SELECT gid FROM group_members WHERE member=?", canon)
       .toArray().map((r) => this.groupInfo(r.gid)).filter(Boolean);
-    this.sendTo(canon, T.ROSTER, { friends, requests_in, requests_out, groups });
+    this.sendTo(canon, T.ROSTER, { friends, requests_in, requests_out,
+      requests_in_details, requests_out_details, groups });
   }
 }
 
 // ------------------------------------------------------------------- helpers
+
+function minecraftUsername(value) {
+  return typeof value === "string" && /^[A-Za-z0-9_]{3,16}$/.test(value)
+    && value.length <= 16 && !value.includes("\n") ? value : "";
+}
 
 function canonName(name) {
   if (typeof name !== "string" || !NAME_RE.test(name)) return null;

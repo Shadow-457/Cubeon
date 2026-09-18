@@ -124,12 +124,14 @@ FAST_TIMEOUT = (3, 4)  # (connect, read)
 # ---------------------------------------------------------------------------
 
 # Client -> server.
+T_METADATA = "metadata"
 T_HELLO = "hello"            # {name, secret, version, status} - first frame, authenticates
 T_ADD = "add"                # {name} or {uid} - send a friend request
 T_REMOVE = "remove"          # {name} - drop a friend (both directions)
 T_ACCEPT = "accept"          # {name} - accept an incoming request
 T_DECLINE = "decline"        # {name} - reject an incoming request
 T_DM = "dm"                  # {to, text, id} - direct message
+MAX_DM_ENVELOPE_CHARS = 2000
 T_GROUP_NEW = "group_new"    # {name, members:[...]} - create a group
 T_GROUP_MSG = "group_msg"    # {gid, text, id} - message a group
 T_GROUP_LEAVE = "group_leave"  # {gid}
@@ -215,6 +217,10 @@ def format_uid(uid: "str | int | None") -> str:
     except (TypeError, ValueError):
         return ""
 
+
+
+def minecraft_username(value) -> str:
+    return value if isinstance(value, str) and _NAME_RE.fullmatch(value) else ""
 
 
 def validate_name(name: str) -> "tuple[bool, str]":
@@ -460,8 +466,8 @@ def load_cached_roster() -> dict:
 def save_cached_roster(roster: dict) -> None:
     try:
         os.makedirs(CUBEON_HOME, exist_ok=True)
-        with open(ROSTER_CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(roster, f)
+        from .atomicio import write_json
+        write_json(ROSTER_CACHE_PATH, roster)
     except OSError:
         pass
 
@@ -708,6 +714,9 @@ class FriendsClient:
         # presence the user last set without the UI having to re-push it.
         self._version = None
         self._status = "online"
+        self._minecraft_username = ""
+        self._metadata_lock = threading.Lock()
+        self._metadata_sending = False
         # Last full roster the server sent, kept so the UI can re-read current
         # state after it rebuilds (e.g. switching to the Friends tab) without a
         # round-trip. Seeded from the on-disk cache for an instant first paint.
@@ -828,7 +837,60 @@ class FriendsClient:
             "uuid": self._identity.get("uuid"),
             "version": self._version,
             "status": self._status,
+            **({"minecraft_username": self._minecraft_username}
+               if self._minecraft_username else {}),
         })
+
+    @staticmethod
+    def metadata_from_roster(msg: dict) -> "dict[str, dict]":
+        """Handle-keyed {uid, minecraft_username} for every identity the roster
+        names, so offline labels survive a restart without the server."""
+        metadata = {}
+        entries = list(msg.get("friends", []))
+        entries += list(msg.get("requests_in_details", []))
+        entries += list(msg.get("requests_out_details", []))
+        for group in msg.get("groups", []):
+            if isinstance(group, dict):
+                entries += list(group.get("member_details", []))
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            canon = canonical_name(entry.get("name") or "")
+            if not canon:
+                continue
+            record = {}
+            uid = canonical_uid(entry.get("uid"))
+            if uid:
+                record["uid"] = uid
+            username = minecraft_username(entry.get("minecraft_username"))
+            if username:
+                record["minecraft_username"] = username
+            if record:
+                metadata[canon] = record
+        return metadata
+
+    def _update_peer_metadata(self, msg: dict) -> bool:
+        """Merges one identity's metadata into the cached roster. Returns True
+        when something changed, so callers can skip no-op repaints."""
+        canon = canonical_name(msg.get("name") or "")
+        if not canon:
+            return False
+        record = {}
+        uid = canonical_uid(msg.get("uid"))
+        if uid:
+            record["uid"] = uid
+        username = minecraft_username(msg.get("minecraft_username"))
+        if username:
+            record["minecraft_username"] = username
+        if not record:
+            return False
+        previous = self.roster.get("peer_metadata", {}).get(canon, {})
+        merged = {**previous, **record}
+        if previous == merged:
+            return False
+        self.roster.setdefault("peer_metadata", {})[canon] = merged
+        save_cached_roster(self.roster)
+        return True
 
     def _on_message(self, ws, raw) -> None:
         try:
@@ -858,7 +920,10 @@ class FriendsClient:
                 "friends": msg.get("friends", []),
                 "requests_in": msg.get("requests_in", []),
                 "requests_out": msg.get("requests_out", []),
+                "requests_in_details": msg.get("requests_in_details", []),
+                "requests_out_details": msg.get("requests_out_details", []),
                 "groups": msg.get("groups", []),
+                "peer_metadata": self.metadata_from_roster(msg),
             }
             save_cached_roster(self.roster)
             # Stats: friend-count high-water mark. The roster is the single
@@ -882,11 +947,30 @@ class FriendsClient:
             T_GROUP_CREATED: "group_created", T_GROUP_UPDATE: "group_update",
             T_SYSTEM: "system", T_ERROR: "error",
             T_DM: "dm", T_GROUP_MSG: "group_msg", T_HISTORY: "history",
-            T_TYPING: "typing",
+            T_TYPING: "typing", T_METADATA: "metadata",
             T_CALL_INVITE: "call_invite", T_CALL_ACCEPT: "call_accept",
             T_CALL_DECLINE: "call_decline", T_CALL_END: "call_end",
             T_SIGNAL: "signal",
         }.get(t)
+        if event in ("metadata", "presence"):
+            try:
+                self._update_peer_metadata(msg)
+                if event == "presence":
+                    canon = canonical_name(msg.get("name") or "")
+                    changed = False
+                    for friend in self.roster.get("friends", []):
+                        if not isinstance(friend, dict) or not canon:
+                            continue
+                        if canonical_name(friend.get("name") or "") != canon:
+                            continue
+                        for field in ("online", "version", "status"):
+                            if field in msg and friend.get(field) != msg[field]:
+                                friend[field] = msg[field]
+                                changed = True
+                    if changed:
+                        save_cached_roster(self.roster)
+            except Exception:
+                log.debug("couldn't cache peer metadata", exc_info=True)
         if event:
             self._emit(event, msg)
 
@@ -1007,6 +1091,39 @@ class FriendsClient:
         self._status = "playing" if version else "online"
         self._raw_send({"t": T_VERSION, "version": version})
         self._raw_send({"t": T_STATUS, "status": self._status})
+
+    def set_minecraft_username(self, username) -> bool:
+        value = minecraft_username(username)
+        if not value:
+            return False
+        with self._metadata_lock:
+            if value == self._minecraft_username:
+                return True
+            self._minecraft_username = value
+            if not self.is_connected or self._metadata_sending:
+                return True
+            self._metadata_sending = True
+        try:
+            threading.Thread(target=self._publish_metadata, daemon=True,
+                             name="cubeon-friends-metadata").start()
+        except Exception:
+            with self._metadata_lock:
+                self._metadata_sending = False
+        return True
+
+    def _publish_metadata(self) -> None:
+        while True:
+            with self._metadata_lock:
+                value = self._minecraft_username
+            try:
+                if self.is_connected:
+                    self._raw_send({"t": T_METADATA, "minecraft_username": value})
+            except Exception:
+                pass
+            with self._metadata_lock:
+                if value == self._minecraft_username:
+                    self._metadata_sending = False
+                    return
 
     def set_status(self, status: str) -> None:
         self._status = status

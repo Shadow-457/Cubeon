@@ -1032,7 +1032,9 @@ def main(page: ft.Page):
     #   2. two independent pending timers could race: an older pending name
     #      from one field could overwrite a newer one just published by the
     #      other. One slot means the newest edit always wins.
-    _name_state = {"timer": None, "pending": None, "field": None}
+    _name_state = {"timer": None, "pending": None, "field": None, "generation": 0}
+    _name_lock = threading.RLock()
+    _name_sync_lock = threading.Lock()
 
     def _name_validate_into(field):
         name = field.value.strip()
@@ -1040,81 +1042,94 @@ def main(page: ft.Page):
         field.error_text = None if ok else err
         return ok, name
 
-    def _publish_username():
-        # Runs 1.2s after the last keystroke (or on blur): read the CURRENT
-        # value of whichever field was edited last - a name captured at
-        # keystroke time could be stale.
-        field = _name_state.get("field")
-        if field is None:
-            return
-        ok, name = _name_validate_into(field)
-        if not ok or name == cfg.get("username"):
-            try:
-                page.update()
-            except Exception:
-                pass
-            return
-        cfg["username"] = name
-        # CustomSkinLoader looks the skin up by <USERNAME>.png (and the cape
-        # as LocalSkin/capes/<USERNAME>.png), so a rename must move both
-        # synced files or the cosmetics stop resolving.
-        core.sync_local_skin_to_csl(cfg)
-        core.sync_local_cape_to_csl(cfg)
-        core.save_config(cfg)
-        # Mirror into the sibling field without re-triggering its handler.
-        for other in (username_field, profile_username_field):
-            if other is not field and other.value != name:
-                other.value = name
-        refresh_avatars()
-        # Name-collision warning: the heartbeat (fired by the sync above,
-        # async) records whether a DIFFERENT Cubeon player also claimed
-        # this name recently. ONE background check per publish - not per
-        # keystroke. Cosmetic: a missed warning just means the user finds
-        # out the way they always did.
+    def _publish_username(generation=None):
+        with _name_lock:
+            if generation is None:
+                generation = _name_state["generation"]
+            if generation != _name_state["generation"]:
+                return
+            field = _name_state.get("field")
+            if field is None:
+                return
+            ok, name = _name_validate_into(field)
+            if not ok or name == cfg.get("username"):
+                thread_safe_ui.refresh(field)
+                return
+            cfg["username"] = name
+            core.save_config(cfg)
+            for other in (username_field, profile_username_field):
+                if other is not field and other.value != name:
+                    other.value = name
+                thread_safe_ui.refresh(other)
+            if friends_service is not None:
+                try:
+                    friends_service.reconcile_username()
+                except Exception:
+                    logging.getLogger(__name__).debug("username reconciliation failed", exc_info=True)
+            refresh_avatars()
+        with _name_sync_lock:
+            with _name_lock:
+                if generation != _name_state["generation"]:
+                    return
+                sync_cfg = dict(cfg)
+            core.sync_local_skin_to_csl(sync_cfg)
+            core.sync_local_cape_to_csl(sync_cfg)
+            with _name_lock:
+                if generation != _name_state["generation"]:
+                    return
+                for key in ("csl_synced_name", "csl_synced_cape_name"):
+                    if key in sync_cfg:
+                        cfg[key] = sync_cfg[key]
+                core.save_config(cfg)
+
         def _warn_if_contested():
             time.sleep(3.0)
             try:
-                if core.name_contested():
-                    set_status("Note: another Cubeon player recently used "
-                               "this name - others may see their skin on it.")
+                with _name_lock:
+                    if generation == _name_state["generation"] and core.name_contested():
+                        set_status("Note: another Cubeon player recently used "
+                                   "this name - others may see their skin on it.")
             except Exception:
                 logging.getLogger(__name__).warning("background worker error", exc_info=True)
         threading.Thread(target=_warn_if_contested, daemon=True,
                          name="cubeon-name-contested-check").start()
-        try:
-            page.update()
-        except Exception:
-            pass
 
     def _cancel_pending_name():
-        t = _name_state.get("timer")
-        if t:
+        with _name_lock:
+            t = _name_state.get("timer")
+            if t:
+                t.cancel()
             _name_state["timer"] = None
-            t.cancel()
-        _name_state["pending"] = None
+            _name_state["pending"] = None
+            _name_state["generation"] += 1
 
-    def _fire_pending_name(e=None):
-        pub = _name_state.get("pending")
-        if pub:
+    def _fire_pending_name(e=None, generation=None):
+        with _name_lock:
+            if generation is not None and generation != _name_state["generation"]:
+                return
+            pub = _name_state.get("pending")
+            if not pub:
+                return
+            generation = _name_state["generation"]
+            t = _name_state.get("timer")
+            if t:
+                t.cancel()
             _name_state["pending"] = None
             _name_state["timer"] = None
-            pub()
+        pub(generation)
 
     def on_name_keystroke(field):
-        # Cheap half per keystroke: validate + mirror the error state.
-        # Everything expensive waits for the shared 1.2s debounce (or blur).
-        _name_validate_into(field)
-        _name_state["field"] = field
-        _cancel_pending_name()
-        try:
-            page.update()
-        except Exception:
-            pass
-        t = threading.Timer(1.2, _fire_pending_name)
-        t.daemon = True
-        _name_state["timer"] = t
-        _name_state["pending"] = _publish_username
-        t.start()
+        with _name_lock:
+            _name_validate_into(field)
+            _cancel_pending_name()
+            _name_state["field"] = field
+            generation = _name_state["generation"]
+            t = threading.Timer(1.2, lambda: _fire_pending_name(generation=generation))
+            t.daemon = True
+            _name_state["timer"] = t
+            _name_state["pending"] = _publish_username
+            t.start()
+        thread_safe_ui.refresh(field)
 
     profile_username_field.on_change = lambda e=None: on_name_keystroke(profile_username_field)
     profile_username_field.on_blur = _fire_pending_name
@@ -2536,6 +2551,11 @@ def main(page: ft.Page):
         cfg["username"] = username
         cfg["last_version"] = version_id
         core.save_config(cfg)
+        if friends_service is not None:
+            try:
+                friends_service.reconcile_username()
+            except Exception:
+                logging.getLogger(__name__).debug("username reconciliation failed", exc_info=True)
 
         # Update UI to "busy" state. progress_label is reset explicitly: it may
         # still be holding the previous launch's crash message, and leaving a
@@ -2561,6 +2581,8 @@ def main(page: ft.Page):
 
         # Start the installation/launch in a background thread
         threading.Thread(target=lambda: do_install_and_launch(version_id, username), daemon=True).start()
+
+    _launch_state_lock = threading.RLock()
 
     def do_install_and_launch(version_id, username):
         """
@@ -2612,6 +2634,15 @@ def main(page: ft.Page):
             # if it isn't already installed for this version, otherwise every
             # single launch re-downloads/reinstalls it for no reason.
             loader_id = state["mod_loader"]
+            launch_mc = core.extract_mc_version(version_id)
+            try:
+                for pack in core.list_installed_modpacks():
+                    if pack.get("version_id") == version_id:
+                        launch_mc = pack.get("mc_version") or launch_mc
+                        loader_id = pack.get("loader") or loader_id
+                        break
+            except Exception:
+                pass
             # Loader support is a property of the *Minecraft version*, not of
             # the raw launch id. version_id can be a loader install row like
             # "fabric-loader-0.19.5-26.1.2" (or a TLauncher-style renamed id);
@@ -2667,29 +2698,38 @@ def main(page: ft.Page):
             # that should put the button back to "play", since launch_game()
             # itself is non-blocking (it spawns the process and returns right
             # away on a background watcher thread).
-            def on_exit(code, lines=None):
+            def on_exit(code, lines=None, session_id=None):
                 # Mark the game as finished BEFORE touching any UI, so the
                 # post-launch "Minecraft is running" block below can see that
                 # this launch is already over and leave the result alone.
                 with _exit_lock:
                     exited["done"] = True
-                # Credit this session's playtime (clamped inside). Reads the
-                # on-disk session record written at launch, so it works even
-                # if the launcher was re-exec'd while the game ran.
+                # Credit THIS session's playtime (clamped inside). Session-keyed:
+                # an older game's exit must not end a newer one's record.
                 try:
-                    core.milestones_end_play_session()
+                    core.milestones_end_play_session(session_id=session_id)
                 except Exception:
                     pass  # cosmetic - never let it break the exit path
+                # A newer game may still be live (overlapping launches): only
+                # the latest live session may clear the shared running state.
+                try:
+                    from cubeon import watchdog as _watchdog
+                    latest = _watchdog.stale_session()
+                except Exception:
+                    latest = None
+                if latest is not None and latest.get("session_id") != session_id:
+                    return
                 # Tell friends this user stopped playing (presence -> online).
-                if friends_service is not None:
-                    friends_service.set_version(None)
-                # Discord presence: back to just "in the launcher".
-                _rpc.set_activity(details="Cubeon", state="In the launcher",
-                                  large_image=_discord_img, large_text=_discord_img_text)
-                state["running_version"] = None  # version is safe to delete again
-                set_button_mode("play" if version_id in state["installed"] else "download")
-                progress_bar.visible = False
-                if code:
+                with _launch_state_lock:
+                    if friends_service is not None:
+                        friends_service.set_version(None)
+                    # Discord presence: back to just "in the launcher".
+                    _rpc.set_activity(details="Cubeon", state="In the launcher",
+                                      large_image=_discord_img, large_text=_discord_img_text)
+                    state["running_version"] = None  # version is safe to delete again
+                    progress_bar.visible = False
+                    crashed = bool(code)
+                if crashed:
                     # A non-zero exit is a crash or a refused launch. Saying so
                     # matters: the old code hid this entirely, so a failed
                     # launch looked identical to a normal quit and the user was
@@ -2700,6 +2740,7 @@ def main(page: ft.Page):
                     progress_spinner.visible = False
                     set_status("Crashed")
                 else:
+                    progress_bar.visible = False
                     progress_label.visible = False
                     progress_spinner.visible = False
                     set_status("Ready")
@@ -2725,37 +2766,19 @@ def main(page: ft.Page):
             # would overwrite it. The running indicator is set only after
             # launch_game() returns, once the game process has actually
             # started (see below).
+            with _exit_lock:
+                if exited["done"]:
+                    return
             set_button_mode("running")
             state["running_version"] = version_id  # block deleting it mid-game
             page.update()
 
-            # If the selected version belongs to an installed modpack, launch
-            # with the PACK's mc_version/loader - the pack's mods and Cubeon's
-            # own injected mods (CustomSkinLoader, Friends) live in the profile
-            # the pack declared. Using the Play tab's loader selector instead
-            # (the old behavior) put a Forge pack's launch on the vanilla/
-            # fabric profile whenever the selector wasn't switched to match:
-            # pack mods never synced, skins/CSL and the Friends button landed
-            # in a profile nothing read from. Syncing the selector here also
-            # keeps the Mods tab and the pack badge agreeing with the launch.
-            launch_mc = core.extract_mc_version(version_id)
-            launch_loader = state["mod_loader"]
-            try:
-                for p in core.list_installed_modpacks():
-                    if p.get("version_id") in (version_id, target_version):
-                        if p.get("mc_version"):
-                            launch_mc = p["mc_version"]
-                        if p.get("loader"):
-                            launch_loader = p["loader"]
-                        if state.get("mod_loader") != launch_loader:
-                            state["mod_loader"] = launch_loader
-                        if state.get("selected_mc_version") != launch_mc:
-                            state["selected_mc_version"] = launch_mc
-                        break
-            except Exception:
-                pass  # pack lookup is an enhancement, never a launch blocker
+            # The pack lookup above may have changed the resolved loader; carry
+            # that SAME loader into launch_game so a vanilla fallback or pack
+            # override cannot stage one loader and launch with another.
+            launch_loader = loader_id
 
-            core.launch_game(
+            game = core.launch_game(
                 target_version, username, cfg["ram_mb"], cfg["width"], cfg["height"],
                 cfg.get("java_path"), on_exit=on_exit,
                 # Clean numeric version, not the raw launch id - this is the
@@ -2767,23 +2790,31 @@ def main(page: ft.Page):
                 cfg=cfg, status_cb=status_cb,
             )
 
+            # Session id from the watchdog record (mirrored on the Popen
+            # object): on_exit compares against the live session so an older
+            # game's exit cannot clear a newer game's presence/indicator.
+            session_id = getattr(game, "session_id", None)
+
             # Broadcast presence to friends: "playing <version>". Safe no-op if
             # the user hasn't claimed a Cubeon name / isn't connected. version_id
             # is the human MC version (not the loader-specific target id), which
             # is what a friend wants to see in their list. Guarded like the
             # on_exit path above: public builds have no Friends service.
-            if friends_service is not None:
-                friends_service.set_version(version_id)
+            with _launch_state_lock:
+                if friends_service is not None and not exited["done"]:
+                    friends_service.set_version(version_id)
 
             # Discord Rich Presence: show the game as being played, with an
             # elapsed timer. Best-effort - no-op if Discord isn't running.
-            _rpc.set_activity(
-                details="Cubeon",
-                state=f"Playing Minecraft {core.extract_mc_version(version_id) or version_id}",
-                start=int(time.time() * 1000),
-                large_image=_discord_img,
-                large_text=_discord_img_text,
-            )
+            with _launch_state_lock:
+                if not exited["done"]:
+                    _rpc.set_activity(
+                        details="Cubeon",
+                        state=f"Playing Minecraft {core.extract_mc_version(version_id) or version_id}",
+                        start=int(time.time() * 1000),
+                        large_image=_discord_img,
+                        large_text=_discord_img_text,
+                    )
 
             # launch_game() has returned, so the game process is up and any
             # setup (incl. CustomSkinLoader install) is done. The loading bar
@@ -3496,6 +3527,11 @@ def main(page: ft.Page):
             _svc._save_config = lambda: core.save_config(cfg)
         friends_client = _tray_runtime["friends_client"]
         friends_service = _tray_runtime["friends_service"]
+        if friends_service is not None:
+            try:
+                friends_service.reconcile_username()
+            except Exception:
+                logging.getLogger(__name__).debug("username reconciliation failed", exc_info=True)
     else:
         friends_client = None
         friends_service = None
@@ -3667,11 +3703,17 @@ def main(page: ft.Page):
         """Saves width/height/java_path from the UI fields to the config
         file. Called on field blur/submit by the Settings tab (instant
         save - there is no Save button anymore)."""
-        try:
-            cfg["width"] = int(width_field.value or 1280)
-            cfg["height"] = int(height_field.value or 720)
-        except ValueError:
-            pass
+        for key, field, default, minimum, maximum in (
+            ("width", width_field, 1280, 320, 7680),
+            ("height", height_field, 720, 240, 4320),
+        ):
+            try:
+                value = int(field.value)
+            except (TypeError, ValueError, OverflowError):
+                value = default
+            cfg[key] = max(minimum, min(maximum, value))
+            field.value = str(cfg[key])
+            thread_safe_ui.refresh(field)
         cfg["java_path"] = java_path_field.value.strip() or None
         core.save_config(cfg)
         set_status("Settings saved")
@@ -4634,7 +4676,7 @@ def main(page: ft.Page):
             else _watchdog.stale_session()
         if _stale:
             def _kill_orphan(e=None):
-                _watchdog.terminate(_stale["pid"])
+                _watchdog.terminate(_stale["pid"], _stale["session_id"])
                 _show_snack(f"Ended the leftover Minecraft session "
                             f"(pid {_stale['pid']})")
 
@@ -4834,7 +4876,8 @@ def main(page: ft.Page):
 
     def _on_window_event(e):
         try:
-            ev = str(getattr(e, "type", "") or getattr(e, "data", "")).split(".")[-1]
+            raw = getattr(e, "type", "") or getattr(e, "data", "")
+            ev = str(getattr(raw, "value", raw)).split(".")[-1].lower()
             if ev in ("close", "hide", "disconnect"):
                 # Flet 0.86 reality check: on this build the native X button
                 # tears the window down WITHOUT delivering a "close" event to

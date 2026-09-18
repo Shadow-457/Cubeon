@@ -347,6 +347,7 @@ class SeasonalAnimator:
     def __init__(self, on_error=None):
         self._stop = threading.Event()
         self._thread = None
+        self._lifecycle_lock = threading.Lock()
         self._pets = []
         self._windows = []
         self._lock = threading.Lock()
@@ -385,18 +386,29 @@ class SeasonalAnimator:
 
     # --- lifecycle --------------------------------------------------------
     def start(self) -> "SeasonalAnimator":
-        if self.running or not self.has_work:
-            return self
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="seasonal-anim",
-                                       daemon=True)
-        self._thread.start()
-        return self
+        while True:
+            with self._lifecycle_lock:
+                if not self.has_work:
+                    return self
+                previous = self._thread
+                if previous is None or not previous.is_alive():
+                    self._stop = threading.Event()
+                    self._thread = threading.Thread(
+                        target=self._run, args=(self._stop,),
+                        name="seasonal-anim", daemon=True)
+                    self._thread.start()
+                    return self
+                if not self._stop.is_set() or previous is threading.current_thread():
+                    return self
+            previous.join()
 
     def stop(self) -> None:
         """Idempotent and silent: called from the session-end hook."""
-        self._stop.set()
-        self._thread = None
+        with self._lifecycle_lock:
+            self._stop.set()
+            previous = self._thread
+        if previous is not None and previous is not threading.current_thread():
+            previous.join()
 
     def clear(self) -> None:
         """Drops every registration.
@@ -412,8 +424,8 @@ class SeasonalAnimator:
             self._windows.clear()
 
     # --- one frame --------------------------------------------------------
-    def _run(self) -> None:
-        while not self._stop.wait(TICK):
+    def _run(self, stop) -> None:
+        while not stop.wait(TICK):
             self._tick += 1
             try:
                 self._frame()

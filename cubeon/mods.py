@@ -163,9 +163,12 @@ def profile_key(mc_version: str | None, loader: str | None) -> str:
     return f"{_sanitize(mc_version or 'unknown')}-{_sanitize(loader or 'vanilla')}"
 
 
+def resolve_profile_dir(mc_version: str | None, loader: str | None) -> str:
+    return os.path.join(PROFILES_DIR, profile_key(mc_version, loader))
+
+
 def get_profile_dir(mc_version: str | None, loader: str | None) -> str:
-    key = profile_key(mc_version, loader)
-    path = os.path.join(PROFILES_DIR, key)
+    path = resolve_profile_dir(mc_version, loader)
     os.makedirs(path, exist_ok=True)
     meta_path = os.path.join(path, PROFILE_META_FILENAME)
     if not os.path.isfile(meta_path):
@@ -449,8 +452,10 @@ def is_protected_mod(meta: dict | None = None, filename: str | None = None) -> b
 
 def list_mods(mc_version: str | None, loader: str | None) -> list[dict]:
     """Mods installed for this specific version+loader profile only."""
-    profile_dir = get_profile_dir(mc_version, loader)
+    profile_dir = resolve_profile_dir(mc_version, loader)
     mods = []
+    if not os.path.isdir(profile_dir):
+        return mods
     for fname in sorted(os.listdir(profile_dir)):
         if fname == PROFILE_META_FILENAME or fname.endswith(MOD_META_SUFFIX):
             continue
@@ -986,10 +991,6 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
     ref = (project_id_or_slug or "").strip()
     if not ref:
         return []
-    if not allow_network:
-        cached = local_cache.get_stale("mod_versions", {"project": ref})
-        return cached if isinstance(cached, list) else []
-
     def _fetch() -> list[dict]:
         versions = net.get_json(
             f"{MODRINTH_API}/project/{ref}/version",
@@ -1004,11 +1005,6 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
                 continue
             game_versions = v.get("game_versions") or []
             loaders = v.get("loaders") or []
-            compatible = True
-            if mc_version and mc_version not in game_versions:
-                compatible = False
-            if loader and loader not in loaders:
-                compatible = False
             out.append({
                 "id": v.get("id"),
                 "version_number": v.get("version_number") or "",
@@ -1019,7 +1015,6 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
                 "date_published": v.get("date_published") or "",
                 "downloads": v.get("downloads", 0),
                 "changelog": v.get("changelog") or "",
-                "compatible": compatible,
                 "dependencies": [
                     {
                         "project_id": d.get("project_id"),
@@ -1035,9 +1030,15 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
             })
         return out
 
-    return local_cache.cached_call(
-        "mod_versions", {"project": ref}, _fetch,
-        max_age=6 * 3600)
+    if allow_network:
+        releases = local_cache.cached_call(
+            "mod_versions", {"project": ref}, _fetch, max_age=6 * 3600)
+    else:
+        releases = local_cache.get_stale("mod_versions", {"project": ref})
+    return [dict(v, compatible=(
+        (not mc_version or mc_version in v.get("game_versions", []))
+        and (not loader or loader in v.get("loaders", []))))
+        for v in releases or []]
 
 
 def _required_deps_cached(project_id_or_slug: str, mc_version: str | None,
@@ -1571,6 +1572,8 @@ def installed_project_ids(mc_version: str | None, loader: str | None) -> set:
     out = set()
     try:
         for m in list_mods(mc_version, loader):
+            if not m.get("enabled"):
+                continue
             for key in ("project_id", "slug"):
                 if m.get(key):
                     out.add(m[key])

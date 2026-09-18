@@ -298,7 +298,7 @@ class InspectorDialog:
                     focused_border_color=t["ACCENT"],
                     label_style=ft.TextStyle(color=t["TEXT_DIM"]),
                     options=[ft.dropdown.Option(w) for w in _WEIGHTS],
-                    on_change=lambda e, cc=c, p=prop: self._apply(cc, p, e.control.value),
+                    on_select=lambda e, cc=c, p=prop: self._apply(cc, p, e.control.value),
                 )
             elif prop in ("value", "tooltip"):
                 field = ft.TextField(

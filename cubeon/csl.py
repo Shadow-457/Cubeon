@@ -442,7 +442,7 @@ def install(mc_version: str, loader: str, progress_cb=None) -> str:
     """
     try:
         file_info = get_mod_download(CSL_MODRINTH_SLUG, mc_version=mc_version, loader=loader)
-    except requests.RequestException as ex:
+    except Exception as ex:
         return f"couldn't reach Modrinth ({ex.__class__.__name__})"
 
     if not file_info:
@@ -452,8 +452,9 @@ def install(mc_version: str, loader: str, progress_cb=None) -> str:
         download_mod(
             file_info["url"], file_info["filename"], progress_cb=progress_cb,
             slug=CSL_MODRINTH_SLUG, mc_version=mc_version, loader=loader,
+            hashes=file_info.get("hashes"),
         )
-    except (OSError, requests.RequestException) as ex:
+    except Exception as ex:
         return f"download failed ({ex.__class__.__name__})"
 
     return f"installed CustomSkinLoader {file_info['version_number']}"

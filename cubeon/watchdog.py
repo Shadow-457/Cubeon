@@ -1,103 +1,270 @@
-"""
-Game process watchdog.
-
-The gap this closes: launch_game() spawns Minecraft and reports "Running",
-but if the launcher window is closed mid-session (or the launcher crashes),
-nothing remembers the game was ours - a crashed-or-orphaned java process
-could linger forever, holding locks on the mods folder while the user
-reinstalls everything trying to fix a "corrupt" install.
-
-The contract is simple and crash-safe:
-  - register() writes {pid, version, started} to ~/.cubeon_launcher BEFORE
-    the game is considered running;
-  - clear() removes it when the process is confirmed dead (on_exit);
-  - stale_session() at next startup reads the record: if the pid is gone,
-    the previous session ended fine and the record is just litter (cleared
-    silently); if the pid is ALIVE, it's an orphan worth telling the user
-    about, and terminate() can end it.
-
-Every step tolerates a missing/unreadable/corrupt record - this is a
-diagnostic aid, never a launch blocker.
-"""
 import json
 import logging
 import os
+import re
+import threading
 import time
+import uuid
+from contextlib import contextmanager
 
+import psutil
+
+from .atomicio import write_json
 from .paths import CUBEON_HOME
 
 log = logging.getLogger(__name__)
 
 RECORD_PATH = os.path.join(CUBEON_HOME, "running_game.json")
+_lock = threading.RLock()
+_sessions = None
+_processes = {}
+_recovery_thread = None
+
+
+def _process_identity(pid: int) -> dict | None:
+    try:
+        process = psutil.Process(pid)
+        if not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
+            return None
+        return {"created": process.create_time(), "boot": psutil.boot_time()}
+    except (psutil.Error, ValueError, OSError):
+        return None
 
 
 def _pid_alive(pid: int) -> bool:
+    return _process_identity(pid) is not None
+
+
+def _live(rec: dict) -> bool:
+    process = _processes.get(rec.get("session_id"))
+    if process is not None:
+        try:
+            return process.poll() is None
+        except Exception:
+            return False
+    identity = rec.get("identity")
+    return bool(identity and identity == _process_identity(rec["pid"]))
+
+
+@contextmanager
+def _write_transaction():
+    os.makedirs(os.path.dirname(RECORD_PATH), exist_ok=True)
+    with open(RECORD_PATH + ".lock", "a+b") as fh:
+        if os.name == "nt":
+            import msvcrt
+            fh.write(b"\0")
+            fh.flush()
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _disk_sessions():
     try:
-        os.kill(pid, 0)
+        with open(RECORD_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        records = data.get("sessions", [data]) if isinstance(data, dict) else []
+        return [rec for rec in records if isinstance(rec, dict)
+                and type(rec.get("pid")) is int and rec["pid"] > 0
+                and isinstance(rec.get("session_id"), str) and rec["session_id"]
+                and isinstance(rec.get("identity"), dict)] if isinstance(records, list) else []
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def _proven_dead(rec):
+    if rec["session_id"] in _processes:
+        return not _live(rec)
+    try:
+        process = psutil.Process(rec["pid"])
+        return (not process.is_running() or process.status() == psutil.STATUS_ZOMBIE
+                or {"created": process.create_time(), "boot": psutil.boot_time()} != rec["identity"])
+    except psutil.NoSuchProcess:
         return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists, owned by someone else - alive as far as we care
-    except OSError:
+    except (psutil.Error, OSError, ValueError):
         return False
 
 
-def register(pid: int, version_id: str = "") -> None:
-    """Record a running game. Never raises."""
+def _persist() -> None:
     try:
-        os.makedirs(CUBEON_HOME, exist_ok=True)
-        with open(RECORD_PATH, "w", encoding="utf-8") as fh:
-            json.dump({"pid": int(pid), "version": version_id,
-                       "started": time.time()}, fh)
-    except (OSError, ValueError, TypeError) as ex:
-        log.warning("watchdog: couldn't record game pid %s (%s)", pid,
-                    ex.__class__.__name__)
+        with _write_transaction():
+            merged = {rec["session_id"]: rec for rec in _disk_sessions()
+                      if not _proven_dead(rec)}
+            merged.update({rec["session_id"]: rec for rec in _sessions})
+            _sessions[:] = sorted(merged.values(), key=lambda rec: rec.get("started", 0))
+            if _sessions:
+                write_json(RECORD_PATH, {**_sessions[-1], "sessions": _sessions})
+            else:
+                try:
+                    os.unlink(RECORD_PATH)
+                except FileNotFoundError:
+                    pass
+    except Exception:
+        log.debug("watchdog record persistence failed", exc_info=True)
 
 
-def clear() -> None:
-    """Forget the recorded game (normal exit or confirmed death)."""
+def _load() -> None:
+    global _sessions
+    if _sessions is not None:
+        return
+    _sessions = []
     try:
-        os.unlink(RECORD_PATH)
-    except OSError:
+        with open(RECORD_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        records = data.get("sessions", [data]) if isinstance(data, dict) else []
+        if isinstance(records, list):
+            seen = set()
+            for rec in records:
+                if (isinstance(rec, dict)
+                        and type(rec.get("pid")) is int and rec["pid"] > 0
+                        and isinstance(rec.get("session_id"), str)
+                        and rec["session_id"] and rec["session_id"] not in seen
+                        and isinstance(rec.get("identity"), dict)
+                        and _live(rec)):
+                    _sessions.append(rec)
+                    seen.add(rec["session_id"])
+        _persist()
+    except (OSError, ValueError, TypeError):
         pass
+    if _sessions:
+        _start_recovery_watch()
+
+
+def _prune() -> bool:
+    before = len(_sessions)
+    _sessions[:] = [rec for rec in _sessions if _live(rec)]
+    active = {rec["session_id"] for rec in _sessions}
+    for session_id in list(_processes):
+        if session_id not in active:
+            _processes.pop(session_id, None)
+    if len(_sessions) != before:
+        _persist()
+        return True
+    return False
+
+
+def _reconcile_username() -> None:
+    try:
+        from .friends_service import FriendsService
+        FriendsService.reconcile_username_active()
+    except Exception:
+        log.debug("watchdog username reconciliation failed", exc_info=True)
+
+
+def _start_recovery_watch() -> None:
+    global _recovery_thread
+    if _recovery_thread is not None and _recovery_thread.is_alive():
+        return
+
+    def watch():
+        global _recovery_thread
+        while True:
+            time.sleep(1.0)
+            with _lock:
+                changed = _prune()
+                done = not _sessions
+                if done:
+                    _recovery_thread = None
+            if changed:
+                _reconcile_username()
+            if done:
+                return
+
+    _recovery_thread = threading.Thread(target=watch, name="cubeon-game-recovery", daemon=True)
+    _recovery_thread.start()
+
+
+def register(pid: int, version_id: str = "", username: str = "", *, process=None,
+             session_id: str | None = None) -> str | None:
+    try:
+        with _lock:
+            _load()
+            _prune()
+            if type(pid) is not int or pid <= 0:
+                return None
+            session_id = session_id or uuid.uuid4().hex
+            rec = {"pid": pid, "version": version_id, "started": time.time(),
+                   "session_id": session_id, "identity": _process_identity(pid),
+                   "username": _valid_username(username)}
+            if process is not None:
+                _processes[session_id] = process
+            if not _live(rec):
+                _processes.pop(session_id, None)
+                return None
+            _sessions.append(rec)
+            _persist()
+            return session_id
+    except Exception:
+        log.debug("watchdog registration failed", exc_info=True)
+        return None
+
+
+def clear(session_id: str | None = None) -> bool:
+    with _lock:
+        _load()
+        if session_id is None:
+            return _prune()
+        for rec in _sessions:
+            if rec["session_id"] == session_id:
+                if _live(rec):
+                    return False
+                _sessions.remove(rec)
+                _processes.pop(session_id, None)
+                _persist()
+                return True
+        return False
 
 
 def stale_session() -> dict | None:
-    """{'pid', 'version', 'started'} when a recorded game is STILL alive,
-    else None (and the record is cleaned up). The launcher calls this once
-    at startup."""
+    with _lock:
+        _load()
+        for rec in reversed(_sessions):
+            if _live(rec):
+                return dict(rec)
+        return None
+
+
+def _valid_username(value) -> str:
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_]{3,16}", value) else ""
+
+
+def effective_username(configured_username) -> str:
+    rec = stale_session()
+    return _valid_username(rec.get("username") if rec else configured_username)
+
+
+def terminate(pid: int, session_id: str | None = None) -> bool:
+    with _lock:
+        _load()
+        rec = next((dict(rec) for rec in reversed(_sessions)
+                    if rec["pid"] == pid and
+                    (session_id is None or rec["session_id"] == session_id)), None)
+    if rec is None or not rec.get("identity"):
+        return False
     try:
-        with open(RECORD_PATH, "r", encoding="utf-8") as fh:
-            rec = json.load(fh)
-        pid = int(rec.get("pid", 0))
-    except (OSError, ValueError, TypeError):
-        return None
-    if pid <= 0 or not _pid_alive(pid):
-        clear()
-        return None
-    # A pid being alive isn't proof it's still our Minecraft (pids recycle),
-    # but within a normal reboot cycle it's a strong signal, and the worst
-    # case of a wrong guess is one extra "close it?" prompt.
-    rec["pid"] = pid
-    return rec
-
-
-def terminate(pid: int) -> bool:
-    """Politely end an orphaned game. Returns whether we believe it worked."""
-    import signal
-    # SIGKILL doesn't exist on Windows; there os.kill(pid, SIGTERM) already
-    # terminates unconditionally, so escalating further is meaningless.
-    signals = [signal.SIGTERM]
-    if hasattr(signal, "SIGKILL"):
-        signals.append(signal.SIGKILL)
-    for sig in signals:
+        process = psutil.Process(pid)
+        if {"created": process.create_time(), "boot": psutil.boot_time()} != rec["identity"]:
+            return False
+        process.terminate()
         try:
-            os.kill(pid, sig)
-        except OSError:
-            return not _pid_alive(pid)
-        for _ in range(20):  # up to 2s for SIGTERM to land
-            if not _pid_alive(pid):
-                return True
-            time.sleep(0.1)
-    return not _pid_alive(pid)
+            process.wait(timeout=2)
+        except psutil.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
+    except psutil.NoSuchProcess:
+        pass
+    except psutil.Error:
+        return False
+    if clear(rec["session_id"]):
+        _reconcile_username()
+    return not _live(rec)

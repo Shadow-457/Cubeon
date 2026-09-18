@@ -64,13 +64,21 @@ def _cape_back_panel(sheet: Image.Image, scale: int = 6) -> Image.Image:
     return back.resize((10 * scale, 16 * scale), Image.NEAREST)
 
 
+_PREVIEW_MEMO: dict = {}
+
+
 def _ensure_previews(path: str, kind: str, gid: str) -> str:
     """Render (if missing) the display preview for one library file and return
     its path. Reads only local pixels - no network. On any failure the raw
     file itself is the preview (the grid scales it down; still honest)."""
     ensure_gallery()
     dst = _preview_path(gid, kind)
-    if not os.path.isfile(dst):
+    try:
+        stat = os.stat(path)
+        signature = (path, stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return path
+    if not os.path.isfile(dst) or _PREVIEW_MEMO.get(dst) != signature:
         try:
             if kind == "skin":
                 _skins.render_local_skin_preview(gid, dst, scale=3,
@@ -80,6 +88,7 @@ def _ensure_previews(path: str, kind: str, gid: str) -> str:
                     _cape_back_panel(im.convert("RGBA")).save(dst)
         except Exception:
             return path
+        _PREVIEW_MEMO[dst] = signature
     return dst
 
 # ---------------------------------------------------------------------------
@@ -155,7 +164,8 @@ def _library_files(kind: str) -> "list[tuple[str, float]]":
             continue
         path = os.path.join(d, name)
         try:
-            out.append((name, os.path.getmtime(path)))
+            stat = os.stat(path)
+            out.append((name, (stat.st_mtime_ns, stat.st_size)))
         except OSError:
             continue
     return out
@@ -255,8 +265,8 @@ def _load_installed() -> dict:
 
 def _save_installed(state: dict) -> None:
     ensure_gallery()
-    with open(INSTALLED_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+    from .atomicio import write_json
+    write_json(INSTALLED_PATH, state)
 
 
 def _mark(kind: str, gid: str, filename: str) -> None:

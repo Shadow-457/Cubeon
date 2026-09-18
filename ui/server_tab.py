@@ -528,17 +528,27 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     _update_server_ram_warning(cfg["server_ram_mb"])
 
     def on_server_ram_change(e):
-        value = int(server_ram_slider.value)
+        try:
+            value = int(server_ram_slider.value)
+        except (TypeError, ValueError, OverflowError):
+            value = server_ram_min_mb
+        value = max(server_ram_min_mb, min(server_ram_max_mb, value))
+        server_ram_slider.value = value
         color = _server_ram_color(value)
         server_ram_slider.active_color = color
         server_ram_slider.thumb_color = color
         server_ram_label.value = f"{value} MB allocated"
         _update_server_ram_warning(value)
         cfg["server_ram_mb"] = value
+        for ctrl in (server_ram_slider, server_ram_label, server_ram_warning):
+            thread_safe_ui.refresh(ctrl)
+
+    def on_server_ram_commit(e):
+        on_server_ram_change(e)
         core.save_config(cfg)
-        page.update()
 
     server_ram_slider.on_change = on_server_ram_change
+    server_ram_slider.on_change_end = on_server_ram_commit
 
     # --- High-ping / low-latency optimization -----------------------------
 

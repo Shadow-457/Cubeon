@@ -450,6 +450,18 @@ STUBS = {
             }
 
             /**
+             * The game session's account info. Real signature checked against
+             * the shipped 26.1.2 jar: `public net.minecraft.client.User
+             * getUser()` (User declared as net.minecraft.client.User there;
+             * Yarn/Mojang maps it the same across 1.20.1-26.x, loom remaps the
+             * obfuscated brackets). Used only as a display-label fallback -
+             * never identity, never an editable field.
+             */
+            public User getUser() {
+                return null;
+            }
+
+            /**
              * The player-list handle. Same name and return type from 1.20.1
              * through 26.1.2 (checked against the shipped 26.1.2 jar); null
              * outside a world, which is how the menu's Online panel knows it
@@ -459,6 +471,22 @@ STUBS = {
              */
             public ClientPacketListener getConnection() {
                 return null;
+            }
+        }
+        """,
+
+    "net/minecraft/client/User.java": """
+        package net.minecraft.client;
+
+        /**
+         * The signed-in account record. Real signature checked against the
+         * shipped 26.1.2 jar: `public java.lang.String getName()`, unchanged
+         * across every bracket (loom remaps the obfuscated ones).
+         */
+        public class User {
+
+            public String getName() {
+                return "";
             }
         }
         """,

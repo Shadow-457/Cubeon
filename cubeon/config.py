@@ -7,9 +7,12 @@ import json
 import os
 import re
 import secrets
+import threading
 import uuid
 
 from .paths import CONFIG_PATH, CUBEON_HOME
+
+_SAVE_LOCK = threading.Lock()
 
 
 def get_system_ram_mb() -> int:
@@ -180,18 +183,21 @@ def load_config() -> dict:
     try:
         with open(CONFIG_PATH, "r") as f:
             data = json.load(f)
-        return {**DEFAULT_CONFIG, **data}
+        if isinstance(data, dict):
+            return {**DEFAULT_CONFIG, **data}
     except (json.JSONDecodeError, OSError, FileNotFoundError):
-        # Brand-new install, no config on disk yet - seed ram_mb with half
-        # of *this machine's* RAM instead of the static 4096 fallback in
-        # DEFAULT_CONFIG, so a low-RAM machine doesn't start over-allocated
-        # (and a high-RAM one isn't stuck under-using what it has).
-        cfg = dict(DEFAULT_CONFIG)
-        try:
-            cfg["ram_mb"] = recommended_max_ram_mb(get_system_ram_mb())
-        except Exception:
-            pass
-        return cfg
+        pass
+    # Brand-new install (or a config whose JSON is not an object - never a
+    # reason to crash startup): seed ram_mb with half of *this machine's* RAM
+    # instead of the static 4096 fallback in DEFAULT_CONFIG, so a low-RAM
+    # machine doesn't start over-allocated (and a high-RAM one isn't stuck
+    # under-using what it has).
+    cfg = dict(DEFAULT_CONFIG)
+    try:
+        cfg["ram_mb"] = recommended_max_ram_mb(get_system_ram_mb())
+    except Exception:
+        pass
+    return cfg
 
 
 def save_config(cfg: dict) -> None:
@@ -199,7 +205,8 @@ def save_config(cfg: dict) -> None:
     # config.json behind, and load_config() then silently reset every setting
     # to defaults. Same guarantee _write_auth_key() gives auth_key.json.
     from .atomicio import write_json
-    write_json(CONFIG_PATH, cfg)
+    with _SAVE_LOCK:
+        write_json(CONFIG_PATH, cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -230,16 +237,25 @@ def load_window_geometry() -> dict:
 
 
 def save_window_geometry(width, height, left, top, maximized) -> None:
+    # Validate BEFORE touching the file: a malformed resize event used to
+    # truncate the saved geometry (open("w") runs before int() raised). The
+    # write itself is atomic, matching the config.json guarantee.
     try:
+        record = {
+            "width": int(width), "height": int(height),
+            "left": int(left) if left is not None else None,
+            "top": int(top) if top is not None else None,
+            "maximized": bool(maximized),
+        }
+        if not record["width"] or not record["height"]:
+            return
+    except (TypeError, ValueError):
+        return
+    try:
+        from .atomicio import write_json
         os.makedirs(CUBEON_HOME, exist_ok=True)
-        with open(GEOMETRY_PATH, "w") as f:
-            json.dump({
-                "width": int(width), "height": int(height),
-                "left": int(left) if left is not None else None,
-                "top": int(top) if top is not None else None,
-                "maximized": bool(maximized),
-            }, f)
-    except (OSError, TypeError, ValueError):
+        write_json(GEOMETRY_PATH, record)
+    except OSError:
         pass  # a lost geometry save must never break a resize handler
 
 
@@ -383,9 +399,9 @@ def stable_secret() -> str:
 
 
 def validate_username(username: str) -> tuple[bool, str]:
-    if not username or not (3 <= len(username) <= 16):
+    if not isinstance(username, str) or not (3 <= len(username) <= 16):
         return False, "Username must be 3-16 characters"
-    if not re.match(r"^[A-Za-z0-9_]+$", username):
+    if not re.fullmatch(r"[A-Za-z0-9_]+", username):
         return False, "Only letters, numbers, and underscores allowed"
     return True, ""
 

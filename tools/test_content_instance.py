@@ -88,5 +88,43 @@ check("delete_content removes it from the instance", la3 == [], str(la3))
 c.sync_content_to_game(*A)
 check("and the next launch stages nothing", staged() == [])
 
+from pathlib import Path
+from unittest.mock import patch
+from cubeon import mods
+
+missing_profile = mods.resolve_profile_dir("not-installed", "fabric")
+check("mod scan is read-only", mods.list_mods("not-installed", "fabric") == []
+      and not os.path.exists(missing_profile))
+check("content scan is read-only", c.list_content("resourcepack", "not-installed", loader="fabric") == []
+      and not os.path.exists(missing_profile))
+for copying in (False, True):
+    name = "SameCopy.zip" if copying else "SameLink.zip"
+    for profile, data in ((A, b"first"), (B, b"second")):
+        Path(c.profile_dir("resourcepack", *profile), name).write_bytes(data)
+    with patch.object(c.os, "link", side_effect=OSError("copy fallback")) if copying else patch.object(c.os, "link", wraps=c.os.link):
+        c._sync_content_type("resourcepack", *A)
+        c._sync_content_type("resourcepack", *B)
+        check(f"same filename switches bytes (copy={copying})",
+              Path(game, name).read_bytes() == b"second")
+        c._sync_content_type("resourcepack", *A)
+        check(f"same filename switches back (copy={copying})",
+              Path(game, name).read_bytes() == b"first")
+
+source = Path(_home, "Interrupted.zip")
+source.write_bytes(b"complete payload")
+def partial_copy(src, dst):
+    Path(dst).write_bytes(b"partial")
+    raise OSError("copy interrupted")
+with patch.object(c.shutil, "copyfile", side_effect=partial_copy):
+    try:
+        c._store_entry("resourcepack", str(source))
+    except OSError:
+        pass
+check("failed store copy never publishes partial final bytes",
+      not Path(c.store_dir("resourcepack"), source.name).exists())
+check("failed store copy cleans unique temporary sibling",
+      not any(n.startswith(".store-") for n in os.listdir(c.store_dir("resourcepack"))))
+check("retry stores complete bytes", Path(c._store_entry("resourcepack", str(source))).read_bytes() == source.read_bytes())
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

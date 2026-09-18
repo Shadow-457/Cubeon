@@ -1185,5 +1185,238 @@ check("chat marks a conversation read while it is open",
       "mark_read" in _chat_src,
       "without mark_read the unread badge never clears when a friend is selected")
 
+print("\n13. window, debounce, preview and animator regressions")
+import ast
+import base64
+import io
+import textwrap
+import threading
+from unittest.mock import patch
+
+
+def _ui_functions(source, names, scope, prelude=""):
+    nodes = {n.name: n for n in ast.walk(ast.parse(source))
+             if isinstance(n, ast.FunctionDef) and n.name in names}
+    body = prelude + "\n" + "\n".join(ast.unparse(nodes[name]) for name in names)
+    body += "\nreturn locals()"
+    exec("def _build_probe():\n" + textwrap.indent(body, "    "), scope)
+    return scope["_build_probe"]()
+
+
+class _ManualTimer:
+    def __init__(self, interval, function, args=(), kwargs=None):
+        self.function, self.args, self.kwargs = function, args, kwargs or {}
+        self.cancelled = False
+
+    def start(self):
+        pass
+
+    def cancel(self):
+        self.cancelled = True
+
+    def fire(self):
+        self.function(*self.args, **self.kwargs)
+
+
+class _QueuedThread:
+    jobs = []
+
+    def __init__(self, target, args=(), **kwargs):
+        self.target, self.args = target, args
+
+    def start(self):
+        self.jobs.append(self)
+
+    def run(self):
+        self.target(*self.args)
+
+
+try:
+    _events = []
+    _window_scope = {
+        "threading": types.SimpleNamespace(Timer=lambda *args: (_events.append("timer") or _ManualTimer(*args))),
+        "_save_geometry_now": lambda: _events.append("save"),
+        "_rpc": types.SimpleNamespace(clear=lambda: _events.append("clear"),
+                                      close=lambda: _events.append("close")),
+        "friends_service": types.SimpleNamespace(stop=lambda: _events.append("stop")),
+    }
+    _window_probe = _ui_functions(_main_src, ["_on_window_event"], _window_scope,
+                                 "_geometry_timer = None")
+    for _kind in (ft.WindowEventType.RESIZED, ft.WindowEventType.MOVE,
+                  ft.WindowEventType.MAXIMIZE, "resized", "WindowEventType.MOVE"):
+        _window_probe["_on_window_event"](types.SimpleNamespace(type=_kind))
+    _window_probe["_on_window_event"](types.SimpleNamespace(type=ft.WindowEventType.CLOSE))
+    check("enum and legacy window events reach handlers", _events == ["timer"] * 5 + ["save", "clear", "close", "stop"])
+    _closure = dict(zip(_window_probe["_on_window_event"].__code__.co_freevars,
+                        (c.cell_contents for c in _window_probe["_on_window_event"].__closure__)))
+    _closure["_geometry_timer"].fire()
+    check("resize/move/maximize schedule geometry persistence", _events[-1] == "save")
+
+    _names = {"username": "Initial"}
+    _left, _right = ft.TextField(value="Alice"), ft.TextField(value="Initial")
+    _saved, _refreshed = [], []
+    _name_core = types.SimpleNamespace(
+        validate_username=lambda value: (len(value) >= 3, "Too short"),
+        save_config=lambda value: _saved.append(dict(value)),
+        sync_local_skin_to_csl=lambda value: None,
+        sync_local_cape_to_csl=lambda value: None, name_contested=lambda: False)
+    _name_scope = dict(core=_name_core, cfg=_names, username_field=_left,
+                       profile_username_field=_right, friends_service=None,
+                       refresh_avatars=lambda: None, set_status=lambda value: None,
+                       time=time, logging=app.logging,
+                       thread_safe_ui=types.SimpleNamespace(refresh=_refreshed.append),
+                       threading=types.SimpleNamespace(Timer=_ManualTimer, Thread=_QueuedThread,
+                                                       Lock=threading.Lock, RLock=threading.RLock))
+    _name_probe = _ui_functions(_main_src, ["_name_validate_into", "_publish_username",
+        "_cancel_pending_name", "_fire_pending_name", "on_name_keystroke"], _name_scope,
+        '_name_state = {"timer": None, "pending": None, "field": None, "generation": 0}\n'
+        '_name_lock = threading.RLock()\n_name_sync_lock = threading.Lock()')
+    _name_probe["on_name_keystroke"](_left)
+    _old_timer = _name_probe["_name_state"]["timer"]
+    _name_probe["_fire_pending_name"]()
+    check("blur cancels the pending username timer", _old_timer.cancelled and _names["username"] == "Alice")
+    _right.value = "Bobby"
+    _name_probe["on_name_keystroke"](_right)
+    _new_timer = _name_probe["_name_state"]["timer"]
+    _old_timer.fire()
+    check("cancelled timer cannot flush a newer edit", _names["username"] == "Alice"
+          and _name_probe["_name_state"]["timer"] is _new_timer)
+    _new_timer.fire()
+    check("newest username timer commits and mirrors", _names["username"] == _left.value == "Bobby")
+    _entered, _release, _committed = threading.Event(), threading.Event(), threading.Event()
+    def _slow_sync(value):
+        if value["username"] == "Carol":
+            _entered.set()
+            _release.wait(3)
+        value["csl_synced_name"] = value["username"]
+    def _record_name(value):
+        _saved.append(dict(value))
+        if value["username"] == "David":
+            _committed.set()
+    _name_core.sync_local_skin_to_csl = _slow_sync
+    _name_core.save_config = _record_name
+    _left.value = "Carol"
+    _name_probe["on_name_keystroke"](_left)
+    _older = threading.Thread(target=_name_probe["_fire_pending_name"])
+    _older.start()
+    check("older username publish reaches blocked CSL work", _entered.wait(2))
+    _right.value = "David"
+    _name_probe["on_name_keystroke"](_right)
+    _newer = threading.Thread(target=_name_probe["_fire_pending_name"])
+    _newer.start()
+    check("new config commits while old CSL publish is blocked", _committed.wait(2))
+    _release.set()
+    _older.join(3)
+    _newer.join(3)
+    check("stale username worker cannot overwrite sibling or config", not _older.is_alive()
+          and not _newer.is_alive() and _left.value == _right.value == _names["username"] == "David"
+          and _names.get("csl_synced_name") == "David")
+    check("username hot paths use control refresh only", all("page.update()" not in _fn_src(_main_src, name)
+          for name in ("_publish_username", "on_name_keystroke")))
+
+    _dimensions = {}
+    _width, _height = ft.TextField(value="-1"), ft.TextField(value="0")
+    _settings_probe = _ui_functions(_main_src, ["save_settings"], dict(
+        cfg=_dimensions, width_field=_width, height_field=_height,
+        java_path_field=ft.TextField(value=""), core=_name_core,
+        set_status=lambda value: None, thread_safe_ui=_name_scope["thread_safe_ui"]))
+    _name_core.save_config = lambda value: None
+    _settings_probe["save_settings"]()
+    check("game window dimensions clamp nonpositive input", _dimensions["width"] == 320 and _dimensions["height"] == 240)
+    _width.value, _height.value = "999999", "999999"
+    _settings_probe["save_settings"]()
+    check("game window dimensions clamp excessive input", _dimensions["width"] == 7680 and _dimensions["height"] == 4320)
+    _width.value, _height.value = "invalid", "900"
+    _settings_probe["save_settings"]()
+    check("window dimensions validate independently and mirror", _width.value == "1280" and _height.value == "900")
+
+    _slider = next(c for c in walk(srv_settings) if isinstance(c, ft.Slider))
+    _ram_saves = []
+    _updates_before = sp.update_calls
+    with patch.object(core, "save_config", side_effect=lambda cfg: _ram_saves.append(dict(cfg))):
+        for _value in (1024, 2048, 3072, -1, 999999):
+            _slider.value = _value
+            _slider.on_change(None)
+        check("server RAM ticks neither save nor repaint page", not _ram_saves and sp.update_calls == _updates_before)
+        _slider.on_change_end(None)
+    check("server RAM gesture commits once within hardware bounds", len(_ram_saves) == 1
+          and _ram_saves[0]["server_ram_mb"] == _slider.max)
+
+    _skin_source = open(os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
+    for _cape in (False, True):
+        _QueuedThread.jobs.clear()
+        _painted = []
+        _preview, _status = ft.Image(src="icon.svg", visible=False), ft.Text("")
+        _state_name = "_cape_preview_state" if _cape else "_preview_state"
+        _lock_name = "_cape_preview_lock" if _cape else "_preview_lock"
+        _request = "render_cape_preview_for" if _cape else "render_preview_for"
+        _worker = "_render_big_cape_preview" if _cape else "_render_big_preview"
+        _preview_scope = dict(os=os, base64=base64, open=lambda *a: io.BytesIO(b"preview"),
+            core=types.SimpleNamespace(SKINS_DIR="unused", CAPES_DIR="unused",
+                render_local_skin_preview=lambda *a, **k: None, render_cape_preview=lambda *a, **k: None),
+            custom_preview=_preview, cape_preview=_preview, upload_status=_status, cape_status=_status,
+            DEFAULT_CAPE_PREVIEW_SRC="capes/cubeon_cape_preview.png",
+            thread_safe_ui=types.SimpleNamespace(refresh=_painted.append),
+            threading=types.SimpleNamespace(Thread=_QueuedThread, RLock=threading.RLock))
+        _preview_probe = _ui_functions(_skin_source,
+            [_worker, _request] + (["show_default_cape_preview"] if _cape else []), _preview_scope,
+            f'{_state_name} = {{"running": False, "queued": None, "generation": 0}}\n{_lock_name} = threading.RLock()')
+        _preview_probe[_request]("older.png")
+        _preview_probe[_request]("newest.png")
+        _QueuedThread.jobs.pop(0).run()
+        check(f"{'cape' if _cape else 'skin'} stale preview does not paint", not _painted)
+        _QueuedThread.jobs.pop(0).run()
+        check(f"{'cape' if _cape else 'skin'} newest preview refreshes exact image", _painted == [_preview]
+              and _preview.visible and _preview.src == base64.b64encode(b"preview").decode("ascii"))
+        _preview_probe[_request]("pending.png")
+        if _cape:
+            _preview_probe["show_default_cape_preview"]()
+        else:
+            _preview_probe[_request](None)
+        _paint_count = len(_painted)
+        _QueuedThread.jobs.pop(0).run()
+        check(f"{'default cape' if _cape else 'removed skin'} survives old preview completion",
+              len(_painted) == _paint_count and (_preview.src == "capes/cubeon_cape_preview.png" if _cape else not _preview.visible))
+
+    from ui.seasonal_ui import SeasonalAnimator
+    _anim = SeasonalAnimator()
+    _anim.add_pet(ft.Container())
+    _frame_entered, _frame_release, _stop_called = threading.Event(), threading.Event(), threading.Event()
+    _active_frames = {"current": 0, "max": 0}
+    def _busy_frame():
+        _active_frames["current"] += 1
+        _active_frames["max"] = max(_active_frames["max"], _active_frames["current"])
+        _frame_entered.set()
+        _frame_release.wait(3)
+        _active_frames["current"] -= 1
+    _anim._frame = _busy_frame
+    _anim.start()
+    check("animator enters a running frame", _frame_entered.wait(2))
+    _first_thread, _first_stop = _anim._thread, _anim._stop
+    def _stop_animator():
+        _stop_called.set()
+        _anim.stop()
+    _stopper = threading.Thread(target=_stop_animator)
+    _stopper.start()
+    _stop_called.wait(2)
+    _first_stop.wait(2)
+    _restarters = [threading.Thread(target=_anim.start) for _ in range(3)]
+    for _thread in _restarters:
+        _thread.start()
+    check("animator stop flags and retains busy ticker", _first_stop.is_set() and _first_thread.is_alive()
+          and _anim._thread is _first_thread)
+    _frame_release.set()
+    _stopper.join(3)
+    for _thread in _restarters:
+        _thread.join(3)
+    check("concurrent animator restarts create one replacement ticker", not _first_thread.is_alive()
+          and _anim.running and _anim._thread is not _first_thread and _active_frames["max"] == 1)
+    _anim.stop()
+    _anim.stop()
+    check("animator stop joins and is idempotent", not _anim.running)
+except Exception:
+    import traceback
+    check("focused UI regressions complete", False, traceback.format_exc())
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

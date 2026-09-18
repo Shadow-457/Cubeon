@@ -31,6 +31,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -120,6 +121,23 @@ if os.name != "nt":
     check("identity.json is 0600", mode == "0o600", f"mode was {mode}")
 friends.clear_identity()
 check("clear removes the identity", friends.load_identity() is None)
+
+
+# --------------------------------------------------------------------------
+print("\nminecraft username validation helper")
+# --------------------------------------------------------------------------
+check("accepts a normal username", friends.minecraft_username("Steve") == "Steve")
+check("accepts digits + underscore", friends.minecraft_username("Xx_Pro_99xX") == "Xx_Pro_99xX")
+check("preserves case", friends.minecraft_username("BlueFox") == "BlueFox")
+check("accepts min length", friends.minecraft_username("abc") == "abc")
+check("accepts max length", friends.minecraft_username("a" * 16) == "a" * 16)
+check("rejects too short", friends.minecraft_username("ab") == "")
+check("rejects too long", friends.minecraft_username("a" * 17) == "")
+check("rejects spaces", friends.minecraft_username("blue fox") == "")
+check("rejects punctuation", friends.minecraft_username("blue.fox") == "")
+check("rejects empty", friends.minecraft_username("") == "")
+check("rejects None", friends.minecraft_username(None) == "")
+check("rejects non-string", friends.minecraft_username(42) == "")
 
 
 # --------------------------------------------------------------------------
@@ -251,6 +269,183 @@ check("send with no socket returns False", client.send_dm("Ruby", "x") is False)
 
 
 # --------------------------------------------------------------------------
+print("\nminecraft username metadata (T_METADATA)")
+# --------------------------------------------------------------------------
+client2 = friends.FriendsClient()
+client2._identity = friends.load_identity()
+sent_meta = []
+
+
+class _FakeWS2:
+    def send(self, data):
+        sent_meta.append(json.loads(data))
+
+    def close(self):
+        pass
+
+
+client2._ws = _FakeWS2()
+client2._connected.set()
+
+check("set_minecraft_username rejects invalid values",
+      client2.set_minecraft_username("no!") is False
+      and client2.set_minecraft_username(None) is False
+      and client2.set_minecraft_username("ab") is False)
+check("rejected values send nothing", sent_meta == [])
+
+check("set_minecraft_username accepts a valid username",
+      client2.set_minecraft_username("Steve") is True)
+for _ in range(400):
+    if not client2._metadata_sending:
+        break
+    time.sleep(0.005)
+check("T_METADATA frame sent for a valid username",
+      any(m.get("t") == friends.T_METADATA and m.get("minecraft_username") == "Steve"
+          for m in sent_meta))
+
+steve_meta_frames = len([m for m in sent_meta if m.get("t") == friends.T_METADATA])
+check("unchanged username skips the write", client2.set_minecraft_username("Steve") is True)
+check("no duplicate frame for unchanged username",
+      len([m for m in sent_meta if m.get("t") == friends.T_METADATA]) == steve_meta_frames)
+
+client2._ws = None
+check("set_minecraft_username with no socket still remembers the value",
+      client2.set_minecraft_username("Alex") is True)
+client2._ws = _FakeWS2()
+check("reconnect replay publishes the remembered username", client2._on_open(client2._ws) is None)
+check("hello carries the remembered username",
+      sent_meta[-1].get("t") == friends.T_HELLO
+      and sent_meta[-1].get("minecraft_username") == "Alex")
+
+# Identity never changes due to a username edit: the hello name is the handle.
+check("username edits never touch the routing handle",
+      sent_meta[-1].get("name") == "BlueFox")
+
+
+# --------------------------------------------------------------------------
+print("\nroster peer metadata caching (offline labels)")
+# --------------------------------------------------------------------------
+client3 = friends.FriendsClient()
+client3._identity = friends.load_identity()
+received_meta = []
+client3.on("metadata", lambda m: received_meta.append(m))
+
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_ROSTER,
+    "friends": [{"name": "Ruby", "uid": "000000000002",
+                 "minecraft_username": "RubyName", "online": True}],
+    "requests_in": ["Player_99999999"],
+    "requests_in_details": [{"name": "Player_99999999", "uid": "000000000009",
+                             "minecraft_username": "PendingGuy"}],
+    "requests_out": [],
+    "requests_out_details": [],
+    "groups": [],
+}))
+meta = client3.roster.get("peer_metadata", {})
+check("roster friend metadata cached by canonical handle",
+      meta.get("ruby") == {"uid": "000000000002", "minecraft_username": "RubyName"})
+check("roster pending-request metadata cached",
+      meta.get("player_99999999", {}).get("minecraft_username") == "PendingGuy")
+check("rich request details retained on the roster",
+      client3.roster.get("requests_in_details", [{}])[0].get("uid") == "000000000009")
+check("roster cached to disk with metadata",
+      friends.load_cached_roster().get("peer_metadata", {}).get("ruby", {}).get("uid")
+      == "000000000002")
+
+changed = []
+client3.on("metadata", lambda m: changed.append(m))
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_METADATA, "name": "Ruby", "uid": "000000000002",
+    "minecraft_username": "RenamedRuby"}))
+check("metadata frame dispatched to handlers",
+      changed and changed[-1].get("minecraft_username") == "RenamedRuby")
+check("metadata frame merged into the cache before callbacks",
+      client3.roster["peer_metadata"]["ruby"]["minecraft_username"] == "RenamedRuby")
+
+# An unchanged metadata frame is a no-op repaint-wise (cache compare), but the
+# event still fires - the server echoes it to every peer, dedupe is by value.
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_METADATA, "name": "Ruby", "uid": "000000000002",
+    "minecraft_username": "RenamedRuby"}))
+check("unchanged metadata frame leaves the cache identical",
+      client3.roster["peer_metadata"]["ruby"]["minecraft_username"] == "RenamedRuby")
+
+# Invalid payloads never poison the cache.
+client3._on_message(client3._ws, json.dumps({"t": friends.T_METADATA, "name": "Ruby"}))
+client3._on_message(client3._ws, json.dumps({"t": friends.T_METADATA, "minecraft_username": "x"}))
+client3._on_message(client3._ws, "not json")
+check("invalid/missing metadata frames cannot clear or corrupt the cache",
+      client3.roster["peer_metadata"]["ruby"]["minecraft_username"] == "RenamedRuby"
+      and client3.roster["peer_metadata"]["ruby"]["uid"] == "000000000002")
+
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_METADATA, "name": "Ruby", "uid": "000000000002"}))
+check("partial UID update preserves known username",
+      client3.roster["peer_metadata"]["ruby"]["minecraft_username"] == "RenamedRuby")
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_METADATA, "name": "Ruby", "minecraft_username": "NewestRuby"}))
+check("partial username update preserves known UID",
+      client3.roster["peer_metadata"]["ruby"] == {
+          "uid": "000000000002", "minecraft_username": "NewestRuby"})
+presence_seen = []
+client3.on("presence", lambda m: presence_seen.append(
+    dict(next(f for f in client3.roster["friends"] if f["name"] == "Ruby"))))
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_PRESENCE, "name": "ruby", "online": True,
+    "version": "1.21.1", "status": "playing"}))
+check("presence is merged before callbacks",
+      presence_seen[-1]["online"] is True
+      and presence_seen[-1]["version"] == "1.21.1")
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_PRESENCE, "name": "Ruby", "online": False,
+    "version": None, "status": None}))
+check("offline presence clears playing fields explicitly",
+      presence_seen[-1]["online"] is False
+      and presence_seen[-1]["version"] is None
+      and presence_seen[-1]["status"] is None)
+check("presence changes persist to the roster cache",
+      next(f for f in friends.load_cached_roster()["friends"]
+           if f["name"] == "Ruby")["online"] is False)
+friend_count = len(client3.roster["friends"])
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_PRESENCE, "name": "UnknownPeer", "online": True}))
+check("presence never creates a friendship",
+      len(client3.roster["friends"]) == friend_count)
+
+# Two accounts with identical usernames remain distinct accounts.
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_ROSTER,
+    "friends": [{"name": "Player_11111111", "uid": "000000000001",
+                 "minecraft_username": "Twin"},
+                {"name": "Player_22222222", "uid": "000000000002",
+                 "minecraft_username": "Twin"}],
+    "requests_in": [], "requests_in_details": [],
+    "requests_out": [], "requests_out_details": [],
+    "groups": [{"gid": "g_1", "name": "Room",
+                "members": ["Player_11111111"],
+                "member_details": [{"name": "Player_11111111",
+                                    "uid": "000000000001",
+                                    "minecraft_username": "Twin"}]}],
+}))
+twin_meta = client3.roster["peer_metadata"]
+check("duplicate usernames stay distinct accounts (handle-keyed cache)",
+      twin_meta.get("player_11111111", {}).get("uid") == "000000000001"
+      and twin_meta.get("player_22222222", {}).get("uid") == "000000000002"
+      and twin_meta.get("player_11111111", {}).get("minecraft_username") == "Twin"
+      and twin_meta.get("player_22222222", {}).get("minecraft_username") == "Twin")
+check("group member_details feed the metadata cache",
+      twin_meta.get("player_11111111", {}).get("minecraft_username") == "Twin")
+
+# Legacy worker payloads (no metadata fields at all) keep working.
+client3._on_message(client3._ws, json.dumps({
+    "t": friends.T_ROSTER, "friends": [{"name": "OldWorker"}],
+    "requests_in": [], "requests_out": [], "groups": []}))
+check("older worker payload without metadata still caches",
+      client3.roster["friends"][0]["name"] == "OldWorker"
+      and "oldworker" not in client3.roster["peer_metadata"])
+
+
+# --------------------------------------------------------------------------
 print("\nprotocol parity with worker/cubeon-friends.js")
 # --------------------------------------------------------------------------
 with open(WORKER_SRC, "r", encoding="utf-8") as f:
@@ -285,6 +480,31 @@ check("worker mirrors the 12-digit uid format",
 check("worker resolves an add-by-uid frame",
       "nameByUid" in worker_src and "msg.uid" in worker_src,
       "the worker's onAdd must accept {uid} as well as {name}")
+
+# Username metadata parity: the T_METADATA frame must be handled server-side,
+# persisted as a nullable column with no uniqueness constraint, replayed on
+# hello, and fan-out to friends AND pending-request counterparts.
+check("worker handles the T_METADATA frame",
+      "METADATA" in worker_src and "onMetadata" in worker_src,
+      "worker must handle the metadata frame")
+check("worker persists minecraft_username as a nullable no-unique column",
+      "minecraft_username TEXT" in worker_src,
+      "worker must carry a nullable minecraft_username column")
+check("worker skips unchanged metadata writes",
+      "row.minecraft_username === username" in worker_src,
+      "worker must compare before writing metadata")
+check("worker notifies friends and pending counterparts of metadata changes",
+      "broadcastMetadata" in worker_src and "FROM requests WHERE requester=? OR target=?" in worker_src,
+      "metadata fan-out must include pending-request counterparts")
+check("worker validates metadata with the username charset",
+      "function minecraftUsername" in worker_src,
+      "worker must validate minecraft_username")
+check("worker enriches identity-bearing events with uid + username",
+      "identityOf" in worker_src and "enrichIdentity" in worker_src,
+      "worker must attach uid/minecraft_username to identity events")
+check("worker keeps existing routing handles immutable",
+      "UPDATE names SET minecraft_username=?" in worker_src,
+      "metadata update must write only the username column")
 
 # A refused DM must TELL the sender why (the UI renders optimistically and
 # only confirms delivery on the echo - a silent drop looks like being ignored).

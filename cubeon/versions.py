@@ -18,6 +18,36 @@ from . import net
 from .paths import MINECRAFT_DIR
 
 
+_MAX_INHERITS_DEPTH = 10
+
+
+def _plain_filename(name: str) -> bool:
+    return bool(name) and name not in (".", "..") \
+        and os.sep not in name and not (os.altsep and os.altsep in name)
+
+
+def _load_version_json(folder_path: str, filename: str) -> "dict | None":
+    try:
+        with open(os.path.join(folder_path, filename), "r",
+                  encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _client_jar_path(folder_path: str, data: dict) -> "str | None":
+    candidates = [os.path.basename(os.path.normpath(folder_path)) + ".jar"]
+    data_id = data.get("id")
+    if isinstance(data_id, str) and _plain_filename(data_id):
+        candidates.append(data_id + ".jar")
+    for name in dict.fromkeys(candidates):
+        path = os.path.join(folder_path, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
 def _client_jar_problem(folder_path: str, data: dict, *,
                         want_sha1: bool = False) -> "str | None":
     """Is this version folder's client jar usable? Returns None when it is,
@@ -26,26 +56,65 @@ def _client_jar_problem(folder_path: str, data: dict, *,
     corrupted', because the old scan treated any jar-bearing folder as
     complete. A truncated jar has a size, a valid name, and garbage bytes.
 
-    Checks, cheapest first: jar exists (unless the json inheritsFrom another
-    version - loader profiles reuse the base jar and ship none of their own),
-    size matches the manifest's downloads.client.size when the json records
-    it, the file starts with a zip magic (the game cannot open anything
-    else), and optionally the manifest sha1 (post-install only - hashing
-    every jar at every scan is too slow for a dropdown refresh).
+    Checks, cheapest first: the canonical client jar exists (see
+    _client_jar_path - a decoy jar must not stand in for it), size matches
+    the manifest's downloads.client.size when the json records it, the file
+    starts with a zip magic (the game cannot open anything else), and
+    optionally the manifest sha1 (post-install only - hashing every jar at
+    every scan is too slow for a dropdown refresh).
+
+    A json with inheritsFrom is a loader profile: it ships no jar of its
+    own, so the chain is walked instead (bounded depth, cycle-detected) and
+    the BASE version's client jar is verified - a loader profile whose base
+    is missing or broken is incomplete, not installed.
     """
-    if data.get("inheritsFrom"):
-        return None      # loader profile: no jar of its own to verify
-    expected = (data.get("downloads") or {}).get("client") or {}
-    jar_candidates = [f for f in os.listdir(folder_path) if f.endswith(".jar")]
-    if not jar_candidates:
+    if not isinstance(data, dict):
+        return "This version's metadata is unreadable."
+    versions_dir = os.path.dirname(os.path.abspath(folder_path))
+    seen: set[str] = set()
+    for _ in range(_MAX_INHERITS_DEPTH + 1):
+        downloads = data.get("downloads", {})
+        if not isinstance(downloads, dict):
+            return "This version's download information is invalid."
+        expected = downloads.get("client", {})
+        if not isinstance(expected, dict):
+            return "This version's download information is invalid."
+        if "size" in expected and (type(expected["size"]) is not int
+                                   or expected["size"] <= 0):
+            return "This version's download size is invalid."
+        if "url" in expected and not isinstance(expected["url"], str):
+            return "This version's download address is invalid."
+        if "sha1" in expected and (not isinstance(expected["sha1"], str)
+                                   or not re.fullmatch(r"[a-fA-F0-9]{40}", expected["sha1"])):
+            return "This version's download checksum is invalid."
+        if "inheritsFrom" not in data:
+            break
+        base_id = data.get("inheritsFrom")
+        if not isinstance(base_id, str) or not _plain_filename(base_id) \
+                or base_id in seen:
+            return ("This version's loader setup is broken (it references "
+                    "itself). Delete this version and install it again.")
+        seen.add(base_id)
+        base_folder = os.path.join(versions_dir, base_id)
+        base_data = _load_version_json(base_folder, base_id + ".json")
+        if base_data is None:
+            return (f"This version needs Minecraft {base_id}, which is "
+                    "missing or broken. Install that version first, or "
+                    "delete and reinstall this one.")
+        folder_path, data = base_folder, base_data
+    else:
+        return ("This version's loader setup is broken (it references "
+                "itself). Delete this version and install it again.")
+    jar_path = _client_jar_path(folder_path, data)
+    if jar_path is None:
         return "Missing client .jar. This install didn't finish downloading."
-    jar_path = os.path.join(folder_path, jar_candidates[0])
     try:
         actual_size = os.path.getsize(jar_path)
     except OSError as ex:
         return f"Client jar is unreadable: {ex}"
     exp_size = expected.get("size")
-    if isinstance(exp_size, int) and exp_size > 0 and actual_size != exp_size:
+    if isinstance(exp_size, int) and not isinstance(exp_size, bool) \
+            and exp_size > 0 and actual_size != exp_size:
         return (f"Client jar is incomplete ({actual_size // 1024} of "
                 f"{exp_size // 1024} KB) - the download was interrupted. "
                 "Delete this version and install it again.")
@@ -120,19 +189,35 @@ def get_installed_versions() -> list[dict]:
         if not os.path.isdir(folder_path):
             continue
 
-        json_files = [f for f in os.listdir(folder_path) if f.endswith(".json")]
+        json_files = sorted(f for f in os.listdir(folder_path)
+                            if f.endswith(".json"))
         jar_files = [f for f in os.listdir(folder_path) if f.endswith(".jar")]
         if not json_files:
             continue  # not a version folder at all, nothing to go on
 
-        json_path = os.path.join(folder_path, json_files[0])
+        canonical_json = folder + ".json"
+        json_path = os.path.join(
+            folder_path,
+            canonical_json if canonical_json in json_files else json_files[0])
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             continue
+        if not isinstance(data, dict):
+            found[folder] = {
+                "id": folder,
+                "display_name": f"{suggest_friendly_name(folder, folder)} (incomplete)",
+                "type": "release",
+                "folder": folder,
+                "incomplete": True,
+                "issue": "This version's metadata is unreadable.",
+            }
+            continue
 
         real_id = data.get("id", folder)
+        if not isinstance(real_id, str):
+            real_id = folder
         if real_id in found:
             continue  # already picked up by the strict scan
 
@@ -143,10 +228,11 @@ def get_installed_versions() -> list[dict]:
         is_complete = has_jar or bool(inherits)
 
         if not is_complete:
+            vtype = data.get("type")
             found[folder] = {
                 "id": folder,
                 "display_name": f"{suggest_friendly_name(real_id, folder)} (incomplete)",
-                "type": data.get("type", "release"),
+                "type": vtype if isinstance(vtype, str) else "release",
                 "folder": folder,
                 "incomplete": True,
                 "issue": "Missing client .jar. This install didn't finish downloading.",
@@ -155,18 +241,24 @@ def get_installed_versions() -> list[dict]:
 
         # The launch command needs <folder>/<folder>.json and <folder>/<folder>.jar
         # to exist (that's how mll resolves the version internally), so if this
-        # folder's json/jar aren't named after the folder, normalize it.
+        # folder's json/jar aren't named after the folder, normalize it. The
+        # jar is only adopted when it is named after the version's own id -
+        # an arbitrary first-picked jar could be an unrelated decoy.
         expected_json = os.path.join(folder_path, folder + ".json")
         expected_jar = os.path.join(folder_path, folder + ".jar")
         if not os.path.isfile(expected_json):
             shutil.copy(json_path, expected_json)
-        if has_jar and not os.path.isfile(expected_jar):
-            shutil.copy(os.path.join(folder_path, jar_files[0]), expected_jar)
+        if not os.path.isfile(expected_jar) and isinstance(real_id, str) \
+                and _plain_filename(real_id):
+            id_jar = os.path.join(folder_path, real_id + ".jar")
+            if os.path.isfile(id_jar):
+                shutil.copy(id_jar, expected_jar)
 
+        vtype = data.get("type")
         found[folder] = {
             "id": folder,  # use folder name as launch id since that's what mll needs
             "display_name": suggest_friendly_name(real_id, folder),
-            "type": data.get("type", "release"),
+            "type": vtype if isinstance(vtype, str) else "release",
             "folder": folder,
         }
 
@@ -179,17 +271,17 @@ def get_installed_versions() -> list[dict]:
         if entry.get("incomplete"):
             continue
         folder_path = os.path.join(versions_dir, entry["folder"])
-        jsons = [f for f in os.listdir(folder_path) if f.endswith(".json")] \
+        jsons = sorted(f for f in os.listdir(folder_path)
+                       if f.endswith(".json")) \
             if os.path.isdir(folder_path) else []
         if not jsons:
             found[vid] = _demote_incomplete(
                 entry, "This version's metadata is missing.")
             continue
-        try:
-            with open(os.path.join(folder_path, jsons[0]),
-                      "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (json.JSONDecodeError, OSError):
+        canonical_json = entry["folder"] + ".json"
+        json_name = canonical_json if canonical_json in jsons else jsons[0]
+        data = _load_version_json(folder_path, json_name)
+        if data is None:
             found[vid] = _demote_incomplete(
                 entry, "This version's metadata is unreadable.")
             continue
@@ -354,6 +446,23 @@ def get_latest_release() -> str:
     return _manifest()["latest"]["release"]
 
 
+def _jar_sizes(folder: str) -> "dict[str, int]":
+    """Name -> size of every .jar in a version folder, snapshotted BEFORE an
+    install attempt. A failed attempt diffs against this so it can remove
+    only the files it itself created or clobbered."""
+    if not os.path.isdir(folder):
+        return {}
+    sizes: dict[str, int] = {}
+    for name in os.listdir(folder):
+        if not name.endswith(".jar"):
+            continue
+        try:
+            sizes[name] = os.path.getsize(os.path.join(folder, name))
+        except OSError:
+            continue
+    return sizes
+
+
 def install_version(version_id: str, progress_cb, status_cb, max_cb) -> None:
     """progress_cb(int), status_cb(str), max_cb(int) - mirrors mll's callback dict.
 
@@ -362,46 +471,49 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb) -> None:
     list then reported as INSTALLED (the exact 2026-09-17 report). Now:
       - after mll finishes, the jar is verified against the manifest's size
         AND sha1 before this returns - a bad byte is a failure, not a launch;
-      - if mll raises (net died mid-install), the partial jar is removed so
-        nothing can mistake the folder for a complete install, then a
-        readable error is re-raised (retrying re-downloads from scratch;
-        partial Minecraft files are worthless, unlike resumable mod packs).
+      - if mll raises (net died mid-install), the jar files this attempt
+        created or clobbered are removed so nothing can mistake the folder
+        for a complete install, then a readable error is re-raised (retrying
+        re-downloads from scratch; partial Minecraft files are worthless,
+        unlike resumable mod packs). Jars that existed before the attempt
+        with an unchanged size - a previously valid client, an unrelated
+        hand-placed jar - are never touched: a failed reinstall must not
+        destroy a working install (or the user's own files).
     """
     callback = {"setStatus": status_cb, "setProgress": progress_cb, "setMax": max_cb}
     folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
     json_path = os.path.join(folder, version_id + ".json")
-    jar_candidates = [f for f in os.listdir(folder) if f.endswith(".jar")] \
-        if os.path.isdir(folder) else []
+    jar_sizes_before = _jar_sizes(folder)
 
-    def _drop_partial_jar() -> None:
-        """Removes THIS version's truncated jar so no scan can call it
-        complete. Only ever runs on a folder this install just failed in,
-        and only when the json (if present) is parseable enough to prove the
-        jar is wrong - a hand-placed jar that matches nothing is left alone
-        unless this folder has no valid json, in which case it's ours anyway
-        (mll always writes the json before the jar)."""
-        try:
-            data = json.load(open(json_path, "r", encoding="utf-8")) \
-                if os.path.isfile(json_path) else {}
-        except (json.JSONDecodeError, OSError):
-            data = {}
-        for cand in jar_candidates or [version_id + ".jar"]:
-            cand_path = os.path.join(folder, cand)
-            if not os.path.isfile(cand_path):
+    def _drop_attempt_jars() -> None:
+        """Removes only the jar files THIS failed attempt is responsible for:
+        new files, or a known name whose size changed (mll overwrote it with
+        a partial download - the pre-attempt bytes are gone either way).
+        Anything pre-existing and size-unchanged survives."""
+        if not os.path.isdir(folder):
+            return
+        for name in os.listdir(folder):
+            if not name.endswith(".jar"):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            if size == jar_sizes_before.get(name):
                 continue
             try:
-                os.remove(cand_path)
+                os.remove(path)
             except OSError:
                 pass  # the scan's integrity pass will still flag it
-        if data:
-            status_cb("Download interrupted - partial files cleaned up. "
-                      "Reconnect and try again.")
+        status_cb("Download interrupted - partial files cleaned up. "
+                  "Reconnect and try again.")
 
     try:
         mll.install.install_minecraft_version(version_id, MINECRAFT_DIR,
                                               callback=callback)
     except Exception as ex:
-        _drop_partial_jar()
+        _drop_attempt_jars()
         raise RuntimeError(
             f"The download was interrupted ({ex.__class__.__name__}). "
             "Your files were cleaned up - reconnect and install again.") from ex
@@ -409,16 +521,19 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb) -> None:
     # mll "succeeded" - prove it. The version json it wrote lists the exact
     # size and sha1 of the client jar; anything else is a corrupted download.
     if not os.path.isfile(json_path):
+        _drop_attempt_jars()
         raise RuntimeError(
             "The installer finished but didn't write the version metadata. "
             "Try installing again.")
     try:
-        data = json.load(open(json_path, "r", encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as ex:
+        with open(json_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError, UnicodeError) as ex:
+        _drop_attempt_jars()
         raise RuntimeError(
             f"The version metadata it downloaded is unreadable ({ex}). "
             "Delete this version and install again.") from ex
     problem = _client_jar_problem(folder, data, want_sha1=True)
     if problem:
-        _drop_partial_jar()
+        _drop_attempt_jars()
         raise RuntimeError(problem)

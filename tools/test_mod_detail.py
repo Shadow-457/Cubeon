@@ -164,6 +164,14 @@ check("non-matching version marked incompatible",
 check("primary filename parsed",
       vs[0]["filename"] == "sodium-0.6.0.jar", f"{vs[0]!r}")
 
+other = mods.get_mod_versions("sodium", mc_version="1.19.4", loader="forge")
+check("cached releases recompute compatibility for another profile",
+      [v["compatible"] for v in other] == [False, True])
+check("offline releases recompute compatibility without mutating earlier result",
+      [v["compatible"] for v in mods.get_mod_versions(
+          "sodium", mc_version="1.19.4", loader="forge", allow_network=False)] == [False, True]
+      and [v["compatible"] for v in vs] == [True, False])
+
 # ---------------------------------------------------------------------------
 print("\n2b. get_mod_download() skips a release with no downloadable file")
 # ---------------------------------------------------------------------------
@@ -179,6 +187,23 @@ net_routes({"/version": [
 _dl = mods.get_mod_download("fresh-download-project", mc_version=MC, loader=LOADER)
 check("an empty-files newest release does not hide the usable build",
       _dl and _dl["filename"] == "goodmod-1.2.jar", f"{_dl!r}")
+
+from unittest.mock import patch
+write_jar(PROFILE, "disabled-dep.jar.disabled", project_id="disabled-dep", slug="disabled-dep")
+check("disabled dependency identities are not satisfied", "disabled-dep" not in mods.installed_project_ids(MC, LOADER))
+with patch.object(mods, "required_dependencies", return_value=[{
+        "project_id": "disabled-dep", "filename": "disabled-dep.jar", "url": "dep"}]), \
+        patch.object(mods, "download_mod") as download:
+    result = mods.install_mod_with_dependencies("main", "main.jar", MC, LOADER, project_id="main")
+    check("disabled dependency is downloaded instead of skipped",
+          result["skipped"] == 0 and len(download.call_args_list) == 2)
+mods.toggle_mod(MC, LOADER, "disabled-dep.jar.disabled")
+with patch.object(mods, "required_dependencies", return_value=[{
+        "project_id": "disabled-dep", "filename": "disabled-dep.jar", "url": "dep"}]), \
+        patch.object(mods, "download_mod") as download:
+    result = mods.install_mod_with_dependencies("main", "main.jar", MC, LOADER, project_id="main")
+    check("enabled dependency is skipped", result["skipped"] == 1 and download.call_count == 1)
+mods.delete_mod(MC, LOADER, "disabled-dep.jar")
 
 # ---------------------------------------------------------------------------
 print("\n3. doctor: duplicate copies are resolved (newest wins)")
@@ -650,6 +675,154 @@ check("the proactive pass is the full online doctor",
       "check_online=True" in _main_src)
 check("proactive repair is once per profile per session",
       '_repair_state = {"done": set()' in _main_src)
+
+import types
+from ui import mods_tab as ui_mods, modpacks_tab as ui_packs
+from cubeon import icons, version_art
+
+
+def closure_env(fn):
+    return dict(zip(fn.__code__.co_freevars, [c.cell_contents for c in fn.__closure__ or ()]))
+
+
+def closure_functions(*roots):
+    found = {}
+    seen = set()
+    def visit(fn):
+        if not isinstance(fn, types.FunctionType) or id(fn) in seen:
+            return
+        seen.add(id(fn))
+        found[fn.__name__] = fn
+        for value in closure_env(fn).values():
+            visit(value)
+    for root in roots:
+        visit(root)
+    return found
+
+
+class QueuedThread:
+    queue = []
+    def __init__(self, target, args=(), kwargs=None, **kw):
+        self.run = lambda: target(*args, **(kwargs or {}))
+    def start(self):
+        self.queue.append(self.run)
+
+
+page = _FakePage()
+state = {"selected_mc_version": "1.20.1", "mod_loader": "fabric"}
+drop = ft.Dropdown(value="1.20.1")
+with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons, "prefetch"), \
+        patch.object(_core, "get_mod_icons", return_value={}), patch.object(_core, "mod_doctor", return_value={"fixed": []}):
+    root, refresh, load, reload_browse = build_mods_tab(
+        page, {}, state, drop, section_label=_theme.section_label, **_theme.THEME)
+    fns = closure_functions(refresh, load, reload_browse)
+    active = closure_env(fns["_ct"])["active_content"]
+    rowbuild = fns["build_browse_row"]
+    QueuedThread.queue.clear()
+    active["type"] = "mod"
+    row = rowbuild({"project_id": "demo", "title": "Demo"})
+    def lookup(*args, **kw):
+        state.update(selected_mc_version="1.21.1", mod_loader="forge")
+        drop.value = "1.21.1"
+        active["type"] = "shader"
+        return {"url": "offline", "filename": "fabric-120.jar"}
+    with patch.object(_core, "get_mod_download", side_effect=lookup), \
+            patch.object(_core, "install_mod_with_dependencies", return_value={"installed": ["fabric-120.jar"], "failed": []}) as install:
+        row.content.controls[-1].on_click(None)
+        QueuedThread.queue.pop(0)()
+        check("browse install keeps click-time type and profile through lookup",
+              install.call_args.kwargs["mc_version"] == "1.20.1"
+              and install.call_args.kwargs["loader"] == "fabric")
+    QueuedThread.queue.clear()
+    state.update(selected_mc_version="1.20.1", mod_loader="fabric")
+    drop.value = "1.20.1"
+    active["type"] = "mod"
+    search = closure_env(fns["run_mod_search"])["mod_search_field"]
+    browse = closure_env(fns["render_browse_results"])["browse_state"]
+    with patch.object(_core, "search_mods", side_effect=lambda q, **kw: [{"project_id": q, "title": q}]), \
+            patch.object(_core, "get_recommended_mods", return_value=[{"project_id": "old", "title": "old"}]):
+        search.value = ""
+        load()
+        old_recommend = QueuedThread.queue.pop()
+        search.value = "older"
+        fns["run_mod_search"]()
+        older = QueuedThread.queue.pop()
+        search.value = "newer"
+        fns["run_mod_search"]()
+        newer = QueuedThread.queue.pop()
+        newer()
+        older()
+        old_recommend()
+        check("stale search and recommendation completions cannot replace newer results",
+              [r["title"] for r in browse["results"]] == ["newer"])
+    QueuedThread.queue.clear()
+    row = rowbuild({"project_id": "progress", "title": "Progress"})
+    counts = []
+    def progress_install(*args, **kw):
+        before = page.update_calls
+        for n in range(101):
+            kw["progress_cb"](n, 100)
+            kw["status_cb"]("Installing dependency")
+        counts.append(page.update_calls - before)
+        return {"installed": ["progress.jar"], "failed": []}
+    with patch.object(_core, "get_mod_download", return_value={"url": "offline", "filename": "progress.jar"}), \
+            patch.object(_core, "install_mod_with_dependencies", side_effect=progress_install):
+        row.content.controls[-1].on_click(None)
+        QueuedThread.queue.pop(0)()
+    check("download and dependency progress never repaint the full page", counts == [0])
+    QueuedThread.queue.clear()
+    for kind in ("resourcepack", "shader", "mod"):
+        active["type"] = kind
+        row = rowbuild({"project_id": kind, "title": kind})
+        row.on_click(None)
+        worker = QueuedThread.queue.pop()
+        install_fn = closure_functions(worker)["_run_install"]
+        active["type"] = "mod" if kind != "mod" else "shader"
+        state.update(selected_mc_version="1.21.1", mod_loader="forge")
+        done, errors = [], []
+        with patch.object(_core, "download_content") as content_install, \
+                patch.object(_core, "install_mod_with_dependencies", return_value={"installed": ["x.jar"], "failed": ["required"]}) as mod_install:
+            install_fn({"filename": "x.zip", "url": "offline"}, {"project_id": kind},
+                       on_status=lambda t: None, on_done=done.append, on_error=errors.append)
+            QueuedThread.queue.pop(0)()
+            if kind != "mod":
+                check(f"{kind} detail uses captured content installer and profile",
+                      content_install.called and not mod_install.called
+                      and content_install.call_args.args[0] == kind
+                      and content_install.call_args.kwargs["mc_version"] == "1.20.1"
+                      and content_install.call_args.kwargs["version_id"] == "1.20.1"
+                      and content_install.call_args.kwargs["loader"] == "fabric")
+            else:
+                check("detail partial dependency success is surfaced, never clean success",
+                      not done and errors and "Installed, but" in str(errors[0]))
+        state.update(selected_mc_version="1.20.1", mod_loader="fabric")
+        QueuedThread.queue.clear()
+    active["type"] = "resourcepack"
+    with patch.object(_core, "list_content", return_value=[{"display_name": "test", "filename": "test.zip"}]) as listing:
+        check("installed-content tokens pass loader by keyword", fns["content_installed_tokens"]() == {"test"}
+              and listing.call_args.kwargs["loader"] == "fabric")
+    packs, pack_refresh, popular = ui_packs.build_modpacks_tab(
+        page, {}, state, section_label=_theme.section_label, go_to_pack=lambda m: None, **_theme.THEME)
+    pack_search = next(c for c in _walk(packs) if isinstance(c, ft.TextField) and (c.hint_text or "").startswith("Search modpacks"))
+    pf = closure_functions(pack_refresh, popular, pack_search.on_submit)
+    pack_search.value = "query"
+    with patch.object(_core, "search_modpacks_modrinth", return_value=[{"source": "modrinth", "project_id": "mr", "title": "MR"}]), \
+            patch.object(_core, "search_modpacks_curseforge", return_value=[{"source": "curseforge", "project_id": "cf", "title": "CF"}]):
+        for cf_first in (False, True):
+            QueuedThread.queue.clear()
+            pf["run_search"]()
+            mr, cf = QueuedThread.queue
+            QueuedThread.queue.clear()
+            for task in ((cf, mr) if cf_first else (mr, cf)):
+                task()
+            check(f"provider results survive either completion order (CF first={cf_first})",
+                  {r["title"] for r in closure_env(pf["render_results"])["browse_state"]["results"]} == {"MR", "CF"})
+
+with patch.object(version_art, "_cache_probe", return_value=None), patch.object(version_art, "_fetch", return_value=None) as fetch:
+    version_art._mem.clear()
+    version_art.get_version_art("missing-art")
+    version_art.get_version_art("missing-art")
+    check("version artwork negative result is memoized", fetch.call_count == 1)
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

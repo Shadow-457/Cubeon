@@ -107,6 +107,10 @@ def compute_proof(challenge: str, password: str,
     """The joiner's answer: HMAC(key=PBKDF2(password, salt), challenge), hex.
 
     Separated from send-side plumbing so tests can pin the exact bytes."""
+    if (type(iterations) is not int or not 1 <= iterations <= PBKDF2_ITERATIONS
+            or len(salt_hex) != 32 or len(challenge) != 32):
+        raise ValueError("Invalid world password challenge")
+    bytes.fromhex(challenge)
     key = hashlib.pbkdf2_hmac(
         "sha256", (password or "").strip().encode("utf-8"),
         bytes.fromhex(salt_hex), int(iterations or PBKDF2_ITERATIONS),

@@ -18,6 +18,7 @@ import re
 import shutil
 import sys
 import tempfile
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -192,8 +193,8 @@ def test_no_cross_era_fallback():
 
         modern = cubeonfriends.jar_name(cubeonfriends.pick_bracket("26.1.2"))
         for name in ("cubeon-friends-1.0.0.jar", modern):
-            with open(os.path.join(cache, name), "wb") as handle:
-                handle.write(b"PK\x03\x04 not really a jar")
+            with zipfile.ZipFile(os.path.join(cache, name), "w") as handle:
+                handle.writestr("fabric.mod.json", json.dumps({"id": "cubeon-client"}))
 
         ok(cubeonfriends.find_jar("1.21.11") is None,
            "an obfuscated-era launch takes no jar rather than the wrong-era one")

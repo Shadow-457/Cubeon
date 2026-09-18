@@ -289,11 +289,13 @@ def _content_profile_dest(rel_path: str, mc_version: str, loader: str) -> str | 
     content_type = _content_type_for(rel_path)
     if not content_type or not mc_version or not loader:
         return None
-    name = rel_path.replace("\\", "/").rstrip("/").split("/")[-1]
+    relative = rel_path.replace("\\", "/")
+    root = content_profile_dir(content_type, mc_version, loader)
+    _safe_relpath(root, relative)
+    name = relative.split("/", 1)[1]
     if not name:
         return None
-    return _safe_relpath(content_profile_dir(content_type, mc_version, loader),
-                         name)
+    return _safe_relpath(root, name)
 
 
 def _wanted_on_client(file_entry: dict) -> bool:
@@ -410,8 +412,16 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
             dest = _content_profile_dest(rel, mc_version, loader) \
                 or _safe_relpath(MINECRAFT_DIR, rel)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        with zf.open(info) as src, open(dest, "wb") as out:
-            shutil.copyfileobj(src, out)
+        with tempfile.TemporaryDirectory(prefix=".override-", dir=os.path.dirname(dest)) as tmpdir:
+            payload = os.path.join(tmpdir, "payload")
+            with zf.open(info) as src, open(payload, "wb") as out:
+                shutil.copyfileobj(src, out)
+            if _dest_is_mod(rel):
+                staged = os.path.join(tmpdir, os.path.basename(dest))
+                global_mod_cache.put_file(payload, staged)
+                os.replace(staged, dest)
+            else:
+                os.replace(payload, dest)
     if override_mods:
         status_cb(f"Copied {override_mods} bundled mod(s) and pack config")
     return override_mods

@@ -178,6 +178,42 @@ def main():
     check("delete from one profile keeps store copy (shared)",
           len(store_files()) == before, store_files())
 
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    rendezvous = threading.Barrier(2)
+    temporary_paths = []
+    dest = os.path.join(p1, "concurrent.jar")
+    def fetch(tmp):
+        temporary_paths.append(tmp)
+        with open(tmp, "wb") as f:
+            f.write(b"concurrent complete bytes")
+        rendezvous.wait(timeout=5)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = [pool.submit(store.get_or_fetch, dest, fetch) for _ in range(2)]
+        errors = []
+        for job in jobs:
+            try:
+                job.result(timeout=10)
+            except Exception as ex:
+                errors.append(str(ex))
+    check("same-destination concurrent fetches use unique temporary files", len(set(temporary_paths)) == 2)
+    check("same-destination concurrent fetches both complete", not errors, errors)
+    check("same-destination final bytes remain complete", os.path.isfile(dest) and open(dest, "rb").read() == b"concurrent complete bytes")
+    check("concurrent fetch temporary files cleaned", not any(os.path.lexists(p) for p in temporary_paths))
+
+    from unittest.mock import patch
+    before_bytes = open(dest, "rb").read()
+    with patch.object(store.os, "symlink", side_effect=OSError("unavailable")), \
+            patch.object(store.os, "link", side_effect=OSError("unavailable")), \
+            patch.object(store.shutil, "copyfile", side_effect=OSError("interrupted")):
+        raised = False
+        try:
+            store.link_into_place(a2.name, dest)
+        except OSError:
+            raised = True
+    check("failed link copy preserves existing destination", open(dest, "rb").read() == before_bytes)
+    check("failed link copy reports the interruption", raised)
+
     for p in (a1.name, a2.name):
         try:
             os.remove(p)

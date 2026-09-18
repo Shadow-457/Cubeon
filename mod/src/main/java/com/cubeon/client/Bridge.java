@@ -71,7 +71,21 @@ public final class Bridge {
 
     /** One roster entry, exactly as the launcher's Friends list showed it. */
     public record Friend(String name, boolean online, String version, String status,
-                         boolean invited, boolean whitelisted) {
+                         boolean invited, boolean whitelisted, String uid,
+                         String minecraftUsername) {
+
+        public Friend(String name, boolean online, String version, String status,
+                      boolean invited, boolean whitelisted) {
+            this(name, online, version, status, invited, whitelisted, "", "");
+        }
+
+        public String displayName() {
+            return safeName(minecraftUsername, uid);
+        }
+
+        public String label() {
+            return identityLabel(minecraftUsername, uid);
+        }
 
         /** The grey sub-line under the name. Ported from friends_tab's presence_line(). */
         public String presence() {
@@ -90,9 +104,18 @@ public final class Bridge {
 
     /** The live P2P world session, or {@link #NONE} when there isn't one. */
     public record Session(String state, String peer, String error, boolean host,
-                          String quality, boolean canRetry) {
+                          String quality, boolean canRetry, String peerUid,
+                          String peerMinecraftUsername) {
 
-        public static final Session NONE = new Session("", "", "", false, "", false);
+        public static final Session NONE = new Session("", "", "", false, "", false, "", "");
+
+        public String peerDisplayName() {
+            return safeName(peerMinecraftUsername, peerUid);
+        }
+
+        public String peerLabel() {
+            return identityLabel(peerMinecraftUsername, peerUid);
+        }
 
         public boolean active() {
             return state != null && !state.isEmpty();
@@ -119,7 +142,7 @@ public final class Bridge {
 
         /** One human sentence about this session. Ported from render_p2p_banner(). */
         public String headline() {
-            String who = peer == null || peer.isEmpty() ? "your friend" : peer;
+            String who = peerLabel();
             return switch (state) {
                 case "hosting_wait_port" -> "Open your world to LAN from this menu.";
                 case "gate_wait" -> "Set a password for your world.";
@@ -163,11 +186,34 @@ public final class Bridge {
                            String you, String youUid, List<Friend> friends,
                            List<String> requestsIn,
                            List<String> requestsOut, Session session, String problem,
-                           String modStamp) {
+                           String modStamp, String youMinecraftUsername,
+                           List<Peer> requestsInDetails, List<Peer> requestsOutDetails) {
 
         public static final Snapshot DOWN = new Snapshot(
                 false, false, true, "", "", List.of(), List.of(), List.of(), Session.NONE,
-                "Looking for the Cubeon launcher...", "");
+                "Looking for the Cubeon launcher...", "", "", List.of(), List.of());
+
+        public String youDisplayName() {
+            return safeName(youMinecraftUsername, youUid);
+        }
+
+        public Peer peer(String handle) {
+            for (Friend friend : friends) {
+                if (friend.name().equals(handle)) {
+                    return new Peer(handle, friend.uid(), friend.minecraftUsername());
+                }
+            }
+            for (Peer peer : requestsInDetails) {
+                if (peer.name().equals(handle)) return peer;
+            }
+            for (Peer peer : requestsOutDetails) {
+                if (peer.name().equals(handle)) return peer;
+            }
+            if (session.peer().equals(handle)) {
+                return new Peer(handle, session.peerUid(), session.peerMinecraftUsername());
+            }
+            return new Peer(handle, "", "");
+        }
 
         /** True once a Cubeon name is owned by this machine. */
         public boolean claimed() {
@@ -206,6 +252,52 @@ public final class Bridge {
         }
     }
 
+    public record Peer(String name, String uid, String minecraftUsername) {
+        public String displayName() {
+            return safeName(minecraftUsername, uid);
+        }
+
+        public String label() {
+            return identityLabel(minecraftUsername, uid);
+        }
+    }
+
+    public static String canonicalUid(Object value) {
+        String text;
+        if (value instanceof Number number) {
+            double n = number.doubleValue();
+            if (!Double.isFinite(n) || n != Math.floor(n) || n < 0 || n > 999999999999L) {
+                return "";
+            }
+            text = Long.toString((long) n);
+        } else {
+            text = value instanceof String s ? s.trim() : "";
+        }
+        if (!text.matches("[0-9]{1,12}")) return "";
+        return "0".repeat(12 - text.length()) + text;
+    }
+
+    public static String minecraftUsername(String value) {
+        return value != null && value.matches("[A-Za-z0-9_]{3,16}") ? value : "";
+    }
+
+    public static String safeName(String username, String uid) {
+        String valid = minecraftUsername(username);
+        String id = canonicalUid(uid);
+        return !valid.isEmpty() ? valid : !id.isEmpty() ? "Cubeon ID " + id : "Player";
+    }
+
+    public static String identityLabel(String username, String uid) {
+        String label = safeName(username, uid);
+        String id = canonicalUid(uid);
+        return minecraftUsername(username).isEmpty() || id.isEmpty()
+                ? label : label + " (" + id + ")";
+    }
+
+    private static String uidOf(Object holder, String key) {
+        return holder instanceof Map<?, ?> map ? canonicalUid(map.get(key)) : "";
+    }
+
     /** The outcome of a POST. {@code error} is empty exactly when ok. */
     public record Result(boolean ok, String error) {
         public static final Result OK = new Result(true, "");
@@ -228,7 +320,15 @@ public final class Bridge {
      * only relays what the launcher already has on disk.
      */
     public record CubeonPlayer(String name, boolean online, String skin, String cape,
-                               String version, String status) {
+                               String version, String status, String uid, String minecraftUsername) {
+
+        public String displayName() {
+            return safeName(minecraftUsername, uid);
+        }
+
+        public String label() {
+            return identityLabel(minecraftUsername, uid);
+        }
 
         /** The grey sub-line under the name, same wording as Friend.presence(). */
         public String presence() {
@@ -654,7 +754,7 @@ public final class Bridge {
     private Snapshot down(String problem) {
         downStreak++;
         return new Snapshot(false, false, true, "", "", List.of(), List.of(), List.of(),
-                Session.NONE, problem, "");
+                Session.NONE, problem, "", "", List.of(), List.of());
     }
 
     private void publish(Snapshot next) {
@@ -688,7 +788,9 @@ public final class Bridge {
                     Json.str(item, "version", ""),
                     Json.str(item, "status", ""),
                     Json.bool(item, "invited", false),
-                    Json.bool(item, "whitelisted", false)));
+                    Json.bool(item, "whitelisted", false),
+                    uidOf(item, "uid"),
+                    minecraftUsername(Json.str(item, "minecraft_username", ""))));
         }
         // Online first, then alphabetical - the same ordering the launcher's
         // roster used, so the two lists read identically.
@@ -696,8 +798,9 @@ public final class Bridge {
             if (a.online() != b.online()) {
                 return a.online() ? -1 : 1;
             }
-            return a.name().toLowerCase(Locale.ROOT)
-                    .compareTo(b.name().toLowerCase(Locale.ROOT));
+            int labelOrder = a.label().toLowerCase(Locale.ROOT)
+                    .compareTo(b.label().toLowerCase(Locale.ROOT));
+            return labelOrder != 0 ? labelOrder : a.name().compareToIgnoreCase(b.name());
         });
         return new Snapshot(
                 true,
@@ -707,7 +810,7 @@ public final class Bridge {
                 // The 12-digit public Cubeon ID - the account's real handle.
                 // The internal claimed name above is plumbing; this is what
                 // the Account tab shows and what friends add you by.
-                Json.str(root, "you_uid", ""),
+                uidOf(root, "you_uid"),
                 List.copyOf(friends),
                 Json.strings(root, "requests_in"),
                 Json.strings(root, "requests_out"),
@@ -715,7 +818,26 @@ public final class Bridge {
                 "",
                 // Empty from an older launcher - the freshness check is
                 // simply skipped, exactly as before this field existed.
-                Json.str(root, "mod_stamp", ""));
+                Json.str(root, "mod_stamp", ""),
+                minecraftUsername(Json.str(root, "you_minecraft_username", "")),
+                parseRequests(root, "requests_in"),
+                parseRequests(root, "requests_out"));
+    }
+
+    private static List<Peer> parseRequests(Map<String, Object> root, String key) {
+        List<Peer> out = new ArrayList<>();
+        for (String handle : Json.strings(root, key)) {
+            Peer peer = new Peer(handle, "", "");
+            for (Object item : Json.list(root, key + "_details")) {
+                if (handle.equals(Json.str(item, "name", ""))) {
+                    peer = new Peer(handle, uidOf(item, "uid"),
+                            minecraftUsername(Json.str(item, "minecraft_username", "")));
+                    break;
+                }
+            }
+            out.add(peer);
+        }
+        return List.copyOf(out);
     }
 
     static Session parseSession(String statusBody) {
@@ -730,7 +852,9 @@ public final class Bridge {
                 Json.str(s, "error", ""),
                 Json.bool(s, "is_host", false),
                 Json.str(s, "quality", ""),
-                Json.bool(s, "can_retry", false));
+                Json.bool(s, "can_retry", false),
+                uidOf(s, "peer_uid"),
+                minecraftUsername(Json.str(s, "peer_minecraft_username", "")));
     }
 
     /** Reads an /events body; returns the new cursor via {@code cursorOut[0]}. */
@@ -772,14 +896,17 @@ public final class Bridge {
                     Json.str(item, "skin", ""),
                     Json.str(item, "cape", ""),
                     Json.str(item, "version", ""),
-                    Json.str(item, "status", "")));
+                    Json.str(item, "status", ""),
+                    uidOf(item, "uid"),
+                    minecraftUsername(Json.str(item, "minecraft_username", ""))));
         }
         out.sort((a, b) -> {
             if (a.online() != b.online()) {
                 return a.online() ? -1 : 1;
             }
-            return a.name().toLowerCase(Locale.ROOT)
-                    .compareTo(b.name().toLowerCase(Locale.ROOT));
+            int labelOrder = a.label().toLowerCase(Locale.ROOT)
+                    .compareTo(b.label().toLowerCase(Locale.ROOT));
+            return labelOrder != 0 ? labelOrder : a.name().compareToIgnoreCase(b.name());
         });
         return List.copyOf(out);
     }

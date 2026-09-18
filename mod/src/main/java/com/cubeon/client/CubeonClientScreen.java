@@ -112,7 +112,7 @@ public class CubeonClientScreen extends Screen {
     }
 
     /** One list entry. Rows are data; the row buttons are recycled. */
-    private record Row(String name, String sub, ChatFormatting color) {}
+    private record Row(String name, String label, String sub, ChatFormatting color) {}
 
     /**
      * A button whose job changes with the tab and the selection. Reassigning a
@@ -655,15 +655,15 @@ public class CubeonClientScreen extends Screen {
 
                     ChatFormatting color = friend.invited() ? ChatFormatting.GOLD
                             : friend.online() ? ChatFormatting.WHITE : ChatFormatting.GRAY;
-                    out.add(new Row(friend.name(), friend.presence(), color));
+                    out.add(new Row(friend.name(), friend.label(), friend.presence(), color));
                 }
             }
             case REQUESTS -> {
                 for (String name : snap.requestsIn()) {
-                    out.add(new Row(name, "wants to be your friend", ChatFormatting.GOLD));
+                    out.add(new Row(name, snap.peer(name).label(), "wants to be your friend", ChatFormatting.GOLD));
                 }
                 for (String name : snap.requestsOut()) {
-                    out.add(new Row(name, "request sent", ChatFormatting.GRAY));
+                    out.add(new Row(name, snap.peer(name).label(), "request sent", ChatFormatting.GRAY));
                 }
             }
             case ACCOUNT -> {
@@ -694,11 +694,11 @@ public class CubeonClientScreen extends Screen {
             }
             Row row = rows.get(index);
             boolean isSelected = row.name().equals(selected);
-            String label = (isSelected ? "> " : "") + row.name() + " - " + row.sub();
+            String label = (isSelected ? "> " : "") + row.label() + " - " + row.sub();
             slot.button.setMessage(colored(trim(label, panelW - 8), row.color()));
             slot.button.setTooltip(Tooltip.create(Component.literal(
                     isSelected ? "Click again to " + primaryRowVerb().toLowerCase(java.util.Locale.ROOT)
-                            + " " + row.name() : "Select " + row.name())));
+                            + " " + row.label() : "Select " + row.label())));
             String name = row.name();
             slot.action = () -> onRowClicked(name);
         }
@@ -788,14 +788,14 @@ public class CubeonClientScreen extends Screen {
      * failed to close is reaped by its own idle janitor anyway.
      */
     private void closeSync() {
-        String who = selected;
+        String handle = selected;
         boolean started = !bridge.syncReport().idle();
         syncOpen = false;
         bridge.setSyncFriend("");
         setStatus("", false);
         apply(bridge.snapshot());
-        if (started && !who.isEmpty()) {
-            Thread closer = new Thread(() -> bridge.closeSync(who),
+        if (started && !handle.isEmpty()) {
+            Thread closer = new Thread(() -> bridge.closeSync(handle),
                     "cubeon-client-syncclose");
             closer.setDaemon(true);
             closer.start();
@@ -819,13 +819,16 @@ public class CubeonClientScreen extends Screen {
     /** The prose block: the account tab, every empty list, and nowhere at all
      * while the sync report is up (the sync labels own that region). */
     /**
-     * The player's visible name: their Minecraft username, exactly as the
-     * game received it from the launcher (the launcher passes --username at
-     * launch, so this IS the name the player set in the launcher's account
-     * field). Under the UID system this is the DISPLAY name only - the
-     * account itself is the immutable Cubeon ID.
+     * The player's visible name: the launcher's published Minecraft username
+     * (read-only display metadata, kept fresh by the launcher), falling back
+     * to the game session's own username and then a neutral label. Never an
+     * editable field and never the internal relay handle.
      */
     private String myName() {
+        String shown = bridge.snapshot().youDisplayName();
+        if (!shown.equals("Player")) {
+            return shown;
+        }
         try {
             String n = Minecraft.getInstance().getUser().getName();
             return (n == null || n.isBlank()) ? "Player" : n;
@@ -853,7 +856,7 @@ public class CubeonClientScreen extends Screen {
                 lines.add(colored(line, ChatFormatting.GRAY));
             }
         } else if (playOpen) {
-            lines.add(colored("Play with " + selected, ChatFormatting.WHITE));
+            lines.add(colored("Play with " + peerLabel(selected), ChatFormatting.WHITE));
             for (String line : wrap(playBody(snap), panelW - 8)) {
                 lines.add(colored(line, ChatFormatting.GRAY));
             }
@@ -880,14 +883,14 @@ public class CubeonClientScreen extends Screen {
     private String playBody(Snapshot snap) {
         Friend friend = find(snap, selected);
         if (friend == null) {
-            return selected + " is no longer on your friends list.";
+            return peerLabel(selected) + " is no longer on your friends list.";
         }
         if (friend.invited()) {
-            return selected + " has a world open for you. Press Join and Cubeon "
+            return peerLabel(selected) + " has a world open for you. Press Join and Cubeon "
                     + "connects you - it syncs any mods you're missing on the way in.";
         }
         if (!friend.online()) {
-            return selected + " is offline right now. Both of you have to be in "
+            return peerLabel(selected) + " is offline right now. Both of you have to be in "
                     + "Minecraft with Cubeon running to play together.";
         }
         if (!canInvite) {
@@ -895,7 +898,7 @@ public class CubeonClientScreen extends Screen {
                     + "which the title screen and other people's servers can't do. "
                     + "Ask to join works from anywhere.";
         }
-        return "Invite opens your own world to " + selected + " (you then open it to "
+        return "Invite opens your own world to " + peerLabel(selected) + " (you then open it to "
                 + "LAN from this menu). Ask to join asks them to host instead.";
     }
 
@@ -969,7 +972,7 @@ public class CubeonClientScreen extends Screen {
         }
         Bridge.SyncReport report = bridge.syncReport();
         List<Component> lines = new ArrayList<>();
-        lines.add(colored("Sync with " + selected, ChatFormatting.WHITE));
+        lines.add(colored("Sync with " + peerLabel(selected), ChatFormatting.WHITE));
         if (report.idle()) {
             for (String line : wrap("Press Compare to see whether your Minecraft "
                     + "matches theirs. Nothing is sent until you do, and what is "
@@ -1036,12 +1039,13 @@ public class CubeonClientScreen extends Screen {
             if (selected.isEmpty()) {
                 return;
             }
-            String who = selected;
-            if (snap.requestsIn().contains(who)) {
+            String handle = selected;
+            String who = peerLabel(handle);
+            if (snap.requestsIn().contains(handle)) {
                 bind(actions[0], "Accepting " + who + "...", who + " is now your friend.",
-                        () -> bridge.acceptRequest(who));
+                        () -> bridge.acceptRequest(handle));
                 bind(actions[1], "Declining...", "Declined " + who + "'s request.",
-                        () -> bridge.declineRequest(who));
+                        () -> bridge.declineRequest(handle));
             } else {
                 blocked(actions[0], who + " hasn't answered your request yet.");
                 blocked(actions[1], who + " hasn't answered your request yet.");
@@ -1070,17 +1074,18 @@ public class CubeonClientScreen extends Screen {
             return;
         }
 
-        String who = selected;
-        Friend friend = find(snap, who);
+        String handle = selected;
+        String who = peerLabel(handle);
+        Friend friend = find(snap, handle);
         boolean whitelisted = friend != null && friend.whitelisted();
 
         // Play and Sync open something local - no launcher round trip - so they
         // set their action directly instead of going through bind().
-        actions[0].action = () -> openPlay(who);
+        actions[0].action = () -> openPlay(handle);
         actions[0].button.active = !busy;
         tip(actions[0], "Invite " + who + " to your world, or ask to join theirs.");
 
-        actions[1].action = () -> openSync(who);
+        actions[1].action = () -> openSync(handle);
         actions[1].button.active = !busy;
         tip(actions[1], "Check whether your Minecraft matches " + who + "'s, and "
                 + "pull any mods you're missing.");
@@ -1091,12 +1096,12 @@ public class CubeonClientScreen extends Screen {
                             : "Whitelisting " + who + "...",
                 whitelisted ? who + " can no longer join your Cubeon server."
                             : who + " can now join your Cubeon server.",
-                () -> bridge.setWhitelisted(who, !whitelisted));
+                () -> bridge.setWhitelisted(handle, !whitelisted));
         tip(actions[2], "Whether " + who + " may join the Cubeon server this launcher "
                 + "hosts. Separate from world invites.");
 
         bind(actions[3], "Removing " + who + "...", "Removed " + who + ".",
-                () -> bridge.removeFriend(who));
+                () -> bridge.removeFriend(handle));
         tip(actions[3], "Take " + who + " off your friends list.");
     }
 
@@ -1107,8 +1112,9 @@ public class CubeonClientScreen extends Screen {
      * firing an action.
      */
     private void applyPlaySlots(Snapshot snap) {
-        String who = selected;
-        Friend friend = find(snap, who);
+        String handle = selected;
+        String who = peerLabel(handle);
+        Friend friend = find(snap, handle);
         boolean online = friend != null && friend.online();
         boolean invited = friend != null && friend.invited();
 
@@ -1119,13 +1125,13 @@ public class CubeonClientScreen extends Screen {
 
         if (invited) {
             bind(actions[0], "Joining " + who + "'s world...", "",
-                    () -> bridge.join(who));
+                    () -> bridge.join(handle));
             tip(actions[0], "Join the world " + who + " already opened for you.");
         } else if (!canInvite) {
             blocked(actions[0], "Invites work only from a world you host - "
                     + "start or load one, then invite.");
         } else if (online) {
-            bind(actions[0], "Inviting " + who + "...", "", () -> bridge.invite(who));
+            bind(actions[0], "Inviting " + who + "...", "", () -> bridge.invite(handle));
             tip(actions[0], "Open your world to " + who + ". Cubeon connects you as "
                     + "soon as you open it to LAN from this menu.");
         } else {
@@ -1135,7 +1141,7 @@ public class CubeonClientScreen extends Screen {
         if (online) {
             bind(actions[1], "Asking " + who + "...",
                     "Asked " + who + " to open their world to you.",
-                    () -> bridge.askToJoin(who));
+                    () -> bridge.askToJoin(handle));
             tip(actions[1], "Sends " + who + " a request to host. They answer by "
                     + "pressing Invite on their side.");
         } else {
@@ -1149,7 +1155,8 @@ public class CubeonClientScreen extends Screen {
 
     /** The Sync sub-view's bar: Compare, Download mods, Close. */
     private void applySyncSlots() {
-        String who = selected;
+        String handle = selected;
+        String who = peerLabel(handle);
         Bridge.SyncReport report = bridge.syncReport();
         label(actions[0], report.idle() ? "Compare" : "Refresh");
         label(actions[1], "Fix");
@@ -1160,14 +1167,14 @@ public class CubeonClientScreen extends Screen {
             blocked(actions[0], "Working on it...");
         } else {
             bind(actions[0], "Comparing with " + who + "...", "",
-                    () -> bridge.startSync(who));
+                    () -> bridge.startSync(handle));
             tip(actions[0], "Ask " + who + " what Minecraft and mods they're running. "
                     + "The answer is encrypted end to end.");
         }
 
         if (report.canDownload()) {
             bind(actions[1], "Downloading " + report.missing() + " mod(s)...", "",
-                    () -> bridge.downloadMods(who));
+                    () -> bridge.downloadMods(handle));
             tip(actions[1], "Pulls the " + report.missing() + " mod(s) you're missing "
                     + "into Cubeon's global mods folder and links them into this "
                     + "profile. Relaunch Minecraft afterwards.");
@@ -1319,12 +1326,12 @@ public class CubeonClientScreen extends Screen {
             return "";
         }
         if (friend.invited()) {
-            return selected + " has a world open for you - press Play.";
+            return peerLabel(selected) + " has a world open for you - press Play.";
         }
         if (friend.online()) {
-            return "Play or check what " + selected + " is running.";
+            return "Play or check what " + peerLabel(selected) + " is running.";
         }
-        return selected + " is offline - Sync still works.";
+        return peerLabel(selected) + " is offline - Sync still works.";
     }
 
     private ChatFormatting headerColor(Snapshot snap) {
@@ -1355,6 +1362,10 @@ public class CubeonClientScreen extends Screen {
     private void blocked(Slot slot, String reason) {
         slot.button.active = false;
         slot.button.setTooltip(Tooltip.create(Component.literal(reason)));
+    }
+
+    private String peerLabel(String handle) {
+        return bridge.snapshot().peer(handle).label();
     }
 
     private static Friend find(Snapshot snap, String name) {

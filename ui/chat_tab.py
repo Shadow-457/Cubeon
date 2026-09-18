@@ -35,6 +35,7 @@ Design rules it follows:
     poll thread and no roster read happens until then.
 """
 import base64
+from copy import deepcopy
 import os
 import threading
 import time
@@ -46,6 +47,7 @@ from cubeon.theme import (
     CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT,
     AVATAR_COLORS, attach_hover,
 )
+from cubeon.config import validate_username
 from cubeon import dialogs as _dialogs
 from cubeon import friends as _friends
 from cubeon import profile as _profile
@@ -132,6 +134,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     _last_roster = {"v": None}
     _roster_sig = {"v": None}
     _identity_sig = {"v": None}
+    _header_sig = {"v": None}
     _last_day = {}
     _last_dir = {}
     tick_lock = threading.Lock()
@@ -143,8 +146,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                             bgcolor=TEXT_FAINT)
     conn_text = ft.Text("", size=11, color=TEXT_DIM)
 
-    # The NAME is what you present: the launcher username you picked on the
-    # Play tab (falling back to the internal relay handle until you pick one).
     you_text = ft.Text("", size=14, color=TEXT,
                        weight=ft.FontWeight.W_700, max_lines=1,
                        overflow=ft.TextOverflow.ELLIPSIS)
@@ -349,9 +350,54 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             padding=ft.padding.Padding.symmetric(horizontal=6, vertical=1),
         )
 
+    def _identity_label(metadata):
+        uid = _friends.canonical_uid(metadata.get("uid")) or ""
+        username = metadata.get("minecraft_username")
+        username = username if isinstance(username, str) else ""
+        if username != username.strip() or not validate_username(username)[0]:
+            username = ""
+        return username or (f"Cubeon ID {uid}" if uid else "Player"), uid
+
+    def _peer_identity(name, details=None):
+        metadata = {}
+        resolver = getattr(service, "peer_metadata", None)
+        if callable(resolver):
+            try:
+                resolved = resolver(name)
+                if isinstance(resolved, dict):
+                    metadata.update(resolved)
+            except Exception:
+                pass
+        if details is None:
+            roster = _last_roster["v"] or {}
+            for key in ("friends", "requests_in_details", "requests_out_details"):
+                for row in roster.get(key) or []:
+                    if isinstance(row, dict) and row.get("name") == name:
+                        metadata.update(row)
+        elif isinstance(details, dict):
+            metadata.update(details)
+        return _identity_label(metadata)
+
+    def _recipient(name, details=None):
+        label, uid = _peer_identity(name, details)
+        recipient = (f"{label} (Cubeon ID {uid})"
+                     if uid and label != f"Cubeon ID {uid}" else label)
+        resolver = getattr(service, "peer_label", None)
+        if callable(resolver):
+            try:
+                resolved = resolver(name)
+                if resolved == recipient:
+                    return resolved
+            except Exception:
+                pass
+        return recipient
+
+    def _uid_line(uid):
+        return f"Cubeon ID {uid}" if uid else "Cubeon ID unavailable"
+
     def _friend_row(f):
         name = f.get("name") or ""
-        uid = str(f.get("uid") or "")
+        label, uid = _peer_identity(name, f)
         is_sel = selected["name"] == name
         online = bool(f.get("online"))
         last_text = str(f.get("last_text") or "").strip()
@@ -376,11 +422,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         row = ft.Container(
             content=ft.Row(
                 [
-                    _avatar(name, 34, online),
+                    _avatar(label, 34, online),
                     ft.Column(
                         [
-                            ft.Text(name, size=13, color=TEXT,
+                            ft.Text(label, size=13, color=TEXT,
                                     weight=ft.FontWeight.W_600, max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS),
+                            ft.Text(_uid_line(uid), size=10, color=TEXT_FAINT,
+                                    font_family=FONT_MONO, max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS),
                             ft.Text(preview, size=11, color=preview_color,
                                     max_lines=1,
@@ -397,20 +446,27 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             border_radius=RADIUS,
             ink=False,
             padding=ft.padding.Padding.symmetric(horizontal=8, vertical=7),
-            tooltip=f"ID {uid}" if uid else None,
+            tooltip=_recipient(name, f),
             on_click=lambda e, n=name: _select(n),
         )
         attach_hover(row, _row_bg(is_sel), ROW_HOVER)
         return row
 
     def _request_row(name):
+        label, uid = _peer_identity(name)
         return ft.Container(
+            tooltip=_recipient(name),
             content=ft.Row(
                 [
-                    _avatar(name, 30),
-                    ft.Text(name, size=12, color=TEXT, expand=True,
-                            weight=ft.FontWeight.W_600, max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS),
+                    _avatar(label, 30),
+                    ft.Column([
+                        ft.Text(label, size=12, color=TEXT,
+                                weight=ft.FontWeight.W_600, max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text(_uid_line(uid), size=10, color=TEXT_FAINT,
+                                font_family=FONT_MONO, max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS),
+                    ], spacing=1, tight=True, expand=True),
                     _pill("Accept", ACCENT, ON_ACCENT,
                           lambda e, n=name: _accept(n)),
                     _pill("Decline", None, TEXT_DIM,
@@ -426,13 +482,19 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         )
 
     def _outgoing_row(name):
+        label, uid = _peer_identity(name)
         return ft.Container(
+            tooltip=_recipient(name),
             content=ft.Row(
                 [
-                    _avatar(name, 30),
-                    ft.Text(f"Waiting on {name}", size=12, color=TEXT_DIM,
-                            expand=True, max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS),
+                    _avatar(label, 30),
+                    ft.Column([
+                        ft.Text(f"Waiting on {label}", size=12, color=TEXT_DIM,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Text(_uid_line(uid), size=10, color=TEXT_FAINT,
+                                font_family=FONT_MONO, max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS),
+                    ], spacing=1, tight=True, expand=True),
                     ft.Text("Pending", size=10, color=WARNING,
                             weight=ft.FontWeight.W_600),
                 ],
@@ -467,28 +529,23 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             pass
 
     def _apply_identity(roster):
-        uid = roster.get("you_uid") or ""
-        relay = roster.get("you") or ""
+        shown, uid = _identity_label({
+            "uid": roster.get("you_uid"),
+            "minecraft_username": roster.get("you_minecraft_username"),
+        })
         connected = bool(roster.get("connected"))
         available = bool(roster.get("available"))
-        # The profile picture is part of the identity: changing it on the
-        # Profile tab repaints the card on the next tick even when the
-        # friends state hasn't moved.
         pfp_path = _profile.get_profile_picture_path(cfg)
-        sig = (relay, uid, connected, available, pfp_path)
+        sig = (shown, uid, roster.get("you_minecraft_username"),
+               roster.get("you_display_name"), connected, available, pfp_path)
         if sig == _identity_sig["v"]:
             return
         _identity_sig["v"] = sig
-        # What you present is your launcher username; the internal relay
-        # handle only shows until you've picked one (and in the hover
-        # tooltip, since it's the name the friends server actually keys).
-        shown = (cfg.get("username") or "").strip() or relay
-        you_text.value = shown or "Setting up..."
-        your_id_text.value = (_friends.canonical_uid(uid)
-                              or "Waiting for your ID…")
+        you_text.value = shown
+        your_id_text.value = uid or "Waiting for your ID…"
         copy_id_btn.visible = bool(uid)
-        you_avatar.tooltip = relay or None
-        _set_you_avatar(shown or "?")
+        you_avatar.tooltip = _uid_line(uid)
+        _set_you_avatar(shown)
         conn_dot.bgcolor = (ACCENT if connected
                             else (WARNING if available else DANGER))
         conn_text.value = ("Connected" if connected else
@@ -507,8 +564,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             thread_safe_ui.refresh(ctrl)
 
     def _rebuild_requests(roster):
-        incoming = [n for n in (roster.get("requests_in") or []) if n]
-        outgoing = [n for n in (roster.get("requests_out") or []) if n]
+        incoming = [n for n in (roster.get("requests_in") or [])
+                    if isinstance(n, str) and n]
+        outgoing = [n for n in (roster.get("requests_out") or [])
+                    if isinstance(n, str) and n]
         has_any = bool(incoming or outgoing)
         with thread_safe_ui.TREE_LOCK:
             requests_col.controls.clear()
@@ -540,19 +599,46 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 return f
         return None
 
+    def _refresh_header():
+        name = selected["name"]
+        if not name:
+            return
+        f = _friend_by_name(name) or {}
+        label, uid = _peer_identity(name, f)
+        sub, sub_color = _presence(f)
+        sig = (name, label, uid, sub, sub_color)
+        if sig == _header_sig["v"]:
+            return
+        _header_sig["v"] = sig
+        transcript_header.value = label
+        transcript_header.tooltip = _recipient(name, f)
+        transcript_sub.value = f"{sub}  ·  {_uid_line(uid)}"
+        transcript_sub.color = sub_color
+        _paint_avatar(header_avatar, label, 36, f.get("online"))
+        header_avatar.tooltip = _recipient(name, f)
+        remove_btn.tooltip = f"Remove {_recipient(name, f)}"
+        for ctrl in (transcript_header, transcript_sub, header_avatar, remove_btn):
+            thread_safe_ui.refresh(ctrl)
+
     def _render_roster(roster=None, force=False):
         if roster is not None:
             _last_roster["v"] = roster
         roster = _last_roster["v"]
         if not roster:
             return
-        sig = (tuple(roster.get("friends") or []),
-               tuple(roster.get("requests_in") or []),
-               tuple(roster.get("requests_out") or []),
+        _refresh_header()
+        requests = [n for key in ("requests_in", "requests_out")
+                    for n in roster.get(key) or [] if isinstance(n, str) and n]
+        sig = (roster.get("friends") or [],
+               roster.get("requests_in") or [],
+               roster.get("requests_out") or [],
+               roster.get("requests_in_details") or [],
+               roster.get("requests_out_details") or [],
+               tuple((n, _peer_identity(n)) for n in requests),
                selected["name"])
         if not force and sig == _roster_sig["v"]:
             return
-        _roster_sig["v"] = sig
+        _roster_sig["v"] = deepcopy(sig)
         _rebuild_requests(roster)
         _rebuild_friends(roster)
 
@@ -642,13 +728,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             transcript.controls.clear()
         transcript.visible = True
         empty_state.visible = False
-        transcript_header.value = name
-        f = _friend_by_name(name) or {}
-        sub, sub_color = _presence(f)
-        uid = str(f.get("uid") or "")
-        transcript_sub.value = f"{sub}  ·  ID {uid}" if uid else sub
-        transcript_sub.color = sub_color
-        _paint_avatar(header_avatar, name, 36, f.get("online"))
+        _header_sig["v"] = None
+        _refresh_header()
         header_avatar.visible = True
         remove_btn.visible = True
         header_rule.visible = True
@@ -669,8 +750,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         def work():
             try:
                 res = action() or {}
-            except Exception as ex:
-                res = {"ok": False, "error": str(ex)}
+            except Exception:
+                res = {"ok": False, "error": "That didn't work. Please try again."}
             done(res)
             _tick()
         threading.Thread(target=work, daemon=True, name=label).start()
@@ -714,10 +795,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _run(lambda: service.add_friend(uid), done, "cubeon-chat-add")
 
     def _accept(name):
-        _forward(service.accept, name, f"You and {name} are now friends.")
+        _forward(service.accept, name,
+                 f"You and {_recipient(name)} are now friends.")
 
     def _decline(name):
-        _forward(service.decline, name, f"Declined {name}'s request.")
+        _forward(service.decline, name,
+                 f"Declined {_recipient(name)}'s request.")
 
     def _forward(method, name, success):
         def done(res):
@@ -728,11 +811,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _run(lambda: method(name), done, "cubeon-chat-request")
 
     def _do_remove(name):
+        recipient = _recipient(name)
+
         def done(res):
             if res.get("ok"):
                 if selected["name"] == name:
                     _clear_conversation()
-                _set_status(f"Removed {name}.")
+                _set_status(f"Removed {recipient}.")
             else:
                 _set_status(res.get("error") or "Couldn't remove that friend.",
                             error=True)
@@ -746,8 +831,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         transcript.visible = False
         empty_state.visible = True
         transcript_header.value = ""
+        transcript_header.tooltip = None
         transcript_sub.value = ""
+        _header_sig["v"] = None
+        header_avatar.tooltip = None
         header_avatar.visible = False
+        remove_btn.tooltip = "Remove friend"
         remove_btn.visible = False
         header_rule.visible = False
         composer_row.visible = False
@@ -760,7 +849,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     def _confirm_remove(name):
         dlg = ft.AlertDialog(modal=True)
-        dlg.title = ft.Text(f"Remove {name}?", size=18, color=TEXT,
+        dlg.title = ft.Text(f"Remove {_recipient(name)}?", size=18, color=TEXT,
                             font_family=FONT_DISPLAY)
         dlg.content = ft.Text("They'll disappear from your friends list. You "
                               "can add them back later.", size=13, color=TEXT_DIM)

@@ -329,5 +329,18 @@ via_launch = next(e for e in csl._loadlist() if e.get("name") == "Cubeon")
 check("write_extralist_entries() heals a drifted root at launch",
       via_launch.get("root") == csl.CUBEON_SKIN_API_ROOT, via_launch.get("root"))
 
+from unittest.mock import patch
+from cubeon import net
+info = {"filename": "csl.jar", "url": "offline", "version_number": "1",
+        "hashes": {"sha1": "verified-manifest-hash"}}
+with patch.object(csl, "get_mod_download", return_value=info), patch.object(csl, "download_mod") as download:
+    check("CSL install succeeds", csl.install("1.20.1", "fabric").startswith("installed"))
+    check("CSL forwards download hashes", download.call_args.kwargs["hashes"] == info["hashes"])
+for error in (net.DownloadError("offline"), RuntimeError("wrapped download failure"), OSError("disk full"), ValueError("bad metadata")):
+    with patch.object(csl, "get_mod_download", side_effect=error):
+        check(f"CSL lookup tolerates {type(error).__name__}", "couldn't reach" in csl.install("1.20.1", "fabric"))
+    with patch.object(csl, "get_mod_download", return_value=info), patch.object(csl, "download_mod", side_effect=error):
+        check(f"CSL download tolerates {type(error).__name__}", "download failed" in csl.install("1.20.1", "fabric"))
+
 print(f"\n{failures} CHECK(S) FAILED" if failures else "\nALL CSL CHECKS PASSED")
 sys.exit(1 if failures else 0)

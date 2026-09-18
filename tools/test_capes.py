@@ -17,6 +17,7 @@ import os
 import sys
 import tempfile
 import types
+from unittest.mock import patch
 
 import _sandbox_home
 _home = _sandbox_home.isolate()
@@ -132,6 +133,25 @@ check("deleted cape file removed",
       not os.path.exists(capes.get_custom_cape_path(capeB["filename"])))
 check("deleted cape dropped from meta",
       capeB["filename"] not in [c["filename"] for c in capes.list_custom_capes()])
+
+prior_meta = capes._load_capes_meta()
+with open(capes.CAPES_META_PATH, "rb") as f:
+    prior_bytes = f.read()
+for failure in ("serialize", "replace"):
+    raised = False
+    try:
+        if failure == "serialize":
+            capes._save_capes_meta({"capes": [object()]})
+        else:
+            with patch("cubeon.atomicio.os.replace", side_effect=OSError("write failed")):
+                capes._save_capes_meta({"capes": []})
+    except (TypeError, OSError):
+        raised = True
+    with open(capes.CAPES_META_PATH, "rb") as f:
+        check(f"cape {failure} failure preserves prior bytes", raised and f.read() == prior_bytes)
+    check(f"cape {failure} failure preserves metadata", capes._load_capes_meta() == prior_meta)
+check("cape failed writes clean temporary files",
+      not any(n.startswith(".atomic-") for n in os.listdir(capes.CAPES_DIR)))
 
 # --------------------------------------------------------------------------
 fails = [n for n, ok, _ in _checks if not ok]

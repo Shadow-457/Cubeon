@@ -4,6 +4,56 @@ Last updated: 2026-09-17 (seasonal themes: timezone-driven palettes, pet, ambien
 the code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 
+## Relay username metadata (2026-09-17, plan step 2)
+- `cubeon/friends.py` exposes `minecraft_username(value)` -> the value when it
+  matches `[A-Za-z0-9_]{3,16}` (case-preserving, NO reserved-name check) else
+  `''`. `FriendsClient.set_minecraft_username()` is nonblocking (bg thread)
+  and replays the username on every hello.
+- The worker's `names` table carries a nullable `minecraft_username` TEXT
+  column (PRAGMA-guarded ALTER, no unique index — duplicate usernames are
+  legal and rows stay distinct by handle/UID). T_METADATA updates write ONLY
+  that column; fan-out reaches friends AND pending-request counterparts.
+- `FriendsClient.roster["peer_metadata"]` is keyed by CANONICAL handle with
+  `{uid, minecraft_username}` (fields absent when unknown) and is persisted
+  through `atomicio.write_json` — the roster cache write was a direct
+  `open(path,"w")` before, which violated the atomic-JSON invariant.
+- Identity-bearing worker frames now carry `<prefix>_uid` +
+  `<prefix>_minecraft_username` (from/to/peer), and roster requests/groups add
+  `*_details` arrays; the legacy string arrays are unchanged.
+
+## Social identity fixes (2026-09-17) — INVARIANT
+- **S4 identity cache gapfill**: `_remember_event` now calls `_remember_metadata`
+  with `fill_missing_only=True` for "from"/"to"/"peer" prefixes. The client's
+  `peer_metadata` cache (authoritative, updated by T_METADATA events before
+  dispatch) is mirrored unconditionally; raw friend/request detail rows only
+  fill missing UID/username fields and never overwrite a value a live event
+  already delivered. `_chat_seeded` dict tracks `{gen, t, attempts}` per
+  conversation; `_connect_gen` bumped on reconnect marks all cached entries
+  `"retry"` so gaps backfill after disconnect.
+- **S6/S7 chat history retry**: `chat_payload` no longer early-returns for
+  `after >= 0` without seeding. If the conversation isn't successfully seeded
+  (`_chat_seeded[canon] == "done"`), a history request is triggered with
+  exponential backoff via `_HISTORY_REQ_TIMEOUT` (10s). Failed/timeout
+  requests increment `attempts` and are retried on the next poll. Successful
+  relay replies mark the conversation `"done"` to prevent re-requesting.
+- **S8 history dedupe by relay ID/envelope**: `_chat_append` returns bool
+  (appended vs deduped). Deduplication uses the relay's message ID (`mid`)
+  when present, otherwise a fingerprint of the sealed envelope (ciphertext) —
+  NEVER the plaintext, which may legitimately repeat. `_on_dm`, `_file_own_echo`,
+  and `_on_history` all pass `mid` and `envelope` so the atomic dedupe under
+  `_chat_lock` covers live DMs, echoes, and backfilled history uniformly.
+- **S15 sync frame pubkey TTL**: `_sync_frame` now calls `_peer_pubkey(peer)`
+  instead of reading the raw cache. `_peer_pubkey` enforces `_PUBKEY_TTL_S`
+  (900s), re-fetches rotated keys on expiry, and clears the cache on reconnect
+  (`_on_state`). Sync frames seal with the fresh key or fall back to plaintext
+  with the "open" report so the UI is never silently in the clear.
+- **S13 offline invite failure**: Worker's offline reply carries a relay-allocated
+  room the host never learned. `_on_call_end` now matches this case when:
+  `reason == "offline"`, host is in `ringing_out` with `room == None`, and
+  `peer == p.get("to")`. It assigns the relay's room to the session before
+  teardown so the host is notified and the session cleans up immediately.
+  Peer hangups (no `reason:"offline"`) with unknown rooms do NOT match.
+
 ## Seasonal look (2026-09-17) — INVARIANT: a palette is bound at import
 - `cubeon/seasonal.py` resolves WHICH palette this launch wears, at startup,
   from the timezone (CUBEON_TZ > TZ > /etc/localtime > /etc/timezone > Windows
@@ -69,8 +119,11 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   `get_installed_versions` runs `_client_jar_problem` over EVERY entry
   (size vs manifest, zip magic) — a truncated jar shows "(incomplete)",
   never "installed". Regression guard: tools/test_version_integrity.py
-  (14 checks, fake mll injection via `V.mll = _Fake`). Loader profiles
-  (inheritsFrom) carry no jar of their own — never jar-check those.
+  (fake mll injection via `V.mll = _Fake`). Loader profiles may have no own
+  jar, but their `inheritsFrom` chain must resolve to a valid terminal base
+  with cycle/depth guards. Jar selection uses folder/metadata ID, never an
+  arbitrary jar. Failed-install cleanup preserves unchanged preexisting jars;
+  size-only snapshots cannot distinguish same-size concurrent rewrites.
 - PRECEDENCE GOTCHA: `CUBEON_SEASON` env outranks `season_override` config
   BY DESIGN. A user with the var set sees their picker pick ignored. The UI
   surfaces this via `seasonal.env_pin()` (red note in the Seasonal pane +
@@ -145,9 +198,9 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   `cubeon-friends.hamza-457-shahbaz.workers.dev` must be redeployed
   (`cd worker && npx wrangler deploy -c wrangler-friends.toml`) before any
   client build can display it. Old hello_ok/claim replies have NO `uid`.
-- The chat identity card shows ONLY the 12-digit ID (no `Player_xxxxxxxx`
-  name — that auto-minted handle is the relay key, internal only; it survives
-  as the card's hover tooltip).
+- Chat identity labels use validated Minecraft usernames with the 12-digit
+  Cubeon UID visible separately. Auto-minted relay handles are routing keys,
+  never display-name or tooltip fallbacks; missing metadata uses UID/Player.
 - **Two-launcher testing:** `tools/launch_sandbox.py <name>` boots an isolated
   second launcher (fresh HOME → fresh friends account; `--list`/`--wipe`).
   MUST set `PYTHONUSERBASE=<real home>/.local` or flet can't import. Bridge
@@ -155,12 +208,15 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   `~/.cubeon_minecraft` via CUBEON_GAME_DIR (no re-download); `--isolated-game`
   gives the sandbox its own game dir.
 - Chat identity card (ui/chat_tab.py): profile avatar (PFP via
-  `cubeon.profile.get_profile_picture_path`) + cfg["username"] as the display
-  name (relay name fallback) + the 12-digit ID as a small secondary line with
-  a copy button. The pfp path is in `_apply_identity`'s sig so swapping the
-  picture repaints without a roster change. Friends' avatars/names stay
-  color-initial + relay-name — the protocol doesn't transmit PFPs/usernames;
-  changing that means worker + client changes.
+  `cubeon.profile.get_profile_picture_path`) + roster `you_minecraft_username`
+  + the 12-digit UID as a secondary line with a copy button. Self metadata
+  comes from the latest live game's captured username, otherwise the committed
+  launcher username (`watchdog.effective_username`), not an editable field.
+  Friends/request labels use `FriendsService.peer_metadata` / `peer_label`;
+  callbacks, history, and unread markers remain keyed by relay handle.
+  PFP/self/peer metadata participate in refresh signatures. Legacy rename
+  bridge/service entry points are immutable guards directing users to the
+  launcher username setting; `/friends` retains rich request/self metadata.
 
  If a fact here contradicts the code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
@@ -489,8 +545,8 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `local_api.py` | The localhost HTTP bridge the mod polls. Token file `~/.cubeon_launcher/local_api.json`, 0600, loopback only. |
 | `friends.py` | Relay client (WebSocket, secret as first frame), name rules, identity.json, claim/rename. `auto_name()`/`ensure_identity()` = the secret-derived automatic handle (no claim prompt). `T_*` constants = protocol truth. |
 | `e2ee.py` | X25519 DM encryption; keys published to the relay under the claimed name. |
-| `p2p.py` | P2P worlds: STUN + relay fallback, mod/asset sync, teardown. |
-| `worldgate.py` | The OPTIONAL password on a P2P LAN world (in-memory only, dies with the session). Host arms it from the mod's password prompt; the joiner proves it via HMAC(PBKDF2(pw,salt), nonce) over the E2EE signal channel - the p2p_offer (LAN port + relay token) is withheld until a proof lands, so the gate is real, not decorative. |
+| `p2p.py` | P2P worlds: STUN + relay fallback, mod/asset sync, teardown. INVARIANTS (2026-09-17 wave 1): `_mod_target()` (basename + .jar + realpath containment) is the ONLY way a peer-named jar becomes a file — used by BOTH the download path and the cache-hit path; `_asset_target()` enforces the extension allowlist + symlink-safe containment receiver-side; `_accept_chunk()` bounds seq/total (strict ints, encoded-size cap, base64 validate) — NEVER allocate from peer-declared totals; STUN attrs pad `(-attr_len) % 4`. ModSync/AssetSync have cancel()/journal for cancel-with-rollback and an on_error callback the service wires to session failure. |
+| `worldgate.py` | The OPTIONAL password on a P2P LAN world (in-memory only, dies with the session). Host arms it from the mod's password prompt; the joiner proves it via HMAC(PBKDF2(pw,salt), nonce) over the E2EE signal channel - the p2p_offer (LAN port + relay token) is withheld until a proof lands, so the gate is real, not decorative. GATE SIGNALS ARE E2EE-SEALED (2026-09-17): friends_service `_send_gate`/`_open_gate` wrap every gate_* frame in the peer's DM envelope; unsealed/tampered gate signals are refused, and every transport path (`_send_p2p_offer`, `_switch_to_relay`, `_run_host_punch`) checks `_transport_allowed` (per-session `gate_required`/`gate_authorized`) BEFORE creating a transport. Harnesses firing gate frames must seal them (see `gate_build`/`gate_signals` in test_friends_service.py). |
 | `server.py` | Paper server hosting: install (Fill v3 API), start/stop, properties, orphan detection. |
 | `minekube.py` | Public address tunnels: finds/installs Connect plugin, endpoint config. |
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |

@@ -70,7 +70,11 @@ def find_installed_loader_version(installed_ids, loader_id: str, mc_version: str
     pattern = re.compile(rf"(?<![a-z]){re.escape(loader_id)}(?![a-z])")
     candidates = [
         vid for vid in installed_ids
-        if mc_version in vid and pattern.search(vid.lower())
+        if (mc_version in vid.split("-")
+            or (loader_id == "neoforge" and re.fullmatch(r"neoforge-\d+\.\d+\.\d+", vid)
+                and vid.split("-", 1)[1].rsplit(".", 1)[0] in
+                (mc_version, mc_version.removeprefix("1."))))
+        and pattern.search(vid.lower())
     ]
     if not candidates:
         return None

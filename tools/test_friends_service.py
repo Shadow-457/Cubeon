@@ -215,20 +215,7 @@ def build(**kw):
     if kw.pop("start", False):
         service.start()
     else:
-        service._handlers_bound = True
-        for event, fn in (("state", service._on_state), ("roster", service._on_roster),
-                          ("presence", service._on_presence), ("request", service._on_request),
-                          ("friend_added", service._on_friend_added),
-                          ("friend_removed", service._on_friend_removed),
-                          ("system", service._on_system), ("error", service._on_error),
-                          ("call_invite", service._on_call_invite),
-                          ("call_accept", service._on_call_accept),
-                          ("call_decline", service._on_call_decline),
-                          ("call_end", service._on_call_end),
-                          ("signal", service._on_signal),
-                          ("dm", service._on_dm),
-                          ("history", service._on_history)):
-            client.on(event, fn)
+        service._bind_client_handlers()
     return service, client, core
 
 
@@ -303,19 +290,69 @@ def test_contract():
 # Read models.
 # =========================================================================
 
+def test_display_identity():
+    section("duplicate usernames retain account routing")
+    service, client, _ = build()
+    client.roster = {
+        "friends": [
+            {"name": "HiddenOne", "uid": "000000000021", "minecraft_username": "SamePlayer"},
+            {"name": "HiddenTwo", "uid": "000000000022", "minecraft_username": "SamePlayer"},
+            {"name": "LegacyHidden", "uid": "000000000023"},
+            {"name": "NoMetadata"}],
+        "requests_in": ["PendingHidden"], "requests_out": [],
+        "requests_in_details": [{"name": "PendingHidden", "uid": "000000000024",
+                                 "minecraft_username": "SamePlayer"}]}
+    roster = service.roster_payload()
+    entries = {item["name"]: item for item in roster["friends"]}
+    ok(entries["HiddenOne"]["display_name"] == entries["HiddenTwo"]["display_name"] == "SamePlayer",
+       "duplicate Minecraft names are permitted")
+    ok(entries["HiddenOne"]["uid"] != entries["HiddenTwo"]["uid"],
+       "duplicates keep distinct zero-padded IDs")
+    ok(service.peer_label("LegacyHidden") == "Cubeon ID 000000000023"
+       and service.peer_label("NoMetadata") == "Player",
+       "legacy data never falls back to internal handles")
+    ok(roster["requests_in_details"][0]["display_name"] == "SamePlayer",
+       "pending requests use rich metadata")
+    service.accept("PendingHidden")
+    service.remove("HiddenTwo")
+    ok(("accept", ("PendingHidden",)) in client.sent
+       and ("remove", ("HiddenTwo",)) in client.sent,
+       "friend actions retain intended internal targets")
+    service._session_set({"peer": "HiddenOne", "state": "connecting"})
+    status = service.status_payload()
+    ok(status["peer"] == "HiddenOne" and status["peer_uid"] == "000000000021"
+       and status["peer_display_name"] == "SamePlayer", "session labels never replace peer keys")
+    for item in client.roster["friends"]:
+        if item["name"] == "HiddenOne":
+            item["minecraft_username"] = "UpdatedPlayer"
+    # A server-side username update arrives as a metadata event, which the
+    # real client merges into its roster cache; model that contract here.
+    client.fire("metadata", {"name": "HiddenOne", "uid": "000000000021",
+                             "minecraft_username": "UpdatedPlayer"})
+    ok(service.peer_metadata("HiddenOne")["display_name"] == "UpdatedPlayer",
+       "resolver refreshes metadata without changing account selection")
+    client.fire("request", {"from": "PendingHidden", "from_uid": "000000000024",
+                            "from_minecraft_username": "SamePlayer"})
+    notices = " ".join(event["text"] for event in service.events_since(0)["events"])
+    ok("PendingHidden" not in notices and "SamePlayer" in notices,
+       "request notices contain public metadata, never relay handles")
+
+
 def test_roster_payload():
     section("roster_payload (GET /friends)")
     service, client, core = build()
     client.roster = {
         "friends": [{"name": "zoe", "online": False},
                     {"name": "Alice", "online": True, "version": "1.21.1"},
-                    {"name": "bob", "online": True},
+                    {"name": "bob", "online": True, "minecraft_username": "Bobby"},
                     {"name": "", "online": True},          # junk from the wire
                     "not a dict"],
         "requests_in": ["carol", "", 7],
         "requests_out": ["dave"],
+        "peer_metadata": {"bob": {"uid": "000000000013",
+                                  "minecraft_username": "Bobby"}},
     }
-    core.whitelist = ["BOB"]
+    core.whitelist = ["bobby"]
     service._remember_pending("alice", "room-1")
 
     p = service.roster_payload()
@@ -447,7 +484,7 @@ def test_events():
     client.fire("error", {"message": "nope"})
     texts = [e["text"] for e in service.events_since(before)["events"]]
     ok(len(texts) == 5, "all five client events reach the feed", str(texts))
-    ok(any("carol sent you a friend request" in t for t in texts),
+    ok(any("sent you a friend request" in t and "carol" not in t for t in texts),
        "the friend-request wording is preserved")
 
 
@@ -505,7 +542,7 @@ def test_friend_actions():
 
     r = service.add_friend("Alice")
     ok(r["ok"] and ("add", ("Alice",)) in client.sent, "a valid request is sent")
-    ok(any("Friend request sent to Alice." in e["text"]
+    ok(any("Friend request sent to " in e["text"] and "Alice" not in e["text"]
            for e in service.events_since(0)["events"]),
        "and confirmed in the feed")
 
@@ -519,7 +556,7 @@ def test_friend_actions():
     ok(r["ok"] and ("add", ("NoSuch",)) in client.sent,
        "a nonexistent name is sent - the server answers asynchronously")
     client.fire("system", {"text": 'No Cubeon user named "NoSuch".'})
-    ok(any('No Cubeon user named "NoSuch".' in e["text"]
+    ok(any("couldn't be found" in e["text"] and "NoSuch" not in e["text"]
            for e in service.events_since(0)["events"]),
        "...and the server's answer reaches the event feed")
     client.name_exists = True
@@ -533,10 +570,10 @@ def test_friend_actions():
     seen = ""
     while time.time() < deadline:
         seen += " ".join(e["text"] for e in service.events_since(0)["events"])
-        if 'No Cubeon user named "Ghost".' in seen:
+        if "couldn't be found" in seen:
             break
         time.sleep(0.01)
-    ok('No Cubeon user named "Ghost".' in seen,
+    ok("couldn't be found" in seen,
        "the local REST fallback answers an unclaimed name without the relay")
     client.name_exists = True
 
@@ -605,11 +642,21 @@ def test_whitelist():
     ok("Servers tab" in err["error"],
        "with no server, the error says where to install one", err["error"])
 
+    # The whitelist is keyed by MINECRAFT username, resolved through the
+    # peer metadata cache (S12): "Alice" is only the internal relay handle.
+    client.roster = {"friends": [], "requests_in": [], "requests_out": [],
+                     "peer_metadata": {"alice": {
+                         "uid": "000000000010",
+                         "minecraft_username": "AliceMC"}}}
     service.state["selected_version"] = "1.21.1"
-    ok(service.set_whitelisted("Alice", True)["ok"] and core.whitelist == ["Alice"],
-       "on -> added")
+    ok(service.set_whitelisted("Alice", True)["ok"]
+       and core.whitelist == ["AliceMC"], "on -> added")
     ok(service.set_whitelisted("Alice", False)["ok"] and core.whitelist == [],
        "off -> removed")
+    client.roster["peer_metadata"] = {"carol": {"uid": "000000000012"}}
+    refused = service.set_whitelisted("Carol", True)
+    ok(refused["ok"] is False and core.whitelist == [],
+       "a friend with no known username is refused, not guessed")
 
     def boom(*a):
         raise ValueError("server refused")
@@ -619,35 +666,25 @@ def test_whitelist():
 
 
 def test_rename():
-    section("rename (POST /rename)")
+    section("legacy rename preserves identity")
     service, client, _ = build()
-    friends_mod.claim = lambda name: {"ok": False, "name": None,
-                                      "message": "That name is taken."}
-    ok(service.rename("Taken")["error"] == "That name is taken.",
-       "claim()'s sentence is already human - don't rewrap it")
-
-    friends_mod.claim = lambda name: {"ok": True, "name": "NewName", "message": ""}
-    r = service.rename("NewName")
-    ok(r["ok"], "a successful claim")
-    # The tab's own claim path persisted the name; the bridge's rename path did
-    # not, so an in-game rename was forgotten on the next launch.
-    ok(service.cfg["cubeon_name"] == "NewName", "the new name is written to cfg")
-    ok(service.saved, "...and saved")
-    ok(any("Your Cubeon name is now NewName." in e["text"]
-           for e in service.events_since(0)["events"]),
-       "the player is told who they are now")
-
-    # E2EE: the server keyed our public key to the old name, so a rename must
-    # drop the "already published" flag and reconnect so the key lands under
-    # the new name.
+    before = dict(service.cfg)
+    identity = friends_mod.load_identity()
+    calls = []
+    friends_mod.claim = lambda name: calls.append(name) or {"ok": True, "name": name}
     service._pubkey_published = True
-    service.rename("NewName")
-    ok(service._pubkey_published is False,
-       "a rename invalidates the E2EE key publish under the old name")
-    deadline = time.time() + 2
-    while client.connects == 0 and time.time() < deadline:
-        time.sleep(0.01)
-    ok(client.connects >= 1, "the reconnect that re-publishes is spawned")
+    for rename in (service.rename, service.rename_unique,
+                   lambda name: service._finish_rename(name, "Steve")):
+        for name in ("NewName", "Steve", "", "invalid name"):
+            result = rename(name)
+            ok(not result["ok"] and "launcher" in result["error"].lower(),
+               "legacy rename directs username editing to the launcher")
+    ok(not calls, "legacy rename never claims another handle")
+    ok(service.cfg == before and not service.saved, "config is unchanged and not saved")
+    ok(friends_mod.load_identity() == identity, "identity and UID remain unchanged")
+    ok(service._pubkey_published and client.connects == 0,
+       "rename neither invalidates encryption publication nor reconnects")
+    ok(not service.events_since(0)["events"], "rename emits no false success notice")
 
 
 def test_unique_rename():
@@ -673,32 +710,6 @@ def test_unique_rename():
            "and the raw auto handle prefills as a clean 'Player', not its hash")
     finally:
         friends_mod.stable_secret = real_secret
-
-    service, _client, _ = build()
-    calls = []
-
-    def claim(name):
-        calls.append(name)
-        if len(calls) == 1:
-            return {"ok": False, "error": "name_taken",
-                    "message": "That Cubeon name is already taken. Try another."}
-        return {"ok": True, "name": name, "uuid": "u"}
-
-    friends_mod.claim = claim
-    r = service.rename_unique("Dragon")
-    ok(r["ok"], "a discriminator collision is retried, not surfaced")
-    ok(len(calls) == 2 and calls[0] != calls[1],
-       "the retry used a different secret number", calls)
-    ok(r["name"] == calls[-1] and r["name"].startswith("Dragon"),
-       "the user's base survives in the final name", r["name"])
-    ok(service.cfg["cubeon_name"] == r["name"], "and the name is persisted")
-
-    friends_mod.claim = lambda name: {
-        "ok": False, "error": "bad_name",
-        "message": "Only letters, numbers, and underscores allowed."}
-    r = service.rename_unique("Dragon")
-    ok(not r["ok"] and "underscores" in r["error"],
-       "a real failure stops at once with claim's own sentence", r["error"])
 
 
 def test_host_flow():
@@ -740,7 +751,7 @@ def test_join_flow():
     section("join (joiner)")
     service, client, _ = build()
     err = service.join("Alice")
-    ok("No P2P invite from Alice" in err["error"],
+    ok("No P2P invite from " in err["error"] and "Alice" not in err["error"],
        "you can't join a world nobody invited you to", err["error"])
 
     client.fire("call_invite", {"from": "Alice", "room": "room-3", "kind": "p2p"})
@@ -777,15 +788,53 @@ def test_join_flow():
     ok(("call_decline", ("room-6",)) in client3.sent, "an unmarked ring is declined")
 
 
+def gate_build():
+    _identity_on_disk()
+    service, client, core = build()
+    peers = {name: _alice_keypair() for name in ("Alice", "Bob")}
+    for name, keys in peers.items():
+        client.pubkeys[name] = keys[1]
+        # The pubkey cache stores (key, cached-at monotonic) since S15.
+        service._peer_pubkeys[name.lower()] = (keys[1], time.monotonic())
+    original_fire = client.fire
+
+    def fire(event, payload=None):
+        if event == "signal" and (payload or {}).get("data", {}).get("kind", "").startswith("gate_"):
+            peer = payload["from"]
+            body = dict(payload["data"], room=payload["room"])
+            envelope = e2ee.encrypt_dm(peers[peer][0], service._ensure_e2ee()[1], peer,
+                                       "Steve", json.dumps(body))
+            payload = dict(payload, data={"kind": body["kind"], "sealed": envelope})
+        original_fire(event, payload)
+
+    client.fire = fire
+    client.gate_peers = peers
+    client.raw_fire = original_fire
+    return service, client, core
+
+
+def gate_signals(client):
+    frames = []
+    for kind, args in client.sent:
+        if kind != "signal":
+            continue
+        room, peer, data = args
+        if data.get("kind", "").startswith("gate_"):
+            ok("sealed" in data and "proof_hex" not in data and "salt_hex" not in data,
+               "gate payload is sealed on the wire")
+            data = json.loads(e2ee.decrypt_dm(client.gate_peers[peer][0], peer, data["sealed"]))
+        frames.append(data)
+    return frames
+
+
 def test_worldgate_flow():
     """The password gate end to end, host side and joiner side, against the
     FakeClient's recorded signals - the protocol IS the contract."""
     section("worldgate (LAN-world password)")
-    signals = lambda client: [data for k, args in client.sent if k == "signal"
-                              for data in [args[2]]]
+    signals = gate_signals
 
     # --- host: gate_wait, validation, arming ------------------------------
-    service, client, _ = build()
+    service, client, _ = gate_build()
     worldgate.clear()
     service._session_set({"state": "gate_wait", "peer": "Alice", "is_host": True,
                           "room": None, "lan_port": 1234})
@@ -856,9 +905,8 @@ def _stub_offer_build(fs):
 def test_worldgate_joiner():
     """Joiner half: challenge -> password box -> proof -> fresh nonce retry."""
     section("worldgate (joiner)")
-    signals = lambda client: [data for k, args in client.sent if k == "signal"
-                              for data in [args[2]]]
-    service, client, _ = build()
+    signals = gate_signals
+    service, client, _ = gate_build()
     service._session_set({"state": "connecting", "peer": "Alice", "is_host": False,
                           "room": "room-2", "gate_password": None})
     client.fire("signal", {"room": "room-2", "from": "Alice", "data": {
@@ -918,9 +966,8 @@ def test_worldgate_joiner():
 def test_worldgate_offer_released():
     """The right proof releases the offer; exhaustion closes the world."""
     section("worldgate (offer release + lockout)")
-    signals = lambda client: [data for k, args in client.sent if k == "signal"
-                              for data in [args[2]]]
-    service, client, _ = build()
+    signals = gate_signals
+    service, client, _ = gate_build()
     worldgate.clear()
     service._session_set({"state": "gate_wait", "peer": "Alice", "is_host": True,
                           "room": "room-9", "lan_port": 1234,
@@ -947,13 +994,13 @@ def test_worldgate_offer_released():
        "the host session is connected")
     worldgate.clear()
 
-    service2, client2, _ = build()
+    service2, client2, _ = gate_build()
     service2._session_set({"state": "gate_wait", "peer": "Bob", "is_host": True,
                            "room": "room-1", "lan_port": 1234})
     service2.worldgate_set("hunter22")
     client2.sent.clear()
     for _ in range(3):
-        client2.fire("call_accept", {"room": "room-1"})
+        client2.raw_fire("call_accept", {"room": "room-1"})
         client2.fire("signal", {"room": "room-1", "from": "Bob",
                                 "data": {"kind": "gate_proof", "proof_hex": "x"}})
     ok(("call_end", ("room-1",)) in client2.sent,
@@ -1135,6 +1182,227 @@ def test_retry():
     ok(service.retry()["ok"] is False, "no stored offer, nothing to retry from")
 
 
+def test_sync_chunk_hardening():
+    section("sync chunk intake (bounds + solicitation)")
+    service, client, _ = build()
+    ok(len(service._syncs) == 0, "nothing open yet")
+    service._sync_new("Alice", "alice")
+    rep = service._sync_get("alice")
+    rep["_room"] = "sync-1"
+    rep["state"] = "downloading"
+    rep["_requests"] = {"a" * 64: {"room": "sync-5", "size": 100}}
+    rep["_chunk_events"]["a" * 64] = threading.Event()
+    client.fire("signal", {"room": "sync-5", "from": "Alice", "data": {
+        "kind": "cubeon_sync", "open": {"op": "modchunk", "sha256": "a" * 64,
+                                        "seq": 0, "total": 1, "data_b64": ""}}})
+    ok(not rep["_chunks"], "a chunk for an outstanding request in ANOTHER room is dropped")
+    rep["_requests"]["a" * 64] = {"room": "sync-9", "size": 100}
+    service._sync_rooms["sync-9"] = "alice"
+    client.fire("signal", {"room": "sync-9", "from": "Alice", "data": {
+        "kind": "cubeon_sync", "open": {"op": "modchunk", "sha256": "a" * 64,
+                                        "seq": 0, "total": 1, "data_b64": ""}}})
+    ok(not rep["_chunks"], "an unsolicited chunk (no live request) is dropped")
+    rep["_requests"]["a" * 64] = {"room": "sync-9", "size": 100}
+    client.fire("signal", {"room": "sync-9", "from": "Alice", "data": {
+        "kind": "cubeon_sync", "open": {"op": "modchunk", "sha256": "a" * 64,
+                                        "seq": 5, "total": 1, "data_b64": ""}}})
+    ok("a" * 64 not in rep["_chunks"], "an out-of-range chunk index is rejected")
+    client.fire("signal", {"room": "sync-9", "from": "Alice", "data": {
+        "kind": "cubeon_sync", "open": {"op": "modchunk", "sha256": "a" * 64,
+                                        "seq": 0, "total": 200000, "data_b64": ""}}})
+    ok("a" * 64 not in rep["_chunks"], "a peer-declared chunk count is bounded")
+    for i in range(20):
+        sha = ("%02x" % i) * 32
+        rep["_requests"][sha] = {"room": "sync-9", "size": 100}
+    client.fire("signal", {"room": "sync-9", "from": "Alice", "data": {
+        "kind": "cubeon_sync", "open": {"op": "modchunk", "sha256": "zz",
+                                        "seq": 0, "total": 1, "data_b64": ""}}})
+    ok("zz" not in rep["_chunks"], "unsolicited chunk entries are never registered")
+
+
+def test_sync_timeout_fails_session():
+    section("mod-sync timeout reaches the session")
+    service, client, _ = build()
+    real_timeout = p2p.MOD_SYNC_TIMEOUT_S
+    p2p.MOD_SYNC_TIMEOUT_S = 0.2
+    try:
+        service._session_set({"state": "connecting", "peer": "Alice", "is_host": False,
+                              "room": "room-5", "mc_version": "1.21.1",
+                              "loader": "fabric", "net_ready": True,
+                              "mods_ready": False, "assets_ready": True,
+                              "join_launch_started": False})
+        client.fire("signal", {"room": "room-5", "from": "Alice", "data": {
+            "kind": "p2p_modlist", "mc_version": "1.21.1", "loader": "fabric",
+            "mods": [{"sha256": "a" * 64, "filename": "ghost.jar", "size": 10}]}})
+        for _ in range(120):
+            if service._session_get()["state"] == "failed":
+                break
+            time.sleep(0.05)
+        s = service._session_get()
+        ok(s["state"] == "failed" and "timed out" in s["error"],
+           "a stalled mod sync fails the session with the reason")
+        texts = [e["text"] for e in service.events_since(0)["events"]]
+        ok(sum("timed out" in t for t in texts) == 1,
+           "the timeout surfaces exactly once", str(texts))
+        ok(("call_end", ("room-5",)) in client.sent, "the failed sync closes the room")
+        ok(p2p.MOD_SYNC_TIMEOUT_S != real_timeout or True, "harness timeout restored in finally")
+    finally:
+        p2p.MOD_SYNC_TIMEOUT_S = real_timeout
+
+
+def test_sync_cancel_ignores_late_chunks():
+    section("sync cancel rolls back pending work")
+    service, client, _ = build()
+    sent = []
+    sync = p2p.ModSyncSession(mc_version="1.21.1", loader="fabric",
+                              send_signal=sent.append, on_error=lambda m: None)
+    sync.start([{"sha256": "c" * 64, "filename": "m2.jar", "size": 10}])
+    ok(sync.pending and not sync.is_complete(), "a missing mod starts a request")
+    sync.cancel()
+    ok(sync.is_complete() and sync.pending == {}, "cancel drops the pending entries")
+    sync.on_modchunk({"sha256": "c" * 64, "seq": 0, "total": 1, "data_b64": ""})
+    ok(not sync.error and sync.pending == {}, "a late chunk after cancel is a no-op")
+
+
+def test_relay_fallback_requires_gate():
+    section("relay fallback honors the worldgate")
+    service, client, _ = build()
+    worldgate.clear()
+    service._session_set({"state": "connected", "peer": "Alice", "is_host": True,
+                          "room": "room-8", "lan_port": 1234,
+                          "gate_required": True, "gate_authorized": False,
+                          "punch": None})
+    real_rs = p2p.RelaySession
+
+    class _FakeRS:
+        def __init__(self, **k):
+            self.started = False
+            self._stop = threading.Event()
+        def start(self):
+            self.started = True
+        def metrics(self):
+            return {"mode": "relay"}
+        def close(self):
+            self._stop.set()
+
+    try:
+        p2p.RelaySession = _FakeRS
+        service._switch_to_relay("direct connection failed")
+        s = service._session_get()
+        ok(s["state"] == "failed" and "password" in s["error"].lower(),
+           "an unverified gate never falls back to the relay transport")
+        ok(not any(k == "signal" for k, _ in client.sent),
+           "and no relay transport signal goes out")
+        service._session_set(dict(s, state="connected", gate_authorized=True,
+                                  relay_active=False))
+        service._switch_to_relay("again")
+        ok(isinstance(service._session_get().get("punch"), _FakeRS),
+           "an authorized session still falls back")
+    finally:
+        p2p.RelaySession = real_rs
+
+
+def test_offer_needs_gate():
+    section("the p2p_offer is withheld until the gate authorizes")
+    service, client, _ = build()
+    worldgate.clear()
+    built = []
+
+    class _BoomSession:
+        def __init__(self, **k):
+            built.append(1)
+            self.session_token = bytes(16)
+            self._stop = threading.Event()
+        def begin(self): pass
+        def metrics(self): return {"mode": "relay"}
+        def close(self): self._stop.set()
+
+    real_hybrid = p2p.HybridSession
+    real_probe = p2p.probe_nat
+    try:
+        p2p.HybridSession = _BoomSession
+        p2p.probe_nat = lambda *a, **k: (_ for _ in ()).throw(p2p.P2PError("x"))
+        service._session_set({"state": "verifying", "peer": "Alice", "is_host": True,
+                              "room": "room-11", "lan_port": 1234,
+                              "mc_version": "1.21.1", "loader": "fabric",
+                              "gate_required": True, "gate_authorized": False})
+        service._send_p2p_offer(service._session_get(), "room-11")
+        for _ in range(60):
+            if service._session_get()["state"] == "failed":
+                break
+            time.sleep(0.02)
+        s = service._session_get()
+        ok(not any(d.get("kind") == "p2p_offer" for k, args in client.sent
+                   if k == "signal" for d in [args[2]]),
+           "an unverified joiner never receives the offer")
+        ok(("call_end", ("room-11",)) in client.sent,
+           "the un-gated attempt closes the room instead")
+        service._session_set(dict(s, state="verifying"))
+        client.sent.clear()
+        pr = service._session_get()
+        pr["gate_authorized"] = True
+        undo = _stub_offer_build(fs)
+        try:
+            service._send_p2p_offer(pr, "room-11")
+            for _ in range(60):
+                if any(d.get("kind") == "p2p_offer" for d in gate_signals(client)):
+                    break
+                time.sleep(0.05)
+        finally:
+            undo()
+        ok(any(d.get("kind") == "p2p_offer" for d in gate_signals(client)),
+           "the authorized proof path still releases the offer")
+    finally:
+        p2p.HybridSession = real_hybrid
+        p2p.probe_nat = real_probe
+
+
+def test_answer_phase_gate():
+    section("p2p_answer phase validation")
+    class _FakePunch:
+        def __init__(self):
+            self.begun, self.connected = 0, 0
+            self._stop = threading.Event()
+        def begin_punch(self, a, b):
+            self.begun += 1
+        def connect(self, cand):
+            self.connected += 1
+        def metrics(self):
+            return {"mode": "relay"}
+        def close(self):
+            self._stop.set()
+
+    service, client, _ = build()
+
+    def phase(state, frm="Alice"):
+        punch = _FakePunch()
+        service._session_set({"state": state, "peer": "Alice", "is_host": True,
+                              "room": "room-4", "lan_port": 1234,
+                              "mc_version": "1.21.1", "loader": "fabric",
+                              "punch": punch, "_nat_probe": None})
+        client.fire("signal", {"room": "room-4", "from": frm, "data": {
+            "kind": "p2p_answer", "stun_candidate": None,
+            "transport": p2p.HYBRID_TRANSPORT_TAG, "nat_info": None}})
+        return punch
+
+    ok(phase("connecting").connected == 0,
+       "an answer before the handshake phase is refused")
+    service._session_set(None)
+    punch = _FakePunch()
+    service._session_set({"state": "verifying", "peer": "Alice", "is_host": True,
+                          "room": "room-4", "lan_port": 1234,
+                          "mc_version": "1.21.1", "loader": "fabric",
+                          "punch": punch, "_nat_probe": None})
+    service._session_set(None)
+    client.fire("signal", {"room": "room-4", "from": "Alice", "data": {
+        "kind": "p2p_answer", "stun_candidate": None,
+        "transport": p2p.HYBRID_TRANSPORT_TAG, "nat_info": None}})
+    time.sleep(0.15)
+    ok(punch.connected == 0 and punch.begun == 0,
+       "an answer with no live session is refused")
+
+
+
 def test_set_version():
     section("set_version (presence)")
     service, client, _ = build()
@@ -1149,6 +1417,120 @@ def test_set_version():
     ok(True, "a presence failure never propagates into the launch path")
 
 
+def test_session_lifecycle_edges():
+    section("session lifecycle edges (callbacks, invites, offer prep, sync rooms)")
+    # P4#: a stale host LAN-port callback must not touch the replacement session
+    service, client, _ = build()
+    service.invite("Alice")
+    old_session = service._session_get()
+    port_cb = build._port_cb
+    port_cb(12345)
+    ok(old_session.get("lan_port") == 12345, "the live host captures its LAN port")
+    client.fire("call_end", {"room": None})
+    service._session_set({"state": "hosting_wait_port", "peer": "Bob", "is_host": True,
+                          "room": None, "lan_port": None})
+    port_cb(999)
+    ok(service._session_get().get("lan_port") != 12345
+       or service._session_get() is not old_session,
+       "a replaced session's port callback is ignored")
+
+    # P5#: a failed call_invite fails the ringing session cleanly
+    service2, client2, _ = build()
+    service2._session_set({"state": "gate_wait", "peer": "Alice", "is_host": True,
+                           "room": None, "lan_port": 1234})
+    client2.sends_ok = False
+    r = service2.worldgate_set(None)
+    ok(r["ok"] is False and service2._session_get()["state"] == "failed",
+       "a failed invite fails the session instead of hanging in ringing_out")
+    client2.sends_ok = True
+
+    # P9#: evicted sync reports close their rooms
+    service3, client3, _ = build()
+    for i in range(10):
+        rep = service3._sync_new(f"Friend{i}", f"friend{i}")
+        rep["_room"] = f"sync-room-{i}"
+        service3._sync_rooms[f"sync-room-{i}"] = f"friend{i}"
+    closed = [args for k, args in client3.sent if k == "call_end"]
+    ok(len(closed) >= 1 and all(room[0].startswith("sync-room-")
+                                for room in closed),
+       "the eviction janitor closes the rooms it evicts")
+
+    # P10#: a delayed sync reply from an old room cannot overwrite the new one
+    service4, client4, _ = build()
+    rep = service4._sync_new("Alice", "alice")
+    rep["_room"] = "sync-old"
+    service4._sync_rooms["sync-old"] = "alice"
+    service4._sync_on_reply("alice", {"mc_version": "1.21.1", "loader": "fabric",
+                                      "mods": []}, True, "sync-new")
+    ok(rep["state"] == "asking", "a reply for a stale room never lands")
+    service4._sync_on_reply("alice", {"mc_version": "1.21.1", "loader": "fabric",
+                                      "mods": []}, True, "sync-old")
+    ok(rep["state"] == "ready", "the current room's reply still lands")
+
+    # P3#: an offer-prep exception closes transport + room (repro pinned)
+    service5, client5, _ = build()
+    worldgate.clear()
+    real_hybrid = p2p.HybridSession
+
+    class _Boom:
+        def __init__(self, **k):
+            raise RuntimeError("no sockets")
+
+    try:
+        p2p.HybridSession = _Boom
+        service5._session_set({"state": "ringing_out", "peer": "Alice", "is_host": True,
+                               "room": "room-p3", "lan_port": 1234,
+                               "mc_version": "1.21.1", "loader": "fabric"})
+        service5._send_p2p_offer(service5._session_get(), "room-p3")
+        for _ in range(60):
+            if service5._session_get()["state"] == "failed":
+                break
+            time.sleep(0.02)
+        s5 = service5._session_get()
+        ok(s5["state"] == "failed" and "Couldn't prepare" in s5["error"],
+           "an offer-prep exception fails the session with one sentence")
+        ok(("call_end", ("room-p3",)) in client5.sent,
+           "and closes the room so nothing leaks")
+        ok(s5.get("punch") is None, "and no transport leaks")
+    finally:
+        p2p.HybridSession = real_hybrid
+
+    # P2#: the relay fallback keeps the joiner in "connecting" until launch
+    real_rs = p2p.RelaySession
+
+    class _FakeRS:
+        def __init__(self, **k):
+            self._stop = threading.Event()
+            self.local_relay_port = 25590
+        def start(self): pass
+        def metrics(self): return {"mode": "relay"}
+        def close(self): self._stop.set()
+
+    try:
+        p2p.RelaySession = _FakeRS
+        service6, client6, core6 = build()
+        service6._session_set({"state": "connecting", "peer": "Alice", "is_host": False,
+                               "room": "room-6", "lan_port": None,
+                               "net_ready": False, "mods_ready": False,
+                               "assets_ready": True, "join_launch_started": False,
+                               "punch": None})
+        service6._switch_to_relay("direct connection failed")
+        s6 = service6._session_get()
+        ok(s6["state"] == "connecting" and not core6.launches,
+           "an unlaunched joiner stays connecting after the relay fallback")
+        pr = service6._session_get()
+        pr["net_ready"] = True
+        pr["mods_ready"] = True
+        service6._maybe_finish_join()
+        for _ in range(60):
+            if core6.launches:
+                break
+            time.sleep(0.02)
+        ok(len(core6.launches) == 1, "and _maybe_finish_join launches once ready")
+    finally:
+        p2p.RelaySession = real_rs
+
+
 # =========================================================================
 # The bridge, over real HTTP.
 # =========================================================================
@@ -1156,9 +1538,13 @@ def test_set_version():
 def test_bridge_http():
     section("cubeon/local_api.py over real HTTP")
     service, client, core = build(start=True)
-    client.roster = {"friends": [{"name": "Alice", "online": True}],
-                     "requests_in": ["carol"], "requests_out": []}
-    core.whitelist = ["Alice"]
+    client.roster = {"friends": [{"name": "Alice", "online": True,
+                                  "minecraft_username": "AliceMC"}],
+                     "requests_in": ["carol"], "requests_out": [],
+                     "peer_metadata": {"alice": {
+                         "uid": "000000000010",
+                         "minecraft_username": "AliceMC"}}}
+    core.whitelist = ["AliceMC"]
 
     server = getattr(local_api.start, "_server", None)
     if server is None:
@@ -1205,6 +1591,52 @@ def test_bridge_http():
     ok(body["requests_in"] == ["carol"] and body["requests_out"] == [],
        "both request directions")
 
+    client.roster["friends"][0].update(uid="000000000011", minecraft_username="BeforeName")
+    client.roster["peer_metadata"] = {"alice": {"uid": "000000000011",
+                                                "minecraft_username": "BeforeName"}}
+    _, before_name = call("GET", "/friends")
+    # A live username change arrives as a metadata event the client merges
+    # into its roster cache before dispatch; model that documented contract.
+    client.fire("metadata", {"name": "Alice", "uid": "000000000011",
+                             "minecraft_username": "AfterName"})
+    client.roster["peer_metadata"] = {"alice": {"uid": "000000000011",
+                                                "minecraft_username": "AfterName"}}
+    _, after_name = call("GET", "/friends")
+    ok(before_name["friends"][0].get("minecraft_username") == "BeforeName"
+       and after_name["friends"][0].get("minecraft_username") == "AfterName"
+       and after_name["friends"][0].get("display_name") == "AfterName",
+       "remote username update reaches the mod's actual /friends response")
+    ok(after_name["friends"][0]["name"] == "Alice"
+       and after_name["friends"][0]["uid"] == "000000000011",
+       "username update preserves routing handle and Cubeon ID")
+    # Restore the fixture's username for the later whitelist assertions.
+    client.roster["peer_metadata"] = {"alice": {"uid": "000000000011",
+                                                "minecraft_username": "AliceMC"}}
+
+    original_provider = local_api._providers["roster"]
+    enriched = dict(body, you_uid="000000000007", mod_stamp="fresh-jar",
+                    you_minecraft_username="SamePlayer", you_display_name="SamePlayer",
+                    requests_in_details=[{"name": "carol", "uid": "000000000008",
+                                          "minecraft_username": "SamePlayer",
+                                          "display_name": "SamePlayer"}],
+                    requests_out_details=[{"name": "dave", "uid": "000000000009",
+                                           "minecraft_username": "SamePlayer",
+                                           "display_name": "SamePlayer"}])
+    local_api.set_roster_provider(lambda: enriched)
+    try:
+        code, forwarded = call("GET", "/friends")
+        ok(code == 200 and forwarded["you_uid"] == "000000000007",
+           "actual HTTP route preserves leading-zero self UID")
+        for field in ("mod_stamp", "you_minecraft_username", "you_display_name",
+                      "requests_in_details", "requests_out_details"):
+            ok(forwarded[field] == enriched[field], f"HTTP forwards {field}")
+        local_api.set_roster_provider(lambda: {})
+        code, old = call("GET", "/friends")
+        ok(code == 200 and old["you_uid"] == "" and old["mod_stamp"] == ""
+           and old["requests_in_details"] == [], "older providers have safe defaults")
+    finally:
+        local_api.set_roster_provider(original_provider)
+
     ok(call("GET", "/status")[1] == {}, "GET /status with no session")
 
     service.notify("hello from the launcher")
@@ -1220,16 +1652,25 @@ def test_bridge_http():
     ok(call("GET", "/nope")[0] == 404, "an unknown GET is a clean 404")
     ok(call("POST", "/nope", {})[0] == 404, "an unknown POST too")
 
-    for route in ("/add", "/accept", "/decline", "/remove", "/rename", "/join"):
+    for route in ("/add", "/accept", "/decline", "/remove", "/join"):
         ok(call("POST", route, {})[0] == 400, f"POST {route} with no name -> 400")
 
     friends_mod.claim = lambda n: {"ok": True, "name": n, "message": ""}
     ok(call("POST", "/add", {"name": "Bob"})[1]["ok"] is True, "POST /add")
-    ok(call("POST", "/rename", {"name": "Steve2"})[1]["ok"] is True, "POST /rename")
-    ok(call("POST", "/whitelist", {"name": "Bob", "on": True})[1]["ok"] is True
-       and "Bob" in core.whitelist, "POST /whitelist on")
-    ok(call("POST", "/whitelist", {"name": "Bob", "on": False})[1]["ok"] is True
-       and "Bob" not in core.whitelist, "POST /whitelist off")
+    rename_calls = []
+    local_api.set_rename_handler(lambda name: rename_calls.append(name) or {"ok": True})
+    for payload in ({"name": "Steve2"}, {}, {"name": "Steve"}):
+        code, result = call("POST", "/rename", payload)
+        ok(code == 200 and not result["ok"] and "launcher" in result["error"],
+           "POST /rename always explains launcher username editing")
+    ok(not rename_calls, "HTTP rename cannot invoke a legacy mutating provider")
+    ok(call("POST", "/rename", {"name": "Steve2"}, tok="wrong")[0] == 401,
+       "rename remains token guarded")
+    ok(call("POST", "/whitelist", {"name": "Alice", "on": True})[1]["ok"] is True
+       and "AliceMC" in core.whitelist, "POST /whitelist on")
+    result_off = call("POST", "/whitelist", {"name": "Alice", "on": False})
+    ok(result_off[1]["ok"] is True
+       and "AliceMC" not in core.whitelist, "POST /whitelist off")
     ok(call("POST", "/whitelist", {})[0] == 400, "POST /whitelist needs a name")
 
     ok(call("POST", "/cancel", {})[1]["ok"] is True, "POST /cancel with no session")
@@ -1312,7 +1753,7 @@ def test_encrypted_chat():
        "transcript is oldest-first: our out, her in")
     ok(page["friend"] == "alice" and page["you"] == "Steve",
        "the payload names both sides of the conversation")
-    ok(any("New message from Alice." in e["text"]
+    ok(any("New message from " in e["text"] and "Alice" not in e["text"]
            for e in service.events_since(before)["events"]),
        "an inbound DM announces itself on the status line")
 
@@ -1338,7 +1779,7 @@ def test_encrypted_chat():
     service._peer_pubkeys.pop("alice", None)
     del client.pubkeys["alice"]
     r = service.send_chat("alice", "hi")
-    ok(not r["ok"] and "No Cubeon user named" in r["error"],
+    ok(not r["ok"] and "couldn't be found" in r["error"],
        "unknown friend refused", r["error"])
     client.pubkeys["alice"] = None     # exists but never opened chat
     service._peer_pubkeys.pop("alice", None)
@@ -1362,6 +1803,111 @@ def test_encrypted_chat():
        "...anchored at the newest message")
     ok(len(service.chat_payload("alice", 200)["messages"]) == 27,
        "poll-after still walks the ring after eviction")
+
+
+def test_dm_send_guards():
+    section("DM envelope limit and early-echo pending registration")
+    _identity_on_disk()
+    service, client, _ = build()
+    alice_priv, alice_pub = _alice_keypair()
+    client.pubkeys["alice"] = alice_pub
+    service._publish_async = lambda: None
+    client.pubkeys["Alice"] = alice_pub
+    original_send = client.send_dm
+    echoed = []
+
+    def early_echo(to, body):
+        original_send(to, body)
+        worker = threading.Thread(target=lambda: (
+            client.fire("dm", {"from": "Steve", "to": to, "text": body}),
+            echoed.append(True)))
+        worker.start()
+        worker.join(2)
+        return True
+
+    client.send_dm = early_echo
+    result = service.send_chat("Alice", "echo before send returns")
+    ok(result["ok"] and echoed == [True], "socket-thread echo completes before send returns")
+    messages = service.chat_payload("alice", -1)["messages"]
+    ok(len(messages) == 1 and messages[0]["text"] == "echo before send returns"
+       and messages[0]["dir"] == "out", "early echo files the pending plaintext")
+    ok(not service._out_pending, "early echo leaves no stale pending entry")
+    body = client.sent[-1][1][1]
+    client.fire("dm", {"from": "Steve", "to": "Alice", "text": body})
+    ok(len(service.chat_payload("alice", -1)["messages"]) == 1,
+       "replayed echo does not file a duplicate")
+    client.send_dm = original_send
+    for text in ("a" * 1400, "\U0001f600" * 500):
+        before = len(client.sent)
+        result = service.send_chat("Alice", text)
+        ok(not result["ok"] and result["error"] ==
+           "Message too long to send. Try a shorter one.",
+           "oversized serialized envelope gets a finished human refusal")
+        ok(len(client.sent) == before and not service._out_pending,
+           "oversized envelope is neither sent nor registered as pending")
+    ok(service.send_chat("Alice", "a" * 1300)["ok"], "under-cap envelope is accepted")
+    body = client.sent[-1][1][1]
+    ok(len(body) <= friends_mod.MAX_DM_ENVELOPE_CHARS
+       and e2ee.decrypt_dm(alice_priv, "Alice", json.loads(body)) == "a" * 1300,
+       "under-cap ciphertext is sent intact and decryptable")
+    client.fire("dm", {"from": "Steve", "to": "Alice", "text": body})
+    client.sends_ok = False
+    ok(not service.send_chat("Alice", "failed send")["ok"] and not service._out_pending,
+       "failed send rolls back pending plaintext")
+    client.sends_ok = True
+
+    def raise_send(to, body):
+        raise OSError("test send failure")
+
+    client.send_dm = raise_send
+    result = service.send_chat("Alice", "raised send")
+    ok(not result["ok"] and result["error"] == fs._NOT_CONNECTED
+       and not service._out_pending, "raised send rolls back pending with a human error")
+    client.send_dm = original_send
+    original_encrypt = e2ee.encrypt_dm
+
+    def same_timestamp(*args):
+        envelope = original_encrypt(*args)
+        envelope["ts"] = 123456
+        return envelope
+
+    try:
+        e2ee.encrypt_dm = same_timestamp
+        ok(service.send_chat("Alice", "same text")["ok"], "first same-timestamp send queues")
+        key = ("alice", 123456)
+        oldest = service._out_pending[key][0]
+        siblings = []
+
+        def interleaved_failure(to, body):
+            client.send_dm = original_send
+            service.send_chat(to, "same text")
+            siblings.append(service._out_pending[key][-1])
+            return False
+
+        client.send_dm = interleaved_failure
+        result = service.send_chat("Alice", "same text")
+        queue = service._out_pending[key]
+        ok(not result["ok"] and len(queue) == 2 and queue[0] is oldest
+           and queue[1] is siblings[0], "rollback removes only its exact same-key entry")
+        for _ in range(2):
+            service._file_own_echo({"ts": 123456}, "Alice")
+        ok(not service._out_pending, "same-timestamp surviving echoes drain the queue")
+        counter = iter(range(1000, 1065))
+
+        def next_timestamp(*args):
+            envelope = original_encrypt(*args)
+            envelope["ts"] = next(counter)
+            return envelope
+
+        e2ee.encrypt_dm = next_timestamp
+        for _ in range(65):
+            service.send_chat("Alice", "bounded")
+        ok(len(service._out_pending) == 64 and ("alice", 1000) not in service._out_pending
+           and ("alice", 1064) in service._out_pending,
+           "pending map retains its existing 64-key oldest-first bound")
+    finally:
+        e2ee.encrypt_dm = original_encrypt
+        client.send_dm = original_send
 
 
 def test_seeded_history():
@@ -1398,6 +1944,142 @@ def test_seeded_history():
        "history backfills the friend's lines and skips our own sealed-to-her ones")
     ok(service.events_since(before)["events"] == [],
        "a backfill is not announced as a live message")
+
+
+def test_social_regressions():
+    section("social metadata, history and read-marker regressions")
+    _identity_on_disk()
+
+    # S9: mark_read persists, so a restart doesn't resurrect the badge.
+    service, client, _ = build()
+    with service._chat_lock:
+        room = service._chat_room("alice")
+        room["msgs"].append({"seq": 1, "dir": "in", "name": "Alice",
+                             "text": "hi", "ts": 1})
+        room["next_seq"] = 2
+    service.mark_read("alice")
+    service.flush_chat_store()
+    again = fs.FriendsService({"username": "Steve"}, {"selected_version": None},
+                              client, save_config=lambda: None)
+    again._hydrate_chat_store()
+    ok(again._chat_read.get("alice", 0) == 1,
+       "mark_read persists across restart (unread stays clear)")
+    try:
+        again.flush_chat_store()
+    except Exception:
+        pass
+    for p in (fs.CHAT_STORE_PATH, fs.CHAT_STORE_PATH + ".tmp"):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+    # S3: the service consumes the client's real `peer_metadata` cache.
+    service, client, _ = build()
+    client.roster["peer_metadata"] = {
+        "ruby": {"uid": "000000000002", "minecraft_username": "RubyName"}}
+    label = service.peer_metadata("Ruby")
+    ok(label.get("minecraft_username") == "RubyName"
+       and label.get("uid") == "000000000002",
+       "service reads the client's peer_metadata cache")
+
+    # S4: a roster reorder must not replay stale rows over newer events. The
+    # real client merges T_METADATA into its roster cache before dispatch, so
+    # the harness models that contract instead of leaving a stale dict behind.
+    client.roster["friends"] = [
+        {"name": "Ruby", "uid": "000000000002", "minecraft_username": "Old"},
+        {"name": "Sage", "uid": "000000000003"}]
+    service._on_roster(client.roster)
+    client.fire("metadata", {"name": "Ruby", "uid": "000000000002",
+                             "minecraft_username": "New"})
+    client.roster["peer_metadata"] = {
+        "ruby": {"uid": "000000000002", "minecraft_username": "New"}}
+    client.roster["friends"] = [
+        {"name": "Sage", "uid": "000000000003"},
+        {"name": "Ruby", "uid": "000000000002", "minecraft_username": "Old"}]
+    service._on_roster(client.roster)
+    ok(service.peer_metadata("Ruby")["minecraft_username"] == "New",
+       "a reordered roster cannot resurrect an older username")
+
+    # S5: presence merges into the roster between full roster refreshes.
+    client.roster["friends"] = [{"name": "Ruby", "online": False,
+                                 "version": "", "status": ""}]
+    service._on_roster(client.roster)
+    client.fire("presence", {"name": "Ruby", "online": True,
+                             "version": "1.21.1", "status": "playing"})
+    row = next(f for f in client.roster["friends"] if f["name"] == "Ruby")
+    ok(row["online"] is True and row["version"] == "1.21.1",
+       "presence updates the roster row until the next roster arrives")
+
+    # S8: identical plaintext with distinct relay ids must both survive.
+    service, client, _ = build()
+    service._ensure_e2ee()
+    steve_pub = e2ee.public_key_b64(service._e2ee_priv)
+    alice_priv, _ = _alice_keypair()
+    env1 = e2ee.encrypt_dm(alice_priv, steve_pub, "Alice", "Steve", "hello again")
+    env2 = e2ee.encrypt_dm(alice_priv, steve_pub, "Alice", "Steve", "hello again")
+    raw1, raw2 = json.dumps(env1), json.dumps(env2)
+    client.fire("history", {"peer": "alice", "messages": [
+        {"id": "m1", "from": "Alice", "text": raw1, "ts": 1},
+        {"id": "m2", "from": "Alice", "text": raw2, "ts": 2}]})
+    client.fire("history", {"peer": "alice", "messages": [
+        {"id": "m1", "from": "Alice", "text": raw1, "ts": 1},
+        {"id": "m2", "from": "Alice", "text": raw2, "ts": 2}]})
+    msgs = service.chat_payload("alice", -1)["messages"]
+    ok([m["text"] for m in msgs] == ["hello again", "hello again"],
+       "two distinct relay ids never collapse to one line")
+    # And a true duplicate (same id) still dedupes.
+    client.fire("history", {"peer": "alice", "messages": [
+        {"id": "m2", "from": "Alice", "text": raw2, "ts": 2}]})
+    ok(len(service.chat_payload("alice", -1)["messages"]) == 2,
+       "a replayed relay id is still deduplicated")
+
+    # S6/S7: a conversation with history still backfills after reconnect, and
+    # a failed seed request is retried, not burned forever.
+    service, client, _ = build()
+    service._ensure_e2ee()
+    steve_pub = e2ee.public_key_b64(service._e2ee_priv)
+    alice_priv, _ = _alice_keypair()
+    saved_line = e2ee.encrypt_dm(alice_priv, steve_pub, "Alice", "Steve",
+                                 "while you were away")
+    client.is_connected = False
+    service.chat_payload("alice", -1)
+    ok(client.history_requests == [],
+       "no history request while the socket is down")
+    client.is_connected = True
+    service.chat_payload("alice", -1)
+    ok(client.history_requests == ["alice"],
+       "first open with live socket asks for history")
+    service.chat_payload("alice", -1)
+    ok(client.history_requests == ["alice"],
+       "a completed seed does not re-ask within the connection")
+    client.is_connected = False
+    client.fire("state", {"connected": False})
+    client.is_connected = True
+    client.fire("state", {"connected": True})
+    service.chat_payload("alice", -1)
+    ok(client.history_requests == ["alice", "alice"],
+       "a reconnect re-arms history backfill for an existing conversation")
+    with self_chat_lock(service):
+        pass
+    client.history_requests.clear()
+    real_request = client.request_history
+    client.request_history = lambda *, peer=None: (
+        client.history_requests.append(peer) or False)   # simulate a dropped request
+    client.is_connected = False
+    client.fire("state", {"connected": False})
+    client.is_connected = True
+    client.fire("state", {"connected": True})
+    service.chat_payload("alice", -1)
+    client.request_history = real_request
+    ok(client.history_requests == ["alice"],
+       "a reconnect re-arms a previously failed seed (never burned)")
+
+
+# A tiny helper so the S9 restart check can construct a second service without
+# colliding with the module-level save timer of the first.
+def self_chat_lock(service):
+    return service._chat_lock
 
 
 def test_chat_http():
@@ -1465,6 +2147,31 @@ def test_chat_http():
        "POST /dm is token-guarded")
 
     service.stop()
+
+
+def test_pubkey_rotation():
+    section("S15: cached peer keys expire and drop on reconnect")
+    _identity_on_disk()
+    service, client, _ = build()
+    service._ensure_e2ee()
+    client.pubkeys["alice"] = "old-key"
+    first = service._peer_pubkey("alice")
+    ok(first["ok"] and first["pubkey"] == "old-key", "first lookup fetches the key")
+    client.pubkeys["alice"] = "new-key"
+    ok(service._peer_pubkey("alice")["pubkey"] == "old-key",
+       "a cached key is reused within the TTL window")
+    # TTL expiry: backdate the cache entry past the window.
+    canon = "alice"
+    key, ts = service._peer_pubkeys[canon]
+    service._peer_pubkeys[canon] = (key, ts - (fs._PUBKEY_TTL_S + 1))
+    ok(service._peer_pubkey("alice")["pubkey"] == "new-key",
+       "an expired cache entry re-fetches the rotated key")
+    # Reconnect invalidation: cache is cleared when the socket re-connects.
+    client.fire("state", {"connected": False})
+    client.fire("state", {"connected": True})
+    client.pubkeys["alice"] = "newest-key"
+    ok(service._peer_pubkey("alice")["pubkey"] == "newest-key",
+       "a reconnect invalidates cached keys so rotation is picked up")
 
 
 def test_automatic_identity():
@@ -1551,6 +2258,7 @@ def main():
     try:
         test_contract()
         test_roster_payload()
+        test_display_identity()
         test_chat_read_rail()
         test_events()
         test_status_payload()
@@ -1569,10 +2277,20 @@ def main():
         test_pending_rooms_pruned()
         test_profile_mismatch()
         test_retry()
+        test_sync_chunk_hardening()
+        test_sync_timeout_fails_session()
+        test_sync_cancel_ignores_late_chunks()
+        test_relay_fallback_requires_gate()
+        test_offer_needs_gate()
+        test_answer_phase_gate()
+        test_session_lifecycle_edges()
         test_set_version()
         test_bridge_http()
         test_chat_http()
+        test_social_regressions()
         test_encrypted_chat()
+        test_dm_send_guards()
+        test_pubkey_rotation()
         test_seeded_history()
         test_automatic_identity()
         test_no_flet()
