@@ -89,6 +89,7 @@ jobs:
 
       - name: Upload Linux AppImage Artifact
         uses: actions/upload-artifact@v4
+        retention-days: 7
         with:
           name: Cubeon-Linux-x86_64-AppImage
           path: dist/Cubeon-x86_64.AppImage
@@ -117,12 +118,14 @@ jobs:
 
       - name: Upload Windows Standalone Folder Artifact
         uses: actions/upload-artifact@v4
+        retention-days: 7
         with:
           name: Cubeon-Windows-x64-Folder
           path: dist/Cubeon/
 
       - name: Upload Windows Portable ZIP Artifact
         uses: actions/upload-artifact@v4
+        retention-days: 7
         with:
           name: Cubeon-Windows-x64-ZIP
           path: dist/Cubeon-Windows-x64.zip
@@ -151,6 +154,7 @@ jobs:
 
       - name: Upload macOS app artifact
         uses: actions/upload-artifact@v4
+        retention-days: 7
         with:
           name: Cubeon-macOS
           path: dist/Cubeon/
