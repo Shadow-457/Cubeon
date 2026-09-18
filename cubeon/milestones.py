@@ -127,6 +127,16 @@ def _read_play_session() -> dict | None:
 
 def _write_play_session(rec: dict) -> None:
     try:
+        # An empty sessions map means "no session record": delete the file
+        # instead of leaving an empty husk, so "was the record cleared?"
+        # (watchdog, tests, diagnostics) reads the filesystem truthfully.
+        sessions = rec.get("sessions")
+        if isinstance(sessions, dict) and not sessions:
+            try:
+                os.unlink(PLAY_SESSION_PATH)
+            except OSError:
+                pass
+            return
         write_json(PLAY_SESSION_PATH, rec)
     except OSError:
         pass

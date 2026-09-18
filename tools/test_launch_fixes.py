@@ -124,10 +124,18 @@ with tempfile.TemporaryDirectory() as tmp:
           "no fixed .cubeon-tmp left behind", str(leftovers))
 
     from cubeon import atomicio
+
+    def exploding_write(path, data, **kwargs):
+        # Simulated disk failure: write_json's caller must report False and
+        # leave the original file untouched (see _write_client_json's contract).
+        raise OSError("simulated disk failure")
+
+    intact = json.load(open(path))  # what the file holds right before the failure
     with patch.object(launch, "write_json", exploding_write):
         check(launch._write_client_json(path, {"changed": True}) is False,
               "write failure stays False and leaves the original")
-    check(json.load(open(path)) == base, "original file intact after failed write")
+    check(json.load(open(path)) == intact,
+          "original file intact after failed write")
 
 # ---------------------------------------------------------------------- L1 ---
 print("\n5. overlapping launches stage inside the spawn lock (L1)")

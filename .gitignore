@@ -26,4 +26,7 @@ Cubeon.spec
 # --- OS ---
 Thumbs.db
 ehthumbs.db
-Desktop.ini
+Desktop.inimod/.gradle/
+
+# Gradle build cache (mod/)
+mod/.gradle/

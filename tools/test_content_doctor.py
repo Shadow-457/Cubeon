@@ -643,10 +643,16 @@ check("a folder-in-shaders that is a resource pack is reported",
       [(p["kind"], p["item"]) for p in rep["problems"]])
 
 # content listing + delete for folder packs
+# NOTE: list/delete resolve the profile dir via CONTENT_TYPES[...]["subdir"]
+# (joined under the version+loader profile) and now REQUIRE both a version
+# and a loader - the strict-guard change made the old no-loader calls fail
+# loudly instead of silently reading the 'unknown-vanilla' folder. The
+# overrides below point the profile subdir at the doctor's scratch packs so
+# the listing sees exactly what the doctor just repaired.
 from cubeon import content as content_mod
-content_mod.CONTENT_TYPES["resourcepack"]["dir"] = DOC_PACKS
-content_mod.CONTENT_TYPES["shader"]["dir"] = DOC_SHADERS
-listing = content_mod.list_content("resourcepack", mc_version="1.21.11")
+content_mod.CONTENT_TYPES["resourcepack"]["subdir"] = DOC_PACKS
+content_mod.CONTENT_TYPES["shader"]["subdir"] = DOC_SHADERS
+listing = content_mod.list_content("resourcepack", "1.21.11", loader="fabric")
 names = {i["filename"] for i in listing}
 check("folder packs appear in the installed list",
       {"Old Folder Pack", "Wrapped Folder Pack", "Fine Folder Pack"} <= names,
@@ -655,6 +661,7 @@ check("they are flagged as folder entries with real sizes",
       all(i.get("folder") and i["size_kb"] > 0
           for i in listing if i["filename"].endswith("Folder Pack")),
       [(i["filename"], i.get("folder"), i["size_kb"]) for i in listing])
-content_mod.delete_content("resourcepack", "Old Folder Pack")
+content_mod.delete_content("resourcepack", "Old Folder Pack", "1.21.11",
+                           loader="fabric")
 check("a folder pack can be deleted without escaping the folder",
       not os.path.exists(old_dir) and os.path.isdir(DOC_PACKS))

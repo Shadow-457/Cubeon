@@ -816,7 +816,7 @@ public class CubeonClientScreen extends Screen {
         page = Math.max(0, Math.min(page, pageCount() - 1));
     }
 
-    /** The prose block: the account tab, every empty list, and nowhere at all
+    /* The prose block: the account tab, every empty list, and nowhere at all
      * while the sync report is up (the sync labels own that region). */
     /**
      * The player's visible name: the launcher's published Minecraft username
