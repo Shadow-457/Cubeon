@@ -147,6 +147,30 @@ try:
     installed = scan()
     check("and the scan no longer calls it installed",
           installed["netdeath"].get("incomplete") is True)
+
+    # Order independence. "netdeath" carries the template manifest, so its
+    # json declares id "1.20.1" - the same id as the complete version seeded
+    # above. The scan used to dedupe on that declared id, so whenever
+    # os.listdir() yielded "1.20.1" first the half-installed folder was
+    # silently dropped from the list (neither installed nor incomplete) -
+    # exactly the CI failure this guards. listdir order is
+    # filesystem-dependent, so force the colliding order here.
+    _real_listdir = V.os.listdir
+
+    def _collision_first(path):
+        names = _real_listdir(path)
+        if os.path.abspath(path) == os.path.abspath(VERSIONS):
+            names = sorted(names, key=lambda n: (n != "1.20.1", n))
+        return names
+
+    V.os.listdir = _collision_first
+    try:
+        forced = scan()
+    finally:
+        V.os.listdir = _real_listdir
+    check("an id collision can never hide a half-install (any listdir order)",
+          forced.get("netdeath", {}).get("incomplete") is True,
+          str(sorted(forced)))
 finally:
     V.mll = _real_mll
 

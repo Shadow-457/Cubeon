@@ -528,6 +528,26 @@ print("\n5g. card thumbnails render off-thread and fill in (no UI-thread PIL)")
 _thumb_src = os.path.join(core.SKINS_DIR, "_regress_thumb_src.png")
 _PILImage.new("RGBA", (64, 64), (60, 120, 200, 255)).save(_thumb_src, "PNG")
 _thumb_skin = None
+# Hold the async thumbnail worker until the placeholder has been asserted.
+# Without this gate the check was a race: on a slow/loaded machine the walk
+# below could run AFTER the worker had already landed the bytes, so no
+# placeholder Image was found and the test failed for the right behavior
+# (seen once locally and in CI). Gating only the worker thread keeps the
+# regression this guards against intact: if the build ever renders
+# synchronously on the UI path, the gate is not involved and check 1 fails
+# because the placeholder is already gone.
+import threading as _thumb_threading
+_render_gate = _thumb_threading.Event()
+_real_render_skin = core.render_local_skin_preview
+
+
+def _gated_render_skin(filename, out, scale=3):
+    if _thumb_threading.current_thread().name == "ux-thumb-render":
+        _render_gate.wait(15)
+    return _real_render_skin(filename, out, scale=scale)
+
+
+core.render_local_skin_preview = _gated_render_skin
 try:
     _thumb_skin = core.add_custom_skin(_thumb_src, "Regress Thumb Skin")
     os.remove(_thumb_src)
@@ -546,6 +566,7 @@ try:
                  if isinstance(x, ft.Image)
                  and x.src in (None, "", "icon.svg")), None)
     check("grid builds instantly around a placeholder image", _img is not None)
+    _render_gate.set()   # the worker may now composite and patch the control
     # The worker needs a moment to composite; poll rather than sleep-fixed.
     _deadline = time.time() + 6
     _filled = False
@@ -561,6 +582,8 @@ except Exception:
           traceback.format_exc())
     check("thumbnail bytes land in the image control after build", False)
 finally:
+    _render_gate.set()   # never leave the worker parked
+    core.render_local_skin_preview = _real_render_skin
     if _thumb_skin:
         try:
             core.delete_custom_skin(_thumb_skin["filename"])

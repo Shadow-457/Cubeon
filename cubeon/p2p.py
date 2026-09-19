@@ -447,6 +447,10 @@ class PunchSession:
         self._transport_thread = None
         self._tcp_out_queue = bytearray()
         self._tcp_out_eof = False
+        # The peer closed its TCP side (_FIN received). The bytes it already
+        # handed us are queued for local delivery, so the socket must stay
+        # open until _tcp_delivery_loop has drained them (see _handle_frame).
+        self._remote_eof = False
         # Wakes _tcp_outbound_loop when there are TCP bytes to move (or a
         # stop) - the loop used to poll every 10ms around the clock.
         self._outbound_wake = threading.Condition(self._state_lock)
@@ -755,7 +759,14 @@ class PunchSession:
             return
         if kind == self._FIN:
             self._send_raw(self._frame(self._ACK, 0, max(0, self._rx_next - 1)))
-            self._stop_with_reason("Minecraft TCP connection closed")
+            # The peer is done sending, but everything it already sent is
+            # queued for local TCP delivery - closing the socket right here
+            # truncated the stream tail (observed: a 120000-byte transfer cut
+            # at 118535 because 2 payloads were still in _tcp_in_queue when
+            # the FIN landed). Minecraft's own TCP framing cannot survive a
+            # half-delivered tail, so flag EOF and let the delivery loop
+            # drain, then close.
+            self._remote_eof = True
 
     def _flush_received(self) -> None:
         while True:
@@ -785,6 +796,8 @@ class PunchSession:
             try:
                 data = self._tcp_in_queue.get(timeout=0.2)
             except queue.Empty:
+                if self._remote_eof:
+                    break   # every byte the peer sent is now written
                 continue
             if self.is_host and not self._tcp_sock:
                 try:
@@ -799,6 +812,12 @@ class PunchSession:
                     self._stop_with_reason("Could not connect to the Minecraft LAN socket")
                     return
             self._tcp_send(data)
+        if self._remote_eof and not self._stop.is_set():
+            # The peer's FIN is only now safe to act on: the local side sees a
+            # clean end-of-stream instead of a socket closed mid-tail. (If
+            # _tcp_send failed above it already stopped the session with its
+            # own reason; if another thread stopped us, that reason wins.)
+            self._stop_with_reason("Minecraft TCP connection closed")
 
     def _tcp_send(self, data: bytes) -> None:
         sock = self._tcp_sock
@@ -869,7 +888,12 @@ class PunchSession:
                 self._retransmit_count[seq] = 0
             self._send_raw(packet)
 
-        if self._tcp_out_eof and not self._tcp_out_queue:
+        # Only after every DATA frame has been ACKed: a FIN sent while frames
+        # are still unacknowledged can overtake a retransmission, and the
+        # receiver would then treat an incomplete stream as the end of it.
+        with self._state_lock:
+            unacked = len(self._unacked)
+        if self._tcp_out_eof and not self._tcp_out_queue and not unacked:
             self._send_raw(self._frame(self._FIN, 0, self._rx_next - 1))
             self._tcp_out_eof = False
 
@@ -914,6 +938,8 @@ class PunchSession:
         self._unacked.clear()
         self._rx_buffer.clear()
         self._retransmit_count.clear()
+        self._remote_eof = False
+        self._tcp_out_eof = False
         self._tx_seq = 1
         self._rx_next = 1
         self.closed_reason = None

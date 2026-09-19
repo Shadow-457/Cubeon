@@ -218,7 +218,16 @@ def get_installed_versions() -> list[dict]:
         real_id = data.get("id", folder)
         if not isinstance(real_id, str):
             real_id = folder
-        if real_id in found:
+        # Dedupe by FOLDER, never by the json's declared id. This check used
+        # to be `real_id in found`, which made the whole scan depend on
+        # os.listdir() order: a folder whose metadata still carries another
+        # version's id (a half-finished install keeps its template manifest -
+        # see tools/test_version_integrity.py's netdeath case) was skipped
+        # whenever that id had been seen first, so the broken install showed
+        # up as NEITHER installed nor incomplete - it just vanished from the
+        # list. The strict scan keys by folder name too, so that is the only
+        # thing worth deduping against.
+        if folder in found:
             continue  # already picked up by the strict scan
 
         has_jar = bool(jar_files)
