@@ -5229,6 +5229,151 @@ if __name__ == "__main__":
     _real_open_view_async = _flet_desktop.open_flet_view_async
     _ATK_NOISE = re.compile(
         r"Atk-CRITICAL|atk_socket_embed|plug_id != NULL")
+    # The flet client logs this line for every OpenGL frame it fails to
+    # produce within the timeout. One of them at startup is a slow driver
+    # warm-up; a steady stream is the wedged-driver state (see
+    # _wedge_watchdog below).
+    _GL_FRAME_TIMEOUT = re.compile(
+        r"Timed out waiting for OpenGL frame")
+
+    # --- Wedge watchdog ---------------------------------------------------
+    # The flet client's failure mode is normally a CRASH (signal death ->
+    # ft.run returns -> _classify_session_end -> software-GL retry ladder).
+    # But it can also WEDGE instead: window mapped, not a single frame
+    # rendered, ~180% CPU spinning, and ft.run never returning. In that
+    # state every recovery mechanism in _session_loop is unreachable (it
+    # all lives after ft.run returns), the tray events go nowhere, and the
+    # user is left with a zombie window - observed live on 2026-09-19
+    # (Mesa 26.1 / AMD Polaris) right after a restart re-exec. The wedge
+    # reproduces even AFTER _reveal_window has run: the marker proves the
+    # reveal task executed, not that frames flow (measured: marker written
+    # at T, "no OpenGL frame" timeouts at T+0.6s, T+0.7s, client frozen
+    # indefinitely).
+    #
+    # The fix is NOT to tear down the session from a side thread (ft.run
+    # is not re-entrant); it is to kill the wedged client. Its death makes
+    # ft.run return normally, and the EXISTING classified recovery ladder
+    # takes over: pre-paint -> software-GL retry; painted-but-dead ->
+    # mid-session re-exec.
+    #
+    # The judgment is pure evidence from the client itself - it logs
+    # "Timed out waiting for OpenGL frame" for every frame it fails to
+    # produce. Kill requires ALL of:
+    #   >= _WEDGE_TIMEOUTS timeouts since THIS client spawned,
+    #   the newest one within _WEDGE_RECENT seconds of now (it is failing
+    #     right now, not historically),
+    #   the client is between _WEDGE_GRACE and _WEDGE_WINDOW old.
+    # A healthy client emits none of these lines; a merely slow one emits
+    # one or two (each costs 10s of no-frame time). Three fresh ones in
+    # the first minute means the rasterizer is producing nothing and the
+    # window is already frozen - the kill only changes what the user
+    # watches: a restart attempt instead of a dead picture. After
+    # _WEDGE_WINDOW the client is considered stable; a later wedge is the
+    # (much rarer) mid-session case left to its own path.
+    _wedge_lock = threading.Lock()
+    # pid/armed_at None = no live client being judged; set on each spawn.
+    _wedge_state = {"timeouts": 0, "last_at": None,
+                    "pid": None, "armed_at": None}
+    _WEDGE_GRACE = 12.0    # min client age before judging
+    _WEDGE_WINDOW = 60.0   # only judge a client this early in its life
+    # The numbers below are NOT guesses - they come from the measured
+    # signature of a real wedge on this machine (2026-09-19, Mesa 26.1 /
+    # AMD Polaris). A wedged client emits its GL-frame timeouts as a short
+    # BURST and then goes silent forever while burning CPU:
+    #   rt2.log ghost 29728: 2 lines 0.155s apart, then silent 34+ min
+    #   rt.log  slave 22385: 2 lines 0.216s apart, then silent
+    #   rt.log  slaves 22020/22263: 1 line each, then killed by the next
+    #                                restart
+    # So the burst length is TWO (a threshold of 3 could never fire - the
+    # original value was dead code), and the freshness bound has to cover
+    # the whole burst-plus-reporting window rather than a few seconds.
+    # Tradeoff, stated plainly: a false positive costs one automatic
+    # session restart (the client is killed and ft.run returns, so the
+    # EXISTING recovery ladder runs); a false negative is a frozen window
+    # the user can never dismiss and a launcher that can never be reopened.
+    # Erring toward the restart is correct.
+    _WEDGE_TIMEOUTS = 2    # GL-frame timeout lines required (measured: 2)
+    _WEDGE_RECENT = 25.0   # newest timeout must be this fresh
+    _WEDGE_ESCALATE = 3.0  # SIGTERM -> SIGKILL wait
+
+    def _wedge_note_gl_timeout():
+        with _wedge_lock:
+            _wedge_state["timeouts"] += 1
+            _wedge_state["last_at"] = time.monotonic()
+
+    def _wedge_arm(pid):
+        with _wedge_lock:
+            _wedge_state["pid"] = pid
+            _wedge_state["armed_at"] = time.monotonic()
+            _wedge_state["timeouts"] = 0
+            _wedge_state["last_at"] = None
+
+    def _wedge_disarm():
+        with _wedge_lock:
+            _wedge_state["pid"] = None
+            _wedge_state["armed_at"] = None
+            _wedge_state["timeouts"] = 0
+            _wedge_state["last_at"] = None
+
+    def _wedge_watchdog():
+        # One daemon for the whole process life: wait for a client, judge
+        # it once, then loop for the next session/retry/re-exec client.
+        while True:
+            with _wedge_lock:
+                pid, armed_at = (_wedge_state["pid"],
+                                 _wedge_state["armed_at"])
+            if pid is None or armed_at is None:
+                time.sleep(0.25)
+                continue
+            now = time.monotonic()
+            age = now - armed_at
+            with _wedge_lock:
+                pid, n, last_at = (_wedge_state["pid"],
+                                   _wedge_state["timeouts"],
+                                   _wedge_state["last_at"])
+            if pid is None:
+                continue  # disarmed between reads; take the next client
+            if age > _WEDGE_WINDOW:
+                _wedge_disarm()  # stable client; done judging this one
+                continue
+            if (age >= _WEDGE_GRACE and n >= _WEDGE_TIMEOUTS
+                    and last_at is not None
+                    and now - last_at <= _WEDGE_RECENT):
+                # Wedged: kill so ft.run returns and the classified
+                # recovery ladder restarts the session.
+                print("cubeon: client is producing no OpenGL frames - "
+                      "treating the wedged driver as a crash and "
+                      "restarting the session", flush=True)
+                killed = False
+                try:
+                    os.kill(pid, 0)
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                        killed = True
+                    except OSError:
+                        pass
+                except OSError:
+                    pass  # client gone on its own already
+                _wedge_disarm()
+                if killed:
+                    escalate_at = time.monotonic() + _WEDGE_ESCALATE
+                    while time.monotonic() < escalate_at:
+                        try:
+                            os.kill(pid, 0)
+                        except OSError:
+                            break  # took the polite exit
+                        time.sleep(0.1)
+                    else:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except OSError:
+                            pass
+                continue
+            time.sleep(0.5)
+
+    _wedge_thread = threading.Thread(
+        target=_wedge_watchdog, daemon=True, name="cubeon-wedge-watchdog")
+    _wedge_thread.start()
 
     async def _filtered_open_flet_view_async(page_url, assets_dir, hidden):
         args, flet_env, pid_file = \
@@ -5236,27 +5381,58 @@ if __name__ == "__main__":
                 page_url, assets_dir, hidden)
         proc = await asyncio.create_subprocess_exec(
             args[0], *args[1:], env=flet_env,
-            stdout=sys.__stdout__,
-            stderr=asyncio.subprocess.PIPE,
+            # Capture BOTH streams and merge them (stderr -> stdout) so the
+            # wedge detector below can never be defeated by which fd a
+            # message happens to land on. The GL-frame warnings are GLib
+            # `** (flet:N): WARNING **` lines (they arrive on stderr in the
+            # wild - measured 2026-09-19), but a fake/replacement client,
+            # or any upstream logging change, can print to stdout. A
+            # detector that only watched stderr looked correct while
+            # silently never firing once already; one pipe, no assumption.
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
+        # Fresh client: (re)start the wedge judgment window for it. Any
+        # previous client is already gone by the time flet spawns the next.
+        _wedge_arm(proc.pid)
 
-        async def _filter_stderr():
+        async def _filter_client_output():
             # Async pipe: must be read with await readline() (a sync read
             # here leaves the coroutine un-awaited and eats ALL client
-            # stderr instead of filtering it).
+            # output instead of filtering it).
+            # Destination is the real stderr (unchanged from when only
+            # stderr was filtered) with an explicit flush: the merged pipe
+            # is block-buffered whenever the launcher's own stdout is not a
+            # tty, which would otherwise hold diagnostic lines back.
             try:
                 while True:
-                    raw = await proc.stderr.readline()
+                    raw = await proc.stdout.readline()
                     if not raw:
                         break
                     line = raw.decode("utf-8", "replace")
                     if _ATK_NOISE.search(line):
                         continue
-                    sys.__stderr__.write(line)
+                    if _GL_FRAME_TIMEOUT.search(line):
+                        # The client announces every OpenGL frame it failed
+                        # to produce. A burst of these with no painted
+                        # window is the wedged-driver state (measured live
+                        # 2026-09-19: window mapped, zero frames, ~180% CPU,
+                        # ft.run never returning - so NOTHING downstream
+                        # could recover). The wedge watchdog turns the
+                        # burst into a session restart.
+                        try:
+                            _wedge_note_gl_timeout()
+                        except Exception:
+                            pass
+                    try:
+                        sys.__stderr__.write(line)
+                        sys.__stderr__.flush()
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
-        asyncio.get_running_loop().create_task(_filter_stderr())
+        asyncio.get_running_loop().create_task(_filter_client_output())
         return proc, pid_file
 
     _flet_desktop.open_flet_view_async = _filtered_open_flet_view_async
@@ -5376,6 +5552,51 @@ if __name__ == "__main__":
                 if state == "Z":
                     continue
                 victims.append(int(entry))
+        # Orphan sweep: a "flet" client whose parent is gone or is not a
+        # launcher is a ghost from a DEAD Cubeon run - the launcher that
+        # spawned it died before _kill_flet_client could run, and the
+        # client was reparented (to systemd --user here), window still
+        # mapped, CPU still burning. Measured live 2026-09-19: four ghost
+        # windows on screen from three dead launchers. Identification is
+        # two-factor so a healthy second instance is never touched:
+        #   1. our assets dir must appear in the client's args;
+        #   2. the parent must NOT be a live launcher (python/main.py or
+        #      a process named like Cubeon). A reparented-to-systemd
+        #      client or one whose parent vanished is a ghost; a client
+        #      whose parent is a live launcher is another instance's
+        #      working window.
+        if _assets_dir:
+            orphans = []
+            for entry in list(os.listdir("/proc")):
+                if not entry.isdigit() or int(entry) in victims:
+                    continue
+                try:
+                    with open(f"/proc/{entry}/stat", "rb") as fh:
+                        head, _, tail = fh.read().rpartition(b")")
+                    comm = head.partition(b"(")[2].decode(
+                        "utf-8", "replace")
+                    fields = tail.split()
+                    ppid = int(fields[1])
+                    state = fields[0].decode("ascii", "replace")
+                    if comm != "flet" or state == "Z" or ppid == me:
+                        continue
+                    with open(f"/proc/{entry}/cmdline", "rb") as fh:
+                        args = fh.read().decode("utf-8", "replace")
+                    if _assets_dir not in args:
+                        continue  # not this app's client
+                    with open(f"/proc/{ppid}/cmdline", "rb") as fh:
+                        parent = (fh.read().decode("utf-8", "replace")
+                                  .replace("\x00", " "))
+                except OSError:
+                    continue  # gone mid-read; catch it next sweep
+                if "main.py" in parent or "cubeon" in parent.lower():
+                    continue  # a live launcher owns it
+                print(f"cubeon: sweeping an orphaned flet client left "
+                      f"behind by a dead launcher (pid {entry})",
+                      flush=True)
+                orphans.append(int(entry))
+            victims.extend(orphans)
+
         if not victims:
             return False
         for pid in victims:
@@ -5416,6 +5637,13 @@ if __name__ == "__main__":
                 except OSError:
                     pass
                 _last_client_exit["code"] = None
+
+                # A fresh session is also the natural place to reap the
+                # ghosts of dead launchers (frozen client windows whose
+                # parent died) - see the orphan sweep in _kill_flet_client.
+                # Doing it HERE means the ghosts vanish the moment the new
+                # session comes up, not when it closes again.
+                _kill_flet_client()
 
                 # FLET_APP_HIDDEN: the desktop client starts with its window
                 # hidden, so the only transition the user sees is the single

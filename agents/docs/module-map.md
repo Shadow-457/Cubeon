@@ -1,9 +1,43 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-19 (CI green: p2p FIN drain invariant, version-scan
-dedupe-by-folder, tag-only artifact publishing). If a fact here contradicts the
-code, the
+Last updated: 2026-09-19 (wedged-client watchdog: the launcher can recover from
+a flet client that renders no frames; see the INVARIANT below). If a fact here
+contradicts the code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+
+## Wedged flet client / open-quit truth (2026-09-19) — INVARIANT
+- The flet desktop client's bad case is NOT always a crash. It can WEDGE: window
+  mapped, not one OpenGL frame, ~180% CPU, and `ft.run` never returning
+  (measured live on Mesa 26.1 / AMD Polaris). Everything that recovers a session
+  lives AFTER `ft.run` returns, so a wedged client makes tray Open/Quit, the
+  software-GL retry ladder and Settings > "Restart to apply" ALL unreachable —
+  the frozen window stays forever and the launcher can never be reopened.
+- Detection is the client's own evidence: GLib writes
+  `** (flet:N): WARNING **: <time>: Timed out waiting for OpenGL frame ...`
+  **on stderr**. `_filtered_open_flet_view_async` merges the streams
+  (`stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT`) and
+  forwards filtered lines to `sys.__stderr__` with an explicit flush. DO NOT go
+  back to filtering only stderr: a fake/alternative client logging to stdout
+  silently defeats the counter (that exact mistake made a "verified" test
+  vacuous on 2026-09-19).
+- Measured signature of a real wedge: exactly TWO GL-frame-timeout lines ~0.15s
+  apart, then silence forever while alive (rt2.log pid 29728 was a 34-minute
+  ghost). Hence `_WEDGE_TIMEOUTS = 2`, `_WEDGE_RECENT = 25.0`, with
+  `_WEDGE_GRACE = 12s` / `_WEDGE_WINDOW = 60s`. A threshold of 3 was
+  unreachable dead code — do not raise it back without new measurements.
+- The watchdog only KILLS the client (SIGTERM, SIGKILL after 3s). It never tears
+  down the session itself: `ft.run` is once-per-process. The kill makes `ft.run`
+  return and the EXISTING classified ladder does the rest (pre-paint ->
+  software-GL retry; painted-but-dead -> re-exec).
+- Residual gap (accepted, never observed): a client that wedges WITHOUT logging
+  any line is not detected.
+- Guards: `tools/test_wedge_watchdog.py` (deterministic fake with the measured
+  signature; asserts kill + retry + termination + no ghost), registered in
+  `tools/test_mega_smoke.py`'s SUITES.
+- `_kill_flet_client()` also sweeps ORPHANED clients at session start (a `flet`
+  process whose args carry our assets dir and whose parent is no longer a live
+  launcher = ghost from a dead run). Two-factor on purpose, so a second live
+  Cubeon instance is never touched.
 
 ## P2P stream teardown (2026-09-19) — INVARIANT
 - A received `_FIN` must NOT close the local TCP socket immediately: bytes can

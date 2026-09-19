@@ -98,6 +98,93 @@ single code path firing:
   it is cleared the moment session cleanup runs), the click is ignored.
   Reopen-from-parked behavior is unchanged.
 
+## Round 3 — restart / open-quit robustness (2026-09-19)
+
+User report: "when i click restart cubeon on seasonal update area in settings
+cubeon does closes but never opens and i am not able to open cubeon with the
+background process", plus client windows that stayed on screen after the
+launcher was gone.
+
+### 7. A wedged flet client makes EVERY recovery path unreachable — FIXED
+- **Location:** `main.py` `__main__` session loop + the `ft.run` client spawn.
+- **Why:** the flet desktop client does not only crash; it can WEDGE (window
+  mapped, zero OpenGL frames, ~180% CPU) and then `ft.run` **never returns**.
+  Session classification, the software-GL retry ladder, tray Open/Quit handling
+  and Settings > "Restart to apply" all live AFTER `ft.run` returns, so a wedge
+  disables all of them at once: the frozen window cannot be dismissed and the
+  launcher can never be reopened or quit.
+- **Severity:** critical (user-reported, unrecoverable without a task manager).
+- **Evidence (measured live, this machine, Mesa 26.1 / AMD Polaris):**
+  - ghost client pid 29728 stayed alive 34+ minutes with a mapped, unpainted
+    window (rt2.log); pids 18292/27265/29728 were three such ghosts burning
+    ~30% CPU each.
+  - the client announces the failure itself, on **stderr**:
+    `** (flet:29626): WARNING **: 14:12:54.620: Timed out waiting for OpenGL
+    frame of size 1280x720 (have 1x1)`.
+- **Fix:** a `cubeon-wedge-watchdog` daemon kills a client that has proven it
+  cannot render, so `ft.run` returns and the EXISTING ladder recovers. The
+  watchdog never tears a session down from a side thread (`ft.run` is
+  once-per-process) — it only kills the child (SIGTERM, SIGKILL after 3 s).
+- **Effect:** a permanent freeze becomes an automatic restart.
+
+### 8. The wedge detector was DEAD CODE — FIXED
+- **Location:** `main.py` `_WEDGE_TIMEOUTS` / `_WEDGE_RECENT`.
+- **Why:** the thresholds assumed a steady stream of GL-frame-timeout lines
+  (≥3 lines, newest within 8 s). The measured signature of a REAL wedge is a
+  **burst of exactly TWO lines ~0.15 s apart and then silence forever**
+  (rt2.log pid 29728; rt.log pid 22385). The ≥3 threshold could therefore never
+  be satisfied — the detector looked armed and never fired.
+- **Severity:** critical (it was the fix for #7 and did nothing).
+- **Fix:** `_WEDGE_TIMEOUTS = 2`, `_WEDGE_RECENT = 25.0` (grace 12 s / window
+  60 s unchanged). Tradeoff documented in code: a false positive costs one
+  automatic restart; a false negative is a frozen window forever.
+- **Effect (measured, deterministic):** the watchdog now fires at client age
+  12.2 s / 12.0 s / 12.0 s and the ladder runs to completion:
+  `producing no OpenGL frames` → `attempt 1` → `attempt 2` → `giving up`.
+
+### 9. The wedge test was VACUOUS (stream mismatch) — FIXED
+- **Location:** the ad-hoc fake client harness (not in the repo before now).
+- **Why:** the fake logged its GL-timeout lines to **stdout** while
+  `_filtered_open_flet_view_async` piped only **stderr**. A live gc-level probe
+  of `_wedge_state` showed `armed` set but `timeouts` stuck at 0 forever, so
+  the "verified" claim about the watchdog was never true.
+- **Severity:** high (a green test that could not fail).
+- **Fix:** the client's stdout and stderr are merged into one pipe
+  (`stdout=PIPE, stderr=STDOUT`, forwarded with an explicit flush) so no
+  logging-fd assumption can defeat the counter again; and the deterministic
+  test now lives in the repo as `tools/test_wedge_watchdog.py` (registered in
+  `test_mega_smoke.py`'s SUITES) with a fake that reproduces the measured
+  signature (stderr, burst of two, then alive-and-silent so any progress proves
+  a real kill).
+- **Effect:** the guard fails if the trigger is retuned out of range or the
+  capture goes back to a single fd.
+
+### 10. Orphaned client windows from dead launchers — FIXED
+- **Location:** `main.py` `_kill_flet_client()` (orphan sweep).
+- **Why:** when a launcher dies before cleanup, its client is reparented to
+  systemd with its window still mapped and CPU burning (three observed here).
+- **Fix:** session start sweeps `flet` processes whose args carry our assets dir
+  **and** whose parent is no longer a live launcher. Two-factor on purpose: a
+  second live Cubeon instance is never touched.
+- **Verified:** suite green; live scan after the reproduction runs found no
+  leftover clients.
+
+### 11. `CUBEON_GPU_RESTARTS` leaked into the game environment — FIXED
+- **Location:** `cubeon/launch.py` `launch_game()` env strip list.
+- **Why:** it is main.py's launcher re-exec crash budget; a game probing
+  namespaced `CUBEON_*` knobs would have seen a stale restart count.
+- **Fix:** stripped from the child env alongside the software-GL vars.
+
+### Intentional non-change in this round
+- **Retry-exhaustion still exits** (`main.py`: "client keeps dying before the
+  window shows - giving up" → `return`). Parking in the tray instead would keep
+  Open/Quit available under a persistently broken driver, but it is a behavior
+  change and was NOT confirmed by the user, so it was left exactly as it was
+  and is flagged as the next candidate.
+- **Residual gap:** a client that wedges WITHOUT emitting any line is not
+  detected (no evidence to judge on). Never observed — every measured wedge
+  logged its timeouts first.
+
 ## Identified but intentionally NOT changed
 
 - **Full-page `page.update()` in tab modules**: `ui/server_tab.py` (43 sites),

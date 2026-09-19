@@ -608,9 +608,14 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # Minecraft on llvmpipe is ~4 FPS, and the game has its own GL stack that
     # doesn't share the launcher's driver bug. Strip the software-GL vars from
     # the child environment while passing everything else through.
+    # CUBEON_GPU_RESTARTS is main.py's re-exec crash budget (how many times
+    # the launcher UI restarted due to driver death). It exists ONLY so a
+    # wedged driver can't loop re-execs forever - it must never reach the
+    # game, or any game that probes its environment for namespaced
+    # CUBEON_* knobs sees a stale restart count as a knob.
     _game_env = {k: v for k, v in os.environ.items()
                  if k not in ("LIBGL_ALWAYS_SOFTWARE", "GALLIUM_DRIVER",
-                              "LIBGL_DRM_DEVICE")}
+                              "LIBGL_DRM_DEVICE", "CUBEON_GPU_RESTARTS")}
     popen_kwargs["env"] = _game_env
 
     from . import watchdog
