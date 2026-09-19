@@ -9,7 +9,7 @@ The real launcher and a sandbox instance can run AT THE SAME TIME:
     skins, capes, window geometry, the friends cache) lives under
     CUBEON_HOME = ~/.cubeon_launcher, derived from Path.home(). Overriding
     HOME therefore gives the sandbox a COMPLETELY FRESH ACCOUNT: new stable
-    secret -> new auto-minted name -> new server-assigned 12-digit ID.
+    secret -> new auto-minted name -> new server-assigned 8-digit ID.
 
 That fresh account is the point: to test friends/chat you need two accounts,
 so friend the sandbox from your real launcher (or vice versa) by ID and talk
@@ -197,4 +197,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

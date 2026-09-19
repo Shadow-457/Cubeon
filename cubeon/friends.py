@@ -171,12 +171,12 @@ T_SYSTEM = "system"          # {text} - a server-side notice to show in a thread
 # but uniqueness is enforced server-side where a username's isn't.
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 
-# The public numeric ID, assigned by the server on first registration: twelve
-# zero-padded decimal digits, starting at 000000000001. This is what the Chat
+# The public numeric ID, assigned by the server on first registration: eight
+# zero-padded decimal digits, starting at 00000001. This is what the Chat
 # surface shows and what a friend types to add you - a name and a secret are no
 # longer how chat identity works. Must equal the worker's UID_RE / UID_WIDTH.
-_UID_RE = re.compile(r"^[0-9]{12}$")
-UID_WIDTH = 12
+_UID_RE = re.compile(r"^[0-9]{8}$")
+UID_WIDTH = 8
 
 # Reserved so nobody can claim a name that impersonates the system or the app
 # itself in a chat list ("Cubeon: your account is locked, send your secret...").
@@ -184,30 +184,36 @@ _RESERVED = {"cubeon", "admin", "system", "server", "moderator", "mod", "staff"}
 
 
 def canonical_uid(uid: "str | int | None") -> "str | None":
-    """The canonical 12-digit form of a Cubeon ID, or None if it isn't one.
+    """The canonical 8-digit form of a Cubeon ID, or None if it isn't one.
 
-    Accepts an int or a string; a bare number is zero-padded to 12 digits so the
-    value a user pastes and the value the server returns compare equal.
+    Accepts an int or a string; a bare number is zero-padded to 8 digits so the
+    value a user pastes and the value the server returns compare equal. A
+    legacy 12-digit value is accepted only when its numeric value fits the new
+    range, then migrated to the equivalent 8-digit value.
     """
     if isinstance(uid, bool):
         return None
     if isinstance(uid, int):
         if uid < 0:
             return None
-        # A bare number arrives zero-padded: 1 -> "000000000001". Strings are
+        # A bare number arrives zero-padded: 1 -> "00000001". Strings are
         # NOT padded ("42" stays rejected) so a typo can't silently match a
         # different user's ID.
         uid = str(uid).zfill(UID_WIDTH)
     if not isinstance(uid, str):
         return None
     uid = uid.strip()
-    if not _UID_RE.match(uid):
-        return None
-    return uid
+    if _UID_RE.match(uid):
+        return uid
+    if re.fullmatch(r"[0-9]{12}", uid):
+        number = int(uid)
+        if number <= 99999999:
+            return str(number).zfill(UID_WIDTH)
+    return None
 
 
 def format_uid(uid: "str | int | None") -> str:
-    """A best-effort display form: zero-padded to 12 digits, or "" when the
+    """A best-effort display form: zero-padded to 8 digits, or "" when the
     value isn't numeric enough to format."""
     canon = canonical_uid(uid)
     if canon:
@@ -287,7 +293,7 @@ def save_identity(name: str, secret: "str | None" = None,
     identity uuid, NOT offline_uuid(name): that's what makes the account survive
     a rename - see config.ensure_auth_key().
 
-    `uid` is the server-assigned 12-digit public ID. It is preserved across a
+    `uid` is the server-assigned 8-digit public ID. It is preserved across a
     rename via the prior-fields merge below when not passed, and set when a
     claim/hello_ok hands back a fresh one."""
     os.makedirs(CUBEON_HOME, exist_ok=True)
@@ -344,7 +350,7 @@ def current_name() -> "str | None":
 
 
 def current_uid() -> str:
-    """This machine's 12-digit Cubeon ID, or "" before the server has assigned
+    """This machine's 8-digit Cubeon ID, or "" before the server has assigned
     one (first connection). Safe to call anywhere - never raises."""
     identity = load_identity()
     if not identity:
@@ -483,7 +489,7 @@ def save_cached_roster(roster: dict) -> None:
 _MESSAGES = {
     "name_taken": "That Cubeon name is already taken. Try another.",
     "bad_name": "That name isn't allowed. Use 3-16 letters, numbers, or underscores.",
-    "bad_uid": "That doesn't look like a Cubeon ID. It's 12 numbers.",
+    "bad_uid": "That doesn't look like a Cubeon ID. It's 8 numbers.",
     "not_yours": "That name belongs to another computer.",
     "bad_body": "Cubeon and the friends server disagreed about the request format.",
     "blocked": "This name was blocked for breaking the rules.",
@@ -585,7 +591,7 @@ def check_name(name: str, *, base_url: "str | None" = None) -> dict:
 
 
 def lookup_uid(uid: "str | int", *, base_url: "str | None" = None) -> dict:
-    """Resolves a 12-digit Cubeon ID to the account behind it, so the Chat tab
+    """Resolves an 8-digit Cubeon ID to the account behind it, so the Chat tab
     can reject a typo'd ID and show the friend's name. Returns ok=True with
     exists/name/online; exists=False when no account holds that ID."""
     canon = canonical_uid(uid)
@@ -903,7 +909,7 @@ class FriendsClient:
 
         if t == T_HELLO_OK:
             self._connected.set()
-            # The server hands back the account's 12-digit ID on every hello.
+            # The server hands back the account's 8-digit ID on every hello.
             # Persist it here so the Chat surface can show it without a separate
             # REST round trip, and so it survives even if /claim was never
             # called (claim-on-connect).
@@ -1005,7 +1011,7 @@ class FriendsClient:
         return self._raw_send({"t": T_ADD, "name": name})
 
     def add_friend_uid(self, uid: "str | int") -> bool:
-        """Send a friend request by 12-digit ID. The server resolves it to the
+        """Send a friend request by 8-digit ID. The server resolves it to the
         account and, exactly like add_friend(), turns a mutual add into an
         accept. Returns whether the frame went out - never raises."""
         canon = canonical_uid(uid)
@@ -1029,7 +1035,7 @@ class FriendsClient:
         return check_name(name, base_url=self._base_url)
 
     def check_uid(self, uid: "str | int") -> dict:
-        """REST read: resolve a 12-digit ID to its name/presence, or report
+        """REST read: resolve an 8-digit ID to its name/presence, or report
         exists=False. Same contract as check_name() - the caller can tell a
         missing account from a failed lookup."""
         return lookup_uid(uid, base_url=self._base_url)

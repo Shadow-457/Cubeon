@@ -1167,6 +1167,28 @@ check("stats scans are read-only (no create-on-read helpers)",
       "get_profile_dir/get_plugins_dir/content_dir CREATE folders on read - "
       "a stats pass must never leave empty folders behind")
 
+# --- Screenshot gallery (2026-09-19) ------------------------------------------
+_screenshot_tab_path = os.path.join(_app_root, "ui", "screenshot_gallery.py")
+_screenshot_tab_src = (open(_screenshot_tab_path, encoding="utf-8").read()
+                       if os.path.exists(_screenshot_tab_path) else "")
+check("screenshot gallery is inside the Cosmetics panes",
+      "def build_screenshot_gallery_tab" in _screenshot_tab_src
+      and '"images",\n            "Images"' in open(
+          os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
+      and "screenshot_gallery=screenshot_gallery_tab" in _main_src
+      and "refresh_screenshot_gallery=refresh_screenshot_gallery" in _main_src
+      and "pid == \"images\"" in open(
+          os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
+      and '("gallery", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Gallery")' not in _main_src
+      and '"gallery": screenshot_gallery_tab' not in _main_src
+      and "screenshot_gallery_button" not in _main_src,
+      "Images must be a Cosmetics pane and Gallery must not consume top-nav space")
+check("screenshot gallery offers copy-image action",
+      "screenshot-copy" in _screenshot_tab_src
+      and "set_files" in _screenshot_tab_src
+      and "Copy image" in _screenshot_tab_src,
+      "the selected screenshot needs a desktop clipboard action")
+
 # --- Chat tab (2026-09-11) -----------------------------------------------------
 # The social layer moved out of the mod into the launcher: a nav entry, a lazy
 # builder, and a tab module that must survive a public (no-Friends) build.
@@ -1186,7 +1208,7 @@ check("chat tab polls on a daemon thread, not the UI thread",
       "threading.Thread(" in _chat_src and "daemon=True" in _chat_src
       and "thread_safe_ui" in _chat_src,
       "FriendsService reads block on the websocket; they must not run on the UI thread")
-check("chat tab shows the 12-digit ID and adds friends by ID",
+check("chat tab shows the 8-digit ID and adds friends by ID",
       "your_id_text" in _chat_src and "canonical_uid" in _chat_src
       and "Add a friend by ID" in _chat_src
       and "name_field" not in _chat_src and "rename_unique" not in _chat_src,

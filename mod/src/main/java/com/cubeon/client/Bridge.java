@@ -266,15 +266,15 @@ public final class Bridge {
         String text;
         if (value instanceof Number number) {
             double n = number.doubleValue();
-            if (!Double.isFinite(n) || n != Math.floor(n) || n < 0 || n > 999999999999L) {
+            if (!Double.isFinite(n) || n != Math.floor(n) || n < 0 || n > 99999999L) {
                 return "";
             }
             text = Long.toString((long) n);
         } else {
             text = value instanceof String s ? s.trim() : "";
         }
-        if (!text.matches("[0-9]{1,12}")) return "";
-        return "0".repeat(12 - text.length()) + text;
+        if (!text.matches("[0-9]{1,8}")) return "";
+        return "0".repeat(8 - text.length()) + text;
     }
 
     public static String minecraftUsername(String value) {
@@ -807,7 +807,7 @@ public final class Bridge {
                 Json.bool(root, "connected", true),
                 Json.bool(root, "available", true),
                 Json.str(root, "you", ""),
-                // The 12-digit public Cubeon ID - the account's real handle.
+                // The 8-digit public Cubeon ID - the account's real handle.
                 // The internal claimed name above is plumbing; this is what
                 // the Account tab shows and what friends add you by.
                 uidOf(root, "you_uid"),

@@ -9,8 +9,8 @@ to the same process-scoped FriendsService directly instead of going through the
 HTTP bridge the mod uses.
 
 What it shows, on one screen:
-  - the automatic Cubeon ID: a 12-digit number the server assigns on first
-    connect (000000000001, 000000000002, ...), shown so a friend can add you,
+  - the automatic Cubeon ID: an 8-digit number the server assigns on first
+    connect (00000001, 00000002, ...), shown so a friend can add you,
   - the friend roster with presence and each friend's ID, plus add-by-ID,
   - incoming requests (accept / decline) and outgoing ones,
   - the selected conversation, decrypted by the service, with a composer.
@@ -149,7 +149,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     you_text = ft.Text("", size=14, color=TEXT,
                        weight=ft.FontWeight.W_700, max_lines=1,
                        overflow=ft.TextOverflow.ELLIPSIS)
-    # The ID is the personal, un-takeable account handle - owned by the
+    # The 8-digit ID is the personal, un-takeable account handle - owned by the
     # secret, never renamed away. It stays small and quiet: it's what a
     # friend types to ADD you, not your display identity.
     your_id_text = ft.Text("Waiting for your ID…", size=11, color=TEXT_DIM,
@@ -780,7 +780,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             return
         uid = _friends.canonical_uid(raw)
         if not uid:
-            _set_status("Enter your friend's 12-number ID.", error=True)
+            _set_status("Enter your friend's 8-number ID.", error=True)
             return
 
         def done(res):

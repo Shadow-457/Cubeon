@@ -102,6 +102,16 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   `cubeon/config.py`); `CUBEON_SEASON=<season>` still pins for tests and
   screenshots.
 
+## Minecraft screenshot gallery (2026-09-19) — INVARIANT
+- Screenshots live in Cubeon's private game folder at
+  `MINECRAFT_DIR/screenshots` (`~/.cubeon_minecraft/screenshots` by default),
+  not the user's shared `~/.minecraft`. `cubeon/screenshot_gallery.py` is the
+  single boundary for listing, bounded preview decoding, safe clipboard file
+  hand-off, safe deletion, and opening that folder. The Images pane inside
+  Cosmetics uses this boundary; it is selected from the Cosmetics subtab row,
+  never from the top-level nav. Never pass arbitrary paths into Flet images or
+  delete callbacks.
+
 ## Relay username metadata (2026-09-17, plan step 2)
 - `cubeon/friends.py` exposes `minecraft_username(value)` -> the value when it
   matches `[A-Za-z0-9_]{3,16}` (case-preserving, NO reserved-name check) else

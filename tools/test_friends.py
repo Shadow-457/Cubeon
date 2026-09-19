@@ -94,16 +94,16 @@ check("canonical_name rejects invalid", friends.canonical_name("no!") is None)
 
 
 # --------------------------------------------------------------------------
-print("\nuid validation (the 12-digit chat identity)")
+print("\nuid validation (the 8-digit chat identity)")
 # --------------------------------------------------------------------------
-check("accepts a 12-digit string", friends.canonical_uid("000000000001") == "000000000001")
-check("accepts an int and zero-pads", friends.canonical_uid(1) == "000000000001")
+check("accepts an 8-digit string", friends.canonical_uid("00000001") == "00000001")
+check("accepts an int and zero-pads", friends.canonical_uid(1) == "00000001")
 check("rejects too few digits", friends.canonical_uid("42") is None)
 check("rejects too many digits", friends.canonical_uid("1" * 13) is None)
-check("rejects letters", friends.canonical_uid("00000000000a") is None)
+check("rejects letters", friends.canonical_uid("0000000a") is None)
 check("rejects None / bool", friends.canonical_uid(None) is None
       and friends.canonical_uid(True) is None)
-check("format_uid pads an int", friends.format_uid(7) == "000000000007")
+check("format_uid pads an int", friends.format_uid(7) == "00000007")
 check("current_uid is empty with no identity", friends.current_uid() == "")
 
 
@@ -472,10 +472,10 @@ worker_reserved_missing = [n for n in py_reserved if f'"{n}"' not in worker_src]
 check("worker mirrors the reserved names", not worker_reserved_missing,
       f"missing from worker RESERVED: {worker_reserved_missing}")
 
-# The 12-digit ID format and its two wire paths (REST /uid/<n>, and `add {uid}`)
+# The 8-digit ID format and its two wire paths (REST /uid/<n>, and `add {uid}`)
 # must exist server-side too, or adding a friend by ID dies in production only.
-check("worker mirrors the 12-digit uid format",
-      "[0-9]{12}" in worker_src and "/uid/" in worker_src,
+check("worker mirrors the 8-digit uid format",
+      "[0-9]{8}" in worker_src and "/uid/" in worker_src,
       "UID_RE / the /uid/ route is missing from the worker")
 check("worker resolves an add-by-uid frame",
       "nameByUid" in worker_src and "msg.uid" in worker_src,

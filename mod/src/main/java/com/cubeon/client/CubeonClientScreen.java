@@ -955,7 +955,7 @@ public class CubeonClientScreen extends Screen {
                 ? "Your ID appears once the launcher connects."
                 : "Your friends can add you with your Cubeon ID: "
                   + snap.youUid() + ".";
-        return "Type a friend's 12-digit Cubeon ID below and press Add. "
+        return "Type a friend's 8-digit Cubeon ID below and press Add. "
                 + idLine;
     }
 
@@ -1272,7 +1272,7 @@ public class CubeonClientScreen extends Screen {
                 }
                 typing = true;
                 input.setMaxLength(16);
-                // The Cubeon ID is the address (12 digits); a friend's name
+                // The Cubeon ID is the address (8 digits); a friend's name
                 // still works, but IDs are the thing you copy and share.
                 input.setHint(Component.literal("Add by Cubeon ID or name"));
                 label(primary, "Add");

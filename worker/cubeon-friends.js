@@ -8,7 +8,7 @@
  *
  *   POST /claim        claim or re-verify a Cubeon name   {name, secret}
  *   GET  /name/<name>  does this name exist / is it online
- *   GET  /uid/<uid>    resolve a 12-digit Cubeon ID to its name / presence
+ *   GET  /uid/<uid>    resolve an 8-digit Cubeon ID to its name / presence
  *   POST /pubkey       publish this name's E2EE public key {name, secret, pubkey}
  *   GET  /pubkey/<name>  fetch a friend's E2EE public key (opaque to us)
  *   GET  /ws           WebSocket upgrade - the realtime channel
@@ -19,7 +19,7 @@
  *
  * A Cubeon name is human-readable but easy to typo, and the launcher's Chat
  * surface now hands out a stable numeric ID instead. The first account ever
- * registered gets 000000000001, the next 000000000002, and so on. It is
+ * registered gets 00000001, the next 00000002, and so on. It is
  * allocated here, by the one global Durable Object, so it is unique and
  * sequential across every Cubeon install - never derived from the secret, which
  * is why the same account keeps its ID across a rename (the row is updated, not
@@ -81,10 +81,10 @@ const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 // Must equal cubeon/friends.py `_RESERVED`.
 const RESERVED = new Set(["cubeon", "admin", "system", "server", "moderator", "mod", "staff"]);
 
-// A Cubeon ID is exactly 12 decimal digits, zero-padded (000000000001...).
+// A Cubeon ID is exactly 8 decimal digits, zero-padded (00000001...).
 // Must equal cubeon/friends.py `_UID_RE`.
-const UID_RE = /^[0-9]{12}$/;
-const UID_WIDTH = 12;
+const UID_RE = /^[0-9]{8}$/;
+const UID_WIDTH = 8;
 
 // Message types - mirror of the T_* constants in cubeon/friends.py.
 const T = {
@@ -342,7 +342,7 @@ export class Hub {
     return json({ ...this.identityOf(canon), online: this.isOnline(canon) });
   }
 
-  // Resolves the public 12-digit ID a user typed to the account behind it. The
+  // Resolves the public 8-digit ID a user typed to the account behind it. The
   // client uses this to reject a typo'd ID before sending a request nobody can
   // receive, and to show the friend's name once it resolves.
   httpUidLookup(raw) {
@@ -506,7 +506,7 @@ export class Hub {
   }
 
   onAdd(me, myDisplay, msg) {
-    // The Chat surface sends a 12-digit ID; the in-game mod still sends a name.
+    // The Chat surface sends an 8-digit ID; the in-game mod still sends a name.
     // Both resolve to the same canonical name the friend graph is keyed on.
     let other = null;
     if (typeof msg.uid === "string") {
@@ -835,7 +835,8 @@ export class Hub {
   // sequence only ever moves forward.
   nextUid() {
     const row = this.sql.exec(
-      "SELECT COALESCE(MAX(uid), 0) + 1 AS n FROM names").toArray()[0];
+      "SELECT COALESCE(MAX(uid), 0) + 1 AS n FROM names "
+      + "WHERE uid IS NULL OR uid <= 99999999").toArray()[0];
     return row.n;
   }
 
@@ -844,7 +845,11 @@ export class Hub {
   // deploy can't strand an early account without one.
   ensureUid(row) {
     if (!row) return null;
-    if (row.uid !== null && row.uid !== undefined) return row.uid;
+    // IDs are now eight digits. Reissue legacy 12-digit assignments on first
+    // contact so old Durable Objects converge to the new public format.
+    if (row.uid !== null && row.uid !== undefined && row.uid <= 99999999) {
+      return row.uid;
+    }
     const uid = this.nextUid();
     this.sql.exec("UPDATE names SET uid=? WHERE name=?", uid, row.name);
     return uid;
@@ -1019,7 +1024,7 @@ function canonName(name) {
   return name.toLowerCase();
 }
 
-// "42" / 42 / "000000000042" -> 42, or null if it isn't a 12-digit ID. Both the
+// "42" / 42 / "00000042" -> 42, or null if it isn't an 8-digit ID. Both the
 // zero-padded form the launcher sends and a bare integer are accepted so the
 // same helper serves /uid/<uid> and an `add {uid}` frame.
 function uidInt(raw) {

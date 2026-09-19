@@ -598,7 +598,7 @@ class FriendsService:
         return ident["name"] if ident else ""
 
     def _my_uid(self) -> str:
-        """This machine's 12-digit Cubeon ID, or "" until the server assigns
+        """This machine's 8-digit Cubeon ID, or "" until the server assigns
         one. Read off the identity file rather than the client, so it is the
         same value the Chat surface shows in the launcher and the mod."""
         ident = friends.load_identity()
@@ -2366,7 +2366,7 @@ class FriendsService:
         return self._ok()
 
     def add_friend(self, target: str) -> dict:
-        """Send a friend request, by 12-digit ID (the Chat surface) or by
+        """Send a friend request, by 8-digit ID (the Chat surface) or by
         Cubeon name (the in-game mod). Answers from local state only.
 
         This runs on a local_api HTTP request thread that the in-game mod is

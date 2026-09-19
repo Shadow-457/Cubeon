@@ -25,6 +25,7 @@ from cubeon.theme import (
     text_tab,      # underline-style segment tab (same chrome as Mods' content types)
     CARD_FILL, CARD_BORDER,  # translucent panel fills/outlines (Mods-tab language)
     ROW_HOVER,     # quiet hover lift for borderless rows/cards
+    SURFACE_MAX, TEXT_FAINT,
 )
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
 
@@ -44,7 +45,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                         TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO=None,
                         mc_version=None, mc_loader=None, file_picker=None,
-                        cape_file_picker=None):
+                        cape_file_picker=None, screenshot_gallery=None,
+                        refresh_screenshot_gallery=None):
     """
     Builds the skin-management section shown inside the Profile tab:
     a preview of the active skin, an upload button, and the list of
@@ -94,8 +96,23 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # since some Flet versions require Image.src to always be a real string.
     custom_preview = ft.Image(
         src="icon.svg",
-        width=160, height=260, fit=ft.BoxFit.CONTAIN, visible=False,
+        width=156, height=242, fit=ft.BoxFit.CONTAIN, visible=False,
     )
+    custom_preview_empty = ft.Column(
+        [
+            ft.Icon(ft.Icons.PERSON_OUTLINE_ROUNDED, size=34,
+                    color=TEXT_FAINT),
+            ft.Text("No custom skin", size=12, color=TEXT_DIM),
+            ft.Text("Upload one to preview it", size=10, color=TEXT_FAINT),
+        ],
+        spacing=6, tight=True,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+    skin_preview_name = ft.Text("Default Minecraft skin", size=13,
+                                color=TEXT, weight=ft.FontWeight.W_700,
+                                text_align=ft.TextAlign.CENTER)
+    skin_preview_meta = ft.Text("Not wearing a custom skin", size=10,
+                                color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
 
     upload_status = ft.Text("", size=12, color=TEXT_DIM)
 
@@ -159,6 +176,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     custom_preview.src = src
                     custom_preview.visible = True
                     thread_safe_ui.refresh(custom_preview)
+                    try:
+                        custom_preview_empty.visible = False
+                        thread_safe_ui.refresh(custom_preview_empty)
+                    except NameError:
+                        pass  # isolated preview regression harness
         except Exception as ex:
             with _preview_lock:
                 if generation == _preview_state["generation"]:
@@ -185,6 +207,15 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 _preview_state["queued"] = None
                 custom_preview.visible = False
                 thread_safe_ui.refresh(custom_preview)
+                try:
+                    custom_preview_empty.visible = True
+                    skin_preview_name.value = "Default Minecraft skin"
+                    skin_preview_meta.value = "Not wearing a custom skin"
+                    thread_safe_ui.refresh(custom_preview_empty)
+                    thread_safe_ui.refresh(skin_preview_name)
+                    thread_safe_ui.refresh(skin_preview_meta)
+                except NameError:
+                    pass  # isolated preview regression harness
                 return
             if _preview_state["running"]:
                 _preview_state["queued"] = filename
@@ -201,6 +232,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             thread_safe_ui.refresh(upload_status)
             return
         render_preview_for(filename)
+        entry = next((s for s in core.list_custom_skins()
+                      if s.get("filename") == filename), None)
+        skin_preview_name.value = (entry or {}).get("name") or "Custom skin"
+        skin_preview_meta.value = "Active · local preview"
+        thread_safe_ui.refresh(skin_preview_name)
+        thread_safe_ui.refresh(skin_preview_meta)
         upload_status.value = "Active skin set to this one."
         refresh_skins_list()
         page.update()
@@ -229,7 +266,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # (see _grid_scroll below) instead of paging. Each card shows a real
     # preview; the active item is highlighted, and hover reveals Use/Delete.
     def _owned_card(*, label, sublabel, active, on_use, on_delete,
-                    src=None, lazy_thumb=None, preview_w=64, preview_h=92):
+                    src=None, lazy_thumb=None, preview_w=76, preview_h=112):
         """A selectable installed item: preview on top, name below, hover
         actions at the bottom. The active card swaps the Use button for an
         outlined ACTIVE pill and gets the accent border.
@@ -304,7 +341,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 ],
                 spacing=3, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            width=138,
+            width=158,
             bgcolor=ACCENT_TINT if active else CARD_FILL,
             border=ft.border.Border.all(1, ACCENT if active else CARD_BORDER),
             border_radius=RADIUS,
@@ -507,7 +544,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     refresh_skins_list()
     if cfg.get("active_skin"):
-        render_preview_for(cfg.get("active_skin"))
+        _active_skin = cfg.get("active_skin")
+        render_preview_for(_active_skin)
+        _active_skin_entry = next(
+            (s for s in core.list_custom_skins()
+             if s.get("filename") == _active_skin), None)
+        skin_preview_name.value = (_active_skin_entry or {}).get("name") or "Custom skin"
+        skin_preview_meta.value = "Active · local preview"
 
     # =====================================================================
     # CUSTOM CAPE - upload/store a cape PNG, preview its visible face, set
@@ -529,6 +572,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         src="icon.svg",
         width=120, height=192, fit=ft.BoxFit.CONTAIN, visible=False,
     )
+    cape_preview_name = ft.Text("Cubeon Cape", size=13,
+                                color=TEXT, weight=ft.FontWeight.W_700,
+                                text_align=ft.TextAlign.CENTER)
+    cape_preview_meta = ft.Text("Default · shared with friends", size=10,
+                                color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
     cape_status = ft.Text("", size=12, color=TEXT_DIM)
     # Wrapping card grid, same as the skins installed list (see _owned_card).
     capes_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
@@ -594,10 +642,18 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             return
         if filename:
             render_cape_preview_for(filename)
+            entry = next((c for c in core.list_custom_capes()
+                          if c.get("filename") == filename), None)
+            cape_preview_name.value = (entry or {}).get("name") or "Custom cape"
+            cape_preview_meta.value = "Active · local preview"
             cape_status.value = "Active cape set to this one."
         else:
             show_default_cape_preview()
+            cape_preview_name.value = "Cubeon Cape"
+            cape_preview_meta.value = "Default · shared with friends"
             cape_status.value = "Using the default Cubeon cape."
+        thread_safe_ui.refresh(cape_preview_name)
+        thread_safe_ui.refresh(cape_preview_meta)
         refresh_capes_list()
         page.update()
 
@@ -725,7 +781,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     refresh_capes_list()
     if cfg.get("active_cape"):
-        render_cape_preview_for(cfg["active_cape"])
+        _active_cape = cfg["active_cape"]
+        render_cape_preview_for(_active_cape)
+        _active_cape_entry = next(
+            (c for c in core.list_custom_capes()
+             if c.get("filename") == _active_cape), None)
+        cape_preview_name.value = (_active_cape_entry or {}).get("name") or "Custom cape"
+        cape_preview_meta.value = "Active · local preview"
     else:
         # No custom cape == the shared Cubeon cape is what's worn, so seed the
         # preview with it rather than leaving the box hidden on first paint.
@@ -733,7 +795,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     # --- Build the skin section layout. ---
     #
-    # Organization: one underline-tab bar (Skin / Cape - the same
+    # Organization: one underline-tab bar (Skin / Cape / Images - the same
     # text_tab chrome the Mods tab uses for Mods/Packs/Shaders, so the
     # launcher speaks one visual language) with ONE pane visible at a time.
     # Previously all three sections stacked into a very long scroll: the
@@ -747,22 +809,53 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     skin_preview_box = ft.Container(
         content=ft.Column(
-            [custom_preview],
+            [
+                ft.Text("CURRENT LOOK", size=10, color=ACCENT,
+                        weight=ft.FontWeight.W_700,
+                        style=ft.TextStyle(letter_spacing=1.1)),
+                ft.Container(
+                    content=ft.Stack([custom_preview, custom_preview_empty],
+                                     alignment=ft.Alignment.CENTER),
+                    bgcolor=SURFACE_MAX,
+                    border=ft.border.Border.all(1, CARD_BORDER),
+                    border_radius=RADIUS,
+                    width=182, height=252,
+                    alignment=ft.Alignment.CENTER,
+                ),
+                skin_preview_name,
+                skin_preview_meta,
+            ],
+            spacing=7,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
-        border_radius=RADIUS, padding=12,
-        width=180, height=290, alignment=ft.Alignment.CENTER,
+        border_radius=RADIUS, padding=14,
+        width=214, height=354, alignment=ft.Alignment.CENTER,
     )
 
     cape_preview_box = ft.Container(
         content=ft.Column(
-            [cape_preview],
+            [
+                ft.Text("CURRENT LOOK", size=10, color=ACCENT,
+                        weight=ft.FontWeight.W_700,
+                        style=ft.TextStyle(letter_spacing=1.1)),
+                ft.Container(
+                    content=cape_preview,
+                    bgcolor=SURFACE_MAX,
+                    border=ft.border.Border.all(1, CARD_BORDER),
+                    border_radius=RADIUS,
+                    width=152, height=202,
+                    alignment=ft.Alignment.CENTER,
+                ),
+                cape_preview_name,
+                cape_preview_meta,
+            ],
+            spacing=7,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
-        border_radius=RADIUS, padding=12,
-        width=150, height=232, alignment=ft.Alignment.CENTER,
+        border_radius=RADIUS, padding=14,
+        width=184, height=304, alignment=ft.Alignment.CENTER,
     )
 
     # The hats/capes notes are tooltips on their pane labels rather than
@@ -810,6 +903,16 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ("skin", "Skin", skin_pane),
         ("cape", "Cape", cape_pane),
     ]
+    if screenshot_gallery is not None:
+        PANES.append((
+            "images",
+            "Images",
+            ft.Container(
+                content=screenshot_gallery,
+                height=620,
+                expand=True,
+            ),
+        ))
 
     pane_holder = ft.Container(content=skin_pane)
     tab_row = ft.Row(spacing=18)
@@ -829,12 +932,36 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         pane_holder.content = dict(
             (p[0], p[2]) for p in PANES)[pid]
         build_pane_tabs()
+        if pid == "images" and callable(refresh_screenshot_gallery):
+            refresh_screenshot_gallery()
         page.update()
 
     build_pane_tabs()
 
     skin_section = ft.Column(
         [
+            ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text("Appearance", size=24, color=TEXT,
+                                    font_family=FONT_DISPLAY),
+                            ft.Text("Choose what your character wears in-game.",
+                                    size=12, color=TEXT_DIM),
+                        ], spacing=4, expand=True,
+                    ),
+                    ft.Container(
+                        content=ft.Text("PREVIEW LIVE", size=10, color=ACCENT,
+                                        weight=ft.FontWeight.W_700,
+                                        style=ft.TextStyle(letter_spacing=0.8)),
+                        bgcolor=ACCENT_TINT,
+                        border=ft.border.Border.all(1, ACCENT_DIM),
+                        border_radius=RADIUS,
+                        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=7),
+                    ),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+            ft.Container(height=8),
             tab_row,
             ft.Container(height=10),
             pane_holder,

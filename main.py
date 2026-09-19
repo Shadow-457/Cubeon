@@ -143,6 +143,7 @@ from cubeon import friends  # Realtime social client (identity, presence, chat, 
 from cubeon.friends_service import FriendsService  # Headless owner of friends/P2P (launcher Chat tab + in-game mod)
 from cubeon.features import friends_enabled  # Development vs. public (no-Friends) builds
 from ui.chat_tab import build_chat_tab  # Chat tab: friends list, requests, encrypted chat
+from ui.screenshot_gallery import build_screenshot_gallery_tab
 from cubeon.discord_rpc import DiscordPresence  # Optional Discord Rich Presence (no-op unless configured)
 from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driving (no-op without a pad)
 
@@ -866,6 +867,9 @@ def main(page: ft.Page):
     )
     profile_pfp_status = ft.Text("", size=12, color=TEXT_DIM)
 
+    screenshot_gallery_tab, refresh_screenshot_gallery = \
+        build_screenshot_gallery_tab(page)
+
     def refresh_avatars():
         """Called after upload/remove/username-change so the account dialog's
         avatar never falls out of sync with the current state."""
@@ -1181,6 +1185,8 @@ def main(page: ft.Page):
             mc_loader=state.get("mod_loader"),
             file_picker=skin_file_picker,
             cape_file_picker=cape_file_picker,
+            screenshot_gallery=screenshot_gallery_tab,
+            refresh_screenshot_gallery=refresh_screenshot_gallery,
         )
 
     # Profile tab content - a plain scrollable column like every other tab,
