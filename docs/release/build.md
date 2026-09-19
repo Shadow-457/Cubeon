@@ -27,6 +27,19 @@ chmod +x packaging/build_appimage.sh
 # Output: dist/Cubeon-x86_64.AppImage
 ```
 
+### Linux setup installer and Debian package
+```bash
+# Uses the AppImage/AppDir built above; no root access is needed to build.
+python packaging/build_linux_installers.py
+# Outputs:
+#   dist/Cubeon-Linux-x86_64-Setup.sh
+#   dist/cubeon_1.0.0_amd64.deb
+```
+The setup script installs the AppImage for the current user under
+`~/.local/opt/Cubeon` and creates an application-menu entry. The `.deb`
+installs the same verified launcher under `/opt/cubeon` with a system desktop
+entry when installed through a Debian package manager.
+
 ### Windows EXE & ZIP (on Windows)
 ```bash
 python packaging/build_windows.py
@@ -40,11 +53,31 @@ python packaging/build_windows.py
 wine Z:\home\user\winpython\py311\python.exe -m PyInstaller \
   --noconfirm --onedir --windowed --name Cubeon \
   --add-data="assets:assets" --add-data="templates:templates" \
+  --add-data="mod/brackets.json:mod" \
   --collect-all flet --collect-all flet_desktop \
   --collect-all minecraft_launcher_lib \
   --collect-submodules templates \
   main.py
 ```
+
+### Windows portable single EXE (from Linux)
+```bash
+wine /home/user/winpython/py311/python.exe packaging/build_windows_single.py
+# Output: dist/Cubeon-Windows-x64-single.exe
+```
+This is portable: double-click it on Windows and Cubeon runs without Python or
+an installer. It does not create Start Menu shortcuts.
+
+### Windows installer with Start Menu/Desktop shortcuts (from Linux)
+```bash
+wine /home/user/winpython/py311/python.exe packaging/build_windows.py
+python packaging/build_windows_installer.py
+# Output: dist/Cubeon-Windows-x64-Setup.exe
+```
+The setup EXE installs per-user under `%LOCALAPPDATA%\Cubeon`, creates
+shortcuts, and includes the already-built onedir package. It does not require
+administrator permission. Windows users only run the setup EXE; they do not
+need Python, Wine, or a separate build step.
 
 ### macOS App Bundle
 ```bash
@@ -58,14 +91,16 @@ chmod +x packaging/build_macos.sh
 | Script | Platform | Output |
 |--------|----------|--------|
 | `packaging/build_appimage.sh` | Linux | `dist/Cubeon-x86_64.AppImage` |
+| `packaging/build_linux_installers.py` | Linux | setup `.sh` + `.deb` |
 | `packaging/build_macos.sh` | macOS | `dist/Cubeon/` (app bundle) |
 | `packaging/build_windows.py` | Windows | `dist/Cubeon/` + `dist/Cubeon-Windows-x64.zip` |
 | `packaging/build_windows_single.py` | Windows | `dist/Cubeon-Windows-x64-single.exe` (onefile) |
+| `packaging/build_windows_installer.py` | Windows/Linux + Wine | `dist/Cubeon-Windows-x64-Setup.exe` |
 
 ## PyInstaller Spec
 
 The `Cubeon.spec` file controls the build:
-- Bundles `assets/` and `templates/` via `--add-data`
+- Bundles `assets/`, `templates/`, and only `mod/brackets.json` via `--add-data`
 - `--collect-all flet --collect-all flet_desktop` (mandatory)
 - `--collect-all minecraft_launcher_lib` (mandatory)
 - `--collect-submodules templates` for seasonal palettes

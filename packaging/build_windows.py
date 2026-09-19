@@ -5,7 +5,9 @@ Output: dist/Cubeon/ (standalone folder) and dist/Cubeon-Windows-x64.zip.
 
 NOTE: --add-data assets is REQUIRED - assets/jars holds the Friends mod jars
 and the Connect plugin, and the launcher resolves them from there when
-packaged. Forgetting it produces a launcher with no friends mod.
+packaged. Forgetting it produces a launcher with no friends mod. Only
+mod/brackets.json is bundled: Java sources and Gradle build files are release
+tooling, not runtime data.
 
 FLET DESKTOP CLIENT (the window itself):
 --collect-all flet_desktop is REQUIRED. Without it the frozen exe can't
@@ -61,12 +63,12 @@ def main():
     os.chdir(ROOT)
     _fetch_flet_client()
     cmd = [
-        sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir",
+        sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir",
         "--windowed",
         "--name", "Cubeon",
         f"--add-data=assets{SEP}assets",
         f"--add-data=templates{SEP}templates",
-        f"--add-data=mod{SEP}mod",
+        f"--add-data=mod/brackets.json{SEP}mod",
         "--collect-all", "flet",
         "--collect-all", "minecraft_launcher_lib",
         "--collect-all", "flet_desktop",

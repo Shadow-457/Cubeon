@@ -44,7 +44,7 @@ def main() -> None:
         "--onefile", "--windowed", "--name", "Cubeon",
         f"--add-data=assets{sep}assets",
         f"--add-data=templates{sep}templates",
-        f"--add-data=mod{sep}mod",
+        f"--add-data=mod/brackets.json{sep}mod",
         "--collect-all", "flet",
         "--collect-all", "flet_desktop",
         "--collect-all", "minecraft_launcher_lib",

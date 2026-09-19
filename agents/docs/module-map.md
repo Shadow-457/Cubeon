@@ -1482,6 +1482,14 @@ Still-true invariants from the pre-local era:
   ad-hoc `--name Cubeon-single` run leaves a stray `Cubeon-single.spec` in the
   repo root - delete it, or invoke the script, which renames its output to
   `dist/Cubeon-Windows-x64-single.exe` for you.
+- **Windows distribution choices (2026-09-20)**: `build_windows_single.py`
+  emits a portable onefile EXE; it does not create shortcuts. For an actual
+  per-user Windows app installation, first build the onedir package with
+  `build_windows.py`, then run `packaging/build_windows_installer.py`. That
+  wrapper uses native `makensis` or NSIS's `makensis.exe` under Wine and
+  produces `dist/Cubeon-Windows-x64-Setup.exe`, which installs to
+  `%LOCALAPPDATA%\\Cubeon`, creates Start Menu/Desktop shortcuts, and registers
+  an uninstaller without administrator rights.
 - **GOTCHA: artifacts go stale silently if you edit sources mid-build.**
   PyInstaller snapshots module sources at ANALYSIS time (~20 s in), so an edit
   made after that is NOT in the bundle even though the build runs for minutes
