@@ -16,6 +16,7 @@ import logging
 
 import os          # For file path/mtime handling (used for avatar cache-busting)
 import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
+import subprocess  # Detached launcher fallback when execv cannot replace us
 import re          # For regular expressions (used to clean mod slugs and parse version strings)
 import sys         # For runtime platform detection and PyInstaller bundle paths
 import threading   # For running long tasks (e.g., network calls, game launch) without freezing the UI
@@ -90,6 +91,37 @@ _tray_runtime = {"controller": None, "reopen": None, "quit": None,
 # after this session ends - doing the execv from inside main() would orphan the
 # flet client as a ghost window, because `_kill_flet_client()` never gets to run.
 _relaunch = {"request": None}
+
+
+def _relaunch_fresh_process() -> bool:
+    """Replace this launcher with a fresh process, with a safe fallback.
+
+    Flet is effectively once-per-process, so tray reopen and Settings restart
+    must start a new interpreter.  ``execv`` is preferred because it avoids a
+    second launcher, but it can fail for a deleted/replaced executable or a
+    transient resource error.  In that case start the same command detached;
+    callers then leave the old process through the normal hard-exit path.
+    """
+    if getattr(sys, "frozen", False):
+        argv = [sys.executable] + sys.argv[1:]
+    else:
+        argv = [sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
+    os.environ["CUBEON_TRAY_REOPEN"] = "1"
+    try:
+        os.execv(sys.executable, argv)
+    except OSError:
+        # The parent must not keep running after handing off: it may still
+        # own native Flet/GLib state and would race the replacement process.
+        subprocess.Popen(
+            argv,
+            env=os.environ.copy(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+        return True
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
@@ -5137,6 +5169,16 @@ def main(page: ft.Page):
             pass
         if _tray_runtime.get("controller_page") is page:
             _save_geometry_now()
+        # Quit can be clicked while the window is still open.  In that case
+        # os._exit below would skip the normal post-ft.run sweep and leave
+        # Flet's separate desktop client mapped as a ghost window.  Reuse the
+        # same best-effort client reaper used by the session loop before the
+        # hard exit.  The function is defined later in __main__, but callbacks
+        # only run after startup has completed.
+        try:
+            _kill_flet_client()
+        except Exception:
+            pass
         os._exit(0)
 
     _controller = _tray_runtime["controller"]
@@ -5686,13 +5728,7 @@ if __name__ == "__main__":
                     if _ctrl is not None:
                         _ctrl.stop()
                     try:
-                        os.environ["CUBEON_TRAY_REOPEN"] = "1"
-                        if getattr(sys, "frozen", False):
-                            os.execv(sys.executable,
-                                     [sys.executable] + sys.argv[1:])
-                        os.execv(sys.executable,
-                                 [sys.executable, os.path.abspath(__file__)]
-                                 + sys.argv[1:])
+                        _relaunch_fresh_process()
                     except OSError as ex:
                         print(f"cubeon: relaunch via re-exec failed ({ex})")
                     return  # nothing sane left in this process
@@ -5775,18 +5811,12 @@ if __name__ == "__main__":
                         if _ctrl is not None:
                             _ctrl.stop()  # the new image makes its own icon
                         try:
-                            os.environ["CUBEON_TRAY_REOPEN"] = "1"
-                            if getattr(sys, "frozen", False):
-                                os.execv(sys.executable,
-                                         [sys.executable] + sys.argv[1:])
-                            os.execv(sys.executable,
-                                     [sys.executable,
-                                      os.path.abspath(__file__)]
-                                     + sys.argv[1:])
+                            _relaunch_fresh_process()
                         except OSError as ex:
                             print(f"cubeon: mid-session restart via re-exec "
                                   f"failed ({ex}); falling back to the tray")
-                        break  # execv never returns; on failure, park
+                            break  # fallback also failed; park if possible
+                        return  # execv or detached handoff replaced us
 
                 if _session_end_kind == "pre_paint_crash":
                     # UI never painted: client crash. Arm fallback, retry.
@@ -5802,8 +5832,11 @@ if __name__ == "__main__":
                         time.sleep(1.5)  # let the WM/core dump settle
                     else:
                         print("cubeon: client keeps dying before the window "
-                              "shows - giving up")
-                        return  # exit process
+                              "shows - keeping the tray available")
+                        # A live tray icon is still a usable recovery path:
+                        # Open starts a fresh process, so a persistent GPU
+                        # failure does not strand the user with no launcher.
+                        break
 
                 if _session_end_kind == "mid_session_crash":
                     # Mid-session crash budget exhausted: park (or exit)
@@ -5881,15 +5914,7 @@ if __name__ == "__main__":
                 # same pid lineage, same watchdog record - so tell the new
                 # image not to greet the user with an "orphaned session"
                 # prompt about a game that is perfectly well looked after.
-                os.environ["CUBEON_TRAY_REOPEN"] = "1"
-                if getattr(sys, "frozen", False):
-                    # PyInstaller: sys.executable IS the launcher; there is
-                    # no .py to hand it (doing so would make it try to open
-                    # main.py as a data file and exit).
-                    os.execv(sys.executable, [sys.executable] + sys.argv[1:])
-                os.execv(sys.executable,
-                         [sys.executable, os.path.abspath(__file__)]
-                         + sys.argv[1:])
+                _relaunch_fresh_process()
             except OSError as ex:
                 # execv failing is exotic (deleted interpreter, no memory).
                 # Falling through to another ft.run at least tries. Consume

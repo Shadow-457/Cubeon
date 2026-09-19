@@ -17,6 +17,7 @@ Run: python3 tools/test_launch_indicator.py
 import os
 import sys
 import threading
+import time
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -168,6 +169,28 @@ def bars(page):
     return out
 
 
+def _drain_new_threads(before, timeout):
+    """Join every thread that appeared since `before`.
+
+    `threading.enumerate()` also lists threads that are sitting in
+    `threading._limbo` - `start()` has been called but the bootstrap body has
+    not run yet. `join()` on one of those raises
+    RuntimeError("cannot join thread before it is started"), which is what
+    made this suite fail intermittently on slow CI runners: the launch thread
+    had not been scheduled yet when this loop ran. Wait for limbo threads to
+    actually start, then join them for real - the waiting guarantee (all new
+    threads finish before the assertions run) is unchanged.
+    """
+    deadline = time.monotonic() + timeout
+    for t in set(threading.enumerate()) - before:
+        while time.monotonic() < deadline:
+            try:
+                t.join(timeout=max(0.0, deadline - time.monotonic()))
+                break
+            except RuntimeError:
+                time.sleep(0.05)  # still in limbo; it will start
+
+
 def click_play(page):
     """Fill in a username and press the real Play button, then wait out the
     background launch thread."""
@@ -181,11 +204,9 @@ def click_play(page):
     assert btn is not None, "no Play button"
     before = set(threading.enumerate())
     btn.on_click(None)
-    for t in set(threading.enumerate()) - before:
-        t.join(timeout=20)
+    _drain_new_threads(before, 20)
     # The launch thread may itself spawn the watcher; drain briefly.
-    for t in set(threading.enumerate()) - before:
-        t.join(timeout=5)
+    _drain_new_threads(before, 5)
 
 
 # --------------------------------------------------------------------------

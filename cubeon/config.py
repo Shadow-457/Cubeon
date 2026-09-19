@@ -139,7 +139,7 @@ DEFAULT_CONFIG = {
     # The window itself is never intercepted - prevent_close on Flet 0.86
     # makes it unclosable, so background mode works by re-launching the
     # UI session instead of hiding the window.
-    "close_to_tray": False,
+    "close_to_tray": True,
     # Discord Rich Presence - show a "Cubeon" activity on your Discord profile
     # (like TLauncher shows itself as a game). Requires the Discord desktop app
     # running on this machine AND discord_client_id set; see
