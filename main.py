@@ -5118,16 +5118,12 @@ def main(page: ft.Page):
     # All pystray callbacks arrive on pystray's own thread; they only touch
     # plain threading events here, never Flet objects directly.
     def _tray_activate():
-        # A window is already open: do nothing. The old behavior re-exec'd a
-        # brand-new launcher for every click, which killed the live session
-        # (open dialogs, scroll position, in-flight launches feedback) and
-        # repainted a fresh window - the opposite of smooth, and it made
-        # "Open" feel like a coin toss while quitting mid-teardown. The
-        # controller_page slot is set when a session mounts and cleared the
-        # moment its cleanup runs, so this guard is accurate even while a
-        # previous window is mid-teardown (its slot was already cleared).
-        if _tray_runtime.get("controller_page") is not None:
-            return
+        # Do not gate this on controller_page/window.visible.  Flet 0.86 can
+        # leave both objects looking live after the native X button has
+        # already destroyed the window, which caused tray Open to discard the
+        # request forever.  The session loop is the single owner of reopen;
+        # it consumes this event only after ft.run has ended, so recording the
+        # request here cannot start a second UI over a live session.
         ev = _tray_runtime["reopen"]
         if ev is not None:
             # Every click is recorded, whenever it arrives - including while
@@ -5140,6 +5136,19 @@ def main(page: ft.Page):
             _c = _tray_runtime["controller"]
             if _c is not None:
                 _c.set_tooltip("Cubeon - opening...")
+        # On some Flet/Linux combinations the native close leaves ft.run()
+        # blocked, so the parked session loop never gets a chance to consume
+        # the event above.  Hand off immediately in that case.  execv is
+        # process-wide and gives the new interpreter a clean Flet runtime.
+        if _tray_runtime.get("controller_page") is not None:
+            def _handoff():
+                try:
+                    _relaunch_fresh_process()
+                except Exception as ex:
+                    print(f"cubeon: tray Open handoff failed: {ex}",
+                          flush=True)
+            threading.Thread(target=_handoff, daemon=True,
+                             name="cubeon-tray-open").start()
 
     def _tray_quit():
         print("cubeon: quit from tray")

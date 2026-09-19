@@ -93,11 +93,11 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   mechanisms must stay in sync with any change to the claim's lifecycle.
 
 ## Tray/session lifecycle (2026-09-18) — INVARIANT
-- `_tray_runtime["controller_page"]` doubles as the "a window session is
-  live" flag: set when a session mounts, cleared by session-end cleanup.
-  `_tray_activate()` (tray Open) ignores clicks while it is set — do not
-  remove that guard or tray clicks will re-exec the launcher under an open
-  window.
+- `_tray_runtime["controller_page"]` tracks the current session page and is
+  cleared by session-end cleanup. `_tray_activate()` records Open requests
+  unconditionally: Flet 0.86 can leave the page/window looking live after a
+  native close, and the session loop consumes the request only after `ft.run`
+  ends, so gating on that stale page reference made tray Open unusable.
 - Seasonal layer defaults OFF (`seasonal_theme`/`season_pet` are False in
   `cubeon/config.py`); `CUBEON_SEASON=<season>` still pins for tests and
   screenshots.
