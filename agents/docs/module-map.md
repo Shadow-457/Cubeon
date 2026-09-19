@@ -1,8 +1,8 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-19 (wedged-client watchdog: the launcher can recover from
-a flet client that renders no frames; see the INVARIANT below). If a fact here
-contradicts the code, the
+Last updated: 2026-09-20 (the site is three pages now — landing / download / docs
+sharing web/assets/site.css + site.js; the waitlist is gone and the repo is
+private, see the web bullet further down). If a fact here contradicts the code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
 
 ## Wedged flet client / open-quit truth (2026-09-19) — INVARIANT
@@ -927,8 +927,34 @@ Still-true invariants from the pre-local era:
 - Deploy commands: `cd worker && npx wrangler deploy -c wrangler-<name>.toml`
   — configs now exist for friends, waitlist, AND skins (skins previously
   had no repo config; its KV id is in wrangler-skins.toml).
-- `web/index.html` waitlist site is complete and pointed at the live
-  worker; it needs the public repo/release funnel before promotion.
+- The site is THREE pages sharing `web/assets/site.css` + `web/assets/site.js` (split
+  2026-09-20, still no build step): `index.html` = landing (story), `download.html`
+  = the files, `docs.html` = the manual. Pages cross-link by relative href
+  (`index.html`, `download.html`, `docs.html`, `download.html#files`, `docs.html#faq`)
+  and mark the current page with `aria-current="page"`. `site.js` is shared
+  verbatim: every block bails out when the page lacks its elements (the sky
+  canvas + roster only exist on the landing page).
+- Every SITE download is a plain anchor to `../dist/<file>` — Windows installer /
+  portable exe / ZIP, Linux AppImage / .deb / setup script — so it works served
+  from the repo root (`python3 -m http.server 8000`, then `/web/`) or opened
+  straight from disk. `download.html#files` holds the real file names and the real
+  byte sizes; re-check them after any rebuild. `dist/` is gitignored, so a public
+  deploy must repoint those hrefs at release assets.
+- **The GitHub repo is PRIVATE** (anonymous `github.com/Shadow-457/Cubeon` → 404),
+  so the release page and any repo/blob links would be dead for visitors. That is
+  why the macOS card is a "not public yet" card (no link) and `docs.html#repo`
+  lists file paths as text instead of links. Re-check this before promoting the
+  site; if the repo goes public, flip the macOS card and the repo list back to
+  links.
+- The waitlist form + "In line" counter are gone from the site (the
+  `worker/cubeon-waitlist.js` Worker still deploys but has no caller). JS only
+  stars the button/card matching the visitor's OS with `.rec` — with scripting
+  off both pages are still fully usable. Class names that came with the rename:
+  `#oven` → `#release`, `.oven*`/`.trays`/`.tray*` → `.board*`/`.tiles`/`.tile*`,
+  and `.wl*`/`.countline`/`.countbar` → `.dl-hero*`/`.dl-note`/`.dl-*`.
+- `@font-face` in `site.css` must stay `url('fonts/Minecraftia-Regular.ttf')` —
+  CSS-relative, NOT `assets/fonts/...` (that path 404s now that the font is
+  reached through the stylesheet instead of the page).
 
 ## Follow-up 18: live UI inspector (2026-09-05)
 
@@ -1559,7 +1585,7 @@ Still-true invariants from the pre-local era:
 - Deploy note: relay fixes require `cd worker && npx wrangler deploy -c
   wrangler-friends.toml` (plus -skins/-waitlist as touched) to go live.
 
-- `web/index.html` landing page is a single self-contained file (no build, inline CSS/JS). `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
+- `web/` is three pages sharing `web/assets/site.css` + `web/assets/site.js` (no build step): `index.html` (landing), `download.html` (the binaries, `../dist/<file>` hrefs — see the web bullet above), `docs.html` (the manual). `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face lives in `site.css`, so its url is `fonts/...` — page-relative paths 404 there; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
 
 - `ui/skin_tab.py` (Profile > Skin/Cape panes) has NO browse/gallery area anymore (removed 2026-09-14): each pane is preview + installed card grid + upload CTA. `cubeon/gallery.py` survives only as core bookkeeping (`forget_file` in delete flows) + its tests; do not re-add library browsing without asking.
 

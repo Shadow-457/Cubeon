@@ -1,0 +1,266 @@
+/* ============================================================================
+   Cubeon site - one stylesheet for every page.
+
+   Neo-brutalist / "blocky" system: flat color blocks (no gradients or blur),
+   zero corner radius, hard offset shadows with no blur, thick structural
+   borders, and instant/mechanical motion instead of soft easing. The hero
+   is a literal grass-block colour split (green over dirt), the nav reads
+   like a Minecraft hotbar, and depth comes from one method only - the hard
+   shadow - used everywhere instead of mixing shadow/blur/glow systems.
+   Minecraftia + Inter are self-hosted here (see licenses.html), so a
+   visit to this site makes no third-party request at all and sets no
+   cookies.
+   ========================================================================== */
+:root{
+  /* Palette = the launcher's (cubeon/theme.py): true black + green. */
+  --paper:#050505; --card:#0B0D0A;
+  --ink:#DDF6D5; --text:#DDF6D5; --text-soft:#9DB394;
+  --grass:#46BA34; --grass-dark:#5FD24B; --grass-soft:#052400; --grass-line:#39422F;
+  --dirt:#7A4A24; --dirt-dark:#3A2410; --dirt-soft:#1C1209;
+  --gold:#E6B23C; --gold-soft:#241B04;
+  --line:#242B1E; --line-soft:#131711;
+  --r:0; --r-sm:0; --pill:0; /* brutalism: zero radius everywhere, on purpose */
+  --shadow:6px 6px 0 var(--line);
+  --shadow-sm:4px 4px 0 var(--line);
+  --wrap:1080px;
+  --ease:linear; /* brutalism: mechanical, not eased */
+  --hint:#68755F;
+  --navbg:#050505; /* solid - no blur/translucency, that's a glass technique */
+  --note-bg:#0A1A1E; --note-line:#274F58;
+  --tip-bg:#241B04; --tip-line:#5C4718;
+  --btn-line:#04120A;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:17px;line-height:1.65;background:var(--paper);color:var(--text);-webkit-font-smoothing:antialiased}
+@font-face{font-family:'Minecraftia';font-style:normal;font-weight:400 700;font-display:swap;src:url('fonts/Minecraftia-Regular.ttf') format('truetype')}
+@font-face{font-family:'Inter';font-style:normal;font-weight:100 900;font-display:swap;src:url('fonts/Inter.ttf') format('truetype')}
+img,svg{display:block;max-width:100%}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer}
+h1,h2,h3,.brand,.btn{font-family:'Minecraftia','Inter',system-ui,sans-serif;font-weight:600;line-height:1.15;color:var(--ink);letter-spacing:.005em;text-transform:uppercase}
+h1{font-size:clamp(34px,5vw,58px);letter-spacing:-.005em}
+h2{font-size:clamp(26px,3.4vw,40px)}
+h3{font-size:21px}
+p{color:var(--text);text-transform:none}
+.wrap{max-width:var(--wrap);margin-inline:auto;padding-inline:24px}
+.lede{font-size:clamp(17px,1.7vw,20px);color:var(--text-soft);font-weight:600;max-width:60ch;text-transform:none}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.skip{position:absolute;left:-9999px;top:8px;z-index:200;background:var(--grass);color:#04120A;border:2px solid var(--btn-line);border-radius:var(--pill);font-weight:700;padding:12px 18px;text-transform:uppercase}
+.skip:focus{left:18px}
+:target,section[id],div[id],h2[id],h3[id]{scroll-margin-top:96px}
+main{display:block}
+
+/* ---- buttons: flat block + hard shadow, pressed-in on interaction ---- */
+.btn{display:inline-flex;align-items:center;gap:10px;background:var(--grass);color:#04120A;border:3px solid var(--btn-line);border-radius:var(--pill);font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:16px;letter-spacing:.02em;padding:15px 26px;box-shadow:5px 5px 0 var(--btn-line);transition:transform 90ms linear,box-shadow 90ms linear,background 90ms linear}
+.btn:hover{background:#5FD24B}
+.btn:hover,.btn:focus-visible{transform:translate(2px,2px);box-shadow:3px 3px 0 var(--btn-line)}
+.btn:active{transform:translate(5px,5px);box-shadow:0 0 0 var(--btn-line)}
+.btn.big{font-size:18px;padding:18px 32px}
+.btn.quiet{background:var(--card);color:var(--ink);border-color:var(--line)}
+.btn.quiet:hover{background:var(--grass-soft)}
+.btn.link{background:none;border:none;box-shadow:none!important;padding:6px 2px;color:var(--grass-dark);text-decoration:underline;text-underline-offset:3px;text-transform:none}
+.btn.link:hover{transform:none!important;color:var(--ink)}
+.btn small{font-family:'Inter';font-weight:700;color:#052400;text-transform:none}
+
+/* ---- nav: solid bar, links styled like hotbar slots ---- */
+.navbar{position:sticky;top:0;z-index:60;background:var(--navbg);border-bottom:4px solid var(--grass)}
+.navbar .wrap{display:flex;align-items:center;gap:20px;height:74px}
+.brand{display:flex;align-items:center;gap:10px;font-size:21px;color:var(--ink)}
+.mark{width:32px;height:32px}
+.nav-links{display:flex;align-items:center;gap:8px;margin-left:auto}
+.nav-links a{font-weight:700;font-size:14.5px;letter-spacing:.02em;text-transform:uppercase;color:var(--text);padding:9px 14px;border:2px solid transparent;border-radius:var(--pill);transition:border-color 80ms linear,background 80ms linear,color 80ms linear}
+.nav-links a:hover{background:var(--grass-soft);border-color:var(--grass-line);color:var(--ink)}
+.nav-links a[aria-current="page"]{background:var(--grass-soft);border-color:var(--grass);color:var(--ink)}
+.nav-cta{background:var(--grass)!important;color:#04120A!important;border:2px solid var(--btn-line)!important;font-family:'Minecraftia';font-weight:600;box-shadow:4px 4px 0 var(--btn-line);transition:transform 90ms linear,box-shadow 90ms linear}
+.nav-cta:hover{background:#5FD24B!important;transform:translate(2px,2px);box-shadow:2px 2px 0 var(--btn-line)}
+.nav-toggle{display:none;margin-left:auto;background:var(--card);border:2px solid var(--line);border-radius:var(--r-sm);font-size:20px;line-height:1;padding:9px 13px;color:var(--ink)}
+@media(max-width:880px){
+  .nav-toggle{display:block}
+  .nav-links{position:absolute;top:74px;left:0;right:0;margin:0;background:var(--paper);border-bottom:4px solid var(--grass);flex-direction:column;align-items:stretch;gap:6px;padding:14px 24px 20px;display:none}
+  .nav-links.open{display:flex}
+  .nav-links a{padding:14px 12px}
+  .nav-cta{text-align:center;justify-content:center;display:flex}
+}
+
+/* ---- hero: literal grass-block colour split, no gradient blur ---- */
+.hero{background:linear-gradient(180deg,var(--grass-soft) 0%,var(--grass-soft) 62%,var(--dirt-dark) 62%,var(--dirt-dark) 100%);border-bottom:4px solid var(--dirt);padding:clamp(46px,7vw,86px) 0 clamp(40px,6vw,72px)}
+.hero-in{display:grid;grid-template-columns:1.05fr .95fr;gap:52px;align-items:center}
+.hero h1{max-width:20ch}
+.hero .lede{margin-top:20px}
+.hero-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:30px}
+.hero-note{margin-top:16px;font-weight:700;font-size:14.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.02em}
+.shot{background:var(--card);border:3px solid var(--ink);border-radius:var(--r);box-shadow:8px 8px 0 var(--grass);overflow:hidden}
+.shot img{width:100%;height:auto}
+@media(max-width:880px){.hero-in{grid-template-columns:1fr;gap:34px}.hero h1{max-width:none}}
+
+/* ---- quick facts strip ---- */
+.strip{background:var(--grass-soft);border-block:4px solid var(--grass-line);padding:26px 0}
+.strip-in{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.fact{display:flex;gap:12px;align-items:flex-start}
+.fact .dot{flex:none;width:36px;height:36px;border-radius:var(--pill);border:2px solid var(--btn-line);background:var(--grass);display:grid;place-items:center;font-size:16px}
+.fact b{display:block;font-family:'Minecraftia';font-weight:600;font-size:16px;color:var(--ink);text-transform:uppercase;letter-spacing:.01em}
+.fact span{font-size:15px;color:var(--text-soft);font-weight:600;text-transform:none}
+@media(max-width:780px){.strip-in{grid-template-columns:1fr;gap:14px}}
+
+/* ---- sections ---- */
+.section{padding:clamp(56px,7vw,96px) 0}
+.section.tint{background:var(--dirt-soft);border-block:4px solid var(--dirt)}
+.sec-head{max-width:680px;margin-inline:auto;text-align:center}
+.eyebrow{display:inline-block;background:var(--card);border:2px solid var(--line);border-radius:var(--pill);font-weight:800;font-size:13px;letter-spacing:.04em;color:var(--grass-dark);padding:7px 14px;margin-bottom:16px;text-transform:uppercase}
+.sec-head p{margin-top:14px}
+
+/* ---- feature cards ---- */
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;margin-top:44px}
+.card{background:var(--card);border:2px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:26px;transition:border-color 90ms linear}
+.card:hover{border-color:var(--grass)}
+.card .ico{width:52px;height:52px;border-radius:var(--pill);border:2px solid var(--grass-line);background:var(--grass-soft);color:var(--grass-dark);display:grid;place-items:center;margin-bottom:16px}
+.card .ico svg{width:26px;height:26px}.card .ico svg path,.card .ico svg rect{fill:currentColor}
+.card h3{margin-bottom:8px}
+.card p{color:var(--text-soft);font-size:16px}
+.tag{display:inline-block;margin-top:16px;background:var(--gold-soft);border:2px solid var(--tip-line);border-radius:var(--pill);font-weight:800;font-size:13px;letter-spacing:.03em;color:var(--gold);padding:6px 12px;text-transform:uppercase}
+@media(max-width:820px){.cards{grid-template-columns:1fr}}
+
+/* ---- steps ---- */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:44px}
+.step{background:var(--card);border:2px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:26px}
+.step .num{width:44px;height:44px;border-radius:var(--pill);border:2px solid var(--btn-line);background:var(--grass);color:#04120A;font-family:'Minecraftia';font-weight:700;font-size:20px;display:grid;place-items:center;margin-bottom:14px}
+.step h3{margin-bottom:8px}
+.step p{color:var(--text-soft);font-size:16px}
+@media(max-width:820px){.steps{grid-template-columns:1fr}}
+
+/* ---- download cards ---- */
+.dl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;margin-top:40px}
+.dl-card{background:var(--card);border:2px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:26px;display:flex;flex-direction:column;gap:12px;position:relative}
+.dl-card.rec{border-color:var(--grass);box-shadow:6px 6px 0 var(--grass)}
+.dl-head{display:flex;align-items:center;gap:14px}
+.dl-head .who{width:46px;height:46px;border-radius:var(--pill);border:2px solid var(--line);background:var(--dirt-soft);display:grid;place-items:center;font-family:'Minecraftia';font-weight:700;font-size:14px;color:var(--ink)}
+.dl-card h3{font-size:22px}
+.dl-sub{display:block;font-size:14px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:.02em}
+.dl-card p{color:var(--text-soft);font-size:15.5px;text-transform:none}
+.dl-card .btn{margin-top:auto;justify-content:center}
+.dl-alt{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14.5px;color:var(--grass-dark);padding:4px 2px;text-transform:none}
+.dl-alt:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.dl-badge{position:absolute;top:-14px;left:26px;display:none;background:var(--grass);color:#04120A;border:2px solid var(--btn-line);border-radius:var(--pill);font-family:'Minecraftia';font-weight:600;font-size:12.5px;padding:6px 13px;text-transform:uppercase}
+.dl-card.rec .dl-badge{display:inline-block}
+.dl-card.soon{background:var(--paper)}
+.dl-card.soon .btn{background:var(--paper);color:var(--text-soft);border-color:var(--line);box-shadow:none;cursor:not-allowed}
+.dl-card.soon .btn:hover{transform:none;background:var(--paper)}
+@media(max-width:820px){.dl-grid{grid-template-columns:1fr}}
+
+/* ---- notes ---- */
+.note{background:var(--note-bg);border:2px solid var(--note-line);border-radius:var(--r-sm);padding:18px 20px;margin:18px 0;max-width:78ch}
+.note.tip{background:var(--tip-bg);border-color:var(--tip-line)}
+.note b{display:block;font-family:'Minecraftia';font-weight:600;color:var(--ink);margin-bottom:4px;text-transform:uppercase;font-size:14.5px;letter-spacing:.01em}
+.note p{color:var(--text-soft);font-size:15.5px}
+.note p+p{margin-top:8px}
+
+/* ---- FAQ ---- */
+.faq{max-width:820px;margin:36px auto 0;display:grid;gap:12px}
+.q{background:var(--card);border:2px solid var(--line);border-radius:var(--r-sm);overflow:hidden;transition:border-color 90ms linear}
+.q.open{border-color:var(--grass)}
+.q-a{width:100%;background:none;border:none;display:flex;align-items:center;gap:12px;text-align:left;font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:17px;color:var(--ink);padding:20px 22px;text-transform:none}
+.q-a:hover{background:var(--grass-soft)}
+.q-a .plus{margin-left:auto;flex:none;font-family:'Minecraftia';font-size:22px;color:var(--grass-dark);transition:transform 90ms linear}
+.q.open .plus{transform:rotate(45deg)}
+.q-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows 140ms linear}
+.q.open .q-body{grid-template-rows:1fr}
+.q-body>div{overflow:hidden}
+.q-body p{padding:0 22px 20px;color:var(--text-soft);font-size:16px}
+
+/* ---- closing CTA ---- */
+.cta{background:var(--grass-soft);border-block:4px solid var(--grass-line);padding:clamp(52px,6vw,80px) 0;text-align:center}
+.cta h2{max-width:24ch;margin-inline:auto}
+.cta .lede{margin:16px auto 0}
+.cta .hero-actions{justify-content:center;margin-top:28px}
+
+/* ---- footer ---- */
+footer{background:#050505;border-top:4px solid var(--grass);color:#9DB394;padding:52px 0 40px}
+.foot{display:grid;grid-template-columns:1.2fr 1fr 1.2fr;gap:32px}
+.foot .brand{color:var(--ink);font-size:20px;margin-bottom:10px}
+.foot p{color:#9DB394;font-size:15px;text-transform:none}
+.foot h4{font-family:'Minecraftia';font-weight:600;font-size:15px;color:var(--ink);margin-bottom:12px;text-transform:uppercase;letter-spacing:.03em}
+.foot-links,.foot-legal{display:grid;gap:9px}
+.foot-links a,.foot-legal a{color:#DDF6D5;font-weight:700;font-size:14.5px}
+.foot-links a:hover,.foot-legal a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.foot-meta{grid-column:1/-1;border-top:2px solid #242B1E;padding-top:20px;font-size:13px;color:#9DB394;display:grid;gap:8px;text-transform:none}
+.foot-meta a{color:#9DB394;text-decoration:underline;text-underline-offset:3px}
+@media(max-width:880px){.foot{grid-template-columns:1fr;gap:26px}}
+
+/* ---- prose (help + legal pages) ---- */
+.page-head{background:var(--dirt-soft);border-bottom:4px solid var(--dirt);padding:clamp(36px,5vw,58px) 0}
+.page-head .lede{margin-top:14px}
+.crumbs{font-weight:800;font-size:13px;letter-spacing:.03em;color:var(--hint);margin-bottom:14px;text-transform:uppercase}
+.crumbs a{text-decoration:underline;text-underline-offset:3px}
+.prose{max-width:74ch;margin-inline:auto;padding:clamp(40px,5vw,72px) 0}
+.prose h2{font-size:clamp(24px,3vw,32px);margin:40px 0 10px}
+.prose h2:first-child{margin-top:0}
+.prose h3{margin:26px 0 8px;text-transform:none}
+.prose p{color:var(--text-soft);margin-bottom:14px}
+.prose ul,.prose ol{margin:0 0 16px 22px}
+.prose li{color:var(--text-soft);margin-bottom:8px}
+.prose li::marker{color:var(--grass-dark)}
+.prose a{color:var(--grass-dark);text-decoration:underline;text-underline-offset:3px}
+.prose a:hover{color:var(--ink)}
+.prose strong{color:var(--ink)}
+.prose .note{margin:22px 0}
+.updated{font-size:13px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.02em}
+.help-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;margin-top:40px}
+@media(max-width:820px){.help-grid{grid-template-columns:1fr}}
+
+/* ---- fun terms-acceptance checklist (terms.html) ---- */
+.accept-card{margin-top:44px;background:var(--card);border:3px solid var(--grass-line);border-radius:var(--r);box-shadow:var(--shadow);padding:30px clamp(22px,4vw,36px);text-align:center}
+.accept-eyebrow{display:inline-block;background:var(--grass-soft);border:2px solid var(--grass-line);border-radius:var(--pill);font-weight:800;font-size:12.5px;letter-spacing:.03em;color:var(--grass-dark);padding:6px 13px;margin-bottom:14px;text-transform:uppercase}
+.accept-title{margin:0 0 8px}
+.accept-lede{color:var(--text-soft);margin-bottom:22px}
+.accept-list{list-style:none;margin:0 auto 26px;display:grid;gap:10px;max-width:52ch;text-align:left}
+.accept-list li{margin:0}
+.accept-list label{display:flex;align-items:flex-start;gap:12px;background:var(--paper);border:2px solid var(--line);border-radius:var(--r-sm);padding:13px 16px;cursor:pointer;transition:border-color 80ms linear,background 80ms linear}
+.accept-list label:hover{border-color:var(--grass-line)}
+.accept-box{margin-top:3px;width:19px;height:19px;flex:none;accent-color:var(--grass)}
+.accept-list span{color:var(--text);font-weight:600;font-size:15.5px;text-transform:none}
+.accept-list li:has(.accept-box:checked) label{background:var(--grass-soft);border-color:var(--grass)}
+.accept-btn{position:relative;overflow:visible;transition:opacity 80ms linear,filter 80ms linear,transform 90ms linear,box-shadow 90ms linear}
+.accept-hint{margin-top:14px;font-size:13.5px;font-weight:700;color:var(--text-soft);text-transform:uppercase;letter-spacing:.02em}
+html.js .accept-btn{opacity:.5;filter:grayscale(.6)}
+html.js .accept-card.all-checked .accept-btn{opacity:1;filter:none}
+html.js .accept-card.all-checked .accept-hint{color:var(--grass-dark)}
+html.js .accept-card.wiggle .accept-list{animation:accept-wiggle 220ms steps(4,end)}
+@keyframes accept-wiggle{0%{transform:translateX(0)}25%{transform:translateX(-5px)}50%{transform:translateX(5px)}75%{transform:translateX(-5px)}100%{transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){
+  html.js .accept-card.wiggle .accept-list{animation:none}
+}
+
+/* ---- consent banner: only rendered when something actually needs consent
+   (see site.js). This site sets no cookies, so normally nothing appears. ---- */
+.consent{position:fixed;left:0;right:0;bottom:0;z-index:150;background:var(--card);border-top:4px solid var(--grass);padding:18px 0}
+.consent .wrap{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+.consent .txt{flex:1 1 420px;max-width:70ch}
+.consent b{display:block;font-family:'Minecraftia';font-weight:600;font-size:16px;color:var(--ink);margin-bottom:6px;text-transform:uppercase}
+.consent p{color:var(--text-soft);font-size:15px;text-transform:none}
+.consent .acts{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+
+/* ---- small persistent "no cookies" badge, bottom-right (see site.js) ---- */
+.cookie-note{position:fixed;right:18px;bottom:18px;z-index:140;max-width:250px;background:var(--card);border:2px solid var(--grass);box-shadow:5px 5px 0 var(--grass-line);padding:12px 34px 12px 14px}
+.cookie-note p{margin:0;font-size:12.5px;font-weight:700;color:var(--text);line-height:1.5;text-transform:none}
+.cookie-note a{color:var(--grass-dark);text-decoration:underline;text-underline-offset:2px;font-weight:800}
+.cookie-note a:hover{color:var(--ink)}
+.cookie-note button{position:absolute;top:8px;right:8px;width:20px;height:20px;line-height:18px;text-align:center;background:none;border:2px solid var(--line);color:var(--text-soft);font-size:13px;padding:0}
+.cookie-note button:hover{border-color:var(--grass);color:var(--ink)}
+@media(max-width:520px){.cookie-note{left:14px;right:14px;bottom:14px;max-width:none}}
+
+/* ---- focus rings; no scroll-reveal choreography - brutalism shows up
+   instantly, it doesn't fade in politely ---- */
+a:focus-visible,button:focus-visible,[tabindex]:focus-visible,input:focus-visible{outline:3px solid var(--grass-dark);outline-offset:3px;border-radius:0}
+footer a:focus-visible,.navbar a:focus-visible{outline-color:var(--gold)}
+html.js .rise{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+
+/* ---- "not sure which one?" list on the download page ---- */
+.pick{list-style:none;display:grid;gap:9px;margin:4px 0 0}
+.pick li{color:var(--text-soft);font-size:15.5px;text-transform:none}
+.pick b{color:var(--ink)}
+.fact .dot{color:#04120A}.fact .dot svg{width:20px;height:20px}.fact .dot svg path,.fact .dot svg circle,.fact .dot svg rect{fill:currentColor}

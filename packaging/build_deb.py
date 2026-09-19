@@ -37,18 +37,32 @@ def _tar_bytes(files: dict[str, bytes], directories: list[str] = ()) -> bytes:
     return out.getvalue()
 
 
-def _add_ar_member(out: io.BytesIO, name: str, content: bytes) -> None:
+def _ar_header(name: str, size: int) -> bytes:
     if len(name) > 15:
         raise ValueError(f"ar member name too long: {name}")
     header = (
         f"{name + '/':-<16}"
-        f"{0:<12}{0:<6}{0:<6}{'100644':<8}{len(content):<10}`\n"
+        f"{0:<12}{0:<6}{0:<6}{'100644':<8}{size:<10}`\n"
     ).encode("ascii")
     if len(header) != 60:
         raise AssertionError(len(header))
+    return header
+
+
+def _add_ar_member(out: io.BytesIO, name: str, content: bytes) -> None:
+    header = _ar_header(name, len(content))
     out.write(header)
     out.write(content)
     if len(content) % 2:
+        out.write(b"\n")
+
+
+def _add_ar_file(out: io.BytesIO, name: str, path: Path) -> None:
+    size = path.stat().st_size
+    out.write(_ar_header(name, size))
+    with path.open("rb") as source:
+        shutil.copyfileobj(source, out, length=1024 * 1024)
+    if size % 2:
         out.write(b"\n")
 
 
@@ -93,17 +107,15 @@ def main() -> None:
         data_root = root / "data"
         data_root.mkdir()
         _copy_appdir(data_root)
-        data_files: dict[str, bytes] = {}
-        for path in data_root.rglob("*"):
-            if path.is_file():
-                data_files[str(path.relative_to(data_root))] = path.read_bytes()
-        data_tar = _tar_bytes(data_files)
-    control_tar = _tar_bytes({"control": control, "postinst": postinst, "prerm": prerm})
-    out = io.BytesIO(b"!<arch>\n")
-    _add_ar_member(out, "debian-binary", b"2.0\n")
-    _add_ar_member(out, "control.tar.gz", control_tar)
-    _add_ar_member(out, "data.tar.gz", data_tar)
-    OUTPUT.write_bytes(out.getvalue())
+        data_tar_path = root / "data.tar.gz"
+        with tarfile.open(data_tar_path, mode="w:gz", compresslevel=6) as archive:
+            archive.add(data_root, arcname=".")
+        control_tar = _tar_bytes({"control": control, "postinst": postinst, "prerm": prerm})
+        out = io.BytesIO(b"!<arch>\n")
+        _add_ar_member(out, "debian-binary", b"2.0\n")
+        _add_ar_member(out, "control.tar.gz", control_tar)
+        _add_ar_file(out, "data.tar.gz", data_tar_path)
+        OUTPUT.write_bytes(out.getvalue())
     print(f"Built {OUTPUT} ({OUTPUT.stat().st_size // (1024 * 1024)} MB)")
 
 
