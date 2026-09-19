@@ -2,6 +2,7 @@ package com.cubeon.client;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -15,6 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -60,6 +62,11 @@ public final class Bridge {
      * Every ordinary POST answers in microseconds; the slack costs nothing.
      */
     private static final Duration ACTION_TIMEOUT = Duration.ofSeconds(30);
+
+    /** Keep a malformed local response from becoming an unbounded JSON parse. */
+    private static final int MAX_RESPONSE_CHARS = 1_000_000;
+    /** The launcher currently writes a short URL-safe token; cap corrupt files. */
+    private static final int MAX_TOKEN_CHARS = 256;
 
 
     private static final Path TOKEN_FILE = Path.of(
@@ -423,7 +430,8 @@ public final class Bridge {
      * the overlay sink, which needs a live player and is invisible from a menu -
      * exactly when this screen is up.
      */
-    private volatile Consumer<Toast> screenToastSink;
+    private final AtomicReference<Consumer<Toast>> screenToastSink =
+            new AtomicReference<>();
 
     private boolean wakeRequested;
 
@@ -459,14 +467,17 @@ public final class Bridge {
     private volatile List<CubeonPlayer> players = List.of();
     private final AtomicLong syncRevision = new AtomicLong();
 
-    // Touched by the poll thread only.
-    private String baseUrl;
-    private String token;
-    private long tokenStamp = -1;
+    // Poll state is single-threaded; token fields are volatile because POST
+    // actions may invalidate credentials from their worker threads.
+    private volatile String baseUrl;
+    private volatile String token;
+    private volatile long tokenStamp = -1;
+    private volatile long tokenSize = -1;
     private int downStreak;
     private long eventCursor = -1;   // -1 asks the launcher to skip the backlog
     private String ownStamp;         // lazily fingerprinted jar hash, "" unknown
     private boolean staleWarned;     // the "restart Minecraft" notice fired once
+    private int statusMisses;
 
     private Bridge() {
     }
@@ -630,35 +641,73 @@ public final class Bridge {
     }
 
     /**
+     * Closes a Sync stream only when it still belongs to the supplied friend.
+     * Screen teardown can race with construction of the next screen; an old
+     * screen must not close the new screen's report.
+     */
+    public void clearSyncFriend(String expectedFriend) {
+        String expected = expectedFriend == null ? "" : expectedFriend;
+        synchronized (syncLock) {
+            if (!expected.equals(syncFriend)) {
+                return;
+            }
+            syncFriend = "";
+            publishSyncLocked(SyncReport.NONE);
+            wake();
+        }
+    }
+
+    /**
      * While a {@link CubeonClientScreen} is open it takes notice delivery, so
      * an error reaches the player from a menu too. Call with null on close.
      */
     public void setScreenToastSink(Consumer<Toast> sink) {
-        this.screenToastSink = sink;
+        this.screenToastSink.set(sink);
+    }
+
+    /**
+     * Clears a screen callback only if it is still the callback supplied by the
+     * caller. This matters when Minecraft closes one screen after constructing
+     * the next one: an old screen must not silence the new screen's notices.
+     */
+    public void clearScreenToastSink(Consumer<Toast> sink) {
+        screenToastSink.compareAndSet(sink, null);
     }
 
     private void pollLoop() {
-        while (true) {
-            try {
-                refresh();
-            } catch (Throwable ex) {
-                // A poll must never kill this thread: a dead poller leaves the
-                // screen frozen on its last snapshot with no way to recover.
-                publish(down("Cubeon bridge error: " + ex));
-            }
-            long wait = current.launcherUp()
-                    ? (viewers.get() > 0 ? ACTIVE_POLL_MS : IDLE_POLL_MS)
-                    : DOWN_BACKOFF_MS[Math.min(downStreak, DOWN_BACKOFF_MS.length - 1)];
-            synchronized (wakeLock) {
-                if (!wakeRequested) {
-                    try {
-                        wakeLock.wait(wait);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
+        try {
+            while (true) {
+                try {
+                    refresh();
+                } catch (RuntimeException ex) {
+                    // A malformed response or callback must not kill this
+                    // thread: a dead poller leaves the screen frozen on its
+                    // last snapshot with no way to recover. VM errors and
+                    // thread termination are deliberately not swallowed.
+                    publish(down("Cubeon bridge error: " + ex));
                 }
-                wakeRequested = false;
+                long wait = current.launcherUp()
+                        ? (viewers.get() > 0 ? ACTIVE_POLL_MS : IDLE_POLL_MS)
+                        : DOWN_BACKOFF_MS[Math.min(downStreak, DOWN_BACKOFF_MS.length - 1)];
+                synchronized (wakeLock) {
+                    if (!wakeRequested) {
+                        try {
+                            wakeLock.wait(wait);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                    }
+                    wakeRequested = false;
+                }
+            }
+        } finally {
+            // If the thread is interrupted or an unrecoverable error reaches
+            // here, a later screen is still allowed to start a fresh poller.
+            synchronized (this) {
+                if (poller == Thread.currentThread()) {
+                    poller = null;
+                }
             }
         }
     }
@@ -672,13 +721,23 @@ public final class Bridge {
         if (friendsBody == null) {
             // The token file exists but nobody answered: it is stale, left by a
             // launcher that has since quit. Force a re-read next time round.
-            tokenStamp = -1;
+            invalidateToken();
             publish(down("Cubeon launcher isn't running."));
             return;
         }
         String statusBody = get("/status");
         downStreak = 0;
-        Snapshot snap = parseSnapshot(friendsBody, statusBody);
+        if (statusBody == null) {
+            statusMisses = Math.min(statusMisses + 1, 3);
+        } else {
+            statusMisses = 0;
+        }
+        // /friends is the liveness check. A temporary /status timeout must not
+        // make an active world session disappear from the UI; after a few
+        // misses, clear it so an actually-dead endpoint cannot stay stale forever.
+        Session fallback = statusBody == null && statusMisses < 3
+                ? current.session() : Session.NONE;
+        Snapshot snap = parseSnapshot(friendsBody, statusBody, fallback);
         publish(snap);
         checkModFreshness(snap);
         drainEvents();
@@ -707,7 +766,8 @@ public final class Bridge {
             return;
         }
         staleWarned = true;
-        Consumer<Toast> sink = screenToastSink != null ? screenToastSink : toastSink;
+        Consumer<Toast> screenSink = screenToastSink.get();
+        Consumer<Toast> sink = screenSink != null ? screenSink : toastSink;
         if (sink != null) {
             sink.accept(new Toast(-2,
                     "Cubeon was updated - restart Minecraft to get the "
@@ -775,6 +835,11 @@ public final class Bridge {
      * notifications" rather than "everything looks offline".
      */
     static Snapshot parseSnapshot(String friendsBody, String statusBody) {
+        return parseSnapshot(friendsBody, statusBody, Session.NONE);
+    }
+
+    private static Snapshot parseSnapshot(String friendsBody, String statusBody,
+                                          Session statusFallback) {
         Map<String, Object> root = Json.parseObject(friendsBody);
         List<Friend> friends = new ArrayList<>();
         for (Object item : Json.list(root, "friends")) {
@@ -814,7 +879,7 @@ public final class Bridge {
                 List.copyOf(friends),
                 Json.strings(root, "requests_in"),
                 Json.strings(root, "requests_out"),
-                parseSession(statusBody),
+                statusBody == null ? statusFallback : parseSession(statusBody),
                 "",
                 // Empty from an older launcher - the freshness check is
                 // simply skipped, exactly as before this field existed.
@@ -860,9 +925,13 @@ public final class Bridge {
     /** Reads an /events body; returns the new cursor via {@code cursorOut[0]}. */
     static List<Toast> parseEvents(String body, long[] cursorOut) {
         Map<String, Object> root = Json.parseObject(body);
-        double cursor = Json.num(root, "cursor");
-        if (!Double.isNaN(cursor)) {
-            cursorOut[0] = (long) cursor;
+        long cursor = sequence(root, "cursor");
+        // A smaller but valid cursor means the launcher restarted and its
+        // in-memory event sequence reset. Accept it so notifications recover
+        // instead of permanently asking the new process for events after an
+        // ID it can never produce.
+        if (cursor >= 0 && cursorOut != null && cursorOut.length > 0) {
+            cursorOut[0] = cursor;
         }
         List<Toast> out = new ArrayList<>();
         for (Object item : Json.list(root, "events")) {
@@ -870,8 +939,8 @@ public final class Bridge {
             if (text.isEmpty()) {
                 continue;
             }
-            double seq = Json.num(item, "seq");
-            out.add(new Toast(Double.isNaN(seq) ? 0L : (long) seq, text,
+            long seq = sequence(item, "seq");
+            out.add(new Toast(seq < 0 ? 0L : seq, text,
                     Json.bool(item, "error", false)));
         }
         return out;
@@ -912,7 +981,7 @@ public final class Bridge {
     }
 
     private void drainEvents() {
-        String body = get("/events?since=" + eventCursor);
+        String body = get("/events?since=" + Math.max(-1, eventCursor));
         if (body == null) {
             return;   // an older launcher has no /events - not an error
         }
@@ -921,7 +990,8 @@ public final class Bridge {
         eventCursor = cursorOut[0];
         // A notice while the Friends screen is open goes to its status line;
         // the overlay sink needs a live player and is invisible from a menu.
-        Consumer<Toast> sink = screenToastSink != null ? screenToastSink : toastSink;
+        Consumer<Toast> screenSink = screenToastSink.get();
+        Consumer<Toast> sink = screenSink != null ? screenSink : toastSink;
         if (sink == null) {
             return;
         }
@@ -946,7 +1016,7 @@ public final class Bridge {
         if (friend == null || friend.isEmpty()) {
             return;
         }
-        String body = get("/chat?friend=" + friend + "&after=" + cursor);
+        String body = get("/chat?friend=" + queryValue(friend) + "&after=" + Math.max(-1, cursor));
         if (body == null) {
             return;
         }
@@ -1006,23 +1076,32 @@ public final class Bridge {
         List<ChatMessage> out = new ArrayList<>();
         long last = cursorOut != null && cursorOut.length > 0 ? cursorOut[0] : -1;
         for (Object item : Json.list(root, "messages")) {
-            double seq = Json.num(item, "seq");
-            if (Double.isNaN(seq)) {
+            long seq = sequence(item, "seq");
+            if (seq < 0) {
                 continue;
             }
             String text = Json.str(item, "text", "");
             if (text.isEmpty()) {
                 continue;
             }
-            long s = (long) seq;
             boolean incoming = !"out".equals(Json.str(item, "dir", ""));
-            out.add(new ChatMessage(s, incoming, Json.str(item, "name", ""), text));
-            last = Math.max(last, s);
+            out.add(new ChatMessage(seq, incoming, Json.str(item, "name", ""), text));
+            last = Math.max(last, seq);
         }
         if (cursorOut != null && cursorOut.length > 0) {
             cursorOut[0] = last;
         }
         return out;
+    }
+
+    /** A JSON sequence number, or -1 for missing/non-integral/out-of-range data. */
+    private static long sequence(Object holder, String key) {
+        double value = Json.num(holder, key);
+        if (!Double.isFinite(value) || value < 0 || value != Math.floor(value)
+                || value > Long.MAX_VALUE) {
+            return -1;
+        }
+        return (long) value;
     }
 
     /**
@@ -1039,7 +1118,7 @@ public final class Bridge {
         if (friend == null || friend.isEmpty()) {
             return;
         }
-        String body = get("/sync?friend=" + friend);
+        String body = get("/sync?friend=" + queryValue(friend));
         if (body == null) {
             return;
         }
@@ -1184,44 +1263,88 @@ public final class Bridge {
      * Reads ~/.cubeon_launcher/local_api.json when it is new or has changed.
      * Returns false when there is nothing to talk to.
      */
-    private boolean loadToken() {
+    private synchronized boolean loadToken() {
         try {
             long stamp = Files.getLastModifiedTime(TOKEN_FILE).toMillis();
-            if (stamp == tokenStamp && token != null) {
+            long size = Files.size(TOKEN_FILE);
+            if (stamp == tokenStamp && size == tokenSize && token != null && baseUrl != null) {
                 return true;
             }
             Map<String, Object> conf = Json.parseObject(
                     Files.readString(TOKEN_FILE, StandardCharsets.UTF_8));
             double port = Json.num(conf, "port");
             String tok = Json.str(conf, "token", "");
-            if (Double.isNaN(port) || port <= 0 || tok.isEmpty()) {
+            if (!validPort(port) || !validToken(tok)) {
+                invalidateToken();
                 return false;
             }
             baseUrl = "http://127.0.0.1:" + (int) port;
             token = tok;
             tokenStamp = stamp;
+            tokenSize = size;
             return true;
         } catch (IOException | RuntimeException ex) {
-            token = null;
-            tokenStamp = -1;
+            invalidateToken();
             return false;
         }
     }
 
+    static boolean validPort(double port) {
+        return Double.isFinite(port) && port == Math.floor(port)
+                && port >= 1 && port <= 65535;
+    }
+
+    private static boolean validToken(String value) {
+        if (value == null || value.isBlank() || value.length() > MAX_TOKEN_CHARS) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            // HttpRequest rejects control characters in headers. Reject them
+            // here so a corrupt token file becomes a clean offline state.
+            if (c <= 0x20 || c >= 0x7f) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private synchronized void invalidateToken() {
+        token = null;
+        baseUrl = null;
+        tokenStamp = -1;
+        tokenSize = -1;
+    }
+
+    private static boolean usableBody(String body) {
+        return body != null && body.length() <= MAX_RESPONSE_CHARS;
+    }
+
+    private static String queryValue(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
+    }
+
     /** Response body, or null for any failure at all. */
     private String get(String path) {
-        if (token == null) {
+        String currentBaseUrl = baseUrl;
+        String currentToken = token;
+        if (currentBaseUrl == null || currentToken == null) {
             return null;
         }
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(currentBaseUrl + path))
                     .timeout(READ_TIMEOUT)
-                    .header("X-Cubeon-Token", token)
+                    .header("X-Cubeon-Token", currentToken)
                     .GET()
                     .build();
             HttpResponse<String> response = http.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            return response.statusCode() == 200 ? response.body() : null;
+            if (response.statusCode() == 401) {
+                invalidateToken();
+                return null;
+            }
+            return response.statusCode() >= 200 && response.statusCode() < 300
+                    && usableBody(response.body()) ? response.body() : null;
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             return null;
@@ -1234,15 +1357,24 @@ public final class Bridge {
         if (!loadToken()) {
             return Result.fail("The Cubeon launcher isn't running.");
         }
+        String currentBaseUrl = baseUrl;
+        String currentToken = token;
+        if (currentBaseUrl == null || currentToken == null) {
+            return Result.fail("The Cubeon launcher isn't running.");
+        }
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(currentBaseUrl + path))
                     .timeout(ACTION_TIMEOUT)
-                    .header("X-Cubeon-Token", token)
+                    .header("X-Cubeon-Token", currentToken)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .POST(HttpRequest.BodyPublishers.ofString(body == null ? "{}" : body,
+                            StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> response = http.send(request,
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() == 401) {
+                invalidateToken();
+            }
             Result result = readResult(response.statusCode(), response.body());
             wake();   // reflect the change in the roster without waiting for a poll
             return result;
@@ -1264,8 +1396,8 @@ public final class Bridge {
      * "Couldn't change the name" instead of the actual reason.
      */
     static Result readResult(int statusCode, String body) {
-        Map<String, Object> root = Json.parseObject(body);
-        if (Json.bool(root, "ok", false)) {
+        Map<String, Object> root = usableBody(body) ? Json.parseObject(body) : Map.of();
+        if (statusCode >= 200 && statusCode < 300 && Json.bool(root, "ok", false)) {
             return Result.OK;
         }
         String error = Json.str(root, "error", "");
@@ -1280,6 +1412,9 @@ public final class Bridge {
         }
         if (statusCode == 404) {
             return Result.fail("Your Cubeon launcher is older than this mod - update it.");
+        }
+        if (!usableBody(body)) {
+            return Result.fail("The launcher returned an invalid response.");
         }
         return Result.fail("The launcher couldn't do that (HTTP " + statusCode + ").");
     }

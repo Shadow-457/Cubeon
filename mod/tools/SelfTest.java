@@ -39,6 +39,7 @@ public final class SelfTest {
         chatParsing();
         playersParsing();
         resultReading();
+        uidAndPortRules();
         nameChecking();
         presenceText();
         connectionText();
@@ -223,18 +224,18 @@ public final class SelfTest {
 
         Bridge.Session connected = Bridge.parseSession(
                 "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"Direct - 42 ms\","
-                        + " \"peer_uid\": \"000000000042\","
+                        + " \"peer_uid\": \"00000042\","
                         + " \"peer_minecraft_username\": \"Steve\"}");
         ok(!connected.working() && connected.endable(), "connected is idle but leavable");
         ok(connected.headline().contains("Steve")
-                && connected.headline().contains("000000000042"),
+                && connected.headline().contains("00000042"),
                 "connected names the peer by Minecraft username with the Cubeon ID");
         ok(!connected.headline().contains("Ali"), "the relay handle never reaches the headline");
         ok(connected.peerDisplayName().equals("Steve"), "display name is the Minecraft username");
         Bridge.Session connectedOld = Bridge.parseSession(
                 "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"Direct - 42 ms\","
-                        + " \"peer_uid\": \"000000000042\"}");
-        ok(connectedOld.headline().contains("Cubeon ID 000000000042"),
+                        + " \"peer_uid\": \"00000042\"}");
+        ok(connectedOld.headline().contains("Cubeon ID 00000042"),
                 "an older payload without a username shows the Cubeon ID");
         ok(!connectedOld.headline().contains("Ali"),
                 "an older payload never shows the internal handle");
@@ -281,6 +282,14 @@ public final class SelfTest {
         long[] keep = {5};
         ok(Bridge.parseEvents("{\"events\": []}", keep).isEmpty() && keep[0] == 5,
                 "a body with no cursor leaves the cursor alone");
+        long[] backwards = {5};
+        ok(Bridge.parseEvents("{\"cursor\": 3, \"events\": []}", backwards).isEmpty()
+                        && backwards[0] == 3,
+                "a valid backwards cursor recovers after launcher restart");
+        long[] malformed = {5};
+        ok(Bridge.parseEvents("{\"cursor\": 1e100, \"events\": []}", malformed).isEmpty()
+                        && malformed[0] == 5,
+                "an invalid cursor cannot poison notification history");
         long[] missing = {5};
         ok(Bridge.parseEvents("", missing).isEmpty() && missing[0] == 5,
                 "an unreachable /events (older launcher) changes nothing");
@@ -322,6 +331,10 @@ public final class SelfTest {
         ok(Bridge.parseChatMessages(
                 "{\"messages\": [{\"seq\": 1, \"text\": \"\"}]}", new long[]{-1}).isEmpty(),
                 "a textless line is dropped");
+        ok(Bridge.parseChatMessages(
+                "{\"messages\": [{\"seq\": 1.5, \"text\": \"bad\"}]}",
+                new long[]{-1}).isEmpty(),
+                "a non-integral chat sequence is dropped");
     }
 
     private static void playersParsing() {
@@ -372,7 +385,21 @@ public final class SelfTest {
         Bridge.Result html = Bridge.readResult(500, "<html>oops</html>");
         ok(!html.ok() && html.error().contains("500"),
                 "an unparseable failure still names the status code");
+        ok(!Bridge.readResult(500, "{\"ok\": true}").ok(),
+                "an HTTP error cannot masquerade as success");
         ok(!Bridge.readResult(200, "").ok(), "an empty 200 is not success");
+    }
+
+    private static void uidAndPortRules() {
+        section("Bridge: UID and port rules");
+        ok(Bridge.canonicalUid("42").equals("00000042"), "short IDs are padded to eight digits");
+        ok(Bridge.canonicalUid("12345678").equals("12345678"), "eight-digit IDs stay stable");
+        ok(Bridge.canonicalUid("123456789012").isEmpty(), "old twelve-digit IDs are rejected");
+        ok(Bridge.canonicalUid("100000000").isEmpty(), "IDs above eight digits are rejected");
+        ok(Bridge.validPort(1) && Bridge.validPort(65535), "valid port range accepted");
+        ok(!Bridge.validPort(0) && !Bridge.validPort(65536), "invalid port range rejected");
+        ok(!Bridge.validPort(123.5) && !Bridge.validPort(Double.NaN),
+                "fractional and non-finite ports rejected");
     }
 
     private static void nameChecking() {
@@ -413,18 +440,18 @@ public final class SelfTest {
                 "launcher up, nothing claimed");
         // The UID system: the header never advertises the internal claimed
         // name - identity is the Cubeon ID, shown on the Account tab.
-        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"you_uid\": \"123456789012\", \"connected\": true}", "{}")
+        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": true}", "{}")
                 .connectionLine().equals("Connected to Cubeon"), "claimed and connected");
         ok(Bridge.parseSnapshot(
-                "{\"you\": \"H\", \"you_uid\": \"123456789012\", \"connected\": true}", "{}")
-                .youUid().equals("123456789012"), "you_uid parsed from /state");
+                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": true}", "{}")
+                .youUid().equals("12345678"), "you_uid parsed from /state");
         ok(Bridge.parseSnapshot("{\"you\": \"H\", \"connected\": true}", "{}")
                 .youUid().isEmpty(), "older launcher without you_uid degrades to empty");
         ok(Bridge.parseSnapshot(
-                "{\"you\": \"H\", \"you_uid\": \"123456789012\", \"connected\": false}", "{}")
+                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": false}", "{}")
                 .connectionLine().contains("reconnecting"), "claimed but socket down");
         ok(Bridge.parseSnapshot(
-                "{\"you\": \"H\", \"you_uid\": \"123456789012\", \"available\": false}", "{}")
+                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"available\": false}", "{}")
                 .connectionLine().contains("add-on"), "launcher lacks websocket-client");
     }
 

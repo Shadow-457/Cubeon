@@ -47,21 +47,32 @@ public class CubeonClient implements ClientModInitializer {
      * as a corrupted or missing line rather than an exception.
      */
     private static void announce(Toast toast) {
+        if (toast == null) {
+            return;
+        }
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> {
-            // Nothing to write to on the title screen, and a notification about
-            // something that happened before the player joined is just noise.
-            if (mc.player == null) {
-                return;
-            }
-            Component body = Component.literal(toast.text())
-                    .withStyle(toast.error() ? ChatFormatting.RED : ChatFormatting.WHITE);
-            // Chat (persistent, scrollable), not the action bar. This method
-            // is the one chat entry point present in BOTH eras the mod ships
-            // for: displayClientMessage(Component, boolean) was renamed away
-            // by 26.x, but sendSystemMessage(Component) kept the same shape.
-            mc.player.sendSystemMessage(
-                    Component.empty().append(PREFIX).append(body));
-        });
+        if (mc == null) {
+            return;
+        }
+        try {
+            mc.execute(() -> {
+                // Nothing to write to on the title screen, and a notification
+                // about something that happened before the player joined is
+                // just noise.
+                if (mc.player == null) {
+                    return;
+                }
+                Component body = Component.literal(toast.text() == null ? "" : toast.text())
+                        .withStyle(toast.error() ? ChatFormatting.RED : ChatFormatting.WHITE);
+                // Chat (persistent, scrollable), not the action bar. This method
+                // is the one chat entry point present in BOTH eras the mod ships
+                // for: displayClientMessage(Component, boolean) was renamed away
+                // by 26.x, but sendSystemMessage(Component) kept the same shape.
+                mc.player.sendSystemMessage(
+                        Component.empty().append(PREFIX).append(body));
+            });
+        } catch (RuntimeException ignored) {
+            // The client can reject queued work while it is shutting down.
+        }
     }
 }

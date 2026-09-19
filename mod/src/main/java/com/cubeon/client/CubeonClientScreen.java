@@ -19,6 +19,7 @@ import net.minecraft.network.chat.MutableComponent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -149,6 +150,8 @@ public class CubeonClientScreen extends Screen {
 
     private final Screen parent;
     private final Bridge bridge = Bridge.get();
+    /** Stable identity lets Bridge remove only this screen's callback on close. */
+    private final Consumer<Toast> screenNoticeSink = this::onNotice;
 
     /**
      * Whether the Invite action can actually do anything from where this screen
@@ -341,7 +344,7 @@ public class CubeonClientScreen extends Screen {
         // line instead of the hotbar overlay, which needs a live player and is
         // invisible from a menu. init() runs on resize too; re-setting the same
         // sink is harmless.
-        bridge.setScreenToastSink(this::onNotice);
+        bridge.setScreenToastSink(screenNoticeSink);
 
         titleLine = line(this.title);
         headerLine = line(Component.empty());
@@ -791,7 +794,9 @@ public class CubeonClientScreen extends Screen {
         String handle = selected;
         boolean started = !bridge.syncReport().idle();
         syncOpen = false;
-        bridge.setSyncFriend("");
+        if (!selected.isEmpty()) {
+            bridge.clearSyncFriend(selected);
+        }
         setStatus("", false);
         apply(bridge.snapshot());
         if (started && !handle.isEmpty()) {
@@ -1414,14 +1419,17 @@ public class CubeonClientScreen extends Screen {
             Result result;
             try {
                 result = call.get();
-            } catch (Throwable ex) {
+                if (result == null) {
+                    result = Result.fail("Cubeon returned no result.");
+                }
+            } catch (RuntimeException ex) {
                 // A worker that dies silently would leave the screen stuck on
                 // "working..." with every button greyed out for good.
                 result = Result.fail("Cubeon couldn't finish that: " + ex);
             }
             Result outcome = result;
             Minecraft mc = Minecraft.getInstance();
-            mc.execute(() -> {
+            onClientThread(mc, () -> {
                 busy = false;
                 if (mc.screen != this) {
                     return;   // the player has already left this screen
@@ -1498,9 +1506,9 @@ public class CubeonClientScreen extends Screen {
 
     /** Runs on a worker thread, so the box is cleared back on the main one. */
     private Result clearInputOnSuccess(Result result) {
-        if (result.ok()) {
+        if (result != null && result.ok()) {
             Minecraft mc = Minecraft.getInstance();
-            mc.execute(() -> {
+            onClientThread(mc, () -> {
                 draft = "";
                 if (mc.screen == this && input != null) {
                     input.setValue("");
@@ -1523,8 +1531,11 @@ public class CubeonClientScreen extends Screen {
      * overlay sink needs a live player and never draws over one of these.
      */
     private void onNotice(Toast toast) {
+        if (toast == null) {
+            return;
+        }
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> {
+        onClientThread(mc, () -> {
             if (mc.screen != this) {
                 return;   // closed between the drain and this execute
             }
@@ -1538,6 +1549,18 @@ public class CubeonClientScreen extends Screen {
             setStatus(toast.text(), toast.error());
             apply(bridge.snapshot());
         });
+    }
+
+    /** Minecraft may reject work while the client is shutting down. */
+    private static void onClientThread(Minecraft mc, Runnable task) {
+        if (mc == null || task == null) {
+            return;
+        }
+        try {
+            mc.execute(task);
+        } catch (RuntimeException ignored) {
+            // The screen is already going away; there is nothing to update.
+        }
     }
 
     private void setStatus(String text, boolean error) {
@@ -1634,9 +1657,11 @@ public class CubeonClientScreen extends Screen {
         // Leaving the screen stops the sync poll stream following you into the
         // world - polling /sync with the screen shut would keep asking the
         // launcher for a report nobody is reading.
-        bridge.setSyncFriend("");
+        if (!selected.isEmpty()) {
+            bridge.clearSyncFriend(selected);
+        }
         // A notice that arrives after close goes back to the overlay sink.
-        bridge.setScreenToastSink(null);
+        bridge.clearScreenToastSink(screenNoticeSink);
         super.removed();
     }
 

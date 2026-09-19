@@ -705,7 +705,7 @@ python3 tools/test_mega_smoke.py        # deep gate: syntax + imports + contract
 python3 tools/app_driver.py explore     # AI driver: use the app headless, JSON error/coverage report (`fuzz`, `script`, `shots`)
 python3 tools/test_friends_service.py   # 213: service + bridge contract + identity + unique rename + chat tab
 python3 tools/test_friends.py           # 37: relay client + worker parity
-python3 tools/test_mod_bridge.py        # 119: reads Bridge.java, asserts launcher serves it
+python3 tools/test_mod_bridge.py        # 137: reads Bridge.java, asserts launcher serves it
 python3 tools/test_mod_compile.py       # mod source compiles vs the stub API subset
 python3 tools/test_mod_matrix.py        # 68: brackets/jar routing
 python3 tools/test_capes.py             # 14: flexible capes + CSL sync
@@ -976,6 +976,25 @@ Still-true invariants from the pre-local era:
   PlayerInfo, GameProfile and Minecraft.getConnection() for WorldPlayers. The
   now-removed character preview's GuiGraphics + InventoryScreen stubs were
   deleted with the menu.
+
+## Mod bridge hardening (2026-09-19) — durable facts
+- `Bridge` is the only localhost transport. It validates the token file's port
+  and header-safe token, fingerprints both file mtime and size, invalidates a
+  token after HTTP 401, accepts only 2xx `{"ok": true}` action responses, and
+  caps response parsing at 1 MB. Chat/sync query values must stay URL-encoded.
+- A temporary `/status` failure retains the last session for two polls, then
+  clears it; `/friends` remains the liveness check. Event cursors accept only
+  finite non-negative integers, while a valid lower cursor is treated as a
+  launcher restart so notifications recover after the launcher restarts.
+- `CubeonClientScreen` owns a stable notice callback and clears it with
+  compare-and-set on close. An old screen therefore cannot silence a newer
+  screen during a close/reopen transition; Sync teardown uses the same
+  expected-owner guard. The bridge poller resets its own thread handle in
+  `finally`, so a later screen can restart it after an interruption or
+  unexpected failure.
+- Guards: `tools/test_mod_bridge.py` / `mod/tools/SelfTest.java` cover 8-digit
+  IDs, port validation, HTTP status handling, cursor poisoning, and malformed
+  chat sequences; `tools/test_mod_compile.py` covers the cross-version UI API.
 
 ## Mid-session GPU-crash auto-recovery (2026-09-08; discriminator fixed 2026-09-11)
 - The Mesa 26.1/libgallium SIGSEGV also happens **mid-session** (during a GTK
