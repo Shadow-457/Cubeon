@@ -88,6 +88,14 @@ jobs:
           ./packaging/build_appimage.sh
 
       - name: Upload Linux AppImage Artifact
+        # Publish artifacts only for tagged releases. A single run's
+        # artifacts (AppImage + Windows ZIP + macOS bundle) are ~400-500 MB,
+        # which is the WHOLE free Actions storage quota - uploading them on
+        # every main push filled it up (19 GB of stale builds) and then made
+        # every upload fail with "Artifact storage quota has been hit".
+        # Branch runs still BUILD (so the build itself stays verified); only
+        # releases keep the binaries.
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
@@ -117,6 +125,10 @@ jobs:
           python packaging/build_windows.py
 
       - name: Upload Windows Standalone Folder Artifact
+        # OFF deliberately: the ZIP below contains the same folder, and the
+        # unpacked copy is ~128 MB of the ~500 MB free storage quota. See the
+        # note on the Linux upload step.
+        if: false
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
@@ -124,6 +136,7 @@ jobs:
           path: dist/Cubeon/
 
       - name: Upload Windows Portable ZIP Artifact
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
@@ -153,6 +166,7 @@ jobs:
           ./packaging/build_macos.sh
 
       - name: Upload macOS app artifact
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           retention-days: 7
