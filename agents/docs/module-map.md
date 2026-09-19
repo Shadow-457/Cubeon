@@ -1,9 +1,42 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-18 (smoothness pass: play-button truth, seasonal off
-by default, tray-open guard). If a fact here contradicts the
+Last updated: 2026-09-19 (CI green: p2p FIN drain invariant, version-scan
+dedupe-by-folder, tag-only artifact publishing). If a fact here contradicts the
 code, the
 code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+
+## P2P stream teardown (2026-09-19) — INVARIANT
+- A received `_FIN` must NOT close the local TCP socket immediately: bytes can
+  still be queued in `_tcp_in_queue`, and closing there truncates the tail
+  (measured: a 120000-byte transfer cut at 118535). `_handle_frame` sets
+  `_remote_eof`; `_tcp_delivery_loop` drains, then stops the session with
+  "Minecraft TCP connection closed". The FIN we send waits until
+  `_unacked` is empty so it can't overtake a retransmission.
+  `tools/test_p2p_transport.py::fin_drain_check` is the deterministic guard.
+- `RelaySession` (WebSocket relay) still stops immediately on local close with
+  `_in_queue` possibly non-empty — same shape, deliberately unchanged
+  (documented in docs/bugfix-2026-09-18-ci-red-suite.md).
+
+## Version scan (2026-09-19) — INVARIANT
+- `versions.get_installed_versions()` pass 2 dedupes by FOLDER only. Deduping
+  on the json's declared `id` made the list depend on `os.listdir()` order and
+  silently dropped half-installed folders whose template manifest still named
+  another version (they showed as neither installed nor incomplete).
+  Guard: `tools/test_version_integrity.py`'s forced-order check.
+
+## CI / release storage (2026-09-19) — INVARIANT
+- One run's artifacts (~510 MB) are bigger than the whole free Actions storage
+  quota (~500 MB). Artifact upload steps are **tag-only**
+  (`if: startsWith(github.ref, 'refs/tags/v')`), `retention-days: 7`, and
+  `continue-on-error: true` (publishing must never mark a good build red).
+  Branch pushes still build; they do not publish. Do not move uploads back to
+  every push.
+- The REAL publishing channel is GitHub release ASSETS: on tag builds each
+  build job runs `gh release create/upload --clobber` directly (release
+  assets are exempt from the Actions storage quota, which stayed exhausted
+  even 23h after purging 19 GB of artifacts). The three build jobs carry
+  `permissions: contents: write`; the workflow root is `contents: read`.
+  Tag builds FAIL if the release upload fails — that's intentional.
 
 ## Play-button state machine (2026-09-18) — INVARIANT
 - The play button's mode is computed by `set_button_mode()` in `main.py`,

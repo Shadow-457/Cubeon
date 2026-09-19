@@ -6,6 +6,11 @@ on:
     tags: [ "v*" ]
   workflow_dispatch:
 
+# Builds run read-only by default; only the build jobs that attach binaries
+# to a GitHub release get contents:write (tag builds only).
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test suite
@@ -62,6 +67,8 @@ jobs:
   build-linux-appimage:
     name: Build Linux AppImage
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -103,9 +110,26 @@ jobs:
           name: Cubeon-Linux-x86_64-AppImage
           path: dist/Cubeon-x86_64.AppImage
 
+      - name: Attach Linux AppImage to the GitHub release
+        # Release ASSETS do not count against the Actions artifact storage
+        # quota (artifacts do, and the free quota is smaller than one run's
+        # builds). On a tag build, publish the binary straight to the release.
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Cubeon $GITHUB_REF_NAME" \
+            --notes "Automated build of $GITHUB_REF_NAME." \
+            --verify-tag || true
+          gh release upload "$GITHUB_REF_NAME" dist/Cubeon-x86_64.AppImage --clobber
+
   build-windows-exe:
     name: Build Windows EXE & ZIP
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -145,9 +169,23 @@ jobs:
           name: Cubeon-Windows-x64-ZIP
           path: dist/Cubeon-Windows-x64.zip
 
+      - name: Attach Windows ZIP to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Cubeon $GITHUB_REF_NAME" \
+            --notes "Automated build of $GITHUB_REF_NAME." \
+            --verify-tag || true
+          gh release upload "$GITHUB_REF_NAME" dist/Cubeon-Windows-x64.zip --clobber
+
   build-macos:
     name: Build macOS app
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -167,11 +205,15 @@ jobs:
           chmod +x packaging/build_macos.sh
           ./packaging/build_macos.sh
 
-      - name: Upload macOS app artifact
+      - name: Attach macOS app to the GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 7
-          name: Cubeon-macOS
-          path: dist/Cubeon/
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent dist/Cubeon Cubeon-macOS.zip
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Cubeon $GITHUB_REF_NAME" \
+            --notes "Automated build of $GITHUB_REF_NAME." \
+            --verify-tag || true
+          gh release upload "$GITHUB_REF_NAME" Cubeon-macOS.zip --clobber
