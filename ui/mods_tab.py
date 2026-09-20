@@ -272,6 +272,22 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             tokens.add(re.sub(r"[^a-z0-9]+", "", it["display_name"].lower()))
         return tokens
 
+    def shader_requirement_installed() -> bool:
+        """True once Iris or OptiFine is present in the current profile - the
+        only two things that can actually load a shader pack. Sodium alone
+        can't (it needs Iris), so it doesn't count. The Shaders segment's
+        'install Iris' notice is only useful before this point, so it retires
+        itself instead of nagging someone who already did it."""
+        try:
+            mods = core.list_mods(state["selected_mc_version"], state["mod_loader"])
+        except Exception:
+            return False
+        for m in mods:
+            name = re.sub(r"[^a-z0-9]+", "", (m.get("display_name") or "").lower())
+            if "iris" in name or "optifine" in name:
+                return True
+        return False
+
     def refresh_mods_list():
         """
         Reloads the installed list for whatever content type is active and
@@ -285,7 +301,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             all_mods = core.list_mods(state["selected_mc_version"], state["mod_loader"])
         else:
             vanilla_mods_notice.visible = False
-            shader_notice.visible = (_ct() == "shader")
+            shader_notice.visible = (_ct() == "shader"
+                                     and not shader_requirement_installed())
             # Version info is what lets each installed row say whether the game
             # will actually accept it (see cubeon/packformat.py). The list is
             # this instance's profile: packs follow the version+loader now,
@@ -492,13 +509,27 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 # its Download button again short of re-running the search.
                 _render_browse_page()
 
-            row_icon = (ft.Icons.IMAGE_OUTLINED if _ct() == "resourcepack"
-                        else ft.Icons.AUTO_AWESOME_OUTLINED)
+            # The Modrinth thumbnail recorded at install time (see
+            # content.remember_content_meta) so an installed pack is as easy to
+            # spot as it was in the browse list. A hand-dropped pack has no
+            # stored art and keeps the quiet type glyph.
+            if m.get("icon_url"):
+                row_icon = ft.Container(
+                    width=34, height=34, bgcolor=CARD_FILL, border_radius=RADIUS,
+                    alignment=ft.Alignment.CENTER,
+                    clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                    content=_icon_image(m["icon_url"]),
+                )
+            else:
+                row_icon = ft.Icon(
+                    ft.Icons.IMAGE_OUTLINED if _ct() == "resourcepack"
+                    else ft.Icons.AUTO_AWESOME_OUTLINED,
+                    color=TEXT_FAINT, size=20)
             return attach_hover(
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Icon(row_icon, color=TEXT_FAINT, size=20),
+                            row_icon,
                             ft.Column(
                                 [
                                     ft.Text(m["display_name"], size=13.5, color=TEXT,
@@ -771,9 +802,23 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     browse_results_view = ft.Column(spacing=8)  # Will hold the search/recommendation results
     browse_status_text = ft.Text("", size=12, color=TEXT_DIM)
-    # Full result set + current page live here so _render_browse_page() can
-    # slice out just the 5 items to show without re-fetching from Modrinth.
-    browse_state = {"results": [], "page": 0, "empty_msg": ""}
+    # One page of 5 results, up to 20 pages (100 hits) - Modrinth's own
+    # per-request cap. Pages are fetched ON DEMAND (see _fetch_browse_page):
+    # opening the tab loads page 1 only, and each pager click fetches just the
+    # page it needs instead of pulling all 20 pages up front (which made the
+    # tab slow and heavy). Each fetched page is stashed in browse_state["pages"]
+    # so going back to a page already seen is instant and never re-fetches.
+    BROWSE_PAGE_SIZE = 5
+    MAX_BROWSE_PAGES = 20
+    browse_state = {
+        "results": [],          # items on the page currently rendered
+        "page": 0,
+        "empty_msg": "",
+        "pages": {},            # page_num -> [items] already fetched
+        "total_pages": MAX_BROWSE_PAGES,
+        "token": None,          # (generation, key) these pages belong to
+        "paged": True,          # later pages fetch on demand
+    }
     browse_pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     browse_pager_prev = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
@@ -934,15 +979,109 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def _browse_current(token):
         return token == (browse_generation["value"], _browse_key())
 
+    # --- Lazy page fetching -------------------------------------------------
+    # A browse never pulls more than ONE page of results off the network. The
+    # old code asked Modrinth for 100 hits (20 pages) up front and sliced them
+    # locally, which made opening the tab slow and heavy. Now each pager click
+    # fetches just its own offset; already-seen pages are cached in
+    # browse_state["pages"] so stepping back is instant.
+    def _browse_query() -> str:
+        return mod_search_field.value.strip()
+
+    def _browse_is_paged() -> bool:
+        """Whether offset paging makes sense for what's showing. Mods with no
+        search and no category use the curated slug list, which ignores
+        offset, so that view pages client-side over the one small fetch;
+        everything else (searches, category browse, packs/shaders popularity)
+        pages by fetching one offset at a time."""
+        return not (_is_mod() and not _browse_query()
+                    and not active_category["value"])
+
+    def _browse_fetch(page_num: int):
+        """One page of results for the CURRENT browse key. Runs on a worker
+        thread. May return fewer than BROWSE_PAGE_SIZE hits, which the caller
+        treats as the last page."""
+        content_type = _ct()
+        query = _browse_query()
+        mc_version, loader = current_mc_version_for_search(), browse_loader()
+        cat = active_category["value"]
+        offset = page_num * BROWSE_PAGE_SIZE
+        if content_type == "mod":
+            if query:
+                return core.search_mods(
+                    query, mc_version=mc_version, loader=loader,
+                    categories=[cat] if cat else None,
+                    limit=BROWSE_PAGE_SIZE, offset=offset)
+            return core.get_recommended_mods(
+                mc_version=mc_version, loader=loader, category=cat or None,
+                limit=BROWSE_PAGE_SIZE, offset=offset)
+        if query:
+            return core.search_content(
+                content_type, query, mc_version=mc_version,
+                categories=[cat] if cat else None,
+                limit=BROWSE_PAGE_SIZE, offset=offset)
+        return core.get_recommended_content(
+            content_type, mc_version=mc_version, category=cat or None,
+            limit=BROWSE_PAGE_SIZE, offset=offset)
+
+    def _load_browse_page(page_num: int, token, error_prefix: str):
+        """Fetches page `page_num` for `token` and renders it when it still
+        belongs to the current browse. An already-cached page just re-renders."""
+        if page_num in browse_state["pages"]:
+            _render_browse_page()
+            return
+        browse_status_text.value = "Loading..."
+        thread_safe_ui.refresh(browse_status_text)
+
+        def worker():
+            try:
+                items = _browse_fetch(page_num)
+            except Exception as ex:
+                if not _browse_current(token):
+                    return
+                browse_status_text.value = f"{error_prefix}: {ex}"
+                thread_safe_ui.refresh(browse_status_text)
+                return
+            if not _browse_current(token):
+                return  # a newer search/type/category took over while we fetched
+            items = items or []
+            browse_state["pages"][page_num] = items
+            # A short page is the end of the result set. A full one leaves the
+            # advertised page count alone - we never fetch ahead to find out.
+            if len(items) < BROWSE_PAGE_SIZE:
+                browse_state["total_pages"] = min(
+                    browse_state["total_pages"], page_num + 1)
+            _render_browse_page()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def render_browse_results(empty_msg):
+        """
+        Resets the browse to page 1 for the current key and starts its fetch.
+        Later pages load only when the pager asks for them.
+        """
+        browse_state["empty_msg"] = empty_msg
+        browse_state["page"] = 0
+        browse_state["pages"] = {}
+        browse_state["results"] = []
+        browse_state["paged"] = _browse_is_paged()
+        browse_state["total_pages"] = (
+            MAX_BROWSE_PAGES if browse_state["paged"] else 1)
+        token = browse_state["token"]
+        browse_results_view.controls.clear()
+        page.update()
+        _load_browse_page(0, token, "Couldn't load recommendations")
+
     def load_recommended_mods():
         """
-        Fetches items for the current version+category and displays them in the
-        browse section. For mods this is the curated all-rounder picks (or the
-        top mods in a category); for resource packs / shaders it's the most
-        popular of that type, so switching categories changes what's shown.
+        Fetches the first page of items for the current version+category and
+        displays them in the browse section. For mods this is the curated
+        all-rounder picks (or the top mods in a category); for resource packs
+        / shaders it's the most popular of that type, so switching categories
+        changes what's shown.
         """
-        token = _begin_browse()
-        content_type, mc_version, loader = _ct(), current_mc_version_for_search(), browse_loader()
+        browse_state["token"] = _begin_browse()
+        content_type = _ct()
         cat = active_category["value"]
         if content_type == "mod":
             cat_label = dict(core.MOD_CATEGORIES).get(cat, "")
@@ -951,27 +1090,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             cat_label = dict(core.category_choices(_ct())).get(cat, "")
             default_title = "POPULAR"
         browse_title_text.value = f"TOP {cat_label.upper()}" if cat else default_title
-        browse_status_text.value = "Loading..."
-        browse_results_view.controls.clear()
-        page.update()
-
-        # Run the network request in a background thread
-        def worker():
-            try:
-                if content_type == "mod":
-                    results = core.get_recommended_mods(mc_version=mc_version, loader=loader, category=cat)
-                else:
-                    results = core.get_recommended_content(content_type, mc_version=mc_version, category=cat or None)
-            except Exception as ex:
-                if not _browse_current(token):
-                    return
-                browse_status_text.value = f"Couldn't load recommendations: {ex}"
-                thread_safe_ui.refresh(browse_status_text)
-                return
-            if _browse_current(token):
-                render_browse_results(results, empty_msg="Nothing found for this version/category.")
-
-        threading.Thread(target=worker, daemon=True).start()
+        render_browse_results(empty_msg="Nothing found for this version/category.")
 
     def run_mod_search():
         """
@@ -983,63 +1102,59 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if not query:
             load_recommended_mods()
             return
-        token = _begin_browse()
-        content_type, mc_version, loader = _ct(), current_mc_version_for_search(), browse_loader()
-        cat = active_category["value"]
+        browse_state["token"] = _begin_browse()
         browse_title_text.value = f'RESULTS FOR "{query.upper()}"'
-        browse_status_text.value = "Searching..."
-        browse_results_view.controls.clear()
-        # Live search repaints only the browse region (title/status/results),
-        # not the whole mounted tree - this fires per debounced keystroke.
-        thread_safe_ui.refresh(browse_results_view)
+        # Live search repaints only the browse region (title/results), not the
+        # whole mounted tree - this fires per debounced keystroke.
         thread_safe_ui.refresh(browse_title_text)
-        thread_safe_ui.refresh(browse_status_text)
+        render_browse_results(empty_msg="Nothing found for that search.")
 
-        def worker():
-            try:
-                if content_type == "mod":
-                    results = core.search_mods(
-                        query, mc_version=mc_version, loader=loader,
-                        categories=[cat] if cat else None,
-                    )
-                else:
-                    results = core.search_content(
-                        content_type, query, mc_version=mc_version,
-                        categories=[cat] if cat else None,
-                    )
-            except Exception as ex:
-                if not _browse_current(token):
-                    return
-                browse_status_text.value = f"Search failed: {ex}"
-                thread_safe_ui.refresh(browse_status_text)
-                return
-            if _browse_current(token):
-                render_browse_results(results, empty_msg="Nothing found for that search.")
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def render_browse_results(results, empty_msg):
-        """
-        Stores the full result list and renders page 1. Pagination itself is
-        done in _render_browse_page() - this just resets to the first page
-        whenever a new search/recommendation set comes in.
-        """
-        browse_state["results"] = results or []
-        browse_state["empty_msg"] = empty_msg
-        browse_state["page"] = 0
-        _render_browse_page()
-
-    BROWSE_PAGE_SIZE = 5
+    def _show_browse_loading():
+        """The placeholder shown while a page that isn't cached yet is being
+        fetched - it keeps the pager out of the way so a stale page number
+        can't be clicked while the real one is in flight."""
+        browse_results_view.controls.clear()
+        browse_results_view.controls.append(
+            ft.Row(
+                [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                 ft.Text("Loading...", size=13, color=TEXT_DIM)],
+                spacing=10,
+            ))
+        browse_pager_row.visible = False
+        page.update()
 
     def _render_browse_page():
-        """Renders one page (BROWSE_PAGE_SIZE items) of the stored results and
-        updates the pager controls to match. However many results came back,
-        this pages through all of them - not just the first handful."""
-        results = browse_state["results"]
+        """Renders the current page from the cache, fetching it if this is the
+        first visit. Whatever isn't cached stays un-fetched until asked for."""
+        if browse_state["token"] is None:
+            # No browse has been started yet (e.g. a re-render triggered by an
+            # install/delete before the tab's first load) - nothing to show.
+            return
         page_num = browse_state["page"]
-        total_pages = max(1, -(-len(results) // BROWSE_PAGE_SIZE))  # ceil div
-        page_num = max(0, min(page_num, total_pages - 1))
-        browse_state["page"] = page_num
+        token = browse_state["token"]
+
+        if not browse_state["paged"]:
+            # Curated mod list: one small fetch, sliced locally page by page.
+            all_items = browse_state["pages"].get(0)
+            if all_items is None:
+                _show_browse_loading()
+                _load_browse_page(0, token, "Couldn't load recommendations")
+                return
+            total_pages = max(1, -(-len(all_items) // BROWSE_PAGE_SIZE))
+            page_num = max(0, min(page_num, total_pages - 1))
+            browse_state["page"] = page_num
+            browse_state["total_pages"] = total_pages
+            results = all_items[page_num * BROWSE_PAGE_SIZE:
+                                (page_num + 1) * BROWSE_PAGE_SIZE]
+        else:
+            results = browse_state["pages"].get(page_num)
+            if results is None:
+                _show_browse_loading()
+                _load_browse_page(page_num, token, "Search failed")
+                return
+            total_pages = max(1, browse_state["total_pages"])
+
+        browse_state["results"] = results
 
         browse_results_view.controls.clear()
         if not results:
@@ -1053,8 +1168,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             is_mod_now = _is_mod()
             already = installed_slugs() if is_mod_now else set()
             tokens = set() if is_mod_now else content_installed_tokens()
-            start = page_num * BROWSE_PAGE_SIZE
-            for mod in results[start:start + BROWSE_PAGE_SIZE]:
+            for mod in results:
                 if is_mod_now:
                     slug = (mod.get("slug") or "").lower()
                     compact = re.sub(r"[^a-z0-9]+", "", slug)
@@ -1077,7 +1191,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         browse_status_text.value = f"{len(results)} mod(s)" if results else ""
         browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
-        browse_pager_row.visible = len(results) > BROWSE_PAGE_SIZE
+        browse_pager_row.visible = total_pages > 1
         browse_pager_prev.disabled = page_num <= 0
         browse_pager_next.disabled = page_num >= total_pages - 1
         page.update()
@@ -1262,6 +1376,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             content_type, v["url"], v["filename"],
                             mc_version=detail_mc, version_id=detail_version,
                             loader=detail_loader, hashes=v.get("hashes"),
+                            icon_url=details.get("icon_url"),
+                            slug=details.get("slug"),
+                            title=details.get("title"),
                             progress_cb=lambda done, total: on_status(
                                 f"Downloading… {int(done * 100 / total)}%") if total else None)
                     if result.get("failed"):
@@ -1650,7 +1767,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             _render_browse_page()
 
     def _browse_page_next(e=None):
-        total_pages = max(1, -(-len(browse_state["results"]) // BROWSE_PAGE_SIZE))
+        total_pages = max(1, browse_state["total_pages"])
         if browse_state["page"] < total_pages - 1:
             browse_state["page"] += 1
             _render_browse_page()
@@ -1813,6 +1930,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             mc_version=selected_mc,
                             version_id=selected_version,
                             loader=selected_loader,
+                            icon_url=mod.get("icon_url"),
+                            slug=mod.get("slug"),
+                            title=mod.get("title"),
                             fix_cb=_note_fix)
 
                     download_btn_text.value = ("Installed (pack format fixed)"

@@ -391,48 +391,59 @@ def main(page: ft.Page):
         # pick exactly 1180 loses it once; every other width is respected.
         _gw = 1060
     _gh = _geom_num("height", 640, 4320, 760)
-    page.window.width = _gw
-    page.window.height = _gh
     _gl = _geom_num("left", -3840, 15360, None)
     _gt = _geom_num("top", -2160, 8640, None)
+    _saved_maximized = bool(_geom.get("maximized"))
     # Off-screen guard: a restored position from a monitor that's gone would
     # strand the window in unreachable space. -3840/-2160 allow one virtual
     # monitor to the left/above, but the position is dropped entirely if
     # invalid; the reveal task re-centers before showing.
     _needs_center = _gl is None or _gt is None
-    if not _needs_center:
-        page.window.left = _gl
-        page.window.top = _gt
-    # First-run centering: computed from the primary screen here, not via
-    # window.center() later. center() is async AND issues a GTK resize that
-    # crashed the Mesa/gallium driver when fired mid-first-frame (SIGSEGV
-    # coredumps, 2026-09-06). The window starts hidden (FLET_APP_HIDDEN), so
-    # plain left/top numbers - applied before any paint - are safe and the
-    # reveal shows the window once, already centered.
-    if _needs_center:
+
+    def _screen_size():
+        """Primary monitor size (w, h), or None.
+
+        No screen API on Page in Flet 0.86, so read it from the platform.
+        xrandr is the simplest reliable route that needs no new dependency
+        (GDK_SCALE-style envs are wrong on multi-monitor): one process spawn,
+        once per startup.
+        """
         try:
-            # No screen API on Page in Flet 0.86, so read the primary
-            # monitor size from the platform. X11: xdotool-free parse of
-            # xrandr would spawn a process; GDK_SCALE-style envs are wrong
-            # on multi-monitor. Simplest reliable route that needs no new
-            # dependency: tkinter-free X query via the DISPLAY env + a
-            # single xrandr call is overkill - use the GTK layer the flet
-            # client itself already runs on: nothing extra to install.
-            import subprocess
             out = subprocess.run(
                 ["xrandr", "--current"], capture_output=True, text=True,
                 timeout=3).stdout
             # first connected monitor's "WxH+X+Y"
             m = re.search(r"(\d+)x(\d+)\+\d+\+\d+", out)
             if m:
-                sw, sh = int(m.group(1)), int(m.group(2))
-                page.window.left = max(0, (sw - int(_gw)) // 2)
-                page.window.top = max(0, (sh - int(_gh)) // 2)
+                return int(m.group(1)), int(m.group(2))
         except Exception:
             pass  # no xrandr / not X11: the WM picks a position - fine
-    page.window.maximized = bool(_geom.get("maximized"))
-    page.window.min_width = 980
-    page.window.min_height = 640
+        return None
+
+    def _apply_real_geometry():
+        """Applies the user's saved window size/position.
+
+        Deliberately NOT done at startup any more: the window opens as the
+        small loading splash first, and the real geometry must only land on
+        the fully-built UI (see _reveal_window). Same rationale as before for
+        using plain left/top numbers instead of window.center() - center()
+        fires an async GTK resize that crashed the Mesa/gallium driver mid
+        first-frame (SIGSEGV coredumps, 2026-09-06).
+        """
+        page.window.width = _gw
+        page.window.height = _gh
+        page.window.min_width = 980
+        page.window.min_height = 640
+        page.window.resizable = True
+        if not _needs_center:
+            page.window.left = _gl
+            page.window.top = _gt
+        else:
+            size = _screen_size()
+            if size:
+                page.window.left = max(0, (size[0] - int(_gw)) // 2)
+                page.window.top = max(0, (size[1] - int(_gh)) // 2)
+        page.window.maximized = _saved_maximized
 
     # App/taskbar/titlebar icon - falls back gracefully if not supported.
     # On Windows: window_manager requires .ico (e.g. icon.ico).
@@ -466,6 +477,65 @@ def main(page: ft.Page):
     # cubeon/theme.apply_page_theme for the colour-theory rationale.
     theme.apply_page_theme(page)
 
+    # --- Startup splash: something on screen while the UI builds ----------
+    # The window process is created hidden (FLET_APP_HIDDEN at ft.run) and
+    # this function used to build the entire control tree before revealing
+    # anything, so a cold start was seconds of a desktop icon that looked
+    # like it had done nothing. Instead the window now opens small and
+    # centered right away with a "Loading Cubeon" card, and the real
+    # geometry + UI replace it in one shot at the end of main(). Small,
+    # non-resizable, and only ever seen during the build. Built after the
+    # fonts/theme are applied so it uses the real design tokens.
+    _SPLASH_W, _SPLASH_H = 360, 200
+    page.window.width = _SPLASH_W
+    page.window.height = _SPLASH_H
+    page.window.min_width = 0
+    page.window.min_height = 0
+    page.window.resizable = False
+    page.window.maximized = False
+    _scr = _screen_size()
+    if _scr:
+        page.window.left = max(0, (_scr[0] - _SPLASH_W) // 2)
+        page.window.top = max(0, (_scr[1] - _SPLASH_H) // 2)
+
+    _splash = ft.Container(
+        expand=True,
+        bgcolor=BG,
+        alignment=ft.Alignment.CENTER,
+        content=ft.Column(
+            [
+                ft.Image(src=os.path.join(resolve_assets_dir(), "icon_256.png"),
+                         width=64, height=64, fit=ft.BoxFit.CONTAIN),
+                ft.Text("Cubeon", size=22, color=TEXT, font_family=FONT_DISPLAY),
+                ft.Text("Loading…", size=12, color=TEXT_DIM),
+                ft.ProgressRing(width=18, height=18, stroke_width=2,
+                                color=ACCENT),
+            ],
+            spacing=10, tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+    )
+    page.add(_splash)
+
+    async def _reveal_splash():
+        try:
+            await page.window.wait_until_ready_to_show()
+        except Exception:
+            pass  # non-desktop or an odd runtime: visible still applies
+        page.window.visible = True
+        try:
+            page.window.update()
+        except Exception:
+            page.update()
+
+    try:
+        page.run_task(_reveal_splash)
+    except Exception:
+        # No event loop to schedule on (headless/test harness): show
+        # synchronously so automated checks still see the window.
+        page.window.visible = True
+
     # --- Load configuration (saved settings) from disk ---
     cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
 
@@ -474,13 +544,6 @@ def main(page: ft.Page):
     # and the F12 hook both see the resolved value.
     from cubeon.inspector import inspector_enabled as _insp_enabled
     _inspector_enabled = _insp_enabled(cfg)
-
-    # Now that cfg exists, arm the opt-in crash reporting hooks (the logging
-    # itself was armed above; this only decides whether uncaught exceptions
-    # are ALSO reported, and only if the user opted in + an endpoint exists).
-    from cubeon import crashreport as _crashreport
-    from cubeon.logging_setup import _install_excepthooks as _arm_crash_hooks
-    _arm_crash_hooks(cfg)
 
     # --- Optional Discord Rich Presence ("Cubeon" on your Discord profile) ---
     # Only does anything if Discord is running AND the user has pasted a Discord
@@ -1757,9 +1820,8 @@ def main(page: ft.Page):
     # there is no Friends button, no skins/capes sync, no Cubeon anything -
     # vanilla with extra steps. Rather than pretending otherwise, those
     # versions are hidden behind an explicit "Legacy" opt-in that says exactly
-    # that, and "Update game version" moves the current selection to the
-    # newest release in one click. The opt-in persists in config
-    # ("legacy_versions"): off for new users, kept for returning ones.
+    # that. The opt-in persists in config ("legacy_versions"): off for new
+    # users, kept for returning ones.
     state.setdefault("legacy_ok", bool(cfg.get("legacy_versions", False)))
 
     def _is_legacy_version(version_id):
@@ -1776,33 +1838,6 @@ def main(page: ft.Page):
         while len(parts) < 3:
             parts += (0,)
         return parts < (1, 20, 0)
-
-    def _newest_release_key():
-        """Newest stable release offered, or None when there's no online list
-        (offline). Prefers the list already on screen so the Update button
-        never makes a second network call, and falls back to Mojang's own
-        "latest release" when that list is still empty. Snapshot ids are
-        non-numeric, so the parse below simply skips them."""
-        def _sort_key(vid):
-            try:
-                parts = tuple(int(p) for p in (vid or "").split(".")[:3])
-            except ValueError:
-                return None
-            while len(parts) < 3:
-                parts += (0,)
-            return parts
-
-        candidates = []
-        for option in all_online_options.get("value") or []:
-            key = _sort_key(option.key)
-            if key is not None:
-                candidates.append((key, option.key))
-        if candidates:
-            return max(candidates)[1]
-        try:
-            return core.get_latest_release() or None
-        except Exception:
-            return None
 
     legacy_note = ft.Container(
         content=ft.Row(
@@ -1891,87 +1926,6 @@ def main(page: ft.Page):
         tooltip="Show or hide versions below 1.20",
     )
 
-    def on_update_version(e=None):
-        """One click: fetch the version list if needed, pick the newest stable
-        release, and select it - which auto-installs it via the same prefetch
-        path a manual selection uses.
-
-        This must never dead-end. Three cases that used to produce a useless
-        message (or no action at all) are handled explicitly:
-          - the newest release isn't in the current list (offline or filtered)
-            -> it is added to the dropdown/picker before selecting it;
-          - the newest release is already selected but NOT yet installed -> the
-            install is (re)started and the status says "Getting ...", instead
-            of "pick it from the list" when it already is picked;
-          - it is selected and installed -> "Already on the latest release".
-        """
-        set_status("Checking for updates", busy=True)
-        try:
-            if not all_online_options["value"]:
-                refresh_version_list(online=True)
-            latest = _newest_release_key()
-            if not latest:
-                set_status("Could not fetch versions (offline?)")
-                return
-            current_mc = state.get("selected_mc_version")
-            if (current_mc == latest
-                    and state.get("selected_version") in state["installed"]):
-                set_status(f"Already on the latest release ({latest})")
-                return
-
-            # The newest release has to be selectable. The offline (installed-
-            # only) list can't contain it, and any list can be missing a just-
-            # released version - add it rather than pointing the user at a list
-            # it isn't in.
-            if not any(o.key == latest for o in (version_dropdown.options or [])):
-                option = ft.dropdown.Option(key=latest, text=latest)
-                version_dropdown.options = [option] + list(
-                    version_dropdown.options or [])
-                if not any(o.key == latest for o in (pick_source["value"] or [])):
-                    pick_source["value"] = [option] + list(
-                        pick_source["value"] or [])
-
-            if version_dropdown.value != latest:
-                version_dropdown.value = latest
-                _sync_version_button()
-                on_version_selected()
-                set_status(f"Updating to {latest}...")
-            else:
-                # Already selected. Make sure the download is actually underway
-                # (a selection that never changed can miss the prefetch) and
-                # report the real state - never a message that reads like the
-                # button did nothing.
-                on_version_selected()
-                if latest in state["installed"]:
-                    set_status(f"Already on the latest release ({latest})")
-                else:
-                    set_status(f"Getting {latest}...")
-        except Exception as ex:
-            set_status(f"Update check failed: {ex}")
-        finally:
-            # Paint the visible picker label even on an error path.
-            _sync_version_button()
-            thread_safe_ui.refresh(version_button_label)
-            thread_safe_ui.refresh(version_dropdown)
-
-    update_version_btn = ft.Container(
-        content=ft.Row(
-            [
-                ft.Icon(ft.Icons.SYSTEM_UPDATE_ALT_ROUNDED, color=ACCENT, size=15),
-                ft.Text("Update game version", size=12.5, color=ACCENT,
-                        weight=ft.FontWeight.W_600),
-            ],
-            spacing=7,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        on_click=on_update_version,
-        ink=False,
-        bgcolor="transparent",
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=7),
-        tooltip="Get the newest Minecraft version",
-    )
-    theme.attach_hover(update_version_btn, "transparent", ACCENT_TINT)
     # Online mode pulls in every release Mojang has ever shipped (600+
     # entries) with no way to jump to one - the raw dropdown became a wall of
     # text nobody could scan. This filters that list live as the user types
@@ -1979,7 +1933,6 @@ def main(page: ft.Page):
     # them scroll past hundreds of versions from 2011 onward to find one from
     # this year. Only shown once there's actually a long online list to
     # filter; the short offline (installed-only) list doesn't need it.
-    all_online_options = {"value": []}  # full unfiltered online list, cached across filter keystrokes
     # The picker dialog's source list (installed-only offline, or the full
     # online list). Kept SEPARATE from version_dropdown.options on purpose:
     # the old filter rewrote the canonical dropdown options/value on every
@@ -2536,7 +2489,6 @@ def main(page: ft.Page):
             # it reads the same in both places.
             label = _labels.get(v["id"]) if is_installed else None
             options.append(ft.dropdown.Option(key=v["id"], text=f"{label or v['id']}{tag}"))
-        all_online_options["value"] = options
         pick_source["value"] = list(options)
         version_filter_field.value = ""
         version_filter_field.visible = True
@@ -3237,7 +3189,7 @@ def main(page: ft.Page):
     #   PAGE HEADING  -> INSTANCE CARD
     #     INSTANCE HEADER  (emblem, name, meta, rename/delete)
     #     CONFIGURATION    (game version + account, then mod loader)
-    #     ACTION FOOTER    (update game version, PLAY)
+    #     ACTION FOOTER    (PLAY)
     # The card is compact and top-aligned; it is never stretched to fill the
     # viewport just because there is room below it.
     play_tab = ft.Column(
@@ -3335,11 +3287,9 @@ def main(page: ft.Page):
 
                         ft.Container(height=18),
 
-                        # ACTION FOOTER: the launch-config nudge on the left,
-                        # the primary PLAY action on the right.
+                        # ACTION FOOTER: the primary PLAY action on the right.
                         ft.Row(
                             [
-                                update_version_btn,
                                 ft.Container(expand=True),
                                 ft.Container(width=280, content=play_button),
                             ],
@@ -3845,14 +3795,9 @@ def main(page: ft.Page):
         core.save_config(cfg)
         set_status("Settings saved")
 
-    # Opt-in crash reporting (see cubeon/crashreport.py): OFF by default and
-    # inert until a report endpoint is configured server-side. The checkbox
-    # is the user's explicit yes; the config key is the contract the hook
-    # reads.
     # The in-game Cubeon Client mod (Friends button, in-game menu) is injected
     # into Fabric/Quilt profiles at launch. This is the user's off switch:
     # unchecking launches a clean mod setup (the launcher itself is unaffected).
-    # Mirrors crash_reports_cb's instant-save pattern.
     client_mod_cb = ft.Checkbox(
         label="",
         value=bool(cfg.get("client_mod_enabled", True)),
@@ -3867,18 +3812,6 @@ def main(page: ft.Page):
                     else "disabled - launches clean"))
 
     client_mod_cb.on_change = on_client_mod_change
-
-    crash_reports_cb = ft.Checkbox(
-        label="",
-        value=bool(cfg.get("crash_reports", False)),
-        active_color=ACCENT,
-    )
-
-    def on_crash_reports_change(e):
-        cfg["crash_reports"] = bool(crash_reports_cb.value)
-        core.save_config(cfg)
-
-    crash_reports_cb.on_change = on_crash_reports_change
 
     detected_java = core.find_java()  # Try to auto-detect Java
 
@@ -4348,7 +4281,6 @@ def main(page: ft.Page):
         ram_label=ram_label, ram_warning=ram_warning,
         width_field=width_field, height_field=height_field,
         java_path_field=java_path_field, detected_java=detected_java,
-        crash_reports_cb=crash_reports_cb,
         backup_enabled_switch=backup_enabled_switch,
         frequency_dropdown=frequency_dropdown,
         include_saves_switch=include_saves_switch,
@@ -4518,7 +4450,10 @@ def main(page: ft.Page):
     # once, and keep their positions if the window is later resized (they wrap
     # within that width). Re-flowing them on every resize would mean listening
     # to window events for a decoration.
-    _season_strip_w = max(360, int(getattr(page.window, "width", 0) or 1180) - 40)
+    # Uses the SAVED width (_gw), not page.window.width: during startup the
+    # window is still sized as the loading splash, so reading it here would
+    # spread the particles over 360px instead of the real window.
+    _season_strip_w = max(360, int(_gw or 1180) - 40)
     season_strip, season_particles, season_bounds = build_ambience(
         season_info, width=_season_strip_w, height=56,
     )
@@ -4618,11 +4553,17 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    page.add(ft.Container(
+    # Swap the loading splash for the real UI. The window is already mapped
+    # (showing the splash), so this swap IS the transition the user sees -
+    # no hidden build, no flash of an empty frame.
+    _app_root = ft.Container(
         content=ft.Column([top_bar, subnav_bar, season_band, content_surface],
                           expand=True, spacing=0),
         expand=True,
-    ))
+    )
+    page.controls.clear()
+    page.controls.append(_app_root)
+    page.update()
 
     # Finally, populate the version dropdown for the first time (offline mode)
     refresh_version_list()
@@ -4636,19 +4577,16 @@ def main(page: ft.Page):
     # of the still-mounting control tree).
     thread_safe_ui.mark_mounted(page)
 
-    # --- Now show the window, in one clean shot ---------------------------
-    # The window PROCESS was started hidden (view=FLET_APP_HIDDEN at ft.run),
-    # so nothing has ever painted on screen. By this point the full control
-    # tree is mounted, the theme is applied and the first paint has been
-    # batched - so flipping visible now shows a fully-formed window at the
-    # right size: no default-size flash, no resize jump, no empty frames,
-    # and no hide-then-reshow (the first attempt set visible=False from
-    # Python, which arrives AFTER the client already showed its window -
-    # the user saw the window appear, vanish, and reappear).
+    # --- Swap the splash for the finished window --------------------------
+    # The window PROCESS was started hidden (view=FLET_APP_HIDDEN at ft.run)
+    # and the splash revealed right after the first window settings. By now
+    # the full control tree is mounted and the theme is applied, so applying
+    # the saved geometry and making the finished UI visible is one clean
+    # shot: no default-size flash, no hide-then-reshow.
     # wait_until_ready_to_show() is the desktop-shell handshake that the
-    # first frame is actually in the window's back buffer; then
-    # visible=True paints once.
+    # first frame is actually in the window's back buffer.
     async def _reveal_window():
+        _apply_real_geometry()
         try:
             await page.window.wait_until_ready_to_show()
         except Exception:
@@ -4689,6 +4627,7 @@ def main(page: ft.Page):
     except Exception:
         # No event loop to schedule on (headless/test harness): show
         # synchronously so automated checks still see the window.
+        _apply_real_geometry()
         page.window.visible = True
 
     # The Cubeon name is automatic now: ensure_identity() mints the
@@ -5170,9 +5109,28 @@ def main(page: ft.Page):
         #     destroyed session - the read never returns, so the process
         #     just sat there with a dead icon. Geometry is now only saved
         #     when this session's window is still the live one.
+        #
+        # ORDER IS LOAD-BEARING. The flet desktop client is killed FIRST,
+        # before any of the blocking cleanup: it is the window the user is
+        # looking at. The old order ran the cleanup first, and when that
+        # blocked the 3s bail timer fired os._exit(0) with the client still
+        # alive - the launcher process vanished but the window stayed
+        # mapped, disconnected, spinning the engine's "Working..."
+        # placeholder forever (the reported "Quit leaves the window open").
+        # Geometry is saved before the kill because it reads page.window,
+        # which only answers while the session is live.
         _bail = threading.Timer(3.0, lambda: os._exit(0))
         _bail.daemon = True
         _bail.start()
+        if _tray_runtime.get("controller_page") is page:
+            _save_geometry_now()
+        # Best-effort client reaper (defined later in __main__; callbacks
+        # only run after startup has completed). Without this the hard exit
+        # below would skip the post-ft.run sweep and leave a ghost window.
+        try:
+            _kill_flet_client()
+        except Exception:
+            pass
         try:
             _rpc.clear()
             _rpc.close()
@@ -5180,18 +5138,6 @@ def main(page: ft.Page):
             pass
         try:
             friends_service.stop()
-        except Exception:
-            pass
-        if _tray_runtime.get("controller_page") is page:
-            _save_geometry_now()
-        # Quit can be clicked while the window is still open.  In that case
-        # os._exit below would skip the normal post-ft.run sweep and leave
-        # Flet's separate desktop client mapped as a ghost window.  Reuse the
-        # same best-effort client reaper used by the session loop before the
-        # hard exit.  The function is defined later in __main__, but callbacks
-        # only run after startup has completed.
-        try:
-            _kill_flet_client()
         except Exception:
             pass
         os._exit(0)

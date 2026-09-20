@@ -716,18 +716,21 @@ def copy_mods_between_profiles(
 # ---------------------------------------------------------------------------
 
 def get_recommended_mods(mc_version: str | None = None, loader: str = "fabric",
-                          category: str | None = None) -> list[dict]:
+                          category: str | None = None, limit: int = 100,
+                          offset: int = 0) -> list[dict]:
     """Fetches mods to show before any search. With no category picked, this
     is the small curated set of popular all-rounder mods. With a category
     picked, it instead searches Modrinth for the top mods in that category
     (scoped to the current version+loader) so switching categories actually
-    changes what's shown, sorted by relevance/downloads."""
+    changes what's shown, sorted by relevance/downloads.
+
+    The category path is a normal Modrinth search, so it honors limit/offset:
+    the UI asks for ONE page at a time (offset = page * page_size) instead of
+    pulling 100 hits up front just to slice them locally. The curated no-
+    category set is tiny (a handful of slugs) and ignores offset/limit."""
     if category:
-        # Fetched well above the 5-per-page UI size so the Mods tab has
-        # several real pages to page through instead of one page of results
-        # and nothing behind it. 100 is Modrinth's own per-request cap.
         return search_mods("", mc_version=mc_version, loader=loader,
-                            categories=[category], limit=100)
+                            categories=[category], limit=limit, offset=offset)
 
     cache_key = {"mc_version": mc_version, "loader": loader, "category": category, "slugs": RECOMMENDED_MOD_SLUGS}
 
@@ -761,10 +764,16 @@ def get_recommended_mods(mc_version: str | None = None, loader: str = "fabric",
 
 
 def search_mods(query: str, mc_version: str | None = None, loader: str = "fabric",
-                 categories: list[str] | None = None, limit: int = 100) -> list[dict]:
+                 categories: list[str] | None = None, limit: int = 100,
+                 offset: int = 0) -> list[dict]:
     """Searches Modrinth for mods, optionally scoped to a specific MC version,
     loader, and one or more categories (e.g. "performance", "worldgen").
-    Returns a simplified list of hit dicts ready for display."""
+    Returns a simplified list of hit dicts ready for display.
+
+    `offset` pages through Modrinth's result set: the Mods tab fetches one
+    page at a time (limit = page size, offset = page * page size) so a browse
+    never pulls every page up front. Offset is part of the cache key, so each
+    page caches independently."""
     facets = [["project_type:mod"]]
     if loader:
         facets.append([f"categories:{loader}"])
@@ -778,12 +787,13 @@ def search_mods(query: str, mc_version: str | None = None, loader: str = "fabric
 
     cache_key = {
         "query": query, "mc_version": mc_version, "loader": loader,
-        "categories": categories or [], "limit": limit,
+        "categories": categories or [], "limit": limit, "offset": offset,
     }
 
     def _fetch() -> list[dict]:
         params = {
-            "query": query, "limit": str(limit), "facets": json.dumps(facets),
+            "query": query, "limit": str(limit), "offset": str(offset),
+            "facets": json.dumps(facets),
             "index": modrinth_search_index(query),
         }
         data = net.get_json(f"{MODRINTH_API}/search", params=params,

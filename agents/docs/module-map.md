@@ -101,6 +101,22 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
 - Seasonal layer defaults OFF (`seasonal_theme`/`season_pet` are False in
   `cubeon/config.py`); `CUBEON_SEASON=<season>` still pins for tests and
   screenshots.
+- **Tray Quit order is load-bearing (2026-09-20)**: `_tray_quit()` must call
+  `_kill_flet_client()` (and save geometry) BEFORE the rpc/friends cleanup.
+  The cleanup can deadlock on native teardown; when it did, the 3s bail timer
+  fired `os._exit(0)` with the flet client still mapped, leaving the reported
+  "Quit leaves the window open, spinning Working…". Killing the client first
+  means the window is gone no matter how the cleanup goes. Guard:
+  `tools/test_ui_smoke.py` asserts the call order.
+- **Startup splash (2026-09-20)**: `main()` mounts a small centered
+  "Loading Cubeon" `_splash` container right after the theme is applied
+  (window 360x200, `resizable=False`) and reveals it immediately, then swaps
+  it for `_app_root` (`page.controls.clear()` + append + `page.update()`) once
+  the full tree is built. The saved geometry (`_apply_real_geometry()`) is
+  applied ONLY in `_reveal_window`, i.e. with the finished UI — never at
+  startup, so the splash doesn't open full-size. The seasonal ambience uses
+  the saved `_gw`, not `page.window.width` (which is the splash width during
+  the build). Do NOT move the geometry assignment back before the splash.
 
 ## Minecraft screenshot gallery (2026-09-19) — INVARIANT
 - Screenshots live in Cubeon's private game folder at
@@ -513,7 +529,7 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   (grass-block emblem, `hero_title`, loader chip + version meta, rename/
   delete) → CONFIGURATION (a row of the two related fields, Game version
   dropdown + Account field, then the Mod loader segmented control) →
-  ACTION FOOTER (`update_version_btn` on the left, PLAY right at 280px).
+  ACTION FOOTER (PLAY right at 280px).
   Below the card sits a full-width OG Minecraft key-art banner
   (`assets/titleimg.jpg`, 2000x1000): wrapped in a `Row` so an expanded
   `Container` stretches it edge-to-edge (the card itself stays compact), fixed
@@ -709,12 +725,12 @@ python3 tools/test_mod_bridge.py        # 137: reads Bridge.java, asserts launch
 python3 tools/test_mod_compile.py       # mod source compiles vs the stub API subset
 python3 tools/test_mod_matrix.py        # 68: brackets/jar routing
 python3 tools/test_capes.py             # 14: flexible capes + CSL sync
-python3 tools/test_ui_smoke.py          # 97: tab builders build, invariants hold
+python3 tools/test_ui_smoke.py          # 148: tab builders build, invariants hold
 python3 tools/test_invites.py           # 127: Minekube/tunnel flows
-python3 tools/test_modpacks.py          # 51: pack installs
-python3 tools/test_mod_store.py         # 21: global mod store
+python3 tools/test_modpacks.py          # 66: pack installs
+python3 tools/test_mod_store.py         # 27: global mod store
 python3 tools/test_net.py               # 19: download retry/resume/cap + updater
-python3 tools/test_production.py        # 13: watchdog + opt-in crash reporting
+python3 tools/test_production.py        # 51: watchdog
 python3 tools/build_mod_jars.py         # rebuild mod jars -> cache + assets/jars
 ```
 
@@ -777,12 +793,11 @@ trap (the mod now warns about it in chat, but don't rely on that).
   120 frames/min per user (silent drop), 10 friend-requests/min per user
   (T_ERROR `rate_limited`, human message). In-memory per DO, deliberately
   not SQLite. `wrangler deploy` needed to go live!
-- **Crash reporting** (#7): `cubeon/crashreport.py` — OFF unless
-  cfg["crash_reports"] AND an endpoint exists (env CUBEON_CRASH_ENDPOINT or
-  cfg["crash_endpoint"]); payload = diagnostics_text() tail only. Hooked into
-  logging_setup excepthooks. Settings tab has a "Privacy" checkbox.
-  **No receiving endpoint exists yet** — build a tiny Worker route, then set
-  the env var.
+- **Crash reporting REMOVED (2026-09-20, user request)**: `cubeon/crashreport.py`
+  and the Settings > Privacy section are gone. Uncaught exceptions are still
+  written to the rotating log by `logging_setup._install_excepthooks()`, but
+  nothing is ever sent anywhere. `setup_logging()` no longer takes a crash_cfg.
+  Do NOT reintroduce a network crash reporter or a Privacy settings pane.
 - **Game watchdog** (#9): `cubeon/watchdog.py` — running_game.json record at
   launch, cleared on confirmed exit; `stale_session()` at startup detects an
   orphaned game and the launcher offers a "Close it" snackbar. Never raises.
@@ -1143,6 +1158,36 @@ Still-true invariants from the pre-local era:
   before them but only CALLS `_build_plugins_view_segment` at runtime. The
   old stacked layout (browse results with installed list a full scroll
   below) is gone. ui_smoke §11 asserts the pattern in all three files.
+- **Browse paging is lazy, one page at a time (2026-09-20)**: both the Mods
+  tab (`ui/mods_tab.py`, BROWSE_PAGE_SIZE=5, MAX_BROWSE_PAGES=20) and the
+  Modpacks tab (`ui/modpacks_tab.py`, PAGE_SIZE=5, MAX_PAGES=10) advertise a
+  full page count but fetch only the requested page — the pager's Next/Prev
+  triggers a fetch for that offset, not a 20-page prefetch. `browse_state`
+  holds the page cache; a page already in `results` renders without refetching.
+  `offset` is part of every search cache key in `cubeon/mods.py`,
+  `cubeon/content.py`, and `cubeon/modpacks.py` so pages cache independently.
+  Modrinth's per-request cap is 100 (`limit`); a SHORT page clamps
+  `total_pages` down (the API over-reports count for filtered queries). The
+  curated no-category mod list ignores `offset`, so it sets
+  `browse_state["paged"] = False` and slices client-side. Modpacks fetch
+  Modrinth + CurseForge in parallel per offset and merge via
+  `merge_modpack_hits`; keyless cfwidget returns [] for offset>0.
+- **Installed content shows real thumbnails (2026-09-20)**: a bare `.zip`
+  carries no Modrinth identity, so `download_content()` records the browse
+  hit's `icon_url`/`slug`/`title` (via `content.remember_content_meta`) in the
+  `content_meta.json` sidecar under `CUBEON_HOME`, and `list_content()`
+  re-attaches it (`_attach_content_meta`); `delete_content()` calls
+  `forget_content_meta()` so a reused filename can't inherit stale art.
+  Modpacks do the same through their `_modpack.json` meta: the install paths
+  take an `icon_url` kwarg (`install_modpack_from_url` /
+  `install_modpack_from_cf` -> `_install_from_zip`) and `build_installed_row`
+  draws `icons.src(meta["icon_url"])`. No recorded art (hand-dropped file) ->
+  keep the quiet type glyph, never a broken image.
+- **Shader requirement notice is state-aware (2026-09-20)**: the Shaders view's
+  "install Iris/Sodium/OptiFine" banner (`shader_notice`) shows only while the
+  requirement is actually missing — `shader_requirement_installed()` scans
+  `core.list_mods()` display names for "iris"/"optifine", so installing the
+  loader clears the notice on the next `refresh_mods_list`.
 - **Browse rows share ONE visual pattern everywhere** (2026-09-09): the mods
   tab's row style is the canonical one — `attach_hover(container,
   "transparent", ROW_HOVER)` (transparent at rest, faint lift on hover, no
@@ -1162,7 +1207,8 @@ Still-true invariants from the pre-local era:
   scan — they CREATE directories as a side effect; glob PROFILES_DIR /
   SERVERS_DIR / RESOURCEPACKS_DIR / SHADERPACKS_DIR directly
   (ui_smoke §12 enforces via a comment-stripping matcher). Flet 0.86 has
-  no `ft.margin.only/.symmetric` — use `ft.Margin(l, t, r, b)`.
+  no `ft.margin.only/.symmetric` — use `ft.Margin(l, t, r, b)`. "Playing
+  since" reports the full date (`%b %d, %Y`), not just month+year.
 - **Chat tab + automatic identity** (2026-09-11, ui/chat_tab.py): top-nav
   "chat" key, inserted at index 3 ONLY when `features.friends_enabled()`, so a
   public no-Friends build has no dead entry. It talks to the process-scoped
@@ -1386,20 +1432,12 @@ Still-true invariants from the pre-local era:
   `get_available_versions()` and `get_latest_release()` read that cache, NOT
   `mll.utils.get_version_list()` (single bare request, no timeout/retry).
   Regression: `tools/test_versions_manifest.py`.
-- **"Update game version"** button (Play tab, next to Legacy): loads the
-  online list if needed, picks the newest stable release
-  (`_newest_release_key`, pure numeric ids, list-first then
-  `get_latest_release()` fallback - the function was referenced but never
-  defined until 2026-09-11, so the button used to always raise), selects it -
-  the existing prefetch path installs it in the background. Hardened
-  2026-09-12 to never dead-end: if the newest release isn't in the current
-  (offline/filtered) list it is added to the dropdown + `pick_source` before
-  selecting; if it's already selected but not installed it (re)starts the
-  install and says "Getting <v>..."; if selected AND installed it says
-  "Already on the latest release (<v>)". The old "Latest is <v> - pick it
-  from the list" branch (which fired when it was already picked) is gone.
-  The visible picker label is repainted in the handler's `finally`.
-  Regression: `tools/test_ui_smoke.py` section 6b drives the real handler.
+- **"Update game version" REMOVED (2026-09-20, user request).** The Play tab
+  button, its `on_update_version` handler, the `_newest_release_key` helper and
+  the `all_online_options` cache are all gone; test_ui_smoke section 6b was
+  deleted with them. Changing/selecting a version now happens ONLY through the
+  version picker dialog - nothing auto-jumps the selection to the newest
+  release. Don't reintroduce it without the user explicitly asking.
 - test_ui_smoke now asserts nav via lowercased all_text (which includes
   tooltips - all_text already walked them); nav labels are
   play/mods/modpacks/cosmetics/servers/account/settings + the two buttons.

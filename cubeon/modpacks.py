@@ -447,7 +447,8 @@ def _modrinth_project_id(urls) -> "str | None":
     return None
 
 
-def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None) -> dict:
+def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
+                      icon_url: str | None = None) -> dict:
     progress_cb = progress_cb or _noop
     status_cb = status_cb or _noop
     max_cb = max_cb or _noop
@@ -580,6 +581,10 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
             "version_id": version_id,
             "mod_count": len(mod_files),
         }
+        # The browse hit's thumbnail, kept so "Installed packs" can show real
+        # art instead of a placeholder. Absent for a pack imported from disk.
+        if icon_url:
+            meta["icon_url"] = icon_url
         try:
             with open(os.path.join(profile_dir, MODPACK_META_FILENAME), "w", encoding="utf-8") as fh:
                 json.dump(meta, fh)
@@ -706,10 +711,12 @@ def _archive_progress_status(prefix: str, status_cb):
     return report
 
 
-def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_cb=None) -> dict:
+def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_cb=None,
+                             icon_url: str | None = None) -> dict:
     """Download a `.mrpack` (from a browse result) and install it. The pack
     archive itself must come from the same trusted host allowlist as its
-    files."""
+    files. `icon_url` is the browse hit's thumbnail, recorded in the pack meta
+    so the installed list can show it."""
     status_cb = status_cb or _noop
     if not _host_allowed(url):
         raise ModpackError("That modpack download isn't from a trusted host.")
@@ -719,7 +726,8 @@ def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_
     try:
         _download_to(tmp, [url], None,
                      _archive_progress_status("Downloading modpack...", status_cb))
-        return _install_from_zip(tmp, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb)
+        return _install_from_zip(tmp, progress_cb=progress_cb, status_cb=status_cb,
+                                 max_cb=max_cb, icon_url=icon_url)
     finally:
         try:
             os.remove(tmp)
@@ -892,7 +900,8 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
 
 
 def install_modpack_from_cf(project_id: str, file_id, *,
-                            progress_cb=None, status_cb=None, max_cb=None) -> dict:
+                            progress_cb=None, status_cb=None, max_cb=None,
+                            icon_url: str | None = None) -> dict:
     """Download a CurseForge pack zip and install it through the mrpack
     pipeline. The zip comes from CurseForge's own CDN/redirect endpoints
     (both allowlisted), and every per-mod URL the conversion writes comes
@@ -909,7 +918,8 @@ def install_modpack_from_cf(project_id: str, file_id, *,
                                               status_cb))
         _cf_manifest_to_mrpack(tmp_zip, tmp_mrpack, status_cb=status_cb)
         return _install_from_zip(tmp_mrpack, progress_cb=progress_cb,
-                                 status_cb=status_cb, max_cb=max_cb)
+                                 status_cb=status_cb, max_cb=max_cb,
+                                 icon_url=icon_url)
     finally:
         for tmp in (tmp_zip, tmp_mrpack):
             try:
@@ -1094,16 +1104,18 @@ def export_mrpack(name: str, version: str, mc_version: str, loader: str,
 # Discovery via Modrinth's public API (project_type:modpack) - no auth.
 # ---------------------------------------------------------------------------
 
-def _modrinth_modpack_search(query: str, mc_version: str | None, limit: int) -> list[dict]:
+def _modrinth_modpack_search(query: str, mc_version: str | None, limit: int,
+                             offset: int = 0) -> list[dict]:
     """One Modrinth search request, parsed into the browse-UI hit shape.
     Split out of search_modpacks so the UI can render Modrinth results
     immediately while CurseForge (slower, especially keyless via cfwidget)
-    is still in flight."""
+    is still in flight. `offset` pages through the result set."""
     facets = [["project_type:modpack"]]
     if mc_version:
         facets.append([f"versions:{mc_version}"])
 
-    params = {"query": query, "limit": str(limit), "facets": json.dumps(facets),
+    params = {"query": query, "limit": str(limit), "offset": str(offset),
+              "facets": json.dumps(facets),
               "index": modrinth_search_index(query)}
     payload = net.get_json(f"{MODRINTH_API}/search", params=params,
                            headers=MODRINTH_HEADERS, timeout=15)
@@ -1126,13 +1138,15 @@ def _modrinth_modpack_search(query: str, mc_version: str | None, limit: int) -> 
     return results
 
 
-def search_modpacks_modrinth(query: str, mc_version: str | None = None, limit: int = 40) -> list[dict]:
+def search_modpacks_modrinth(query: str, mc_version: str | None = None,
+                             limit: int = 40, offset: int = 0) -> list[dict]:
     """Modrinth-only modpack search, cached. Kept separate from the combined
     search so the browse UI can show these hits first."""
-    cache_key = {"query": query, "mc_version": mc_version, "limit": limit}
+    cache_key = {"query": query, "mc_version": mc_version, "limit": limit,
+                 "offset": offset}
 
     def fetch():
-        return _modrinth_modpack_search(query, mc_version, limit)
+        return _modrinth_modpack_search(query, mc_version, limit, offset)
 
     # cached_call: fresh cache wins; on a failed fetch the last known results
     # are served instead of an error (a launcher showing yesterday's search
@@ -1141,14 +1155,20 @@ def search_modpacks_modrinth(query: str, mc_version: str | None = None, limit: i
                                    background_refresh=False)
 
 
-def search_modpacks_curseforge(query: str, mc_version: str | None = None, limit: int = 40) -> list[dict]:
+def search_modpacks_curseforge(query: str, mc_version: str | None = None,
+                               limit: int = 40, offset: int = 0) -> list[dict]:
     """CurseForge-only modpack search, cached. Keyless access (cfwidget) is
     slow - up to a dozen 4s probes - so this runs as its own phase the UI
-    merges in whenever it lands."""
-    cache_key = {"query": query, "mc_version": mc_version, "limit": limit}
+    merges in whenever it lands. Only the keyed CurseForge API paginates;
+    keyless cfwidget returns its small curated set for the first page and
+    nothing for later offsets (so classics never repeat on every page)."""
+    cache_key = {"query": query, "mc_version": mc_version, "limit": limit,
+                 "offset": offset}
 
     def fetch():
-        return _curseforge_search(query, mc_version, limit)
+        if offset and not curseforge_enabled():
+            return []
+        return _curseforge_search(query, mc_version, limit, offset)
 
     return local_cache.cached_call("search_modpacks_cf", cache_key, fetch,
                                    background_refresh=False)
@@ -1176,7 +1196,8 @@ def merge_modpack_hits(mr_hits: list[dict], cf_hits: list[dict], query: str) -> 
     return results
 
 
-def search_modpacks(query: str, mc_version: str | None = None, limit: int = 40) -> list[dict]:
+def search_modpacks(query: str, mc_version: str | None = None, limit: int = 40,
+                    offset: int = 0) -> list[dict]:
     """Search Modrinth for modpacks (optionally scoped to an MC version via
     the `versions:` facet - advisory on Modrinth's side, same caveat as
     get_modpack_file(); results still carry their own `versions` list so
@@ -1189,14 +1210,15 @@ def search_modpacks(query: str, mc_version: str | None = None, limit: int = 40) 
     Tolerant of a malformed/unexpected API response shape (missing `hits`,
     a non-list `hits`, or a non-dict entry) - skips what it can't use
     instead of raising, since this hits a third-party endpoint outside this
-    project's control."""
-    cache_key = {"query": query, "mc_version": mc_version, "limit": limit}
+    project's control. `offset` pages through both providers."""
+    cache_key = {"query": query, "mc_version": mc_version, "limit": limit,
+                 "offset": offset}
 
     def fetch():
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=2) as pool:
-            mr_fut = pool.submit(search_modpacks_modrinth, query, mc_version, limit)
-            cf_fut = pool.submit(search_modpacks_curseforge, query, mc_version, limit)
+            mr_fut = pool.submit(search_modpacks_modrinth, query, mc_version, limit, offset)
+            cf_fut = pool.submit(search_modpacks_curseforge, query, mc_version, limit, offset)
             try:
                 mr = mr_fut.result()
             except Exception:
@@ -1216,9 +1238,10 @@ def search_modpacks(query: str, mc_version: str | None = None, limit: int = 40) 
                                    background_refresh=False)
 
 
-def get_popular_modpacks(mc_version: str | None = None, limit: int = 40) -> list[dict]:
+def get_popular_modpacks(mc_version: str | None = None, limit: int = 40,
+                         offset: int = 0) -> list[dict]:
     """The default browse list before the user searches: most-downloaded packs."""
-    return search_modpacks("", mc_version=mc_version, limit=limit)
+    return search_modpacks("", mc_version=mc_version, limit=limit, offset=offset)
 
 
 # ---------------------------------------------------------------------------
@@ -1393,10 +1416,13 @@ def _cfwidget_search(query: str, limit: int) -> list[dict]:
     return hits[:limit]
 
 
-def _curseforge_search(query: str, mc_version: "str | None", limit: int) -> list[dict]:
+def _curseforge_search(query: str, mc_version: "str | None", limit: int,
+                       offset: int = 0) -> list[dict]:
     """CF search hits in the same dict shape the Modrinth path returns, tagged
     source='curseforge'. Any failure (no key, network, schema drift) degrades
-    to an empty list rather than breaking the Modrinth results."""
+    to an empty list rather than breaking the Modrinth results. Keyless
+    cfwidget can't paginate (it returns a small curated set), so offset only
+    applies to the keyed CurseForge API path."""
     if not curseforge_enabled():
         return _cfwidget_search(query, limit)
     try:
@@ -1406,6 +1432,7 @@ def _curseforge_search(query: str, mc_version: "str | None", limit: int) -> list
             "searchFilter": query or "",
             "sortField": "2",   # 2 = Popularity (downloads) - matches browse
             "sortOrder": "desc",
+            "index": str(offset),
             "pageSize": str(min(limit, 50)),
         })
     except Exception:

@@ -53,7 +53,8 @@ import os
 import shutil
 import tempfile
 
-from .paths import APP_NAME, GLOBAL_CONTENT_DIR, RESOURCEPACKS_DIR, SHADERPACKS_DIR
+from .paths import (APP_NAME, CUBEON_HOME, GLOBAL_CONTENT_DIR, RESOURCEPACKS_DIR,
+                    SHADERPACKS_DIR)
 from . import global_mod_cache
 from . import local_cache
 from . import net
@@ -297,6 +298,79 @@ def link_into_profile(content_type: str, stored_path: str,
 # Installed-content CRUD (over the shared game folder - no profiles)
 # ---------------------------------------------------------------------------
 
+# Packs and shaders are installed as bare .zips, so (unlike mods) nothing on
+# disk remembers which Modrinth project they came from - yet the installed
+# list should show the project's thumbnail so a user can spot it at a glance.
+# This little sidecar maps content_type -> installed filename -> {icon_url,
+# slug, title}, written at download time and read back by list_content().
+# Best-effort: a pack installed before this existed, or dropped in by hand,
+# simply has no art and falls back to the placeholder icon.
+_CONTENT_META_PATH = os.path.join(CUBEON_HOME, "content_meta.json")
+
+
+def _read_content_meta() -> dict:
+    try:
+        with open(_CONTENT_META_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_content_meta(data: dict) -> None:
+    tmp = _CONTENT_META_PATH + ".tmp"
+    try:
+        os.makedirs(CUBEON_HOME, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        os.replace(tmp, _CONTENT_META_PATH)
+    except OSError:
+        log.debug("couldn't write content metadata", exc_info=True)
+
+
+def remember_content_meta(content_type: str, filename: str, *,
+                          icon_url: str | None = None,
+                          slug: str | None = None,
+                          title: str | None = None) -> None:
+    """Records a pack/shader's Modrinth identity against its installed
+    filename. Called by download_content(); a no-op when nothing is known."""
+    if not filename or not (icon_url or slug or title):
+        return
+    data = _read_content_meta()
+    bucket = data.setdefault(content_type, {})
+    entry = bucket.get(filename) or {}
+    if icon_url:
+        entry["icon_url"] = icon_url
+    if slug:
+        entry["slug"] = slug
+    if title:
+        entry["title"] = title
+    bucket[filename] = entry
+    _write_content_meta(data)
+
+
+def forget_content_meta(content_type: str, filename: str) -> None:
+    """Drops a removed pack's metadata so a later pack that happens to reuse
+    the filename doesn't inherit a stranger's thumbnail."""
+    data = _read_content_meta()
+    bucket = data.get(content_type)
+    if not isinstance(bucket, dict) or filename not in bucket:
+        return
+    bucket.pop(filename, None)
+    _write_content_meta(data)
+
+
+def _attach_content_meta(content_type: str, item: dict) -> None:
+    entry = _read_content_meta().get(content_type, {}).get(item["filename"])
+    if isinstance(entry, dict):
+        if entry.get("icon_url"):
+            item["icon_url"] = entry["icon_url"]
+        if entry.get("slug"):
+            item["slug"] = entry["slug"]
+        if entry.get("title"):
+            item["title"] = entry["title"]
+
+
 def list_content(content_type: str, mc_version: str | None = None, *,
                  version_id: str | None = None, loader: str | None = None) -> list[dict]:
     """Every pack/shader installed for THIS instance. No enabled/disabled state:
@@ -341,6 +415,7 @@ def list_content(content_type: str, mc_version: str | None = None, *,
         if mc_version or version_id:
             item["compat"] = content_compat(content_type, fname, mc_version,
                                             version_id, loader)
+        _attach_content_meta(content_type, item)
         items.append(item)
     return items
 
@@ -390,6 +465,7 @@ def delete_content(content_type: str, filename: str,
                 os.remove(stored)
         except OSError:
             log.debug("couldn't purge stored pack %s", stored, exc_info=True)
+    forget_content_meta(content_type, filename)
 
 
 def _store_target_of(link_path: str) -> str | None:
@@ -577,12 +653,17 @@ def content_compat(content_type: str, filename: str,
 # ---------------------------------------------------------------------------
 
 def search_content(content_type: str, query: str, mc_version: str | None = None,
-                    categories: list[str] | None = None, limit: int = 100) -> list[dict]:
+                    categories: list[str] | None = None, limit: int = 100,
+                    offset: int = 0) -> list[dict]:
     """Searches Modrinth for packs/shaders of this type, optionally scoped to a
     Minecraft version and one or more categories. With no query text this is a
     most-downloaded-first browse (see modrinth_search_index). No loader facet:
     resource packs have no loader, and shaders are matched by version/category
-    so the results aren't over-narrowed to one shader loader."""
+    so the results aren't over-narrowed to one shader loader.
+
+    `offset` pages through Modrinth's result set so the UI can fetch one page
+    at a time instead of pulling 100 hits and slicing locally. Included in the
+    cache key, so pages cache independently."""
     project_type = _cfg(content_type)["project_type"]
     facets = [[f"project_type:{project_type}"]]
     if mc_version:
@@ -592,12 +673,13 @@ def search_content(content_type: str, query: str, mc_version: str | None = None,
 
     cache_key = {
         "type": content_type, "query": query, "mc_version": mc_version,
-        "categories": categories or [], "limit": limit,
+        "categories": categories or [], "limit": limit, "offset": offset,
     }
 
     def _fetch() -> list[dict]:
         params = {
-            "query": query, "limit": str(limit), "facets": json.dumps(facets),
+            "query": query, "limit": str(limit), "offset": str(offset),
+            "facets": json.dumps(facets),
             "index": modrinth_search_index(query),
         }
         data = net.get_json(f"{MODRINTH_API}/search", params=params,
@@ -621,16 +703,19 @@ def search_content(content_type: str, query: str, mc_version: str | None = None,
 
 
 def get_recommended_content(content_type: str, mc_version: str | None = None,
-                            category: str | None = None) -> list[dict]:
+                            category: str | None = None, limit: int = 100,
+                            offset: int = 0) -> list[dict]:
     """The default browse view before the user searches: the most-downloaded
     packs/shaders of this type for the current version (and category, if one's
     picked). Unlike mods.py's curated slug list, this is a plain popularity
     browse - for cosmetics 'most popular' is exactly what a browse should show,
     and it can never come back empty the way a hard-coded slug list can if a
-    slug is renamed upstream."""
+    slug is renamed upstream. limit/offset page through Modrinth so the UI
+    fetches one page at a time."""
     return search_content(
         content_type, "", mc_version=mc_version,
         categories=[category] if category else None,
+        limit=limit, offset=offset,
     )
 
 
@@ -677,7 +762,10 @@ def download_content(content_type: str, download_url: str, filename: str,
                      progress_cb=None, hashes: dict | None = None, *,
                      mc_version: str | None = None,
                      version_id: str | None = None,
-                     loader: str | None = None, fix_cb=None) -> str:
+                     loader: str | None = None, fix_cb=None,
+                     icon_url: str | None = None,
+                     slug: str | None = None,
+                     title: str | None = None) -> str:
     """Streams a pack/shader file into the shared folder for this content type.
 
     Goes through cubeon.net like every other download: retry with backoff,
@@ -716,7 +804,12 @@ def download_content(content_type: str, download_url: str, filename: str,
                 os.remove(tmp)
             except OSError:
                 pass
-    return link_into_profile(content_type, stored, mc_version, loader)
+    linked = link_into_profile(content_type, stored, mc_version, loader)
+    # Remember which project this came from so the installed list can show its
+    # thumbnail later (a bare .zip carries no Modrinth identity).
+    remember_content_meta(content_type, os.path.basename(linked),
+                          icon_url=icon_url, slug=slug, title=title)
+    return linked
 
 
 # ---------------------------------------------------------------------------

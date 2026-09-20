@@ -1,6 +1,6 @@
 """Tests for the production-pass modules: cubeon/watchdog.py (orphaned-game
-tracking) and cubeon/crashreport.py (opt-in reporting). Hermetic: network
-calls are faked, the watchdog uses a real short-lived subprocess."""
+tracking). Hermetic: network calls are faked, the watchdog uses a real
+short-lived subprocess."""
 import json
 import os
 import subprocess
@@ -16,7 +16,7 @@ _sandbox_home.isolate()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from cubeon import crashreport, watchdog  # noqa: E402
+from cubeon import watchdog  # noqa: E402
 
 _passed = 0
 _failed = 0
@@ -218,56 +218,6 @@ invalid_id = watchdog.register(invalid.pid, "1.20.1", "Bad Name", process=invali
 check(watchdog.effective_username("Committed") == "", "invalid live username never falls back to edited config")
 invalid.finish()
 watchdog.clear(invalid_id)
-
-# ----------------------------------------------------------- crashreport ---
-check(crashreport.endpoint({}) is None, "crash reporting OFF without opt-in")
-check(crashreport.endpoint({"crash_reports": True}) is None,
-      "opt-in without an endpoint is still OFF (nowhere to send)")
-check(crashreport.endpoint({"crash_reports": True,
-                            "crash_endpoint": "https://x"}) == "https://x",
-      "opt-in + endpoint = enabled")
-os.environ["CUBEON_CRASH_ENDPOINT"] = "https://env-endpoint"
-check(crashreport.endpoint({"crash_reports": True}) == "https://env-endpoint",
-      "env endpoint wins over config")
-del os.environ["CUBEON_CRASH_ENDPOINT"]
-
-posted = []
-
-
-def fake_post(url, **kwargs):
-    posted.append((url, kwargs.get("data")))
-    class R:
-        status_code = 200
-    return R()
-
-
-real_post = crashreport.requests.post
-try:
-    crashreport.requests.post = fake_post
-    crashreport.report({"crash_reports": True,
-                        "crash_endpoint": "https://x"}, "TRACEBACK TEXT")
-    deadline = time.time() + 2
-    while not posted and time.time() < deadline:
-        time.sleep(0.01)
-    check(len(posted) == 1 and posted[0][0] == "https://x"
-          and b"TRACEBACK TEXT" in posted[0][1],
-          "enabled crash report is POSTed with the diagnostics payload")
-
-    posted.clear()
-    crashreport.report({}, "SHOULD NOT SEND")
-    time.sleep(0.05)
-    check(not posted, "opted-out crash report is never sent")
-
-    # A failing endpoint must not raise out of report().
-    def boom(*a, **k):
-        raise RuntimeError("network down")
-    crashreport.requests.post = boom
-    crashreport.report({"crash_reports": True,
-                        "crash_endpoint": "https://x"}, "text")
-    time.sleep(0.05)
-    check(True, "failed delivery never raises")
-finally:
-    crashreport.requests.post = real_post
 
 from cubeon import atomicio, config
 

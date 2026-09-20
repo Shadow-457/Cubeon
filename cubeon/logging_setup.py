@@ -29,15 +29,10 @@ BACKUPS = 3
 _configured = False
 
 
-def _install_excepthooks(crash_cfg: dict | None = None) -> None:
+def _install_excepthooks() -> None:
     def _hook(kind, value, tb):
         logging.getLogger("cubeon.fatal").critical(
             "Uncaught exception", exc_info=(kind, value, tb))
-        try:
-            from cubeon import crashreport, logging_setup as ls
-            crashreport.report(crash_cfg, ls.format_traceback(value))
-        except Exception:
-            pass
 
     sys.excepthook = _hook
 
@@ -45,24 +40,14 @@ def _install_excepthooks(crash_cfg: dict | None = None) -> None:
         logging.getLogger("cubeon.fatal").critical(
             "Uncaught exception in thread %s", args.thread.name if args.thread else "?",
             exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
-        try:
-            from cubeon import crashreport, logging_setup as ls
-            crashreport.report(
-                crash_cfg,
-                f"thread: {args.thread.name if args.thread else '?'}\n"
-                + ls.format_traceback(args.exc_value))
-        except Exception:
-            pass
 
     if hasattr(threading, "excepthook"):
         threading.excepthook = _thread_hook
 
 
-def setup_logging(verbose: bool = False, crash_cfg: dict | None = None) -> str:
+def setup_logging(verbose: bool = False) -> str:
     """Configure the root logger. Returns the log file path. Never raises:
-    a read-only HOME must degrade to console-only logging, not kill startup.
-    crash_cfg (the launcher's config dict, when available) gates the
-    opt-in crash reporting hooks."""
+    a read-only HOME must degrade to console-only logging, not kill startup."""
     global _configured
     if _configured:
         return LOG_PATH
@@ -83,7 +68,7 @@ def setup_logging(verbose: bool = False, crash_cfg: dict | None = None) -> str:
     except OSError as ex:
         root.warning("file logging unavailable (%s); console only", ex)
     logging.captureWarnings(True)
-    _install_excepthooks(crash_cfg)
+    _install_excepthooks()
     _configured = True
     return LOG_PATH
 

@@ -128,10 +128,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         install_bar.value = 0
         page.update()
 
-    def run_install(*, url=None, file_path=None, cf_file=None):
+    def run_install(*, url=None, file_path=None, cf_file=None, icon_url=None):
         """cf_file: a get_modpack_file() result with source='curseforge' -
         installed through the CF->mrpack converter instead of the raw-mrpack
-        path (a CurseForge zip isn't an .mrpack)."""
+        path (a CurseForge zip isn't an .mrpack). icon_url: the browse hit's
+        thumbnail, saved into the pack meta for the installed list."""
         if busy["value"]:
             return
         _begin_install()
@@ -141,10 +142,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 if cf_file is not None:
                     meta = core.install_modpack_from_cf(
                         cf_file["project_id"], cf_file["file_id"],
-                        progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb)
+                        progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb,
+                        icon_url=icon_url)
                 elif url is not None:
                     meta = core.install_modpack_from_url(
-                        url, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb)
+                        url, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb,
+                        icon_url=icon_url)
                 else:
                     meta = core.install_modpack_from_file(
                         file_path, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb)
@@ -450,8 +453,20 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     browse_status = ft.Text("", size=12, color=TEXT_DIM)
     browse_title = ft.Text("Popular modpacks", size=12,
                            color=TEXT_DIM, font_family=FONT_MONO)
-    browse_state = {"results": [], "page": 0}
+    # One page of 5, up to 10 pages. Pages are fetched ON DEMAND - opening the
+    # tab loads page 1 only and each pager click fetches just that page from
+    # both providers (Modrinth + CurseForge) for its offset. Fetched pages are
+    # cached in browse_state["pages"] so stepping back is instant.
     PAGE_SIZE = 5
+    MAX_PAGES = 10
+    browse_state = {
+        "results": [],          # items on the page currently rendered
+        "page": 0,
+        "empty_msg": "",
+        "pages": {},            # page_num -> merged hits already fetched
+        "total_pages": MAX_PAGES,
+        "gen": None,            # generation these pages belong to
+    }
 
     pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     pager_prev = ft.Container(content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
@@ -461,11 +476,73 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     pager_row = ft.Row([pager_prev, pager_label, pager_next],
                        alignment=ft.MainAxisAlignment.CENTER, spacing=4, visible=False)
 
-    def render_results(results, empty_msg):
-        browse_state["results"] = results or []
+    def _current_query() -> str:
+        return search_field.value.strip()
+
+    def _load_page(page_num: int, gen: int):
+        """Fetches ONE page (PAGE_SIZE hits) from BOTH providers for the
+        current query, merging each provider's hits into the page as they
+        land - Modrinth is fast and shows up first, CurseForge (keyless
+        cfwidget probes especially) folds in when it finishes. Only this page
+        is fetched; the rest wait for the pager."""
+        wanted_mc = state.get("selected_mc_version")
+        query = _current_query()
+        limit = PAGE_SIZE
+        offset = page_num * PAGE_SIZE
+        provider_results = {"modrinth": [], "curseforge": []}
+        provider_lock = threading.Lock()
+
+        def publish(provider, hits):
+            with provider_lock:
+                if gen != search_gen["v"]:
+                    return
+                provider_results[provider] = hits or []
+                merged = core.merge_modpack_hits(
+                    provider_results["modrinth"], provider_results["curseforge"], query)
+                browse_state["pages"][page_num] = merged
+                # A short page is the end of the result set; a full one leaves
+                # the advertised page count alone.
+                if len(merged) < PAGE_SIZE:
+                    browse_state["total_pages"] = min(
+                        browse_state["total_pages"], page_num + 1)
+                if browse_state["page"] == page_num:
+                    _render_page()
+
+        def mr_worker():
+            try:
+                hits = core.search_modpacks_modrinth(
+                    query, mc_version=wanted_mc, limit=limit, offset=offset)
+            except Exception:
+                if gen != search_gen["v"]:
+                    return
+                browse_status.value = "Search failed - check your internet."
+                page.update()
+                return
+            publish("modrinth", hits)
+
+        def cf_worker():
+            try:
+                hits = core.search_modpacks_curseforge(
+                    query, mc_version=wanted_mc, limit=limit, offset=offset)
+            except Exception:
+                return  # CF is optional; Modrinth results already rendered
+            publish("curseforge", hits)
+
+        threading.Thread(target=mr_worker, daemon=True).start()
+        threading.Thread(target=cf_worker, daemon=True).start()
+
+    def render_results(empty_msg):
+        """Resets the browse to page 1 for the current query and starts its
+        fetch. Later pages load only when the pager asks for them."""
         browse_state["empty_msg"] = empty_msg
         browse_state["page"] = 0
-        _render_page()
+        browse_state["pages"] = {}
+        browse_state["results"] = []
+        browse_state["total_pages"] = MAX_PAGES
+        browse_state["gen"] = search_gen["v"]
+        results_view.controls.clear()
+        page.update()
+        _load_page(0, search_gen["v"])
 
     def installed_pack_tokens() -> set:
         """Punctuation-free tokens of installed modpack *names*, so a Modrinth
@@ -482,10 +559,30 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         return tokens
 
     def _render_page():
-        results = browse_state["results"]
-        total_pages = max(1, -(-len(results) // PAGE_SIZE))
-        page_num = max(0, min(browse_state["page"], total_pages - 1))
+        if browse_state["gen"] is None:
+            # No browse has been started yet (a re-render triggered by an
+            # install before the tab's first load) - nothing to show.
+            return
+        page_num = browse_state["page"]
+        if page_num not in browse_state["pages"]:
+            # Not fetched yet: show loading and go get just this page.
+            results_view.controls.clear()
+            results_view.controls.append(
+                ft.Row(
+                    [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                     ft.Text("Loading...", size=13, color=TEXT_DIM)],
+                    spacing=10,
+                ))
+            pager_row.visible = False
+            page.update()
+            _load_page(page_num, browse_state.get("gen"))
+            return
+        results = browse_state["pages"][page_num]
+        total_pages = max(1, browse_state["total_pages"])
+        page_num = max(0, min(page_num, total_pages - 1))
         browse_state["page"] = page_num
+        results = browse_state["pages"].get(page_num, [])
+        browse_state["results"] = results
 
         results_view.controls.clear()
         if not results:
@@ -493,8 +590,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 ft.Text(browse_state.get("empty_msg", ""), size=13, color=TEXT_DIM))
         else:
             installed = installed_pack_tokens()
-            start = page_num * PAGE_SIZE
-            for pack in results[start:start + PAGE_SIZE]:
+            for pack in results:
                 title = re.sub(r"[^a-z0-9]+", "", (pack.get("title") or "").lower())
                 slug = re.sub(r"[^a-z0-9]+", "", (pack.get("slug") or "").lower())
                 is_installed = (bool(title) and title in installed) or \
@@ -502,8 +598,19 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 results_view.controls.append(build_pack_row(pack, is_installed))
 
         browse_status.value = f"{len(results)} packs" if results else ""
+        if (results and page_num == 0 and not _current_query()
+                and not core.curseforge_enabled()):
+            # CurseForge classics (RLCraft, SkyFactory, ...) ARE included now,
+            # keyless via cfwidget. The optional key unlocks full search +
+            # faster installs - but that's detail for the hover, not a
+            # sentence on the page.
+            browse_status.value = "Includes CurseForge classics."
+            browse_status.tooltip = (
+                "Popular CurseForge packs like RLCraft and SkyFactory are "
+                "included. A free CurseForge key unlocks the full catalogue "
+                "and faster installs.")
         pager_label.value = f"Page {page_num + 1} of {total_pages}"
-        pager_row.visible = len(results) > PAGE_SIZE
+        pager_row.visible = total_pages > 1
         pager_prev.disabled = page_num <= 0
         pager_next.disabled = page_num >= total_pages - 1
         page.update()
@@ -514,7 +621,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             _render_page()
 
     def _next(e=None):
-        total_pages = max(1, -(-len(browse_state["results"]) // PAGE_SIZE))
+        total_pages = max(1, browse_state["total_pages"])
         if browse_state["page"] < total_pages - 1:
             browse_state["page"] += 1
             _render_page()
@@ -524,44 +631,13 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def load_popular():
         search_gen["v"] += 1
-        gen = search_gen["v"]
         browse_title.value = "POPULAR MODPACKS"
-        browse_status.value = "Loading..."
-        results_view.controls.clear()
         # Loading state: repaint just the browse region.
-        thread_safe_ui.refresh(results_view)
-        thread_safe_ui.refresh(browse_status)
         thread_safe_ui.refresh(browse_title)
-        wanted_mc = state.get("selected_mc_version")
+        render_results(empty_msg="No modpacks found.")
 
-        def worker():
-            try:
-                results = core.get_popular_modpacks(mc_version=wanted_mc)
-            except Exception as ex:
-                if gen != search_gen["v"]:
-                    return
-                browse_status.value = "Couldn't load the list - check your internet."
-                thread_safe_ui.refresh(browse_status)
-                return
-            if gen != search_gen["v"]:
-                return  # a newer search/popular-load took over while we fetched
-            render_results(results, empty_msg="No modpacks found.")
-            if not core.curseforge_enabled():
-                # CurseForge classics (RLCraft, SkyFactory, ...) ARE included
-                # now, keyless via cfwidget. The optional key unlocks full
-                # search + faster installs - but that's detail for the hover,
-                # not a sentence on the page.
-                browse_status.value = "Includes CurseForge classics."
-                browse_status.tooltip = (
-                    "Popular CurseForge packs like RLCraft and SkyFactory are "
-                    "included. A free CurseForge key unlocks the full "
-                    "catalogue and faster installs.")
-                thread_safe_ui.refresh(browse_status)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    # Search runs in TWO PHASES: Modrinth results render the moment their
-    # (fast) request lands, then CurseForge hits are merged in when the
+    # Search runs in TWO PHASES PER PAGE: Modrinth results render the moment
+    # their (fast) request lands, then CurseForge hits are merged in when the
     # slower cfwidget probes finish - the user reads real results instead of
     # watching a spinner for the worst of the two providers. The generation
     # counter makes a slow older search unable to overwrite a newer one.
@@ -584,46 +660,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             load_popular()
             return
         search_gen["v"] += 1
-        gen = search_gen["v"]
         browse_title.value = f'RESULTS FOR "{query.upper()}"'
-        browse_status.value = "Searching..."
-        results_view.controls.clear()
-        page.update()
-        wanted_mc = state.get("selected_mc_version")
-        provider_results = {"modrinth": [], "curseforge": []}
-        provider_lock = threading.Lock()
-
-        def publish(provider, hits):
-            with provider_lock:
-                if gen != search_gen["v"]:
-                    return
-                provider_results[provider] = hits or []
-                merged = core.merge_modpack_hits(
-                    provider_results["modrinth"], provider_results["curseforge"], query)
-                render_results(merged, empty_msg="No modpacks found for that search.")
-
-        def mr_worker():
-            try:
-                results = core.search_modpacks_modrinth(query, mc_version=wanted_mc)
-            except Exception as ex:
-                if gen != search_gen["v"]:
-                    return
-                browse_status.value = "Search failed - check your internet."
-                page.update()
-                return
-            if gen != search_gen["v"]:
-                return
-            publish("modrinth", results)
-
-        def cf_worker():
-            try:
-                cf = core.search_modpacks_curseforge(query, mc_version=wanted_mc)
-            except Exception:
-                return  # CF is optional; Modrinth results already rendered
-            publish("curseforge", cf)
-
-        threading.Thread(target=mr_worker, daemon=True).start()
-        threading.Thread(target=cf_worker, daemon=True).start()
+        render_results(empty_msg="No modpacks found for that search.")
 
     def build_pack_row(pack, is_installed=False):
         """
@@ -690,9 +728,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                         page.update()
                         return
                     if file_info.get("source") == "curseforge":
-                        run_install(cf_file=file_info)
+                        run_install(cf_file=file_info, icon_url=pack.get("icon_url"))
                     else:
-                        run_install(url=file_info["url"])
+                        run_install(url=file_info["url"], icon_url=pack.get("icon_url"))
                 except Exception as ex:
                     _end_install_err(f"Couldn't start install: {ex}"[:200])
                 finally:
@@ -725,7 +763,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             so no Play-tab compatibility check applies here."""
             url = (v or {}).get("url")
             if url:
-                run_install(url=url)
+                run_install(url=url, icon_url=_pack.get("icon_url"))
 
         def _open_pack_detail(e=None, _pack=pack, _installed=is_installed,
                               _theme=_pack_theme, _install=on_install):
@@ -933,12 +971,22 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
         # Installed rows match the browse rows: transparent at rest, lift on
         # hover - one calm surface instead of stacked rectangles.
+        # The pack's Modrinth art, recorded in its meta at install time, so an
+        # installed pack is as easy to recognise as it was in the browse list.
+        # A pack imported from disk has no recorded art and keeps the glyph.
+        _icons.prefetch(meta.get("icon_url"))
+        pack_icon = (
+            ft.Image(src=_icons.src(meta.get("icon_url")), width=44, height=44,
+                     border_radius=RADIUS, fit=ft.BoxFit.COVER)
+            if meta.get("icon_url") else
+            ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=20)
+        )
         return attach_hover(
             ft.Container(
                 content=ft.Row(
                     [
                         ft.Container(width=44, height=44, bgcolor=ROW_HOVER, border_radius=RADIUS,
-                                     content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=20),
+                                     content=pack_icon,
                                      alignment=ft.Alignment.CENTER),
                         ft.Column(
                             [

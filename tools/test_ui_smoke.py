@@ -220,7 +220,6 @@ text = " | ".join(all_text(page.controls[0])).lower()
 nav_labels = ("play", "mods", "modpacks", "cosmetics", "servers", "account", "settings")
 for label in nav_labels:
     check(f"nav shows {label!r}", label in text)
-check("update-version button present", "update game version" in text)
 # The Legacy toggle and the snapshots checkbox live in Settings now (this
 # fake page only mounts the Play tab), so their ABSENCE here is the check.
 check("legacy toggle not on the play tab", "show snapshots" not in text)
@@ -613,100 +612,6 @@ if again:
         k in t2 for k in ("play", "mods", "modpacks", "cosmetics",
                           "servers", "account", "settings")),
         f"text={t2[:400]!r}")
-
-print("\n6b. the Update game version button really updates")
-
-# Drive the actual button handler. It is a nested function, so we reach it
-# through the control tree: the update control is the one with on_click whose
-# subtree contains "update game version". Everything network- or
-# thread-spawning is stubbed so the test stays hermetic. Status messages are
-# not mounted (there is no visible status chip by design), so we capture them
-# by spying on thread_safe_ui.refresh, which set_status() calls.
-import cubeon.thread_safe_ui as _tsui_smoke
-import threading as _threading
-_saved_install_version = core.install_version
-_saved_is_loader_supported = core.is_loader_supported
-_saved_mod_doctor = core.mod_doctor
-_saved_is_server_running = core.is_server_running
-_saved_get_installed = core.get_installed_versions
-_saved_tsui_refresh = _tsui_smoke.refresh
-# Block the prefetch install so it can't flip the version to "installed"
-# mid-assertion (the real install takes long enough that it never does).
-_release_install = _threading.Event()
-core.install_version = lambda *a, **k: _release_install.wait(3)
-core.is_loader_supported = lambda *a, **k: False
-core.mod_doctor = lambda *a, **k: {"checked": 0, "problems": [],
-                                  "fixed": [], "unfixed": []}
-core.is_server_running = lambda *a, **k: False
-_statuses = []
-
-
-def _cap_refresh(ctrl):
-    v = getattr(ctrl, "value", None)
-    if isinstance(v, str):
-        _statuses.append(v)
-    return _saved_tsui_refresh(ctrl)
-
-
-_tsui_smoke.refresh = _cap_refresh
-
-
-def _control_with_click(control, needle):
-    for c in walk(control):
-        if getattr(c, "on_click", None) is not None \
-                and needle in " | ".join(all_text(c)).lower():
-            return c
-    return None
-
-
-try:
-    _update_btn = _control_with_click(page.controls[0], "update game version")
-    check("the update-version button has a click handler",
-          _update_btn is not None)
-    if _update_btn is not None:
-        # Case A: newest release is not installed -> selecting it starts the
-        # download and says so (before, a non-installed latest could hit
-        # "pick it from the list" even though it was already picked).
-        _update_btn.on_click(None)
-        _txt = " | ".join(all_text(page.controls[0])).lower()
-        check("update selects the newest release",
-              "minecraft 1.21.11" in _txt and "1.21.11" in _txt,
-              f"txt={_txt[:400]!r}")
-        _joined_status = " || ".join(s.lower() for s in _statuses)
-        check("update never dead-ends on 'pick it from the list'",
-              "pick it from the list" not in _joined_status,
-              f"statuses={_statuses[-6:]!r}")
-        check("update reports the download for the newest release",
-              "getting 1.21.11" in _joined_status
-              or "updating to 1.21.11" in _joined_status,
-              f"statuses={_statuses[-6:]!r}")
-
-        # Case B: newest release already selected AND installed -> a clear
-        # "already latest" message, not a confusing no-op.
-        core.get_installed_versions = lambda: [
-            {"id": "1.21.11", "display_name": "1.21.11", "incomplete": False}]
-        page3 = FakePage()
-        app.main(page3)
-        _btn3 = _control_with_click(page3.controls[0], "update game version")
-        check("second app instance also has the update button",
-              _btn3 is not None)
-        if _btn3 is not None:
-            _btn3.on_click(None)
-            _txt3 = " | ".join(all_text(page3.controls[0])).lower()
-            check("update keeps the latest installed release selected",
-                  "minecraft 1.21.11" in _txt3, f"txt={_txt3[:400]!r}")
-            check("update on the latest installed release reports it",
-                  any("already on the latest release" in s.lower()
-                      for s in _statuses),
-                  f"statuses={_statuses[-6:]!r}")
-finally:
-    _release_install.set()
-    _tsui_smoke.refresh = _saved_tsui_refresh
-    core.install_version = _saved_install_version
-    core.is_loader_supported = _saved_is_loader_supported
-    core.mod_doctor = _saved_mod_doctor
-    core.is_server_running = _saved_is_server_running
-    core.get_installed_versions = _saved_get_installed
 
 print("\n7. the tunnel section is reachable from the Server console view")
 # The whole point of the feature is a button the user can actually see. main()
@@ -1462,6 +1367,48 @@ try:
 except Exception:
     import traceback
     check("focused UI regressions complete", False, traceback.format_exc())
+
+# --- tray Quit while the window is open must not leave a ghost window ----------
+# Reported: "when I quit from tray while the window is open the window doesn't
+# close, it shows Working and a loading circle." The flet client (the actual
+# window) has to be killed BEFORE the blocking quit cleanup, because that
+# cleanup can deadlock on native teardown (Discord IPC, friends WS, pystray) -
+# when it did, the 3s bail timer's os._exit(0) fired with the client still
+# alive, leaving a mapped, disconnected engine spinner.
+_tray_quit_src = _fn_src(_src_main, "_tray_quit")
+check("tray Quit kills the flet client before the blocking cleanup",
+      _tray_quit_src.find("_kill_flet_client()") != -1
+      and _tray_quit_src.find("_kill_flet_client()")
+      < _tray_quit_src.find("friends_service.stop()"),
+      "client kill must precede rpc/friends cleanup or a stalled cleanup "
+      "strands the window on the engine's 'Working...' placeholder")
+
+# --- startup splash ------------------------------------------------------------
+# User request: the launcher "takes time to start", so show a small loading
+# window instead of nothing. The window must open as a splash immediately,
+# swap to the real UI, and only then apply the saved geometry (so the splash
+# doesn't open at full size, and the real UI doesn't reappear at 360x200).
+check("main() mounts a startup splash before building the UI",
+      "_splash = ft.Container" in _src_main and "page.add(_splash)" in _src_main,
+      "no splash mounted")
+check("main() swaps the splash for the real UI",
+      "page.controls.clear()" in _src_main and "_app_root" in _src_main,
+      "the built UI must replace the splash, not stack on it")
+_reveal_body = _fn_src(_src_main, "_reveal_window")
+check("saved geometry is applied on reveal, not at startup",
+      "_apply_real_geometry()" in _reveal_body
+      and "page.window.width = _SPLASH_W" in _src_main,
+      "geometry must land with the finished UI, not the splash")
+
+# --- Privacy/crash reporting is gone -------------------------------------------
+# User request: "remove the privacy option completely from settings and backend."
+_privacy_src = open(os.path.join(_app_root, "ui", "settings_tab.py"),
+                    encoding="utf-8").read()
+check("Settings has no Privacy section", '"privacy"' not in _privacy_src
+      and "Privacy" not in _privacy_src and "crash_reports_cb" not in _privacy_src)
+check("crash reporting backend and wiring are gone",
+      not os.path.exists(os.path.join(_app_root, "cubeon", "crashreport.py"))
+      and "crash_reports" not in _src_main and "crashreport" not in _src_main)
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

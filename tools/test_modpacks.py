@@ -232,6 +232,28 @@ def main():
     check("meta: modpack manifest written",
           os.path.isfile(os.path.join(profile_dir, modpacks.MODPACK_META_FILENAME)))
 
+    # Thumbnail carry-through: the browse hit's icon_url rides into the pack
+    # meta so "Installed packs" can draw real art. A pack imported from disk
+    # (no browse hit) must NOT grow a bogus icon_url key.
+    def _meta_on_disk():
+        with open(os.path.join(profile_dir, modpacks.MODPACK_META_FILENAME),
+                  "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    mrpack_art = os.path.join(scratch, "art.mrpack")
+    build_mrpack(mrpack_art)
+    modpacks._install_from_zip(mrpack_art,
+                               icon_url="https://cdn.modrinth.com/data/abc/icon.png")
+    check("install: browse icon_url is persisted into the pack meta",
+          _meta_on_disk().get("icon_url")
+          == "https://cdn.modrinth.com/data/abc/icon.png", _meta_on_disk().get("icon_url"))
+
+    mrpack_plain = os.path.join(scratch, "plain.mrpack")
+    build_mrpack(mrpack_plain)
+    _plain_meta = modpacks._install_from_zip(mrpack_plain)
+    check("install: no browse hit -> no icon_url key",
+          "icon_url" not in _meta_on_disk() and "icon_url" not in _plain_meta)
+
     cache = modpacks.global_mod_cache
     shared = os.path.join(scratch, "shared.jar")
     old_bytes, new_bytes = b"SHARED ORIGINAL", b"PRIVATE OVERRIDE"

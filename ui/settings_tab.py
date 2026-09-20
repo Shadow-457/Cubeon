@@ -3,7 +3,7 @@ The Settings tab, redesigned (2026-09-09).
 
 Goals (user ask: "good looking, easy to manage, best user experience"):
 - TWO PANES: a slim left rail of section links (Game versions, Memory,
-  Display, Java, Privacy, Backups) and the active section's content on the
+  Display, Java, Seasonal, Backups) and the active section's content on the
   right. Six topics in one endless scroll was the "hard to manage" part;
   one topic at a time with a visible rail is the fix.
 - INSTANT SAVE: every control persists the moment you touch it. The old
@@ -32,7 +32,6 @@ SECTIONS = [
     ("display", ft.Icons.MONITOR_ROUNDED, "Display"),
     ("java", ft.Icons.COFFEE_ROUNDED, "Java"),
     ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
-    ("privacy", ft.Icons.PRIVACY_TIP_ROUNDED, "Privacy"),
     ("backups", ft.Icons.BACKUP_ROUNDED, "Backups"),
 ]
 
@@ -86,7 +85,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        browse_online_row, legacy_btn, legacy_note,
                        client_mod_cb, ram_slider, ram_range_row, ram_label,
                        ram_warning, width_field, height_field,
-                       java_path_field, detected_java, crash_reports_cb,
+                       java_path_field, detected_java,
                        backup_enabled_switch, frequency_dropdown,
                        include_saves_switch, keep_last_field,
                        backup_status_text, backup_now_btn, open_folder_btn,
@@ -254,21 +253,6 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         spacing=8, visible=False,
     )
 
-    privacy_pane = ft.Column(
-        [
-            section_label("Privacy"),
-            ft.Container(height=2),
-            ft.Text(
-                "Crash reports help fix bugs and never include your password "
-                "or messages.",
-                size=12, color=TEXT_DIM,
-            ),
-            ft.Container(height=10),
-            crash_reports_cb,
-        ],
-        spacing=8, visible=False,
-    )
-
     backups_pane = ft.Column(
         [
             section_label("Backups"),
@@ -319,7 +303,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "versions": versions_pane, "memory": memory_pane,
         "display": display_pane, "java": java_pane,
         "seasonal": seasonal_pane,
-        "privacy": privacy_pane, "backups": backups_pane,
+        "backups": backups_pane,
     }
 
     # --- left rail ------------------------------------------------------------

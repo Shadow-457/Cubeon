@@ -115,10 +115,6 @@ hero card with three bands separated by `pixel_divider()`:
 - Version dropdown filters online/offline via the picker dialog
 
 **Action footer:**
-- "Update game version" link on the left — one click selects the newest stable
-  release and starts its download. It never dead-ends: the newest release is
-  added to the picker if the current list lacks it, and it reports "Getting
-  <v>..." / "Already on the latest release (<v>)".
 - PLAY button (changes color/text based on state) right-aligned at 280px
 - Progress bar + status text
 

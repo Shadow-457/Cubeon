@@ -126,5 +126,26 @@ check("failed store copy cleans unique temporary sibling",
       not any(n.startswith(".store-") for n in os.listdir(c.store_dir("resourcepack"))))
 check("retry stores complete bytes", Path(c._store_entry("resourcepack", str(source))).read_bytes() == source.read_bytes())
 
+# Thumbnail sidecar: download_content() records the Modrinth identity it was
+# given, list_content() reads it back onto the installed row, and deleting the
+# item drops it so a future same-named pack can't inherit the old art.
+def listed_as(name):
+    return next((i for i in c.list_content("resourcepack", A[0], loader=A[1])
+                 if i["filename"] == name), {})
+
+c.remember_content_meta("shader", "ArtPack.zip",
+                        icon_url="https://cdn.modrinth.com/data/xyz/icon.png",
+                        slug="art-pack", title="Art Pack")
+check("content meta: unrelated pack stays thumbnail-free",
+      "icon_url" not in listed_as("SameCopy.zip"), listed_as("SameCopy.zip"))
+c.remember_content_meta("resourcepack", "SameLink.zip",
+                        icon_url="https://cdn.modrinth.com/data/abc/icon.png")
+check("content meta: icon_url attached to the installed entry",
+      listed_as("SameLink.zip").get("icon_url")
+      == "https://cdn.modrinth.com/data/abc/icon.png", listed_as("SameLink.zip"))
+c.forget_content_meta("resourcepack", "SameLink.zip")
+check("content meta: forget drops the thumbnail",
+      "icon_url" not in listed_as("SameLink.zip"), listed_as("SameLink.zip"))
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

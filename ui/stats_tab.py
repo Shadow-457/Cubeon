@@ -156,7 +156,10 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         friends_value.value = f"{ms.get('friends_count_high', 0):,}"
 
         first = ms.get("first_seen_at")
-        member_value.value = time.strftime("%b %Y", time.localtime(first)) if first else "-"
+        # Full date, not just month/year: "Playing since" should answer the
+        # actual day someone started, not just roughly when.
+        member_value.value = (time.strftime("%b %d, %Y", time.localtime(first))
+                              if first else "-")
 
         from cubeon import thread_safe_ui
         for ctrl in (playtime_value, sessions_value, friends_value,
