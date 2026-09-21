@@ -599,7 +599,29 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         log_fh = None  # unwritable HOME: fall back to discarding output
 
     popen_kwargs = {}
-    if hasattr(os, "setsid") or os.name == "nt":
+    if os.name == "nt":
+        # Packaged Windows launchers are commonly started from a console or
+        # from an installer-created process tree.  A normal Popen child then
+        # inherits the console/job and Task Manager presents Minecraft as a
+        # Cubeon child.  Start it in a detached process group with no console
+        # of its own.  CREATE_BREAKAWAY_FROM_JOB is best effort: Windows
+        # refuses it when the parent job does not allow breakaway, but the
+        # other flags still keep the game independent of the launcher's UI.
+        creationflags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+        popen_kwargs["creationflags"] = creationflags
+        popen_kwargs["close_fds"] = True
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        popen_kwargs["startupinfo"] = startupinfo
+    elif hasattr(os, "setsid"):
+        # A separate session/group prevents terminal shutdown and launcher
+        # signals from taking Minecraft down with them.
         popen_kwargs["start_new_session"] = True
 
     # The launcher may be running on SOFTWARE OpenGL (its own crash fallback:
