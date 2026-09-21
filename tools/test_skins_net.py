@@ -351,7 +351,12 @@ classic = skins.add_custom_skin(classic_src, "Classic")
 
 slim_src = os.path.join(_tmp, "slim.png")
 slim_img = Image.new("RGBA", (64, 64), (100, 100, 200, 255))
-slim_img.putpixel((47, 20), (0, 0, 0, 0))  # the transparent arm column = slim (Alex)
+# Slim/Alex reserves the fourth column of both arm regions. Clear the full
+# columns so model detection cannot be fooled by a single transparent elbow.
+for y in range(20, 32):
+    slim_img.putpixel((47, y), (0, 0, 0, 0))
+for y in range(52, 64):
+    slim_img.putpixel((39, y), (0, 0, 0, 0))
 slim_img.save(slim_src)
 slim = skins.add_custom_skin(slim_src, "Slim")
 

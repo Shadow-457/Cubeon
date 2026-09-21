@@ -254,11 +254,25 @@ def add_custom_skin(src_path: str, display_name: str) -> dict:
 
 
 def _detect_slim_model(img: Image.Image) -> bool:
-    """Heuristic: slim ("Alex") arms are 3px wide instead of 4px, leaving the
-    outer column of the right-arm region transparent on modern 64x64 skins."""
+    """Detect the Alex/slim model from the reserved fourth arm columns.
+
+    A single probe pixel is not reliable: a classic skin may have a
+    transparent elbow, while a malformed/edited slim skin may have one stray
+    opaque pixel. The official 64x64 layout reserves the fourth base column
+    at x=47 and the fourth left-arm column at x=39; slim skins leave both
+    columns transparent for the full 12-pixel arm height. Requiring both
+    columns to be clear prevents assigning a 4px/classic skin to a 3px model,
+    which is what causes the back/outer arm edge to be clipped in-game.
+    """
     try:
-        px = img.convert("RGBA").getpixel((47, 20))
-        return px[3] == 0
+        rgba = img.convert("RGBA")
+        if rgba.size != (64, 64):
+            return False
+        reserved = (
+            [(47, y) for y in range(20, 32)]
+            + [(39, y) for y in range(52, 64)]
+        )
+        return all(rgba.getpixel(pos)[3] == 0 for pos in reserved)
     except Exception:
         return False
 
