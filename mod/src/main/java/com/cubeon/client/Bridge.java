@@ -240,8 +240,8 @@ public final class Bridge {
         /** The header line: whether presence is flowing. The account's NAME
          * is deliberately not part of this line - the account is the Cubeon
          * ID (youUid); the visible name is just the player's Minecraft
-         * username, which the screen shows on the Account tab where it
-         * belongs. The old "Connected as <claimed-name>" advertised the
+         * username, which the screen shows in friend/session details. The old
+         * "Connected as <claimed-name>" advertised the
          * relay's internal handle, which is exactly the identity confusion
          * the UID system exists to remove. */
         public String connectionLine() {
@@ -874,7 +874,7 @@ public final class Bridge {
                 Json.str(root, "you", ""),
                 // The 8-digit public Cubeon ID - the account's real handle.
                 // The internal claimed name above is plumbing; this is what
-                // the Account tab shows and what friends add you by.
+                // friend details show and what friends add you by.
                 uidOf(root, "you_uid"),
                 List.copyOf(friends),
                 Json.strings(root, "requests_in"),

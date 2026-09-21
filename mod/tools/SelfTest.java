@@ -488,7 +488,7 @@ public final class SelfTest {
         ok(Bridge.parseSnapshot("{\"you\": \"\"}", "{}").connectionLine().contains("not set up"),
                 "launcher up, nothing claimed");
         // The UID system: the header never advertises the internal claimed
-        // name - identity is the Cubeon ID, shown on the Account tab.
+        // name - identity is the Cubeon ID, shown in friend details.
         ok(Bridge.parseSnapshot("{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": true}", "{}")
                 .connectionLine().equals("Connected to Cubeon"), "claimed and connected");
         ok(Bridge.parseSnapshot(

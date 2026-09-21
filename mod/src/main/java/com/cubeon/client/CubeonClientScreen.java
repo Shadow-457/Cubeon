@@ -94,7 +94,7 @@ public class CubeonClientScreen extends Screen {
     private static final int ROW_STEP = BTN_H + 2;
     /** Row buttons that exist; how many are shown depends on the window. */
     private static final int ROW_SLOTS = 8;
-    /** Lines of prose the account tab and the empty states share. */
+    /** Lines of prose for empty states and friend sub-views. */
     private static final int INFO_LINES = 6;
     /** Prose step and pool for the Sync report: taller than the row list
      * because prose wraps, but capped so a long report can't grow the widget set. */
