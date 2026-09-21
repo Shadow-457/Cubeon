@@ -398,7 +398,12 @@ def main(page: ft.Page):
     # strand the window in unreachable space. -3840/-2160 allow one virtual
     # monitor to the left/above, but the position is dropped entirely if
     # invalid; the reveal task re-centers before showing.
-    _needs_center = _gl is None or _gt is None
+    # (0, 0) is the native window's pre-reveal placeholder on some Linux/Flet
+    # builds, not a deliberate saved location. Treat the old bad capture as
+    # missing so the finished window is centered once and can then persist its
+    # real position.
+    _needs_center = (_gl is None or _gt is None or (_gl == 0 and _gt == 0))
+    _geometry_ready = False
 
     def _screen_size():
         """Primary monitor size (w, h), or None.
@@ -444,6 +449,8 @@ def main(page: ft.Page):
                 page.window.left = max(0, (size[0] - int(_gw)) // 2)
                 page.window.top = max(0, (size[1] - int(_gh)) // 2)
         page.window.maximized = _saved_maximized
+        nonlocal _geometry_ready
+        _geometry_ready = True
 
     # App/taskbar/titlebar icon - falls back gracefully if not supported.
     # On Windows: window_manager requires .ico (e.g. icon.ico).
@@ -5040,6 +5047,10 @@ def main(page: ft.Page):
     _geometry_timer = None  # debounce: resize/move fire a stream of events
 
     def _save_geometry_now():
+        # Ignore move/close events emitted while the hidden splash/native
+        # window still reports its placeholder geometry.
+        if not _geometry_ready:
+            return
         try:
             w = page.window
             maximized = bool(w.maximized)
