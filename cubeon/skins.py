@@ -231,7 +231,20 @@ def add_custom_skin(src_path: str, display_name: str) -> dict:
     safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", display_name.strip()) or "skin"
     filename = f"{safe_name}_{uuid.uuid4().hex[:8]}.png"
     dest = os.path.join(SKINS_DIR, filename)
-    shutil.copyfile(src_path, dest)
+    # Copy through the launcher cache directory atomically. CSL and the
+    # preview worker can inspect this folder while an upload is finishing; a
+    # direct copy exposed half-written PNGs and produced intermittent broken
+    # previews/skins.
+    tmp = dest + ".uploading"
+    try:
+        shutil.copyfile(src_path, tmp)
+        os.replace(tmp, dest)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
     meta = _load_skins_meta()
     entry = {"filename": filename, "name": display_name.strip() or safe_name, "slim": slim}
@@ -310,10 +323,17 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
                 # The composed sheet is what lands in CSL: the active skin
                 # (or the built-in default when none is set).
                 sheet = compose_skin(cfg)
-                sheet.save(os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png"))
+                target = os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png")
+                tmp = target + ".uploading"
+                sheet.save(tmp, format="PNG")
+                os.replace(tmp, target)
                 cfg["csl_synced_name"] = username
             except OSError:
-                pass
+                try:
+                    os.remove(os.path.join(CSL_LOCAL_SKINS_DIR,
+                                           f"{username}.png.uploading"))
+                except OSError:
+                    pass
 
     # --- Network identity sync: ALWAYS (with a username) ---------------------
     # Even a vanilla player heartbeats once on first launch and once per

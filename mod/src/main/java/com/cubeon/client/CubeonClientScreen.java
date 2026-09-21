@@ -578,6 +578,16 @@ public class CubeonClientScreen extends Screen {
                 bridge.setSyncFriend("");
             }
         }
+        // Presence can change while the Sync view is open. Do not leave a
+        // stale compare/download surface active after the friend goes away;
+        // the action bar must immediately return to the disabled offline state.
+        if (syncOpen) {
+            Friend selectedFriend = find(snap, selected);
+            if (selectedFriend == null || !selectedFriend.online()) {
+                syncOpen = false;
+                bridge.clearSyncFriend(selected);
+            }
+        }
         rows = buildRows(snap);
 
         // Drop a selection that no longer exists - a friend who removed you, or
