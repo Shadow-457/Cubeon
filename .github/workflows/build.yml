@@ -93,6 +93,7 @@ jobs:
         run: |
           chmod +x packaging/build_appimage.sh
           ./packaging/build_appimage.sh
+          python packaging/build_linux_installers.py
 
       - name: Upload Linux AppImage Artifact
         # Publish artifacts only for tagged releases. A single run's
@@ -125,6 +126,20 @@ jobs:
             --verify-tag || true
           gh release upload "$GITHUB_REF_NAME" dist/Cubeon-x86_64.AppImage --clobber
 
+      - name: Attach Debian package to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/cubeon_1.0.0_amd64.deb --clobber
+
+      - name: Attach Linux setup script to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/Cubeon-Linux-x86_64-Setup.sh --clobber
+
   build-windows-exe:
     name: Build Windows EXE & ZIP
     runs-on: windows-latest
@@ -148,6 +163,7 @@ jobs:
       - name: Build Windows EXE & ZIP
         run: |
           python packaging/build_windows.py
+          python packaging/build_windows_installer.py
 
       - name: Upload Windows Standalone Folder Artifact
         # OFF deliberately: the ZIP below contains the same folder, and the
@@ -180,6 +196,13 @@ jobs:
             --notes "Automated build of $GITHUB_REF_NAME." \
             --verify-tag || true
           gh release upload "$GITHUB_REF_NAME" dist/Cubeon-Windows-x64.zip --clobber
+
+      - name: Attach Windows installer to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/Cubeon-Windows-x64-Setup.exe --clobber
 
   build-macos:
     name: Build macOS app
