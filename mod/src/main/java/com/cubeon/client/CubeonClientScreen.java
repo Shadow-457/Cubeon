@@ -109,7 +109,7 @@ public class CubeonClientScreen extends Screen {
     private static final int STATUS_TICKS = 200;
 
     private enum Tab {
-        FRIENDS, REQUESTS, ACCOUNT
+        FRIENDS, REQUESTS
     }
 
     /** One list entry. Rows are data; the row buttons are recycled. */
@@ -336,9 +336,7 @@ public class CubeonClientScreen extends Screen {
         Snapshot snap = bridge.snapshot();
         // With no name there is no roster and no requests, so don't open on a
         // tab that can only be empty - open on the one that fixes it.
-        if (!snap.claimed()) {
-            tab = Tab.ACCOUNT;
-        }
+        if (!snap.claimed()) tab = Tab.FRIENDS;
 
         // Notices arriving while this screen is up are shown in its own status
         // line instead of the hotbar overlay, which needs a live player and is
@@ -611,7 +609,7 @@ public class CubeonClientScreen extends Screen {
             button.setMessage(Component.literal(tabLabel(value, snap)));
             // The current tab reads as pressed by being unclickable, the way
             // vanilla's own tabbed screens do it.
-            button.active = value != tab && (snap.claimed() || value == Tab.ACCOUNT);
+            button.active = value != tab && snap.claimed();
         }
 
         applySessionSlots(snap.session());
@@ -640,10 +638,7 @@ public class CubeonClientScreen extends Screen {
             case REQUESTS -> snap.requestsIn().isEmpty()
                     ? "Requests"
                     : "Requests (" + snap.requestsIn().size() + ")";
-            // The UID system: the account IS the Cubeon ID, minted by the
-            // launcher - there is no "set up" phase and no name to pick, so
-            // this tab is always just "Account".
-            case ACCOUNT -> "Account";
+            // Friends and requests are the only in-game sections.
         };
     }
 
@@ -669,9 +664,6 @@ public class CubeonClientScreen extends Screen {
                     out.add(new Row(name, snap.peer(name).label(), "request sent", ChatFormatting.GRAY));
                 }
             }
-            case ACCOUNT -> {
-                // The account tab is prose, not a list.
-            }
         }
         return out;
     }
@@ -682,7 +674,7 @@ public class CubeonClientScreen extends Screen {
      * showing a stale name.
      */
     private void applyRows() {
-        boolean listTab = tab != Tab.ACCOUNT;
+        boolean listTab = true;
         int first = page * visibleRows;
         for (int i = 0; i < rowSlots.length; i++) {
             Slot slot = rowSlots[i];
@@ -821,46 +813,11 @@ public class CubeonClientScreen extends Screen {
         page = Math.max(0, Math.min(page, pageCount() - 1));
     }
 
-    /* The prose block: the account tab, every empty list, and nowhere at all
+    /* The prose block: every empty list, and nowhere at all
      * while the sync report is up (the sync labels own that region). */
-    /**
-     * The player's visible name: the launcher's published Minecraft username
-     * (read-only display metadata, kept fresh by the launcher), falling back
-     * to the game session's own username and then a neutral label. Never an
-     * editable field and never the internal relay handle.
-     */
-    private String myName() {
-        String shown = bridge.snapshot().youDisplayName();
-        if (!shown.equals("Player")) {
-            return shown;
-        }
-        try {
-            String n = Minecraft.getInstance().getUser().getName();
-            return (n == null || n.isBlank()) ? "Player" : n;
-        } catch (Throwable ignored) {
-            return "Player";    // fail-soft: a label, never a crash
-        }
-    }
-
     private void applyInfo(Snapshot snap) {
         List<Component> lines = new ArrayList<>();
-        if (tab == Tab.ACCOUNT) {
-            // Say who you are plainly - the one place in the mod where your
-            // own identity is on show. The NAME is the Minecraft username the
-            // player set in the launcher; the ACCOUNT is the Cubeon ID, which
-            // never changes and never needs claiming. Green on the name line
-            // keeps the settled feel it always had.
-            lines.add(colored("You are " + myName() + ".",
-                    snap.claimed() ? ChatFormatting.GREEN : ChatFormatting.GOLD));
-            if (snap.claimed() && !snap.youUid().isEmpty()) {
-                lines.add(colored("Cubeon ID: " + snap.youUid(),
-                        ChatFormatting.AQUA));
-            }
-            lines.add(Component.empty());
-            for (String line : wrap(accountBody(snap), panelW - 8)) {
-                lines.add(colored(line, ChatFormatting.GRAY));
-            }
-        } else if (playOpen) {
+        if (playOpen) {
             lines.add(colored("Play with " + peerLabel(selected), ChatFormatting.WHITE));
             for (String line : wrap(playBody(snap), panelW - 8)) {
                 lines.add(colored(line, ChatFormatting.GRAY));
@@ -905,29 +862,6 @@ public class CubeonClientScreen extends Screen {
         }
         return "Invite opens your own world to " + peerLabel(selected) + " (you then open it to "
                 + "LAN from this menu). Ask to join asks them to host instead.";
-    }
-
-    private String accountBody(Snapshot snap) {
-        if (!snap.launcherUp()) {
-            return "Cubeon isn't running on this computer. Friends, invites and world "
-                    + "sessions all come from the launcher, so start it and this screen "
-                    + "catches up on its own.";
-        }
-        if (!snap.available()) {
-            return "The launcher is missing its realtime add-on, so presence and invites "
-                    + "are off. Reinstall Cubeon, or install websocket-client into the "
-                    + "Python it runs on.";
-        }
-        if (!snap.claimed()) {
-            return "The launcher hasn't finished setting up your Cubeon account yet. "
-                    + "Open it once and this screen catches up on its own.";
-        }
-        // The UID system, stated in one breath: name = display only, ID =
-        // identity, and nothing here is renameable any more.
-        return "Your name is your Minecraft username - change it in the Cubeon "
-                + "launcher whenever you like, and it follows you everywhere. "
-                + "Your account is the Cubeon ID above: it is yours alone, never "
-                + "changes, and is how friends find and add you.";
     }
 
     private String emptyHead(Snapshot snap) {
@@ -1031,11 +965,6 @@ public class CubeonClientScreen extends Screen {
             return;
         }
 
-        if (tab == Tab.ACCOUNT) {
-            // No action bar on this tab: the account tab is prose.
-            return;
-        }
-
         if (tab == Tab.REQUESTS) {
             label(actions[0], "Accept");
             label(actions[1], "Decline");
@@ -1090,10 +1019,14 @@ public class CubeonClientScreen extends Screen {
         actions[0].button.active = !busy;
         tip(actions[0], "Invite " + who + " to your world, or ask to join theirs.");
 
-        actions[1].action = () -> openSync(handle);
-        actions[1].button.active = !busy;
-        tip(actions[1], "Check whether your Minecraft matches " + who + "'s, and "
-                + "pull any mods you're missing.");
+        if (friend == null || !friend.online()) {
+            blocked(actions[1], who + " is offline. Sync is available when they come online.");
+        } else {
+            actions[1].action = () -> openSync(handle);
+            actions[1].button.active = !busy;
+            tip(actions[1], "Check whether your Minecraft matches " + who + "'s, and "
+                    + "pull any mods you're missing.");
+        }
 
         label(actions[2], whitelisted ? "- Whitelist" : "+ Whitelist");
         bind(actions[2],
@@ -1284,14 +1217,6 @@ public class CubeonClientScreen extends Screen {
                 primary.action = this::submitAdd;
                 primary.button.active = !busy && snap.claimed();
             }
-            case ACCOUNT -> {
-                // The account has no editable field: your name is your
-                // Minecraft username (change it in the launcher, like any
-                // username) and your identity is the Cubeon ID, which the
-                // launcher owns. There is nothing to type and nothing to
-                // rename - the old Rename box was the name-based identity
-                // the UID system replaced.
-            }
             case REQUESTS -> {
                 // No text entry on this tab.
             }
@@ -1301,9 +1226,8 @@ public class CubeonClientScreen extends Screen {
             // In gate mode the primary IS the Save/Join button, on every tab.
             primary.button.visible = true;
         } else {
-            // The Account tab is pure information - no action button, no box.
-            primary.button.visible = tab != Tab.REQUESTS && tab != Tab.ACCOUNT
-                    && !subViewOpen();
+            // Requests and sub-views have no add field.
+            primary.button.visible = tab == Tab.FRIENDS && !subViewOpen();
         }
         primary.button.active = primary.button.active && primary.button.visible;
         input.visible = typing;
@@ -1445,7 +1369,8 @@ public class CubeonClientScreen extends Screen {
 
     private void submitAdd() {
         String name = input.getValue().trim();
-        String problem = Bridge.checkName(name);
+        boolean cubeonId = name.matches("\\d{8}");
+        String problem = cubeonId ? null : Bridge.checkName(name);
         if (problem != null) {
             flash(problem);
             return;
@@ -1464,7 +1389,7 @@ public class CubeonClientScreen extends Screen {
                 return;
             }
         }
-        submit("Sending a request to " + name + "...",
+        submit("Looking up Cubeon ID " + name + "...",
                 "Friend request sent to " + name + ".",
                 () -> clearInputOnSuccess(bridge.addFriend(name)));
     }
