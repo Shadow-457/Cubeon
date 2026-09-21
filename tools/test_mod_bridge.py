@@ -22,6 +22,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCES = [
     "mod/src/main/java/com/cubeon/client/Json.java",
     "mod/src/main/java/com/cubeon/client/Bridge.java",
+    "mod/src/main/java/com/cubeon/client/BadgeNames.java",
     "mod/tools/SelfTest.java",
 ]
 

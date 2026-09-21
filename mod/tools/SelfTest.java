@@ -9,7 +9,8 @@
  * Minecraft install.
  *
  * Run it through tools/test_mod_bridge.py, or by hand:
- *   javac -d /tmp/out mod/src/main/java/com/cubeon/client/{Json,Bridge}.java \
+ *   javac -d /tmp/out \
+ *         mod/src/main/java/com/cubeon/client/{Json,Bridge,BadgeNames}.java \
  *         mod/tools/SelfTest.java
  *   java -cp /tmp/out com.cubeon.client.SelfTest
  *
@@ -22,6 +23,7 @@ package com.cubeon.client;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class SelfTest {
 
@@ -38,6 +40,7 @@ public final class SelfTest {
         eventParsing();
         chatParsing();
         playersParsing();
+        badgeNames();
         resultReading();
         uidAndPortRules();
         nameChecking();
@@ -367,6 +370,52 @@ public final class SelfTest {
         ok(Bridge.parsePlayers(
                 "{\"players\": [{\"name\": \"Solo\"}]}").size() == 1,
                 "every field is optional");
+    }
+
+    private static void badgeNames() {
+        section("BadgeNames: nametag badge identity");
+        // The real roster shape: the relay HANDLE is `name`, the name a player
+        // actually wears in-game is `minecraft_username`. The badge only ever
+        // worked for your own nametag (matched by player identity) because this
+        // set used to be built from handles alone.
+        Bridge.Snapshot snap = Bridge.parseSnapshot("""
+                {"you": "Player_ab12cd34", "you_uid": "00000001",
+                 "you_minecraft_username": "Shadow",
+                 "friends": [
+                   {"name": "Player_99ffeedd", "uid": "00000002",
+                    "minecraft_username": "Hamza", "online": true},
+                   {"name": "Ali", "uid": "00000003",
+                    "minecraft_username": "Ali", "online": false}
+                 ]}
+                """, "{}");
+        Set<String> names = BadgeNames.from(snap, List.of());
+
+        ok(names.contains("Shadow"), "your own Minecraft username earns the badge");
+        ok(names.contains("Hamza"), "a friend's Minecraft username earns the badge");
+        ok(names.contains("Player_99ffeedd"),
+                "the relay handle still matches, so an older launcher keeps working");
+        ok(!names.contains("NotACubeonPlayer"),
+                "an unrelated name is not badged");
+
+        // Case-insensitive, like Minecraft usernames and the old TreeSet.
+        ok(BadgeNames.from(snap, List.of()).contains("hamza")
+                && BadgeNames.from(snap, List.of()).contains("SHADOW"),
+                "matching ignores case");
+
+        // The /players list is the other source of provable Cubeon identities.
+        List<Bridge.CubeonPlayer> players = Bridge.parsePlayers("""
+                {"players": [{"name": "Player_11aa22bb", "uid": "00000004",
+                              "minecraft_username": "Noor"}]}
+                """);
+        ok(BadgeNames.from(Bridge.Snapshot.DOWN, players).contains("Noor"),
+                "a /players Minecraft username earns the badge");
+        ok(BadgeNames.from(Bridge.Snapshot.DOWN, players).contains("Player_11aa22bb"),
+                "a /players handle still earns the badge");
+
+        // Degenerate input: the badge must never be the thing that throws.
+        ok(BadgeNames.from(null, null).isEmpty(), "null snapshot and players are safe");
+        ok(BadgeNames.from(Bridge.Snapshot.DOWN, List.of()).isEmpty(),
+                "a down launcher vouches for nobody (you are matched by identity)");
     }
 
     private static void resultReading() {        section("Bridge: results");

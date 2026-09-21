@@ -47,6 +47,7 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/CubeonClientScreen.java",
     "mod/src/main/java/com/cubeon/client/CubeonClient.java",
     "mod/src/main/java/com/cubeon/client/Nametag.java",
+    "mod/src/main/java/com/cubeon/client/BadgeNames.java",
     "mod/src/main/java/com/cubeon/client/WorldPlayers.java",
     "mod/src/main/java/com/cubeon/client/mixin/PauseScreenMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/PlayerNameMixin.java",

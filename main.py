@@ -1233,13 +1233,30 @@ def main(page: ft.Page):
     profile_username_field.on_change = lambda e=None: on_name_keystroke(profile_username_field)
     profile_username_field.on_blur = _fire_pending_name
 
-    # --- Skin section container - rebuilt each time the dialog opens, so
-    # the CustomSkinLoader-installed notice reflects whatever version/mod
-    # loader is currently selected on the Play tab. ---
+    # --- Skin section container. The section used to be rebuilt from
+    # scratch on EVERY visit to the Cosmetics tab (~150 ms of control
+    # construction plus a full subtree re-serialization to the client =
+    # the "freeze for a moment when I open Cosmetics" bug). The rebuild
+    # existed so the CustomSkinLoader-installed notice reflects whatever
+    # version/mod loader is currently selected on the Play tab - so it is
+    # now cached keyed on those two inputs and rebuilt only when they
+    # change. The section's own handlers (upload/use/delete/refresh)
+    # repaint their lists in place, so nothing on it goes stale in
+    # between visits. ---
 
     skin_section_container = ft.Container()
 
+    _skin_section_key = {"built": False, "version": None, "loader": None}
+
     def rebuild_skin_section():
+        mc_version = version_dropdown.value or cfg.get("last_version")
+        mc_loader = state.get("mod_loader")
+        if (_skin_section_key["built"]
+                and _skin_section_key["version"] == mc_version
+                and _skin_section_key["loader"] == mc_loader):
+            return
+        _skin_section_key.update(built=True, version=mc_version,
+                                 loader=mc_loader)
         skin_section_container.content = build_skin_section(
             page, cfg,
             section_label=section_label, pixel_divider=pixel_divider,
@@ -4032,8 +4049,11 @@ def main(page: ft.Page):
     # a button demanding attention. Cubeon's entire server + sharing stack
     # (Paper hosting tunnels, public addresses) runs on Minekube Connect's
     # software and network, and that deserves a visible "this is what we
-    # run on" link where server owners configure things.
-    def _open_minekube(e=None):
+    # run on" link where server owners configure things. Clicking it opens
+    # an in-launcher card (who they are and why Cubeon backs them) instead
+    # of teleporting straight to the web; the card carries the website
+    # button.
+    def _open_minekube_website():
         """Opens Minekube's site, with the same browser-open fallback as
         every other external link in the app: if no browser can be opened,
         show the URL in a snackbar instead of failing silently."""
@@ -4043,15 +4063,86 @@ def main(page: ft.Page):
                 return
         except Exception:
             logging.getLogger(__name__).warning("background worker error", exc_info=True)
-        _show_snack("Cubeon servers are powered by Minekube Connect. "
-                    "Visit https://connect.minekube.com/",
+        _show_snack("Minekube's site: https://connect.minekube.com/",
                     duration=8000)
+
+    def _open_minekube_info(e=None):
+        """The credit card: who Minekube is, why Cubeon backs them, and the
+        one button that actually leaves the app."""
+
+        def _web(_e=None):
+            _close_dialog(dlg)
+            _open_minekube_website()
+
+        dlg = ft.AlertDialog(
+            modal=True, bgcolor=SURFACE,
+            title=ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Icon(ft.Icons.DNS_ROUNDED, color=ACCENT,
+                                        size=24),
+                        width=40, height=40, bgcolor=ACCENT_TINT,
+                        border_radius=RADIUS, alignment=ft.Alignment.CENTER,
+                    ),
+                    ft.Column(
+                        [
+                            ft.Text("Minekube Connect", size=18, color=TEXT,
+                                    font_family=FONT_DISPLAY),
+                            ft.Text("Why Cubeon backs them", size=11,
+                                    color=TEXT_DIM),
+                        ],
+                        spacing=2, tight=True,
+                    ),
+                ],
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Minekube is open source, and their service "
+                            "gives everyone - not just Cubeon - a free "
+                            "public address for a server hosted on your "
+                            "own machine. No port-forwarding trickery, "
+                            "for anyone.",
+                            size=13, color=TEXT_DIM,
+                        ),
+                        ft.Container(height=2),
+                        ft.Text(
+                            "Our server sharing runs on their network, and "
+                            "that's why Cubeon backs them. If hosting with "
+                            "us has helped you, a quick look at their site "
+                            "keeps that going.",
+                            size=13, color=TEXT_DIM,
+                        ),
+                    ],
+                    tight=True, spacing=8,
+                ),
+                width=400,
+            ),
+            actions=[
+                ft.TextButton("Close",
+                              on_click=lambda e: _close_dialog(dlg),
+                              style=ft.ButtonStyle(color=TEXT_DIM)),
+                ft.FilledButton(
+                    "Open their website",
+                    icon=ft.Icons.OPEN_IN_NEW_ROUNDED,
+                    on_click=_web,
+                    style=ft.ButtonStyle(
+                        color=ON_ACCENT, bgcolor=ACCENT,
+                        shape=ft.RoundedRectangleBorder(radius=RADIUS)),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        _open_dialog(dlg)
 
     minekube_badge = ft.IconButton(
         ft.Icons.DNS_ROUNDED,
         icon_size=16, icon_color=TEXT_DIM,
-        tooltip="Cubeon servers are powered by Minekube Connect",
-        on_click=_open_minekube,
+        tooltip="We back Minekube - open source, free addresses",
+        on_click=_open_minekube_info,
     )
 
     # -----------------------------------------------------------------
@@ -4586,12 +4677,30 @@ def main(page: ft.Page):
     # wait_until_ready_to_show() is the desktop-shell handshake that the
     # first frame is actually in the window's back buffer.
     async def _reveal_window():
+        # Apply BEFORE the splash reveal: sets width/height/min and - when we
+        # have a saved position - the literal left/top numbers. Flet 0.86/GTK's
+        # window manager will still re-center a window on first map, so this is
+        # only the first of two writes (see below).
         _apply_real_geometry()
         try:
             await page.window.wait_until_ready_to_show()
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
         page.window.visible = True
+        # Re-apply after the window is actually mapped. This is the second write
+        # that survives the WM's first-map centering: setting left/top on a
+        # realized GTK toplevel sticks (the pre-map write was getting clobbered,
+        # which is why the window kept opening centered despite a saved position).
+        if not _needs_center:
+            try:
+                page.window.left = _gl
+                page.window.top = _gt
+            except Exception:
+                pass
+        try:
+            page.window.update()
+        except Exception:
+            page.update()
         # First successful paint: clear any GPU-crash flag so the NEXT run
         # trusts hardware GL again (see the exit watcher under __main__).
         # _CUBEON_HOME lives in the __main__ block, not in main()'s scope -

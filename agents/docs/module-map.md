@@ -127,6 +127,67 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   Cosmetics uses this boundary; it is selected from the Cosmetics subtab row,
   never from the top-level nav. Never pass arbitrary paths into Flet images or
   delete callbacks.
+- **Gallery perf (2026-09-21)**: both hot paths are cached in the store
+  module. (a) `list_screenshots()` is memoized against the screenshots
+  DIR's mtime+inode (`_dir_signature`, correct because only the game + the
+  delete action change the folder and nothing edits a file in place) —
+  re-opening the Images pane scans once, then every open is O(1) instead of
+  `Image.verify()`-ing (full file read) every PNG. (b) `image_base64()`
+  renders are disk-cached in `paths.CACHE_DIR/screenshot_renders` keyed by
+  source mtime + size bucket (tmp+replace write) — first pass decodes each
+  screenshot once, later opens re-encode a small PNG (~0.1 ms vs ~80 ms).
+  `delete_screenshot()` drops the file's cached renders (dir mtime bump
+  invalidates the list). The UI (`ui/screenshot_gallery.py`) caps cache-miss
+  decodes at 3 concurrent threads via `_DECODE_POOL` so the first open with
+  N shots doesn't fire N full decodes at once.
+- **GOTCHA (learned the hard way 2026-09-21): `paths.py` computes
+  `CUBEON_HOME` from `Path.home()` and IGNORES any `CUBEON_HOME` env var —
+  only `CUBEON_GAME_DIR` is env-honored.** A probe script setting
+  `CUBEON_HOME=/tmp/...` silently wrote 41 "Probe" skins into the REAL
+  `~/.cubeon_launcher/skins`, and running `tools/test_ui_smoke.py` un-sandboxed
+  CLOBBERED the real `capes.json` (it `open(capes.json,"w")`s directly and
+  never restores). To sandbox launcher-adjacent work: redirect `HOME` AND set
+  `PYTHONUSERBASE=<real home>/.local` (flet lives in the user site, which
+  follows HOME), or patch module attrs post-import like
+  `test_screenshot_gallery.py` does. NEVER rely on `CUBEON_HOME` env.
+
+## Window geometry race (2026-09-21) — INVARIANT
+- A window that opens centered despite a non-empty `window_geometry.json` is the
+  Flet 0.86/GTK first-map race, not a save bug: `left`/`top` written *before*
+  `page.window.visible = True` get clobbered by the window manager's first-show
+  centering and never stick. The save path (`_on_window_event` → `_save_geometry_now`)
+  and `load_window_geometry()` are fine — the value IS applied, it just gets
+  thrown away.
+- Fix in `main.py`'s `_reveal_window`: geometry is written twice. The first write
+  (`_apply_real_geometry()`) sets size/minimized-state before show; the second,
+  AFTER `page.window.visible = True`, re-sets `page.window.left`/`top` to the
+  saved `_gl`/`_gt` so it lands on the already-realized GTK toplevel and survives
+  the WM. Guarded by `if not _needs_center:` (no saved position → let the WM center
+  as intended) and wrapped in try/except (headless runtimes have no real window).
+- Guard: `tools/test_ui_smoke.py` asserts that inside `_reveal_window`,
+  `"visible = True"` precedes `"page.window.left = _gl"`. Do not collapse the two
+  writes back into `_apply_real_geometry()` alone — the pre-show write is the
+  clobbered one.
+
+## Cubeon nametag badge (2026-09-21) — INVARIANT
+- The `[#]` badge on in-game nametags matches the player's **Minecraft username**
+  (`Player.getName()`), NOT the relay handle the roster carries as `name`. The
+  launcher already had `minecraft_username` for you/friends and `/players` — the
+  bug was that `Nametag.names()` built its badge set from handles, so friend
+  nametags never matched (only your own, by entity identity first).
+- `mod/src/main/java/com/cubeon/client/BadgeNames.java` is the single owner of the
+  badge name set: `from(Snapshot, List<CubeonPlayer>)` returns the
+  case-insensitive set of provable Minecraft usernames (`you`,
+  `youMinecraftUsername`, friends' `minecraftUsername`, `/players`
+  names+usernames). Handles are still included so an older launcher whose account
+  name is a handle still badges. Minecraft-free on purpose → covered by the bare-JDK
+  `tools/test_mod_bridge.py` (`SelfTest.badgeNames()`), the only place this rule
+  can be tested (the real `Nametag` needs Minecraft to compile). `Nametag.names()`
+  delegates here; do not rebuild the set inline in `Nametag` again.
+- Deploy invariant: `tools/build_mod_jars.py` rebuilds BOTH brackets and writes
+  to `~/.cubeon_launcher/cache/` (first lookup) + `assets/jars/`. A stale jar in
+  cache silently wins, so **always rebuild after any `mod/` change** even if you
+  only edited the Minecraft-free layer — `BadgeNames` ships in the jar too.
 
 ## Relay username metadata (2026-09-17, plan step 2)
 - `cubeon/friends.py` exposes `minecraft_username(value)` -> the value when it
@@ -312,16 +373,17 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   bug in an identity/roster paint path silently leaves the UI stale — never
   assume a blank control means no data, grep for a name error first.
 - The Cubeon ID must always be rendered through `_friends.canonical_uid()` to
-  keep the zero-padded 12-digit form.
+  keep the zero-padded 8-digit form.
 - Flet 0.86 clipboard: `page.set_clipboard` is gone. Use
   `page.run_task(ft.Clipboard().set, value)` (async service). FakePage
   harnesses lack `run_task`, so clipboard handlers must try/except.
-- **The launcher can only show a Cubeon ID if the DEPLOYED friends worker
-  sends one.** The repo's `worker/cubeon-friends.js` assigns/back-fills the
-  12-digit uid and sends it in `hello_ok`/`/claim` — but the live worker at
-  `cubeon-friends.hamza-457-shahbaz.workers.dev` must be redeployed
-  (`cd worker && npx wrangler deploy -c wrangler-friends.toml`) before any
-  client build can display it. Old hello_ok/claim replies have NO `uid`.
+- **Worker deploys lag code (resolved 2026-09-20, but the pattern repeats).**
+  The 8-digit-ID repo code sat undeployed for a day: production still ran the
+  12-digit worker, so every add-by-ID failed with "No Cubeon user with ID"
+  (the /uid/ lookup 404'd any 8-digit ID). Deploy is
+  `cd worker && npx wrangler deploy -c wrangler-friends.toml`. Verify the
+  deployed shape with `curl <base>/uid/00000001` — 200 = current, 404 with
+  `/uid/000000000001` = 200 means the stale 12-digit worker is live.
 - Chat identity labels use validated Minecraft usernames with the 12-digit
   Cubeon UID visible separately. Auto-minted relay handles are routing keys,
   never display-name or tooltip fallbacks; missing metadata uses UID/Player.
@@ -565,6 +627,16 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   `UUID`, `endpoint`, `.zip`, `OS`, `plugin stack`, "in this build"). Settings/
   Stats captions, mods/modpacks/shader notices, server tooltips and the legacy
   note were all rewritten. Keep new strings short and non-technical.
+- **Minekube badge = credit card (2026-09-21):** the DNS icon in Settings
+  header no longer teleports to the web. Clicking opens an in-app AlertDialog
+  (`_open_minekube_info` in main.py) explaining WHY Cubeon backs Minekube —
+  they're OPEN SOURCE and give EVERYONE (not just Cubeon) a free public
+  address for a home-hosted server, and Cubeon's server sharing runs on their
+  network — with a "Open their website" FilledButton (webbrowser.open
+  connect.minekube.com, snackbar fallback) and a Close button. Tooltip reads
+  "We back Minekube - open source, free addresses". The relationship is
+  Cubeon supporting Minekube, NOT Minekube sponsoring Cubeon — keep the copy
+  pointing that way.
 
 
 - Loader support/installed lookups MUST use `core.extract_mc_version(version_id)`
@@ -879,6 +951,19 @@ Still-true invariants from the pre-local era:
   Reuse these tokens when adding new cosmetics surfaces - do NOT reintroduce a
   solid nested panel.
 
+- **Cosmetics-tab open freeze (fixed 2026-09-21):** `refresh_profile_tab()` /
+  `rebuild_skin_section()` (main.py) used to call `build_skin_section()` from
+  scratch on EVERY visit — measured ~130-150 ms of control construction plus a
+  full subtree re-serialization to the client (the "freezes for a moment when I
+  open Cosmetics" report). The section is now CACHED in
+  `skin_section_container` and rebuilt only when its inputs change: the key is
+  `(version_dropdown.value or cfg["last_version"], state["mod_loader"])` —
+  exactly the two values the rebuild exists to track (the CSL status tooltip).
+  The section's own handlers (upload/use/delete) refresh their lists in place,
+  so nothing goes stale between visits; `_THUMB_MEMO`/`_IMG_MEMO` now survive
+  across visits too, so thumbs are instant instead of placeholder-pop. Do NOT
+  revert this to a per-visit rebuild; if a "stale cosmetics" report arrives,
+  check the cache key inputs first.
 - **Browse/Installed visibility BUG (fixed 2026-09-10)**: `_view_tabs`'
   `switch_view` used to update `view_state` + the tab highlight but NOT the
   two columns' `.visible`, so clicking "Installed" moved the underline and
@@ -1246,6 +1331,29 @@ Still-true invariants from the pre-local era:
     down. Avatars are per-name `theme.AVATAR_COLORS`. Bubble width is measured
     from the longest line, capped at half the window. Message/name text uses
     the body font, not mono.
+  - **optimistic sends + scroll + emoji (2026-09-20)**: pressing Enter shows
+    the bubble IMMEDIATELY (dim, "Sending…"); `_do_send` clears the composer
+    before `send_chat` runs (it blocks ~1s on the peer-pubkey lookup). The
+    echo-filed line REPLACES its pending bubble by FIFO text match
+    (`_append_messages`); a refusal (or 12s silence, `_sweep_pending`) turns
+    it red "Couldn't send". Auto-scroll: `auto_scroll=False`, `_stick["at_end"]`
+    from `on_scroll` (`extent_after < 48`); `_stick_bottom()` only follows
+    when at end (or forced on open) via `page.run_task(transcript.scroll_to,
+    -1)` — scroll_to is async and requires auto_scroll=False. Emoji picker:
+    `emoji_panel` (32 literal emojis, no plugin) toggled by `emoji_btn`,
+    hidden on select/send/clear.
+  - **chat conveniences (2026-09-21)**: (a) composer DRAFTS survive friend
+    switches and tab closes within the session — `_drafts` keyed by canon
+    friend, saved on every keystroke (`on_change`), restored in `_select`,
+    cleared on send/remove. (b) `_jump_row` "Newest" pill visible only while
+    scrolled up (`_stick`), click = `_stick_bottom(force=True)`. (c) bubbles
+    are click-to-copy (`_copy_message` via the Clipboard service; full date
+    "Mar 3, 2026 · 14:23" on hover — `_full_date`). (d) the clock line is
+    GROUPED: only the first bubble of a same-side run or day shows it
+    (`with_time` in `_append_messages_inner`); roster stamps use
+    `_short_stamp` ("14:23" today, "Mar 3" older). (e) `find_field` filters
+    the Friends rail client-side over the last roster snapshot (no service
+    query per keystroke). All pure UI — no protocol changes.
   - **roster rail data contract (2026-09-13)**:
     `FriendsService.roster_payload` decorates each friend with
     `last_text`/`last_ts`/`last_dir` and `unread` (inbound msgs after that

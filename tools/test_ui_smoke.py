@@ -1399,6 +1399,15 @@ check("saved geometry is applied on reveal, not at startup",
       "_apply_real_geometry()" in _reveal_body
       and "page.window.width = _SPLASH_W" in _src_main,
       "geometry must land with the finished UI, not the splash")
+# Flet 0.86/GTK re-centers a window on first map, clobbering a pre-show
+# left/top write. The post-map re-apply is what makes the saved position
+# actually stick - without it the launcher always opens centered despite a
+# non-empty window_geometry.json.
+check("saved position is re-applied AFTER window visibility",
+      "visible = True" in _reveal_body and
+      "page.window.left = _gl" in _reveal_body and
+      _reveal_body.index("visible = True") < _reveal_body.index("page.window.left = _gl"),
+      "left/top must be set after the window is mapped, or the WM recenters it")
 
 # --- Privacy/crash reporting is gone -------------------------------------------
 # User request: "remove the privacy option completely from settings and backend."

@@ -19,13 +19,16 @@ import net.minecraft.network.chat.Component;
  * <ol>
  *   <li>You - this game was launched by Cubeon, so the local player always
  *       qualifies, whatever the launcher's account state is.</li>
- *   <li>Your Cubeon account name and every friend on your roster, as the
- *       launcher bridge reports them ({@link Bridge.Snapshot}). Those are the
- *       names this machine can actually prove are Cubeon accounts.</li>
+ *   <li>Your Minecraft name and every friend's MINECRAFT username (plus the
+ *       launcher's {@code /players} names), as the bridge reports them
+ *       ({@link Bridge.Snapshot}). Those are the names this machine can
+ *       actually prove are Cubeon accounts.</li>
  * </ol>
+ * The matching rule itself lives in {@link BadgeNames}: nametags are drawn
+ * from Minecraft usernames, never from the relay's internal routing handle.
  * A stranger running Cubeon is not badged yet - the client has no way to ask
  * "is this name a Cubeon account" for arbitrary players. That arrives with the
- * online-players list; when it does, only {@link #names()} changes.
+ * online-players list; when it does, only {@link BadgeNames} changes.
  *
  * <p><b>This runs once per visible player per frame</b> ({@code getDisplayName}
  * is called from nametag rendering), so nothing here allocates or locks in the
@@ -82,18 +85,9 @@ public final class Nametag {
         long revision = bridge.revision();
         long playersRevision = bridge.playersRevision();
         if (revision != knownRevision || playersRevision != knownPlayersRevision) {
-            Bridge.Snapshot snapshot = bridge.snapshot();
-            Set<String> fresh = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            add(fresh, snapshot.you());
-            for (Bridge.Friend friend : snapshot.friends()) {
-                add(fresh, friend.name());
-            }
-            // The launcher's /players list: every name the account layer can
-            // vouch for, so a Cubeon stranger standing next to you in a world
-            // is badged too once the launcher knows them.
-            for (Bridge.CubeonPlayer player : bridge.players()) {
-                add(fresh, player.name());
-            }
+            // BadgeNames owns the matching rule (in-game names are Minecraft
+            // usernames, not relay handles) and is unit-tested on a bare JDK.
+            Set<String> fresh = BadgeNames.from(bridge.snapshot(), bridge.players());
             // Revision first would leave a window where another thread sees the
             // new revision with the old set; this order can only ever repeat the
             // rebuild, never skip it.
@@ -102,11 +96,5 @@ public final class Nametag {
             knownPlayersRevision = playersRevision;
         }
         return known;
-    }
-
-    private static void add(Set<String> into, String name) {
-        if (name != null && !name.isEmpty()) {
-            into.add(name);
-        }
     }
 }
