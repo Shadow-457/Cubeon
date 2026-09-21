@@ -227,6 +227,7 @@ def add_custom_skin(src_path: str, display_name: str) -> dict:
 
     with Image.open(src_path) as img:
         slim = img.size == (64, 64) and _detect_slim_model(img)
+        normalized = _repair_transparent_base(img, slim=slim)
 
     safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", display_name.strip()) or "skin"
     filename = f"{safe_name}_{uuid.uuid4().hex[:8]}.png"
@@ -237,7 +238,7 @@ def add_custom_skin(src_path: str, display_name: str) -> dict:
     # previews/skins.
     tmp = dest + ".uploading"
     try:
-        shutil.copyfile(src_path, tmp)
+        normalized.save(tmp, format="PNG")
         os.replace(tmp, dest)
     except OSError:
         try:
@@ -251,6 +252,43 @@ def add_custom_skin(src_path: str, display_name: str) -> dict:
     meta["skins"].append(entry)
     _save_skins_meta(meta)
     return entry
+
+
+def _repair_transparent_base(img: Image.Image, *, slim: bool = False) -> Image.Image:
+    """Return a valid RGBA sheet with holes removed from base geometry.
+
+    Minecraft permits transparent pixels in the outer hat/jacket layer and in
+    the unused fourth columns of slim arms, but not in the required base
+    faces. Passing those holes through makes the game render large black gaps
+    (especially down the back and outer arm). Fill only the required base
+    rectangles from the built-in Steve sheet; preserve every outer-layer and
+    slim-reserved pixel exactly. This is a repair, not a crop or resize, so
+    uploaded coordinates and model proportions remain intact.
+    """
+    sheet = img.convert("RGBA")
+    if sheet.size not in _VALID_SKIN_SIZES:
+        return sheet
+    fallback = default_base_skin()
+    legacy = sheet.size == (64, 32)
+    regions = [
+        (0, 0, 32, 16),       # head base faces
+        (20, 20, 28, 32),     # torso
+        (4, 20, 8, 32),       # right leg
+        (44, 20, 47 if slim else 48, 32),  # right arm; slim spare x=47
+    ]
+    if legacy:
+        regions.append((44, 20, 48, 32))
+    else:
+        regions.extend([
+            (20, 52, 24, 64),  # left leg
+            (36, 52, 39 if slim else 40, 64),  # left arm; slim spare x=39
+        ])
+    for x0, y0, x1, y1 in regions:
+        for y in range(y0, min(y1, sheet.height)):
+            for x in range(x0, min(x1, sheet.width)):
+                if sheet.getpixel((x, y))[3] == 0:
+                    sheet.putpixel((x, y), fallback.getpixel((x, y)))
+    return sheet
 
 
 def _detect_slim_model(img: Image.Image) -> bool:

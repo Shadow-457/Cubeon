@@ -30,6 +30,12 @@ classic_probe.putpixel((47, 30), (1, 2, 3, 255))
 check("classic reserved arm column wins over a transparent probe pixel",
       not skins._detect_slim_model(classic_probe))
 
+hole = Image.new("RGBA", (64, 64), (80, 120, 160, 255))
+hole.putpixel((20, 20), (0, 0, 0, 0))  # required torso base must not stay clear
+repaired = skins._repair_transparent_base(hole, slim=False)
+check("transparent base pixels are repaired before upload",
+      repaired.getpixel((20, 20))[3] == 255)
+
 
 # Mark the real left-arm edge and its outer sleeve edge. A slim skin has three
 # usable columns, but both regions retain their documented x origins (36/52).
