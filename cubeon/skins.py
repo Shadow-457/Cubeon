@@ -657,7 +657,12 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
             l_arm = region(44, 20, arm_w, 12)
         else:
             l_leg = region(20, 52, 4, 12)
-            l_arm = region(36 + (4 - arm_w), 52, arm_w, 12)
+            # The slim layout keeps the left-arm origin at x=36; its unused
+            # fourth column is on the right, just like the right arm's unused
+            # column at x=47. Shifting the crop for slim skins drops the real
+            # outer edge and was the source of clipped/misaligned arms in the
+            # launcher preview.
+            l_arm = region(36, 52, arm_w, 12)
 
         # --- Outer ("hat"/jacket/sleeve/pants) layer regions --------------------
         # On the legacy 64x32 layout there is no second skin layer at all.
@@ -666,7 +671,9 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
         r_leg_o = region(4, 36, 4, 12) if not legacy else None
         r_arm_o = region(44, 36, arm_w, 12) if not legacy else None
         l_leg_o = region(4, 52, 4, 12) if not legacy else None
-        l_arm_o = region(52 - arm_w, 52, arm_w, 12) if not legacy else None
+        # Same rule for the left sleeve layer: its origin is x=52 for both
+        # classic and slim sheets; slim's spare column is at the right edge.
+        l_arm_o = region(52, 52, arm_w, 12) if not legacy else None
 
         # Combine each part with its outer layer before scaling, so the
         # jacket/sleeve/pants pixels aren't lost to nearest-neighbor resize
