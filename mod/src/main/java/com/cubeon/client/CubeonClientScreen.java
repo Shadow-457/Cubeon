@@ -232,12 +232,9 @@ public class CubeonClientScreen extends Screen {
     /**
      * A status the launcher's own notices must not overwrite.
      *
-     * <p>This is the fix for the rename confusion: the mod set "You are now X."
-     * and, a fraction of a second later, the launcher's notice for the same
-     * rename arrived through /events and replaced it - so the only wording the
-     * player ever actually read was whichever landed last. A confirmation the
-     * player asked for outranks a background toast; an error still gets through,
-     * because a sticky success must never hide a real failure.
+     * <p>A confirmation the player asked for outranks a background toast; an
+     * error still gets through, because a sticky success must never hide a real
+     * failure.
      */
     private boolean statusSticky;
 
@@ -267,7 +264,7 @@ public class CubeonClientScreen extends Screen {
     /**
      * @param canInvite false opens the screen in "menu context": the Invite
      *                  action is blocked with an explanation, everything else
-     *                  (joining, requests, account) works as normal.
+     *                  (joining and requests) works as normal.
      */
     public CubeonClientScreen(Screen parent, boolean canInvite) {
         super(Component.literal("Cubeon Client"));
@@ -1260,7 +1257,7 @@ public class CubeonClientScreen extends Screen {
         if (friend.online()) {
             return "Play or check what " + peerLabel(selected) + " is running.";
         }
-        return peerLabel(selected) + " is offline - Sync still works.";
+        return peerLabel(selected) + " is offline - Play and Sync are unavailable.";
     }
 
     private ChatFormatting headerColor(Snapshot snap) {
