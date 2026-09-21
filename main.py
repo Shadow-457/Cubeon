@@ -4677,30 +4677,12 @@ def main(page: ft.Page):
     # wait_until_ready_to_show() is the desktop-shell handshake that the
     # first frame is actually in the window's back buffer.
     async def _reveal_window():
-        # Apply BEFORE the splash reveal: sets width/height/min and - when we
-        # have a saved position - the literal left/top numbers. Flet 0.86/GTK's
-        # window manager will still re-center a window on first map, so this is
-        # only the first of two writes (see below).
         _apply_real_geometry()
         try:
             await page.window.wait_until_ready_to_show()
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
         page.window.visible = True
-        # Re-apply after the window is actually mapped. This is the second write
-        # that survives the WM's first-map centering: setting left/top on a
-        # realized GTK toplevel sticks (the pre-map write was getting clobbered,
-        # which is why the window kept opening centered despite a saved position).
-        if not _needs_center:
-            try:
-                page.window.left = _gl
-                page.window.top = _gt
-            except Exception:
-                pass
-        try:
-            page.window.update()
-        except Exception:
-            page.update()
         # First successful paint: clear any GPU-crash flag so the NEXT run
         # trusts hardware GL again (see the exit watcher under __main__).
         # _CUBEON_HOME lives in the __main__ block, not in main()'s scope -

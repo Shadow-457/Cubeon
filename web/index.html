@@ -4,102 +4,191 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Cubeon - Minecraft is better with friends</title>
-<meta name="description" content="Cubeon is a free Minecraft launcher for playing with friends. One-click play, friends inside the game, and your own world with a share code. Download it for Windows or Linux - no account needed." />
+<meta name="description" content="Cubeon is a free Minecraft launcher for playing with friends. Download it for Windows or Linux - no account needed." />
 <meta property="og:title" content="Cubeon - the friendly Minecraft launcher" />
 <meta property="og:description" content="Free download for Windows and Linux: play with your friends, share a world with a code, no account needed." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="assets/icon.svg" />
 <link rel="stylesheet" href="assets/site.css" />
 <script>document.documentElement.classList.add('js')</script>
+<style>
+  /* hero: grass-block seam runs through the middle of the screenshot */
+  .top{background:var(--grass-soft);padding:clamp(44px,7vw,84px) 0 clamp(28px,4vw,44px);text-align:center}
+  .title{display:flex;align-items:center;justify-content:center;gap:clamp(12px,2vw,22px)}
+  .title img{width:clamp(48px,8vw,84px);height:auto}
+  .top h1{font-size:clamp(52px,11vw,110px);line-height:1}
+  .top .lede{margin:16px auto 0;font-size:clamp(18px,2.2vw,24px)}
+  .dl{margin-top:32px;display:grid;justify-items:center;gap:16px}
+
+  .osi{width:22px;height:22px;flex:none}
+  .pane{display:grid;justify-items:center;gap:12px;margin-bottom:8px}
+  html.js .pane{display:none}
+  html.js .pane.on{display:grid}
+  .btn.off{background:var(--paper);color:var(--text-soft);border-color:var(--line);box-shadow:none;cursor:not-allowed;filter:grayscale(1);opacity:.75}
+  .btn.off:hover{transform:none;background:var(--paper)}
+  .meta{font-size:14px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.02em}
+  .more summary{cursor:pointer;list-style:none;text-align:center;color:var(--grass-dark);font-weight:800;font-size:14.5px;text-decoration:underline;text-underline-offset:3px}
+  .more summary::-webkit-details-marker{display:none}
+  .more div{display:grid;gap:6px;margin-top:10px;text-align:center}
+  .more a{color:var(--text-soft);font-weight:700;font-size:14.5px;text-decoration:underline;text-underline-offset:3px}
+  .more a:hover{color:var(--ink)}
+  .switch{display:none;font-size:13.5px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.02em}
+  html.js .switch{display:block}
+  .switch button{background:none;border:0;color:var(--text-soft);font-weight:800;font-size:inherit;text-transform:uppercase;padding:2px 6px;text-decoration:underline;text-underline-offset:3px}
+  .switch button:hover{color:var(--ink)}
+  .switch button[aria-pressed="true"]{color:var(--grass-dark);text-decoration:none}
+
+  .shotwrap{position:relative;margin-top:0;padding-block:clamp(36px,5vw,56px);background:linear-gradient(180deg,var(--grass-soft) 0,var(--grass-soft) 50%,var(--dirt-dark) 50%,var(--dirt-dark) 100%);border-bottom:4px solid var(--dirt)}
+  .shotwrap::before{content:"";position:absolute;left:0;right:0;top:50%;height:16px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='16' shape-rendering='crispEdges'%3E%3Crect width='64' height='6' fill='%2346BA34'/%3E%3Crect x='6' y='6' width='6' height='8' fill='%2346BA34'/%3E%3Crect x='22' y='6' width='6' height='4' fill='%2346BA34'/%3E%3Crect x='38' y='6' width='6' height='10' fill='%2346BA34'/%3E%3Crect x='52' y='6' width='6' height='6' fill='%2346BA34'/%3E%3C/svg%3E") repeat-x}
+  .shotwrap .shot{position:relative;z-index:1;max-width:980px;margin-inline:auto}
+
+  .faq-h{max-width:820px;margin:44px auto 0;font-size:20px}
+  .faq-h+.faq{margin-top:14px}
+  .cards .wide{grid-column:1/-1}
+  .card ul{margin:10px 0 0 20px}
+  .card li{color:var(--text-soft);font-size:15.5px;margin-bottom:6px}
+  .card li::marker{color:var(--grass-dark)}
+  .card .full{display:inline-block;margin-top:12px;font-weight:800;font-size:15px;color:var(--grass-dark);text-decoration:underline;text-underline-offset:3px}
+  .card .full:hover{color:var(--ink)}
+</style>
 </head>
 <body>
-<a class="skip" href="#content">Skip to content</a>
-
-<header class="navbar">
-  <div class="wrap">
-    <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">☰</button>
-    <nav class="nav-links" id="navSlots" aria-label="Main">
-      <a href="index.html" aria-current="page">Home</a>
-      <a href="download.html">Download</a>
-      <a href="help.html">Help</a>
-      <a class="nav-cta" href="download.html">Get Cubeon</a>
-    </nav>
-  </div>
-</header>
 
 <main id="content">
-<section class="hero">
-  <div class="wrap hero-in">
-    <div class="rise">
-      <h1>Minecraft is better with friends.</h1>
-      <p class="lede">Cubeon is a free launcher that gets you and your crew into the same world in a couple of minutes. Pick a name, pick a version, press play.</p>
-      <div class="hero-actions">
-        <a class="btn big" href="download.html">Download Cubeon</a>
-        <a class="btn link" href="#inside">See what's inside</a>
+<section class="top" id="download">
+  <div class="wrap">
+    <div class="title">
+      <img src="assets/icon.svg" alt="" width="84" height="84">
+      <h1>Cubeon</h1>
+    </div>
+    <p class="lede">Minecraft is better with friends.</p>
+
+    <div class="dl">
+
+      <div class="pane" data-os="windows">
+        <a class="btn big" href="../dist/Cubeon-Windows-x64-Setup.exe" download><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5 11 3.4v8H3zM12 3.3 21 2v9.4h-9zM3 12.6h8v8L3 19.5zM12 12.6h9V22l-9-1.3z" fill="currentColor"/></svg>Download for Windows</a>
+        <p class="meta">Installer &middot; 120 MB &middot; Free</p>
+        <details class="more"><summary>Other versions</summary><div>
+          <a href="../dist/Cubeon-Windows-x64-single.exe" download>Portable, nothing installed (128 MB)</a>
+          <a href="../dist/Cubeon-Windows-x64.zip" download>Folder you can unzip (128 MB)</a>
+        </div></details>
       </div>
-      <p class="hero-note">Free &middot; Windows and Linux &middot; No account needed</p>
-    </div>
-    <div class="shot rise">
-      <img src="assets/cubeon-play.png" width="1177" height="756" alt="The Cubeon launcher window: a sidebar, a Minecraft profile, a version picker and a big green Play button." />
+
+      <div class="pane" data-os="linux">
+        <a class="btn big" href="../dist/Cubeon-x86_64.AppImage" download><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m7.5 9 3 3-3 3M12.5 15h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for Linux</a>
+        <p class="meta">Single file &middot; 280 MB &middot; Free</p>
+        <details class="more"><summary>Other versions</summary><div>
+          <a href="../dist/cubeon_1.0.0_amd64.deb" download>Debian and Ubuntu package (411 MB)</a>
+          <a href="../dist/Cubeon-Linux-x86_64-Setup.sh" download>Add it to your app menu (1 KB)</a>
+        </div></details>
+      </div>
+
+      <div class="pane" data-os="mac">
+        <span class="btn big off" aria-disabled="true"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v12H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2"/></svg>Download for macOS</span>
+        <p class="meta">Not available yet</p>
+      </div>
+
+      <p class="switch">Not your system?
+        <button type="button" data-pick="windows" aria-pressed="false">Windows</button>
+        <button type="button" data-pick="linux" aria-pressed="false">Linux</button>
+        <button type="button" data-pick="mac" aria-pressed="false">macOS</button>
+      </p>
     </div>
   </div>
 </section>
 
-<section class="strip" aria-label="The short version">
-  <div class="wrap strip-in">
-    <div class="fact">
-      <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z" fill="currentColor"/><path d="M12 2 21 7l-9 5-9-5z" fill="currentColor"/></svg></span>
-      <span><b>No account</b><span>Pick any name you like. No sign-up, no password, no email.</span></span>
-    </div>
-    <div class="fact">
-      <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.4" fill="currentColor"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6z" fill="currentColor"/><circle cx="17" cy="9" r="2.6" fill="currentColor"/><path d="M14 20c0-2.7 1.4-4.7 3.6-4.7 2 0 3.4 1.8 3.4 4.7z" fill="currentColor"/></svg></span>
-      <span><b>No server to rent</b><span>Open your world and share a short code with your friends.</span></span>
-    </div>
-    <div class="fact">
-      <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor"/><path d="M3 12h18M12 3c3 3.4 3 14.6 0 18M12 3c-3 3.4-3 14.6 0 18" stroke="#04120A" stroke-width="1.6" fill="none"/></svg></span>
-      <span><b>Free, properly free</b><span>Every feature works. No ads, no paywall, nothing to buy.</span></span>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="how">
+<div class="shotwrap">
   <div class="wrap">
-    <div class="sec-head rise">
-      <span class="eyebrow">Two minutes, start to playing</span>
-      <h2>How it works</h2>
+    <div class="shot">
+      <img src="assets/cubeon-play.png" width="1177" height="756" alt="The Cubeon launcher window: a Minecraft profile, a version picker, a mod loader row and a big green Play button." />
     </div>
-    <div class="steps">
-      <div class="step rise"><span class="num">1</span><h3>Download it</h3><p>Get the file for your computer and open it. There is no setup wizard and nothing to configure.</p></div>
-      <div class="step rise"><span class="num">2</span><h3>Pick a name</h3><p>Any name you like, three to sixteen characters. That is your whole sign-up.</p></div>
-      <div class="step rise"><span class="num">3</span><h3>Play together</h3><p>Add your friends by name, then hop into each other's worlds in a click.</p></div>
+  </div>
+</div>
+
+<section class="section" id="faq">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Questions</span>
+      <h2>FAQ</h2>
+      <p class="lede" style="margin-inline:auto">Short, plain answers. If yours isn't here, email us - a real person reads it.</p>
+    </div>
+
+    <h3 class="faq-h">The basics</h3>
+    <div class="faq">
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Is it really free?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Yes. Every feature works without paying and there are no adverts. Playing with your friends will never sit behind a paywall.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Do I need a Minecraft account?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Pick a name (three to sixteen characters) and play. No email, no password. If you own Minecraft, that works fine too.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">How do I play with friends?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Add friends by their Cubeon name, press Host, and send them the short code. They join from their friends list. No server to rent, nothing to change on anyone's computer.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">What does my computer need?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows 10 or 11, or a modern 64-bit Linux. There is no Mac version yet.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Where are my name and skins kept, and who sees them?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>On your computer, in a Cubeon folder inside your user folder. Your skin and cape are shared so other Cubeon players see them when you play together. Change or remove them whenever you like.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Will you email me?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Cubeon never asks for an email address, so there is nothing to unsubscribe from.</p></div></div></div>
+    </div>
+
+    <h3 class="faq-h">If something goes wrong</h3>
+    <div class="faq">
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the installer. If you'd rather not install, use the portable file or the zip folder. Linux: the single file (make it executable, then run it); the package version is for Debian and Ubuntu.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">The game won't start<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Minecraft needs Java. Install it free from <a href="https://adoptium.net" target="_blank" rel="noopener" style="color:var(--grass-dark);text-decoration:underline">adoptium.net</a> and try again.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">My computer warns me about the file<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Normal for small independent apps, which aren't signed by a big company. On Windows choose Keep, then More info, then Run anyway.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">A friend can't get in, or I can't find them<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Resend the code and ask them to click the invitation in their friends list. You both need the newest version. A friend's name only exists once they've opened Cubeon at least once.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Something else entirely<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Email <a href="mailto:hamza.457.shahbaz@gmail.com" style="color:var(--grass-dark);text-decoration:underline">hamza.457.shahbaz@gmail.com</a> with what you were doing. Attaching the small log in the <strong>.cubeon_launcher</strong> folder makes a fix much faster.</p></div></div></div>
     </div>
   </div>
 </section>
 
-<section class="section tint" id="inside">
+<section class="section tint" id="fine">
   <div class="wrap">
-    <div class="sec-head rise">
-      <span class="eyebrow">What you get</span>
-      <h2>Built for playing with people</h2>
-      <p class="lede">Everything in the launcher exists to get you into the game faster - and to keep your friends one click away once you are in.</p>
+    <div class="sec-head">
+      <span class="eyebrow">The fine print</span>
+      <h2>Terms &amp; privacy</h2>
+      <p class="lede" style="margin-inline:auto">The short version of each. Last updated 20 September 2026.</p>
     </div>
     <div class="cards">
-      <div class="card rise"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 21 7v10l-9 5-9-5V7z" fill="currentColor"/><path d="M12 2 21 7l-9 5-9-5z" fill="currentColor"/></svg></span><h3>One-click play</h3><p>Choose any Minecraft version and press play. Cubeon fetches the game and the loader you want, then launches it.</p><span class="tag">Every release and snapshot</span></div>
-      <div class="card rise"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.4" fill="currentColor"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6z" fill="currentColor"/><circle cx="17" cy="9" r="2.6" fill="currentColor"/><path d="M14 20c0-2.7 1.4-4.7 3.6-4.7 2 0 3.4 1.8 3.4 4.7z" fill="currentColor"/></svg></span><h3>Friends, inside the game</h3><p>Your friends list lives in Minecraft, so you can see who is on, what they are playing, and join them from there.</p><span class="tag">Add people by name</span></div>
-      <div class="card rise"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor"/><path d="M3 12h18M12 3c3 3.4 3 14.6 0 18M12 3c-3 3.4-3 14.6 0 18" stroke="#04120A" stroke-width="1.6" fill="none"/></svg></span><h3>Your own world</h3><p>Start a world from the launcher and share the short code. No rented server, nothing to set up.</p><span class="tag">Share a code, they join</span></div>
-      <div class="card rise"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="14" width="8" height="7" rx="1.5" fill="currentColor"/><path d="M13 4h7v7h-7z" fill="currentColor"/><path d="M11 16 19.5 7.5" stroke="#04120A" stroke-width="2"/></svg></span><h3>Make it yours</h3><p>Skins and capes that everyone else can see, plus mods and world packs installed for you.</p><span class="tag">Skins &middot; capes &middot; mods</span></div>
-    </div>
-  </div>
-</section>
-
-<section class="cta">
-  <div class="wrap rise">
-    <h2>Ready to play?</h2>
-    <p class="lede">Download Cubeon, pick a name, and be in the same world tonight.</p>
-    <div class="hero-actions">
-      <a class="btn big" href="download.html">Download Cubeon</a>
-      <a class="btn quiet" href="help.html">Read the help page</a>
+      <div class="card" id="terms">
+        <h3>Terms</h3>
+        <ul>
+          <li>Play as yourself. Don't pretend to be another player.</li>
+          <li>Don't use friends features to harass or spam, or tamper with other people's names, skins or worlds.</li>
+          <li>Skins you upload stay yours; you let us show them to other players.</li>
+          <li>No promises it never breaks - back up worlds you love.</li>
+          <li>Minecraft is Mojang's. You need your own copy.</li>
+        </ul>
+        <a class="full" href="terms.html">Read the full terms</a>
+      </div>
+      <div class="card" id="privacy">
+        <h3>Privacy</h3>
+        <ul>
+          <li>Kept: your name, skin and cape, friends list, messages, and your IP while connected.</li>
+          <li>One-to-one messages are end-to-end encrypted. We can't read them.</li>
+          <li>Never: email, phone, real name, age, payment details, ads or tracking.</li>
+          <li>Delete it all by removing the Cubeon folder, or email us and we'll do it within a few days.</li>
+        </ul>
+        <a class="full" href="privacy.html">Read the full privacy page</a>
+      </div>
+      <div class="card" id="refunds">
+        <h3>Refunds</h3>
+        <ul>
+          <li>Nothing to pay today, so nothing to refund.</li>
+          <li>If an optional paid extra ever exists, the price and refund rules come first: at least 14 days, no questions asked.</li>
+        </ul>
+        <a class="full" href="refunds.html">Read the refund page</a>
+      </div>
+      <div class="card" id="cookies">
+        <h3>Cookies</h3>
+        <ul>
+          <li>This site sets no cookies and loads nothing from other companies.</li>
+          <li>The app keeps your settings, name and skins as ordinary files on your computer.</li>
+          <li>If that ever changes, we'll ask first.</li>
+        </ul>
+        <a class="full" href="cookies.html">Read the cookie page</a>
+      </div>
+      <div class="card wide" id="credits">
+        <h3>Credits</h3>
+        <ul>
+          <li>Fonts: Inter by Rasmus Andersson (SIL Open Font License 1.1) and Minecraftia by Andrew Tyler (Creative Commons Attribution Share Alike).</li>
+          <li>The cube mark, app icon and screenshots are ours.</li>
+          <li>Minecraft is a trademark of Mojang AB. Cubeon is an unofficial fan project, not affiliated with Mojang or Microsoft.</li>
+        </ul>
+        <a class="full" href="licenses.html">Read the full credits</a>
+      </div>
     </div>
   </div>
 </section>
@@ -108,15 +197,15 @@
 <footer>
   <div class="wrap foot">
     <div>
-      <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <a class="brand" href="#download"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
       <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
     </div>
     <div>
-      <h4>Cubeon</h4>
-      <nav class="foot-links" aria-label="Pages">
-        <a href="index.html">Home</a>
-        <a href="download.html">Download</a>
-        <a href="help.html">Help</a>
+      <h4>On this page</h4>
+      <nav class="foot-links" aria-label="Sections">
+        <a href="#download">Download</a>
+        <a href="#faq">FAQ</a>
+        <a href="#fine">Terms &amp; privacy</a>
       </nav>
     </div>
     <div>
@@ -137,6 +226,32 @@
   </div>
 </footer>
 
-<script src="assets/site.js" defer></script>
+<script>
+(function(){
+  /* which system is this? Decoration + convenience: with JS off, every
+     download pane simply shows, so nothing here is required to download. */
+  var ua = String((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '').toLowerCase();
+  var mobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent || '') || /android|iphone|ipad|ipod/.test(ua);
+  var det = mobile ? '' : /mac/.test(ua) ? 'mac' : /windows|win32|win64/.test(ua) ? 'windows' : /linux|x11/.test(ua) ? 'linux' : '';
+  var panes = document.querySelectorAll('.pane'), picks = document.querySelectorAll('[data-pick]');
+    function show(os){
+    panes.forEach(function(p){ p.classList.toggle('on', p.getAttribute('data-os') === os); });
+    picks.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-pick') === os ? 'true' : 'false'); });
+  }
+  picks.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-pick')); }); });
+  show(det || 'windows');
+
+  /* FAQ: one answer open at a time */
+  var qs = document.querySelectorAll('.q');
+  qs.forEach(function(q){
+    var btn = q.querySelector('.q-a');
+    btn.addEventListener('click', function(){
+      var was = q.classList.contains('open');
+      qs.forEach(function(o){ o.classList.remove('open'); o.querySelector('.q-a').setAttribute('aria-expanded','false'); });
+      if(!was){ q.classList.add('open'); btn.setAttribute('aria-expanded','true'); }
+    });
+  });
+})();
+</script>
 </body>
 </html>

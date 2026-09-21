@@ -151,44 +151,6 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   follows HOME), or patch module attrs post-import like
   `test_screenshot_gallery.py` does. NEVER rely on `CUBEON_HOME` env.
 
-## Window geometry race (2026-09-21) — INVARIANT
-- A window that opens centered despite a non-empty `window_geometry.json` is the
-  Flet 0.86/GTK first-map race, not a save bug: `left`/`top` written *before*
-  `page.window.visible = True` get clobbered by the window manager's first-show
-  centering and never stick. The save path (`_on_window_event` → `_save_geometry_now`)
-  and `load_window_geometry()` are fine — the value IS applied, it just gets
-  thrown away.
-- Fix in `main.py`'s `_reveal_window`: geometry is written twice. The first write
-  (`_apply_real_geometry()`) sets size/minimized-state before show; the second,
-  AFTER `page.window.visible = True`, re-sets `page.window.left`/`top` to the
-  saved `_gl`/`_gt` so it lands on the already-realized GTK toplevel and survives
-  the WM. Guarded by `if not _needs_center:` (no saved position → let the WM center
-  as intended) and wrapped in try/except (headless runtimes have no real window).
-- Guard: `tools/test_ui_smoke.py` asserts that inside `_reveal_window`,
-  `"visible = True"` precedes `"page.window.left = _gl"`. Do not collapse the two
-  writes back into `_apply_real_geometry()` alone — the pre-show write is the
-  clobbered one.
-
-## Cubeon nametag badge (2026-09-21) — INVARIANT
-- The `[#]` badge on in-game nametags matches the player's **Minecraft username**
-  (`Player.getName()`), NOT the relay handle the roster carries as `name`. The
-  launcher already had `minecraft_username` for you/friends and `/players` — the
-  bug was that `Nametag.names()` built its badge set from handles, so friend
-  nametags never matched (only your own, by entity identity first).
-- `mod/src/main/java/com/cubeon/client/BadgeNames.java` is the single owner of the
-  badge name set: `from(Snapshot, List<CubeonPlayer>)` returns the
-  case-insensitive set of provable Minecraft usernames (`you`,
-  `youMinecraftUsername`, friends' `minecraftUsername`, `/players`
-  names+usernames). Handles are still included so an older launcher whose account
-  name is a handle still badges. Minecraft-free on purpose → covered by the bare-JDK
-  `tools/test_mod_bridge.py` (`SelfTest.badgeNames()`), the only place this rule
-  can be tested (the real `Nametag` needs Minecraft to compile). `Nametag.names()`
-  delegates here; do not rebuild the set inline in `Nametag` again.
-- Deploy invariant: `tools/build_mod_jars.py` rebuilds BOTH brackets and writes
-  to `~/.cubeon_launcher/cache/` (first lookup) + `assets/jars/`. A stale jar in
-  cache silently wins, so **always rebuild after any `mod/` change** even if you
-  only edited the Minecraft-free layer — `BadgeNames` ships in the jar too.
-
 ## Relay username metadata (2026-09-17, plan step 2)
 - `cubeon/friends.py` exposes `minecraft_username(value)` -> the value when it
   matches `[A-Za-z0-9_]{3,16}` (case-preserving, NO reserved-name check) else

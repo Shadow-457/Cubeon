@@ -162,7 +162,7 @@ def _fake_post(url, json=None, timeout=None, **kw):
     _seen["sent_uuid"] = json.get("uuid")
     _seen["sent_secret"] = json.get("secret")
     return _Resp(200, {"ok": True, "name": json["name"], "uuid": json.get("uuid"),
-                       "uid": "000000000042"})
+                       "uid": "00000042"})
 
 
 def _fake_get(url, timeout=None, **kw):
@@ -192,8 +192,8 @@ check("successful claim persisted the identity", saved_id and saved_id["name"] =
 check("the persisted secret is the one sent to the server",
       saved_id and saved_id["secret"] == _seen.get("sent_secret"))
 check("a successful claim persists the server-assigned ID",
-      saved_id and saved_id.get("uid") == "000000000042"
-      and friends.current_uid() == "000000000042")
+      saved_id and saved_id.get("uid") == "00000042"
+      and friends.current_uid() == "00000042")
 
 # Re-claiming a held name proves ownership by reusing the same secret, not by
 # minting a new one that the server would reject.
@@ -332,10 +332,10 @@ client3.on("metadata", lambda m: received_meta.append(m))
 
 client3._on_message(client3._ws, json.dumps({
     "t": friends.T_ROSTER,
-    "friends": [{"name": "Ruby", "uid": "000000000002",
+    "friends": [{"name": "Ruby", "uid": "00000002",
                  "minecraft_username": "RubyName", "online": True}],
     "requests_in": ["Player_99999999"],
-    "requests_in_details": [{"name": "Player_99999999", "uid": "000000000009",
+    "requests_in_details": [{"name": "Player_99999999", "uid": "00000009",
                              "minecraft_username": "PendingGuy"}],
     "requests_out": [],
     "requests_out_details": [],
@@ -343,19 +343,19 @@ client3._on_message(client3._ws, json.dumps({
 }))
 meta = client3.roster.get("peer_metadata", {})
 check("roster friend metadata cached by canonical handle",
-      meta.get("ruby") == {"uid": "000000000002", "minecraft_username": "RubyName"})
+      meta.get("ruby") == {"uid": "00000002", "minecraft_username": "RubyName"})
 check("roster pending-request metadata cached",
       meta.get("player_99999999", {}).get("minecraft_username") == "PendingGuy")
 check("rich request details retained on the roster",
-      client3.roster.get("requests_in_details", [{}])[0].get("uid") == "000000000009")
+      client3.roster.get("requests_in_details", [{}])[0].get("uid") == "00000009")
 check("roster cached to disk with metadata",
       friends.load_cached_roster().get("peer_metadata", {}).get("ruby", {}).get("uid")
-      == "000000000002")
+      == "00000002")
 
 changed = []
 client3.on("metadata", lambda m: changed.append(m))
 client3._on_message(client3._ws, json.dumps({
-    "t": friends.T_METADATA, "name": "Ruby", "uid": "000000000002",
+    "t": friends.T_METADATA, "name": "Ruby", "uid": "00000002",
     "minecraft_username": "RenamedRuby"}))
 check("metadata frame dispatched to handlers",
       changed and changed[-1].get("minecraft_username") == "RenamedRuby")
@@ -365,7 +365,7 @@ check("metadata frame merged into the cache before callbacks",
 # An unchanged metadata frame is a no-op repaint-wise (cache compare), but the
 # event still fires - the server echoes it to every peer, dedupe is by value.
 client3._on_message(client3._ws, json.dumps({
-    "t": friends.T_METADATA, "name": "Ruby", "uid": "000000000002",
+    "t": friends.T_METADATA, "name": "Ruby", "uid": "00000002",
     "minecraft_username": "RenamedRuby"}))
 check("unchanged metadata frame leaves the cache identical",
       client3.roster["peer_metadata"]["ruby"]["minecraft_username"] == "RenamedRuby")
@@ -376,17 +376,17 @@ client3._on_message(client3._ws, json.dumps({"t": friends.T_METADATA, "minecraft
 client3._on_message(client3._ws, "not json")
 check("invalid/missing metadata frames cannot clear or corrupt the cache",
       client3.roster["peer_metadata"]["ruby"]["minecraft_username"] == "RenamedRuby"
-      and client3.roster["peer_metadata"]["ruby"]["uid"] == "000000000002")
+      and client3.roster["peer_metadata"]["ruby"]["uid"] == "00000002")
 
 client3._on_message(client3._ws, json.dumps({
-    "t": friends.T_METADATA, "name": "Ruby", "uid": "000000000002"}))
+    "t": friends.T_METADATA, "name": "Ruby", "uid": "00000002"}))
 check("partial UID update preserves known username",
       client3.roster["peer_metadata"]["ruby"]["minecraft_username"] == "RenamedRuby")
 client3._on_message(client3._ws, json.dumps({
     "t": friends.T_METADATA, "name": "Ruby", "minecraft_username": "NewestRuby"}))
 check("partial username update preserves known UID",
       client3.roster["peer_metadata"]["ruby"] == {
-          "uid": "000000000002", "minecraft_username": "NewestRuby"})
+          "uid": "00000002", "minecraft_username": "NewestRuby"})
 presence_seen = []
 client3.on("presence", lambda m: presence_seen.append(
     dict(next(f for f in client3.roster["friends"] if f["name"] == "Ruby"))))
@@ -415,22 +415,22 @@ check("presence never creates a friendship",
 # Two accounts with identical usernames remain distinct accounts.
 client3._on_message(client3._ws, json.dumps({
     "t": friends.T_ROSTER,
-    "friends": [{"name": "Player_11111111", "uid": "000000000001",
+    "friends": [{"name": "Player_11111111", "uid": "00000001",
                  "minecraft_username": "Twin"},
-                {"name": "Player_22222222", "uid": "000000000002",
+                {"name": "Player_22222222", "uid": "00000002",
                  "minecraft_username": "Twin"}],
     "requests_in": [], "requests_in_details": [],
     "requests_out": [], "requests_out_details": [],
     "groups": [{"gid": "g_1", "name": "Room",
                 "members": ["Player_11111111"],
                 "member_details": [{"name": "Player_11111111",
-                                    "uid": "000000000001",
+                                    "uid": "00000001",
                                     "minecraft_username": "Twin"}]}],
 }))
 twin_meta = client3.roster["peer_metadata"]
 check("duplicate usernames stay distinct accounts (handle-keyed cache)",
-      twin_meta.get("player_11111111", {}).get("uid") == "000000000001"
-      and twin_meta.get("player_22222222", {}).get("uid") == "000000000002"
+      twin_meta.get("player_11111111", {}).get("uid") == "00000001"
+      and twin_meta.get("player_22222222", {}).get("uid") == "00000002"
       and twin_meta.get("player_11111111", {}).get("minecraft_username") == "Twin"
       and twin_meta.get("player_22222222", {}).get("minecraft_username") == "Twin")
 check("group member_details feed the metadata cache",

@@ -28,6 +28,22 @@ Design rules it follows:
     never a solid green slab - green stays reserved for presence/actions.
   - Bubbles hug their text (width measured from the longest line, capped to
     the pane) instead of every message being the same fixed width.
+  - Sends are OPTIMISTIC (2026-09-20): the bubble appears the instant Enter
+    is pressed (dim, "Sending..."), the relay's echo-filed line replaces it,
+    and a refusal or 12s silence turns it red "Couldn't send" (_pending /
+    _append_optimistic / _sweep_pending).
+  - Auto-scroll is opt-in per position (_stick): new messages follow only
+    while the view is at the bottom, so reading history never gets yanked
+    down; opening a conversation always jumps to the end. A "Newest" pill
+    (_jump_row) appears while the view is scrolled up and jumps back down.
+  - Composer drafts survive friend switches and tab closes within the
+    session (_drafts; saved on every keystroke, restored on _select) - a
+    half-typed message is never lost.
+  - Bubbles are click-to-copy, and every bubble/roster stamp carries the
+    full date on hover. The clock line is GROUPED: only the first bubble of
+    a same-side run (or a new day) shows it.
+  - The roster can be filtered by name or ID (find_field, client-side over
+    the last roster snapshot - the service is never queried per keystroke).
   - All service calls run on this module's own poll thread; every control write
     is wrapped in thread_safe_ui.TREE_LOCK and repainted with
     thread_safe_ui.refresh(control), never a whole-page update.
@@ -72,6 +88,37 @@ def _fmt_time(ts_ms) -> str:
         return time.strftime("%H:%M", time.localtime(ts))
     except (TypeError, ValueError, OSError):
         return ""
+
+
+def _full_date(ts_ms) -> str:
+    """A timestamp as \"Mar 3, 2026 · 14:23\" — the hover detail for bubbles
+    and roster rows, where the compact clock hides the day."""
+    try:
+        ts = int(ts_ms)
+        if ts <= 0:
+            return ""
+        if ts > 10_000_000_000:
+            ts //= 1000
+        return time.strftime("%b %d, %Y · %H:%M", time.localtime(ts))
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
+def _short_stamp(ts_ms) -> str:
+    """Roster-row stamp: \"14:23\" for today, \"Mar 3\" for anything older —
+    a conversation from last week doesn't need a clock."""
+    full = _full_date(ts_ms)
+    if not full:
+        return ""
+    today = time.strftime("%Y-%m-%d")
+    try:
+        ts = int(ts_ms)
+        if ts > 10_000_000_000:
+            ts //= 1000
+        day = time.strftime("%Y-%m-%d", time.localtime(ts))
+    except (TypeError, ValueError, OSError):
+        return full
+    return time.strftime("%H:%M", time.localtime(ts)) if day == today else full.split(" · ")[0]
 
 
 def _day_key(ts_ms):
@@ -137,6 +184,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     _header_sig = {"v": None}
     _last_day = {}
     _last_dir = {}
+    # Optimistic sends: canon friend -> [{"text", "wrap", "ts", "t0"}] for
+    # bubbles shown before the relay's echo confirms them. The echo-filed
+    # message replaces (not duplicates) its pending bubble in _append_messages.
+    _pending = {}
+    # Composer drafts: canon friend -> composer text, kept across friend
+    # switches and tab closes within the session (the tab stays mounted once
+    # built; a fresh launch starts with empty drafts).
+    _drafts = {}
+    # Auto-scroll: True while the view sits at the bottom, so appended
+    # messages follow, but reading history doesn't get yanked down.
+    _stick = {"at_end": True}
     tick_lock = threading.Lock()
     stop = threading.Event()
 
@@ -186,6 +244,24 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         on_submit=lambda e: _do_add(),
     )
 
+    # Client-side roster filter: narrows the Friends list by name (or ID)
+    # without touching the service - every keystroke just re-renders the
+    # matching rows from the last roster snapshot.
+    find_field = ft.TextField(
+        hint_text="Find a friend…",
+        prefix_icon=ft.Icons.SEARCH_ROUNDED,
+        border_color=CARD_BORDER,
+        focused_border_color=ACCENT,
+        color=TEXT,
+        hint_style=ft.TextStyle(color=TEXT_FAINT),
+        text_style=ft.TextStyle(size=13),
+        bgcolor=CARD_FILL,
+        border_radius=RADIUS,
+        height=36,
+        content_padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+        on_change=lambda e: _rebuild_friends(_last_roster["v"] or {}),
+    )
+
     requests_label = section_label("Requests")
     requests_col = ft.Column(spacing=6)
     friends_label = section_label("Friends")
@@ -201,9 +277,57 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                icon_size=18, icon_color=TEXT_DIM,
                                hover_color=DANGER,
                                tooltip="Remove friend", visible=False)
-    transcript = ft.ListView(expand=True, spacing=0, auto_scroll=True,
+    # auto_scroll=False on purpose: it slams to the newest line on EVERY
+    # control update, which makes reading history impossible. _stick_bottom()
+    # reproduces the good half (follow new messages) only while the user is
+    # already at the bottom - tracked by the on_scroll handler.
+    transcript = ft.ListView(expand=True, spacing=0, auto_scroll=False,
+                             on_scroll=lambda e: _on_transcript_scroll(e),
                              padding=ft.padding.Padding.symmetric(
                                  vertical=6, horizontal=2), visible=False)
+
+    # "Jump to newest" pill: appears while the view is scrolled up and sends
+    # the transcript back to the bottom with one click.
+    jump_row = ft.Container(
+        content=ft.Row(
+            [
+                ft.Container(expand=True),
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.VERTICAL_ALIGN_BOTTOM_ROUNDED,
+                                    size=15, color=ACCENT),
+                            ft.Text("Newest", size=11, color=ACCENT,
+                                    weight=ft.FontWeight.W_600),
+                        ],
+                        spacing=5, tight=True,
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    bgcolor=SURFACE_HI,
+                    border=ft.border.Border.all(1, ACCENT_DIM),
+                    border_radius=RADIUS,
+                    padding=ft.padding.Padding.symmetric(horizontal=10,
+                                                         vertical=6),
+                    ink=False,
+                    on_click=lambda e: _stick_bottom(force=True),
+                ),
+            ],
+            tight=True,
+        ),
+        visible=False,
+    )
+
+    def _on_composer_change(_e=None):
+        """Keep the open conversation's draft fresh while typing, so leaving
+        the conversation (or the tab) never loses what was half-typed."""
+        key = selected["name"]
+        if not key:
+            return
+        value = composer.value or ""
+        if value.strip():
+            _drafts[key] = value
+        else:
+            _drafts.pop(key, None)
 
     composer = ft.TextField(
         hint_text="Message...",
@@ -220,6 +344,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         max_lines=4,
         content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
         on_submit=lambda e: _do_send(),
+        on_change=_on_composer_change,
     )
     send_btn = attach_hover(ft.Container(
         content=ft.Icon(ft.Icons.SEND_ROUNDED, size=18, color=ON_ACCENT),
@@ -227,9 +352,48 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         alignment=ft.Alignment.CENTER, ink=False,
         on_click=lambda e: _do_send(),
     ), ACCENT, ACCENT_HI)
+
+    # --- emoji picker -------------------------------------------------
+    # A small, game-flavored set. Kept as literal text so no platform emoji
+    # plugin is needed; clicking one appends it at the composer's end.
+    _EMOJIS = ("😀 😂 🥹 😍 😎 🤔 😅 😢 😡 🥳 😴 🤝 👍 👎 🙏 👏 💪 🔥 💀 🎉 "
+               "🎮 ⚔️ ⛏️ 🧱 💎 🌳 🐷 💥 ✅ ❌ ❓ 👀").split()
+
+    def _insert_emoji(em):
+        composer.value = (composer.value or "") + em
+        thread_safe_ui.refresh(composer)
+
+    def _toggle_emoji():
+        emoji_panel.visible = not emoji_panel.visible
+        thread_safe_ui.refresh(emoji_panel)
+
+    emoji_btn = ft.IconButton(
+        icon=ft.Icons.EMOJI_EMOTIONS_ROUNDED, icon_size=20,
+        icon_color=TEXT_DIM, tooltip="Emoji", visible=False,
+        on_click=lambda e: _toggle_emoji(),
+    )
+    emoji_panel = ft.Container(
+        content=ft.Column(
+            [ft.Row(
+                [ft.Container(
+                    ft.Text(em, size=18), padding=4, border_radius=RADIUS,
+                    ink=False, on_click=lambda e, em=em: _insert_emoji(em),
+                    tooltip=None,
+                 ) for em in _EMOJIS[i:i + 8]],
+                spacing=2, run_spacing=2, wrap=True,
+            ) for i in range(0, len(_EMOJIS), 8)],
+            spacing=0, tight=True,
+        ),
+        bgcolor=SURFACE_HI,
+        border=ft.border.Border.all(1, CARD_BORDER),
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.all(6),
+        visible=False,
+    )
     composer_status = ft.Text("", size=11, color=DANGER, max_lines=2,
                               overflow=ft.TextOverflow.ELLIPSIS, visible=False)
-    composer_row = ft.Row([composer, send_btn], spacing=8, visible=False,
+    composer_row = ft.Row([emoji_btn, composer, send_btn], spacing=8,
+                          visible=False,
                           vertical_alignment=ft.CrossAxisAlignment.END)
 
     empty_title = ft.Text("Pick a friend to start chatting", size=14,
@@ -409,11 +573,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             preview_color = TEXT_DIM if online or unread else TEXT_FAINT
         else:
             preview, preview_color = _presence(f)
-        stamp = _fmt_time(last_ts) if last_ts else ""
+        stamp = _short_stamp(last_ts) if last_ts else ""
         trailing = ft.Column(
             [
                 ft.Text(stamp, size=10,
-                        color=ACCENT if unread else TEXT_FAINT),
+                        color=ACCENT if unread else TEXT_FAINT,
+                        tooltip=_full_date(last_ts) if last_ts else None),
                 _unread_badge(unread) if unread else ft.Container(),
             ],
             spacing=3, tight=True,
@@ -583,11 +748,22 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _rebuild_friends(roster):
         friends = [f for f in (roster.get("friends") or [])
                    if isinstance(f, dict) and f.get("name")]
+        query = (find_field.value or "").strip().lower()
+        if query:
+            def _match(f):
+                label, uid = _peer_identity(f.get("name"), f)
+                return (query in (label or "").lower()
+                        or (uid and query in uid))
+            friends = [f for f in friends if _match(f)]
         with thread_safe_ui.TREE_LOCK:
             friends_col.controls.clear()
-            if not friends:
+            if not friends and not query:
                 friends_col.controls.append(
                     ft.Text("No friends yet. Add one above.", size=12,
+                            color=TEXT_FAINT))
+            elif not friends:
+                friends_col.controls.append(
+                    ft.Text("No friend matches that.", size=12,
                             color=TEXT_FAINT))
             for f in friends:
                 friends_col.controls.append(_friend_row(f))
@@ -668,62 +844,209 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             margin=ft.Margin(0, 12, 0, 4),
         )
 
+    def _on_transcript_scroll(e):
+        try:
+            # "At the end" with a little tolerance, so a half-pixel drift
+            # doesn't strand the follow on.
+            at_end = e.extent_after < 48
+            _stick["at_end"] = at_end
+            if jump_row.visible == at_end:
+                jump_row.visible = not at_end
+                thread_safe_ui.refresh(jump_row)
+        except Exception:
+            pass
+
+    def _stick_bottom(force=False):
+        """Follow the newest message, but only when the user wants that:
+        either forced (conversation just opened) or the view is already at
+        the bottom. scroll_to is async - it must ride page.run_task."""
+        if not (force or _stick["at_end"]):
+            return
+        try:
+            page.run_task(transcript.scroll_to, -1)
+        except Exception:
+            pass   # headless/test hosts have no run_task
+
+    def _copy_message(text):
+        """Copy a single message's text; the bubble is the + copy affordance."""
+        try:
+            from flet.controls.services.clipboard import Clipboard
+            page.run_task(Clipboard().set, text)
+            _set_status("Message copied.")
+        except Exception:
+            pass   # headless/older hosts have no clipboard service
+
+    def _make_bubble(text, mine, ts, dim=False, failed=False, status=None,
+                     with_time=True):
+        """One message bubble. `dim` is the optimistic pre-echo state; `failed`
+        marks a send that the service refused. `with_time` is the grouped-clock
+        rule: consecutive messages from one side show no clock (the full date
+        lives on hover); the first message of a group or day does."""
+        max_w = _bubble_max_width()
+        rows = [ft.Text(text, size=13, selectable=True,
+                        color=TEXT_DIM if dim else TEXT,
+                        width=_bubble_text_width(text, max_w),
+                        tooltip="Click the bubble to copy this message")]
+        meta = _fmt_time(ts)
+        if status:
+            rows.append(ft.Row(
+                [ft.Text(meta + ("  ·  " + status if meta else status),
+                         size=9, color=DANGER if failed else TEXT_FAINT,
+                         tooltip=_full_date(ts) if ts else None)],
+                alignment=(ft.MainAxisAlignment.END if mine
+                           else ft.MainAxisAlignment.START)))
+        elif meta and with_time:
+            rows.append(ft.Text(meta, size=9, color=TEXT_FAINT,
+                                tooltip=_full_date(ts) if ts else None,
+                                text_align=(ft.TextAlign.RIGHT if mine
+                                            else ft.TextAlign.LEFT)))
+        return ft.Container(
+            content=ft.Column(rows, spacing=2, tight=True),
+            bgcolor=(CARD_FILL if (dim or failed)
+                     else (ACCENT_TINT if mine else SURFACE_HI)),
+            border=ft.border.Border.all(
+                1, DANGER if failed
+                else (CARD_BORDER if (dim or failed)
+                      else (ACCENT_DIM if mine else CARD_BORDER))),
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=11, vertical=8),
+            ink=False,
+            tooltip=((_full_date(ts) + "  ·  click to copy") if ts
+                     else "Click to copy this message"),
+            on_click=lambda e, t=text: _copy_message(t),
+        )
+
+    def _bubble_row(bubble, mine, gap):
+        return ft.Container(
+            content=ft.Row(
+                [bubble],
+                alignment=(ft.MainAxisAlignment.END if mine
+                           else ft.MainAxisAlignment.START)),
+            margin=ft.Margin(0, gap, 0, 0),
+        )
+
+    def _append_optimistic(name, text):
+        """Show an outgoing message BEFORE the relay confirms it, so pressing
+        Enter feels instant. The real echo-filed line replaces this bubble
+        in _append_messages; a refusal marks it failed in _do_send's done()."""
+        ts = int(time.time() * 1000)
+        with thread_safe_ui.TREE_LOCK:
+            day, label = _day_key(ts)
+            if day and day != _last_day.get(name):
+                _last_day[name] = day
+                _last_dir[name] = None
+                transcript.controls.append(_day_separator(label))
+            _last_dir[name] = "out"
+            wrap = _bubble_row(
+                _make_bubble(text, True, ts, dim=True, status="Sending…"),
+                True, 2)
+            transcript.controls.append(wrap)
+            _pending.setdefault(name, []).append(
+                {"text": text, "wrap": wrap, "ts": ts,
+                 "t0": time.monotonic()})
+        thread_safe_ui.refresh(transcript)
+        _stick_bottom()
+
+    def _fail_pending(name, text=None, entry=None):
+        """Turn a pending bubble into a red "couldn't send" bubble. Called on
+        a send refusal (matched by text) and on the send timeout sweep."""
+        with thread_safe_ui.TREE_LOCK:
+            q = _pending.get(name) or []
+            if entry is None:
+                for p in q:
+                    if p["text"] == text:
+                        entry = p
+                        break
+            if entry is None:
+                return
+            try:
+                idx = transcript.controls.index(entry["wrap"])
+                transcript.controls[idx] = _bubble_row(
+                    _make_bubble(entry["text"], True, entry["ts"],
+                                 failed=True, status="Couldn't send"), True, 2)
+            except ValueError:
+                pass   # the conversation was rebuilt - nothing to mark
+            try:
+                q.remove(entry)
+            except ValueError:
+                pass
+            if not q and _pending.get(name) is not None:
+                _pending[name] = []
+        thread_safe_ui.refresh(transcript)
+
+    def _sweep_pending():
+        """A pending bubble that was never confirmed (relay dropped it, echo
+        never arrived) can't stay "Sending…" forever: after 12s it goes red
+        like a refusal. If it DOES land later, the real line still appends."""
+        cutoff = time.monotonic() - 12.0
+        stale = [p for q in _pending.values() for p in list(q)
+                 if p["t0"] < cutoff]
+        for p in stale:
+            for name, q in _pending.items():
+                if p in q:
+                    _fail_pending(name, entry=p)
+                    break
+
+    def _append_messages_inner(msgs, name):
+        for m in msgs:
+            seq = m.get("seq")
+            if seq is not None:
+                last_seq[name] = max(last_seq.get(name, -1), int(seq))
+            mine = m.get("dir") == "out"
+            side = "out" if mine else "in"
+            text = m.get("text") or ""
+            ts = m.get("ts")
+            # A confirmed echo of a message we showed optimistically replaces
+            # that pending bubble (FIFO by text) instead of duplicating it.
+            if mine:
+                q = _pending.get(name) or []
+                for p in list(q):
+                    if p["text"] == text:
+                        q.remove(p)
+                        try:
+                            transcript.controls.remove(p["wrap"])
+                        except ValueError:
+                            pass
+                        break
+            day, label = _day_key(ts)
+            prev_side = _last_dir.get(name)
+            new_day = bool(day and day != _last_day.get(name))
+            if new_day:
+                _last_day[name] = day
+                _last_dir[name] = None
+                prev_side = None
+                transcript.controls.append(_day_separator(label))
+            # Grouped-clock rule: only the first bubble of a group (or day)
+            # shows the clock; run-on messages from the same side keep the
+            # transcript quiet, with the full date on hover.
+            with_time = new_day or prev_side != side
+            gap = 2 if prev_side == side else (6 if _last_day.get(name) else 10)
+            _last_dir[name] = side
+            transcript.controls.append(_bubble_row(
+                _make_bubble(text, mine, ts, with_time=with_time), mine, gap))
+        thread_safe_ui.refresh(transcript)
+
     def _append_messages(msgs, name):
         if not msgs or selected["name"] != name:
             return
-        max_w = _bubble_max_width()
         with thread_safe_ui.TREE_LOCK:
-            for m in msgs:
-                seq = m.get("seq")
-                if seq is not None:
-                    last_seq[name] = max(last_seq.get(name, -1), int(seq))
-                mine = m.get("dir") == "out"
-                side = "out" if mine else "in"
-                text = m.get("text") or ""
-                ts = m.get("ts")
-                day, label = _day_key(ts)
-                if day and day != _last_day.get(name):
-                    _last_day[name] = day
-                    _last_dir[name] = None
-                    transcript.controls.append(_day_separator(label))
-                same = _last_dir.get(name) == side
-                gap = 2 if same else (6 if _last_day.get(name) else 10)
-                _last_dir[name] = side
-                bubble = ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text(text, size=13, selectable=True, color=TEXT,
-                                    width=_bubble_text_width(text, max_w)),
-                            ft.Text(_fmt_time(ts), size=9, color=TEXT_FAINT,
-                                    text_align=(ft.TextAlign.RIGHT if mine
-                                                else ft.TextAlign.LEFT)),
-                        ],
-                        spacing=2, tight=True,
-                    ),
-                    bgcolor=ACCENT_TINT if mine else SURFACE_HI,
-                    border=ft.border.Border.all(
-                        1, ACCENT_DIM if mine else CARD_BORDER),
-                    border_radius=RADIUS,
-                    padding=ft.padding.Padding.symmetric(horizontal=11,
-                                                         vertical=8),
-                )
-                transcript.controls.append(
-                    ft.Container(
-                        content=ft.Row(
-                            [bubble],
-                            alignment=(ft.MainAxisAlignment.END if mine
-                                       else ft.MainAxisAlignment.START)),
-                        margin=ft.Margin(0, gap, 0, 0),
-                    ))
-        thread_safe_ui.refresh(transcript)
+            _append_messages_inner(msgs, name)
+        _stick_bottom()
 
     # --- actions ---------------------------------------------------------
     def _select(name):
+        prev = selected["name"]
+        if prev and prev != name:
+            _drafts[prev] = composer.value
         selected["name"] = name
         last_seq[name] = -1
         _last_day[name] = None
         _last_dir[name] = None
+        _pending[name] = []       # the transcript is rebuilt; pending bubbles die
+        _stick["at_end"] = True   # opening a conversation starts at the bottom
+        emoji_panel.visible = False
         composer_status.visible = False
+        composer.value = _drafts.get(name) or ""
         with thread_safe_ui.TREE_LOCK:
             transcript.controls.clear()
         transcript.visible = True
@@ -735,13 +1058,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         header_rule.visible = True
         remove_btn.on_click = lambda e, n=name: _confirm_remove(n)
         composer_row.visible = True
+        emoji_btn.visible = True
+        jump_row.visible = False   # opening starts at the bottom
         _roster_sig["v"] = None   # repaint the selection highlight
         for ctrl in (transcript, empty_state, transcript_header,
                      transcript_sub, header_avatar, remove_btn, header_rule,
-                     composer_row, composer_status):
+                     composer_row, composer_status, emoji_btn, emoji_panel,
+                     jump_row, composer):
             thread_safe_ui.refresh(ctrl)
         _mark_read(name)
         _tick()
+        _stick_bottom(force=True)
 
     def _run(action, done, label):
         """Run a service call off the UI thread. Several do real network I/O
@@ -763,14 +1090,22 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             return
 
         _set_composer_status("")
+        emoji_panel.visible = False
+        # Optimistic: clear the box and show the bubble NOW. send_chat blocks
+        # on the peer-pubkey lookup + WS send (~a second); the user must never
+        # wait on that. If the send is refused, the pending bubble turns red
+        # below; if it's accepted, the relay's echo files the real line which
+        # replaces the pending bubble in _append_messages.
+        composer.value = ""
+        _drafts.pop(name, None)   # the message left the box - draft is spent
+        thread_safe_ui.refresh(composer)
+        _append_optimistic(name, text)
 
         def done(res):
-            if res.get("ok"):
-                composer.value = ""
-                thread_safe_ui.refresh(composer)
-            else:
+            if not res.get("ok"):
                 _set_composer_status(res.get("error")
                                      or "Couldn't send that message.")
+                _fail_pending(name, text)
 
         _run(lambda: service.send_chat(name, text), done, "cubeon-chat-send")
 
@@ -825,7 +1160,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _run(lambda: service.remove(name), done, "cubeon-chat-remove")
 
     def _clear_conversation():
+        if selected["name"]:
+            _drafts[selected["name"]] = composer.value
         selected["name"] = None
+        composer.value = ""
         with thread_safe_ui.TREE_LOCK:
             transcript.controls.clear()
         transcript.visible = False
@@ -840,11 +1178,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         remove_btn.visible = False
         header_rule.visible = False
         composer_row.visible = False
+        emoji_btn.visible = False
+        emoji_panel.visible = False
         composer_status.visible = False
+        jump_row.visible = False
+        for name in list(_pending):
+            _pending[name] = []
         _roster_sig["v"] = None
         for ctrl in (transcript, empty_state, transcript_header,
                      transcript_sub, header_avatar, remove_btn, header_rule,
-                     composer_row, composer_status):
+                     composer_row, composer_status, emoji_btn, emoji_panel,
+                     jump_row, composer):
             thread_safe_ui.refresh(ctrl)
 
     def _confirm_remove(name):
@@ -883,6 +1227,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             cursor["v"] = ev.get("cursor", cursor["v"])
             name = selected["name"]
             if name:
+                _sweep_pending()
                 try:
                     payload = service.chat_payload(
                         name, last_seq.get(name, -1)) or {}
@@ -952,6 +1297,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 add_field,
                 requests_label,
                 requests_col,
+                find_field,
                 friends_label,
                 friends_col,
                 ft.Container(height=8),
@@ -986,8 +1332,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 conn_banner,
                 header_rule,
                 transcript,
+                jump_row,
                 empty_state,
                 composer_status,
+                emoji_panel,
                 composer_row,
             ],
             spacing=12,

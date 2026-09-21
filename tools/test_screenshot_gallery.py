@@ -19,7 +19,9 @@ def check(label, condition):
 
 with tempfile.TemporaryDirectory(prefix="cubeon-screenshots-") as root:
     old_dir = gallery.SCREENSHOTS_DIR
+    old_cache = gallery._RENDER_CACHE_DIR
     gallery.SCREENSHOTS_DIR = root
+    gallery._RENDER_CACHE_DIR = os.path.join(root, "_renders")
     try:
         Image.new("RGB", (1600, 900), (30, 120, 60)).save(
             os.path.join(root, "latest.png"), "PNG")

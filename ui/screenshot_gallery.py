@@ -15,6 +15,14 @@ from cubeon.theme import (
     TEXT, TEXT_DIM, TEXT_FAINT, attach_hover,
 )
 
+# A full screenshot decode is the expensive step (~100-200 ms for a
+# 1920x1080 PNG). The first Images-pane open with N screenshots used to
+# fire N concurrent decodes - saturating the CPU and flooding the loop
+# with repaints as each one landed. Renders are now disk-cached
+# (cubeon/screenshot_gallery.py), and the cache MISSES above stay bounded:
+# at most this many decoding threads run at once.
+_DECODE_POOL = threading.Semaphore(3)
+
 
 def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
     """Build the full-canvas screenshots tab and return its refresh callback."""
@@ -91,7 +99,8 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
 
     def _paint_selected_image(filename, generation):
         try:
-            encoded = store.image_base64(filename)
+            with _DECODE_POOL:
+                encoded = store.image_base64(filename)
         except Exception as ex:
             if generation != state["generation"]:
                 return
@@ -137,7 +146,8 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
 
     def _load_thumb(filename, image, loading, generation):
         try:
-            encoded = store.image_base64(filename, max_size=(180, 112))
+            with _DECODE_POOL:
+                encoded = store.image_base64(filename, max_size=(180, 112))
         except Exception:
             return
         if generation != state["thumb_generation"]:
