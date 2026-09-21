@@ -1,0 +1,15 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/linuxdownload", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-x86_64.AppImage", "permanent": false },
+    { "source": "/linuxdeb", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/cubeon_1.0.0_amd64.deb", "permanent": false },
+    { "source": "/linuxsetup", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Linux-x86_64-Setup.sh", "permanent": false },
+    { "source": "/windowsdownload", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64-Setup.exe", "permanent": false },
+    { "source": "/windowsportable", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64-single.exe", "permanent": false },
+    { "source": "/windowszip", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64.zip", "permanent": false },
+    { "source": "/download", "destination": "/download.html", "permanent": false },
+    { "source": "/help", "destination": "/help.html", "permanent": false },
+    { "source": "/404", "destination": "/404.html", "permanent": false }
+  ]
+}
