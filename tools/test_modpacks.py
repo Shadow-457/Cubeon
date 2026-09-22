@@ -566,6 +566,38 @@ def main():
     check("archive progress: an unknown total reports nothing at all",
           len(lines) == before, lines[before:])
 
+    # --- cancellation propagates out of a progress callback -----------------
+    # The UI cancels a modpack install by raising from its status/progress
+    # callback (the only stop mll and the download loop honor). That exception
+    # must reach the caller unchanged and must leave the pack UNLISTED - the
+    # marker is dropped when the rebuild starts and only rewritten on success.
+    # Kept LAST on purpose: it deliberately leaves the profile without a marker.
+    class _CancelSentinel(Exception):
+        pass
+
+    def _cancel_case(label, trigger):
+        mrpack_cancel = os.path.join(scratch, "cancel.mrpack")
+        build_mrpack(mrpack_cancel)
+
+        def _cancel_status(text):
+            if text.startswith(trigger):
+                raise _CancelSentinel()
+
+        try:
+            modpacks._install_from_zip(mrpack_cancel, status_cb=_cancel_status)
+            check(f"cancel: raising from status_cb aborts ({label})", False)
+        except _CancelSentinel:
+            check(f"cancel: raising from status_cb aborts ({label})", True)
+        except Exception as ex:
+            check(f"cancel: raising from status_cb aborts ({label})", False,
+                  f"{ex.__class__.__name__}: {ex}")
+        check(f"cancel: no pack marker left behind ({label})",
+              not os.path.isfile(os.path.join(profile_dir,
+                                              modpacks.MODPACK_META_FILENAME)))
+
+    _cancel_case("version phase", "Installing Minecraft")
+    _cancel_case("parallel mod fetch", "Downloading mods")
+
     print(f"\n{_passed} passed, {_failed} failed")
     return 1 if _failed else 0
 

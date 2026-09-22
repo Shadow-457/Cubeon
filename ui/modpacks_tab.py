@@ -61,17 +61,63 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # stale row - still Play-able - for the whole duration of the bar.
     installed_refresh_done = {"done": False}
 
+    # Cancellation of the in-flight install. The flag is the source of truth:
+    # the backend installers can ONLY be stopped by raising from a progress
+    # callback (mll and the download loop both abort on that), and some of them
+    # re-wrap the exception - so the worker decides "cancelled" from this event,
+    # never from the exception type.
+    install_cancel = threading.Event()
+
+    class _InstallCancelled(Exception):
+        """Raised out of the progress callbacks to abort a cancelled install."""
+
+    def _check_cancel():
+        if install_cancel.is_set():
+            raise _InstallCancelled()
+
+    def on_cancel_install(e=None):
+        """Ask the install to stop. Only sets the flag - the installing worker
+        notices between steps and reports it, so this button can never leave
+        the card in a state the worker doesn't agree with."""
+        if not busy["value"]:
+            return
+        install_cancel.set()
+        install_cancel_btn.disabled = True
+        install_status.value = "Cancelling..."
+        install_status.color = TEXT_DIM
+        thread_safe_ui.refresh(install_status)
+        thread_safe_ui.refresh(install_cancel_btn)
+
     # --- Live install progress (hidden until an install starts) -------------
     install_status = ft.Text("", size=13, color=TEXT, font_family=FONT_MONO)
     install_bar = ft.ProgressBar(value=0, color=ACCENT, bgcolor=SURFACE_HI, border_radius=RADIUS)
     install_bar.data = 1  # holds the current phase's max (mirrors mods_tab pattern)
+    # A big pack is a long download, so the progress surface must offer a way
+    # out. Hidden unless an install is genuinely in flight, and disarmed at the
+    # tail (see status_cb) where stopping is no longer possible.
+    install_cancel_btn = ft.TextButton(
+        "Cancel", visible=False,
+        style=ft.ButtonStyle(color=TEXT_DIM),
+        tooltip="Stop this modpack install",
+        on_click=on_cancel_install,
+    )
     install_card = ft.Container(
-        content=ft.Column([install_status, install_bar], spacing=10),
+        content=ft.Column(
+            [
+                ft.Row(
+                    [install_status, ft.Container(expand=True), install_cancel_btn],
+                    spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                install_bar,
+            ],
+            spacing=10,
+        ),
         bgcolor=SURFACE, border=ft.border.Border.all(1, ACCENT_DIM), border_radius=RADIUS,
         padding=16, visible=False,
     )
 
     def status_cb(text):
+        _check_cancel()
         install_status.value = text
         install_status.color = TEXT
         # The core installer deletes the target profile's _modpack.json marker
@@ -89,26 +135,32 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         thread_safe_ui.refresh(install_bar)
 
     def progress_cb(val):
+        _check_cancel()
         mx = install_bar.data or 1
         install_bar.value = (val / mx) if mx else None
         thread_safe_ui.refresh(install_bar)
 
     def max_cb(val):
+        _check_cancel()
         install_bar.data = val or 1
         thread_safe_ui.refresh(install_bar)
 
     def _begin_install():
         busy["value"] = True
         installed_refresh_done["done"] = False
+        install_cancel.clear()
         install_card.visible = True
         install_bar.value = None  # indeterminate until the first real progress
         install_bar.data = 1
         install_status.value = "Starting..."
         install_status.color = TEXT
+        install_cancel_btn.disabled = False
+        install_cancel_btn.visible = True
         page.update()
 
     def _end_install_ok(meta):
         busy["value"] = False
+        install_cancel_btn.visible = False
         install_status.value = f"Installed {meta.get('name', 'modpack')} ✓"
         install_status.color = ACCENT
         install_bar.value = 1
@@ -123,8 +175,21 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def _end_install_err(message):
         busy["value"] = False
+        install_cancel_btn.visible = False
         install_status.value = message
         install_status.color = DANGER
+        install_bar.value = 0
+        page.update()
+
+    def _end_install_cancelled():
+        """A cancelled install is a choice, not a failure - report it calmly.
+        The pack's _modpack.json marker was dropped when the install began (a
+        partially downloaded pack must never look installed), so it simply
+        won't appear in the list until a completed install writes it back."""
+        busy["value"] = False
+        install_cancel_btn.visible = False
+        install_status.value = "Install cancelled - nothing was marked as installed."
+        install_status.color = TEXT_DIM
         install_bar.value = 0
         page.update()
 
@@ -153,8 +218,17 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                         file_path, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb)
                 _end_install_ok(meta)
             except core.ModpackError as me:
-                _end_install_err(str(me))
+                # A cancel usually surfaces as the network/format error the
+                # aborting callback produced, so check the event BEFORE
+                # reporting a failure the user deliberately caused.
+                if install_cancel.is_set():
+                    _end_install_cancelled()
+                else:
+                    _end_install_err(str(me))
             except Exception as ex:
+                if install_cancel.is_set():
+                    _end_install_cancelled()
+                    return
                 # mll surfaces its own exceptions (e.g. UnsupportedVersion)
                 # with a version/build number in the message, which reads as
                 # jargon since it's rarely the actual MC version the user

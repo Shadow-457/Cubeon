@@ -94,6 +94,37 @@ facts belong HERE, not in diary notes.
   self-heals a claim whose game died without on_exit firing. All three
   mechanisms must stay in sync with any change to the claim's lifecycle.
 
+## Instance install cancellation (2026-09-22) — INVARIANT
+- The Play-tab progress row carries a `progress_cancel_btn` ("Cancel",
+  tooltip "Stop this install"), visible only while an install is
+  cancellable. `on_cancel_install()` only SETS a flag; the installing worker
+  does the abort and cleanup, so the button can never strand state.
+- One `threading.Event` per version id (`_install_cancels` / `_cancel_event`),
+  shared by `prefetch_version` and the Play-click `do_install_and_launch` —
+  otherwise a cancel during a prefetch would just make the Play worker wait
+  forever on `_install_lock`. The prefetch's noop callbacks are now a
+  `_guard` that raises when the flag is set. `do_install_and_launch`
+  re-checks the flag AFTER acquiring the lock (a cancel can land while it
+  waits behind the prefetch).
+- The abort mechanism is raising `_InstallCancelled` from the mll progress
+  callbacks (`setStatus` is called before each download, so queued tasks bail
+  instantly and the executor's `shutdown(wait=True)` drains fast).
+  `versions.install_version` re-wraps ANY callback exception as a generic
+  RuntimeError, so "cancelled vs failed" is decided from the event, never the
+  exception type.
+- Cancellation is DISARMED before the launch phase (`cancellable["on"] =
+  False`, `state["installing_version"] = None`, button hidden). Launching is
+  deliberately not cancellable — `status_cb` is also passed into
+  `launch_game`.
+- A fresh install cancelled before completion has its whole version folder
+  removed (`core.delete_version`, only when `was_installed` was False) so it
+  can't resurface as a puzzling "(incomplete)" entry; a reinstall of a
+  pre-existing version is left alone (install_version already dropped only
+  the jars it clobbered). A `finally` always hides the button and clears
+  `state["installing_version"]`.
+- `state["installing_version"]` = the launch id with a cancellable install in
+  flight (not necessarily the current dropdown selection).
+
 ## Tray/session lifecycle (2026-09-18) — INVARIANT
 - `_tray_runtime["controller_page"]` tracks the current session page and is
   cleared by session-end cleanup. `_tray_activate()` records Open requests

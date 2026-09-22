@@ -533,13 +533,18 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
                 for fut in as_completed(futures):
                     try:
                         fetched.append(fut.result())
+                        n += 1
+                        status_cb(f"Downloading mods... {n}/{len(mod_files)}")
+                        progress_cb(n)
                     except Exception:
+                        # Any abort - a failed download OR a caller cancelling
+                        # from its status/progress callback - must cancel the
+                        # still-queued fetches. Left alone, the pool's
+                        # shutdown(wait=True) would happily grind through the
+                        # rest of the pack before the cancel could take effect.
                         for pending in futures:
                             pending.cancel()
                         raise
-                    n += 1
-                    status_cb(f"Downloading mods... {n}/{len(mod_files)}")
-                    progress_cb(n)
 
             # Record what each jar IS, after the downloads settle. A manifest
             # entry has no slug, but the Modrinth CDN URL carries the project

@@ -623,6 +623,7 @@ def main(page: ft.Page):
         "process": None,                                     # Will hold the subprocess when game is running
         "mod_loader": "fabric",  # fabric | quilt | forge | neoforge - which mod loader is selected
         "running_version": None,  # launch id currently running, or None - guards instance delete
+        "installing_version": None,  # launch id with a cancellable install in flight, or None
     }
 
     # -----------------------------------------------------------------
@@ -2178,8 +2179,18 @@ def main(page: ft.Page):
     progress_spinner = ft.ProgressRing(
         width=16, height=16, stroke_width=2, color=ACCENT, visible=False,
     )
+    # Cancel affordance: the install progress row is the only place a user can
+    # see that a download is in flight, so it's also where stopping must live.
+    # Hidden unless an install is actually cancellable (see do_install_and_launch);
+    # it must never look like it can abort the launch phase, which it can't.
+    progress_cancel_btn = ft.TextButton(
+        "Cancel", visible=False,
+        style=ft.ButtonStyle(color=TEXT_DIM),
+        tooltip="Stop this install",
+        on_click=lambda e: on_cancel_install(),
+    )
     progress_row = ft.Row(
-        [progress_spinner, progress_label], spacing=8,
+        [progress_spinner, progress_label, progress_cancel_btn], spacing=8,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
@@ -2333,6 +2344,25 @@ def main(page: ft.Page):
 
     _prefetched: set[str] = set()
 
+    class _InstallCancelled(Exception):
+        """Raised from an install progress callback to abort a cancelled
+        install. mll's own installer does stop when a callback raises, so this
+        is the actual cancellation mechanism - but install_version() re-wraps
+        callback exceptions as a generic RuntimeError, so callers must decide
+        "cancelled vs failed" from the event, never the exception type."""
+
+    _install_cancels: dict[str, threading.Event] = {}
+
+    def _cancel_event(version_id: str) -> threading.Event:
+        """One cancellation flag per version id, shared by the background
+        prefetch and the Play-click install so cancelling reaches whichever
+        of the two is actually running."""
+        ev = _install_cancels.get(version_id)
+        if ev is None:
+            ev = threading.Event()
+            _install_cancels[version_id] = ev
+        return ev
+
     def prefetch_version(version_id: str | None) -> None:
         """Starts downloading the selected version in the background the
         moment it's chosen, so by the time the user clicks Play the assets,
@@ -2345,15 +2375,26 @@ def main(page: ft.Page):
         _prefetched.add(version_id)
 
         def _work():
+            cancel = _cancel_event(version_id)
+            cancel.clear()  # a fresh attempt always starts uncancelled
             try:
                 with _install_lock(version_id):
                     if version_id in state["installed"]:
                         return  # someone beat us to it
+
+                    def _guard(*_a):
+                        # A prefetch is invisible, but a Play click can block on
+                        # access to the install lock while it runs - so the
+                        # prefetch has to honor the same cancel flag or a
+                        # cancelled click would just hang behind it.
+                        if cancel.is_set():
+                            raise _InstallCancelled()
+
                     core.install_version(
                         version_id,
-                        progress_cb=lambda v: None,
-                        status_cb=lambda t: None,
-                        max_cb=lambda m: None,
+                        progress_cb=_guard,
+                        status_cb=_guard,
+                        max_cb=_guard,
                     )
                     state["installed"].add(version_id)
                     try:
@@ -2557,6 +2598,24 @@ def main(page: ft.Page):
         thread_safe_ui.refresh(status_text)
         thread_safe_ui.refresh(status_dot)
 
+    def on_cancel_install():
+        """Requests cancellation of the install shown in the progress row.
+
+        This only flips the flag - the installing worker notices it between
+        download steps and aborts with its own cleanup, so the button can't
+        leave a half-claimed state behind. Launching is deliberately NOT
+        cancellable; by then the flag is disarmed and the button hidden.
+        """
+        vid = state.get("installing_version")
+        ev = _install_cancels.get(vid) if vid else None
+        if ev is None:
+            return
+        ev.set()
+        progress_cancel_btn.disabled = True
+        progress_label.value = "Cancelling..."
+        thread_safe_ui.refresh(progress_row)
+        thread_safe_ui.refresh(progress_bar)
+
     def on_play_click():
         """
         This is called when the user clicks the main play/download button.
@@ -2623,6 +2682,8 @@ def main(page: ft.Page):
         progress_label.value = "Preparing"
         progress_label.visible = True
         progress_spinner.visible = True
+        progress_cancel_btn.disabled = False
+        progress_cancel_btn.visible = True
         set_status("Preparing", busy=True)
         page.update()
 
@@ -2639,6 +2700,24 @@ def main(page: ft.Page):
           - Launching the game with the chosen version
         It uses callbacks to update the UI (progress, status).
         """
+        # Cancellation wiring, set up BEFORE the try so the finally block can
+        # always clean it up. Registered on state so on_cancel_install finds
+        # the right version even if the user changes the dropdown mid-install.
+        cancel = _cancel_event(version_id)
+        cancel.clear()
+        was_installed = version_id in state["installed"]
+        cancellable = {"on": True}  # disarmed once the launch phase begins
+
+        def _check_cancel():
+            """Abort the install at the next step boundary. During the install
+            itself the progress callbacks call this per file, which is what
+            actually stops mll; the explicit calls below cover the step
+            boundaries where no callback would otherwise fire."""
+            if cancellable["on"] and cancel.is_set():
+                raise _InstallCancelled()
+
+        state["installing_version"] = version_id
+
         try:
             target_version = version_id
 
@@ -2652,10 +2731,12 @@ def main(page: ft.Page):
                 thread_safe_ui.refresh(progress_bar)
 
             def status_cb(text):
+                _check_cancel()
                 progress_label.value = text
                 _paint_progress()
 
             def progress_cb(val):
+                _check_cancel()
                 mx = progress_bar.data or 1
                 # Clamped: each install phase reports its own max, and a phase
                 # that emits progress before its setMax lands would otherwise
@@ -2664,6 +2745,7 @@ def main(page: ft.Page):
                 _paint_progress()
 
             def max_cb(val):
+                _check_cancel()
                 progress_bar.data = val
                 _paint_progress()
 
@@ -2671,8 +2753,13 @@ def main(page: ft.Page):
             # lock also covers the background prefetch (on_version_selected),
             # so a click during a prefetch waits for it instead of racing it,
             # and an install completed by the prefetch is not repeated.
+            _check_cancel()
             if version_id not in state["installed"]:
                 with _install_lock(version_id):
+                    # Re-check after the lock: a cancel can land while waiting
+                    # behind the background prefetch (which honors the same
+                    # flag), and starting a fresh install then would ignore it.
+                    _check_cancel()
                     if version_id not in state["installed"]:
                         core.install_version(version_id, progress_cb, status_cb, max_cb)
                         state["installed"].add(version_id)
@@ -2727,6 +2814,14 @@ def main(page: ft.Page):
             if version_dropdown.value == version_id:
                 lock_loader_to_installed(version_id, support)
                 style_loader_segments(support)
+
+            # Everything installable is on disk now. From here on the work is
+            # local setup + spawning the game, which cannot be interrupted
+            # safely - disarm cancellation and hide the button so it stops
+            # promising an abort that is no longer possible.
+            cancellable["on"] = False
+            state["installing_version"] = None
+            progress_cancel_btn.visible = False
 
             # Launch the game
             progress_label.value = "Launching"
@@ -2942,6 +3037,29 @@ def main(page: ft.Page):
                     page.update()
 
         except Exception as ex:
+            # A cancel arrives here as a generic error: install_version wraps
+            # whatever its callbacks raise, so the event - not the exception
+            # type - is the source of truth for "user chose to stop". A cancel
+            # is a choice, not a failure, so it gets its own message and no
+            # scary traceback.
+            if cancel.is_set():
+                # Remove a version folder this attempt created from scratch so
+                # it can't resurface as a puzzling "(incomplete)" entry. A
+                # pre-existing install is left alone - install_version already
+                # dropped only the jars it clobbered.
+                if not was_installed:
+                    try:
+                        core.delete_version(version_id)
+                    except Exception:
+                        pass  # never created, or already gone - nothing to undo
+                progress_label.value = "Install cancelled"
+                progress_label.visible = True
+                progress_spinner.visible = False
+                progress_bar.visible = False
+                set_button_mode("play" if version_id in state["installed"] else "download")
+                set_status("Ready")
+                page.update()
+                return
             # If anything goes wrong, show error and reset button. The message
             # has to stay on screen - this is the only report the user ever
             # gets, and it used to be lost whenever the repaint didn't land.
@@ -2953,6 +3071,19 @@ def main(page: ft.Page):
             set_status("Error")
             page.update()
             traceback.print_exc()  # full trace to the console for bug reports
+        finally:
+            # Whatever happened - success, crash, cancel, or the early return
+            # after a launch that died instantly - the cancel affordance is
+            # never left armed on a finished install.
+            cancellable["on"] = False
+            if state.get("installing_version") == version_id:
+                state["installing_version"] = None
+            progress_cancel_btn.visible = False
+            progress_cancel_btn.disabled = False
+            try:
+                thread_safe_ui.refresh(progress_row)
+            except Exception:
+                pass
 
     # --- Server status panel - the right column below the grass block was
     # dead space, and "is my server running" is a genuinely useful thing to
