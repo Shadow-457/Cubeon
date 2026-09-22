@@ -450,13 +450,27 @@ def _compose_face_png(cfg: dict, size: int = 128) -> bytes | None:
 
 
 def _active_skin_is_slim(filename: str | None) -> bool:
-    """Whether the active skin uses the 3px-arm slim (Alex) model, read from
-    the stored metadata. No custom skin => default Steve => classic model."""
+    """Whether the active skin uses the 3px-arm slim (Alex) model.
+
+    Re-read the PNG instead of trusting only the old metadata. Earlier builds
+    could record ``slim=False`` before the model detector was fixed; trusting
+    that stale flag made the network upload advertise a classic four-pixel arm
+    for an Alex skin even though the image itself was slim.
+    """
     if not filename:
         return False
-    for entry in list_custom_skins():
+    meta = _load_skins_meta()
+    for entry in meta.get("skins", []):
         if entry.get("filename") == filename:
-            return bool(entry.get("slim"))
+            try:
+                with Image.open(os.path.join(SKINS_DIR, filename)) as img:
+                    detected = img.size == (64, 64) and _detect_slim_model(img)
+                if bool(entry.get("slim")) != detected:
+                    entry["slim"] = detected
+                    _save_skins_meta(meta)
+                return detected
+            except (OSError, ValueError):
+                return bool(entry.get("slim"))
     return False
 
 

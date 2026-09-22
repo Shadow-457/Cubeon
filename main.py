@@ -448,6 +448,17 @@ def main(page: ft.Page):
             if size:
                 page.window.left = max(0, (size[0] - int(_gw)) // 2)
                 page.window.top = max(0, (size[1] - int(_gh)) // 2)
+            else:
+                # Wayland and some X11 setups do not expose a usable xrandr
+                # geometry. Leaving left/top untouched in that case lets the
+                # native window default to (0, 0), which is the reported
+                # top-left launch bug. Flet delegates this to the window
+                # manager, so it is the safe fallback when screen probing is
+                # unavailable.
+                try:
+                    page.window.center()
+                except Exception:
+                    pass
         page.window.maximized = _saved_maximized
         nonlocal _geometry_ready
         _geometry_ready = True
