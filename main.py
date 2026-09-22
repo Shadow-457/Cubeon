@@ -4701,6 +4701,20 @@ def main(page: ft.Page):
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
         page.window.visible = True
+        # Some desktop clients apply their native default position when the
+        # hidden window is first mapped, after the earlier geometry call. That
+        # late native write is why the launcher could still appear at (0, 0)
+        # even though the splash and real geometry both requested centering.
+        # Correct it after the first visible frame, when the window manager
+        # owns the mapped window. Only do this for the no-position case; an
+        # intentional saved position must remain untouched.
+        if _needs_center:
+            try:
+                await asyncio.sleep(0.15)
+                page.window.center()
+                page.window.update()
+            except Exception:
+                pass
         # First successful paint: clear any GPU-crash flag so the NEXT run
         # trusts hardware GL again (see the exit watcher under __main__).
         # _CUBEON_HOME lives in the __main__ block, not in main()'s scope -
