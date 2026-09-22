@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Cubeon cookies - none, which is why there is no banner</title>
-<meta name="description" content="This website sets no cookies and loads nothing from other companies, so there is nothing to consent to. Here is what the app stores on your computer instead." />
+<meta name="description" content="This website sets no cookies. The one outside request is an anonymous download-count total - no cookie, no identifier. Here is what the app stores on your computer instead." />
 <meta property="og:title" content="Cubeon cookies" />
 <meta property="og:description" content="No cookies, no trackers, nothing to consent to." />
 <meta property="og:type" content="website" />
@@ -40,7 +40,10 @@
 
 <div class="prose">
   <h2>Why there's no banner</h2>
-  <p>Cookie banners exist to ask permission for tracking. There's nothing here to ask about: no cookies, no analytics, no advertising, and nothing loaded from other companies - the fonts and pictures on this page come from this same site.</p>
+  <p>Cookie banners exist to ask permission for tracking. There's nothing here to ask about: no cookies, no analytics, no advertising. The fonts and pictures on this page come from this same site, and the one outside request any page makes is the anonymous download counter described below - a number, not a person.</p>
+
+  <h2>The download counter</h2>
+  <p>The download buttons keep a shared count of how many times they've been pressed - the same total for everyone, not one per device. It's held by <strong>Abacus</strong>, a small open-source counter service (<a href="https://github.com/JasonCameron/abacus">source code</a>). Your browser only ever tells it "add one to the total": no cookie, no account, no identifier, no IP-linked profile - it keeps the running number and nothing else. If your browser or an extension blocks it, the count simply doesn't appear.</p>
 
   <h2>What the app stores</h2>
   <p>The Cubeon launcher keeps your settings, your name and your skins in a folder on your computer. Those are ordinary files rather than cookies, and they stay on your machine unless you upload a skin so that other players can see it.</p>
