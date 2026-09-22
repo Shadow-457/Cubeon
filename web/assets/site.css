@@ -74,6 +74,7 @@ main{display:block}
 .nav-links a[aria-current="page"]{background:var(--grass-soft);border-color:var(--grass);color:var(--ink)}
 .nav-cta{background:var(--grass)!important;color:#04120A!important;border:2px solid var(--btn-line)!important;font-family:'Minecraftia';font-weight:600;box-shadow:4px 4px 0 var(--btn-line);transition:transform 90ms linear,box-shadow 90ms linear}
 .nav-cta:hover{background:#5FD24B!important;transform:translate(2px,2px);box-shadow:2px 2px 0 var(--btn-line)}
+.nav-discord svg{width:15px;height:15px;flex:none;vertical-align:-2px;margin-right:7px;fill:#5865F2}
 .nav-toggle{display:none;margin-left:auto;background:var(--card);border:2px solid var(--line);border-radius:var(--r-sm);font-size:20px;line-height:1;padding:9px 13px;color:var(--ink)}
 @media(max-width:880px){
   .nav-toggle{display:block}
