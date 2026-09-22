@@ -23,7 +23,7 @@ stubbed or pointed at localhost). Run from the repo root:
 | `python3 tools/test_mega_smoke.py` | **one-command deep gate**: syntax → imports → type/contract → control flow → headless runtime (`--static` skips runtime, `--suites` also runs the harnesses below, `--json` for machines) |
 | `python3 tools/test_fuzz.py` | UI chaos monkey: builds the real UI headless under safe stubs, fires every handler with a hostile corpus, plus directed scenarios (play/delete/export/content-install) |
 | `python3 tools/test_orphan_server.py` | server lifecycle cleanup edge cases |
-| `python3 tools/test_web_download_count.py` | the website's "N release downloads" line, end to end: runs `web/api/download-count.js` in Node with a stubbed GitHub (allow-list, cache header, 404/403/503/405 paths, junk counters), runs the real `web/assets/site.js` on a DOM stub to prove the committed `download-count.json` fallback fills the count when the Vercel endpoint is unavailable, and checks `tools/refresh_download_count.py`'s arithmetic and its no-op-when-unchanged behaviour |
+| `python3 tools/test_web_download_count.py` | the website's download counters and routes, end to end: runs the real `web/assets/site.js` in Node on a DOM stub (loads the shared Abacus total via /get, a download-button press bumps it via /hit with keepalive, nav links don't count, failures hide the line), asserts the counted routes match `web/vercel.json` AND the cubeon-downloads Worker's file list, that the rejected GitHub-count plumbing stays gone, that cookies/privacy still disclose the counter, and that no page redirect collides with `cleanUrls` |
 
 ### The in-game Friends mod (`mod/`)
 

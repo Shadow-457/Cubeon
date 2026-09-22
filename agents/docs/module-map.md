@@ -1026,32 +1026,34 @@ Still-true invariants from the pre-local era:
   yet" card. Byte sizes printed in the cards are hand-written — re-check them
   after any rebuild.
 - **The GitHub repo is PRIVATE** (anonymous `github.com/Shadow-457/Cubeon` → 404,
-  and anonymous `releases/latest/download/<asset>` → 404 too), so today those
-  download routes only resolve for signed-in accounts. It is also why the page
-  cannot ask GitHub anything directly.
-- **Release download count on the site (2026-09-22)**: `index.html` and
+  and anonymous `releases/latest/download/<asset>` → an auth wall too). Visitors
+  get the files through the `cubeon-downloads` Worker instead — see the direct
+  downloads bullet below. It is also why the page cannot ask GitHub anything
+  directly.
+- **Release download count on the site (2026-09-22, v2)**: `index.html` and
   `download.html` carry `<p class="download-count" data-download-count hidden>`;
-  `site.js` fills it from `/api/download-count` first (Vercel function
-  `web/api/download-count.js`; it needs a `GITHUB_TOKEN` in Vercel — without one
-  a private repo makes it answer `404 release_unavailable`, which is exactly how
-  the live site shipped hidden) and then FALLS BACK to the static
-  `/assets/download-count.json`. That file is refreshed every 6 hours by
-  `.github/workflows/download-count.yml` running
-  `tools/refresh_download_count.py` with the runner's own token, so hosting
-  needs no credential at all; it is left untouched (zero commits) when the
-  numbers did not move. The installer allow-list exists in BOTH the JS and the
-  Python and must stay identical — leftovers (portable exe, ZIP, `.sha256`) must
-  never inflate the public number. No honest number ⇒ the line stays hidden.
-  Guard: `tools/test_web_download_count.py` (runs both files in Node with a
-  stubbed GitHub / DOM stub).
-  - **Actions cannot run on this repo at all right now** (2026-09-22: every job -
-    build.yml AND download-count.yml - fails to start with "recent account
-    payments have failed or your spending limit needs to be increased"), so the
-    6-hourly refresh is frozen until that billing block is cleared; the committed
-    JSON keeps displaying in the meantime. To make the FRESH path work without
-    Actions, add a read-only PAT (Contents: read) as `GITHUB_TOKEN` in the Vercel
-    project and redeploy - `/api/download-count` then takes over. Manual refresh:
-    `GH_TOKEN=$(gh auth token) python3 tools/refresh_download_count.py` + commit.
+  `site.js` shows the SHARED number of download-button presses for everyone: on
+  load it reads Abacus (`https://abacus.jasoncameron.dev/get/cubeon-site/downloads`,
+  an open-source cookieless counter) and on a press it calls `/hit` with
+  `keepalive: true` so the +1 survives the jump to the release file. A global
+  count cannot live in a browser, so this is the one outside request the site
+  makes - cookies.html and privacy.html disclose it (a test enforces that they
+  do). A failed lookup hides the line; 0 is shown as a real 0. The v1
+  GitHub-count plumbing (web/api/download-count.js, download-count.json,
+  the scheduled workflow, tools/refresh_download_count.py) was REMOVED the same
+  day at the owner's direction - recoverable from git history around commit
+  `ddc5374`. Guard: `tools/test_web_download_count.py` (real site.js in Node on
+  a DOM stub, zero network).
+- **Direct downloads (2026-09-22)**: the repo is PRIVATE, so GitHub's release
+  URLs are an auth wall for visitors and signed asset URLs minted from a
+  session expire within the hour (one was briefly committed to web/vercel.json
+  by mistake). The `cubeon-downloads` Worker (worker/cubeon-downloads.js +
+  wrangler-downloads.toml) holds a read-only `GITHUB_TOKEN` as a Worker secret
+  and streams the latest release's four installer files straight out with
+  `Content-Disposition: attachment`; web/vercel.json + web/_redirects point the
+  four `/<os>download` routes at it. The counter's ROUTES in site.js, the
+  vercel.json sources and the Worker's FILES list must stay in lockstep - a
+  test asserts all three agree.
 - The waitlist form + "In line" counter are gone from the site (the
   `worker/cubeon-waitlist.js` Worker still deploys but has no caller). JS only
   stars the button/card matching the visitor's OS with `.rec` — with scripting

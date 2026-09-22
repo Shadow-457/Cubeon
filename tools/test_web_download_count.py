@@ -115,66 +115,6 @@ globalThis.fetch = async (url, options) => {
 };
 
 function boot() {
-
-// 1. page load reads the shared total and shows it to everyone
-value = 7;
-boot();
-check("page load shows the shared total",
-      counter.textContent === "7 downloads so far" && counter.hidden === false);
-check("loading only READS the counter (no /hit, exactly one request)",
-      requested.length === 1 && requested[0].action === "get");
-
-// 2. a press adds one, globally, and repaints with the fresh shared value
-press("/windowsdownload");
-check("pressing bumps the shared total",
-      counter.textContent === "8 downloads so far");
-check("the press went to /hit exactly once with keepalive",
-      requested.length === 2 && requested[1].action === "hit" && requested[1].keepalive === true);
-
-// 3. singular
-value = 1;
-boot();
-check("one press reads singular", counter.textContent === "1 download so far");
-
-// 4. zero is a real number and is shown
-value = 0;
-boot();
-check("zero is shown, not hidden", counter.textContent === "0 downloads so far");
-
-// 5. only routes that hand over a FILE are counted
-boot();
-press("/");
-press("/help");
-press("/download");
-press("/privacy");
-check("nav and page links never touch the counter",
-      requested.length === 1 && counter.textContent === "0 downloads so far");
-
-// 6. junk clicks are ignored without crashing
-boot();
-clicks.forEach((handler) => handler({ target: null }));
-clicks.forEach((handler) => handler({ target: { tagName: "DIV" } }));
-check("a click with no anchor behind it changes nothing",
-      requested.length === 1 && counter.hidden === true);
-
-// 7. an unreachable counter hides the line - until it answers again
-value = 12;
-getFails = true;
-boot();
-check("an unreachable counter hides the line", counter.hidden === true);
-getFails = false;
-press("/linuxdownload");
-check("...and the first working press brings it back with the shared value",
-      counter.textContent === "13 downloads so far");
-
-// 8. big numbers stay readable
-value = 12345;
-boot();
-check("thousands are grouped", /1\D?2345 downloads so far/.test(counter.textContent));
-
-console.log(passed + " cases passed");
-"""
-
   clicks = [];
   requested = [];
   counter.textContent = "";
@@ -193,8 +133,81 @@ function press(href) {
   clicks.forEach((handler) => handler({ target: anchor(href) }));
 }
 
-// sentinel: cases are appended right after this line
+async function settle() { await new Promise((resolve) => setTimeout(resolve, 5)); }
+
+// 1. page load reads the shared total and shows it to everyone
+value = 7;
+boot();
+await settle();
+check("page load shows the shared total",
+      counter.textContent === "7 downloads so far" && counter.hidden === false);
+check("loading only READS the counter (no /hit, exactly one request)",
+      requested.length === 1 && requested[0].action === "get");
+
+// 2. a press adds one, globally, and repaints with the fresh shared value
+press("/windowsdownload");
+await settle();
+check("pressing bumps the shared total",
+      counter.textContent === "8 downloads so far");
+check("the press went to /hit exactly once with keepalive",
+      requested.length === 2 && requested[1].action === "hit" && requested[1].keepalive === true);
+
+// 3. singular
+value = 1;
+boot();
+await settle();
+check("one press reads singular", counter.textContent === "1 download so far");
+
+// 4. zero is a real number and is shown
+value = 0;
+boot();
+await settle();
+check("zero is shown, not hidden", counter.textContent === "0 downloads so far");
+
+// 5. only routes that hand over a FILE are counted
+boot();
+await settle();
+press("/");
+press("/help");
+press("/download");
+press("/privacy");
+await settle();
+check("nav and page links never touch the counter",
+      requested.length === 1 && counter.textContent === "0 downloads so far");
+
+// 6. junk clicks are ignored without crashing
+boot();
+await settle();
+clicks.forEach((handler) => handler({ target: null }));
+clicks.forEach((handler) => handler({ target: { tagName: "DIV" } }));
+await settle();
+check("a click with no anchor behind it changes nothing",
+      requested.length === 1 && counter.textContent === "0 downloads so far");
+
+// 7. an unreachable counter hides the line - until it answers again
+value = 12;
+getFails = true;
+boot();
+await settle();
+check("an unreachable counter hides the line", counter.hidden === true);
+getFails = false;
+press("/linuxdownload");
+await settle();
+check("...and the first working press brings it back with the shared value",
+      counter.textContent === "13 downloads so far");
+
+// 8. big numbers stay readable
+value = 12345;
+boot();
+await settle();
+check("thousands are grouped",
+      counter.textContent.replace(/\D/g, "") === "12345" &&
+      /downloads so far$/.test(counter.textContent) &&
+      /\D/.test(counter.textContent.replace(/^\d+/, "")));
+
+console.log(passed + " cases passed");
 """
+
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +242,7 @@ with open(SITE_JS, encoding="utf-8") as handle:
     site_source = handle.read()
 
 check("the count is the shared Abacus total",
-      ABACUS in site_source and "/hit/" in site_source and "/get/" in site_source)
+      ABACUS in site_source and "ask('get')" in site_source and "ask('hit')" in site_source)
 count_block = site_source.split("(function downloadCount")[1].split("})();")[0] \
     if "(function downloadCount" in site_source else ""
 check("the counter block holds no per-device storage", "localStorage" not in count_block,
@@ -261,7 +274,9 @@ for path in GONE:
 # ---------------------------------------------------------------------------
 with open(WORKER_JS, encoding="utf-8") as handle:
     worker_source = handle.read()
-worker_routes = re.findall(r'"(/\w+download)":', worker_source)
+files_block = re.search(r"const FILES = \{(.*?)\};", worker_source, re.S)
+check("the Worker declares its file routes", bool(files_block))
+worker_routes = tuple(re.findall(r'"(/[\w-]+)"', files_block.group(1))) if files_block else ()
 check("the Worker serves every route the site counts",
       tuple(sorted(worker_routes)) == tuple(sorted(site_routes)),
       f"worker={sorted(worker_routes)} site.js={sorted(site_routes)}")
@@ -272,6 +287,7 @@ leak = subprocess.run(
     ["grep", "-rl", "--exclude-dir=.git", "--exclude-dir=archive",
      "--exclude-dir=dist", "--exclude-dir=build", "--exclude-dir=node_modules",
      "--exclude-dir=__pycache__", "--exclude-dir=.wrangler",
+     "--exclude=test_web_download_count.py",  # this file quotes the patterns
      "github_pat_\\|ghp_[A-Za-z0-9]\\{20,\\}", REPO],
     capture_output=True, text=True)
 check("no GitHub token is committed anywhere", leak.stdout.strip() == "",
