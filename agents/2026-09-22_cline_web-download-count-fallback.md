@@ -63,8 +63,14 @@
   Linux pane shows, clicking macOS switches to it, the FAQ opens on the first
   click, the cookie note is injected, zero page errors, zero 4xx (except the API,
   which is absent locally - that IS the fallback case).
-- **Live**: `/assets/download-count.json` → 200 with the real numbers; the same
-  browser run against `https://cubeon.vercel.app/` and `/download`.
+- **Live, after deploy**: `https://cubeon.vercel.app/` and `/download` both render
+  "5 release downloads" (uppercase via CSS) with the exact chain
+  `site.js 200 → /api/download-count 404 → /assets/download-count.json 200`;
+  `/download`, `/help` and `/404` now answer **200** instead of looping, and the
+  `/windowsdownload` asset route still 307s to GitHub. Pane switching, the FAQ and
+  the cookie note all work on the live landing page. Re-checked on three fresh
+  loads (the first attempt read the counter before the fetch settled - wait for the
+  text, not a fixed timeout, if you script this yourself).
 - Live checks used to find the bugs: `curl cubeon.vercel.app/api/download-count`
   (404), `curl -I` following `/download` (307 → 308 → loop), `grep '<script'` on
   `index.html` (no site.js tag), and
@@ -92,11 +98,11 @@
   manual is `help.html` (no `docs.html`), downloads are clean routes to release
   assets (no `../dist/<file>`), and the Vercel root is `web/`.
 
-- Heads-up: an auto-committer in the editor committed my work in three chunks
-  while I was still editing (commits literally named `web`) and pushed them, so
-  `main` briefly held a test file that expected an uncommitted generator fix. I
-  finished the change set in one commit; if you see `web` commits in the log, that
-  is the editor, not a person.
+- Heads-up: an auto-committer in the editor committed my work in chunks while I was
+  still editing (commit messages literally `web`, then `download show`) and pushed
+  them, so `main` briefly held a test file that expected an uncommitted generator
+  fix. The end state is consistent and green; if you see those messages in the log,
+  that is the editor, not a person.
 
 ## Question for the next agent (optional)
 
