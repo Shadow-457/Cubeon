@@ -15,6 +15,7 @@ became a fallback).
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -205,6 +206,121 @@ check("a refused method never touches GitHub", calls.length === 0);
 
 console.log(passed + " cases passed");
 """
+# The client side of the same contract: run the REAL web/assets/site.js in Node
+# on a tiny DOM stub and watch what a visitor's browser would do. This is the
+# regression that mattered - with only the Vercel endpoint wired up, the live
+# site's counter never appeared (the endpoint answered 404 release_unavailable
+# for a private repo with no token), and nothing in the repo noticed.
+SITE_HARNESS = r"""
+import { readFileSync } from "node:fs";
+
+const source = readFileSync(process.argv[2], "utf8");
+
+let passed = 0;
+function check(label, condition) {
+  if (condition) { passed++; console.log("PASS " + label); }
+  else { console.log("FAIL " + label); process.exit(1); }
+}
+
+// ---- just enough browser for site.js (every other block bails out early) ----
+const counter = { textContent: "", hidden: true };
+function makeElement() {
+  return {
+    setAttribute() {}, addEventListener() {}, appendChild() {}, remove() {},
+    querySelector: makeElement,
+    classList: { add() {}, remove() {}, toggle() { return false; }, contains() { return false; } },
+  };
+}
+globalThis.document = {
+  documentElement: { classList: { add() {} } },
+  body: { appendChild() {} },
+  getElementById() { return null; },
+  createElement: makeElement,
+  addEventListener() {},
+  querySelectorAll(selector) {
+    return selector === "[data-download-count]" ? [counter] : [];
+  },
+};
+globalThis.window = globalThis;
+// Node 21+ exposes `navigator` as a getter only, so define rather than assign.
+Object.defineProperty(globalThis, "navigator", {
+  configurable: true, writable: true,
+  value: { platform: "Linux x86_64", userAgent: "Mozilla/5.0 (X11; Linux x86_64)" },
+});
+globalThis.matchMedia = () => ({ matches: false });
+globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+
+let api, published, requested;
+globalThis.fetch = async (url) => {
+  const target = String(url);
+  requested.push(target);
+  const answer = target.indexOf("/api/") === 0 ? api : published;
+  if (answer.throws) throw new Error("offline");
+  return { ok: answer.ok, status: answer.status, json: async () => answer.payload };
+};
+
+function boot(endpoint, file) {
+  api = endpoint;
+  published = file;
+  requested = [];
+  counter.textContent = "";
+  counter.hidden = true;
+  new Function(source)();
+}
+async function shown() {
+  for (let i = 0; i < 200; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    if (counter.textContent) return true;
+    if (requested.length >= 2) return false;
+  }
+  return false;
+}
+
+// 1. THE bug: the endpoint is down (private repo, no Vercel token) - the
+//    committed file the workflow refreshes still fills the line.
+boot({ ok: false, status: 404, payload: null }, { ok: true, status: 200, payload: { total: 17 } });
+await shown();
+check("endpoint down: the committed file fills the count",
+      counter.textContent === "17 release downloads" && counter.hidden === false);
+check("...only after the endpoint failed",
+      requested.join(",") === "/api/download-count,/assets/download-count.json");
+
+// 2. a working endpoint wins and is the only thing fetched
+boot({ ok: true, status: 200, payload: { total: 5 } }, { ok: true, status: 200, payload: { total: 17 } });
+await shown();
+check("a live endpoint wins over the file",
+      counter.textContent === "5 release downloads" &&
+      requested.join(",") === "/api/download-count");
+
+// 3. one download is not "1 downloads"
+boot({ ok: true, status: 200, payload: { total: 1 } }, { ok: true, status: 200, payload: { total: 1 } });
+await shown();
+check("a single download is singular", counter.textContent === "1 release download");
+
+// 4. big numbers are grouped for humans
+boot({ ok: true, status: 200, payload: { total: 1500 } }, { ok: true, status: 200, payload: { total: 1 } });
+await shown();
+check("thousands are grouped", /1\D?500 release downloads/.test(counter.textContent));
+
+// 5. a nonsense total from the endpoint falls through to the file
+boot({ ok: true, status: 200, payload: { total: "many" } }, { ok: true, status: 200, payload: { total: 17 } });
+await shown();
+check("a nonsense endpoint total falls back to the file",
+      counter.textContent === "17 release downloads");
+
+// 6. nothing to show means nothing is shown - never a made-up 0
+boot({ ok: false, status: 404, payload: null }, { ok: true, status: 200, payload: {} });
+await shown();
+check("no honest number: the line stays hidden",
+      counter.hidden === true && counter.textContent === "");
+boot({ throws: true }, { throws: true });
+await shown();
+check("an offline visitor sees no counter and no error",
+      counter.hidden === true && counter.textContent === "");
+
+console.log(passed + " cases passed");
+"""
+
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +346,20 @@ else:
         check("web/api/download-count.js: every Node case passes", proc.returncode == 0,
               ((proc.stdout or "") + (proc.stderr or "")).strip()[-400:])
         check("the harness really ran its cases",
+              bool(lines) and re.match(r"^\d+ cases passed$", lines[-1]) is not None,
+              lines[-1] if lines else "no output")
+        print("       node: " + (lines[-1] if lines else ""))
+
+    # the same, for the page's own fallback logic
+    with tempfile.TemporaryDirectory(prefix="cubeon-download-count-") as tmp:
+        site_harness = os.path.join(tmp, "site-harness.mjs")
+        with open(site_harness, "w", encoding="utf-8") as handle:
+            handle.write(SITE_HARNESS)
+        proc = subprocess.run([node, site_harness, SITE_JS], capture_output=True, text=True)
+        lines = (proc.stdout or "").strip().splitlines()
+        check("web/assets/site.js: every browser case passes", proc.returncode == 0,
+              ((proc.stdout or "") + (proc.stderr or "")).strip()[-400:])
+        check("the site harness really ran its cases",
               bool(lines) and re.match(r"^\d+ cases passed$", lines[-1]) is not None,
               lines[-1] if lines else "no output")
         print("       node: " + (lines[-1] if lines else ""))
@@ -389,25 +519,29 @@ check("with no token, no Authorization header is sent",
 # ---------------------------------------------------------------------------
 _real_path = generator.OUTPUT_PATH
 _real_fetch = generator.fetch_latest_release
+_quiet = lambda: contextlib.redirect_stdout(io.StringIO())
 try:
     with tempfile.TemporaryDirectory(prefix="cubeon-download-count-") as tmp:
         target = os.path.join(tmp, "download-count.json")
         generator.OUTPUT_PATH = target
         generator.fetch_latest_release = lambda *a, **k: FAKE
 
-        generator.main([])
+        with _quiet():
+            generator.main([])
         written = json.load(open(target, encoding="utf-8"))
         check("main() writes a document the page can read",
               written.get("total") == 17 and bool(written.get("generated_at")),
               str(written))
         stamp = os.path.getmtime(target)
-        generator.main([])
+        with _quiet():
+            generator.main([])
         check("an unchanged count leaves the file (and its timestamp) alone",
               os.path.getmtime(target) == stamp)
 
         with open(target, "w", encoding="utf-8") as handle:
             json.dump(dict(written, total=99), handle)
-        generator.main([])
+        with _quiet():
+            generator.main([])
         check("a moved count is rewritten",
               json.load(open(target, encoding="utf-8")).get("total") == 17)
 

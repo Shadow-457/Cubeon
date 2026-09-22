@@ -143,7 +143,7 @@ def main(argv=None) -> int:
         return 1
 
     document = build_document(release, repository=repository)
-    existing = read_existing()
+    existing = read_existing(Path(OUTPUT_PATH))
     if counts_match(existing, document):
         print(f"Download count unchanged (total={document['total']}); file left alone.")
         return 0
@@ -153,10 +153,14 @@ def main(argv=None) -> int:
     if args.dry_run:
         print(text, end="")
         return 0
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(text, encoding="utf-8")
-    print(f"Wrote {OUTPUT_PATH.relative_to(REPO_ROOT)}: total={document['total']} "
-          f"release={document['release']}")
+    output = Path(OUTPUT_PATH)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(text, encoding="utf-8")
+    try:
+        shown = output.relative_to(REPO_ROOT)
+    except ValueError:      # a caller (mainly the tests) pointed it elsewhere
+        shown = output
+    print(f"Wrote {shown}: total={document['total']} release={document['release']}")
     return 0
 
 

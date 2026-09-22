@@ -1,9 +1,11 @@
 # Cubeon module map — read this before reading any source
 
-Last updated: 2026-09-20 (the site is three pages now — landing / download / docs
-sharing web/assets/site.css + site.js; the waitlist is gone and the repo is
-private, see the web bullet further down). If a fact here contradicts the code, the
-code wins — but fix this file too. Durable facts belong HERE, not in diary notes.
+Last updated: 2026-09-22 (site = `web/` on Vercel at cubeon.vercel.app: landing /
+download / help + legal pages sharing web/assets/site.css + site.js; its release
+download count has two sources, an API function and a CI-refreshed static JSON —
+see the web bullets further down. The waitlist is gone, the repo is private.) If a
+fact here contradicts the code, the code wins — but fix this file too. Durable
+facts belong HERE, not in diary notes.
 
 ## Wedged flet client / open-quit truth (2026-09-19) — INVARIANT
 - The flet desktop client's bad case is NOT always a crash. It can WEDGE: window
@@ -989,25 +991,51 @@ Still-true invariants from the pre-local era:
 - Deploy commands: `cd worker && npx wrangler deploy -c wrangler-<name>.toml`
   — configs now exist for friends, waitlist, AND skins (skins previously
   had no repo config; its KV id is in wrangler-skins.toml).
-- The site is THREE pages sharing `web/assets/site.css` + `web/assets/site.js` (split
-  2026-09-20, still no build step): `index.html` = landing (story), `download.html`
-  = the files, `docs.html` = the manual. Pages cross-link by relative href
-  (`index.html`, `download.html`, `docs.html`, `download.html#files`, `docs.html#faq`)
-  and mark the current page with `aria-current="page"`. `site.js` is shared
-  verbatim: every block bails out when the page lacks its elements (the sky
-  canvas + roster only exist on the landing page).
-- Every SITE download is a plain anchor to `../dist/<file>` — Windows installer /
-  portable exe / ZIP, Linux AppImage / .deb / setup script — so it works served
-  from the repo root (`python3 -m http.server 8000`, then `/web/`) or opened
-  straight from disk. `download.html#files` holds the real file names and the real
-  byte sizes; re-check them after any rebuild. `dist/` is gitignored, so a public
-  deploy must repoint those hrefs at release assets.
-- **The GitHub repo is PRIVATE** (anonymous `github.com/Shadow-457/Cubeon` → 404),
-  so the release page and any repo/blob links would be dead for visitors. That is
-  why the macOS card is a "not public yet" card (no link) and `docs.html#repo`
-  lists file paths as text instead of links. Re-check this before promoting the
-  site; if the repo goes public, flip the macOS card and the repo list back to
-  links.
+- The site lives in `web/` and is deployed on **Vercel at `cubeon.vercel.app`**
+  (project root = `web/`, so `web/vercel.json` + `web/_redirects` are the live
+  route tables and `web/api/*.js` are the serverless functions). Still NO build
+  step. Pages sharing `web/assets/site.css` + `web/assets/site.js`: `index.html`
+  = landing (story), `download.html` = the files, `help.html` = the manual, plus
+  `404.html` and the legal pages (cookies / licenses / privacy / refunds /
+  terms). They cross-link by clean route (`/download`, `/help`, ...) and mark
+  the current page with `aria-current="page"` (the old `docs.html` name and the
+  `download.html#files` / `docs.html#faq` fragments are GONE). `site.js` is
+  shared verbatim: every block bails out when the page lacks its elements (the
+  sky canvas + roster only exist on the landing page).
+- Every SITE download is a plain anchor to a clean route — `/windowsdownload`,
+  `/linuxdownload`, `/linuxdeb`, `/linuxsetup` — which Vercel 307s to the GitHub
+  release asset named in `web/vercel.json`; the old `../dist/<file>` hrefs are
+  gone (`dist/` is gitignored and absent from the deploy). The public UI offers
+  the Windows installer and the Linux trio; macOS is an honest "not available
+  yet" card. Byte sizes printed in the cards are hand-written — re-check them
+  after any rebuild.
+- **The GitHub repo is PRIVATE** (anonymous `github.com/Shadow-457/Cubeon` → 404,
+  and anonymous `releases/latest/download/<asset>` → 404 too), so today those
+  download routes only resolve for signed-in accounts. It is also why the page
+  cannot ask GitHub anything directly.
+- **Release download count on the site (2026-09-22)**: `index.html` and
+  `download.html` carry `<p class="download-count" data-download-count hidden>`;
+  `site.js` fills it from `/api/download-count` first (Vercel function
+  `web/api/download-count.js`; it needs a `GITHUB_TOKEN` in Vercel — without one
+  a private repo makes it answer `404 release_unavailable`, which is exactly how
+  the live site shipped hidden) and then FALLS BACK to the static
+  `/assets/download-count.json`. That file is refreshed every 6 hours by
+  `.github/workflows/download-count.yml` running
+  `tools/refresh_download_count.py` with the runner's own token, so hosting
+  needs no credential at all; it is left untouched (zero commits) when the
+  numbers did not move. The installer allow-list exists in BOTH the JS and the
+  Python and must stay identical — leftovers (portable exe, ZIP, `.sha256`) must
+  never inflate the public number. No honest number ⇒ the line stays hidden.
+  Guard: `tools/test_web_download_count.py` (runs both files in Node with a
+  stubbed GitHub / DOM stub).
+  - **Actions cannot run on this repo at all right now** (2026-09-22: every job -
+    build.yml AND download-count.yml - fails to start with "recent account
+    payments have failed or your spending limit needs to be increased"), so the
+    6-hourly refresh is frozen until that billing block is cleared; the committed
+    JSON keeps displaying in the meantime. To make the FRESH path work without
+    Actions, add a read-only PAT (Contents: read) as `GITHUB_TOKEN` in the Vercel
+    project and redeploy - `/api/download-count` then takes over. Manual refresh:
+    `GH_TOKEN=$(gh auth token) python3 tools/refresh_download_count.py` + commit.
 - The waitlist form + "In line" counter are gone from the site (the
   `worker/cubeon-waitlist.js` Worker still deploys but has no caller). JS only
   stars the button/card matching the visitor's OS with `.rec` — with scripting
@@ -1693,7 +1721,7 @@ Still-true invariants from the pre-local era:
 - Deploy note: relay fixes require `cd worker && npx wrangler deploy -c
   wrangler-friends.toml` (plus -skins/-waitlist as touched) to go live.
 
-- `web/` is three pages sharing `web/assets/site.css` + `web/assets/site.js` (no build step): `index.html` (landing), `download.html` (the binaries, `../dist/<file>` hrefs — see the web bullet above), `docs.html` (the manual). `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face lives in `site.css`, so its url is `fonts/...` — page-relative paths 404 there; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
+- `web/` is the site sharing `web/assets/site.css` + `web/assets/site.js` (no build step): `index.html` (landing), `download.html` (the binaries, clean routes to release assets — see the web bullets above), `help.html` (the manual), plus `404.html` + the legal pages. `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face lives in `site.css`, so its url is `fonts/...` — page-relative paths 404 there; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
 
 - `ui/skin_tab.py` (Profile > Skin/Cape panes) has NO browse/gallery area anymore (removed 2026-09-14): each pane is preview + installed card grid + upload CTA. `cubeon/gallery.py` survives only as core bookkeeping (`forget_file` in delete flows) + its tests; do not re-add library browsing without asking.
 

@@ -23,6 +23,7 @@ stubbed or pointed at localhost). Run from the repo root:
 | `python3 tools/test_mega_smoke.py` | **one-command deep gate**: syntax → imports → type/contract → control flow → headless runtime (`--static` skips runtime, `--suites` also runs the harnesses below, `--json` for machines) |
 | `python3 tools/test_fuzz.py` | UI chaos monkey: builds the real UI headless under safe stubs, fires every handler with a hostile corpus, plus directed scenarios (play/delete/export/content-install) |
 | `python3 tools/test_orphan_server.py` | server lifecycle cleanup edge cases |
+| `python3 tools/test_web_download_count.py` | the website's "N release downloads" line, end to end: runs `web/api/download-count.js` in Node with a stubbed GitHub (allow-list, cache header, 404/403/503/405 paths, junk counters), runs the real `web/assets/site.js` on a DOM stub to prove the committed `download-count.json` fallback fills the count when the Vercel endpoint is unavailable, and checks `tools/refresh_download_count.py`'s arithmetic and its no-op-when-unchanged behaviour |
 
 ### The in-game Friends mod (`mod/`)
 
@@ -42,6 +43,13 @@ All exit 0 on pass, non-zero on failure.
   `assets/capes/cubeon_cape.png` and patches the base64 + sha256 constants
   into `worker/cubeon-skins.js`. **Never edit those constants by hand** - a
   single wrong base64 char ships a broken cape that only shows up in-game.
+- `refresh_download_count.py` - rewrites `web/assets/download-count.json`, the
+  number the public site prints next to the download buttons. Runs on a schedule
+  in `.github/workflows/download-count.yml` (and by hand as
+  `GH_TOKEN=$(gh auth token) python3 tools/refresh_download_count.py`). It is
+  the credential-free side of the counter: the site itself never holds a token,
+  because the repo is private and anonymous GitHub requests answer 404. Leaves
+  the file untouched (zero commits) when the numbers did not move.
 - `debug_run.py` - run the launcher with debug flags.
 - `app_driver.py` - **AI-usable driver**: boots the real UI headless under the
   same safe stubs as the fuzzers and *uses* it (open every tab, type every
