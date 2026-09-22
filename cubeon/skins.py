@@ -260,7 +260,14 @@ def add_custom_skin(src_path: str, display_name: str,
         raise
 
     meta = _load_skins_meta()
-    entry = {"filename": filename, "name": display_name.strip() or safe_name, "slim": slim}
+    entry = {
+        "filename": filename,
+        "name": display_name.strip() or safe_name,
+        "slim": slim,
+        # Keep the explicit choice: an edited Alex PNG can have opaque spare
+        # arm columns, so re-detecting it later would wrongly turn it classic.
+        "model": requested_model,
+    }
     meta["skins"].append(entry)
     _save_skins_meta(meta)
     return entry
@@ -348,6 +355,34 @@ def set_active_skin(cfg: dict, filename: str | None) -> None:
     save_config(cfg)
 
 
+def set_skin_model(cfg: dict, filename: str, model: str) -> bool:
+    """Change an already uploaded skin's arm model without re-uploading it."""
+    wanted = (model or "auto").strip().lower()
+    if wanted not in {"auto", "slim", "classic"}:
+        raise ValueError("Skin arm model must be auto, slim, or classic")
+    meta = _load_skins_meta()
+    entry = next((s for s in meta.get("skins", [])
+                  if s.get("filename") == filename), None)
+    if entry is None:
+        return False
+    entry["model"] = wanted
+    if wanted == "slim":
+        entry["slim"] = True
+    elif wanted == "classic":
+        entry["slim"] = False
+    else:
+        try:
+            with Image.open(get_custom_skin_path(filename)) as image:
+                entry["slim"] = image.size == (64, 64) and _detect_slim_model(image)
+        except OSError:
+            entry["slim"] = False
+    _save_skins_meta(meta)
+    if cfg.get("active_skin") == filename:
+        sync_local_skin_to_csl(cfg)
+        save_config(cfg)
+    return True
+
+
 def sync_local_skin_to_csl(cfg: dict) -> None:
     """Mirrors the active skin into CustomSkinLoader's LocalSkin folder as
     <USERNAME>.png - the exact path and filename CSL looks for.
@@ -398,6 +433,16 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
                                            f"{username}.png.uploading"))
                 except OSError:
                     pass
+
+    # CSL's model="auto" is unreliable for edited skins with opaque spare
+    # arm columns. Write the active skin's explicit model into Cubeon's own
+    # load-list entry before Minecraft starts.
+    if filename and cfg.get("manage_skin_mod", True):
+        try:
+            csl.set_localskin_model(
+                "slim" if _active_skin_is_slim(filename) else "default")
+        except Exception:
+            logging.getLogger(__name__).debug("could not set local skin model", exc_info=True)
 
     # --- Network identity sync: ALWAYS (with a username) ---------------------
     # Even a vanilla player heartbeats once on first launch and once per
@@ -474,11 +519,17 @@ def _active_skin_is_slim(filename: str | None) -> bool:
     meta = _load_skins_meta()
     for entry in meta.get("skins", []):
         if entry.get("filename") == filename:
+            explicit = entry.get("model")
+            if explicit == "slim":
+                return True
+            if explicit == "classic":
+                return False
             try:
                 with Image.open(os.path.join(SKINS_DIR, filename)) as img:
                     detected = img.size == (64, 64) and _detect_slim_model(img)
                 if bool(entry.get("slim")) != detected:
                     entry["slim"] = detected
+                    entry.setdefault("model", "auto")
                     _save_skins_meta(meta)
                 return detected
             except (OSError, ValueError):

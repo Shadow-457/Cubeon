@@ -69,5 +69,7 @@ ambiguous = os.path.join(_home, "ambiguous.png")
 Image.new("RGBA", (64, 64), (80, 120, 160, 255)).save(ambiguous, "PNG")
 forced = skins.add_custom_skin(ambiguous, "Forced Alex", model="slim")
 check("explicit slim model overrides ambiguous PNG pixels", forced["slim"] is True)
+check("explicit slim choice survives later active-skin reads",
+      skins._active_skin_is_slim(forced["filename"]) is True)
 
 print("skin preview geometry checks passed")

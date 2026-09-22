@@ -532,6 +532,17 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             allowed_extensions=["png"],
         )
 
+    def apply_skin_model(e=None):
+        active = cfg.get("active_skin")
+        if not active:
+            upload_status.value = "Upload and select a skin first."
+        else:
+            core.set_skin_model(cfg, active, skin_model.value)
+            choice = {"slim": "Slim / Alex", "classic": "Classic / Steve",
+                      "auto": "Auto-detect"}.get(skin_model.value, "Auto-detect")
+            upload_status.value = f"Active skin now uses {choice} arms."
+        thread_safe_ui.refresh(upload_status)
+
     # Full-width outlined "+ Upload skin" CTA that sits at the BOTTOM of the
     # skins list (matching the target layout). Kept as a subtle outlined
     # button rather than the solid ACCENT hero so it reads as "add another"
@@ -553,6 +564,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         alignment=ft.Alignment.CENTER,
         ink=False,
         on_click=open_picker,
+    ), None, SURFACE_HI)
+
+    apply_model_button = attach_hover(ft.Container(
+        content=ft.Text("Apply model to active skin", color=TEXT_DIM,
+                        weight=ft.FontWeight.W_600, size=12),
+        border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(vertical=9, horizontal=12),
+        alignment=ft.Alignment.CENTER, ink=False, on_click=apply_skin_model,
     ), None, SURFACE_HI)
 
     refresh_skins_list()
@@ -887,7 +906,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             ft.Container(width=16),
             ft.Column(
                 [skins_label, _grid_scroll(skins_list_col),
-                 ft.Container(height=2), skin_model, upload_button, upload_status],
+                 ft.Container(height=2), skin_model, apply_model_button,
+                 upload_button, upload_status],
                 spacing=6, expand=True,
             ),
         ],

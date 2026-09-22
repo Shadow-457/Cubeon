@@ -339,6 +339,51 @@ def refresh_stale_worker_entry() -> bool:
     return True
 
 
+def set_localskin_model(model: str) -> bool:
+    """Set Cubeon's own LocalSkin entry to the exact Minecraft arm model.
+
+    CSL's ``auto`` mode guesses from transparent arm columns. Skin editors
+    frequently flatten those columns, so a real Alex skin is then rendered as
+    wide Steve arms. Cubeon owns this one entry, therefore it can safely write
+    the user's explicit choice (``slim`` or ``default``) without touching any
+    other CSL provider.
+
+    The entry may be registered already or still waiting in ExtraList for the
+    next game start; update either representation so the choice survives both
+    cases.
+    """
+    wanted = "slim" if model == "slim" else "default"
+    changed = False
+    cfg = read_csl_config()
+    if cfg and isinstance(cfg.get("loadlist"), list):
+        for entry in cfg["loadlist"]:
+            if isinstance(entry, dict) and entry.get("name") == LOCAL_ENTRY_NAME:
+                if entry.get("model") != wanted:
+                    entry["model"] = wanted
+                    changed = True
+                break
+        if changed:
+            try:
+                with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=2)
+            except OSError:
+                return False
+
+    # A first-time install has not merged the entry yet. If it is queued,
+    # patch the queued file too, rather than allowing one wrong-model launch.
+    path = os.path.join(CSL_EXTRALIST_DIR, "cubeon-localskin.json")
+    queued = _queued_content(path)
+    if queued and queued.get("name") == LOCAL_ENTRY_NAME and queued.get("model") != wanted:
+        queued["model"] = wanted
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(queued, f, indent=2)
+            changed = True
+        except OSError:
+            pass
+    return changed
+
+
 def write_extralist_entries() -> list[str]:
     """Drops an ExtraList file for each source not already registered or queued.
 
