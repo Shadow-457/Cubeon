@@ -59,7 +59,15 @@ with Image.open(out) as preview:
           preview.getpixel((16, 72))[0] > 150)
     # Outer sleeve layer is composited over the base arm, proving its source
     # origin is also correct rather than shifted left by one pixel.
-    check("left sleeve edge is retained",
+check("left sleeve edge is retained",
           preview.getpixel((0, 72))[0] > 100)
+
+# The PNG format has no model flag. An edited/flattened Alex skin can have
+# opaque reserved columns and is therefore ambiguous to pixel-only detection;
+# the explicit upload model must still force the 3px arm layout.
+ambiguous = os.path.join(_home, "ambiguous.png")
+Image.new("RGBA", (64, 64), (80, 120, 160, 255)).save(ambiguous, "PNG")
+forced = skins.add_custom_skin(ambiguous, "Forced Alex", model="slim")
+check("explicit slim model overrides ambiguous PNG pixels", forced["slim"] is True)
 
 print("skin preview geometry checks passed")

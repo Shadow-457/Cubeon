@@ -218,15 +218,27 @@ def list_custom_skins() -> list[dict]:
     return _load_skins_meta()["skins"]
 
 
-def add_custom_skin(src_path: str, display_name: str) -> dict:
-    """Copies a validated skin PNG into SKINS_DIR under a unique filename
-    and registers it. Returns the new skin's metadata entry."""
+def add_custom_skin(src_path: str, display_name: str,
+                    model: str | None = None) -> dict:
+    """Copies a validated skin PNG and registers its arm model.
+
+    ``model`` is ``"slim"`` for Alex/3px arms, ``"classic"`` for
+    Steve/4px arms, or ``None``/``"auto"`` to use the PNG heuristic. The
+    explicit values exist because the PNG format itself does not carry the
+    player's model choice; edited skins can therefore be impossible to infer
+    from transparency alone.
+    """
     ok, err = validate_skin_file(src_path)
     if not ok:
         raise ValueError(err)
 
+    requested_model = (model or "auto").strip().lower()
+    if requested_model not in {"auto", "slim", "classic"}:
+        raise ValueError("Skin arm model must be auto, slim, or classic")
     with Image.open(src_path) as img:
-        slim = img.size == (64, 64) and _detect_slim_model(img)
+        slim = (requested_model == "slim" or
+                (requested_model == "auto" and
+                 img.size == (64, 64) and _detect_slim_model(img)))
         normalized = _repair_transparent_base(img, slim=slim)
 
     safe_name = re.sub(r"[^A-Za-z0-9_-]", "_", display_name.strip()) or "skin"

@@ -115,6 +115,18 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                 color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
 
     upload_status = ft.Text("", size=12, color=TEXT_DIM)
+    skin_model = ft.Dropdown(
+        label="Arm model",
+        value="auto",
+        width=220,
+        dense=True,
+        options=[
+            ft.dropdown.Option("auto", "Auto-detect"),
+            ft.dropdown.Option("slim", "Slim / Alex (3px arms)"),
+            ft.dropdown.Option("classic", "Classic / Steve (4px arms)"),
+        ],
+        helper_text="Choose Slim / Alex if the uploaded skin has small arms.",
+    )
 
     # Honest, specific status about what will actually be visible in-game, so
     # the user isn't left guessing whether an upload "worked". Three genuinely
@@ -482,7 +494,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         def _work():
             try:
                 display_name = os.path.splitext(picked.name)[0]
-                entry = core.add_custom_skin(picked.path, display_name)
+                entry = core.add_custom_skin(
+                    picked.path, display_name, model=skin_model.value)
                 set_active(entry["filename"])
                 msg = f"Uploaded and set '{entry['name']}' as active skin."
             except ValueError as ve:
@@ -874,7 +887,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             ft.Container(width=16),
             ft.Column(
                 [skins_label, _grid_scroll(skins_list_col),
-                 ft.Container(height=2), upload_button, upload_status],
+                 ft.Container(height=2), skin_model, upload_button, upload_status],
                 spacing=6, expand=True,
             ),
         ],
