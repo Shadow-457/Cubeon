@@ -141,6 +141,7 @@ main{display:block}
 .dl-card .btn{margin-top:auto;justify-content:center}
 .dl-alt{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14.5px;color:var(--grass-dark);padding:4px 2px;text-transform:none}
 .dl-alt:hover{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.download-count{margin-top:18px;color:var(--grass-dark);font-weight:800;font-size:14px;letter-spacing:.03em;text-transform:uppercase}
 .dl-badge{position:absolute;top:-14px;left:26px;display:none;background:var(--grass);color:#04120A;border:2px solid var(--btn-line);border-radius:var(--pill);font-family:'Minecraftia';font-weight:600;font-size:12.5px;padding:6px 13px;text-transform:uppercase}
 .dl-card.rec .dl-badge{display:inline-block}
 .dl-card.soon{background:var(--paper)}

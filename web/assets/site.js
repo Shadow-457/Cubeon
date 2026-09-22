@@ -81,6 +81,28 @@
     });
   })();
 
+  /* ---- release download count ------------------------------------------
+     GitHub owns the actual installer files, so its release-asset counters
+     are the honest source of truth. The Vercel endpoint keeps credentials
+     server-side for private repositories. If it is unavailable, the count is
+     simply hidden rather than showing a made-up number. ------------------ */
+  (function downloadCount(){
+    var counters = document.querySelectorAll('[data-download-count]');
+    if(!counters.length || !window.fetch) return;
+    fetch('/api/download-count', { headers: { 'Accept': 'application/json' } })
+      .then(function(response){ return response.ok ? response.json() : null; })
+      .then(function(data){
+        if(!data || typeof data.total !== 'number') return;
+        var label = new Intl.NumberFormat().format(data.total) +
+          (data.total === 1 ? ' release download' : ' release downloads');
+        counters.forEach(function(counter){
+          counter.textContent = label;
+          counter.hidden = false;
+        });
+      })
+      .catch(function(){ /* counter is optional; keep the page quiet */ });
+  })();
+
   /* ---- fun terms-acceptance checklist (terms.html only) ------------------
      Pure decoration on top of a plain link: with JS off, the button is just
      a link straight to the download page, so nothing here is required to
