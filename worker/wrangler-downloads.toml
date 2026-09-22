@@ -1,0 +1,18 @@
+# Cubeon download proxy - Cloudflare Worker (free tier, no VPS).
+#
+# The repository is PRIVATE, so GitHub's release URLs answer visitors with an
+# auth wall and any signed asset URL expires within an hour. This Worker holds
+# a read-only GitHub token as a secret and streams the latest release's
+# installer files directly, with no expiry and no GitHub page.
+#
+# Deploy (no KV, no account setup beyond what already exists):
+#
+#   cd worker
+#   npx wrangler deploy -c wrangler-downloads.toml
+#   echo "<read-only token>" | npx wrangler secret put GITHUB_TOKEN -c wrangler-downloads.toml
+#
+# web/vercel.json points the /<os>download routes at the URL this prints.
+
+name = "cubeon-downloads"
+main = "cubeon-downloads.js"
+compatibility_date = "2025-04-01"
