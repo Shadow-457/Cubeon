@@ -195,3 +195,131 @@ function press(href) {
 
 // sentinel: cases are appended right after this line
 """
+
+
+# ---------------------------------------------------------------------------
+# 2. run the harness against the real site.js
+# ---------------------------------------------------------------------------
+node = shutil.which("node")
+check("node is available for the browser harness", bool(node))
+if node:
+    for path in (SITE_JS, WORKER_JS):
+        proc = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        check(f"node --check {os.path.relpath(path, REPO)}", proc.returncode == 0,
+              (proc.stderr or "").strip()[-200:])
+
+    with tempfile.TemporaryDirectory(prefix="cubeon-download-count-") as tmp:
+        harness = os.path.join(tmp, "harness.mjs")
+        with open(harness, "w", encoding="utf-8") as handle:
+            handle.write(HARNESS)
+        proc = subprocess.run([node, harness, SITE_JS], capture_output=True, text=True)
+        lines = (proc.stdout or "").strip().splitlines()
+        check("web/assets/site.js: every browser case passes", proc.returncode == 0,
+              ((proc.stdout or "") + (proc.stderr or "")).strip()[-400:])
+        check("the harness really ran its cases",
+              bool(lines) and re.match(r"^\d+ cases passed$", lines[-1]) is not None,
+              lines[-1] if lines else "no output")
+        print("       node: " + (lines[-1] if lines else ""))
+
+
+# ---------------------------------------------------------------------------
+# 3. the page source: one shared counter, no per-device leftovers
+# ---------------------------------------------------------------------------
+with open(SITE_JS, encoding="utf-8") as handle:
+    site_source = handle.read()
+
+check("the count is the shared Abacus total",
+      ABACUS in site_source and "/hit/" in site_source and "/get/" in site_source)
+count_block = site_source.split("(function downloadCount")[1].split("})();")[0] \
+    if "(function downloadCount" in site_source else ""
+check("the counter block holds no per-device storage", "localStorage" not in count_block,
+      count_block[:80])
+check("nothing of the rejected GitHub plumbing remains on the page",
+      "/api/download-count" not in site_source and "download-count.json" not in site_source)
+
+routes_block = re.search(r"var ROUTES = \[(.*?)\];", site_source, re.S)
+check("site.js declares which routes count as a download", bool(routes_block))
+site_routes = tuple(re.findall(r"'([^']+)'", routes_block.group(1))) if routes_block else ()
+with open(os.path.join(WEB, "vercel.json"), encoding="utf-8") as handle:
+    vercel_config = json.load(handle)
+asset_routes = tuple(rule.get("source") for rule in vercel_config.get("redirects", []))
+check("every counted route is a real download route, and all of them are counted",
+      set(site_routes) == set(asset_routes),
+      f"site.js={sorted(site_routes)} web/vercel.json={sorted(asset_routes)}")
+check("all download routes point at the streaming Worker, not GitHub",
+      all(rule.get("destination", "").startswith(WORKER_URL + "/")
+          for rule in vercel_config.get("redirects", [])))
+
+# the rejected plumbing must stay rejected
+for path in GONE:
+    check(f"{os.path.relpath(path, REPO)} stays gone", not os.path.exists(path))
+
+# continued: worker checks, page wiring, legal copy, loop guard
+
+# ---------------------------------------------------------------------------
+# 4. the Worker: routes, secrets, and no token in any repo file
+# ---------------------------------------------------------------------------
+with open(WORKER_JS, encoding="utf-8") as handle:
+    worker_source = handle.read()
+worker_routes = re.findall(r'"(/\w+download)":', worker_source)
+check("the Worker serves every route the site counts",
+      tuple(sorted(worker_routes)) == tuple(sorted(site_routes)),
+      f"worker={sorted(worker_routes)} site.js={sorted(site_routes)}")
+check("the Worker reads its token from a secret, never from source",
+      "env.GITHUB_TOKEN" in worker_source and "Bearer " in worker_source)
+
+leak = subprocess.run(
+    ["grep", "-rl", "--exclude-dir=.git", "--exclude-dir=archive",
+     "--exclude-dir=dist", "--exclude-dir=build", "--exclude-dir=node_modules",
+     "--exclude-dir=__pycache__", "--exclude-dir=.wrangler",
+     "github_pat_\\|ghp_[A-Za-z0-9]\\{20,\\}", REPO],
+    capture_output=True, text=True)
+check("no GitHub token is committed anywhere", leak.stdout.strip() == "",
+      leak.stdout.strip())
+
+with open(os.path.join(REPO, "worker", "wrangler-downloads.toml"), encoding="utf-8") as handle:
+    toml_source = handle.read()
+check("the Worker's config names it and has no KV to maintain",
+      'name = "cubeon-downloads"' in toml_source and "kv_namespaces" not in toml_source)
+
+# ---------------------------------------------------------------------------
+# 5. every page wires the shared file (index.html once shipped without it)
+# ---------------------------------------------------------------------------
+web_pages = sorted(name for name in os.listdir(WEB) if name.endswith(".html"))
+check("there are pages to check", len(web_pages) >= 3)
+for page in web_pages:
+    with open(os.path.join(WEB, page), encoding="utf-8") as handle:
+        html = handle.read()
+    check(f"{page} loads the shared assets/site.js",
+          re.search(r"<script[^>]*assets/site\.js", html) is not None)
+    check(f"{page} keeps only one copy of the shared handlers",
+          "q.querySelector('.q-a')" not in html and "classList.toggle('on'" not in html)
+
+for page in ("index.html", "download.html"):
+    with open(os.path.join(WEB, page), encoding="utf-8") as handle:
+        html = handle.read()
+    tag = re.search(r"<p[^>]*\bdata-download-count\b[^>]*>", html)
+    check(f"{page} carries the counter element", bool(tag))
+    check(f"{page} hides it until a number exists",
+          bool(tag) and "hidden" in tag.group(0))
+
+# the cookies/privacy pages must keep describing the counter honestly
+with open(os.path.join(WEB, "cookies.html"), encoding="utf-8") as handle:
+    cookies_html = handle.read()
+check("cookies.html discloses the counter service",
+      "Abacus" in cookies_html and "abacus" in cookies_html)
+with open(os.path.join(WEB, "privacy.html"), encoding="utf-8") as handle:
+    privacy_html = handle.read()
+check("privacy.html discloses the shared press total", "download counter" in privacy_html)
+
+# a /page -> /page.html redirect under cleanUrls is a ERR_TOO_MANY_REDIRECTS loop
+for config_path in (os.path.join(REPO, "vercel.json"), os.path.join(WEB, "vercel.json")):
+    with open(config_path, encoding="utf-8") as handle:
+        config = json.load(handle)
+    loops = [rule.get("source") for rule in config.get("redirects", [])
+             if config.get("cleanUrls") and rule.get("source") + ".html" == rule.get("destination")]
+    check(f"{os.path.relpath(config_path, REPO)}: no page redirect that cleanUrls undoes",
+          not loops, f"looping rules: {loops}")
+
+print(f"\n{_passed} checks passed")
+
