@@ -11,6 +11,20 @@
   is private, GitHub answers anonymous API requests with 404, and no `GITHUB_TOKEN`
   is set in Vercel. `site.js` hid the counter on failure (correct), so visitors saw
   nothing. The endpoint alone can never be the only source here.
+- Then found why even a working source would not have shown on the landing page:
+  **`web/index.html` never loaded `assets/site.js`**. It kept an inline copy of the
+  old OS-detect + FAQ code from the single-file era, so the counter, the cookie
+  note and the *mobile menu* were dead on the landing page while `download.html`
+  and `help.html` worked. Moved the landing-only pane switching into `site.js`'s
+  `markSystem` block, deleted the inline script, and added the missing
+  `<script src="assets/site.js" defer>`. There is now one behaviour file, and a
+  test fails if a page forgets the tag or keeps a second handler.
+- Found and fixed a second live bug while testing the first: `/download`, `/help`
+  and `/404` answered **ERR_TOO_MANY_REDIRECTS**, so the site's own nav was dead.
+  `web/vercel.json` (and the root copy) redirected `/download` → `/download.html`
+  while `cleanUrls: true` rewrote `/download.html` → `/download`. The page rules
+  are gone from both `vercel.json`s and from `web/_redirects` (which now explains
+  why); the legal pages already proved cleanUrls serves extensionless paths alone.
 - Added the credential-free source: `tools/refresh_download_count.py` writes
   `web/assets/download-count.json` (total + per-asset + release + generated_at)
   from `releases/latest`, and `.github/workflows/download-count.yml` runs it every
@@ -37,16 +51,24 @@
 
 ## How I verified
 
-- `python3 tools/test_web_download_count.py` → **50 checks passed**, exit 0.
+- `python3 tools/test_web_download_count.py` → **72 checks passed**, exit 0 (18 Node
+  cases against the endpoint with a stubbed `fetch`, 8 cases running the real
+  `site.js` on a DOM stub, page wiring, allow-list parity, generator paths).
 - `python3 tools/test_mega_smoke.py --static` → 12 passed, 0 failed (new files pass
   syntax/imports/control-flow).
 - `node --check` on both JS files; the workflow YAML parses; the generator run
   twice in a row prints "unchanged ... file left alone" on the second run.
-- Served `web/` on `:8971`: `/assets/download-count.json` → 200 with the real
-  numbers, `/index.html` → 200 (so the fallback path the page fetches exists in the
-  deploy).
-- Live checks used to find the bug: `curl cubeon.vercel.app/api/download-count`
-  (404) and `gh api repos/Shadow-457/Cubeon/releases/latest` (the 5 downloads).
+- **Real browser, locally**: served `web/` on `:8972`, loaded `index.html` in
+  headless Chrome - counter reads "5 release downloads" and is visible, only the
+  Linux pane shows, clicking macOS switches to it, the FAQ opens on the first
+  click, the cookie note is injected, zero page errors, zero 4xx (except the API,
+  which is absent locally - that IS the fallback case).
+- **Live**: `/assets/download-count.json` → 200 with the real numbers; the same
+  browser run against `https://cubeon.vercel.app/` and `/download`.
+- Live checks used to find the bugs: `curl cubeon.vercel.app/api/download-count`
+  (404), `curl -I` following `/download` (307 → 308 → loop), `grep '<script'` on
+  `index.html` (no site.js tag), and
+  `gh api repos/Shadow-457/Cubeon/releases/latest` (the 5 downloads).
 
 ## Notes for the next agent
 

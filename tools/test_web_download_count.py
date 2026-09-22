@@ -401,6 +401,21 @@ check("it revalidates instead of serving a stale edge copy",
 check("the counter stays hidden until a real number arrives",
       "counter.hidden = false" in site_source)
 
+# Every page needs the shared file, because the page IS the wiring: index.html
+# kept an inline copy of the old behaviour and never loaded site.js at all
+# (fixed 2026-09-22), so its counter, cookie note and mobile menu were dead while
+# the sub-pages - which do load it - worked. A missing tag is invisible in code
+# review and invisible in `node --check`; only a page-level check catches it.
+web_pages = sorted(name for name in os.listdir(WEB) if name.endswith(".html"))
+check("there are pages to check", len(web_pages) >= 3)
+for page in web_pages:
+    with open(os.path.join(WEB, page), encoding="utf-8") as handle:
+        html = handle.read()
+    check(f"{page} loads the shared assets/site.js",
+          re.search(r"<script[^>]*assets/site\.js", html) is not None)
+    check(f"{page} keeps only one copy of the shared handlers",
+          "q.querySelector('.q-a')" not in html and "classList.toggle('on'" not in html)
+
 for page in ("index.html", "download.html"):
     with open(os.path.join(WEB, page), encoding="utf-8") as handle:
         html = handle.read()
@@ -408,6 +423,22 @@ for page in ("index.html", "download.html"):
     check(f"{page} carries the counter element", bool(tag))
     check(f"{page} hides it until JavaScript fills it",
           bool(tag) and "hidden" in tag.group(0))
+
+# A redirect from /download to /download.html under `cleanUrls` is a loop: the
+# host rewrites /download.html back to /download. Every page route bundled in
+# web/vercel.json did exactly that until 2026-09-22, so the site's own
+# Download/Help links answered ERR_TOO_MANY_REDIRECTS to every visitor.
+for config_path in (os.path.join(REPO, "vercel.json"), os.path.join(WEB, "vercel.json")):
+    with open(config_path, encoding="utf-8") as handle:
+        config = json.load(handle)
+    loops = [rule.get("source") for rule in config.get("redirects", [])
+             if config.get("cleanUrls") and rule.get("source") + ".html" == rule.get("destination")]
+    check(f"{os.path.relpath(config_path, REPO)}: no page redirect that cleanUrls undoes",
+          not loops, f"looping rules: {loops}")
+    if config_path.endswith(os.path.join("web", "vercel.json")):
+        destinations = " ".join(rule.get("destination", "") for rule in config.get("redirects", []))
+        check("...and every download route still points at a release asset",
+              destinations.count("releases/latest/download/") == 4)
 
 
 # ---------------------------------------------------------------------------

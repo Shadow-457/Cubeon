@@ -1002,6 +1002,22 @@ Still-true invariants from the pre-local era:
   `download.html#files` / `docs.html#faq` fragments are GONE). `site.js` is
   shared verbatim: every block bails out when the page lacks its elements (the
   sky canvas + roster only exist on the landing page).
+- **EVERY page must load `assets/site.js`** - the page itself is the wiring, and
+  a page that forgets the tag loses the counter, the cookie note and the mobile
+  menu while still looking fine in review. `index.html` shipped exactly that way
+  until 2026-09-22: it kept an inline copy of the old OS-detect + FAQ behaviour
+  and never loaded site.js, so the landing page (the one with the download
+  buttons AND the counter) showed nothing. The landing-only pane switching
+  (`html.js .pane` hidden until a pane carries `.on`, the "Not your system?"
+  buttons) now lives in site.js's `markSystem` block. `tools/test_web_download_count.py`
+  now fails if any `web/*.html` lacks the tag or keeps a second copy of a handler.
+- **Never pair a `/page` → `/page.html` redirect with `cleanUrls: true`** (both
+  `web/vercel.json` and the repo-root one): the host already serves the page at
+  the extensionless path and rewrites `/page.html` back to `/page`, so the rule
+  becomes ERR_TOO_MANY_REDIRECTS. That shipped for `/download`, `/help` and
+  `/404` (2026-09-22, removed - the legal pages proved cleanUrls alone works).
+  Only the `/<os>download` release-asset routes belong in the redirect list; a
+  test asserts no such loop and that all four asset routes survive.
 - Every SITE download is a plain anchor to a clean route — `/windowsdownload`,
   `/linuxdownload`, `/linuxdeb`, `/linuxsetup` — which Vercel 307s to the GitHub
   release asset named in `web/vercel.json`; the old `../dist/<file>` hrefs are
