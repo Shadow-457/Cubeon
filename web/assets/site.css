@@ -74,7 +74,28 @@ main{display:block}
 .nav-links a[aria-current="page"]{background:var(--grass-soft);border-color:var(--grass);color:var(--ink)}
 .nav-cta{background:var(--grass)!important;color:#04120A!important;border:2px solid var(--btn-line)!important;font-family:'Minecraftia';font-weight:600;box-shadow:4px 4px 0 var(--btn-line);transition:transform 90ms linear,box-shadow 90ms linear}
 .nav-cta:hover{background:#5FD24B!important;transform:translate(2px,2px);box-shadow:2px 2px 0 var(--btn-line)}
-.nav-discord svg{width:15px;height:15px;flex:none;vertical-align:-2px;margin-right:7px;fill:#5865F2}
+.nav-discord{
+  display:inline-flex !important;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  background:#5865F2 !important;
+  color:#fff !important;
+  border:2px solid #4752C4 !important;
+  border-radius:var(--r) !important;
+  font-family:'Minecraftia',monospace !important;
+  font-weight:600 !important;
+  font-size:13px !important;
+  letter-spacing:.05em !important;
+  text-transform:uppercase !important;
+  padding:9px 14px !important;
+  box-shadow:4px 4px 0 #4752C4 !important;
+  transition:transform 80ms linear,box-shadow 80ms linear,background 80ms linear,color 80ms linear !important;
+}
+.nav-discord:hover{background:#4752C4 !important;transform:translate(1px,1px) !important;box-shadow:3px 3px 0 #383838 !important;color:#fff !important}
+.nav-discord:active{transform:translate(3px,3px) !important;box-shadow:0 0 0 #4752C4 !important}
+.nav-discord:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.nav-discord svg{width:14px;height:14px;flex:none;fill:#fff}
 .nav-toggle{display:none;margin-left:auto;background:var(--card);border:2px solid var(--line);border-radius:var(--r-sm);font-size:20px;line-height:1;padding:9px 13px;color:var(--ink)}
 @media(max-width:880px){
   .nav-toggle{display:block}
