@@ -103,48 +103,60 @@
     show(os || 'windows');                    /* an unknown device still gets a button */
   })();
 
-  /* ---- release download count ------------------------------------------
-     GitHub owns the actual installer files, so its release-asset counters
-     are the honest source of truth. The repository is private, so the page
-     cannot ask GitHub directly; it asks us instead, in this order:
-       1. /api/download-count          the Vercel function - freshest, but it
-                                       only answers once a GitHub token is
-                                       configured for the deployment.
-       2. /assets/download-count.json  refreshed by the scheduled "Refresh site
-                                       download count" workflow; no credential
-                                       needed anywhere near the visitor.
-     If neither answers, the line stays hidden rather than showing a made-up
-     number. ------------------------------------------------------------- */
+  /* ---- "downloads started" count ---------------------------------------
+     Every press of a real download button (`/windowsdownload` and the Linux
+     trio) bumps a number kept in THIS browser's localStorage and shows it in
+     the `[data-download-count]` line. Deliberately backend-free: nothing is
+     sent anywhere, ever - so the number is per-DEVICE, not a global total. A
+     visitor who has never pressed the button sees the line stay hidden instead
+     of somebody else's figure, and the copy says "on this device" so it can
+     never be read as one. Tracking-free by construction: a count that never
+     leaves the browser is not a profile of anyone.
+     (A number shared by all visitors needs one write-capable endpoint:
+     web/api/download-count.js plus web/assets/download-count.json exist for
+     that, and NOTHING in the UI calls them today.) ------------------------ */
   (function downloadCount(){
     var counters = document.querySelectorAll('[data-download-count]');
-    if(!counters.length || !window.fetch) return;
+    if(!counters.length) return;
+    var KEY = 'cubeon_downloads_started';
+    /* The routes that hand over a file, mirroring the redirects in
+       web/vercel.json - a test keeps the two lists equal. Nav links to the
+       download PAGE are deliberately not counted: that is a page view. */
+    var ROUTES = ['/windowsdownload', '/linuxdownload', '/linuxdeb', '/linuxsetup'];
 
+    function read(){
+      try { return parseInt(window.localStorage.getItem(KEY), 10) || 0; }
+      catch (_) { return 0; }               /* blocked storage: count nothing */
+    }
+    function write(total){
+      try { window.localStorage.setItem(KEY, String(total)); return true; }
+      catch (_) { return false; }
+    }
     function paint(total){
+      if(total < 1) return;                 /* nothing pressed yet: stay hidden */
       var label = new Intl.NumberFormat().format(total) +
-        (total === 1 ? ' release download' : ' release downloads');
+        (total === 1 ? ' download started on this device'
+                     : ' downloads started on this device');
       counters.forEach(function(counter){
         counter.textContent = label;
         counter.hidden = false;
       });
     }
-
-    function totalFrom(url){
-      /* no-cache = revalidate, so a redeploy or a fresh workflow commit shows
-         up on the next visit instead of a stale edge copy. */
-      return fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-cache' })
-        .then(function(response){ return response.ok ? response.json() : null; })
-        .then(function(data){
-          var total = data && data.total;
-          return (typeof total === 'number' && isFinite(total) && total >= 0) ? total : null;
-        })
-        .catch(function(){ return null; });
+    function isDownload(anchor){
+      var href = anchor.getAttribute('href') || '';
+      return ROUTES.indexOf(href) !== -1 || ROUTES.indexOf(anchor.pathname) !== -1;
     }
 
-    totalFrom('/api/download-count').then(function(total){
-      if(total !== null){ paint(total); return; }
-      totalFrom('/assets/download-count.json').then(function(total){
-        if(total !== null) paint(total);
-      }).catch(function(){ /* counter is optional; keep the page quiet */ });
+    paint(read());                          /* show what this device already has */
+
+    document.addEventListener('click', function(event){
+      var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+      if(!anchor || !isDownload(anchor)) return;
+      var total = read() + 1;
+      /* Only claim a number we could actually store: with storage blocked
+         (private mode) the line stays hidden instead of showing a 1 that a
+         reload would swallow. */
+      if(write(total)) paint(total);
     });
   })();
 

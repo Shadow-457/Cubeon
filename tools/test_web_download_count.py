@@ -224,6 +224,7 @@ function check(label, condition) {
 
 // ---- just enough browser for site.js (every other block bails out early) ----
 const counter = { textContent: "", hidden: true };
+let clicks = [];
 function makeElement() {
   return {
     setAttribute() {}, addEventListener() {}, appendChild() {}, remove() {},
@@ -236,7 +237,7 @@ globalThis.document = {
   body: { appendChild() {} },
   getElementById() { return null; },
   createElement: makeElement,
-  addEventListener() {},
+  addEventListener(type, handler) { if (type === "click") clicks.push(handler); },
   querySelectorAll(selector) {
     return selector === "[data-download-count]" ? [counter] : [];
   },
@@ -248,75 +249,105 @@ Object.defineProperty(globalThis, "navigator", {
   value: { platform: "Linux x86_64", userAgent: "Mozilla/5.0 (X11; Linux x86_64)" },
 });
 globalThis.matchMedia = () => ({ matches: false });
-globalThis.localStorage = { getItem() { return null; }, setItem() {} };
 
-let api, published, requested;
+// This count is browser-only by design. ANY network call is a failure.
+let requests = [];
 globalThis.fetch = async (url) => {
-  const target = String(url);
-  requested.push(target);
-  const answer = target.indexOf("/api/") === 0 ? api : published;
-  if (answer.throws) throw new Error("offline");
-  return { ok: answer.ok, status: answer.status, json: async () => answer.payload };
+  requests.push(String(url));
+  throw new Error("the download count must never touch the network");
 };
 
-function boot(endpoint, file) {
-  api = endpoint;
-  published = file;
-  requested = [];
+let store = {};                       // stands in for this browser's localStorage
+function storageWorks() {
+  globalThis.localStorage = {
+    getItem(key) { return Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null; },
+    setItem(key, value) { store[key] = String(value); },
+  };
+}
+function storageBlocked() {           // Safari private mode throws on access
+  globalThis.localStorage = {
+    getItem() { throw new Error("blocked"); },
+    setItem() { throw new Error("blocked"); },
+  };
+}
+
+function boot() {
+  clicks = [];
+  requests = [];
   counter.textContent = "";
   counter.hidden = true;
   new Function(source)();
 }
-async function shown() {
-  for (let i = 0; i < 200; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 1));
-    if (counter.textContent) return true;
-    if (requested.length >= 2) return false;
-  }
-  return false;
+function anchor(href) {
+  const element = {
+    pathname: href,
+    getAttribute(name) { return name === "href" ? href : null; },
+  };
+  element.closest = () => element;
+  return element;
+}
+function press(href) {
+  clicks.forEach((handler) => handler({ target: anchor(href) }));
 }
 
-// 1. THE bug: the endpoint is down (private repo, no Vercel token) - the
-//    committed file the workflow refreshes still fills the line.
-boot({ ok: false, status: 404, payload: null }, { ok: true, status: 200, payload: { total: 17 } });
-await shown();
-check("endpoint down: the committed file fills the count",
-      counter.textContent === "17 release downloads" && counter.hidden === false);
-check("...only after the endpoint failed",
-      requested.join(",") === "/api/download-count,/assets/download-count.json");
-
-// 2. a working endpoint wins and is the only thing fetched
-boot({ ok: true, status: 200, payload: { total: 5 } }, { ok: true, status: 200, payload: { total: 17 } });
-await shown();
-check("a live endpoint wins over the file",
-      counter.textContent === "5 release downloads" &&
-      requested.join(",") === "/api/download-count");
-
-// 3. one download is not "1 downloads"
-boot({ ok: true, status: 200, payload: { total: 1 } }, { ok: true, status: 200, payload: { total: 1 } });
-await shown();
-check("a single download is singular", counter.textContent === "1 release download");
-
-// 4. big numbers are grouped for humans
-boot({ ok: true, status: 200, payload: { total: 1500 } }, { ok: true, status: 200, payload: { total: 1 } });
-await shown();
-check("thousands are grouped", /1\D?500 release downloads/.test(counter.textContent));
-
-// 5. a nonsense total from the endpoint falls through to the file
-boot({ ok: true, status: 200, payload: { total: "many" } }, { ok: true, status: 200, payload: { total: 17 } });
-await shown();
-check("a nonsense endpoint total falls back to the file",
-      counter.textContent === "17 release downloads");
-
-// 6. nothing to show means nothing is shown - never a made-up 0
-boot({ ok: false, status: 404, payload: null }, { ok: true, status: 200, payload: {} });
-await shown();
-check("no honest number: the line stays hidden",
+// 1. a visitor who never pressed the button has nothing to show
+store = {};
+storageWorks();
+boot();
+check("a browser that never pressed the button shows no number",
       counter.hidden === true && counter.textContent === "");
-boot({ throws: true }, { throws: true });
-await shown();
-check("an offline visitor sees no counter and no error",
+check("the page loads the count without any network call", requests.length === 0);
+
+// 2. the first press shows a singular count and is remembered
+press("/windowsdownload");
+check("the first press reads '1 download started on this device'",
+      counter.textContent === "1 download started on this device" && counter.hidden === false);
+check("...and it is stored under the documented key",
+      store.cubeon_downloads_started === "1");
+
+// 3. it keeps counting, and survives a reload
+press("/linuxdownload");
+press("/linuxdeb");
+check("further presses keep counting",
+      counter.textContent === "3 downloads started on this device");
+boot();
+check("a reload shows what this device already pressed",
+      counter.textContent === "3 downloads started on this device" && counter.hidden === false);
+
+// 4. only routes that hand over a FILE count
+store = {};
+boot();
+press("/");
+press("/help");
+press("/download");
+press("/privacy");
+check("nav and page links are not downloads",
       counter.hidden === true && counter.textContent === "");
+press("/linuxsetup");
+check("...but the app-menu setup script is",
+      counter.textContent === "1 download started on this device");
+
+// 5. clicks that are not on an anchor at all
+store = {};
+boot();
+clicks.forEach((handler) => handler({ target: null }));
+clicks.forEach((handler) => handler({ target: { tagName: "DIV" } }));
+check("a click with no anchor behind it changes nothing",
+      counter.hidden === true && counter.textContent === "");
+
+// 6. big numbers stay readable
+store = { cubeon_downloads_started: "1234" };
+boot();
+check("thousands are grouped",
+      /1\D?234 downloads started on this device/.test(counter.textContent));
+
+// 7. storage blocked (private mode): quiet, no crash, no invented number
+store = {};
+storageBlocked();
+boot();
+press("/windowsdownload");
+check("blocked storage: no crash and no number that a reload would swallow",
+      counter.hidden === true && counter.textContent === "" && requests.length === 0);
 
 console.log(passed + " cases passed");
 """
@@ -391,15 +422,28 @@ check("both sides read the same repository",
       and generator.DEFAULT_REPOSITORY in api_source
       and generator.DEFAULT_REPOSITORY == "Shadow-457/Cubeon")
 
-check("the page asks the live endpoint first",
-      site_source.index("'/api/download-count'")
-      < site_source.index("'/assets/download-count.json'"))
-check("...and falls back to the file the workflow commits",
-      "totalFrom('/assets/download-count.json')" in site_source)
-check("it revalidates instead of serving a stale edge copy",
-      "cache: 'no-cache'" in site_source)
-check("the counter stays hidden until a real number arrives",
+check("the visible count is browser-local, with no network call involved",
+      "cubeon_downloads_started" in site_source
+      and "localStorage" in site_source
+      and "fetch(" not in site_source)
+check("...and the shared endpoint is deliberately unwired",
+      "'/api/download-count'" not in site_source
+      and "'/assets/download-count.json'" not in site_source)
+check("a count of zero stays hidden (never a made-up 0)",
+      "if(total < 1) return;" in site_source)
+check("the counter stays hidden until a number exists",
       "counter.hidden = false" in site_source)
+
+routes_block = re.search(r"var ROUTES = \[(.*?)\];", site_source, re.S)
+check("site.js declares which routes count as a download", bool(routes_block))
+site_routes = tuple(re.findall(r"'([^']+)'", routes_block.group(1))) if routes_block else ()
+with open(os.path.join(WEB, "vercel.json"), encoding="utf-8") as handle:
+    vercel_config = json.load(handle)
+asset_routes = tuple(rule.get("source") for rule in vercel_config.get("redirects", [])
+                     if "releases/latest/download/" in rule.get("destination", ""))
+check("every counted route is a real download redirect, and all of them are counted",
+      set(site_routes) == set(asset_routes),
+      f"site.js={sorted(site_routes)} web/vercel.json={sorted(asset_routes)}")
 
 # Every page needs the shared file, because the page IS the wiring: index.html
 # kept an inline copy of the old behaviour and never loaded site.js at all
