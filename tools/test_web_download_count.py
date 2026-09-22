@@ -328,6 +328,19 @@ with open(os.path.join(WEB, "privacy.html"), encoding="utf-8") as handle:
     privacy_html = handle.read()
 check("privacy.html discloses the shared press total", "download counter" in privacy_html)
 
+# the community link must exist everywhere it was promised
+INVITE = "https://discord.gg/Vj7g7vVY8K"
+for page in web_pages:
+    with open(os.path.join(WEB, page), encoding="utf-8") as handle:
+        html = handle.read()
+    check(f"{page} links to the Discord server", INVITE in html)
+with open(os.path.join(WEB, "index.html"), encoding="utf-8") as handle:
+    index_html = handle.read()
+check("the landing page has a hero Discord button", "discord-cta" in index_html)
+check("subpages carry the Discord nav link",
+      all("nav-discord" in open(os.path.join(WEB, p), encoding="utf-8").read()
+          for p in web_pages if p != "index.html"))
+
 # a /page -> /page.html redirect under cleanUrls is a ERR_TOO_MANY_REDIRECTS loop
 for config_path in (os.path.join(REPO, "vercel.json"), os.path.join(WEB, "vercel.json")):
     with open(config_path, encoding="utf-8") as handle:
