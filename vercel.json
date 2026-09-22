@@ -2,9 +2,9 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "redirects": [
-    { "source": "/linuxdownload", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-x86_64.AppImage", "permanent": false },
-    { "source": "/linuxdeb", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/cubeon_1.0.0_amd64.deb", "permanent": false },
-    { "source": "/linuxsetup", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Linux-x86_64-Setup.sh", "permanent": false },
-    { "source": "/windowsdownload", "destination": "https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64-Setup.exe", "permanent": false }
+    { "source": "/linuxdownload", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdownload", "permanent": false },
+    { "source": "/linuxdeb", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdeb", "permanent": false },
+    { "source": "/linuxsetup", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxsetup", "permanent": false },
+    { "source": "/windowsdownload", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload", "permanent": false }
   ]
 }

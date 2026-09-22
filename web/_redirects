@@ -1,15 +1,16 @@
-# Clean public routes. The download files live in GitHub Releases, not beside
-# the deployed static site, so links never point at ../dist (which is absent
-# from the web deployment).
+# Clean public routes. The download files live in GitHub Releases, which is a
+# PRIVATE repository - anonymous visitors get an auth wall there, and signed
+# asset URLs expire within the hour. The cubeon-downloads Worker streams the
+# latest release's files out instead (token held server-side).
 #
 # Page routes (/download, /help, ...) are deliberately NOT listed here: the host
 # already serves `<page>.html` at the extensionless path (Vercel `cleanUrls`),
 # and a redirect from /download to /download.html bounced back via that rewrite
 # into ERR_TOO_MANY_REDIRECTS until 2026-09-22. Only the asset routes belong here.
-/linuxdownload  https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-x86_64.AppImage 302
-/linuxdeb       https://github.com/Shadow-457/Cubeon/releases/latest/download/cubeon_1.0.0_amd64.deb 302
-/linuxsetup     https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Linux-x86_64-Setup.sh 302
-/windowsdownload https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64-Setup.exe 302
+/linuxdownload  https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdownload 302
+/linuxdeb       https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdeb 302
+/linuxsetup     https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxsetup 302
+/windowsdownload https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload 302
 /privacy        /privacy.html 200
 /terms          /terms.html 200
 /refunds        /refunds.html 200
