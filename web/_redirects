@@ -5,8 +5,6 @@
 /linuxdeb       https://github.com/Shadow-457/Cubeon/releases/latest/download/cubeon_1.0.0_amd64.deb 302
 /linuxsetup     https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Linux-x86_64-Setup.sh 302
 /windowsdownload https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64-Setup.exe 302
-/windowsportable https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64-single.exe 302
-/windowszip     https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64.zip 302
 /404            /404.html 200
 /download       /download.html 200
 /help           /help.html 200
