@@ -123,15 +123,29 @@ def ensure_default_plugins(version_id: str, status_cb=None) -> dict:
 # AuthMe's stock timings are built for big public servers and feel harsh on
 # a friends-and-family one: 60 seconds to type /login before the kick, and
 # no session persistence, so EVERY rejoin needs a full /login. Cubeon
-# relaxes exactly those two dials, every start, surgically - two keys in
+# relaxes exactly those dials, every start, surgically - three keys in
 # AuthMe's own config.yml, nothing else touched:
 #   sessions.enabled  true          rejoining within the session window
 #                                   skips /login entirely
 #   sessions.timeout  10 (minutes)  how long a login lasts
 #   restrictions.timeout 300 (secs) time to type /login before the kick
+#   restrictions.maxRegPerIp 0      0 = unlimited registrations per IP.
+#                                   REQUIRED for Cubeon hosts: every player
+#                                   joining through the Minekube Connect
+#                                   tunnel arrives from the SAME apparent
+#                                   IP (the tunnel's local connection, e.g.
+#                                   127.0.0.1), so AuthMe's stock limit of
+#                                   one registration per IP makes the FIRST
+#                                   registrant block every friend after
+#                                   them with "exceeded the maximum number
+#                                   of registrations (1/1 ...) for your
+#                                   connection". The per-IP dial is
+#                                   meaningless on a tunneled server; the
+#                                   password layer itself is still what
+#                                   protects accounts.
 AUTHME_TUNING = {
     "sessions": {"enabled": "true", "timeout": "10"},
-    "restrictions": {"timeout": "300"},
+    "restrictions": {"timeout": "300", "maxRegPerIp": "0"},
 }
 
 
@@ -140,11 +154,17 @@ def _tune_authme_config(version_id: str) -> list[str]:
 
     AuthMe generates its config on FIRST boot, so on a brand-new install
     there's nothing to patch yet - this converges on the second start.
-    Indentation-aware on purpose: both `sessions:` and `restrictions:`
-    contain a `timeout:` key, and a naive regex would patch the wrong one.
 
-    Never creates the file (a partial AuthMe config is worse than none)
-    and never raises - a missing/unreadable config just means defaults.
+    Section tracking uses an indent stack rather than a single "current
+    section": AuthMe 6.x (ConfigMe) writes sections at indent 4
+    (`settings:` 0, `restrictions:` 4, keys 8) while older builds wrote
+    everything at 2. A header is any line ending in ":" (no value); the
+    innermost active header names the section, and a `timeout:`/`enabled:`
+    key is only patched when that section is in AUTHME_TUNING - so the
+    duplicate `timeout:` under both `sessions` and `restrictions` still
+    each gets its own value. Never creates the file (a partial AuthMe
+    config is worse than none) and never raises - a missing/unreadable
+    config just means defaults.
     """
     path = os.path.join(get_plugins_dir(version_id), "AuthMe", "config.yml")
     if not os.path.isfile(path):
@@ -156,18 +176,23 @@ def _tune_authme_config(version_id: str) -> list[str]:
         return []
 
     changes = []
-    section = None  # current 2-space section name ("sessions", "restrictions", ...)
+    stack: list[tuple[int, str]] = []  # (indent, section name) of open headers
     for i, line in enumerate(lines):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
         indent = len(line) - len(line.lstrip(" "))
-        if stripped.endswith(":") and indent <= 2:
-            section = stripped[:-1].strip()
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        if stripped.endswith(":"):
+            stack.append((indent, stripped[:-1].strip()))
             continue
         key = stripped.split(":", 1)[0].strip()
+        if not stack:
+            continue
+        section = stack[-1][1]
         tuning = AUTHME_TUNING.get(section, {})
-        if key in tuning and indent > 2:
+        if key in tuning:
             new_line = f"{line[:indent]}{key}: {tuning[key]}"
             if line != new_line:
                 lines[i] = new_line

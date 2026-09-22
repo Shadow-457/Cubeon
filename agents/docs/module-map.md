@@ -7,6 +7,18 @@ see the web bullets further down. The waitlist is gone, the repo is private.) If
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
+## AuthMe tuner (2026-09-22) — INVARIANT
+- `cubeon/server.py::_tune_authme_config` section tracking MUST be an indent
+  stack, not a single "current section": AuthMe 6.x (ConfigMe) writes
+  sections at indent 4, legacy AuthMe at 2. The old `indent <= 2` check made
+  the tuner a silent no-op on modern configs (guard script in
+  agents/2026-09-22_cline_authme-tunnel-reglimit.md).
+- `AUTHME_TUNING` includes `restrictions.maxRegPerIp: 0` (unlimited): every
+  player through the Minekube tunnel shares one apparent IP, so the stock
+  per-IP registration cap (default 1) makes the first registrant block
+  everyone. Do not "restore" a per-IP registration cap on tunneled servers.
+
+
 ## Wedged flet client / open-quit truth (2026-09-19) — INVARIANT
 - The flet desktop client's bad case is NOT always a crash. It can WEDGE: window
   mapped, not one OpenGL frame, ~180% CPU, and `ft.run` never returning
