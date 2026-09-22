@@ -2,9 +2,11 @@
    Cubeon site - shared behaviour.
 
    Deliberately small: the mobile menu, the FAQ answers, a gentle reveal on
-   scroll, a "this one's for your device" star on the right download, and the
-   cookie banner (which only ever appears if something genuinely needs
-   consent - the site sets no cookies and loads nothing third-party).
+   scroll, a "this one's for your device" star on the right download, the
+   global download counter, and the cookie banner (which only ever appears if
+   something genuinely needs consent - the site sets no cookies, and its only
+   outside request is the anonymous download-count total, which is why
+   cookies.html / privacy.html can keep describing the site accurately).
    Every block quits quietly when the page has none of the elements it drives,
    and everything works with JavaScript switched off.
    ========================================================================== */
@@ -103,60 +105,69 @@
     show(os || 'windows');                    /* an unknown device still gets a button */
   })();
 
-  /* ---- "downloads started" count ---------------------------------------
+  /* ---- global "downloads" counter ---------------------------------------
      Every press of a real download button (`/windowsdownload` and the Linux
-     trio) bumps a number kept in THIS browser's localStorage and shows it in
-     the `[data-download-count]` line. Deliberately backend-free: nothing is
-     sent anywhere, ever - so the number is per-DEVICE, not a global total. A
-     visitor who has never pressed the button sees the line stay hidden instead
-     of somebody else's figure, and the copy says "on this device" so it can
-     never be read as one. Tracking-free by construction: a count that never
-     leaves the browser is not a profile of anyone.
-     (A number shared by all visitors needs one write-capable endpoint:
-     web/api/download-count.js plus web/assets/download-count.json exist for
-     that, and NOTHING in the UI calls them today.) ------------------------ */
+     trio) adds one to a SHARED total that every visitor sees, here and on
+     every page: not a per-device figure, but the overall number of presses.
+
+     The total lives at Abacus (github.com/JasonCameron/abacus), an
+     open-source, cookie-free counter service. The only thing it ever
+     receives is "add 1 to cubeon-site" - no cookie, no identifier, nothing
+     tied to a person - which is what lets cookies.html and privacy.html
+     keep their promises. `/get` reads the total for display; `/hit` adds
+     one and returns the new value (keepalive lets the +1 survive the jump
+     to the release file, which navigates away from this page). If the
+     counter cannot be reached the line simply stays hidden - never a
+     made-up number. ------------------------------------------------------ */
   (function downloadCount(){
     var counters = document.querySelectorAll('[data-download-count]');
-    if(!counters.length) return;
-    var KEY = 'cubeon_downloads_started';
-    /* The routes that hand over a file, mirroring the redirects in
-       web/vercel.json - a test keeps the two lists equal. Nav links to the
-       download PAGE are deliberately not counted: that is a page view. */
+    if(!counters.length || !window.fetch) return;
+    var BASE = 'https://abacus.jasoncameron.dev';
+    var NAMESPACE = 'cubeon-site';
+    var KEY = 'downloads';
+    /* Routes that hand over a file, mirroring the redirects in
+       web/vercel.json - a test keeps the two lists equal. Links to the
+       download PAGE are page views, not downloads. */
     var ROUTES = ['/windowsdownload', '/linuxdownload', '/linuxdeb', '/linuxsetup'];
 
-    function read(){
-      try { return parseInt(window.localStorage.getItem(KEY), 10) || 0; }
-      catch (_) { return 0; }               /* blocked storage: count nothing */
-    }
-    function write(total){
-      try { window.localStorage.setItem(KEY, String(total)); return true; }
-      catch (_) { return false; }
-    }
     function paint(total){
-      if(total < 1) return;                 /* nothing pressed yet: stay hidden */
       var label = new Intl.NumberFormat().format(total) +
-        (total === 1 ? ' download started on this device'
-                     : ' downloads started on this device');
+        (total === 1 ? ' download so far' : ' downloads so far');
       counters.forEach(function(counter){
         counter.textContent = label;
         counter.hidden = false;
       });
+    }
+    /* Only a whole, non-negative number paints. Anything else (an error
+       body, an HTML 404 page) hides the line. */
+    function totalIn(data){
+      return data && typeof data.value === 'number'
+             && isFinite(data.value) && data.value >= 0 ? data.value : null;
+    }
+    function ask(action){
+      return fetch(BASE + '/' + action + '/' + NAMESPACE + '/' + KEY, {
+        headers: { 'Accept': 'application/json' },
+        keepalive: action === 'hit'
+      })
+        .then(function(response){ return response.ok ? response.json() : null; })
+        .then(totalIn)
+        .catch(function(){ return null; });
     }
     function isDownload(anchor){
       var href = anchor.getAttribute('href') || '';
       return ROUTES.indexOf(href) !== -1 || ROUTES.indexOf(anchor.pathname) !== -1;
     }
 
-    paint(read());                          /* show what this device already has */
+    ask('get').then(function(total){
+      if(total !== null) paint(total);      /* everyone sees the overall count */
+    });
 
     document.addEventListener('click', function(event){
       var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
       if(!anchor || !isDownload(anchor)) return;
-      var total = read() + 1;
-      /* Only claim a number we could actually store: with storage blocked
-         (private mode) the line stays hidden instead of showing a 1 that a
-         reload would swallow. */
-      if(write(total)) paint(total);
+      ask('hit').then(function(total){
+        if(total !== null) paint(total);    /* the fresh, shared total */
+      });
     });
   })();
 
