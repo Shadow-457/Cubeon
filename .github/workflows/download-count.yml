@@ -1,0 +1,52 @@
+name: Refresh site download count
+
+# The public site prints "N release downloads" next to the download buttons,
+# read from web/assets/download-count.json (and, when a Vercel token exists,
+# from the fresher /api/download-count function). The repository is PRIVATE, so
+# a visitor's browser can never ask GitHub for that number - this job is the
+# only piece holding a credential, and it holds the workflow's own token, not a
+# stored secret. Nothing here can leak to a visitor: it only writes a count.
+#
+# The commit is pushed with GITHUB_TOKEN, and pushes made with that token do not
+# start other workflows - so this can never loop with build.yml.
+on:
+  schedule:
+    # Every six hours, off the hour: downloads move slowly and the static file
+    # only has to be roughly current for a line of decoration.
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: download-count
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh web/assets/download-count.json
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sum the latest release's installer downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUBEON_REPO: ${{ github.repository }}
+        run: python3 tools/refresh_download_count.py
+
+      - name: Commit when the number actually moved
+        # refresh_download_count.py leaves the file untouched when the total and
+        # the per-asset counts are unchanged, so a quiet day costs zero commits.
+        run: |
+          if git diff --quiet -- web/assets/download-count.json; then
+            echo "Download count unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/assets/download-count.json
+          git commit -m "Refresh website download count"
+          git push
