@@ -1,13 +1,15 @@
 # Clean public routes. The download files live in GitHub Releases, not beside
 # the deployed static site, so links never point at ../dist (which is absent
 # from the web deployment).
+#
+# Page routes (/download, /help, ...) are deliberately NOT listed here: the host
+# already serves `<page>.html` at the extensionless path (Vercel `cleanUrls`),
+# and a redirect from /download to /download.html bounced back via that rewrite
+# into ERR_TOO_MANY_REDIRECTS until 2026-09-22. Only the asset routes belong here.
 /linuxdownload  https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-x86_64.AppImage 302
 /linuxdeb       https://github.com/Shadow-457/Cubeon/releases/latest/download/cubeon_1.0.0_amd64.deb 302
 /linuxsetup     https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Linux-x86_64-Setup.sh 302
 /windowsdownload https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-Windows-x64-Setup.exe 302
-/404            /404.html 200
-/download       /download.html 200
-/help           /help.html 200
 /privacy        /privacy.html 200
 /terms          /terms.html 200
 /refunds        /refunds.html 200

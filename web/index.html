@@ -223,32 +223,6 @@
   </div>
 </footer>
 
-<script>
-(function(){
-  /* which system is this? Decoration + convenience: with JS off, every
-     download pane simply shows, so nothing here is required to download. */
-  var ua = String((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '').toLowerCase();
-  var mobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent || '') || /android|iphone|ipad|ipod/.test(ua);
-  var det = mobile ? '' : /mac/.test(ua) ? 'mac' : /windows|win32|win64/.test(ua) ? 'windows' : /linux|x11/.test(ua) ? 'linux' : '';
-  var panes = document.querySelectorAll('.pane'), picks = document.querySelectorAll('[data-pick]');
-    function show(os){
-    panes.forEach(function(p){ p.classList.toggle('on', p.getAttribute('data-os') === os); });
-    picks.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-pick') === os ? 'true' : 'false'); });
-  }
-  picks.forEach(function(b){ b.addEventListener('click', function(){ show(b.getAttribute('data-pick')); }); });
-  show(det || 'windows');
-
-  /* FAQ: one answer open at a time */
-  var qs = document.querySelectorAll('.q');
-  qs.forEach(function(q){
-    var btn = q.querySelector('.q-a');
-    btn.addEventListener('click', function(){
-      var was = q.classList.contains('open');
-      qs.forEach(function(o){ o.classList.remove('open'); o.querySelector('.q-a').setAttribute('aria-expanded','false'); });
-      if(!was){ q.classList.add('open'); btn.setAttribute('aria-expanded','true'); }
-    });
-  });
-})();
-</script>
+<script src="assets/site.js" defer></script>
 </body>
 </html>

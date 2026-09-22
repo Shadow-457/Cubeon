@@ -67,7 +67,12 @@
   }
 
   /* ---- which download is for this device? Decoration only: every link is a
-     plain anchor in the HTML, so nothing here is required to download. ---- */
+     plain anchor in the HTML, so nothing here is required to download. ----
+     This also drives the landing page's one-pane-at-a-time hero: `html.js
+     .pane` stays hidden until a pane carries `.on`, and the "Not your system?"
+     buttons pick one. That logic lived in an inline <script> in index.html
+     until 2026-09-22 - the same page that never loaded this file, which is why
+     the landing page showed no download count and no cookie note. -------- */
   (function markSystem(){
     var ua = String((navigator.userAgentData && navigator.userAgentData.platform) ||
                     navigator.platform || navigator.userAgent || '').toLowerCase();
@@ -75,10 +80,27 @@
            : /mac/.test(ua) ? 'mac'
            : /windows|win32|win64/.test(ua) ? 'windows'
            : /linux|x11/.test(ua) ? 'linux' : '';
-    if(!os) return;
+
     document.querySelectorAll('[data-os]').forEach(function(el){
       if(el.getAttribute('data-os') === os) el.classList.add('rec');
     });
+
+    var panes = document.querySelectorAll('.pane');
+    var picks = document.querySelectorAll('[data-pick]');
+    if(!panes.length) return;                 /* only the landing page has these */
+    function show(which){
+      panes.forEach(function(pane){
+        pane.classList.toggle('on', pane.getAttribute('data-os') === which);
+      });
+      picks.forEach(function(button){
+        button.setAttribute('aria-pressed',
+          button.getAttribute('data-pick') === which ? 'true' : 'false');
+      });
+    }
+    picks.forEach(function(button){
+      button.addEventListener('click', function(){ show(button.getAttribute('data-pick')); });
+    });
+    show(os || 'windows');                    /* an unknown device still gets a button */
   })();
 
   /* ---- release download count ------------------------------------------
