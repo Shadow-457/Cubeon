@@ -24,7 +24,6 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
-import urllib.request
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TOOLS)
@@ -156,9 +155,19 @@ upstream.payload = { tag_name: "v9", assets: [
   { name: "Cubeon-x86_64.AppImage", download_count: "many" },
   { name: "cubeon_1.0.0_amd64.deb", download_count: -4 },
   { name: "Cubeon-Linux-x86_64-Setup.sh" },
+  null,
+  "not an asset",
 ]};
 res = await call();
 check("garbage/negative/missing counters count as 0",
+      res.statusCode === 200 && res.payload.total === 0);
+reset();
+upstream.payload = { assets: [
+  { name: "Cubeon-x86_64.AppImage", download_count: 2.5 },
+  { name: "Cubeon-Windows-x64-Setup.exe", download_count: true },
+]};
+res = await call();
+check("a fractional or boolean counter is ignored",
       res.statusCode === 200 && res.payload.total === 0);
 
 // 4. releases that carry no assets still answer, with a zero total
@@ -320,8 +329,13 @@ junk = generator.summarize_release({"assets": [
     {"name": "cubeon_1.0.0_amd64.deb", "download_count": -4},
     {"name": "Cubeon-Linux-x86_64-Setup.sh"},
     {"name": "Cubeon-Windows-x64-Setup.exe", "download_count": True},
+    None,
+    "not an asset",
 ]})
 check("garbage counters are 0, never NaN or a negative", junk["total"] == 0)
+check("a fractional counter is ignored too",
+      generator.summarize_release({"assets": [
+          {"name": "Cubeon-x86_64.AppImage", "download_count": 2.5}]})["total"] == 0)
 check("a release with null assets totals 0", generator.summarize_release({"assets": None})["total"] == 0)
 check("...and so does a release with no assets key", generator.summarize_release({})["total"] == 0)
 
@@ -367,4 +381,77 @@ check("the payload is parsed into the release", release.get("tag_name") == "v9.9
 generator.fetch_latest_release(generator.DEFAULT_REPOSITORY, None, urlopen=fake_urlopen)
 check("with no token, no Authorization header is sent",
       captured[-1].get_header("Authorization") is None)
+
+
+# ---------------------------------------------------------------------------
+# 6. main(): writes, stays quiet when nothing moved, fails loudly when GitHub
+#    cannot be read (a scheduled run must go red, not silently stale)
+# ---------------------------------------------------------------------------
+_real_path = generator.OUTPUT_PATH
+_real_fetch = generator.fetch_latest_release
+try:
+    with tempfile.TemporaryDirectory(prefix="cubeon-download-count-") as tmp:
+        target = os.path.join(tmp, "download-count.json")
+        generator.OUTPUT_PATH = target
+        generator.fetch_latest_release = lambda *a, **k: FAKE
+
+        generator.main([])
+        written = json.load(open(target, encoding="utf-8"))
+        check("main() writes a document the page can read",
+              written.get("total") == 17 and bool(written.get("generated_at")),
+              str(written))
+        stamp = os.path.getmtime(target)
+        generator.main([])
+        check("an unchanged count leaves the file (and its timestamp) alone",
+              os.path.getmtime(target) == stamp)
+
+        with open(target, "w", encoding="utf-8") as handle:
+            json.dump(dict(written, total=99), handle)
+        generator.main([])
+        check("a moved count is rewritten",
+              json.load(open(target, encoding="utf-8")).get("total") == 17)
+
+    with tempfile.TemporaryDirectory(prefix="cubeon-download-count-") as tmp:
+        missing = os.path.join(tmp, "download-count.json")
+        generator.OUTPUT_PATH = missing
+        failure = urllib.error.HTTPError("https://api.github.com/x", 404, "Not Found", {}, None)
+
+        def boom(*_args, **_kwargs):
+            raise failure
+
+        generator.fetch_latest_release = boom
+        stream = io.StringIO()
+        real_stderr = sys.stderr
+        sys.stderr = stream
+        try:
+            code = generator.main([])
+        finally:
+            sys.stderr = real_stderr
+        check("an unreadable GitHub exits non-zero", code == 1)
+        check("...without writing a half-truth", not os.path.exists(missing))
+        check("...and names the fix", "needs a token" in stream.getvalue(),
+              stream.getvalue().strip())
+finally:
+    generator.OUTPUT_PATH = _real_path
+    generator.fetch_latest_release = _real_fetch
+
+
+# ---------------------------------------------------------------------------
+# 7. the workflow is what refreshes the file, with no stored secret
+# ---------------------------------------------------------------------------
+try:
+    with open(WORKFLOW, encoding="utf-8") as handle:
+        workflow = handle.read()
+except OSError:
+    workflow = ""
+check(".github/workflows/download-count.yml exists", bool(workflow))
+check("it uses the runner's own token, not a stored secret",
+      "secrets.GITHUB_TOKEN" in workflow)
+check("it is allowed to commit the refreshed file", "contents: write" in workflow)
+check("it runs on a schedule", "cron:" in workflow)
+check("it runs the generator", "python3 tools/refresh_download_count.py" in workflow)
+check("it commits only when the number actually moved",
+      "git diff --quiet -- web/assets/download-count.json" in workflow)
+
+print(f"\n{_passed} checks passed")
 

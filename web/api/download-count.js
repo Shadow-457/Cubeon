@@ -39,8 +39,15 @@ module.exports = async function downloadCount(req, res) {
     const counts = {};
     let total = 0;
     for (const asset of assets) {
+      // The payload is third-party JSON: an entry can be null and a counter can
+      // be missing or nonsense. Neither may turn a page view into a 503 - the
+      // null entry did exactly that before this guard existed.
+      if (!asset || typeof asset !== "object") continue;
       if (!DOWNLOAD_ASSETS.has(asset.name)) continue;
-      const count = Number(asset.download_count) || 0;
+      const raw = asset.download_count;
+      // Same rule as _download_count() in tools/refresh_download_count.py:
+      // whole, non-negative numbers only - "many", -4, true or 2.5 all mean 0.
+      const count = (typeof raw === "number" && Number.isInteger(raw) && raw > 0) ? raw : 0;
       counts[asset.name] = count;
       total += count;
     }
