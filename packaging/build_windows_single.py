@@ -42,6 +42,9 @@ def main() -> None:
     cmd = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
         "--onefile", "--windowed", "--name", "Cubeon",
+        # The single exe IS the product - it must carry the Cubeon icon, not
+        # PyInstaller's default artwork.
+        "--icon=assets/icon.ico",
         f"--add-data=assets{sep}assets",
         f"--add-data=templates{sep}templates",
         f"--add-data=mod/brackets.json{sep}mod",

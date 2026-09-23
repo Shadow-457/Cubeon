@@ -420,6 +420,7 @@ SUITES = [
     "test_fuzz.py", "test_production.py", "test_content_instance.py",
     "test_version_integrity.py", "test_local_api_gate.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",
+    "test_faces.py", "test_chat_optimistic.py",
 ]
 
 

@@ -31,7 +31,13 @@ Design rules it follows:
   - Sends are OPTIMISTIC (2026-09-20): the bubble appears the instant Enter
     is pressed (dim, "Sending..."), the relay's echo-filed line replaces it,
     and a refusal or 12s silence turns it red "Couldn't send" (_pending /
-    _append_optimistic / _sweep_pending).
+    _append_optimistic / _sweep_pending). A red bubble is NOT thrown away: a
+    late echo takes over that exact slot, so one message can never render as
+    two bubbles (the dupe the user saw when the echo missed the 12s window).
+  - The poll cadence is adaptive (2026-09-23): 1.5s idle, 0.5s while a
+    conversation is open, 0.25s for a couple of seconds after a send (a tick
+    is ~2ms of in-process dict work) - so chat feels immediate instead of
+    lagging behind a fixed slow poll.
   - Auto-scroll is opt-in per position (_stick): new messages follow only
     while the view is at the bottom, so reading history never gets yanked
     down; opening a conversation always jumps to the end. A "Newest" pill
@@ -65,11 +71,26 @@ from cubeon.theme import (
 )
 from cubeon.config import validate_username
 from cubeon import dialogs as _dialogs
+from cubeon import faces as _faces
 from cubeon import friends as _friends
 from cubeon import profile as _profile
 from cubeon import thread_safe_ui
 
 _POLL_SECONDS = 1.5
+# Faster cadences (see _poll_interval): while a conversation is open the user
+# is watching the transcript, so a new message lands within half a second; for
+# a few seconds after sending, faster still, so the sender's own bubble
+# confirms almost immediately. A tick is pure in-process dict work (measured
+# ~2ms with a 20-friend roster + 50-message ring), so this costs nothing.
+_POLL_ACTIVE_SECONDS = 0.5
+_POLL_FAST_SECONDS = 0.25
+# How long after a send the fast cadence stays armed (a relay echo normally
+# lands in well under a second; this covers the round trip + a slow tick).
+_CONFIRM_WINDOW_S = 2.0
+# Unconfirmed/failed bubbles are kept so a late echo can take their place -
+# but only a bounded number per conversation, so a long session can't grow
+# them without limit.
+_MAX_PENDING = 64
 
 # Message bubbles measure themselves from their longest line so a "hi" is a
 # small chip and a paragraph wraps at a sane width, instead of every message
@@ -184,10 +205,20 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     _header_sig = {"v": None}
     _last_day = {}
     _last_dir = {}
-    # Optimistic sends: canon friend -> [{"text", "wrap", "ts", "t0"}] for
-    # bubbles shown before the relay's echo confirms them. The echo-filed
-    # message replaces (not duplicates) its pending bubble in _append_messages.
+    # Optimistic sends: canon friend -> [{"text", "wrap", "ts", "t0",
+    # "failed"}] for bubbles shown before the relay's echo confirms them. The
+    # echo-filed message REPLACES its pending bubble in _append_messages. A
+    # bubble that timed out (failed=True) stays in the list on purpose: if the
+    # echo lands late the real line takes over that same slot, so one message
+    # can never show up twice (a red "Couldn't send" bubble PLUS the real one).
     _pending = {}
+    # Fast-confirm window: after a send, poll every _POLL_FAST_SECONDS until
+    # this deadline, so the sender's own bubble confirms in a few hundred ms
+    # instead of waiting out a full idle tick. Set by _do_send / _run.done.
+    _fast_until = {"v": 0.0}
+    # The poll loop's own wake-up: a handler that just changed something wins
+    # an immediate tick instead of waiting for the next interval.
+    _wake = threading.Event()
     # Composer drafts: canon friend -> composer text, kept across friend
     # switches and tab closes within the session (the tab stays mounted once
     # built; a fresh launch starts with empty drafts).
@@ -435,20 +466,28 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         return AVATAR_COLORS[h % len(AVATAR_COLORS)]
 
     def _paint_avatar(box, name, size, online=None):
-        """Fills an existing rounded-square avatar with the name's initial in
-        a stable per-name color - so the roster has identity without color
-        noise, and green stays semantic. `online=True` rings it in the presence
-        green, which is the one place green is allowed to appear here."""
+        """Fills an existing rounded-square avatar with the player's Cubeon
+        face (fetched from the skins Worker, disk-cached by cubeon.faces)
+        when one exists, falling back to the name's initial in a stable
+        per-name color. `online=True` rings it in the presence green, which
+        is the one place green is allowed to appear here."""
         color = _avatar_color(name)
         box.width = box.height = size
         box.border_radius = RADIUS
-        box.bgcolor = ft.Colors.with_opacity(0.16, color)
         box.border = ft.border.Border.all(
             2 if online else 1, ACCENT if online else CARD_BORDER)
         box.alignment = ft.Alignment.CENTER
-        box.content = ft.Text((name[:1] or "?").upper(),
-                              size=int(size * 0.42), color=color,
-                              weight=ft.FontWeight.W_700)
+        face = _faces.get_face_b64(name)
+        if face:
+            box.bgcolor = SURFACE_HI
+            box.content = ft.Image(src=face, width=size - 2, height=size - 2,
+                                   fit=ft.ImageFit.COVER,
+                                   border_radius=RADIUS)
+        else:
+            box.bgcolor = ft.Colors.with_opacity(0.16, color)
+            box.content = ft.Text((name[:1] or "?").upper(),
+                                  size=int(size * 0.42), color=color,
+                                  weight=ft.FontWeight.W_700)
 
     def _avatar(name, size, online=None):
         box = ft.Container()
@@ -457,9 +496,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     def _set_you_avatar(name):
         """Your identity-card avatar: the profile picture you set on the
-        Profile tab when you have one, the color-initial chip otherwise.
-        Friends' profile pictures live on THEIR machines (nothing transmits
-        them), so only your own card gets the real image."""
+        Profile tab when you have one, else your Cubeon skin face (the
+        same /faces/<name>.png every friend card shows), else the
+        color-initial chip."""
         you_avatar.width = you_avatar.height = 34
         pfp_path = _profile.get_profile_picture_path(cfg)
         if pfp_path:
@@ -701,8 +740,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         connected = bool(roster.get("connected"))
         available = bool(roster.get("available"))
         pfp_path = _profile.get_profile_picture_path(cfg)
+        # Face-availability rides in the sig so a face that finishes
+        # downloading flips the token and the next repaint paints it
+        # (None when your uploaded picture wins - the face is moot then).
+        you_face = None if pfp_path else bool(_faces.get_face_b64(shown))
         sig = (shown, uid, roster.get("you_minecraft_username"),
-               roster.get("you_display_name"), connected, available, pfp_path)
+               roster.get("you_display_name"), connected, available, pfp_path,
+               you_face)
         if sig == _identity_sig["v"]:
             return
         _identity_sig["v"] = sig
@@ -782,7 +826,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         f = _friend_by_name(name) or {}
         label, uid = _peer_identity(name, f)
         sub, sub_color = _presence(f)
-        sig = (name, label, uid, sub, sub_color)
+        sig = (name, label, uid, sub, sub_color, bool(_faces.get_face_b64(label)))
         if sig == _header_sig["v"]:
             return
         _header_sig["v"] = sig
@@ -941,15 +985,23 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 _make_bubble(text, True, ts, dim=True, status="Sending…"),
                 True, 2)
             transcript.controls.append(wrap)
-            _pending.setdefault(name, []).append(
-                {"text": text, "wrap": wrap, "ts": ts,
-                 "t0": time.monotonic()})
+            q = _pending.setdefault(name, [])
+            q.append({"text": text, "wrap": wrap, "ts": ts,
+                      "t0": time.monotonic(), "failed": False})
+            # Bound the queue (this is what a session with an offline relay
+            # looks like: every send times out and stays as a red bubble).
+            while len(q) > _MAX_PENDING:
+                q.pop(0)
         thread_safe_ui.refresh(transcript)
         _stick_bottom()
 
     def _fail_pending(name, text=None, entry=None):
         """Turn a pending bubble into a red "couldn't send" bubble. Called on
-        a send refusal (matched by text) and on the send timeout sweep."""
+        a send refusal (matched by text) and on the send timeout sweep.
+
+        The entry STAYS in _pending (marked failed) rather than being dropped:
+        that is what lets a late-arriving real line replace this bubble in
+        place instead of appending a second one for the same message."""
         with thread_safe_ui.TREE_LOCK:
             q = _pending.get(name) or []
             if entry is None:
@@ -957,35 +1009,31 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     if p["text"] == text:
                         entry = p
                         break
-            if entry is None:
+            if entry is None or entry.get("failed"):
                 return
+            entry["failed"] = True
             try:
                 idx = transcript.controls.index(entry["wrap"])
-                transcript.controls[idx] = _bubble_row(
+                fresh = _bubble_row(
                     _make_bubble(entry["text"], True, entry["ts"],
                                  failed=True, status="Couldn't send"), True, 2)
+                transcript.controls[idx] = fresh
+                entry["wrap"] = fresh
             except ValueError:
                 pass   # the conversation was rebuilt - nothing to mark
-            try:
-                q.remove(entry)
-            except ValueError:
-                pass
-            if not q and _pending.get(name) is not None:
-                _pending[name] = []
         thread_safe_ui.refresh(transcript)
 
     def _sweep_pending():
         """A pending bubble that was never confirmed (relay dropped it, echo
         never arrived) can't stay "Sending…" forever: after 12s it goes red
-        like a refusal. If it DOES land later, the real line still appends."""
+        like a refusal. If it DOES land later, the real line replaces the red
+        bubble in _append_messages instead of duplicating it."""
         cutoff = time.monotonic() - 12.0
-        stale = [p for q in _pending.values() for p in list(q)
-                 if p["t0"] < cutoff]
-        for p in stale:
-            for name, q in _pending.items():
-                if p in q:
-                    _fail_pending(name, entry=p)
-                    break
+        stale = [(name, p) for name, q in list(_pending.items())
+                 for p in list(q)
+                 if p["t0"] < cutoff and not p.get("failed")]
+        for name, p in stale:
+            _fail_pending(name, entry=p)
 
     def _append_messages_inner(msgs, name):
         for m in msgs:
@@ -997,17 +1045,38 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             text = m.get("text") or ""
             ts = m.get("ts")
             # A confirmed echo of a message we showed optimistically replaces
-            # that pending bubble (FIFO by text) instead of duplicating it.
+            # that pending bubble (FIFO by text) instead of duplicating it. A
+            # bubble that already timed out red is replaced IN PLACE, keeping
+            # its slot: otherwise the same message shows twice (the red
+            # "Couldn't send" bubble plus the real line) whenever the echo
+            # arrived after the 12s sweep.
             if mine:
                 q = _pending.get(name) or []
+                handled_in_place = False
                 for p in list(q):
-                    if p["text"] == text:
-                        q.remove(p)
-                        try:
-                            transcript.controls.remove(p["wrap"])
-                        except ValueError:
-                            pass
-                        break
+                    if p["text"] != text:
+                        continue
+                    q.remove(p)
+                    if p.get("failed"):
+                        # Replace the red bubble where it sits: appending the
+                        # real line as well would show the message twice.
+                        with thread_safe_ui.TREE_LOCK:
+                            try:
+                                pos = transcript.controls.index(p["wrap"])
+                                transcript.controls[pos] = _bubble_row(
+                                    _make_bubble(text, True, ts), True, 2)
+                                handled_in_place = True
+                            except ValueError:
+                                handled_in_place = False
+                    else:
+                        with thread_safe_ui.TREE_LOCK:
+                            try:
+                                transcript.controls.remove(p["wrap"])
+                            except ValueError:
+                                pass
+                    break
+                if handled_in_place:
+                    continue   # this message is on screen - do not append it
             day, label = _day_key(ts)
             prev_side = _last_dir.get(name)
             new_day = bool(day and day != _last_day.get(name))
@@ -1081,6 +1150,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 res = {"ok": False, "error": "That didn't work. Please try again."}
             done(res)
             _tick()
+            _wake.set()   # the poll loop re-checks soon after any action
         threading.Thread(target=work, daemon=True, name=label).start()
 
     def _do_send():
@@ -1100,6 +1170,11 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _drafts.pop(name, None)   # the message left the box - draft is spent
         thread_safe_ui.refresh(composer)
         _append_optimistic(name, text)
+        # Confirm fast: poll every _POLL_FAST_SECONDS until the echo files the
+        # real line, so the bubble flips out of "Sending…" in a few hundred ms
+        # instead of waiting out an idle tick.
+        _fast_until["v"] = time.monotonic() + _CONFIRM_WINDOW_S
+        _wake.set()
 
         def done(res):
             if not res.get("ok"):
@@ -1241,13 +1316,28 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def refresh():
         _tick()
 
+    def _poll_interval():
+        """How long the poll loop sleeps before its next tick.
+
+        Idle (no conversation open, nothing in flight) keeps the old relaxed
+        1.5s; an open conversation means someone is watching the transcript,
+        so new lines land in half a second; and for a couple of seconds after
+        a send we poll fastest, which is what confirms the sender's own bubble
+        promptly instead of making them watch "Sending…"."""
+        if _pending or time.monotonic() < _fast_until["v"]:
+            return _POLL_FAST_SECONDS
+        if selected["name"]:
+            return _POLL_ACTIVE_SECONDS
+        return _POLL_SECONDS
+
     def _poller():
         while not stop.is_set():
             try:
                 _tick()
             except Exception:
                 pass
-            stop.wait(_POLL_SECONDS)
+            if _wake.wait(_poll_interval()):
+                _wake.clear()
 
     # --- layout ----------------------------------------------------------
     status_text = ft.Text("", size=12, color=TEXT_DIM,

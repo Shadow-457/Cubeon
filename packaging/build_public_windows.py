@@ -37,6 +37,9 @@ try:
     sep = ";" if os.name == "nt" else ":"
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
                     "--onedir", "--windowed", "--name", "Cubeon",
+                    # Same as the full build: the exe must show the Cubeon
+                    # logo in Explorer/the taskbar, not PyInstaller's art.
+                    "--icon=assets/icon.ico",
                     f"--add-data={assets}{sep}assets",
                     f"--add-data=templates{sep}templates",
                     "--collect-all", "flet",

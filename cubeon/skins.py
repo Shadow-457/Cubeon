@@ -875,4 +875,9 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
 
 
 def get_skin_face_url(username: str) -> str:
-    return f"https://crafatar.com/avatars/{username}?size=128&overlay"
+    # Cubeon's own faces endpoint (worker serveFace: the launcher-rendered
+    # 8x8 head crop) not crafatar - crafatar only resolves Mojang accounts,
+    # and Cubeon's users are offline/cracked, so crafatar 404'd and the
+    # avatar rendered as an empty circle. The Worker resolves every claimed
+    # Cubeon name; the UI falls back to a color chip when it can't.
+    return csl.CUBEON_API_BASE + f"/faces/{username}.png"

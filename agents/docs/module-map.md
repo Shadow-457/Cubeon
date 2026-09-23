@@ -7,6 +7,17 @@ see the web bullets further down. The waitlist is gone, the repo is private.) If
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
+## Chat face avatars (2026-09-22) — HOW-TO
+- `cubeon/faces.get_face_b64(name)` is THE way to show any Cubeon player's
+  head (skins Worker `/faces/<name>.png`, disk-cached in `cache/faces/`,
+  negative-cached 10 min for non-Cubeon 404s, background download, never
+  blocks). Pair it with a `bool(get_face_b64(...))` token inside the
+  repaint sig so late-landing faces paint on the next poll.
+- Self-avatar fallback chain everywhere: uploaded pfp → face URL
+  (`skins.get_skin_face_url` = Cubeon endpoint since 2026-09-22, was
+  crafatar which 404s for offline accounts) → color chip.
+
+
 ## AuthMe tuner (2026-09-22) — INVARIANT
 - `cubeon/server.py::_tune_authme_config` section tracking MUST be an indent
   stack, not a single "current section": AuthMe 6.x (ConfigMe) writes

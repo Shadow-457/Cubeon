@@ -66,6 +66,10 @@ def main():
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir",
         "--windowed",
         "--name", "Cubeon",
+        # Shell/taskbar/Explorer icon for Cubeon.exe (and everything that
+        # shortcuts to it). Omitting it shipped the generic PyInstaller
+        # bootloader art as "the app icon" on Windows.
+        "--icon=assets/icon.ico",
         f"--add-data=assets{SEP}assets",
         f"--add-data=templates{SEP}templates",
         f"--add-data=mod/brackets.json{SEP}mod",

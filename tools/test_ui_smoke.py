@@ -271,6 +271,89 @@ check("a normal close never relaunches (exit 0 is clean, not a crash)",
       app._classify_session_end(True, 0) == "clean_close",
       "closing the window must park/exit, never re-exec with software GL")
 
+print("\n4c. restart/tray-stop can never block a re-exec (Linux)")
+# Regression for "the seasonal Restart button does nothing on Linux": the
+# relaunch branch called pystray's native stop() RAW before execv, and that
+# call is the one native teardown already documented hanging on (futex_wait
+# on KDE). A hang there means the window closes and the process sits there -
+# no restart. Every execv path must survive a stuck or exploding icon.
+import time as _t
+_main_src = open(os.path.abspath(app.__file__), encoding="utf-8").read()
+_real_tray_ctrl = app._tray_runtime["controller"]
+try:
+    class _Hanging:
+        def stop(self):
+            _t.sleep(30)   # the observed KDE deadlock, at small scale
+
+    class _Boom:
+        def stop(self):
+            raise RuntimeError("glib said no")
+
+    app._tray_runtime["controller"] = _Hanging()
+    _t0 = _t.monotonic()
+    app._stop_tray_best_effort(timeout=0.3)
+    _took = _t.monotonic() - _t0
+    check("a hanging tray stop() cannot block the caller",
+          _took < 2.0, f"took {_took:.2f}s")
+
+    app._tray_runtime["controller"] = _Boom()
+    try:
+        app._stop_tray_best_effort(timeout=0.3)
+        check("a raising tray stop() does not propagate", True)
+    except Exception as _ex:
+        check("a raising tray stop() does not propagate", False,
+              f"{type(_ex).__name__}: {_ex}")
+
+    app._tray_runtime["controller"] = None
+    check("no tray icon is a no-op", app._stop_tray_best_effort() is None)
+finally:
+    app._tray_runtime["controller"] = _real_tray_ctrl
+
+check("every execv path stops the tray through the watchdog, never raw",
+      "_ctrl.stop()" not in _main_src
+      and _main_src.count("_stop_tray_best_effort()") >= 3,
+      "Settings > Restart, GPU-crash recovery and tray Open all go through it")
+
+# The button itself: click it the way the real UI does and prove it arms the
+# relaunch request AND asks the window to close. (This is the whole in-app
+# half of the flow - the __main__ half is the branch checked just above.)
+_run_task_calls = []
+_page_run_task = page.run_task
+page.run_task = lambda fn, *a, **k: _run_task_calls.append(
+    getattr(fn, "__qualname__", str(fn)))
+try:
+    if app._relaunch["request"] is not None:
+        app._relaunch["request"].clear()
+    _btn = None
+    for _root in list(page.controls) + list(page.overlay):
+        for _c in walk(_root):
+            if callable(getattr(_c, "on_click", None)) \
+                    and "restart to apply" in all_text(_c):
+                _btn = _c if _btn is None else _btn
+    check("the seasonal Restart button exists in the built Settings pane",
+          _btn is not None)
+    if _btn is not None:
+        _btn.on_click(None)
+        check("clicking it arms the relaunch request",
+              app._relaunch["request"] is not None
+              and app._relaunch["request"].is_set())
+        check("clicking it schedules the window close",
+              any("close" in str(c) for c in _run_task_calls),
+              f"run_task calls: {_run_task_calls}")
+finally:
+    page.run_task = _page_run_task
+    if app._relaunch["request"] is not None:
+        app._relaunch["request"].clear()
+
+_restart_src = _main_src[
+    _main_src.index("restart requested"):][:900]
+check("the restart branch stops the tray BEFORE re-exec, watchdogged",
+      "_stop_tray_best_effort()" in _restart_src
+      and "_relaunch_fresh_process()" in _restart_src
+      and _restart_src.index("_stop_tray_best_effort()")
+      < _restart_src.index("_relaunch_fresh_process()"),
+      "the click must still reach execv when the icon thread wedges")
+
 print("\n5. every tab builder accepts the shared theme (**THEME)")
 # The Profile dialog and the tab builders aren't reached by main()'s initial
 # build, so a broken signature there survives section 1. These call them

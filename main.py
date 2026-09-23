@@ -93,6 +93,31 @@ _tray_runtime = {"controller": None, "reopen": None, "quit": None,
 _relaunch = {"request": None}
 
 
+def _stop_tray_best_effort(timeout: float = 2.0) -> None:
+    """Stops the tray icon without letting native teardown block a process
+    replacement.
+
+    pystray/GLib teardown has been observed to hang (futex_wait during exit on
+    KDE - see the exit-cleanup watchdog below) and can raise. Every path that
+    is ABOUT to execv itself (Settings > Restart, GPU-crash recovery, tray
+    Open) must reach its re-exec no matter what the icon thread does: the
+    fresh image builds its own icon anyway. So stop() runs on a watchdogged
+    daemon thread and we move on after `timeout` seconds."""
+    ctrl = _tray_runtime["controller"]
+    if ctrl is None:
+        return
+
+    def _stop():
+        try:
+            ctrl.stop()
+        except Exception:
+            pass  # a dying icon must not abort the replacement process
+
+    t = threading.Thread(target=_stop, daemon=True, name="cubeon-tray-stop")
+    t.start()
+    t.join(timeout=timeout)
+
+
 def _relaunch_fresh_process() -> bool:
     """Replace this launcher with a fresh process, with a safe fallback.
 
@@ -5935,12 +5960,15 @@ if __name__ == "__main__":
                 if _rl is not None and _rl.is_set():
                     print("cubeon: restart requested - relaunching to apply "
                           "seasonal settings")
-                    _ctrl = _tray_runtime["controller"]
-                    if _ctrl is not None:
-                        _ctrl.stop()
+                    # Watchdogged: a hanging pystray/GLib stop() on Linux used
+                    # to sit between the click and the execv, so the window
+                    # closed and NOTHING relaunched (the exact "Restart button
+                    # does nothing on Linux" report). execv comes first in
+                    # priority - the tray dies with the process regardless.
+                    _stop_tray_best_effort()
                     try:
                         _relaunch_fresh_process()
-                    except OSError as ex:
+                    except Exception as ex:
                         print(f"cubeon: relaunch via re-exec failed ({ex})")
                     return  # nothing sane left in this process
 
@@ -6018,12 +6046,10 @@ if __name__ == "__main__":
                               f"driver?) - restarting with software OpenGL "
                               f"(attempt {_gpu_restarts})")
                         time.sleep(1.5)  # let the WM/core dump settle
-                        _ctrl = _tray_runtime["controller"]
-                        if _ctrl is not None:
-                            _ctrl.stop()  # the new image makes its own icon
+                        _stop_tray_best_effort()  # new image makes its own icon
                         try:
                             _relaunch_fresh_process()
-                        except OSError as ex:
+                        except Exception as ex:
                             print(f"cubeon: mid-session restart via re-exec "
                                   f"failed ({ex}); falling back to the tray")
                             break  # fallback also failed; park if possible
@@ -6119,7 +6145,9 @@ if __name__ == "__main__":
             # launchers alive at once, and any child Minecraft (its own
             # session since the launch fix) is untouched by it.
             print("cubeon: reopening the window (fresh session)")
-            _ctrl.stop()  # the new image will create its own icon
+            # Watchdogged (same as Settings > Restart): a native stop() hang
+            # must never block the re-exec that actually reopens the window.
+            _stop_tray_best_effort()
             try:
                 # The game we launched (if any) is still ours across execv -
                 # same pid lineage, same watchdog record - so tell the new

@@ -107,6 +107,9 @@ from cubeon.skins import (
     name_contested,
 )
 
+# --- faces (Cubeon player head crops) ---
+from cubeon.faces import get_face_b64
+
 # --- custom capes (upload/store/preview + LocalSkin sync, mirrors skins) ---
 from cubeon.capes import (
     validate_cape_file, list_custom_capes, add_custom_cape, delete_custom_cape,
