@@ -2,7 +2,10 @@
 Mod loaders - Forge, NeoForge, Fabric, Quilt via mll's unified mod_loader
 module (8.0+), so all four loaders install through the same code path.
 """
+import inspect
+import os
 import re
+import shutil
 
 # minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
 # nothing here needs it until the user actually installs/launches, so it
@@ -93,11 +96,56 @@ def find_installed_loader_version(installed_ids, loader_id: str, mc_version: str
     return min(candidates, key=rank)
 
 
+def loader_java(mc_version: str, loader_id: str = "") -> str:
+    """The Java a loader INSTALLER runs under, or a readable error.
+
+    Every mll loader (fabric/quilt/forge/neoforge) installs by downloading an
+    installer jar and EXECUTING it. mll 8.0 silently falls back to the bare
+    command "java" when the caller doesn't pass one, so on a Windows machine
+    with no Java on PATH - which is most end users, since Cubeon ships no JRE
+    - installing Fabric died with exactly:
+
+        FileNotFoundError: [WinError 2] The system cannot find the file specified
+
+    surfaced raw under the download button (the 2026-09-24 user report). So the
+    Java is resolved HERE with the same logic that starts the game (Settings
+    path -> system java -> every JVM on the machine, lowest sufficient major)
+    and is verified to exist before the installer ever sees it.
+    """
+    # Imported lazily: launch.py pulls in mods/csl/skins, and those import this
+    # module. Same pattern as the config read in modpacks._curseforge_api_key.
+    from .config import load_config
+    from .launch import find_java_for_version, required_java_major
+    try:
+        configured = (load_config() or {}).get("java_path") or None
+    except Exception:
+        configured = None
+    try:
+        java = find_java_for_version(mc_version, configured)
+    except Exception:
+        java = None
+    if java and (os.path.isfile(java) or shutil.which(java)):
+        return java
+    # find_java_for_version deliberately falls back to the bare name "java" so
+    # that a too-old Java still surfaces Minecraft's own (clearer) error at
+    # LAUNCH time. An install has nothing to fall back to, so say it plainly.
+    try:
+        major = required_java_major(mc_version)
+    except Exception:
+        major = 17
+    label = SUPPORTED_LOADERS.get(loader_id, "mod loader")
+    raise RuntimeError(
+        f"Java {major}+ wasn't found, so the {label} installer can't run. "
+        f"Install a Java {major} runtime (Temurin/Adoptium is fine) or set the "
+        "path in Settings, then try again.")
+
+
 def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, max_cb) -> str:
     """Installs the given loader (fabric/quilt/forge/neoforge) for mc_version
     and returns the resulting launchable version id. For 'vanilla' this is
-    just install_version(). Works by diffing installed versions before/after
-    since the exact resulting id format varies per loader."""
+    just install_version(). Uses the id the library reports and confirms it
+    with a before/after diff, since the exact resulting id format varies per
+    loader."""
     if loader_id == "vanilla" or loader_id not in SUPPORTED_LOADERS:
         install_version(mc_version, progress_cb, status_cb, max_cb)
         return mc_version
@@ -106,23 +154,42 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
 
     callback = {"setStatus": status_cb, "setProgress": progress_cb, "setMax": max_cb}
     loader = mll.mod_loader.get_mod_loader(loader_id)
-    loader.install(mc_version, MINECRAFT_DIR, callback=callback)
+    # Resolve Java BEFORE the download starts: failing here is instant and the
+    # message is actionable, versus a half-finished install and a bare WinError.
+    java = loader_java(mc_version, loader_id)
+
+    # mll >= 8: install(mc, dir, *, loader_version=None, callback=None,
+    # java=None) and it RETURNS the installed version id. `java` is passed
+    # explicitly (see loader_java) and the loader version is pinned to the
+    # newest stable one so the result is predictable; the signature check keeps
+    # this working if the library's shape ever changes again.
+    kwargs = {"callback": callback, "java": java}
+    try:
+        if "loader_version" in inspect.signature(loader.install).parameters:
+            kwargs["loader_version"] = loader.get_latest_loader_version(mc_version)
+    except Exception:
+        pass  # no version list (or an older API): let the library choose
+    reported = loader.install(mc_version, MINECRAFT_DIR, **kwargs)
 
     after = get_installed_versions()
+    by_id = {v["id"]: v for v in after}
     new_ids = [v["id"] for v in after if v["id"] not in before]
-    for vid in new_ids:
-        if mc_version in vid:
-            new_entry = next(v for v in after if v["id"] == vid)
-            if new_entry.get("incomplete"):
-                # A loader install is tiny (one json), so an incomplete one
-                # means the net died mid-write. Don't return a version id the
-                # UI will mark installed - the scan already flagged it, so
-                # surface that instead. (The base MC version install this
-                # builds on is verified separately by install_version.)
-                raise RuntimeError(
-                    f"The {loader_id} install didn't finish (network "
-                    "interrupted). Try again once you're back online.")
-            return vid
+    # The library's own answer first - it knows the exact id format; the
+    # before/after diff is the fallback for shapes it didn't report.
+    candidates = ([reported] if isinstance(reported, str) and reported else []) + new_ids
+    for vid in candidates:
+        if vid not in by_id:
+            continue
+        if by_id[vid].get("incomplete"):
+            # A loader install is tiny (one json), so an incomplete one
+            # means the net died mid-write. Don't return a version id the
+            # UI will mark installed - the scan already flagged it, so
+            # surface that instead. (The base MC version install this
+            # builds on is verified separately by install_version.)
+            raise RuntimeError(
+                f"The {loader_id} install didn't finish (network "
+                "interrupted). Try again once you're back online.")
+        return vid
     for vid in new_ids:
         return vid
     # Nothing new appeared (e.g. already installed) - best-effort match.

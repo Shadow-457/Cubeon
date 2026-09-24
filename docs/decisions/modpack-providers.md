@@ -73,6 +73,42 @@ on Modrinth.
   Bigger/ slower than the keyed path (redownloads every mod at install time)
   but needs no key. Verified: builds a valid mrpack from a fake manifest.
 
+## UPDATE (2026-09-24): CF rows fixed + the key finally has a UI; new packs need a key
+- **The rows were rendering empty, not "missing".** `_cfwidget_to_hit()` hardcoded
+  `icon_url=None` and `author=None` and read `downloads` as a SCALAR, while
+  cfwidget sends `thumbnail`, `members[0].username` and
+  `downloads={"monthly":N,"total":N}` - hence the "blank square / 0 downloads"
+  CurseForge rows next to normal Modrinth rows. MC versions now come from the
+  grouped `versions{...}` map (loader tags like "Forge" filtered out), with the
+  older flat `files[]` shape still accepted. A payload with no `id` is now
+  dropped instead of producing `project_id="None"`.
+- **Keyless CANNOT discover new packs - verified, don't retry this:** every
+  candidate route was probed live on 2026-09-24 - curseforge.com search page,
+  `/minecraft/modpacks/feed` (RSS) and `/sitemap.xml` all return Cloudflare
+  403 "Just a moment..."; `api.curseforge.com/v1/mods/search` returns 403
+  without a key; api.cfwidget.com resolves a project but exposes NO list or
+  search endpoint (404 on every listing path); api.feed-the-beast.com is 404;
+  api.atlauncher.com is 403; meta.prismlauncher.org's featured-instances feed
+  is 404. The curated list is therefore a snapshot, and "new packs" are only
+  reachable through the real API.
+- **A payload with no `id` is dropped** ... (see above)
+- **The curated list is now project-ID based** (`CURATED_CF_PROJECTS`, e.g.
+  `cf/mods/285109`): CurseForge renames slags far more often than it reissues
+  ids - that is exactly how 5 of the 12 original slug entries went 404 and the
+  browse quietly fell to 7 packs. 9 entries verified live.
+- **New `set_curseforge_api_key()` / `check_curseforge_api_key()`** in
+  cubeon/modpacks.py (exported via launcher_core): the app could READ a key
+  from env/config/key-file but there was no way to SET one, so the full
+  catalogue was unreachable. The Modpacks tab header now carries a
+  "Add free CurseForge key" button + validate-and-save dialog
+  (ui/modpacks_tab.py). `search_modpacks_curseforge()`'s cache key gained
+  `keyed`, so pasting/removing a key doesn't serve the other provider's page
+  for a day.
+- Guards: tools/test_modpacks_cf_keyless.py 47/0 (the browse-row mapping, the
+  id-based catalogue, and the key round-trip with `_cf_request` faked so the
+  suite stays offline). tools/test_modpacks.py 70/0, ui_smoke 170/0,
+  mega --static 15/0.
+
 ## UPDATE (2026-08-30): launch-progress bar while the game runs
 - main.py previously HID the progress bar the instant the game process
   started, so there was no visual that the game was running (only install

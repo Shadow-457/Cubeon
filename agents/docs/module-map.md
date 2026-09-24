@@ -61,6 +61,70 @@ facts belong HERE, not in diary notes.
   the 8-digit uid format (`0000000X`) - if the worker's UID_WIDTH ever moves,
   this file must too or it fails at the first metadata assertion.
 
+## Windows icon asset (2026-09-24) — INVARIANT
+- **`assets/icon.ico` is GENERATED, never hand-drawn.** The source of truth is
+  the transparent `assets/icon_512.png` (all PNG variants are already alpha
+  clean: corners `(0,0,0,0)`). The checked-in `.ico` had been an OLDER,
+  desaturated render baked onto an **opaque white plate** (every corner
+  `(255,255,255,255)`, zero transparent pixels) — so every Windows surface
+  (exe, Start Menu/Desktop shortcuts, taskbar, the Flet window icon) showed a
+  white square around a washed-out cube while Linux/web showed the correct
+  vivid transparent art. Rebuild it with:
+  ```python
+  from PIL import Image
+  Image.open('assets/icon_512.png').convert('RGBA').save(
+      'assets/icon.ico', format='ICO',
+      sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
+  ```
+  and assert every layer's corner alpha is 0. Only the Windows artifacts embed
+  the `.ico` (AppImage/deb/desktop entry use `icon_256.png`, already correct),
+  so an icon change needs a Windows rebuild, not a Linux one.
+- Every Windows build path passes `--icon=assets/icon.ico` (build_windows*.py)
+  and `icon='assets/icon.ico'` in Cubeon.spec EXE — keep that wiring when the
+  icon is regenerated, or Windows silently falls back to PyInstaller art.
+
+## Loader installs must pass a VERIFIED Java (2026-09-24) — INVARIANTS
+- **A mod-loader install EXECUTES a downloaded installer jar with Java**
+  (mll 8.0: `if java is None: java = "java"`, then
+  `subprocess.run([java, "-jar", installer, ...])`). Cubeon ships **no JRE**, so
+  any call that omits `java=` dies on a keyless Windows box as
+  `FileNotFoundError: [WinError 2] The system cannot find the file specified`
+  printed raw under the download button (the 2026-09-24 Fabric report).
+- `mod_loaders.install_mod_loader()` must therefore call
+  **`mod_loaders.loader_java(mc_version, loader_id)` first** and pass `java=`
+  (plus a pinned `loader_version=`) to `loader.install(...)`. `loader_java`
+  reuses `launch.find_java_for_version()` — Settings path → system java → every
+  JVM, lowest sufficient major — and **verifies the file exists**:
+  `find_java_for_version()`'s deliberate bare-`"java"` fallback (so a too-old
+  Java surfaces Minecraft's own error at LAUNCH) is exactly what must never
+  reach an installer. No Java ⇒ a readable "install Java 17+ / set it in
+  Settings" error BEFORE any download starts. Guard: tools/test_launch_fixes
+  §8b (fake mll-8 loader; asserts java passes through and nothing runs without
+  Java).
+
+## CurseForge modpacks in the Modpacks tab (2026-09-24) — INVARIANTS
+- **Keyless CF access can RESOLVE a project but never LIST/SEARCH one.** Every
+  alternative was probed live and is dead: curseforge.com (search page, RSS
+  feed, sitemap) = Cloudflare 403; `api.curseforge.com/v1/mods/search` = 403
+  without a key; api.cfwidget.com has no list/search endpoint; FTB API = 404;
+  ATLauncher = 403; Prism's featured-instances feed = 404. **NEW CurseForge
+  packs are therefore only reachable with a key** (free, from
+  console.curseforge.com). Don't re-litigate this — it's measured, not assumed.
+- **The key must be settable from the UI**: `modpacks.set_curseforge_api_key()`
+  + `check_curseforge_api_key()` (both re-exported by `launcher_core`) back the
+  "Add free CurseForge key" dialog in `ui/modpacks_tab.py`. Validation runs a
+  REAL one-call search first so a wrong key is reported instead of silently
+  degrading. `search_modpacks_curseforge()`'s cache key MUST keep its `keyed`
+  flag — pasting/removing a key swaps providers, and without it the tab serves
+  the other provider's cached page for up to a day.
+- **cfwidget payload shapes**: `downloads` is `{"monthly":N,"total":N}` (read
+  `["total"]` or every row shows 0), art is `thumbnail`, author is
+  `members[0].username`, MC versions live in the grouped `versions{...}` map
+  (loader tags like "Forge" appear there too and must be filtered). The curated
+  fallback catalogue is `CURATED_CF_PROJECTS` — project IDs, not slugs, because
+  slugs get renamed and 404 silently (that rotted the list from 12 to 7 live
+  entries). Guard: tools/test_modpacks_cf_keyless.py.
+
 ## Chat dupes + latency / restart button / Windows packaging (2026-09-23) — INVARIANTS
 - **Chat dupe rule**: a red "Couldn't send" bubble STAYS in `_pending`
   (`failed:True`); a late echo REPLACES it in place instead of appending.

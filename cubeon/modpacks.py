@@ -1451,6 +1451,10 @@ def _cfwidget_to_hit(widget: dict) -> "dict | None":
                             (the older flat `files` list is still accepted)
     """
     try:
+        # No id => nothing can be routed or installed (a "None" project_id
+        # would silently fall through to the Modrinth path and 404 there).
+        if not widget.get("id"):
+            return None
         page = ((widget.get("urls") or {}).get("curseforge") or "").rstrip("/")
         versions = []
         grouped = widget.get("versions")

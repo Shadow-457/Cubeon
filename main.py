@@ -3135,7 +3135,19 @@ def main(page: ft.Page):
             # If anything goes wrong, show error and reset button. The message
             # has to stay on screen - this is the only report the user ever
             # gets, and it used to be lost whenever the repaint didn't land.
-            progress_label.value = f"Error: {type(ex).__name__}: {ex}"[:180]
+            if isinstance(ex, FileNotFoundError):
+                # The mod-loader installers are the one place we execute
+                # another program. A Java that was moved/removed between the
+                # resolution in mod_loaders.loader_java() and the exec used to
+                # land here as the bare "FileNotFoundError: [WinError 2] The
+                # system cannot find the file specified" (the 2026-09-24
+                # report), which says nothing about what to do.
+                progress_label.value = (
+                    "Couldn't start the mod loader installer - the Java it "
+                    "needs has moved or been removed. Reinstall Java, or point "
+                    "Cubeon at it in Settings, then try again.")[:180]
+            else:
+                progress_label.value = f"Error: {type(ex).__name__}: {ex}"[:180]
             progress_label.visible = True
             progress_spinner.visible = False
             progress_bar.visible = False

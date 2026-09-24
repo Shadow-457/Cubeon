@@ -268,6 +268,117 @@ check(parse("fabric-loader-0.16.9-1.21.4") == (1, 21, 4), "loader id parses to M
 check(parse("1.21.11") == (1, 21, 11), "plain triple survives")
 check(parse("25w06a") is None, "snapshots still have no bracket")
 
+# ------------------------------------------------------------- WinError 2 --
+print("\n8b. loader install resolves Java itself (the [WinError 2] report)")
+# Every mll loader installs by EXECUTING a downloaded installer jar, and mll
+# 8.0 falls back to the bare command "java" when the caller passes nothing. On
+# a Windows box with no Java on PATH that surfaced as "Error: FileNotFoundError:
+# [WinError 2] The system cannot find the file specified" under the download
+# button. install_mod_loader now resolves and VERIFIES the Java itself
+# (mod_loaders.loader_java) and passes it in.
+from cubeon import mod_loaders  # noqa: E402
+
+_fake_java = os.path.join(tempfile.gettempdir(), "cubeon-fake-java")
+with open(_fake_java, "w") as _fh:
+    _fh.write("")
+os.chmod(_fake_java, 0o755)
+
+_calls = {}
+
+
+class _FakeLoader:
+    """mll 8.0's ModLoader shape: keyword-only java/loader_version, returns id."""
+
+    def install(self, minecraft_version, minecraft_directory, *,
+                loader_version=None, callback=None, java=None):
+        _calls.update(mc=minecraft_version, dir=minecraft_directory,
+                      java=java, lv=loader_version, callback=callback)
+        return "fabric-loader-0.16.9-1.20.1"
+
+    def get_latest_loader_version(self, minecraft_version):
+        return "0.16.9"
+
+
+_after = [{"id": "1.20.1"}, {"id": "fabric-loader-0.16.9-1.20.1"}]
+_scans = []
+
+
+def _fake_installed():
+    _scans.append(1)
+    return [] if len(_scans) == 1 else list(_after)
+
+
+def _install():
+    """install_mod_loader with every network/filesystem edge faked out."""
+    _calls.clear()
+    _scans.clear()
+    patches = [
+        patch.object(mod_loaders, "get_installed_versions", _fake_installed),
+        patch.object(mod_loaders, "loader_java", lambda *a, **k: _fake_java),
+        patch.object(mod_loaders.mll.mod_loader, "get_mod_loader",
+                     lambda loader_id: _FakeLoader()),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        return mod_loaders.install_mod_loader(
+            "fabric", "1.20.1", lambda *_: None, lambda *_: None, lambda *_: None)
+    finally:
+        for p in patches:
+            p.stop()
+
+
+check(_install() == "fabric-loader-0.16.9-1.20.1",
+      "a loader install returns the id the library reported")
+check(_calls.get("java") == _fake_java,
+      "the installer is handed a REAL java path (this is the WinError 2 fix)")
+check(_calls.get("lv") == "0.16.9",
+      "the newest stable loader version is pinned instead of guessed")
+check(_calls.get("callback") is not None, "progress callbacks still reach mll")
+
+# No Java at all: fail BEFORE downloading anything, with a message that says
+# what to do - never a bare OS error.
+_started = []
+
+
+class _NeverCalled(_FakeLoader):
+    def install(self, *a, **k):
+        _started.append(1)
+        raise AssertionError("install must not run without Java")
+
+
+with patch.object(mod_loaders, "get_installed_versions", _fake_installed), \
+        patch.object(mod_loaders, "loader_java",
+                     side_effect=RuntimeError("Java 17+ wasn't found, so the "
+                                              "Fabric installer can't run.")), \
+        patch.object(mod_loaders.mll.mod_loader, "get_mod_loader",
+                     lambda loader_id: _NeverCalled()):
+    try:
+        mod_loaders.install_mod_loader("fabric", "1.20.1",
+                                       lambda *_: None, lambda *_: None,
+                                       lambda *_: None)
+        check(False, "a machine with no Java fails with a readable message")
+    except RuntimeError as ex:
+        check("Java 17+" in str(ex) and "installer" in str(ex),
+              "a machine with no Java fails with a readable message",
+              f"got: {ex}")
+check(not _started, "the download is never started without Java")
+
+# loader_java itself: a verified path is accepted, the bare-name fallback is
+# NOT (that fallback is what mll turned into WinError 2).
+with patch.object(launch, "find_java_for_version", return_value=_fake_java):
+    check(mod_loaders.loader_java("1.20.1", "fabric") == _fake_java,
+          "an existing java path is accepted")
+with patch.object(launch, "find_java_for_version", return_value="java"), \
+        patch.object(mod_loaders.shutil, "which", lambda name: None):
+    try:
+        mod_loaders.loader_java("1.20.1", "fabric")
+        check(False, "the bare 'java' fallback is rejected, not handed to mll")
+    except RuntimeError as ex:
+        check("Java" in str(ex) and "Settings" in str(ex),
+              "the bare 'java' fallback is rejected, not handed to mll",
+              f"got: {ex}")
+
 # ---------------------------------------------------------------------- L11 ---
 print("\n9. stale jar cache rejection (L11)")
 

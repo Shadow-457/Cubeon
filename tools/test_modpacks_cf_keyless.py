@@ -262,5 +262,100 @@ finally:
     modpacks._curseforge_api_key = _origkey
 
 print()
+print("browse rows carry the data the UI renders (the '0 downloads' bug)")
+# The rows used to hardcode icon_url/author to None and read `downloads` as a
+# SCALAR, while cfwidget sends {"monthly": N, "total": N} - so every
+# CurseForge row rendered as a blank square saying "0 downloads".
+WIDGET = {
+    "id": 285109,
+    "title": "RLCraft",
+    "summary": "hardcore survival",
+    "thumbnail": "https://media.forgecdn.net/avatars/thumbnails/468/243/256/256/1.png",
+    "downloads": {"monthly": 123, "total": 30174116},
+    "members": [{"title": "Owner", "username": "Shivaxi", "id": 11806322}],
+    "urls": {"curseforge": "https://www.curseforge.com/minecraft/modpacks/rlcraft"},
+    "versions": {
+        "1.12.2": [{"id": 4612979, "name": "x.zip", "versions": ["Forge", "1.12.2"]}],
+        "1.11.2": [{"id": 2532808, "name": "y.zip", "versions": ["1.11.2"]}],
+    },
+    "files": [],
+}
+hit = modpacks._cfwidget_to_hit(WIDGET)
+ok(hit is not None and hit["icon_url"] == WIDGET["thumbnail"],
+   "browse row: the pack's real thumbnail is used")
+ok(hit["downloads"] == 30174116,
+   "browse row: downloads.total is read (a scalar read printed 0 for RLCraft's 30M)")
+ok(hit["author"] == "Shivaxi", "browse row: the author is filled in")
+ok(hit["versions"] == ["1.12.2", "1.11.2"],
+   "browse row: MC versions come from the grouped payload, loader tags dropped")
+ok(hit["project_id"] == "285109" and hit["slug"] == "rlcraft",
+   "browse row: id + slug route the install back to CurseForge")
+
+legacy = modpacks._cfwidget_to_hit({
+    "id": 7, "title": "Old shape", "files": [{"versions": ["1.16.5"]}],
+    "downloads": 42,
+})
+ok(legacy["downloads"] == 42 and legacy["versions"] == ["1.16.5"],
+   "browse row: the older flat files[] + scalar downloads shape still parses")
+ok(modpacks._cfwidget_to_hit({"title": "no id"}) is None,
+   "browse row: a payload with no id is skipped, not rendered half-empty")
+
+print()
+print("the curated catalogue is id-based (slugs rot and silently 404)")
+paths = modpacks.CURATED_CF_PROJECTS
+ok(all(p.startswith(("cf/mods/", "modpacks/")) for p in paths),
+   "every curated entry is a resolvable cfwidget path")
+ok(sum(1 for p in paths if p.startswith("cf/mods/")) >= 8,
+   "project IDs are the default (ids survive renames, slugs do not)")
+ok(not hasattr(modpacks, "CURATED_CF_SLUGS"),
+   "the slug list that rotted from 12 to 7 live entries is gone")
+
+print()
+print("the free CurseForge key path: validate, store, clear (offline)")
+# These calls must never touch the network in a test.
+_orig_request = modpacks._cf_request
+
+
+def _fake_cf_request(path, params=None, timeout=10, key=None):
+    if key == "good-key":
+        return {"data": [{"id": 1}, {"id": 2}, {"id": 3}]}
+    raise RuntimeError("403 Client Error: Forbidden")
+
+
+modpacks._cf_request = _fake_cf_request
+try:
+    ok(modpacks.check_curseforge_api_key("")["ok"] is False,
+       "an empty key is refused without a request")
+    ok(modpacks.check_curseforge_api_key("bad-key")["ok"] is False,
+       "a rejected key is REPORTED, not raised into the UI")
+    good = modpacks.check_curseforge_api_key("good-key")
+    ok(good["ok"] is True and good["count"] == 3,
+       "a working key is confirmed with a real modpack count")
+    ok(modpacks.curseforge_enabled() is False,
+       "validating never stores anything by itself")
+
+    ok(modpacks.set_curseforge_api_key("good-key") is True,
+       "the key round-trips through config.json")
+    ok(modpacks.curseforge_enabled() is True, "a stored key unlocks the provider")
+    ok(modpacks.set_curseforge_api_key("") is True, "the key can be removed again")
+    ok(modpacks.curseforge_enabled() is False,
+       "removing it goes back to the classics-only list")
+finally:
+    modpacks._cf_request = _orig_request
+
+# Pasting/removing a key swaps providers, so the CF cache must not serve the
+# other provider's page (it used to, for up to a day).
+_captured = {}
+_orig_cached_call = modpacks.local_cache.cached_call
+modpacks.local_cache.cached_call = lambda ns, key, fetch, **kw: (
+    _captured.setdefault("key", key) and [] or [])
+try:
+    modpacks.search_modpacks_curseforge("x", limit=5)
+finally:
+    modpacks.local_cache.cached_call = _orig_cached_call
+ok(isinstance(_captured.get("key"), dict) and "keyed" in _captured["key"],
+   "the CF search cache key records whether a key is configured")
+
+print()
 print(f"{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

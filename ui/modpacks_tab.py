@@ -238,7 +238,15 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 # incompatible pack before this point; if mll still raised,
                 # say so plainly instead of showing the raw exception.
                 type_name = type(ex).__name__
-                if type_name in ("UnsupportedVersion", "VersionNotFound", "ExternalProgramError"):
+                if type_name == "FileNotFoundError":
+                    # The loader installer is the one thing a pack install
+                    # executes; a missing/relocated Java used to surface as a
+                    # raw "FileNotFoundError: [WinError 2] ..." on Windows.
+                    _end_install_err(
+                        "Couldn't start the mod loader installer - the Java it "
+                        "needs has moved or been removed. Reinstall Java, or "
+                        "point Cubeon at it in Settings, then try again.")
+                elif type_name in ("UnsupportedVersion", "VersionNotFound", "ExternalProgramError"):
                     _end_install_err(
                         "This modpack's Minecraft version or mod loader build "
                         "isn't supported by the installer. Try a different pack "
