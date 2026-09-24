@@ -49,18 +49,17 @@ facts belong HERE, not in diary notes.
   click and the execv, i.e. window closes, nothing relaunches. Guard:
   tools/test_ui_smoke §4c (also clicks the real button and asserts the
   relaunch request + window close).
-- **Windows icon**: EVERY Windows build path must pass the icon
-  (`--icon=assets/icon.ico` in build_windows*.py, `icon=` in Cubeon.spec) or
-  the exe/shortcuts ship PyInstaller's default art. Safe on Linux: PyInstaller
-  warns and ignores it there (verified on 6.21).
-- **Installer contract**: `packaging/Cubeon.nsi` is MUI2 and REQUIRES
-  SOURCE_DIR/OUTPUT_DIR/ICON_FILE (+ APP_VERSION 4-part numeric,
-  DISPLAY_VERSION) - `build_windows_installer.py` passes all of them, reads
-  the version from `cubeon/updater.py`. Compiles clean (0 warnings) under
-  Wine with electron-builder's bundled NSIS; details panes use
-  `ShowInstDetails hide` (values are show|hide|nevershow, NOT nshow).
-  `FakeWindow` in test_ui_smoke must keep an `async close()` — without it the
-  restart button's fallback branch fires in tests and clears the request.
+## Windows packaging / Installer UI / Version 1.0.1 (2026-09-24) — INVARIANTS
+- **Windows icon**: EVERY Windows build path passes `--icon=assets/icon.ico`
+  (build_windows*.py and `icon='assets/icon.ico'` in Cubeon.spec EXE).
+- **Installer UI (MUI2)**: `packaging/Cubeon.nsi` uses Modern UI 2 with branded
+  wizard & header bitmaps (`packaging/graphics/wizard.bmp` and `header.bmp`),
+  `ShowInstDetails hide`, `ShowUnInstDetails hide`, friendly non-technical copy,
+  and Start Menu + Desktop shortcut registration.
+- **Flet Image Fit**: Flet 0.86 uses `ft.BoxFit` (e.g. `ft.BoxFit.COVER`), NOT
+  `ft.ImageFit`. Any image fit must use `ft.BoxFit`.
+- **Release Version**: `cubeon/updater.py` APP_VERSION is `1.0.1`, reflected on
+  `web/index.html` and `web/download.html`.
 
 
 ## Chat face avatars (2026-09-22) — HOW-TO

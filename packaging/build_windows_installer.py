@@ -82,6 +82,8 @@ def main() -> None:
         f"/DOUTPUT_DIR={_wine_path(OUTPUT)}",
         f"/DICON_FILE={_wine_path(ICON)}",
         f"/DAPP_VERSION={numeric_version}",
+        f"/DDISPLAY_VERSION={display_version}",
+    ]
     wizard_bmp = ROOT / "packaging" / "graphics" / "wizard.bmp"
     header_bmp = ROOT / "packaging" / "graphics" / "header.bmp"
     if wizard_bmp.is_file():

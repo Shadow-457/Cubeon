@@ -487,7 +487,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         if face:
             box.bgcolor = SURFACE_HI
             box.content = ft.Image(src=face, width=size - 2, height=size - 2,
-                                   fit=ft.ImageFit.COVER,
+                                   fit=ft.BoxFit.COVER,
                                    border_radius=RADIUS)
         else:
             box.bgcolor = ft.Colors.with_opacity(0.16, color)
@@ -524,7 +524,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 you_avatar.border = ft.border.Border.all(1, CARD_BORDER)
                 you_avatar.alignment = ft.Alignment.CENTER
                 you_avatar.content = ft.Image(src=b64, width=32, height=32,
-                                              fit=ft.ImageFit.COVER,
+                                              fit=ft.BoxFit.COVER,
                                               border_radius=RADIUS)
             else:
                 _paint_avatar(you_avatar, name, 34)
