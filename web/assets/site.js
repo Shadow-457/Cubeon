@@ -124,15 +124,39 @@
     if(!counters.length || !window.fetch) return;
     var BASE = 'https://abacus.jasoncameron.dev';
     var NAMESPACE = 'cubeon-site';
-    var KEY = 'downloads';
+    /* The counter key was reset to 'downloads2' on 2026-09-24: testing had
+       pushed the old 'downloads' key to 33, and the public Abacus instance
+       only accepts get/hit - POST /set needs an instance-admin token nobody
+       on our side has, so a number can go UP but never down. A fresh key is
+       the only read-only way back to a sane total. Switch this string back to
+       'downloads' to restore the old (higher) count. */
+    var KEY = 'downloads2';
     /* Routes that hand over a file, mirroring the redirects in
        web/vercel.json - a test keeps the two lists equal. Links to the
        download PAGE are page views, not downloads. */
     var ROUTES = ['/windowsdownload', '/linuxdownload', '/linuxdeb', '/linuxsetup'];
 
+    /* ---- testing mode -----------------------------------------------------
+       The owner's own test clicks shouldn't inflate the public number (that
+       is exactly how 'downloads' reached 33). Ctrl+Shift+T toggles it, or open
+       any page with ?nocount=1. Purely local: a localStorage flag, no request,
+       nothing sent anywhere - and the counter line says so while it's on. --- */
+    var TEST_FLAG = 'cubeonTestMode';
+    var testing = false;
+    function readTestFlag(){
+      try{
+        if(/(^|[?&])nocount=1(&|$)/.test(location.search)) return true;
+        return localStorage.getItem(TEST_FLAG) === '1';
+      }catch(_){ return false; }
+    }
+    function writeTestFlag(on){
+      try{ localStorage.setItem(TEST_FLAG, on ? '1' : '0'); }catch(_){}
+    }
+
     function paint(total){
       var label = new Intl.NumberFormat().format(total) +
-        (total === 1 ? ' download so far' : ' downloads so far');
+        (total === 1 ? ' download so far' : ' downloads so far') +
+        (testing ? ' · test mode (not counting)' : '');
       counters.forEach(function(counter){
         counter.textContent = label;
         counter.hidden = false;
@@ -158,13 +182,27 @@
       return ROUTES.indexOf(href) !== -1 || ROUTES.indexOf(anchor.pathname) !== -1;
     }
 
+    testing = readTestFlag();
+
     ask('get').then(function(total){
       if(total !== null) paint(total);      /* everyone sees the overall count */
+    });
+
+    document.addEventListener('keydown', function(event){
+      if(!(event.ctrlKey && event.shiftKey)) return;
+      if(String(event.key).toLowerCase() !== 't') return;
+      event.preventDefault();
+      testing = !testing;
+      writeTestFlag(testing);
+      ask('get').then(function(total){     /* repaint with/without the badge */
+        if(total !== null) paint(total);
+      });
     });
 
     document.addEventListener('click', function(event){
       var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
       if(!anchor || !isDownload(anchor)) return;
+      if(testing) return;                   /* our own test click: no +1 */
       ask('hit').then(function(total){
         if(total !== null) paint(total);    /* the fresh, shared total */
       });
