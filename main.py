@@ -92,6 +92,53 @@ _tray_runtime = {"controller": None, "reopen": None, "quit": None,
 # flet client as a ghost window, because `_kill_flet_client()` never gets to run.
 _relaunch = {"request": None}
 
+# Post-session SIGINT/SIGTERM presses, counted so the FIRST one can be graceful
+# (finish the bounded teardown, then exit through the normal hard-exit) and the
+# SECOND one is an immediate hard exit. See _reclaim_session_signals().
+_session_signal_hits = {"n": 0}
+
+
+def _reclaim_session_signals() -> None:
+    """Take SIGINT/SIGTERM back from flet the moment the session has ended.
+
+    flet installs its own exit_gracefully handler for both signals while the
+    app runs and NEVER removes it - it only resets SIG_DFL from inside itself,
+    and only when its own loop is still alive. Once ft.run has returned, that
+    handler pokes an asyncio loop that is already closed
+    (loop.call_soon_threadsafe -> RuntimeError('Event loop is closed')), and
+    the exception is raised *from inside the signal handler*, on the main
+    thread, at whatever frame happened to be running. Observed live
+    2026-09-24: ^C right after "cubeon: quit from tray" landed in
+    _ct.join(timeout=3.0) and escaped _session_loop() as a cubeon.fatal
+    CRITICAL - the whole teardown (classification, geometry save, park
+    bookkeeping) can be hit this way.
+
+    From here on a signal is a plain quit request: the first press sets the
+    tray quit event (the session loop notices within its park tick and exits
+    through os._exit(0)), a second press - an impatient user - ends the
+    process immediately, mirroring flet's own first-graceful/then-hard
+    design. Called right after every ft.run return, so a retry/reopen
+    session gets a fresh handler too.
+    """
+    _session_signal_hits["n"] = 0
+
+    def _on_session_signal(signum, frame):
+        _session_signal_hits["n"] += 1
+        quit_ev = _tray_runtime.get("quit")
+        if quit_ev is not None:
+            quit_ev.set()
+        if _session_signal_hits["n"] >= 2:
+            os._exit(0)  # second ^C: out NOW, teardown aborted
+
+    for _name in ("SIGINT", "SIGTERM"):
+        _sig = getattr(signal, _name, None)
+        if _sig is None:
+            continue  # platform without it (Windows has both, but be safe)
+        try:
+            signal.signal(_sig, _on_session_signal)
+        except (ValueError, OSError):
+            pass  # not the main thread, or the signal is unsupported here
+
 
 def _stop_tray_best_effort(timeout: float = 2.0) -> None:
     """Stops the tray icon without letting native teardown block a process
@@ -5960,7 +6007,24 @@ if __name__ == "__main__":
                 # "is a session running?" for that: ft.run keeps running for
                 # a second or two of teardown after the window is gone, and
                 # a click in that gap is the most common one there is.
-                _run_flet_once()
+                try:
+                    _run_flet_once()
+                except RuntimeError as _ex:
+                    # Narrow, known teardown race: ^C delivered in the sliver
+                    # between flet closing its asyncio loop and ft.run
+                    # returning makes exit_gracefully raise "Event loop is
+                    # closed" from inside the signal handler, unwinding ft.run
+                    # itself. The session is over either way - classify it
+                    # normally instead of dying with a cubeon.fatal CRITICAL.
+                    if "Event loop is closed" not in str(_ex):
+                        raise
+
+                # flet's exit_gracefully handler is still installed but now
+                # points at a closed loop - reclaim both signals before ANY
+                # teardown code runs (see _reclaim_session_signals; a ^C in
+                # _ct.join below used to raise out of the signal handler and
+                # escape as a cubeon.fatal CRITICAL).
+                _reclaim_session_signals()
                 _session_ended_at = time.monotonic()
 
                 # First thing, before any cleanup: get rid of any leftover
@@ -6137,11 +6201,15 @@ if __name__ == "__main__":
             if _reopen.is_set() and \
                     (_tray_runtime.get("reopen_at") or 0.0) < _session_ended_at - 5.0:
                 _reopen.clear()
-            # Wait for either signal. 30s ticks only to keep the wait from
-            # looking wedged in diagnostics; signals interrupt instantly.
+            # Wait for either signal. The tick is short ON PURPOSE: the
+            # post-session signal handler only SETS _quit_ev (it no longer
+            # raises, see _reclaim_session_signals), so a ^C during the park
+            # must be polled for - a 30s tick would make Ctrl+C feel dead.
+            # Tray Open is unaffected: _reopen.wait returns the instant the
+            # icon sets the event, whatever the timeout is.
             while not _quit_ev.is_set():
                 try:
-                    if _reopen.wait(timeout=30.0):
+                    if _reopen.wait(timeout=0.5):
                         break
                 except RuntimeError:
                     # flet's exit_gracefully signal handler calls into an
@@ -6149,7 +6217,9 @@ if __name__ == "__main__":
                     # (observed twice live: the wait is interrupted during
                     # teardown and flet raises "Event loop is closed"). It
                     # used to escape as a cubeon.fatal CRITICAL; it is just
-                    # teardown noise - treat it like a quit request.
+                    # teardown noise - treat it like a quit request. Belt and
+                    # braces: _reclaim_session_signals has usually already
+                    # replaced that handler by the time we park.
                     return  # exit process
                 continue
             if _quit_ev.is_set():

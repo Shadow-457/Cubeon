@@ -1026,7 +1026,61 @@ class FriendsClient:
         return self._raw_send({"t": T_ACCEPT, "name": name})
 
     def decline_request(self, name: str) -> bool:
-        return self._raw_send({"t": T_DECLINE, "name": name})
+        """Decline an incoming request, OR withdraw an outgoing one.
+
+        ONE frame serves both directions: the Worker deletes
+        ``(other -> me) OR (me -> other)``, so the receiver's Decline and the
+        requester's Cancel are the same DECLINE. On a successful send the
+        name is also dropped from the LOCAL roster (and the on-disk
+        ``friends_cache.json``): a Worker that predates the bidirectional
+        DELETE keeps returning the stale row, which is how a cancelled
+        request came back on the next launch (the "I cancelled it and it was
+        still there after reopening" report). The server's next roster is
+        authoritative either way - it re-adds the name if the request really
+        still exists.
+        """
+        sent = self._raw_send({"t": T_DECLINE, "name": name})
+        if sent:
+            self._drop_pending_locally(name)
+        return sent
+
+    def _drop_pending_locally(self, name: str) -> None:
+        """Forget one handle in every pending-request view of the cached
+        roster and persist it. Best-effort: a roster that isn't a dict, a
+        read-only HOME, or a name the roster never listed are all just no-ops."""
+        canon = canonical_name(name) or (name or "").strip().lower()
+        if not canon or not isinstance(self.roster, dict):
+            return
+
+        def _same(value) -> bool:
+            if not isinstance(value, str):
+                return False
+            return (canonical_name(value) or value.lower()) == canon
+
+        def _same_row(row) -> bool:
+            return isinstance(row, dict) and _same(row.get("name") or "")
+
+        changed = False
+        for key in ("requests_out", "requests_in"):
+            values = self.roster.get(key)
+            if isinstance(values, list):
+                kept = [v for v in values if not _same(v)]
+                if len(kept) != len(values):
+                    self.roster[key] = kept
+                    changed = True
+        for key in ("requests_out_details", "requests_in_details"):
+            values = self.roster.get(key)
+            if isinstance(values, list):
+                kept = [row for row in values if not _same_row(row)]
+                if len(kept) != len(values):
+                    self.roster[key] = kept
+                    changed = True
+        if changed:
+            try:
+                save_cached_roster(self.roster)
+            except Exception:
+                log.debug("couldn't persist the roster after a decline",
+                          exc_info=True)
 
     def check_name(self, name: str) -> dict:
         """REST read (not a WS frame): does this name exist on the server this
