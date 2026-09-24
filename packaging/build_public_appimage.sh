@@ -19,11 +19,18 @@ echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "$PUBLIC_ASSETS:assets" \
-  --add-data "templates:templates" \
-  --collect-all flet \
-  --collect-all flet_desktop \
-  --collect-all minecraft_launcher_lib \
+  --collect-data flet \
+  --collect-submodules flet \
+  --collect-binaries flet \
+  --collect-data flet_desktop \
+  --collect-submodules flet_desktop \
+  --collect-binaries flet_desktop \
+  --collect-data minecraft_launcher_lib \
+  --collect-submodules minecraft_launcher_lib \
+  --collect-binaries minecraft_launcher_lib \
   --collect-submodules templates main.py
+# No templates data copy: bytecode only - no raw .py source ships.
+
 APPDIR=dist/AppDir
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/icons/hicolor/256x256/apps"

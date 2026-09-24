@@ -557,7 +557,13 @@ export class Hub {
   onDecline(me, msg) {
     const other = canonName(msg.name);
     if (!other) return;
-    this.sql.exec("DELETE FROM requests WHERE requester=? AND target=?", other, me);
+    // BOTH directions in one statement: a DECLINE from the receiver rejects
+    // THEIR incoming request, and a CANCEL from the requester (the Chat tab's
+    // "Cancel" on a pending outgoing row) withdraws THEIR outgoing one. One
+    // DELETE covers whoever sent the frame.
+    this.sql.exec(
+      "DELETE FROM requests WHERE (requester=? AND target=?) OR (requester=? AND target=?)",
+      other, me, me, other);
     this.sendRoster(me);
     this.sendRoster(other);
   }

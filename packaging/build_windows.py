@@ -10,8 +10,10 @@ mod/brackets.json is bundled: Java sources and Gradle build files are release
 tooling, not runtime data.
 
 FLET DESKTOP CLIENT (the window itself):
---collect-all flet_desktop is REQUIRED. Without it the frozen exe can't
-`import flet_desktop`, and flet's startup then tries to PIP-INSTALL it at
+--collect-data flet_desktop --collect-submodules flet_desktop
+--collect-binaries flet_desktop is REQUIRED (the --collect-all trio, without
+the .py data files collect_all would also copy). Without it the frozen exe
+can't `import flet_desktop`, and flet's startup then tries to PIP-INSTALL it at
 runtime - which fails inside PyInstaller (no pip, frozen) and exits before a
 window ever appears. Symptom: the exe closes instantly.
 
@@ -71,11 +73,25 @@ def main():
         # bootloader art as "the app icon" on Windows.
         "--icon=assets/icon.ico",
         f"--add-data=assets{SEP}assets",
-        f"--add-data=templates{SEP}templates",
         f"--add-data=mod/brackets.json{SEP}mod",
-        "--collect-all", "flet",
-        "--collect-all", "minecraft_launcher_lib",
-        "--collect-all", "flet_desktop",
+        # NO --add-data for templates/: palettes ship as bytecode via
+        # --collect-submodules templates only - raw .py data would put
+        # readable source in the shipped exe.
+        "--collect-data", "flet",
+
+        "--collect-submodules", "flet",
+
+        "--collect-binaries", "flet",
+        "--collect-data", "minecraft_launcher_lib",
+
+        "--collect-submodules", "minecraft_launcher_lib",
+
+        "--collect-binaries", "minecraft_launcher_lib",
+        "--collect-data", "flet_desktop",
+
+        "--collect-submodules", "flet_desktop",
+
+        "--collect-binaries", "flet_desktop",
         "--collect-submodules", "templates",
         "main.py",
     ]

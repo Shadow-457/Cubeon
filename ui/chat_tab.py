@@ -223,6 +223,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     # switches and tab closes within the session (the tab stays mounted once
     # built; a fresh launch starts with empty drafts).
     _drafts = {}
+    # Outgoing requests the user cancelled THIS session. The row is hidden
+    # immediately on a successful decline (even a Worker build without the
+    # bidirectional DELETE keeps the roster row, so waiting for the server
+    # would make Cancel look broken); the marker is dropped as soon as the
+    # roster itself stops listing the name.
+    _canceled = set()
     # Auto-scroll: True while the view sits at the bottom, so appended
     # messages follow, but reading history doesn't get yanked down.
     _stick = {"at_end": True}
@@ -699,8 +705,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                 font_family=FONT_MONO, max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=1, tight=True, expand=True),
-                    ft.Text("Pending", size=10, color=WARNING,
-                            weight=ft.FontWeight.W_600),
+                    _pill("Cancel", None, TEXT_DIM,
+                          lambda e, n=name: _cancel_out(n)),
                 ],
                 spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -775,8 +781,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _rebuild_requests(roster):
         incoming = [n for n in (roster.get("requests_in") or [])
                     if isinstance(n, str) and n]
-        outgoing = [n for n in (roster.get("requests_out") or [])
-                    if isinstance(n, str) and n]
+        outgoing_all = [n for n in (roster.get("requests_out") or [])
+                        if isinstance(n, str) and n]
+        # Cancelled-this-session rows stay hidden even if the running Worker
+        # (before the bidirectional-DELETE redeploy) keeps returning them;
+        # once the roster genuinely drops a name, forget the marker.
+        _canceled.intersection_update(set(outgoing_all))
+        outgoing = [n for n in outgoing_all if n not in _canceled]
         has_any = bool(incoming or outgoing)
         with thread_safe_ui.TREE_LOCK:
             requests_col.controls.clear()
@@ -849,12 +860,25 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         _refresh_header()
         requests = [n for key in ("requests_in", "requests_out")
                     for n in roster.get(key) or [] if isinstance(n, str) and n]
+        friend_rows = [f for f in (roster.get("friends") or [])
+                       if isinstance(f, dict) and f.get("name")]
+        # Face tokens are keyed by the SAME labels the rows get painted with
+        # (_peer_identity -> minecraft_username). Checking the relay name
+        # instead meant the sig never flipped when the real face landed on
+        # disk, so rows kept their initial chip until some unrelated roster
+        # change - "I downloaded faces but never see them".
+        face_sig = tuple(
+            bool(_faces.get_face_b64(_peer_identity(f.get("name"), f)[0]))
+            for f in friend_rows) + tuple(
+            bool(_faces.get_face_b64(_peer_identity(n)[0])) for n in requests)
         sig = (roster.get("friends") or [],
                roster.get("requests_in") or [],
                roster.get("requests_out") or [],
                roster.get("requests_in_details") or [],
                roster.get("requests_out_details") or [],
                tuple((n, _peer_identity(n)) for n in requests),
+               face_sig,
+               tuple(sorted(_canceled)),
                selected["name"])
         if not force and sig == _roster_sig["v"]:
             return
@@ -1211,6 +1235,25 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _decline(name):
         _forward(service.decline, name,
                  f"Declined {_recipient(name)}'s request.")
+
+    def _cancel_out(name):
+        """Withdraw a pending OUTGOING request.
+
+        The row is hidden IMMEDIATELY on success: the deployed Worker only
+        deletes the (other->me) direction, so waiting for a roster round-trip
+        that never removes it would make Cancel look broken (the exact user
+        report). Once the bidirectional-DELETE Worker is live the server
+        agrees too; either way the marker in _canceled drops as soon as the
+        roster stops listing the name."""
+        def done(res):
+            if res.get("ok"):
+                _canceled.add(name)
+                _set_status(f"Request to {_recipient(name)} canceled.")
+                _render_roster(force=True)
+            else:
+                _set_status(res.get("error") or "That didn't work.",
+                            error=True)
+        _run(lambda: service.decline(name), done, "cubeon-chat-cancel")
 
     def _forward(method, name, success):
         def done(res):

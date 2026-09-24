@@ -291,6 +291,64 @@ def section_contracts():
     check("annotated public functions resolve their type hints",
           not hint_bad, "\n       ".join(hint_bad[:10]))
 
+    # 3f. Shipped artifacts carry no readable source. Every packaging path
+    # must keep palettes bytecode-only (--collect-submodules templates) and
+    # bundle ONLY mod/brackets.json - copying templates/ as data (7 scripts
+    # used to) put readable .py in the exe/AppImage/deb, and one macOS script
+    # copied the whole Java mod tree. collect_all() defaults to
+    # include_py_files=True (collect_data_files defaults to False), so the
+    # dangerous spellings are collect_all(...) and --collect-all.
+    import glob
+    import re
+    pack_files = (["Cubeon.spec"]
+                  + sorted(glob.glob("packaging/build_*.py"))
+                  + sorted(glob.glob("packaging/build_*.sh")))
+    offenders = []
+    for path in pack_files:
+        try:
+            src = open(path, encoding="utf-8").read()
+        except OSError:
+            continue
+        for pat in ("--add-data=templates", "--add-data templates",
+                    '--add-data "templates', '--add-data "mod:mod"',
+                    "--add-data=mod;mod", "--add-data mod:mod"):
+            if pat in src:
+                offenders.append(f"{path}: {pat}")
+        if re.search(r"=\s*collect_all\(|datas\s*\+=\s*collect_all\(",
+                     src) or '"--collect-all"' in src \
+                or re.search(r"^\s*--collect-all\s", src, re.M):
+            offenders.append(f"{path}: collect_all ships .py data")
+    check("packaging never ships readable source (templates/mod/collect_all)",
+          not offenders, "; ".join(offenders[:6]))
+    spec_src = open("Cubeon.spec", encoding="utf-8").read()
+    check("Cubeon.spec collects dependencies without their .py files",
+          "collect_all(" not in spec_src.replace("collect_all()", "")
+          and "('assets', 'assets')" in spec_src.replace('"', "'"),
+          "use collect_data_files (defaults to no .py), never collect_all")
+
+    # 3g. The .deb must be a VALID ar archive. io.BytesIO starts its cursor at
+    # 0, so the first member used to overwrite the "!<arch>\n" magic - every
+    # deb from build_deb.py began with "debian-binary/" and ar/dpkg rejected
+    # it with "file format not recognized".
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "_build_deb_probe", os.path.join("packaging", "build_deb.py"))
+        _bd = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_bd)
+        import io as _io
+        _out = _io.BytesIO()
+        _out.write(b"!<arch>\n")
+        _out.seek(0, _io.SEEK_END)
+        _bd._add_ar_member(_out, "debian-binary", b"2.0\n")
+        _magic_ok = _out.getvalue().startswith(b"!<arch>\n") \
+            and b"debian-binary/" in _out.getvalue()[8:24]
+        check("deb builder keeps the ar magic in front of its members",
+              _magic_ok, "BytesIO starts at 0 - append after the magic")
+    except Exception as _ex:
+        check("deb builder keeps the ar magic in front of its members",
+              False, f"{type(_ex).__name__}: {_ex}")
+
 
 # ---------------------------------------------------------- 4. control flow ---
 def _iter_stmt_lists(node):

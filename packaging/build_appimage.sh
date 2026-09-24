@@ -20,13 +20,20 @@ echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "assets:assets" \
-  --add-data "templates:templates" \
   --add-data "mod/brackets.json:mod" \
-  --collect-all flet \
-  --collect-all minecraft_launcher_lib \
-  --collect-all flet_desktop \
+  --collect-data flet \
+  --collect-submodules flet \
+  --collect-binaries flet \
+  --collect-data minecraft_launcher_lib \
+  --collect-submodules minecraft_launcher_lib \
+  --collect-binaries minecraft_launcher_lib \
+  --collect-data flet_desktop \
+  --collect-submodules flet_desktop \
+  --collect-binaries flet_desktop \
   --collect-submodules templates \
   main.py
+# NOTE: no --add-data for templates/ - the palettes ship as bytecode via
+# --collect-submodules only, so the artifact contains no readable .py source.
 
 APPDIR=dist/AppDir
 rm -rf "$APPDIR"

@@ -126,6 +126,24 @@ def main():
     check("in-flight download is deduped (one request)", dl["n"] == after_first + 1,
           f"{dl['n']} vs {after_first + 1}")
 
+    # --- local failure vs 404: only the 404 earns the long negative window -
+    def _boom(url, headers=None, timeout=None):
+        dl["n"] += 1
+        raise OSError("transient disk hiccup")
+
+    faces._missed.clear()
+    faces.requests = type("R", (), {"get": staticmethod(_boom)})
+    base = time.monotonic()
+    faces.get_face_b64("FlakyLocal")
+    for _ in range(200):
+        if "flakylocal" in faces._missed:
+            break
+        time.sleep(0.01)
+    deadline = faces._missed.get("flakylocal")
+    check("a local failure retries soon instead of poisoning for 10 min",
+          deadline is not None and deadline - base <= faces._RETRY_LOCAL + 1.0,
+          f"retry in {deadline - base:.1f}s" if deadline else "no deadline")
+
     print()
     total, failed = len(_CHECKS), _CHECKS.count(False)
     print(f"{total - failed} passed, {failed} failed")

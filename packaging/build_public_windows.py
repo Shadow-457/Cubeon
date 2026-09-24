@@ -41,10 +41,23 @@ try:
                     # logo in Explorer/the taskbar, not PyInstaller's art.
                     "--icon=assets/icon.ico",
                     f"--add-data={assets}{sep}assets",
-                    f"--add-data=templates{sep}templates",
-                    "--collect-all", "flet",
-                    "--collect-all", "flet_desktop",
-                    "--collect-all", "minecraft_launcher_lib",
+                    # NO templates data copy: bytecode only - no raw
+                    # .py source in shipped artifacts (see build_windows.py).
+                    "--collect-data", "flet",
+
+                    "--collect-submodules", "flet",
+
+                    "--collect-binaries", "flet",
+                    "--collect-data", "flet_desktop",
+
+                    "--collect-submodules", "flet_desktop",
+
+                    "--collect-binaries", "flet_desktop",
+                    "--collect-data", "minecraft_launcher_lib",
+
+                    "--collect-submodules", "minecraft_launcher_lib",
+
+                    "--collect-binaries", "minecraft_launcher_lib",
                     "--collect-submodules", "templates", "main.py"],
                    check=True)
     zip_path = ROOT / "dist" / "Cubeon-public-Windows-x64.zip"

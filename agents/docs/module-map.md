@@ -7,6 +7,62 @@ see the web bullets further down. The waitlist is gone, the repo is private.) If
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
+## Cancel outgoing requests / reopen dupes / geometry / no-source-leak (2026-09-23, 2nd pass) — INVARIANTS
+- **Cancel pending outgoing requests**: one DECLINE frame serves both
+  directions — worker `onDecline` MUST delete
+  `(requester=? AND target=?) OR (requester=? AND target=?)` (receiver
+  declining + requester cancelling). The Chat tab's outgoing row carries a
+  "Cancel" pill wired to `service.decline`. Guard: tools/test_friends.py
+  parity checks. Worker needs a REDEPLOY to take effect.
+- **Chat reopen dupe**: `_hydrate_chat_store` MUST keep each message's `id`
+  and `envelope` and skip entries already in the ring (id → envelope →
+  (dir,text,ts) key, seeded from the room BEFORE the loaded rows, because
+  `__init__` hydrates and callers may hydrate again). Dropping those fields
+  was why every restart re-played history into the ring forever.
+  Guards: tools/test_friends_service.py "S10" block (5 checks).
+- **Window geometry**: the save tuple needs BOTH flet spellings
+  (`resized`/`resize`/`move`/`moved`); `_reveal_window` re-asserts a saved
+  left/top (and size) after the first frame, because the late native write
+  that stomps centering also stomps a restore → "always top-left". Guards:
+  tools/test_ui_smoke §4c geometry checks.
+- **Shipped artifacts must contain NO readable source**: never `--add-data`
+  `templates/` (palettes ship as bytecode via `--collect-submodules
+  templates`; `apply_template()` imports them as modules, never by path) and
+  never `mod/` (only `mod/brackets.json`). Windows/macOS/AppImage/deb all
+  inherit this from their build scripts + Cubeon.spec.
+
+
+## Chat dupes + latency / restart button / Windows packaging (2026-09-23) — INVARIANTS
+- **Chat dupe rule**: a red "Couldn't send" bubble STAYS in `_pending`
+  (`failed:True`); a late echo REPLACES it in place instead of appending.
+  Dropping failed entries (the old code) re-appended the real line → one
+  message rendered twice. Guard: `tools/test_chat_optimistic.py` (12 checks,
+  registered in test_mega_smoke SUITES).
+- **Chat cadence is adaptive**: `_poll_interval()` = 0.25s while `_pending`
+  or within `_CONFIRM_WINDOW_S` after a send, 0.5s with a conversation open,
+  else 1.5s. A tick is ~2ms in-process work - do NOT "optimize" back to a
+  fixed slow poll; the old fixed 1.5s is why confirmations felt laggy.
+- **Restart-to-apply / tray stop**: every execv-bound path (Settings >
+  Restart, GPU-crash recovery, tray Open) must stop the tray through
+  `_stop_tray_best_effort()` — NEVER a raw `_ctrl.stop()`: pystray/GLib
+  teardown hangs (futex_wait on KDE) and used to sit between the Restart
+  click and the execv, i.e. window closes, nothing relaunches. Guard:
+  tools/test_ui_smoke §4c (also clicks the real button and asserts the
+  relaunch request + window close).
+- **Windows icon**: EVERY Windows build path must pass the icon
+  (`--icon=assets/icon.ico` in build_windows*.py, `icon=` in Cubeon.spec) or
+  the exe/shortcuts ship PyInstaller's default art. Safe on Linux: PyInstaller
+  warns and ignores it there (verified on 6.21).
+- **Installer contract**: `packaging/Cubeon.nsi` is MUI2 and REQUIRES
+  SOURCE_DIR/OUTPUT_DIR/ICON_FILE (+ APP_VERSION 4-part numeric,
+  DISPLAY_VERSION) - `build_windows_installer.py` passes all of them, reads
+  the version from `cubeon/updater.py`. Compiles clean (0 warnings) under
+  Wine with electron-builder's bundled NSIS; details panes use
+  `ShowInstDetails hide` (values are show|hide|nevershow, NOT nshow).
+  `FakeWindow` in test_ui_smoke must keep an `async close()` — without it the
+  restart button's fallback branch fires in tests and clears the request.
+
+
 ## Chat face avatars (2026-09-22) — HOW-TO
 - `cubeon/faces.get_face_b64(name)` is THE way to show any Cubeon player's
   head (skins Worker `/faces/<name>.png`, disk-cached in `cache/faces/`,

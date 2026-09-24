@@ -1108,16 +1108,48 @@ class FriendsService:
             if not isinstance(msgs, list) or not msgs:
                 continue
             room = self._chat_room(canon)
+            seen = set()
+
+            def _key_of(entry):
+                """Dedupe key: relay id, else sealed-envelope fingerprint,
+                else the plaintext triple."""
+                return (entry.get("id") or entry.get("envelope")
+                        or (entry.get("dir") or "in", entry.get("text") or "",
+                            entry.get("ts") or 0))
+
+            # Seed from what the room already holds: hydrate() runs from
+            # __init__ AND may be called again explicitly - without this the
+            # second pass re-appended every line (an idempotency bug wearing
+            # the reopen-dupe's clothes).
+            for entry in list(room["msgs"]):
+                seen.add(_key_of(entry))
             for m in msgs[-_MAX_CHAT:]:
-                if isinstance(m, dict) and m.get("text"):
-                    room["msgs"].append({
-                        "seq": m.get("seq") or room["next_seq"],
-                        "dir": m.get("dir") or "in",
-                        "name": m.get("name") or canon,
-                        "text": m["text"],
-                        "ts": int(m.get("ts") or 0)})
-                    room["next_seq"] = max(room["next_seq"],
-                                           (m.get("seq") or 0) + 1)
+                if not (isinstance(m, dict) and m.get("text")):
+                    continue
+                seq = m.get("seq")
+                if not isinstance(seq, int):
+                    seq = room["next_seq"]
+                room["next_seq"] = max(room["next_seq"], seq + 1)
+                mid = m.get("id") or ""
+                env = m.get("envelope") or ""
+                # Keeping the id/envelope at all is the fix for the reopen
+                # bug: they used to be DROPPED on load, so the next history
+                # backfill couldn't match the rows it replayed and every
+                # restart appended the last messages all over again
+                # ("close Cubeon, reopen, chat is duped - forever").
+                key = mid or env or (m.get("dir") or "in", m["text"],
+                                     m.get("ts") or 0)
+                if key in seen:
+                    continue  # already in the ring (or an old store's dupe)
+                seen.add(key)
+                room["msgs"].append({
+                    "seq": seq,
+                    "dir": m.get("dir") or "in",
+                    "name": m.get("name") or canon,
+                    "text": m["text"],
+                    "ts": int(m.get("ts") or 0),
+                    **({"id": mid} if mid else {}),
+                    **({"envelope": env} if env else {})})
             read = saved.get("read")
             if isinstance(read, int) and read > 0:
                 self._chat_read[canon] = max(

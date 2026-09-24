@@ -514,6 +514,22 @@ check("worker's onDm refuses with an error frame, not silence",
       all(c in worker_src for c in dm_error_codes) and "T.ERROR" in worker_src,
       f"missing DM refusal codes in worker: {dm_missing}")
 
+# One DECLINE frame serves BOTH directions now: the receiver declining an
+# incoming request, and the requester CANCELING their outgoing one (the Chat
+# tab's Cancel button). The DELETE must cover both orderings or the cancel
+# silently removes nothing on the server and the pending row comes back.
+check("worker's decline removes the request in both directions",
+      "(requester=? AND target=?) OR (requester=? AND target=?)"
+      in worker_src,
+      "onDecline must DELETE (other,me) OR (me,other) - a one-directional "
+      "DELETE makes cancelling an outgoing request impossible")
+check("client exposes a cancel path for outgoing requests",
+      "Cancel" in open(os.path.join(PROJECT, "ui", "chat_tab.py"),
+                       encoding="utf-8").read()
+      and "service.decline" in open(os.path.join(PROJECT, "ui", "chat_tab.py"),
+                                    encoding="utf-8").read(),
+      "the outgoing row needs a Cancel affordance wired to service.decline")
+
 
 # --------------------------------------------------------------------------
 shutil.rmtree(_scratch, ignore_errors=True)

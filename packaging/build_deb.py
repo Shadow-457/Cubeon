@@ -111,7 +111,13 @@ def main() -> None:
         with tarfile.open(data_tar_path, mode="w:gz", compresslevel=6) as archive:
             archive.add(data_root, arcname=".")
         control_tar = _tar_bytes({"control": control, "postinst": postinst, "prerm": prerm})
+        # BytesIO starts its cursor at 0, so the first member would OVERWRITE
+        # the ar magic in the initial buffer - which is what happened: every
+        # deb from this script began with "debian-binary/" instead of
+        # "!<arch>\n", and ar/dpkg reject it ("file format not recognized").
+        # Append AFTER the magic.
         out = io.BytesIO(b"!<arch>\n")
+        out.seek(0, io.SEEK_END)
         _add_ar_member(out, "debian-binary", b"2.0\n")
         _add_ar_member(out, "control.tar.gz", control_tar)
         _add_ar_file(out, "data.tar.gz", data_tar_path)

@@ -6,7 +6,7 @@
 ; Design rules for this file (the "installer feels like technical shi" fix):
 ;   - Modern UI: a welcome page, a plain-English where-to-install page, a
 ;     progress bar, and a finish page that can open Cubeon right away.
-;   - NO scrolling wall of file names (ShowInstDetails is nshow, not show).
+;   - NO scrolling wall of file names (details hidden but still expandable).
 ;   - The setup exe, the Start-menu entry and the desktop shortcut all carry
 ;     the Cubeon icon (ICON_FILE for the pages, the app exe for shortcuts).
 ;   - It installs per-user (HKCU, no admin prompt) and registers a proper
@@ -38,8 +38,8 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 ; Keep the file-details panes collapsed: the default "show" turned every
 ; install into a terminal-like scroll of extracted paths.
-ShowInstDetails nshow
-ShowUnInstDetails nshow
+ShowInstDetails hide
+ShowUnInstDetails hide
 ; Replace the "Nullsoft Install System vX" footer with nothing.
 BrandingText " "
 
@@ -48,6 +48,7 @@ BrandingText " "
 VIProductVersion "${APP_VERSION}"
 VIAddVersionKey "ProductName" "Cubeon"
 VIAddVersionKey "ProductVersion" "${DISPLAY_VERSION}"
+VIAddVersionKey "FileVersion" "${DISPLAY_VERSION}"
 VIAddVersionKey "FileDescription" "Cubeon installer"
 VIAddVersionKey "CompanyName" "Cubeon"
 VIAddVersionKey "LegalCopyright" "Cubeon"
@@ -56,20 +57,38 @@ VIAddVersionKey "LegalCopyright" "Cubeon"
 !define MUI_ICON "${ICON_FILE}"
 !define MUI_UNICON "${ICON_FILE}"
 
+; Modern visual styling
+!ifdef WIZARD_IMAGE
+  !define MUI_WELCOMEFINISHPAGE_BITMAP "${WIZARD_IMAGE}"
+  !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${WIZARD_IMAGE}"
+!endif
+!ifdef HEADER_IMAGE
+  !define MUI_HEADERIMAGE
+  !define MUI_HEADERIMAGE_BITMAP "${HEADER_IMAGE}"
+  !define MUI_HEADERIMAGE_RIGHT
+!endif
+
+!define MUI_ABORTWARNING
+
 !include "MUI2.nsh"
 
 !define APP_EXE "$INSTDIR\Cubeon.exe"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Cubeon"
 
 ; --- pages: welcome, where, install, done ---------------------------------
-; (single line: NSIS string-continuation across lines is easy to get wrong,
-;  and this is compiled from Linux too - keep it dumb and valid)
-!define MUI_WELCOMEPAGE_TEXT "This sets up Cubeon on this PC. It takes a moment and only adds Cubeon's own files - nothing else on your computer is touched, and no administrator password is needed."
+!define MUI_WELCOMEPAGE_TITLE "Welcome to Cubeon"
+!define MUI_WELCOMEPAGE_TEXT "Play Minecraft with friends easily. No technical setup, no port forwarding.$\r$\n$\r$\nThis installer will set up Cubeon in your user folder without needing administrator rights."
 !insertmacro MUI_PAGE_WELCOME
+
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Cubeon will be installed in the folder below. Click Install to begin."
 !insertmacro MUI_PAGE_DIRECTORY
+
 !insertmacro MUI_PAGE_INSTFILES
+
+!define MUI_FINISHPAGE_TITLE "Cubeon is Ready"
+!define MUI_FINISHPAGE_TEXT "Cubeon has been installed successfully.$\r$\n$\r$\nYou can launch it right now or find it anytime in your Start Menu."
 !define MUI_FINISHPAGE_RUN "${APP_EXE}"
-!define MUI_FINISHPAGE_RUN_TEXT "Open Cubeon"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch Cubeon"
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_CONFIRM

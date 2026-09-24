@@ -82,9 +82,13 @@ def main() -> None:
         f"/DOUTPUT_DIR={_wine_path(OUTPUT)}",
         f"/DICON_FILE={_wine_path(ICON)}",
         f"/DAPP_VERSION={numeric_version}",
-        f"/DDISPLAY_VERSION={display_version}",
-        _wine_path(SCRIPT),
-    ]
+    wizard_bmp = ROOT / "packaging" / "graphics" / "wizard.bmp"
+    header_bmp = ROOT / "packaging" / "graphics" / "header.bmp"
+    if wizard_bmp.is_file():
+        command.append(f"/DWIZARD_IMAGE={_wine_path(wizard_bmp)}")
+    if header_bmp.is_file():
+        command.append(f"/DHEADER_IMAGE={_wine_path(header_bmp)}")
+    command.append(_wine_path(SCRIPT))
     print("+", " ".join(command))
     subprocess.run(command, cwd=ROOT, check=True)
     result = OUTPUT / "Cubeon-Windows-x64-Setup.exe"

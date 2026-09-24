@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 # Bump this with every release. The release feed's tag must match the same
 # scheme ("v1.2.3") or the comparison can't work.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 # Override with CUBEON_UPDATE_FEED for staging/testing; the default points at
 # the project's GitHub releases. An unreachable feed must never bother the

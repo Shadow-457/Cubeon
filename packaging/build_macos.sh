@@ -28,12 +28,17 @@ echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 python -m PyInstaller --noconfirm --onedir --windowed \
   --name Cubeon \
   --add-data "assets:assets" \
-  --add-data "templates:templates" \
-  --add-data "mod:mod" \
-  --collect-all flet \
-  --collect-all flet_desktop \
+  --add-data "mod/brackets.json:mod" \
+  --collect-data flet \
+  --collect-submodules flet \
+  --collect-binaries flet \
+  --collect-data flet_desktop \
+  --collect-submodules flet_desktop \
+  --collect-binaries flet_desktop \
   --collect-submodules templates \
   main.py
+# Only brackets.json from mod/ (rest is Java source) + templates as
+# bytecode: shipped artifacts must carry no readable source files.
 
 tar -czf dist/Cubeon-macOS.tar.gz -C dist Cubeon
 echo "Built dist/Cubeon/ and dist/Cubeon-macOS.tar.gz"

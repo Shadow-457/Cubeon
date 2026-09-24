@@ -42,13 +42,17 @@ FACE_DIR = os.path.join(CUBEON_HOME, "cache", "faces")
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
 _HEADERS = {"User-Agent": "Cubeon/cubeon/1.0"}
 _DOWNLOAD_TIMEOUT = 10
-# How long a failed (404/unreachable) lookup stays negative before one
-# retry is allowed. Long on purpose: a name not on Cubeon rarely becomes
-# one mid-session, and the retry keeps renames/late signups appearing.
+# How long a failed lookup stays negative before one retry is allowed.
+# 404s get the long version: a name not on Cubeon rarely becomes one
+# mid-session, and the retry keeps renames/late signups appearing. Local
+# failures (a kill mid-write, a transient OSError) only earn _RETRY_LOCAL -
+# otherwise one flaky write poisons the name for the whole session and the
+# user sees "no faces until restart".
 _MISS_RETRY = 600.0
+_RETRY_LOCAL = 60.0
 
 _lock = threading.Lock()
-_missed: dict[str, float] = {}   # lowercased name -> monotonic of last failure
+_missed: dict[str, float] = {}   # lowercased name -> monotonic retry-at deadline
 _inflight: set[str] = set()
 
 
@@ -71,8 +75,8 @@ def _schedule(name: str) -> None:
     key = name.lower()
     now = time.monotonic()
     with _lock:
-        last = _missed.get(key)
-        if last is not None and now - last < _MISS_RETRY:
+        retry_at = _missed.get(key)  # deadline: don't ask again before this
+        if retry_at is not None and now < retry_at:
             return
         if key in _inflight:
             return
@@ -91,11 +95,17 @@ def _schedule(name: str) -> None:
                     f.write(resp.content)
                 os.replace(tmp, _dest(name))
             else:
+                # A real miss (404: not a Cubeon name / no skin) - stay
+                # negative for a while so repaints don't re-hammer the Worker.
                 with _lock:
-                    _missed[key] = time.monotonic()
+                    _missed[key] = time.monotonic() + _MISS_RETRY
+            # Local trouble (kill mid-write, transient OSError) is NOT the
+            # same as a 404: poisoning the negative cache for 10 minutes
+            # turned one flaky write into "no faces until restart". Retry
+            # those after _RETRY_LOCAL seconds instead (see except).
         except Exception:
             with _lock:
-                _missed[key] = time.monotonic()
+                _missed[key] = time.monotonic() + _RETRY_LOCAL
         finally:
             with _lock:
                 _inflight.discard(key)

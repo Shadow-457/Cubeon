@@ -53,6 +53,14 @@ class FakeWindow:
     def destroy(self):
         pass
 
+    async def close(self):
+        # Flet 0.86's Window.close is a coroutine; the seasonal Restart
+        # button schedules it with page.run_task(page.window.close). Missing
+        # here, that AttributeError hit the button's fallback branch, which
+        # CLEARS the relaunch request - so the harness made a working button
+        # look broken.
+        pass
+
 
 class FakePage:
     """Just enough ft.Page for main() to build against.
@@ -324,6 +332,13 @@ page.run_task = lambda fn, *a, **k: _run_task_calls.append(
 try:
     if app._relaunch["request"] is not None:
         app._relaunch["request"].clear()
+    # Switch to the Settings tab first: the panes only mount into the page
+    # tree once their nav button fires (same as the live app).
+    for _root in list(page.controls) + list(page.overlay):
+        for _c in walk(_root):
+            if callable(getattr(_c, "on_click", None)) \
+                    and getattr(_c, "tooltip", None) == "Settings":
+                _c.on_click(None)
     _btn = None
     for _root in list(page.controls) + list(page.overlay):
         for _c in walk(_root):
@@ -344,6 +359,46 @@ finally:
     page.run_task = _page_run_task
     if app._relaunch["request"] is not None:
         app._relaunch["request"].clear()
+
+# --- window geometry: the saved position must survive the launch ----------
+# The "always opens top-left no matter where I close it" report: flet's
+# WindowEventType spells the drag events BOTH "move"/"moved" and
+# "resize"/"resized"; the save tuple only listed "move", so a drag was never
+# captured and the session-end save wrote a placeholder position. And the
+# reveal must RE-ASSERT a saved position after the first frame - the same
+# late native write that used to stomp centering also stomps a restore on
+# some Linux clients.
+check("both flet spellings of window move/resize are captured",
+      '"moved"' in _main_src and '"resize"' in _main_src
+      and '"resized", "resize", "move", "moved"' in _main_src,
+      "WindowEventType has MOVE/MOVED and RESIZE/RESIZED - saving on only "
+      "one spelling loses every drag")
+check("the reveal re-asserts a saved position after the first frame",
+      "not _saved_maximized and _gl is not None and _gt is not None"
+      in _main_src,
+      "a saved left/top must be re-applied once the WM owns the mapped "
+      "window, or the window lands at (0, 0)")
+check("the stale-placeholder capture guard is still in place",
+      "if not _geometry_ready:" in _main_src,
+      "the splash's placeholder geometry must never be saved")
+# The literal bug that blanked the relaunched window: inside
+# _reveal_window the software-GL marker was ALSO named `_gl`, so Python made
+# `_gl` local for the whole coroutine and the saved-position re-assert raised
+# UnboundLocalError - aborting before the window was ever shown.
+import ast as _ast
+_tree = _ast.parse(_main_src)
+_reveal_assigned = set()
+for _n in _ast.walk(_tree):
+    if isinstance(_n, (_ast.FunctionDef, _ast.AsyncFunctionDef)) \
+            and _n.name == "_reveal_window":
+        _reveal_assigned = {x.id for x in _ast.walk(_n)
+                            if isinstance(x, _ast.Name)
+                            and isinstance(x.ctx, _ast.Store)}
+        break
+check("_reveal_window never shadows the saved-geometry names",
+      not ({"_gl", "_gt", "_gw", "_gh"} & _reveal_assigned),
+      f"shadowed: {sorted({'_gl', '_gt', '_gw', '_gh'} & _reveal_assigned)} "
+      "- the shadow crashes the coroutine before the window shows")
 
 _restart_src = _main_src[
     _main_src.index("restart requested"):][:900]

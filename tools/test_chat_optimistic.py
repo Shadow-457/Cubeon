@@ -77,11 +77,14 @@ class FakeService:
         self.ring = []
         self.next_seq = 0
         self.sent = []
+        self.declines = []
+        self.pending_out = []   # outgoing requests, as the roster reports them
 
     def roster_payload(self):
         return {"friends": [{"name": "alice", "minecraft_username": "Alice",
                              "online": True}],
-                "requests_in": [], "requests_out": [],
+                "requests_in": [],
+                "requests_out": list(self.pending_out),
                 "requests_in_details": [], "requests_out_details": [],
                 "connected": True, "available": True,
                 "you_minecraft_username": "Steve"}
@@ -103,6 +106,13 @@ class FakeService:
 
     def send_chat(self, to, text):
         self.sent.append((to, text))
+        return {"ok": True, "error": ""}
+
+    def decline(self, name):
+        # Old-Worker behaviour: the frame is accepted but the OUTGOING row
+        # stays in the roster (the deployed DELETE only covers the other
+        # direction). The UI must hide the row anyway.
+        self.declines.append(name)
         return {"ok": True, "error": ""}
 
     def echo(self, text):
@@ -232,6 +242,33 @@ def main():
     refresh()
     check("two identical sends still show two bubbles",
           texts(root, "gg") == ["gg", "gg"], str(texts(root, "gg")))
+
+    # --- cancel: the outgoing row disappears even if the server keeps it ---
+    svc.pending_out = ["bob"]
+    refresh()   # roster sig changed -> rebuild -> the row mounts
+    check("the pending outgoing row shows before cancelling",
+          any(t.lower() == "cancel" for t in texts(root)),
+          str([t for t in texts(root) if "waiting" in t.lower() or
+               t.lower() == "cancel"]))
+    cancel_pill = None
+    for c in walk(root):
+        if callable(getattr(c, "on_click", None)) \
+                and any(t.lower() == "cancel" for t in texts(c)):
+            cancel_pill = c
+            break
+    check("the outgoing row has a Cancel button", cancel_pill is not None)
+    if cancel_pill is not None:
+        cancel_pill.on_click(None)
+        time.sleep(0.3)   # the decline runs on a worker thread
+        refresh()
+        check("cancel sends a decline for that request", "bob" in svc.declines,
+              str(svc.declines))
+        check("the row is gone from the UI even though the roster still lists it",
+              not any(t.lower() == "cancel" for t in texts(root))
+              and not any("waiting on" in t.lower() for t in texts(root)),
+              f"roster still has {svc.pending_out} (old-Worker behaviour)")
+    svc.pending_out = []
+    refresh()
 
     # --- cadence + bounded queue ----------------------------------------
     check("idle cadence stays the relaxed 1.5s",

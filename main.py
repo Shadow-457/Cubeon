@@ -4863,6 +4863,21 @@ def main(page: ft.Page):
                 page.window.update()
             except Exception:
                 pass
+        elif not _saved_maximized and _gl is not None and _gt is not None:
+            # Re-assert the SAVED position after the first frame. The same
+            # late native write that used to stomp centering (see above) also
+            # stomps a restored position on some Linux builds - the window
+            # then opens at (0, 0) top-left no matter where it was closed.
+            # Setting left/top again while the WM owns the mapped window wins.
+            try:
+                await asyncio.sleep(0.15)
+                page.window.left = int(_gl)
+                page.window.top = int(_gt)
+                page.window.width = int(_gw)
+                page.window.height = int(_gh)
+                page.window.update()
+            except Exception:
+                pass
         # First successful paint: clear any GPU-crash flag so the NEXT run
         # trusts hardware GL again (see the exit watcher under __main__).
         # _CUBEON_HOME lives in the __main__ block, not in main()'s scope -
@@ -4880,10 +4895,17 @@ def main(page: ft.Page):
             # inherit the launcher's LIBGL_ALWAYS_SOFTWARE and run at ~4 FPS
             # on llvmpipe. The env vars are also stripped from the game's
             # environment in cubeon/launch.py as belt-and-braces.
-            _gl = os.path.join(_CUBEON_HOME, "use_software_gl")
-            if os.path.exists(_gl):
+            # NOTE the name: this function ALSO reads the saved window
+            # position `_gl` (geometry left) from main()'s closure above -
+            # naming the marker `_gl` too made Python treat `_gl` as local for
+            # the WHOLE coroutine, so the saved-position re-assert raised
+            # UnboundLocalError on every launch with saved geometry, aborting
+            # the coroutine BEFORE the window was ever shown (the relaunched
+            # window never appeared). Keep these names distinct.
+            _gl_marker = os.path.join(_CUBEON_HOME, "use_software_gl")
+            if os.path.exists(_gl_marker):
                 try:
-                    os.remove(_gl)
+                    os.remove(_gl_marker)
                 except OSError:
                     pass
         except (OSError, ImportError):
@@ -5264,10 +5286,14 @@ def main(page: ft.Page):
                     friends_service.stop()
                 except Exception:
                     pass
-            elif ev in ("resized", "move", "maximize", "unmaximize", "rescale"):
+            elif ev in ("resized", "resize", "move", "moved",
+                        "maximize", "unmaximize", "rescale"):
                 # Debounced: dragging the window fires dozens of events, and
                 # each save is a tiny file write. Saving 400ms after the last
                 # event is plenty; a crash mid-drag only loses the last tweak.
+                # "moved" is flet's post-drag spelling - without it in this
+                # tuple positions were never captured, and the session-end
+                # save persisted a placeholder ("always top-left" report).
                 nonlocal _geometry_timer
                 if _geometry_timer is not None:
                     _geometry_timer.cancel()

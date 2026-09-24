@@ -1974,6 +1974,61 @@ def test_social_regressions():
         except OSError:
             pass
 
+    # S10: the REOPEN dupe. Ids/envelopes used to be dropped when the store
+    # was rehydrated, so the first history backfill after every restart
+    # re-appended the same rows forever ("close Cubeon, open, chat duped").
+    service, client, _ = build()
+    service._ensure_e2ee()
+    _alice_priv2, _alice_pub2 = _alice_keypair()
+    client.pubkeys["alice"] = _alice_pub2
+    inbound_env = e2ee.encrypt_dm(_alice_priv2,
+                                  e2ee.public_key_b64(service._e2ee_priv),
+                                  "Alice", "Steve", "reopened")
+    env_str = json.dumps(inbound_env)
+    ts_ms = 1700000000123
+    appended = service._chat_append("alice", "in", "Alice", "reopened", ts_ms,
+                                    mid="mid-reopen", envelope=env_str)
+    ok(appended, "the live message files with its relay id")
+    service.flush_chat_store()
+    again = fs.FriendsService({"username": "Steve"}, {"selected_version": None},
+                              client, save_config=lambda: None)
+    # (the constructor already ran _hydrate_chat_store - calling it again is
+    # exactly the double-load the idempotent seen-set now tolerates)
+    again._bind_client_handlers()
+    again._hydrate_chat_store()
+    ring = again.chat_payload("alice", -1)["messages"]
+    ok(len(ring) == 1 and ring[0].get("id") == "mid-reopen"
+       and bool(ring[0].get("envelope")),
+       "rehydrate keeps the relay id + envelope (the dedupe keys)",
+       str(ring))
+    # The first poll after a restart requests history; the replayed row must
+    # hit the id-based dedupe instead of appending a second copy.
+    again._ensure_e2ee()
+    fired = again._chat_append("alice", "in", "Alice", "reopened", ts_ms,
+                               mid="mid-reopen", envelope=env_str)
+    ring2 = again.chat_payload("alice", -1)["messages"]
+    ok(not fired and len(ring2) == 1,
+       "the history replay after reopen does NOT duplicate the message",
+       f"fired={fired} ring={len(ring2)}")
+    # A store that ALREADY accumulated dupes collapses back to one line.
+    with again._chat_lock:
+        room = again._chat_room("alice")
+        room["msgs"].append(dict(room["msgs"][0], seq=room["next_seq"]))
+        room["next_seq"] += 1
+    again.flush_chat_store()
+    third = fs.FriendsService({"username": "Steve"},
+                              {"selected_version": None}, client,
+                              save_config=lambda: None)
+    third._hydrate_chat_store()
+    ring3 = third.chat_payload("alice", -1)["messages"]
+    ok(len(ring3) == 1, "an already-duplicated store heals on the next load",
+       str(len(ring3)))
+    for p in (fs.CHAT_STORE_PATH, fs.CHAT_STORE_PATH + ".tmp"):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
     # S3: the service consumes the client's real `peer_metadata` cache.
     service, client, _ = build()
     client.roster["peer_metadata"] = {

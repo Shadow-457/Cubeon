@@ -46,11 +46,23 @@ def main() -> None:
         # PyInstaller's default artwork.
         "--icon=assets/icon.ico",
         f"--add-data=assets{sep}assets",
-        f"--add-data=templates{sep}templates",
+        # NO templates data copy: bytecode only (see build_windows.py).
         f"--add-data=mod/brackets.json{sep}mod",
-        "--collect-all", "flet",
-        "--collect-all", "flet_desktop",
-        "--collect-all", "minecraft_launcher_lib",
+        "--collect-data", "flet",
+
+        "--collect-submodules", "flet",
+
+        "--collect-binaries", "flet",
+        "--collect-data", "flet_desktop",
+
+        "--collect-submodules", "flet_desktop",
+
+        "--collect-binaries", "flet_desktop",
+        "--collect-data", "minecraft_launcher_lib",
+
+        "--collect-submodules", "minecraft_launcher_lib",
+
+        "--collect-binaries", "minecraft_launcher_lib",
         "--collect-submodules", "templates",
         "main.py",
     ]
