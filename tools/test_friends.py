@@ -446,6 +446,69 @@ check("older worker payload without metadata still caches",
 
 
 # --------------------------------------------------------------------------
+print("\ndurable cancel: a declined request leaves the LOCAL roster too")
+# --------------------------------------------------------------------------
+# Until 2026-09-24 the deployed Worker kept a requester's outgoing row after
+# their Cancel ("I cancelled it and it was still there after reopening").
+# The Worker now deletes both directions, and on top of that a successful
+# decline drops the name from the cached roster and persists it - so even a
+# restart that paints from friends_cache.json before the first live roster
+# cannot resurrect a cancelled request.
+cancel_sent = []
+
+
+class _FakeWSCancel:
+    def send(self, data):
+        cancel_sent.append(json.loads(data))
+
+    def close(self):
+        pass
+
+
+cancel_client = friends.FriendsClient()
+cancel_client._ws = _FakeWSCancel()
+cancel_client.roster = {
+    "friends": [],
+    "requests_out": ["Ruby", "Dee"],
+    "requests_in": ["Cara"],
+    "requests_out_details": [{"name": "Ruby", "uid": "00000002"},
+                             {"name": "Dee", "uid": "00000003"}],
+    "requests_in_details": [{"name": "Cara", "uid": "00000004"}],
+    "peer_metadata": {},
+}
+friends.save_cached_roster(cancel_client.roster)
+
+check("decline_request sends the one DECLINE frame",
+      cancel_client.decline_request("Ruby") is True
+      and cancel_sent[-1] == {"t": friends.T_DECLINE, "name": "Ruby"})
+check("a cancelled outgoing request leaves the live roster",
+      cancel_client.roster["requests_out"] == ["Dee"]
+      and [r["name"] for r in cancel_client.roster["requests_out_details"]]
+      == ["Dee"])
+check("the other direction's pending views are untouched",
+      cancel_client.roster["requests_in"] == ["Cara"]
+      and [r["name"] for r in cancel_client.roster["requests_in_details"]]
+      == ["Cara"])
+check("the removal is persisted for the next launch",
+      friends.load_cached_roster().get("requests_out") == ["Dee"]
+      and [r["name"] for r in friends.load_cached_roster()
+           .get("requests_out_details", [])] == ["Dee"])
+
+# Declining a name the roster never listed must not rewrite the cache.
+_before = open(friends.ROSTER_CACHE_PATH, "rb").read()
+cancel_client.decline_request("Nobody")
+check("declining an unknown name leaves the cache alone",
+      open(friends.ROSTER_CACHE_PATH, "rb").read() == _before)
+
+# A frame that never left the socket must not touch the roster either.
+cancel_client._ws = None
+check("a decline with no socket reports failure",
+      cancel_client.decline_request("Ruby") is False)
+check("a failed decline keeps the roster intact",
+      cancel_client.roster["requests_out"] == ["Dee"])
+
+
+# --------------------------------------------------------------------------
 print("\nprotocol parity with worker/cubeon-friends.js")
 # --------------------------------------------------------------------------
 with open(WORKER_SRC, "r", encoding="utf-8") as f:

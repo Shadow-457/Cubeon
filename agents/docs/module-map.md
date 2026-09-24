@@ -13,7 +13,15 @@ facts belong HERE, not in diary notes.
   `(requester=? AND target=?) OR (requester=? AND target=?)` (receiver
   declining + requester cancelling). The Chat tab's outgoing row carries a
   "Cancel" pill wired to `service.decline`. Guard: tools/test_friends.py
-  parity checks. Worker needs a REDEPLOY to take effect.
+  parity checks. **DEPLOYED 2026-09-24** (`npx wrangler deploy -c
+  wrangler-friends.toml`, version 6514cc53-6a5c-4167-acac-9a2b63e4e58f) and
+  verified live with a two-identity probe: add → cancel → both rosters clean
+  → reconnect → still clean. Before that deploy the production Worker still
+  ran the one-directional DELETE, which is why a cancelled request came back
+  on the next launch. The client half is durable too:
+  `FriendsClient.decline_request` drops the name from the cached roster and
+  rewrites `friends_cache.json` (guard: tools/test_friends.py "durable
+  cancel" block).
 - **Chat reopen dupe**: `_hydrate_chat_store` MUST keep each message's `id`
   and `envelope` and skip entries already in the ring (id → envelope →
   (dir,text,ts) key, seeded from the room BEFORE the loaded rows, because
@@ -31,6 +39,27 @@ facts belong HERE, not in diary notes.
   never `mod/` (only `mod/brackets.json`). Windows/macOS/AppImage/deb all
   inherit this from their build scripts + Cubeon.spec.
 
+
+## Post-session signals + friends-hub harness (2026-09-24) — INVARIANTS
+- **flet leaves its SIGINT/SIGTERM handler installed forever.** After `ft.run`
+  returns, `exit_gracefully` pokes a CLOSED asyncio loop, so any ^C raises
+  `RuntimeError('Event loop is closed')` *from inside the signal handler* at
+  whatever main-thread frame happens to be running (observed live 2026-09-24:
+  it escaped `_ct.join(timeout=3.0)` as a `cubeon.fatal` CRITICAL right after
+  "quit from tray"). `_reclaim_session_signals()` MUST run immediately after
+  every `_run_flet_once()` return: first press sets the tray quit event
+  (graceful exit through the normal loop), a second press is an immediate
+  `os._exit(0)`. The parked wait therefore polls at 0.5s
+  (`_reopen.wait(timeout=0.5)`) - the handler only SETS the event, so a long
+  tick makes ^C feel dead; Tray Open still wakes instantly. The in-`ft.run`
+  race is caught by its exact message. Guards: tools/test_ui_smoke §4d
+  (source ordering + a real SIGINT/SIGTERM fired at the test process).
+- **`worker/test-friends-rooms.mjs` is the RUNNABLE Hub harness**: it wires the
+  real `Hub` to an in-memory `node:sqlite` and executes request/decline/CANCEL
+  semantics (17 checks on that path), not just the source-parity greps in
+  tools/test_friends.py. Run `node worker/test-friends-rooms.mjs`. It tracks
+  the 8-digit uid format (`0000000X`) - if the worker's UID_WIDTH ever moves,
+  this file must too or it fails at the first metadata assertion.
 
 ## Chat dupes + latency / restart button / Windows packaging (2026-09-23) — INVARIANTS
 - **Chat dupe rule**: a red "Couldn't send" bubble STAYS in `_pending`

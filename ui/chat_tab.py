@@ -224,10 +224,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     # built; a fresh launch starts with empty drafts).
     _drafts = {}
     # Outgoing requests the user cancelled THIS session. The row is hidden
-    # immediately on a successful decline (even a Worker build without the
-    # bidirectional DELETE keeps the roster row, so waiting for the server
-    # would make Cancel look broken); the marker is dropped as soon as the
-    # roster itself stops listing the name.
+    # immediately on a successful decline; the marker is dropped as soon as the
+    # roster itself stops listing the name. Long-term the removal is durable -
+    # FriendsClient.decline_request also strips the name from the cached roster
+    # on disk - so this set only covers the paint between click and roster tick.
     _canceled = set()
     # Auto-scroll: True while the view sits at the bottom, so appended
     # messages follow, but reading history doesn't get yanked down.
@@ -1239,11 +1239,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _cancel_out(name):
         """Withdraw a pending OUTGOING request.
 
-        The row is hidden IMMEDIATELY on success: the deployed Worker only
-        deletes the (other->me) direction, so waiting for a roster round-trip
-        that never removes it would make Cancel look broken (the exact user
-        report). Once the bidirectional-DELETE Worker is live the server
-        agrees too; either way the marker in _canceled drops as soon as the
+        The row is hidden IMMEDIATELY on success. The deployed Worker now
+        deletes BOTH directions on a DECLINE (2026-09-24 deploy), and
+        FriendsClient.decline_request also drops the name from the cached
+        roster on disk - so a cancel sticks across restarts even against an
+        older Worker that keeps returning the stale row. The _canceled marker
+        is belt-and-braces for the current session and drops as soon as the
         roster stops listing the name."""
         def done(res):
             if res.get("ok"):

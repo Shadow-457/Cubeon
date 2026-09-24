@@ -49,6 +49,23 @@ check("target's incoming strings cleared", peer.frames.at(-1).requests_in, []);
 check("target's incoming details cleared", peer.frames.at(-1).requests_in_details, []);
 check("declined request removed from SQL", hub.requestExists("player_11111111", "player_22222222"), false);
 
+// The REQUESTER withdrawing their own outgoing request (the Chat tab's
+// "Cancel" pill) is the SAME DECLINE frame. It must clear both rosters and
+// the row exactly like the receiver's decline above - the one-directional
+// DELETE this replaced left the request in SQL, so a cancelled request
+// re-appeared on every reconnect.
+await send(caller, { t: "add", name: "Player_22222222" });
+caller.frames.length = peer.frames.length = 0;
+await send(caller, { t: "decline", name: "Player_22222222" });
+check("cancel sends the requester a refreshed roster", caller.frames.map((f) => f.t), ["roster"]);
+check("cancel sends the target a refreshed roster", peer.frames.map((f) => f.t), ["roster"]);
+check("cancel clears the requester's outgoing strings", caller.frames.at(-1).requests_out, []);
+check("cancel clears the requester's outgoing details", caller.frames.at(-1).requests_out_details, []);
+check("cancel clears the target's incoming strings", peer.frames.at(-1).requests_in, []);
+check("cancel clears the target's incoming details", peer.frames.at(-1).requests_in_details, []);
+check("cancelled request removed from SQL", hub.requestExists("player_11111111", "player_22222222"), false);
+check("cancelled request removed from SQL (reverse probe)", hub.requestExists("player_22222222", "player_11111111"), false);
+
 await send(caller, { t: "add", name: "Player_22222222" });
 await send(peer, { t: "accept", name: "Player_11111111" });
 sockets.splice(sockets.indexOf(peer), 1);
@@ -59,7 +76,7 @@ for (const kind of ["p2p", "sync", "askjoin"]) {
   const failure = caller.frames[0];
   check(`${kind}: requested handle and kind preserved`, [failure.to, failure.kind], ["pLaYeR_22222222", kind]);
   check(`${kind}: offline reason and message preserved`, [failure.reason, failure.message], ["offline", "Player_22222222 is offline."]);
-  check(`${kind}: recipient identity enriched`, [failure.to_uid, failure.to_minecraft_username], ["000000000002", "RubyFox"]);
+  check(`${kind}: recipient identity enriched`, [failure.to_uid, failure.to_minecraft_username], ["00000002", "RubyFox"]);
   check(`${kind}: room has been cleaned up`, hub.callMembers(failure.room), []);
   check(`${kind}: offline peer receives nothing`, peer.frames, []);
 }
@@ -76,13 +93,13 @@ caller.frames.length = peer.frames.length = 0;
 await send(caller, { t: "history", peer: "Player_22222222" });
 const history = caller.frames.at(-1);
 check("history retains peer routing handle", [history.t, history.peer], ["history", "Player_22222222"]);
-check("history envelope carries current peer identity", [history.peer_uid, history.peer_minecraft_username], ["000000000002", "CurrentRuby"]);
+check("history envelope carries current peer identity", [history.peer_uid, history.peer_minecraft_username], ["00000002", "CurrentRuby"]);
 check("history preserves message ordering and legacy fields", history.messages.map(({ from, text, id }) => ({ from, text, id })), [
   { from: "Player_11111111", text: "first", id: "m1" },
   { from: "Player_22222222", text: "second", id: "m2" },
 ]);
 check("each sender carries its own current metadata", history.messages.map((m) => [m.from_uid, m.from_minecraft_username]), [
-  ["000000000001", "BlueFox"], ["000000000002", "CurrentRuby"],
+  ["00000001", "BlueFox"], ["00000002", "CurrentRuby"],
 ]);
 check("history is not broadcast to peer", peer.frames, []);
 
@@ -95,7 +112,7 @@ const groupHistory = caller.frames.at(-1);
 check("group history retains gid without inventing peer", [groupHistory.gid, "peer_uid" in groupHistory, "peer_minecraft_username" in groupHistory], [gid, false, false]);
 check("sender lookup uses stored sender not historical display", groupHistory.messages[0], {
   from: "OldDisplay", text: "known", ts: 1, id: "g1",
-  from_uid: "000000000002", from_minecraft_username: "CurrentRuby",
+  from_uid: "00000002", from_minecraft_username: "CurrentRuby",
 });
 check("unknown sender retains legacy shape without empty metadata", groupHistory.messages[1], {
   from: "LegacySender", text: "older", ts: 2, id: "g2",
@@ -103,7 +120,7 @@ check("unknown sender retains legacy shape without empty metadata", groupHistory
 sql.exec("UPDATE names SET minecraft_username=NULL WHERE name=?", "player_22222222");
 await send(caller, { t: "history", peer: "Player_22222222" });
 const partialHistory = caller.frames.at(-1);
-check("unknown peer username stays absent while known UID remains", [partialHistory.peer_uid, "peer_minecraft_username" in partialHistory], ["000000000002", false]);
-check("unknown sender username stays absent while known UID remains", [partialHistory.messages[1].from_uid, "from_minecraft_username" in partialHistory.messages[1]], ["000000000002", false]);
+check("unknown peer username stays absent while known UID remains", [partialHistory.peer_uid, "peer_minecraft_username" in partialHistory], ["00000002", false]);
+check("unknown sender username stays absent while known UID remains", [partialHistory.messages[1].from_uid, "from_minecraft_username" in partialHistory.messages[1]], ["00000002", false]);
 db.close();
 console.log(`\n${passed} passed, 0 failed`);

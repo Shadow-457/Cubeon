@@ -409,6 +409,73 @@ check("the restart branch stops the tray BEFORE re-exec, watchdogged",
       < _restart_src.index("_relaunch_fresh_process()"),
       "the click must still reach execv when the icon thread wedges")
 
+print("\n4d. Ctrl+C after the session ends can never raise flet's dead-loop error")
+# The 2026-09-24 crash: ^C right after "quit from tray" interrupted
+# _ct.join(timeout=3.0) while flet's STILL-INSTALLED exit_gracefully handler
+# poked its closed asyncio loop -> RuntimeError('Event loop is closed') raised
+# from INSIDE the signal handler, escaping _session_loop() as a cubeon.fatal
+# CRITICAL. flet never removes that handler, so the launcher must take both
+# signals back the moment ft.run returns.
+_sess_src = _main_src[_main_src.index("def _session_loop"):]
+check("SIGINT/SIGTERM are reclaimed immediately after ft.run returns",
+      "_reclaim_session_signals()" in _sess_src
+      and "_ct.join(timeout=3.0)" in _sess_src
+      and _sess_src.index("_run_flet_once()")
+      < _sess_src.index("_reclaim_session_signals()")
+      < _sess_src.index("_ct.join(timeout=3.0)"),
+      "the reclaim must sit between the ft.run call and the cleanup join, or "
+      "a ^C during teardown still raises out of flet's exit_gracefully")
+check("both flet-installed signals are taken over",
+      '"SIGINT", "SIGTERM"' in _main_src,
+      "flet installs exit_gracefully for SIGINT and SIGTERM; reclaim both")
+check("the in-ft.run dead-loop race is caught by its exact message",
+      'if "Event loop is closed" not in str(_ex):' in _main_src,
+      "a signal delivered while ft.run unwinds must not kill the session loop")
+check("a second ^C still ends the process immediately",
+      "second ^C: out NOW" in _main_src,
+      "an impatient user must not be stuck behind a hung teardown")
+check("the parked wait polls the quit event on a short tick",
+      "_reopen.wait(timeout=0.5)" in _main_src,
+      "the reclaim handler only SETS _quit_ev - a 30s tick makes ^C feel dead")
+check("the parked wait still treats a flet signal as teardown noise",
+      "except RuntimeError:" in _sess_src)
+
+# Behavioural: run the real reclaim and fire real signals at this process.
+# First press = quit request (graceful). The second-press escalation is NOT
+# exercised here on purpose - it calls os._exit(0), which would kill the test.
+import signal as _signal
+import threading as _threading_sig
+_real_handlers = {_s: _signal.getsignal(_s)
+                  for _s in (_signal.SIGINT, _signal.SIGTERM)}
+_real_quit = app._tray_runtime["quit"]
+try:
+    _quit_ev = _threading_sig.Event()
+    app._tray_runtime["quit"] = _quit_ev
+    app._reclaim_session_signals()
+    check("the reclaim replaces flet's SIGINT handler",
+          _signal.getsignal(_signal.SIGINT) is not _real_handlers[_signal.SIGINT])
+    check("the reclaim replaces flet's SIGTERM handler",
+          _signal.getsignal(_signal.SIGTERM) is not _real_handlers[_signal.SIGTERM])
+    if _signal.getsignal(_signal.SIGINT) is not _real_handlers[_signal.SIGINT]:
+        os.kill(os.getpid(), _signal.SIGINT)
+        _t.sleep(0.25)  # main-thread handler runs between bytecodes
+        check("^C after the session is a quit request, not a traceback",
+              _quit_ev.is_set())
+        _quit_ev.clear()
+        # Reset the press counter: a second press is a HARD exit by design.
+        app._session_signal_hits["n"] = 0
+        os.kill(os.getpid(), _signal.SIGTERM)
+        _t.sleep(0.25)
+        check("SIGTERM is a quit request too", _quit_ev.is_set())
+    else:
+        check("^C after the session is a quit request, not a traceback", False,
+              "handler was not installed - signal test skipped for safety")
+finally:
+    app._session_signal_hits["n"] = 0
+    for _s, _h in _real_handlers.items():
+        _signal.signal(_s, _h)
+    app._tray_runtime["quit"] = _real_quit
+
 print("\n5. every tab builder accepts the shared theme (**THEME)")
 # The Profile dialog and the tab builders aren't reached by main()'s initial
 # build, so a broken signature there survives section 1. These call them
