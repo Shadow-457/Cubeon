@@ -1166,9 +1166,14 @@ def search_modpacks_curseforge(query: str, mc_version: str | None = None,
     slow - up to a dozen 4s probes - so this runs as its own phase the UI
     merges in whenever it lands. Only the keyed CurseForge API paginates;
     keyless cfwidget returns its small curated set for the first page and
-    nothing for later offsets (so classics never repeat on every page)."""
+    nothing for later offsets (so classics never repeat on every page).
+
+    `keyed` is part of the cache key on purpose: pasting or removing a
+    CurseForge key swaps the provider (curated classics <-> the real API), and
+    without this the tab would keep serving the OTHER provider's cached page
+    for up to a day."""
     cache_key = {"query": query, "mc_version": mc_version, "limit": limit,
-                 "offset": offset}
+                 "offset": offset, "keyed": bool(_curseforge_api_key())}
 
     def fetch():
         if offset and not curseforge_enabled():
@@ -1303,10 +1308,34 @@ def curseforge_enabled() -> bool:
     return bool(_curseforge_api_key())
 
 
-def _cf_request(path: str, params: "dict | None" = None, timeout: int = 10):
+def set_curseforge_api_key(key: str) -> bool:
+    """Persist (or clear, with an empty key) the CurseForge API key.
+
+    The app already READ a key from three places; what was missing was any way
+    to set one without hand-editing config.json, which is why the full
+    catalogue - the only keyless-unreachable half, i.e. NEW packs - could never
+    be turned on. Returns True when the stored config is now readable back.
+    """
+    from .config import load_config, save_config
+    try:
+        cfg = dict(load_config() or {})
+        cleaned = (key or "").strip()
+        if cleaned:
+            cfg["curseforge_api_key"] = cleaned
+        else:
+            cfg.pop("curseforge_api_key", None)
+        save_config(cfg)
+        return bool(_curseforge_api_key()) == bool(cleaned)
+    except Exception:
+        return False
+
+
+def _cf_request(path: str, params: "dict | None" = None, timeout: int = 10,
+                key: "str | None" = None):
     """One CurseForge API GET. Raises requests exceptions like the Modrinth
-    paths do - callers are already tolerant of third-party failures."""
-    key = _curseforge_api_key()
+    paths do - callers are already tolerant of third-party failures. `key` is
+    only for validating a key the user just pasted (before it is stored)."""
+    key = (key or _curseforge_api_key() or "").strip()
     if not key:
         raise ModpackError("No CurseForge API key configured.")
     headers = {
@@ -1316,6 +1345,30 @@ def _cf_request(path: str, params: "dict | None" = None, timeout: int = 10):
     }
     return net.get_json(f"{CURSEFORGE_API}{path}", params=params,
                         headers=headers, timeout=timeout)
+
+
+def check_curseforge_api_key(key: str) -> dict:
+    """Try a pasted CurseForge key with one cheap, real API call.
+
+    Returns {"ok": bool, "error": str, "count": int}. Validating before saving
+    matters: a wrong key silently degrades to the curated-classics list, which
+    looks like "the app is broken" rather than "that key is wrong".
+    """
+    cleaned = (key or "").strip()
+    if not cleaned:
+        return {"ok": False, "error": "Paste your key first.", "count": 0}
+    try:
+        payload = _cf_request("/mods/search", params={
+            "gameId": str(CF_GAME_ID_MINECRAFT),
+            "classId": str(CF_CLASS_ID_MODPACK),
+            "index": "0",
+            "pageSize": "5",
+        }, key=cleaned)
+    except Exception as ex:
+        return {"ok": False, "error": f"{type(ex).__name__}: {ex}"[:140],
+                "count": 0}
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return {"ok": True, "error": "", "count": len(data) if isinstance(data, list) else 0}
 
 
 def _cf_download_url(project_id, file_id) -> str:
@@ -1336,13 +1389,25 @@ def _cf_download_url(project_id, file_id) -> str:
 
 CFWIDGET_API = "https://api.cfwidget.com"
 
-# The classics people mean when they say "where is RLCraft". Slugs resolve
-# through cfwidget's website-path form; dead slugs just yield nothing.
-CURATED_CF_SLUGS = (
-    "rlcraft", "skyfactory-4", "dawncraft", "medieval-minecraft",
-    "craft-to-exile-2", "vault-hunters-3rd-edition", "all-the-mods-9",
-    "all-of-fabric-7", "better-mc-fabric-bmc1", "better-mc-forge-bmc2",
-    "big-chad-guys-plus", "prominence-2-rpg",
+# The classics people mean when they say "where is RLCraft". Paths resolve
+# through cfwidget's website-path form; dead entries just yield nothing.
+#
+# Numeric PROJECT IDS are preferred over slugs: CurseForge renames a project's
+# slug far more often than it reissues its id, so a slug list rots (that is
+# exactly how 5 of the original 12 entries turned into 404s and the browse
+# quietly fell to 7 packs). Verified live 2026-09-24 via
+# `api.cfwidget.com/minecraft/cf/mods/<id>`.
+CURATED_CF_PROJECTS = (
+    "cf/mods/285109",    # RLCraft
+    "cf/mods/296062",    # SkyFactory 4
+    "cf/mods/715572",    # All the Mods 9
+    "cf/mods/452013",    # Better MC [FABRIC]
+    "cf/mods/936875",    # Craft to Exile 2
+    "cf/mods/482878",    # Better MC [FORGE]
+    "cf/mods/899572",    # All of Fabric 7
+    "cf/mods/327085",    # FantasyCraft
+    "cf/mods/287710",    # Ages of Time
+    "modpacks/rlcraft",  # kept: a live slug is a free backstop for the ids
 )
 
 
@@ -1371,24 +1436,58 @@ def _cfwidget_fetch(path: str) -> "dict | None":
 
 
 def _cfwidget_to_hit(widget: dict) -> "dict | None":
-    """A CFWidget project payload → the search-hit dict shape the UI renders."""
+    """A CFWidget project payload → the search-hit dict shape the UI renders.
+
+    Every field here used to be hardcoded empty/zero ("no icon, 0 downloads, no
+    author"), which is why the CurseForge rows rendered as blank squares
+    saying "0 downloads" while Modrinth rows next to them looked normal. The
+    payload actually carries all of it:
+
+      thumbnail          -> the pack's art (media.forgecdn.net)
+      downloads          -> {"monthly": N, "total": N}  (NOT a scalar - reading
+                            it as one is what printed 0 for RLCraft's 30M)
+      members[0]         -> the author
+      versions{ "1.12.2": [files] }  -> the Minecraft versions the pack covers
+                            (the older flat `files` list is still accepted)
+    """
     try:
         page = ((widget.get("urls") or {}).get("curseforge") or "").rstrip("/")
         versions = []
-        for f in widget.get("files") or []:
-            for v in (f.get("versions") or [] if isinstance(f, dict) else []):
-                if v and v not in versions:
+        grouped = widget.get("versions")
+        sources = []
+        if isinstance(grouped, dict):
+            for files in grouped.values():
+                if isinstance(files, list):
+                    sources.extend(files)
+        elif isinstance(grouped, list):
+            sources.extend(grouped)
+        if not sources:
+            sources = widget.get("files") or []
+        for f in sources:
+            if not isinstance(f, dict):
+                continue
+            for v in (f.get("versions") or []):
+                # Loader tags ("Forge") also show up here; only real MC
+                # versions are useful for the compatibility hint.
+                if isinstance(v, str) and v[:1].isdigit() and v not in versions:
                     versions.append(v)
-        downloads = widget.get("downloads", 0)
+        downloads = widget.get("downloads")
+        if isinstance(downloads, dict):
+            downloads = downloads.get("total")
+        members = widget.get("members") or []
+        author = None
+        if members and isinstance(members[0], dict):
+            author = members[0].get("username") or members[0].get("title")
+        thumbnail = widget.get("thumbnail")
         return {
             "source": "curseforge",
             "project_id": str(widget.get("id")),
             "slug": page.split("/")[-1] if page else None,
             "title": widget.get("title") or "Untitled pack",
             "description": widget.get("summary"),
-            "icon_url": None,
+            "icon_url": thumbnail if isinstance(thumbnail, str) and thumbnail else None,
             "downloads": downloads if isinstance(downloads, (int, float)) else 0,
-            "author": None,
+            "author": author,
             "versions": versions,
         }
     except Exception:
@@ -1401,12 +1500,14 @@ def _cfwidget_search(query: str, limit: int) -> list[dict]:
     from concurrent.futures import ThreadPoolExecutor
     q = (query or "").strip().lower()
     if q:
-        keys = [q.replace(" ", "-")] + list(CURATED_CF_SLUGS)
+        # A typed name is probed as a website path first (so "rlcraft" finds
+        # even a pack that isn't in the curated list), then the curated set.
+        paths = [f"modpacks/{q.replace(' ', '-')}"] + list(CURATED_CF_PROJECTS)
     else:
-        keys = list(CURATED_CF_SLUGS)
+        paths = list(CURATED_CF_PROJECTS)
     with ThreadPoolExecutor(max_workers=6) as pool:
         widgets = [w for w in pool.map(_cfwidget_fetch,
-                                       [f"minecraft/modpacks/{k}" for k in keys]) if w]
+                                       [f"minecraft/{p}" for p in paths]) if w]
     hits, seen = [], set()
     for w in widgets:
         hit = _cfwidget_to_hit(w)

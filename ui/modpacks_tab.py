@@ -553,6 +553,111 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _current_query() -> str:
         return search_field.value.strip()
 
+    # --- CurseForge key -----------------------------------------------------
+    # Keyless, the CurseForge half of this tab is a fixed catalogue of classics
+    # (cfwidget can RESOLVE a project but cannot list or search one - verified
+    # 2026-09-24: curseforge.com's own search/feed/sitemap are Cloudflare-403
+    # for non-browser clients, api.curseforge.com answers 403 without a key,
+    # and cfwidget exposes no search endpoint). So NEW packs are only reachable
+    # through CurseForge's real API, whose key is free but has to be pasted in.
+    # Without a way to paste one, that half of the catalogue was simply
+    # unreachable - hence this button.
+    cf_key_btn = ft.TextButton(
+        "", style=ft.ButtonStyle(color=TEXT_DIM, padding=0),
+        tooltip=("CurseForge's API key is free (console.curseforge.com). "
+                 "It unlocks the full, always-current CurseForge catalogue."),
+        on_click=lambda e: open_cf_key_dialog(),
+    )
+
+    def _refresh_cf_key_btn():
+        try:
+            keyed = bool(core.curseforge_enabled())
+        except Exception:
+            keyed = False
+        cf_key_btn.value = ("CurseForge: full catalogue"
+                            if keyed else "Add free CurseForge key")
+        thread_safe_ui.refresh(cf_key_btn)
+
+    def open_cf_key_dialog(e=None):
+        try:
+            current = (core.load_config() or {}).get("curseforge_api_key") or ""
+        except Exception:
+            current = ""
+        key_field = ft.TextField(
+            label="CurseForge API key", value=current, password=True,
+            can_reveal_password=True, border_color=CARD_BORDER,
+            focused_border_color=ACCENT_DIM, color=TEXT,
+            label_style=ft.TextStyle(color=TEXT_DIM),
+            hint_style=ft.TextStyle(color=TEXT_FAINT),
+            hint_text="Paste the $2a$... key from console.curseforge.com",
+            bgcolor=CARD_FILL, border_radius=RADIUS, height=52,
+        )
+        key_status = ft.Text(
+            "Free to get: create a project at console.curseforge.com and request "
+            "a key. It unlocks real CurseForge search - so new packs show up - "
+            "and faster installs. Leave it empty to keep the classics-only list.",
+            size=12, color=TEXT_DIM)
+
+        def close_dlg():
+            from cubeon import dialogs as cubeon_dialogs
+            cubeon_dialogs.close_dialog(page, dlg)
+
+        def _finish(message, color):
+            key_status.value = message
+            key_status.color = color
+            thread_safe_ui.refresh(key_status)
+
+        def do_save(e=None):
+            key = (key_field.value or "").strip()
+            if not key:
+                core.set_curseforge_api_key("")
+                _refresh_cf_key_btn()
+                close_dlg()
+                render_results("No modpacks found.")
+                return
+            _finish("Checking the key...", TEXT_DIM)
+
+            def worker():
+                result = core.check_curseforge_api_key(key)
+                if not result.get("ok"):
+                    _finish(f"That key didn't work: {result.get('error') or 'unknown error'}",
+                            DANGER)
+                    return
+                if not core.set_curseforge_api_key(key):
+                    _finish("The key works, but it couldn't be saved to config.json.",
+                            DANGER)
+                    return
+                _finish("Saved ✓", ACCENT)
+                _refresh_cf_key_btn()
+                close_dlg()
+                # The provider just changed: throw the fetched pages away and
+                # re-run whatever the user is looking at.
+                render_results(browse_state.get("empty_msg")
+                               or "No modpacks found.")
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        dlg = ft.AlertDialog(
+            modal=True, bgcolor=SURFACE,
+            title=ft.Text("CurseForge catalogue", color=TEXT,
+                          weight=ft.FontWeight.W_800),
+            content=ft.Container(
+                content=ft.Column([key_field, key_status], spacing=12, tight=True),
+                width=440,
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: close_dlg()),
+                ft.TextButton("Remove", on_click=lambda e: key_field.update(
+                    value=""), style=ft.ButtonStyle(color=DANGER)),
+                ft.TextButton("Save", on_click=do_save,
+                              style=ft.ButtonStyle(color=ACCENT)),
+            ],
+        )
+        from cubeon import dialogs as cubeon_dialogs
+        cubeon_dialogs.open_dialog(page, dlg)
+
+    _refresh_cf_key_btn()
+
     def _load_page(page_num: int, gen: int):
         """Fetches ONE page (PAGE_SIZE hits) from BOTH providers for the
         current query, merging each provider's hits into the page as they
@@ -1124,8 +1229,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             ft.Container(height=6),
             ft.Row([search_field], spacing=6),
             ft.Container(height=12),
-            ft.Row([browse_title, ft.Container(expand=True), browse_status],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([browse_title, cf_key_btn, ft.Container(expand=True),
+                    browse_status],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=10),
             ft.Container(height=4),
             results_view,
             pager_row,

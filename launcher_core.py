@@ -73,7 +73,8 @@ from cubeon.mods import (
 from cubeon.modpacks import (
     ModpackError, summarize as summarize_modpack,
     install_modpack_from_file, install_modpack_from_url,
-    install_modpack_from_cf, curseforge_enabled,
+    install_modpack_from_cf, curseforge_enabled, set_curseforge_api_key,
+    check_curseforge_api_key,
     search_modpacks, get_popular_modpacks, get_modpack_file,
     # split search phases the Modpacks tab renders incrementally (Modrinth
     # first, CurseForge merged in when its slower fetch lands)
