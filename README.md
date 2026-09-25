@@ -4,7 +4,7 @@ A free desktop Minecraft launcher for playing with friends - offline/cracked
 accounts, one-click modded launches, a shared skin network so players can see
 each other's skins on **any** server, and built-in world hosting via tunnels.
 
-Built with Python + Flet. No Mojang account, no paywall.
+Built with Python + Flet. No Mojang account hehe, no paywall.
 
 ![Cubeon Launcher](assets/titleimg.jpg)
 
