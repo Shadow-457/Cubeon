@@ -38,7 +38,7 @@ requests = LazyModule("requests")
 from .lazy import LazyModule
 mll = LazyModule("minecraft_launcher_lib")
 
-from .paths import SERVERS_DIR, APP_NAME
+from .paths import SERVERS_DIR, APP_NAME, modrinth_headers, user_agent
 from .mod_loaders import SUPPORTED_LOADERS  # noqa: F401 (kept for callers that import it from here)
 from .launch import find_java, find_java_for_version, java_major_version, required_java_major
 from .mods import modrinth_search_index, rank_search_hits
@@ -46,7 +46,6 @@ from . import local_cache
 from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-MODRINTH_HEADERS = {"User-Agent": f"Cubeon/{APP_NAME.lower()}/1.0"}
 
 
 SERVER_TYPE_PAPER = "paper"
@@ -532,7 +531,7 @@ def _get_paper_download_url(version_id: str) -> tuple[str, str]:
     Fill v3 API (fill.papermc.io) - the old api.papermc.io/v2 endpoint has
     been sunset and stopped returning current builds. Returns
     (download_url, build_number_as_string)."""
-    headers = {"User-Agent": f"{APP_NAME}-launcher/1.0 (https://github.com/{APP_NAME.lower()})"}
+    headers = {"User-Agent": user_agent("server downloads")}
     try:
         data = net.get_json(
             f"https://fill.papermc.io/v3/projects/paper/versions/{version_id}/builds",
@@ -686,7 +685,7 @@ def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
             url, build = _get_paper_download_url(version_id)
             if status_cb:
                 status_cb(f"Downloading Paper {build} server.jar")
-            dl_headers = {"User-Agent": f"{APP_NAME}-launcher/1.0 (https://github.com/{APP_NAME.lower()})"}
+            dl_headers = {"User-Agent": user_agent("server downloads")}
             try:
                 probe = requests.head(url, headers=dl_headers, timeout=10,
                                       allow_redirects=True)
@@ -1254,7 +1253,7 @@ def get_recommended_plugins() -> list[dict]:
     def _fetch() -> list[dict]:
         projects = net.get_json(
             f"{MODRINTH_API}/projects", params={"ids": json.dumps(RECOMMENDED_PLUGIN_SLUGS)},
-            headers=MODRINTH_HEADERS, timeout=15,
+            headers=modrinth_headers(), timeout=15,
         )
         by_slug = {p.get("slug"): p for p in projects}
         results = []
@@ -1281,7 +1280,7 @@ def get_low_ping_plugins() -> list[dict]:
     def _fetch() -> list[dict]:
         by_slug = {p.get("slug"): p for p in net.get_json(
             f"{MODRINTH_API}/projects", params={"ids": json.dumps(LOW_PING_PLUGIN_SLUGS)},
-            headers=MODRINTH_HEADERS, timeout=15,
+            headers=modrinth_headers(), timeout=15,
         )}
         results = []
         for slug in LOW_PING_PLUGIN_SLUGS:
@@ -1409,7 +1408,7 @@ def search_plugins(query: str, mc_version: str | None = None, limit: int = 100) 
         params = {"query": query, "limit": str(limit), "facets": json.dumps(facets),
                   "index": modrinth_search_index(query)}
         data = net.get_json(f"{MODRINTH_API}/search", params=params,
-                            headers=MODRINTH_HEADERS, timeout=15)
+                            headers=modrinth_headers(), timeout=15)
         results = []
         for hit in data.get("hits", []):
             results.append({
@@ -1431,7 +1430,7 @@ def get_plugin_download(project_id_or_slug: str, mc_version: str | None = None) 
             params["game_versions"] = json.dumps([mc_version])
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=MODRINTH_HEADERS, timeout=15,
+            params=params, headers=modrinth_headers(), timeout=15,
         )
         if not versions:
             return None
@@ -1456,7 +1455,7 @@ def download_plugin(version_id: str, download_url: str, filename: str,
     from . import net
     plugins_dir = get_plugins_dir(version_id)
     dest = os.path.join(plugins_dir, filename)
-    net.download_to(dest, download_url, headers=MODRINTH_HEADERS, timeout=60,
+    net.download_to(dest, download_url, headers=modrinth_headers(), timeout=60,
                     progress_cb=progress_cb)
     _write_plugin_meta(plugins_dir, filename, slug)
     return dest

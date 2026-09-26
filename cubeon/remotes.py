@@ -35,7 +35,7 @@ requests = LazyModule("requests")
 
 log = logging.getLogger(__name__)
 
-from .paths import CUBEON_HOME  # noqa: E402
+from .paths import CUBEON_HOME, user_agent  # noqa: E402
 
 # Where real player looks are cached. Per-player subdir keyed by canonical
 # (lowercased) username: profile.json + skin.png + cape.png.
@@ -50,8 +50,7 @@ CACHE_TTL = 24 * 3600
 # failure). Overriding it is the ONLY network escape hatch the suite needs.
 TEST_HANDLER = None
 
-_UA = ("Cubeon/1.0 (cosmetics gallery; "
-       "https://github.com/Shadow-457/Cubeon)")
+_UA = user_agent("cosmetics gallery")
 
 # Mojang endpoints. Hostnames kept as constants so tests can grep + monkeypatch
 # them without touching every call site.

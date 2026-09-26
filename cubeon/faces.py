@@ -33,14 +33,14 @@ from .lazy import LazyModule
 requests = LazyModule("requests")
 
 from .csl import CUBEON_API_BASE
-from .paths import CUBEON_HOME
+from .paths import CUBEON_HOME, modrinth_headers
 
 FACE_DIR = os.path.join(CUBEON_HOME, "cache", "faces")
 
 # Minecraft names only - the Worker's USERNAME_RE rejects anything wider
 # anyway, and this doubles as a path-safety guard for the cache filename.
 _NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
-_HEADERS = {"User-Agent": "Cubeon/cubeon/1.0"}
+_HEADERS = modrinth_headers("modrinth cdn art")
 _DOWNLOAD_TIMEOUT = 10
 # How long a failed lookup stays negative before one retry is allowed.
 # 404s get the long version: a name not on Cubeon rarely becomes one

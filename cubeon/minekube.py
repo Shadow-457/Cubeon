@@ -65,7 +65,7 @@ import time
 import zipfile
 import zlib
 
-from .paths import APP_NAME, SERVERS_DIR
+from .paths import APP_NAME, SERVERS_DIR, user_agent
 from .server import (
     CONNECT_PLUGIN_NAME as PLUGIN_NAME,
     SERVER_TYPE_PAPER,
@@ -341,7 +341,7 @@ def install_plugin(version_id: str, *, progress_cb=None, status_cb=None,
             if status_cb:
                 status_cb("Downloading the Minekube Connect plugin...")
             net.download_to(tmp, PLUGIN_URL, timeout=HTTP_TIMEOUT,
-                            headers={"User-Agent": f"{APP_NAME}-launcher/1.0"},
+                            headers={"User-Agent": user_agent("minekube connect")},
                             progress_cb=progress_cb)
         if not _plugin_jar_valid(tmp):
             raise MinekubeError("The Connect plugin is incomplete or invalid. Try again.")

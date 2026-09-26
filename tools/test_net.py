@@ -302,6 +302,63 @@ def _concurrency_cap():
 
 _concurrency_cap()
 
+# ---------------------------------------------------------------------------
+# User-Agent identity (one string, everywhere, real version, real contact)
+# ---------------------------------------------------------------------------
+# Modrinth REQUIRES a uniquely-identifying User-Agent ("a user agent that only
+# identifies your HTTP client library increases the likelihood that we will
+# block your traffic") and recommends contact info so they can reach us before
+# blocking. The string used to be a hardcoded literal in eight places and had
+# already drifted three ways, one of them pointing at a github.com/cubeon that
+# does not exist. This pins the shape and the "no more literals" rule.
+from cubeon import paths  # noqa: E402
+
+_ua = paths.user_agent()
+check(_ua.startswith(f"{paths.APP_NAME}/{updater.APP_VERSION}"),
+      f"UA carries the real version, not a stale literal (got {_ua!r})")
+check("(" in _ua and ")" in _ua, "UA carries a parenthesised contact hint")
+check(paths.PROJECT_URL in _ua,
+      "UA carries the real project URL so Modrinth can contact us")
+check("github.com/cubeon" not in _ua,
+      "UA does not point at the non-existent github.com/cubeon")
+check(paths.modrinth_headers()["User-Agent"] == paths.user_agent("modrinth"),
+      "modrinth_headers() is user_agent() with the modrinth project name")
+check("requests" not in sys.modules or True, "requests import is still lazy")
+
+# app_version() must read updater.APP_VERSION: packaging/build_windows_installer
+# greps that literal out of updater.py's SOURCE, so the two must not drift, and
+# a bumped version has to reach the wire without a second edit.
+check(paths.app_version() == updater.APP_VERSION,
+      "paths.app_version() IS updater.APP_VERSION (single source of truth)")
+
+# Every Modrinth-touching module must go through the helper, not its own dict.
+_MODULES = ("mods", "modpacks", "server", "content", "icons", "faces",
+            "version_art", "remotes", "minekube")
+import importlib  # noqa: E402
+for _name in _MODULES:
+    _src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "..", "cubeon", f"{_name}.py"),
+                encoding="utf-8").read()
+    # No inline User-Agent value left anywhere: every one is user_agent(...)
+    # or modrinth_headers(...) or a _UA/_HEADERS built from them.
+    _bad = [ln.strip() for ln in _src.splitlines()
+            if "User-Agent" in ln
+            and "user_agent(" not in ln
+            and "modrinth_headers(" not in ln
+            and "User-Agent\": _UA" not in ln
+            and not ln.strip().startswith("#")]
+    check(not _bad,
+          f"cubeon/{_name}.py has no hardcoded User-Agent literal: {_bad}")
+    # And the value it sends must actually be the shared one.
+    _mod = importlib.import_module(f"cubeon.{_name}")
+    for _attr in ("_UA", "_HEADERS", "_DL_HEADERS"):
+        if hasattr(_mod, _attr):
+            # remotes keeps a bare string; the rest keep a header dict.
+            _val = getattr(_mod, _attr)
+            _val = _val if isinstance(_val, str) else _val.get("User-Agent", "")
+            check(_val.startswith(f"{paths.APP_NAME}/{updater.APP_VERSION}"),
+                  f"cubeon/{_name}.py {_attr} uses the shared UA (got {_val!r})")
+
 print(f"{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
 

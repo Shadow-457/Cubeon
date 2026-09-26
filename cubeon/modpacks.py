@@ -89,7 +89,8 @@ requests = LazyModule("requests")
 
 log = logging.getLogger(__name__)
 
-from .paths import APP_NAME, MINECRAFT_DIR, PROFILES_DIR, MOD_META_SUFFIX
+from .paths import (APP_NAME, MINECRAFT_DIR, PROFILES_DIR, MOD_META_SUFFIX,
+                   modrinth_headers, user_agent)
 from .versions import install_version, get_installed_versions
 from .mod_loaders import install_mod_loader, find_installed_loader_version, MOD_CAPABLE_LOADERS
 from .mods import get_profile_dir, modrinth_search_index, rank_search_hits, record_mod_source
@@ -103,7 +104,11 @@ from . import global_mod_cache
 from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-MODRINTH_HEADERS = {"User-Agent": f"Cubeon/{APP_NAME.lower()}/1.0"}
+
+# Pack FILES come from Modrinth, GitHub or GitLab depending on the pack (see
+# _host_allowed), so this deliberately uses the generic agent rather than the
+# Modrinth-specific one - a single identifying string for every host.
+_DL_HEADERS = {"User-Agent": user_agent("modpack download")}
 
 
 # Manifest key -> Cubeon loader id. These are the only loader dependencies the
@@ -334,7 +339,7 @@ def _stream_download(dest_path: str, urls: list[str], hashes: dict | None, progr
     # that fails is NOT fatal - the download itself still gets to try.
     for url in candidates[:2]:
         try:
-            probe = requests.head(url, headers=MODRINTH_HEADERS, timeout=10,
+            probe = requests.head(url, headers=_DL_HEADERS, timeout=10,
                                   allow_redirects=True)
             total = int(probe.headers.get("content-length", 0))
             if total:
@@ -348,7 +353,7 @@ def _stream_download(dest_path: str, urls: list[str], hashes: dict | None, progr
     for url in candidates:
         expected_pair = (algo, expected) if algo and expected else None
         try:
-            net.download_to(dest_path, url, headers=MODRINTH_HEADERS, timeout=30,
+            net.download_to(dest_path, url, headers=_DL_HEADERS, timeout=30,
                             expected_hash=expected_pair, progress_cb=progress_cb)
             return
         except net.DownloadError as ex:
@@ -795,7 +800,7 @@ def _cf_batch_files(entries: list[dict]) -> list[dict]:
                   for e in body],
             headers={"x-api-key": key,
                      "Accept": "application/json",
-                     "User-Agent": MODRINTH_HEADERS["User-Agent"]},
+                     "User-Agent": user_agent("curseforge")},
             timeout=30)
         resp.raise_for_status()
         data = resp.json().get("data")
@@ -1123,7 +1128,7 @@ def _modrinth_modpack_search(query: str, mc_version: str | None, limit: int,
               "facets": json.dumps(facets),
               "index": modrinth_search_index(query)}
     payload = net.get_json(f"{MODRINTH_API}/search", params=params,
-                           headers=MODRINTH_HEADERS, timeout=15)
+                           headers=modrinth_headers(), timeout=15)
     hits = payload.get("hits") if isinstance(payload, dict) else None
     results = []
     for hit in hits if isinstance(hits, list) else []:
@@ -1339,7 +1344,7 @@ def _cf_request(path: str, params: "dict | None" = None, timeout: int = 10,
     if not key:
         raise ModpackError("No CurseForge API key configured.")
     headers = {
-        "User-Agent": MODRINTH_HEADERS["User-Agent"],
+        "User-Agent": user_agent("curseforge"),
         "Accept": "application/json",
         "x-api-key": key,
     }
@@ -1423,7 +1428,7 @@ def _cfwidget_fetch(path: str) -> "dict | None":
         # parallel) and is itself a cache - a slow probe is nearly always a
         # dead slug or rate-limit, and waiting longer just stalls the search.
         resp = requests.get(f"{CFWIDGET_API}/{path}", timeout=4,
-                            headers=MODRINTH_HEADERS)
+                            headers=modrinth_headers())
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -1710,7 +1715,7 @@ def get_modpack_file(project_id_or_slug: str, mc_version: str | None = None) -> 
         return cached
 
     versions = net.get_json(f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-                            params=params, headers=MODRINTH_HEADERS, timeout=15)
+                            params=params, headers=modrinth_headers(), timeout=15)
     if not isinstance(versions, list) or not versions:
         return local_cache.set("modpack_file", cache_key, None)
 

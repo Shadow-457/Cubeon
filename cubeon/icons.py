@@ -32,12 +32,13 @@ from urllib.parse import urlparse
 from .lazy import LazyModule
 requests = LazyModule("requests")
 
-from .paths import CUBEON_HOME
+from .paths import CUBEON_HOME, modrinth_headers
 
 ICON_DIR = os.path.join(CUBEON_HOME, "cache", "icons")
 
-# The one User-Agent Modrinth's CDN expects on image requests.
-_HEADERS = {"User-Agent": "Cubeon/cubeon/1.0"}
+# The one User-Agent Modrinth's CDN expects on image requests. Shared with the
+# API calls so mod art and mod metadata can't drift apart.
+_HEADERS = modrinth_headers("modrinth cdn art")
 
 _lock = threading.Lock()
 

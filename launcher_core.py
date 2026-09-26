@@ -60,7 +60,7 @@ from cubeon.launch import (
 
 # --- mods ---
 from cubeon.mods import (
-    MODRINTH_API, MODRINTH_HEADERS, RECOMMENDED_MOD_SLUGS, MOD_CATEGORIES,
+    MODRINTH_API, RECOMMENDED_MOD_SLUGS, MOD_CATEGORIES,
     profile_key, get_profile_dir, list_profiles,
     list_mods, toggle_mod, delete_mod, add_mod_file, open_mods_folder,
     install_local_mod, sync_mods_to_game, copy_mods_between_profiles,

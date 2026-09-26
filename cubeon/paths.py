@@ -15,6 +15,63 @@ log = logging.getLogger(__name__)
 
 APP_NAME = "Cubeon"
 
+# The project's home, used as the contact hint in our User-Agent (see
+# user_agent below). Hardcoded rather than derived from the git remote so the
+# shipped binary doesn't depend on a .git directory being present.
+PROJECT_URL = "https://github.com/Shadow-457/Cubeon"
+
+
+def app_version() -> str:
+    """The running launcher's version, e.g. "1.0.1".
+
+    Read from `updater.APP_VERSION` because that module is the release-bump
+    point - `packaging/build_windows_installer.py` greps the literal
+    `APP_VERSION = "..."` straight out of its SOURCE, so the assignment has to
+    stay there verbatim. That also means this must import updater LAZILY:
+    `paths` is the lowest layer in the tree and must not depend on a module
+    that does network work.
+    """
+    try:
+        from .updater import APP_VERSION
+        return APP_VERSION
+    except Exception:  # a broken/absent updater must not break every request
+        log.warning("app_version() unavailable", exc_info=True)
+        return "0.0.0"
+
+
+def user_agent(project: str = "launcher") -> str:
+    """The one User-Agent string Cubeon identifies itself with, ever.
+
+    Modrinth's API docs require a "uniquely-identifying User-Agent" (a
+    library-only agent like `okhttp/4.9.3` gets traffic blocked) and recommend
+    contact info so they can REACH US before blocking. Their tiers:
+
+        Bad:  okhttp/4.9.3
+        Good: project_name
+        Better: github_username/project_name/1.56.0
+        Best:  github_username/project_name/1.56.0 (contact@launcher.com)
+
+    This builds the Best shape. It used to be spelled out as a hardcoded
+    literal in eight places, which had already drifted: three said
+    "Cubeon/cubeon/1.0" (no contact), three said "Cubeon-launcher/1.0
+    (https://github.com/cubeon)" pointing at a github.com/cubeon that does not
+    exist (the real repo is Shadow-457/Cubeon), and every one of them hardcoded
+    a stale "1.0" instead of the actual version. One function, one shape.
+
+    `project` names the calling subsystem, e.g. "modrinth" or "cosmetics
+    gallery" - it is the human-readable middle of the parenthesised hint.
+    """
+    return f"{APP_NAME}/{app_version()} ({project}; {PROJECT_URL})"
+
+
+def modrinth_headers(project: str = "modrinth") -> dict[str, str]:
+    """Headers for any Modrinth request (api.modrinth.com AND cdn.modrinth.com).
+
+    Modrinth asks for the identifying agent on the CDN image fetches too, which
+    is why the mod-art downloaders share this rather than rolling their own.
+    """
+    return {"User-Agent": user_agent(project)}
+
 
 def _default_minecraft_dir() -> str:
     """Cubeon's own private game folder, ~/.cubeon_minecraft on every OS.

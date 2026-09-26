@@ -26,12 +26,12 @@ import re
 import threading
 
 from .net import get_with_retry
-from .paths import CACHE_DIR
+from .paths import CACHE_DIR, user_agent
 
 ART_DIR = os.path.join(CACHE_DIR, "version_art")
 
 _HEADERS = {
-    "User-Agent": "Cubeon-launcher/1.0 (version artwork fetch)",
+    "User-Agent": user_agent("version artwork fetch"),
     "Referer": "https://minecraft.wiki/",
 }
 

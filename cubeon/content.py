@@ -54,7 +54,7 @@ import shutil
 import tempfile
 
 from .paths import (APP_NAME, CUBEON_HOME, GLOBAL_CONTENT_DIR, RESOURCEPACKS_DIR,
-                    SHADERPACKS_DIR)
+                    SHADERPACKS_DIR, modrinth_headers)
 from . import global_mod_cache
 from . import local_cache
 from . import net
@@ -62,7 +62,7 @@ from . import packformat
 # Reuse the exact same Modrinth browse-sort / relevance-banding logic the Mods
 # tab uses, so "browse" and search behave identically across content types
 # instead of drifting into two subtly different rankings.
-from .mods import MODRINTH_API, MODRINTH_HEADERS, modrinth_search_index, rank_search_hits
+from .mods import MODRINTH_API, modrinth_search_index, rank_search_hits
 # The per-instance plumbing is shared with mods on purpose: same profile
 # folders (get_profile_dir), same link-into-place engine, same loud failure
 # when a caller forgets which profile it is acting on.
@@ -683,7 +683,7 @@ def search_content(content_type: str, query: str, mc_version: str | None = None,
             "index": modrinth_search_index(query),
         }
         data = net.get_json(f"{MODRINTH_API}/search", params=params,
-                            headers=MODRINTH_HEADERS, timeout=15)
+                            headers=modrinth_headers(), timeout=15)
 
         results = []
         for hit in data.get("hits", []):
@@ -733,7 +733,7 @@ def get_content_download(content_type: str, project_id_or_slug: str,
     def _fetch():
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=MODRINTH_HEADERS, timeout=15,
+            params=params, headers=modrinth_headers(), timeout=15,
         )
         if not versions:
             return None
@@ -789,7 +789,7 @@ def download_content(content_type: str, download_url: str, filename: str,
             break
     expected_pair = (algo, expected) if algo and expected else None
     try:
-        net.download_to(tmp, download_url, headers=MODRINTH_HEADERS, timeout=60,
+        net.download_to(tmp, download_url, headers=modrinth_headers(), timeout=60,
                         expected_hash=expected_pair, progress_cb=progress_cb)
         # Last step before the bytes are kept: make sure the game will accept
         # them. Modrinth's metadata says which Minecraft versions the AUTHOR

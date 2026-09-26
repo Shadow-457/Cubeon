@@ -50,6 +50,7 @@ requests = LazyModule("requests")
 from .paths import (
     APP_NAME, MODS_DIR, PROFILES_DIR,
     MOD_META_SUFFIX, PROFILE_META_FILENAME,
+    modrinth_headers,
 )
 from .mod_loaders import MOD_CAPABLE_LOADERS
 from . import local_cache
@@ -57,7 +58,6 @@ from . import global_mod_cache
 from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-MODRINTH_HEADERS = {"User-Agent": f"Cubeon/{APP_NAME.lower()}/1.0"}
 
 
 
@@ -737,7 +737,7 @@ def get_recommended_mods(mc_version: str | None = None, loader: str = "fabric",
     def _fetch() -> list[dict]:
         projects = net.get_json(
             f"{MODRINTH_API}/projects", params={"ids": json.dumps(RECOMMENDED_MOD_SLUGS)},
-            headers=MODRINTH_HEADERS, timeout=10,
+            headers=modrinth_headers(), timeout=10,
         )
 
         # Preserve curated order rather than whatever order the API returns
@@ -797,7 +797,7 @@ def search_mods(query: str, mc_version: str | None = None, loader: str = "fabric
             "index": modrinth_search_index(query),
         }
         data = net.get_json(f"{MODRINTH_API}/search", params=params,
-                            headers=MODRINTH_HEADERS, timeout=10)
+                            headers=modrinth_headers(), timeout=10)
 
         results = []
         for hit in data.get("hits", []):
@@ -853,7 +853,7 @@ def get_mod_icons(slugs: "list[str]") -> dict[str, "str | None"]:
             projects = net.get_json(
                 f"{MODRINTH_API}/projects",
                 params={"ids": json.dumps(missing)},
-                headers=MODRINTH_HEADERS, timeout=10,
+                headers=modrinth_headers(), timeout=10,
             )
             for project in projects:
                 url = project.get("icon_url") or None
@@ -887,7 +887,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     def _fetch():
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=MODRINTH_HEADERS, timeout=10,
+            params=params, headers=modrinth_headers(), timeout=10,
         )
         if not versions:
             return None
@@ -937,7 +937,7 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
     def _fetch() -> dict:
         p = net.get_json(
             f"{MODRINTH_API}/project/{ref}",
-            headers=MODRINTH_HEADERS, timeout=10,
+            headers=modrinth_headers(), timeout=10,
         )
 
         gallery = []
@@ -1004,7 +1004,7 @@ def get_mod_versions(project_id_or_slug: str, mc_version: str | None = None,
     def _fetch() -> list[dict]:
         versions = net.get_json(
             f"{MODRINTH_API}/project/{ref}/version",
-            headers=MODRINTH_HEADERS, timeout=10,
+            headers=modrinth_headers(), timeout=10,
         )
         out = []
         for v in versions:
@@ -1231,7 +1231,7 @@ def _read_remote_mod_metadata(download_url: str) -> dict | None:
     fd, tmp = tempfile.mkstemp(suffix=".jar")
     os.close(fd)
     try:
-        net.download_to(tmp, download_url, headers=MODRINTH_HEADERS,
+        net.download_to(tmp, download_url, headers=modrinth_headers(),
                         timeout=25, attempts=2)
         return read_mod_metadata(tmp)
     except Exception:
@@ -1614,7 +1614,7 @@ def required_dependencies(project_id_or_slug: str, mc_version: str | None,
         params = {k: v for k, v in params.items() if v}
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=MODRINTH_HEADERS, timeout=10,
+            params=params, headers=modrinth_headers(), timeout=10,
         )
         if not versions:
             return []
@@ -1789,7 +1789,7 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
                     expected = (algo, hashes[algo])
                     break
         try:
-            net.download_to(tmp_path, download_url, headers=MODRINTH_HEADERS,
+            net.download_to(tmp_path, download_url, headers=modrinth_headers(),
                             timeout=15, expected_hash=expected,
                             progress_cb=progress_cb)
         except net.DownloadError as ex:

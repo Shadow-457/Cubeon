@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tarfile
@@ -17,8 +18,32 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APPDIR = ROOT / "dist" / "AppDir"
-OUTPUT = ROOT / "dist" / "cubeon_1.0.0_amd64.deb"
 DESKTOP = ROOT / "packaging" / "linux" / "cubeon.desktop"
+
+
+def _app_version() -> str:
+    """The launcher's version, read from cubeon/updater.py.
+
+    This used to be a hardcoded "1.0.0" in BOTH the control file and the output
+    filename, so every published .deb claimed to be 1.0.0 no matter what
+    APP_VERSION said - it silently drifted a full minor version behind
+    (packman/apt show the version, and dpkg would refuse a same-version
+    upgrade). Read the same literal the Windows installer reads, via regex on
+    the SOURCE rather than an import, so building a package never needs
+    cubeon.updater's dependencies.
+    """
+    try:
+        src = (ROOT / "cubeon" / "updater.py").read_text(encoding="utf-8")
+        m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', src)
+        if m and re.fullmatch(r"\d+(\.\d+)*", m.group(1)):
+            return m.group(1)
+    except OSError:
+        pass
+    return "1.0.0"
+
+
+VERSION = _app_version()
+OUTPUT = ROOT / "dist" / f"cubeon_{VERSION}_amd64.deb"
 
 
 def _tar_bytes(files: dict[str, bytes], directories: list[str] = ()) -> bytes:
@@ -90,7 +115,7 @@ def main() -> None:
         raise SystemExit("This artifact is amd64; build on x86_64 or extend the architecture mapping.")
     control = (
         "Package: cubeon\n"
-        "Version: 1.0.0\n"
+        f"Version: {VERSION}\n"
         "Section: games\n"
         "Priority: optional\n"
         "Architecture: amd64\n"

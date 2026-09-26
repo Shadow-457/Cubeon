@@ -93,14 +93,55 @@ facts belong HERE, not in diary notes.
 - `mod_loaders.install_mod_loader()` must therefore call
   **`mod_loaders.loader_java(mc_version, loader_id)` first** and pass `java=`
   (plus a pinned `loader_version=`) to `loader.install(...)`. `loader_java`
-  reuses `launch.find_java_for_version()` — Settings path → system java → every
-  JVM, lowest sufficient major — and **verifies the file exists**:
-  `find_java_for_version()`'s deliberate bare-`"java"` fallback (so a too-old
-  Java surfaces Minecraft's own error at LAUNCH) is exactly what must never
-  reach an installer. No Java ⇒ a readable "install Java 17+ / set it in
-  Settings" error BEFORE any download starts. Guard: tools/test_launch_fixes
-  §8b (fake mll-8 loader; asserts java passes through and nothing runs without
-  Java).
+  reuses `launch.find_java_for_version()` — Settings path → system java →
+  **JAVA_HOME** → every JVM, lowest sufficient major — and verifies the file
+  exists **AND is new enough**: `find_java_for_version()`'s deliberate
+  bare-`"java"` fallback (so a too-old Java surfaces Minecraft's own error at
+  LAUNCH) is exactly what must never reach an installer. No Java ⇒ a readable
+  "install Java N+ / set it in Settings" error BEFORE any download starts.
+  Guard: tools/test_launch_fixes §8b (fake mll-8 loader; asserts java passes
+  through and nothing runs without Java).
+- **Java sources are 4, and a JDK FOLDER counts as a java path** (2026-09-26).
+  The banner "Java N+ wasn't found" reached users who plainly had a JDK,
+  because resolution read only Settings `java_path` → PATH → mll's scan.
+  `JAVA_HOME` is now read by `launch._java_home_binaries()` (unquoted, both
+  `java`/`java.exe`; a `JAVA_HOME` that isn't a dir is ignored) and
+  `launch._normalize_java_path()` resolves a **directory** argument to its
+  `bin/java`, so pasting the JDK folder into Settings works. Guards:
+  tools/test_launch_fixes §8d/§8e.
+- **There is EXACTLY ONE User-Agent string: `paths.user_agent(project)`.** (2026-09-26)
+  Modrinth requires a uniquely-identifying UA (a library-only agent gets you
+  blocked) and recommends contact info so they can reach us *before* blocking;
+  their tiers are `name` → `user/name/ver` → `user/name/ver (contact)`. We emit
+  the Best shape, e.g. `Cubeon/1.0.1 (modrinth; https://github.com/Shadow-457/Cubeon)`.
+  It used to be a hardcoded literal in 8 places and had already drifted 3 ways,
+  one pointing at a non-existent `github.com/cubeon`. Use
+  `paths.modrinth_headers()` for api.modrinth.com AND cdn.modrinth.com (the
+  mod-art downloaders share it), and `paths.user_agent(<subsystem>)` for
+  everything else (Paper, CurseForge, Minekube, Mojang). **Never** hardcode a
+  second one. Guard: tools/test_net.py §UA (asserts the shape, the real
+  version, and greps all 9 modules for inline `User-Agent` literals).
+- **`APP_VERSION` must stay a literal in `updater.py` — do not "tidy" it.**
+  `packaging/build_windows_installer.py` regex-greps
+  `APP_VERSION\s*=\s*"([^"]+)"` straight out of `cubeon/updater.py`'s SOURCE, so
+  re-exporting it from `paths` (or reformatting the assignment) silently breaks
+  the Windows installer. `paths.app_version()` therefore imports it lazily
+  inside the function, because `paths` is the lowest layer and must not depend
+  on a module that does network work — and that also keeps `requests` off the
+  startup path.
+- **`loader_java` must REJECT a too-old Java, not just a missing one.** Existence
+  is not sufficient: an installer jar is EXECUTED, so a Java 8 on PATH (found
+  via the deliberate fallback) used to sail through the old `os.path.isfile()`
+  check and die on a raw `UnsupportedClassVersionError` instead of the
+  actionable banner — i.e. the same banner, on a different code path. It now
+  probes `java_major_version()` and appends "Only Java N was found, which is
+  too old for <mc>." An **unprobeable** binary (major `None`) is still
+  accepted, as before. Guard: tools/test_launch_fixes §8c.
+- **The N in that message is the SELECTED MC version's requirement, not the
+  user's Java** — `required_java_major()`: ≥26.1→25, ≥1.20.5→21, ≥1.18→17,
+  ≥1.17→16, else 8. So one build legitimately shows "Java 17+" on 1.20.1 and
+  "Java 21+" on 1.21.x. Not a detection bug; don't go hunting for it.
+  Guard: tools/test_launch_fixes §8c last check.
 
 ## CurseForge modpacks in the Modpacks tab (2026-09-24) — INVARIANTS
 - **Keyless CF access can RESOLVE a project but never LIST/SEARCH one.** Every

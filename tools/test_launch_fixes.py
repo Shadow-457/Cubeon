@@ -379,6 +379,143 @@ with patch.object(launch, "find_java_for_version", return_value="java"), \
               "the bare 'java' fallback is rejected, not handed to mll",
               f"got: {ex}")
 
+# ------------------------------------------- too-old Java must NOT slip past ---
+# The banner said "Java 17+ wasn't found" even on machines that DID have Java,
+# because find_java_for_version falls back to a too-old binary on purpose (so
+# LAUNCH can show Minecraft's own error) and the old check only asked "does
+# this path exist?". A Java 8 on PATH therefore reached the installer jar, which
+# died on a raw UnsupportedClassVersionError instead of this message.
+print("\n8c. a too-old Java is rejected with an honest message")
+
+
+def _fake_jvm(major_label, raw):
+    """An executable that answers `-version` the way a real JVM does."""
+    path = os.path.join(tempfile.gettempdir(), f"cubeon-fake-jvm-{raw}")
+    with open(path, "w") as fh:
+        fh.write(f'#!/bin/sh\necho \'{major_label} version "{raw}"\' >&2\nexit 0\n')
+    os.chmod(path, 0o755)
+    return path
+
+
+_java8 = _fake_jvm("java", "1.8.0_402")
+_java17 = _fake_jvm("openjdk", "17.0.11")
+check(launch.java_major_version(_java8) == 8, "the stub JVM reports its real major")
+check(launch.java_major_version(_java17) == 17, "a 17 stub reports 17")
+
+# The bug: Java 8 exists, so the old os.path.isfile() check passed it straight
+# through. It must now be rejected.
+with patch.object(launch, "find_java_for_version", return_value=_java8):
+    try:
+        got = mod_loaders.loader_java("1.20.1", "fabric")
+        check(False, "a Java 8 on PATH is NOT handed to the 1.20.1 installer",
+              f"returned {got}")
+    except RuntimeError as ex:
+        check("Java 17+" in str(ex),
+              "a Java 8 on PATH is NOT handed to the 1.20.1 installer",
+              f"got: {ex}")
+        check("Only Java 8 was found" in str(ex) and "1.20.1" in str(ex),
+              "the message says what WAS found and which version needs more",
+              f"got: {ex}")
+        check("JAVA_HOME" in str(ex),
+              "the message names JAVA_HOME, one of the three sources now read",
+              f"got: {ex}")
+
+# A new-enough Java is still accepted unchanged (no regression on the happy path).
+with patch.object(launch, "find_java_for_version", return_value=_java17):
+    check(mod_loaders.loader_java("1.20.1", "fabric") == _java17,
+          "a Java 17 is still accepted for 1.20.1")
+    try:
+        mod_loaders.loader_java("1.21", "fabric")
+        check(False, "Java 17 is correctly rejected for a 1.21 (needs 21)")
+    except RuntimeError as ex:
+        check("Java 21+" in str(ex),
+              "Java 17 is correctly rejected for a 1.21 (needs 21)",
+              f"got: {ex}")
+
+# The number in the message must track the SELECTED Minecraft version - that is
+# why the same build showed "Java 21+" and "Java 17+" to different users.
+with patch.object(launch, "find_java_for_version", return_value=_java8):
+    _msgs = {}
+    for _mc, _expect in (("1.20.1", "Java 17+"), ("1.21.4", "Java 21+"),
+                         ("26.1", "Java 25+")):
+        try:
+            mod_loaders.loader_java(_mc, "fabric")
+        except RuntimeError as ex:
+            _msgs[_mc] = str(ex)
+    check(all(_expect in _msgs.get(_mc, "") for _mc, _expect in
+              (("1.20.1", "Java 17+"), ("1.21.4", "Java 21+"), ("26.1", "Java 25+"))),
+          "the required major follows the selected Minecraft version",
+          f"got: {_msgs}")
+
+# ------------------------------------------------ JAVA_HOME is now consulted ---
+# The other half of the report: machines WITH a JDK (Temurin/Adoptium) were told
+# no Java existed, because resolution read Settings -> PATH -> mll and never
+# JAVA_HOME - the one thing a user who just installed Java reliably sets.
+print("\n8d. JAVA_HOME is a Java source")
+with tempfile.TemporaryDirectory() as _jh:
+    _jdk = os.path.join(_jh, "jdk-21")
+    os.makedirs(os.path.join(_jdk, "bin"))
+    _jh_java = os.path.join(_jdk, "bin", "java")
+    with open(_jh_java, "w") as _fh:
+        _fh.write('#!/bin/sh\necho \'openjdk version "21.0.5"\' >&2\nexit 0\n')
+    os.chmod(_jh_java, 0o755)
+
+    with patch.dict(os.environ, {"JAVA_HOME": _jdk}), \
+            patch.object(launch.shutil, "which", lambda n: None), \
+            patch.object(launch, "mll") as _mll:
+        _mll.java_utils.find_system_java_versions.return_value = []
+        check(launch.find_java() == _jh_java,
+              "find_java() falls back to JAVA_HOME when PATH is empty",
+              f"got: {launch.find_java()}")
+        check(launch.find_java_for_version("1.21") == _jh_java,
+              "JAVA_HOME's java is picked when nothing else qualifies")
+        with patch.dict(os.environ, {"JAVA_HOME": _jdk}), \
+                patch.object(launch.shutil, "which", lambda n: None):
+            check(mod_loaders.loader_java("1.21", "fabric") == _jh_java,
+                  "a loader install uses the JAVA_HOME java (no false banner)")
+
+    # A stale/garbage JAVA_HOME must not crash or be returned.
+    with patch.dict(os.environ, {"JAVA_HOME": os.path.join(_jh, "nope")}), \
+            patch.object(launch.shutil, "which", lambda n: None):
+        check(launch._java_home_binaries() == [],
+              "a JAVA_HOME pointing nowhere is ignored, not crashed on")
+    with patch.dict(os.environ, {"JAVA_HOME": f'"{_jdk}"'}):
+        check(launch._java_home_binaries() == [_jh_java],
+              "a quoted JAVA_HOME (Windows-style) is unquoted, not rejected",
+              f"got: {launch._java_home_binaries()}")
+
+    # ---------------------------------------- a JDK FOLDER pasted into Settings ---
+    # Users paste the JDK directory, not .../bin/java, and used to get the same
+    # false "Java N+ wasn't found" banner (a directory is not a file).
+    print("\n8e. a JDK folder in java_path resolves to its bin/java")
+    check(launch._normalize_java_path(_jdk) == _jh_java,
+          "a Settings java_path pointing at the JDK folder resolves to bin/java",
+          f"got: {launch._normalize_java_path(_jdk)}")
+    check(launch._normalize_java_path(_jh_java) == _jh_java,
+          "a Settings java_path already pointing at the binary is left alone")
+    check(launch._normalize_java_path(_jh) == _jh,
+          "a folder with no bin/java is left alone (still reports honestly)")
+    check(launch._normalize_java_path("") == "",
+          "an empty java_path does not explode")
+    with patch.object(launch.shutil, "which", lambda n: None), \
+            patch.object(launch.mll, "java_utils") as _mll2:
+        _mll2.java_utils.find_system_java_versions.return_value = []
+        check(launch.find_java_for_version("1.21", _jdk) == _jh_java,
+              "find_java_for_version accepts the JDK folder in java_path")
+    # And end-to-end: a loader install must use it rather than showing the banner.
+    # Capture the real function first - patching it and then calling
+    # launch.find_java_for_version inside side_effect would just recurse into the
+    # mock (and silently prove nothing).
+    _real_find = launch.find_java_for_version
+    with patch.dict(os.environ, {"JAVA_HOME": ""}), \
+            patch.object(launch.shutil, "which", lambda n: None), \
+            patch.object(launch.mll, "java_utils") as _mll3, \
+            patch.object(launch, "find_java_for_version",
+                         side_effect=lambda mc, jp=None: _real_find(mc, _jdk)):
+        _mll3.java_utils.find_system_java_versions.return_value = []
+        check(mod_loaders.loader_java("1.21", "fabric") == _jh_java,
+              "a loader install uses the JDK folder from java_path (no banner)")
+
 # ---------------------------------------------------------------------- L11 ---
 print("\n9. stale jar cache rejection (L11)")
 

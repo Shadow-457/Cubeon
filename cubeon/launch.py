@@ -72,10 +72,59 @@ def _prune_game_logs():
         logging.getLogger(__name__).debug("game log pruning failed", exc_info=True)
 
 
+def _normalize_java_path(path: str) -> str:
+    """Accept a JAVA_HOME-style directory anywhere a java executable is expected.
+
+    A user who just installed a JDK very reasonably pastes the JDK folder -
+    `C:\\Program Files\\Java\\jdk-21` - into Settings -> java_path (or sets
+    JAVA_HOME and expects the same shape to work). Pointing a subprocess at that
+    directory fails with a bare WinError 2 / "is a directory", and the
+    os.path.isfile() guard then reports "Java N+ wasn't found" on a machine that
+    plainly has Java - the same false banner as the JAVA_HOME gap. If it is a
+    directory with a java inside bin/, use that; otherwise hand it back
+    unchanged so the existing "not found" path still reports it honestly.
+    """
+    if not path or not os.path.isdir(path):
+        return path
+    names = ("java.exe", "java") if os.name == "nt" else ("java",)
+    for name in names:
+        candidate = os.path.join(path, "bin", name)
+        if os.path.isfile(candidate):
+            return candidate
+    return path
+
+
+def _java_home_binaries() -> list[str]:
+    """Candidate `java` executables under JAVA_HOME, if it is set to a real dir.
+
+    JAVA_HOME is the standard way a user points at a JDK, and the launcher
+    never read it: resolution was Settings `java_path` -> PATH -> mll's scan.
+    So a user who installed Temurin/Adoptium and exported JAVA_HOME (or set
+    it in the OS environment after the launcher was already running) was told
+    "Java N+ wasn't found" despite visibly having a JDK - the exact report
+    behind the two error banners. Kept as a separate helper because both the
+    bare `find_java()` fallback and `find_java_for_version()` need it.
+    """
+    home = (os.environ.get("JAVA_HOME") or "").strip().strip('"').strip("'")
+    if not home or not os.path.isdir(home):
+        return []
+    # On Windows the file is java.exe; probing "bin/java" still works for
+    # subprocess (CreateProcess appends .exe) but not for os.path.isfile, so
+    # both spellings are offered.
+    names = ("java.exe", "java") if os.name == "nt" else ("java",)
+    return [os.path.join(home, "bin", name) for name in names]
+
+
 def find_java() -> str | None:
     for candidate in ("java", "javaw"):
         path = shutil.which(candidate)
         if path:
+            return path
+    # Nothing on PATH - JAVA_HOME is still a legitimate "the user has Java"
+    # signal, and returning None here is what pushes the caller onto the bare
+    # "java" fallback (and, for an install, the error banner).
+    for path in _java_home_binaries():
+        if os.path.isfile(path):
             return path
     return None
 
@@ -144,10 +193,15 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
     required = required_java_major(version_id)
     candidates: list[str] = []
     if java_path:
-        candidates.append(java_path)
+        candidates.append(_normalize_java_path(java_path))
     sys_java = find_java()
     if sys_java:
         candidates.append(sys_java)
+    # JAVA_HOME is consulted after PATH, not before: an explicit PATH entry
+    # (including the one the OS set for the user's JDK) stays the stronger
+    # signal. Order only breaks exact-major ties anyway, since the lowest
+    # sufficient major wins below.
+    candidates.extend(_java_home_binaries())
     try:
         for d in mll.java_utils.find_system_java_versions():
             candidates.append(os.path.join(d, "bin", "java"))
@@ -166,7 +220,7 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
             best, best_major = c, maj
     if best:
         return best
-    fallback = java_path or sys_java or "java"
+    fallback = (_normalize_java_path(java_path) if java_path else None) or sys_java or "java"
     # Honest breadcrumb: we're handing back a Java that may be too old, so
     # Minecraft's own (cryptic) class-version error has a paper trail in the
     # launcher log explaining exactly what was required vs. what was found.

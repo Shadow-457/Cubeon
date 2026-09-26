@@ -109,13 +109,14 @@ def loader_java(mc_version: str, loader_id: str = "") -> str:
 
     surfaced raw under the download button (the 2026-09-24 user report). So the
     Java is resolved HERE with the same logic that starts the game (Settings
-    path -> system java -> every JVM on the machine, lowest sufficient major)
-    and is verified to exist before the installer ever sees it.
+    path -> system java -> JAVA_HOME -> every JVM on the machine, lowest
+    sufficient major) and is verified to EXIST *and* to be new enough before
+    the installer ever sees it - see the too-old comment below the resolution.
     """
     # Imported lazily: launch.py pulls in mods/csl/skins, and those import this
     # module. Same pattern as the config read in modpacks._curseforge_api_key.
     from .config import load_config
-    from .launch import find_java_for_version, required_java_major
+    from .launch import find_java_for_version, required_java_major, java_major_version
     try:
         configured = (load_config() or {}).get("java_path") or None
     except Exception:
@@ -124,20 +125,40 @@ def loader_java(mc_version: str, loader_id: str = "") -> str:
         java = find_java_for_version(mc_version, configured)
     except Exception:
         java = None
-    if java and (os.path.isfile(java) or shutil.which(java)):
-        return java
-    # find_java_for_version deliberately falls back to the bare name "java" so
-    # that a too-old Java still surfaces Minecraft's own (clearer) error at
-    # LAUNCH time. An install has nothing to fall back to, so say it plainly.
+
     try:
-        major = required_java_major(mc_version)
+        required = required_java_major(mc_version)
     except Exception:
-        major = 17
+        required = 17
+
+    # An installer is EXECUTED, so it dies on a too-old JVM with a raw
+    # UnsupportedClassVersionError rather than a Minecraft error. Existence is
+    # therefore not enough: find_java_for_version deliberately falls back to a
+    # too-old Java (so LAUNCH can surface Minecraft's own clearer error), and
+    # that fallback used to sail through this os.path.isfile() check and get
+    # handed straight to the loader. An unprobeable binary (major is None -
+    # a path we can't run, e.g. a stub) is still accepted, as before.
+    too_old = None
+    if java and (os.path.isfile(java) or shutil.which(java)):
+        try:
+            probed = java_major_version(java)
+        except Exception:
+            probed = None
+        if probed is None or probed >= required:
+            return java
+        too_old = probed
+
+    # Nothing usable: find_java_for_version has nothing to fall back to, so say
+    # it plainly. Mention JAVA_HOME because it - along with Settings and PATH -
+    # is now one of the three places a Java is picked up from, and it is the one
+    # an affected user most likely has set and was being ignored.
     label = SUPPORTED_LOADERS.get(loader_id, "mod loader")
+    detail = (f" Only Java {too_old} was found, which is too old for "
+              f"{mc_version}.") if too_old is not None else ""
     raise RuntimeError(
-        f"Java {major}+ wasn't found, so the {label} installer can't run. "
-        f"Install a Java {major} runtime (Temurin/Adoptium is fine) or set the "
-        "path in Settings, then try again.")
+        f"Java {required}+ wasn't found, so the {label} installer can't run. "
+        f"Install a Java {required} runtime (Temurin/Adoptium is fine), set the "
+        f"path in Settings, or point JAVA_HOME at it, then try again.{detail}")
 
 
 def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, max_cb) -> str:
