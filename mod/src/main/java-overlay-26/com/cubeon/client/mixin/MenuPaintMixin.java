@@ -34,26 +34,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * that shape matters when an injection silently does not apply.
  */
 @Mixin(Screen.class)
-public abstract class MenuPaintMixin extends Screen {
+public abstract class MenuPaintMixin {
 
     /** Proof, in the game log, that the paint hook actually applied. */
     private static boolean cubeon$paintedOnce;
-
-    protected MenuPaintMixin() {
-        super(net.minecraft.network.chat.Component.empty());
-    }
-
-    @Inject(method = "extractBackground", at = @At("HEAD"), cancellable = true,
-            require = 0)
-    private void cubeon$noVanillaBackdrop(
-            net.minecraft.client.gui.GuiGraphicsExtractor g, int mouseX,
-            int mouseY, float partialTick, CallbackInfo ci) {
-        // A mod menu is a HUD, not a settings page: the game stays visible
-        // behind it. Minecraft's own background pass blurs and darkens the
-        // world and runs BEFORE this class's paint hook, so nothing painted
-        // afterwards can undo it - the pass itself has to be cancelled.
-        ci.cancel();
-    }
 
     @Inject(method = "extractRenderState", at = @At("TAIL"), require = 0)
     private void cubeon$paintMenu(GuiGraphicsExtractor graphics, int mouseX,

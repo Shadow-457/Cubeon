@@ -42,7 +42,7 @@ public final class Modules {
         // ---- Render --------------------------------------------------------
         all.add(new OptionModule("fullbright", "Fullbright",
                 "Removes darkness. Your own brightness comes back when you switch it off.",
-                ModuleCategory.RENDER, "Brightness", GameOptions.GAMMA, 16, 16));
+                ModuleCategory.RENDER, "Brightness", GameOptions.GAMMA, 1, 1));
         all.add(new OptionModule("fov", "FOV Changer", "Field of view.",
                 ModuleCategory.RENDER, "FOV", GameOptions.FOV, 90, 110));
         all.add(new OptionModule("nobob", "No View Bobbing",

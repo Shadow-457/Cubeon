@@ -100,9 +100,18 @@ STUBS = {
     "net/minecraft/network/chat/Component.java": """
         package net.minecraft.network.chat;
 
+        import net.minecraft.util.FormattedCharSequence;
+
         /** Real Minecraft declares this as an interface with static factories. */
         public interface Component {
             String getString();
+
+            /**
+             * The text sequence the mod draws menu labels through. 1.21 removed
+             * GuiGraphics' String overload of drawString, so this is the only
+             * cross-version route to a rendered label.
+             */
+            FormattedCharSequence getVisualOrderText();
 
             static MutableComponent literal(String text) {
                 return new MutableComponent(text);
@@ -129,6 +138,12 @@ STUBS = {
             @Override
             public String getString() {
                 return text;
+            }
+
+            @Override
+            public net.minecraft.util.FormattedCharSequence
+                    getVisualOrderText() {
+                return null;
             }
 
             public MutableComponent append(Component other) {
@@ -721,10 +736,24 @@ STUBS = {
         }
         """,
 
+    "net/minecraft/util/FormattedCharSequence.java": """
+        package net.minecraft.util;
+
+        /*
+         * Minecraft's own text-sequence interface (NOT java.util's - there
+         * isn't one). This is the type the mod draws menu labels through,
+         * because 1.21 removed GuiGraphics' String overload of drawString and
+         * this overload is the one that survives in both eras.
+         */
+        public interface FormattedCharSequence {
+        }
+        """,
+
     "net/minecraft/client/gui/GuiGraphics.java": """
         package net.minecraft.client.gui;
 
         import net.minecraft.client.gui.Font;
+        import net.minecraft.util.FormattedCharSequence;
 
         /*
          * The 1.20-1.21 HUD draw context. Deliberately NOT part of the 26.x
@@ -744,6 +773,17 @@ STUBS = {
 
             public int drawString(Font font, String text, int x, int y, int colour,
                                    boolean shadow) {
+                return 0;
+            }
+
+            /**
+             * The overload that SURVIVES 1.21: 1.21 removed the String form
+             * (the game log proved it with a NoSuchMethodError), and this one
+             * exists in 1.20.1 too, so drawing through it is what lets one
+             * source cover the whole 1.20-1.21 bracket.
+             */
+            public int drawString(Font font, FormattedCharSequence text, int x,
+                    int y, int colour, boolean shadow) {
                 return 0;
             }
         }
