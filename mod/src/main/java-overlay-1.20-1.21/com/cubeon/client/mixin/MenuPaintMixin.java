@@ -33,9 +33,26 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * override in shared source: {@code render} has different signatures in the two
  * eras ({@code GuiGraphics} vs {@code GuiGraphicsExtractor}), so the screen
  * itself cannot declare it once for both.
+ *
+ * <p><b>It also extends {@link Screen} with the protected constructor</b>,
+ * because that is the shape of the mixins here that demonstrably work
+ * ({@code PauseScreenMixin}, {@code TitleScreenMixin}). An earlier version
+ * declared nothing, and the result was the worst failure mode available: the
+ * mixin did not apply, the config's {@code required: false} swallowed it, and
+ * all that was on screen was the menu's own invisible buttons rendering with
+ * empty labels. No panel, no text, no error anywhere - which read as a
+ * styling problem through three separate reports. If a mixin here appears to
+ * do nothing, copy the shape of one that works.
  */
 @Mixin(Screen.class)
-public abstract class MenuPaintMixin {
+public abstract class MenuPaintMixin extends Screen {
+
+    /** Proof, in the game log, that the paint hook actually applied. */
+    private static boolean cubeon$paintedOnce;
+
+    protected MenuPaintMixin() {
+        super(net.minecraft.network.chat.Component.empty());
+    }
 
     /**
      * Cancels Minecraft's own screen background so the game shows through.
@@ -57,6 +74,13 @@ public abstract class MenuPaintMixin {
                                   float partialTick, CallbackInfo ci) {
         if (!((Object) this instanceof ModuleMenuScreen)) {
             return;
+        }
+        if (!cubeon$paintedOnce) {
+            cubeon$paintedOnce = true;
+            // Proof the injection APPLIED. Three reports in a row were misread
+            // as a styling problem because this never ran at all; one line
+            // turns that from a guess into a fact in the game log.
+            System.err.println("[Cubeon] mod menu paint hook active");
         }
         try {
             ((ModuleMenuScreen) (Object) this)

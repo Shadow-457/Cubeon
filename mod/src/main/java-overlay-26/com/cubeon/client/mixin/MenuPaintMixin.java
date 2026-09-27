@@ -28,9 +28,20 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * {@code require = 0}, failed silently - the menu simply never painted. The
  * instance check below is what keeps injecting into every other screen in the
  * game harmless.
+ *
+ * <p>It also extends {@link Screen} with the protected constructor, matching
+ * the mixins here that demonstrably work - see the 1.20-1.21 sibling for why
+ * that shape matters when an injection silently does not apply.
  */
 @Mixin(Screen.class)
-public abstract class MenuPaintMixin {
+public abstract class MenuPaintMixin extends Screen {
+
+    /** Proof, in the game log, that the paint hook actually applied. */
+    private static boolean cubeon$paintedOnce;
+
+    protected MenuPaintMixin() {
+        super(net.minecraft.network.chat.Component.empty());
+    }
 
     @Inject(method = "extractBackground", at = @At("HEAD"), cancellable = true,
             require = 0)
@@ -49,6 +60,10 @@ public abstract class MenuPaintMixin {
                                   int mouseY, float partialTick, CallbackInfo ci) {
         if (!((Object) this instanceof ModuleMenuScreen)) {
             return;
+        }
+        if (!cubeon$paintedOnce) {
+            cubeon$paintedOnce = true;
+            System.err.println("[Cubeon] mod menu paint hook active");
         }
         try {
             ((ModuleMenuScreen) (Object) this)
