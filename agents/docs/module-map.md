@@ -7,6 +7,70 @@ see the web bullets further down. The waitlist is gone, the repo is private.) If
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
+## The mod menu PAINTS itself — never use vanilla widgets for it (2026-09-27) — INVARIANT
+- **A lesson paid for once: the first mod menu was built from vanilla
+  `Button`/`EditBox` widgets and the user rejected it outright** — grey bevelled
+  buttons, a ragged grid, reads as a Minecraft options screen. "Avoid custom
+  drawing so one jar serves both brackets" is the WRONG reason to make
+  something look bad. The menu now paints its panel, tabs and cards itself.
+- **How it still ships one jar:** `MenuPaint` is a two-method interface
+  (`fill`, `text`) with one tiny implementation per bracket (`MenuPaintImpl` in
+  each `java-overlay-*`). That is the ONLY per-bracket part of the menu. All
+  layout, colours, rounded corners and hover live in the shared `MenuPainter`,
+  which builds every shape from plain rectangles.
+- **`MenuPaintMixin` (per bracket, same FQN) is the paint hook** — 1.20-1.21
+  injects `Screen.render(GuiGraphics, ...)`, 26.x injects
+  `Screen.extractRenderState(GuiGraphicsExtractor, ...)`. Unavoidable: the two
+  signatures are unrelated.
+- **Opaque colours only.** 26.x's extractor has no alpha `fill`, so a
+  translucent panel would render right on one bracket and as a solid block on
+  the other. The palette is deliberately all-opaque so both look the same.
+- **Clicks are still vanilla widgets** — invisible Buttons over each painted
+  element — because `mouseClicked`'s signature changed in 26.x and widgets are
+  the cross-era way to get input. The buttons draw NOTHING; `drawOverlay`
+  paints over them.
+- **Never hard-code the column count.** It is derived from the panel width;
+  the first version fixed two 150px columns and left the toggles floating
+  outside their cards. `MenuPainter.clip()` truncates card text with an
+  ellipsis instead of letting it run past the card edge.
+
+
+## Mod menu + module framework (2026-09-27) — INVARIANT
+- **The mod menu is `ModuleMenuScreen`, opened by the "Mods" button that
+  `PauseScreenMixin` drops in next to the Friends icon.** No keybind: that
+  needs `fabric-key-binding-api` and this mod ships **no Fabric API modules**
+  (loader only). A keybind is a one-line change IF the user accepts the dep.
+- **The whole framework is Minecraft-FREE and unit-tested on a bare JDK**:
+  `modules/Module`, `ModuleConfig`, `ModuleCategory`, `HudText` import nothing
+  from Minecraft. That is the point — it is what makes the config format, the
+  clamping and the category filtering testable at all. Guards:
+  `tools/test_mod_bridge.py` (SelfTest moduleFramework/hudTextLines, 164
+  checks) and `tools/test_mod_compile.py` (compiles it all).
+- **A module that throws in `apply()` reports itself OFF, not on** — a toggle
+  that lies is worse than no toggle. Pinned in SelfTest.
+- **Option modules go through `Options` ACCESSORS (`gamma()`, `fov()`,
+  `bobView()`), never the public fields.** 26.x turned the fields into
+  accessors; the field spelling compiles on 1.20-1.21 and fails 26. All three
+  were javap'd in both real jars. This is the single most important rule for
+  adding a module.
+- **`player.input` is NOT cross-era** — 1.20.1 has a public
+  `input.forwardImpulse` field, 26.x has `ClientInput.hasForwardImpulse()`.
+  Auto-sprint therefore reads `options.keyUp.isDown()`. Do not "fix" it to use
+  the input. The real 26 build caught this; the stub would not have.
+- **Only the HUD DRAW is per-bracket** (`HudMixin`, same FQN in both
+  `java-overlay-*` dirs, exactly as `CornerIcon` does): 1.20-1.21 injects
+  `Gui.render(GuiGraphics, float)`, 26.x injects
+  `Gui.extractRenderState(GuiGraphicsExtractor, DeltaTracker)`. Everything
+  deciding *what* to draw is shared in `HudState`/`HudText`.
+  `_check_mixin_wiring` now accepts overlay mixins and asserts a per-bracket
+  one exists in BOTH overlays.
+- Config lives at `<game>/config/cubeon-modules.json` via
+  `FabricLoader.getConfigDir()`; writes are atomic (tmp file + move).
+- **Not verified in-game.** The menu has never been opened, and HUD drawing is
+  the one part that cannot be compile-checked against the stub. Both jars
+  build, but a real launch is the proof.
+
+## Tab-list `[Cubeon]` tag (2026-09-27) — INVARIANT
 ## Tab-list `[Cubeon]` tag (2026-09-27) — INVARIANT
 - **Cubeon players are tagged in the TAB LIST only** — `TabListTag.decorate()`
   prepends a green `[Cubeon]` to each row. The nametag above a head is

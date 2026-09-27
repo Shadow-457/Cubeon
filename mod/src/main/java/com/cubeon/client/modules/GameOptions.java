@@ -35,6 +35,13 @@ public final class GameOptions {
             // 999 that the options screen would then reject.
             options.gamma().set(Math.max(0.0, Math.min(16.0, value)));
         }
+
+        @Override
+        public void writeRaw(Options options, Object value) {
+            if (value instanceof Double boxed) {
+                options.gamma().set(boxed);
+            }
+        }
     };
 
     /** Field of view, in degrees. */
@@ -48,6 +55,13 @@ public final class GameOptions {
         public void write(Options options, int value) {
             options.fov().set(Math.max(30, Math.min(170, value)));
         }
+
+        @Override
+        public void writeRaw(Options options, Object value) {
+            if (value instanceof Integer boxed) {
+                options.fov().set(boxed);
+            }
+        }
     };
 
     /** View bobbing - a boolean, carried through the int setting as 1/0. */
@@ -60,6 +74,13 @@ public final class GameOptions {
         @Override
         public void write(Options options, int value) {
             options.bobView().set(value != 0);
+        }
+
+        @Override
+        public void writeRaw(Options options, Object value) {
+            if (value instanceof Boolean boxed) {
+                options.bobView().set(boxed);
+            }
         }
     };
 
@@ -76,6 +97,13 @@ public final class GameOptions {
         @Override
         public void write(Options options, int value) {
             options.smoothCamera = value != 0;
+        }
+
+        @Override
+        public void writeRaw(Options options, Object value) {
+            if (value instanceof Boolean boxed) {
+                options.smoothCamera = boxed;
+            }
         }
     };
 }

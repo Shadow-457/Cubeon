@@ -30,6 +30,7 @@ Minecraft jar can confirm them.
 
 Skips cleanly (exit 0) when no JDK with javac is installed.
 """
+import glob
 import json
 import os
 import shutil
@@ -49,8 +50,23 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/CubeonClient.java",
     "mod/src/main/java/com/cubeon/client/BadgeNames.java",
     "mod/src/main/java/com/cubeon/client/TabListTag.java",
+    "mod/src/main/java/com/cubeon/client/modules/ModuleCategory.java",
+    "mod/src/main/java/com/cubeon/client/modules/Module.java",
+    "mod/src/main/java/com/cubeon/client/modules/ModuleConfig.java",
+    "mod/src/main/java/com/cubeon/client/modules/HudText.java",
+    "mod/src/main/java/com/cubeon/client/modules/HudState.java",
+    "mod/src/main/java/com/cubeon/client/modules/GameOptions.java",
+    "mod/src/main/java/com/cubeon/client/modules/OptionsAccessor.java",
+    "mod/src/main/java/com/cubeon/client/modules/Modules.java",
+    "mod/src/main/java/com/cubeon/client/ModuleMenuScreen.java",
+    "mod/src/main/java/com/cubeon/client/MenuPaint.java",
+    "mod/src/main/java/com/cubeon/client/MenuPainter.java",
     "mod/src/main/java/com/cubeon/client/WorldPlayers.java",
     "mod/src/main/java/com/cubeon/client/mixin/PauseScreenMixin.java",
+    "mod/src/main/java-overlay-1.20-1.21/com/cubeon/client/MenuPaintImpl.java",
+    "mod/src/main/java-overlay-1.20-1.21/com/cubeon/client/mixin/HudMixin.java",
+    "mod/src/main/java-overlay-1.20-1.21/com/cubeon/client/mixin/MenuPaintMixin.java",
+    "mod/src/main/java/com/cubeon/client/mixin/PlayerTickMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/PlayerTabOverlayMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/TitleScreenMixin.java",
     # The 1.20-1.21 overlay: CornerIcon's era-stable copy. The 26.x overlay is
@@ -373,9 +389,11 @@ STUBS = {
         package net.minecraft.client.player;
 
         import net.minecraft.network.chat.Component;
-        import net.minecraft.world.entity.LivingEntity;
+        import net.minecraft.world.entity.player.Player;
 
-        public class LocalPlayer extends LivingEntity {
+        /* The local player. Extends Player, as in the real game - the HUD
+         * modules are typed to Player so they are not tied to this class. */
+        public class LocalPlayer extends Player {
             /**
              * The one chat entry point this mod is allowed: present with the
              * same shape in 1.20-26.x (displayClientMessage was renamed away
@@ -433,6 +451,20 @@ STUBS = {
             public void onClose() {
             }
 
+            /**
+             * Drops every widget, so init() can rebuild the whole layout from
+             * scratch - the mod menu does this whenever the category tab or
+             * the search text changes. Verified present with the same shape in
+             * 1.20.1 and 26.1.2, and rebuildWidgets() is the alternative if this
+             * ever moves.
+             */
+            public void clearWidgets() {
+            }
+
+            public boolean isPauseScreen() {
+                return false;
+            }
+
             protected <T extends GuiEventListener & Renderable & NarratableEntry> T
                     addRenderableWidget(T widget) {
                 return widget;
@@ -481,6 +513,10 @@ STUBS = {
             public Screen screen;
             public LocalPlayer player;
             public Gui gui;
+            /** What the crosshair is on - how the reach module is computed. */
+            public net.minecraft.world.phys.HitResult hitResult;
+            public net.minecraft.client.Options options;
+            public User user;
 
             public static Minecraft getInstance() {
                 return new Minecraft();
@@ -496,6 +532,14 @@ STUBS = {
             public boolean hasSingleplayerServer() {
                 return false;
             }
+
+            /** Frames per second, for the FPS module. */
+            public int getFps() {
+                return 0;
+            }
+
+            /** The game's font, for drawing HUD text. */
+            public net.minecraft.client.gui.Font font;
 
             /**
              * The game session's account info. Real signature checked against
@@ -539,6 +583,263 @@ STUBS = {
         }
         """,
 
+    "net/minecraft/client/Options.java": """
+        package net.minecraft.client;
+
+        import net.minecraft.client.OptionInstance;
+
+        /*
+         * Only what the mod's Render modules touch. Every accessor here was
+         * javap'd in the real 1.20.1 AND 26.1.2 jars and exists with the same
+         * shape in both - that is the whole reason the modules are written
+         * against the accessor form and never the public FIELD form
+         * (options.gammaSetting), which only survives on the older bracket.
+         * Adding a real option here needs that same check, and a note saying
+         * which jar it was checked in.
+         */
+        public final class Options {
+            public final KeyMapping keyUp = new KeyMapping();
+            public final KeyMapping keyDown = new KeyMapping();
+            public final KeyMapping keyLeft = new KeyMapping();
+            public final KeyMapping keyRight = new KeyMapping();
+            public final KeyMapping keyJump = new KeyMapping();
+            public final KeyMapping keySprint = new KeyMapping();
+
+            /** Still a plain public field in both eras, unlike the rest. */
+            public boolean smoothCamera;
+
+            public OptionInstance<Double> gamma() {
+                return new OptionInstance<>();
+            }
+
+            public OptionInstance<Integer> fov() {
+                return new OptionInstance<>();
+            }
+
+            public OptionInstance<Boolean> bobView() {
+                return new OptionInstance<>();
+            }
+        }
+        """,
+
+    "net/minecraft/client/OptionInstance.java": """
+        package net.minecraft.client;
+
+        /* get/set verified identical in 1.20.1 and 26.1.2. */
+        public final class OptionInstance<T> {
+            public T get() {
+                return null;
+            }
+
+            public void set(T value) {
+            }
+        }
+        """,
+
+    "net/minecraft/client/KeyMapping.java": """
+        package net.minecraft.client;
+
+        public class KeyMapping {
+            public boolean isDown() {
+                return false;
+            }
+        }
+        """,
+
+    "net/minecraft/world/entity/player/Player.java": """
+        package net.minecraft.world.entity.player;
+
+        import net.minecraft.network.chat.Component;
+        import net.minecraft.world.entity.LivingEntity;
+
+        /*
+         * The local player, as the HUD and auto-sprint modules see it. Every
+         * member here was javap'd in the real 1.20.1 and 26.1.2 jars: the HUD
+         * layer is shared between brackets, so anything it calls has to exist
+         * in both or one bracket fails to build.
+         *
+         * getDisplayName/getName are the retired nametag badge's target and are
+         * kept only so the shape stays documented; nothing calls them now.
+         */
+        public class Player extends LivingEntity {
+            /*
+             * NOTE: there is deliberately no `input` field here. The movement
+             * input is the one thing that did NOT survive both brackets - 1.20.1
+             * has a public `input.forwardImpulse` field, 26.x has
+             * ClientInput.hasForwardImpulse() - and auto-sprint reads the forward
+             * KEYBIND instead precisely so it stays in shared source. Do not add
+             * an input stub back without checking both jars.
+             */
+
+            public double getX() { return 0.0; }
+            public double getY() { return 0.0; }
+            public double getZ() { return 0.0; }
+
+            public double distanceToSqr(double x, double y, double z) { return 0.0; }
+
+            public float getAttackStrengthScale(float base) { return 0.0F; }
+
+            public boolean isSprinting() { return false; }
+            public void setSprinting(boolean sprinting) { }
+
+            public Component getName() { return Component.empty(); }
+            public Component getDisplayName() { return Component.empty(); }
+        }
+        """,
+
+    "net/minecraft/world/entity/LivingEntity.java": """
+        package net.minecraft.world.entity;
+
+        /* Only what the modules read off the player. */
+        public class LivingEntity extends Entity {
+            public int getArmorValue() { return 0; }
+        }
+        """,
+
+    "net/minecraft/client/gui/GuiGraphics.java": """
+        package net.minecraft.client.gui;
+
+        import net.minecraft.client.gui.Font;
+
+        /*
+         * The 1.20-1.21 HUD draw context. Deliberately NOT part of the 26.x
+         * bracket: that era renders through GuiGraphicsExtractor, which is why
+         * HudMixin has a per-bracket copy but everything above it is shared.
+         */
+        public class GuiGraphics {
+            public void fill(int x1, int y1, int x2, int y2, int colour) {
+            }
+
+            public void fill(int x1, int y1, int x2, int y2, int colour, int alpha) {
+            }
+
+            public int drawString(Font font, String text, int x, int y, int colour) {
+                return 0;
+            }
+
+            public int drawString(Font font, String text, int x, int y, int colour,
+                                   boolean shadow) {
+                return 0;
+            }
+        }
+        """,
+
+    "net/minecraft/client/gui/Gui.java": """
+        package net.minecraft.client.gui;
+
+        import net.minecraft.network.chat.Component;
+
+        public class Gui {
+            /*
+             * The overlay line above the hotbar. Deliberately the only way this
+             * mod says anything outside its own screen: getChat().addMessage and
+             * SystemToast's factories have both been reshuffled between eras (by
+             * 26.x addMessage is private and takes four arguments), and neither
+             * appears in this stub so neither can be reached for by accident.
+             */
+            public void setOverlayMessage(Component message, boolean animated) {
+            }
+
+            /*
+             * The HUD draw entry point, for the 1.20-1.21 HudMixin only. 26.x
+             * replaced it with extractRenderState, which is why that mixin has a
+             * per-bracket copy - see HudMixin. The constructor is deliberately
+             * absent: nothing constructs a Gui, and stubbing its parameters would
+             * mean dragging ItemRenderer in for no reason.
+             */
+            public void render(GuiGraphics graphics, float partialTick) {
+            }
+        }
+        """,
+
+    "net/fabricmc/loader/api/FabricLoader.java": """
+        package net.fabricmc.loader.api;
+
+        import java.nio.file.Path;
+
+        /* Loader (not a Fabric API module) - where the module config lives. */
+        public interface FabricLoader {
+            static FabricLoader getInstance() {
+                return null;
+            }
+
+            Path getConfigDir();
+        }
+        """,
+
+    "net/minecraft/world/entity/Entity.java": """
+        package net.minecraft.world.entity;
+
+        /* Only what the reach module needs off an entity hit. */
+        public class Entity {
+            public double distanceTo(Entity other) { return 0.0; }
+        }
+        """,
+
+    "net/minecraft/world/phys/Vec3.java": """
+        package net.minecraft.world.phys;
+
+        /* The hit-result location the reach module reads. */
+        public class Vec3 {
+            public double getX() { return 0.0; }
+            public double getY() { return 0.0; }
+            public double getZ() { return 0.0; }
+        }
+        """,
+
+    "net/minecraft/world/phys/BlockPos.java": """
+        package net.minecraft.world.phys;
+
+        public class BlockPos {
+            public int getX() { return 0; }
+            public int getY() { return 0; }
+            public int getZ() { return 0; }
+        }
+        """,
+
+    "net/minecraft/world/phys/HitResult.java": """
+        package net.minecraft.world.phys;
+
+        /* Type and location, the only two things the reach module reads. */
+        public class HitResult {
+            public enum Type {
+                MISS, BLOCK, ENTITY
+            }
+
+            public Type getType() { return Type.MISS; }
+            public Vec3 getLocation() { return new Vec3(); }
+        }
+        """,
+
+    "net/minecraft/world/phys/BlockHitResult.java": """
+        package net.minecraft.world.phys;
+
+        public class BlockHitResult extends HitResult {
+            public BlockPos getBlockPos() { return new BlockPos(); }
+        }
+        """,
+
+    "net/minecraft/world/phys/EntityHitResult.java": """
+        package net.minecraft.world.phys;
+
+        import net.minecraft.world.entity.Entity;
+
+        public class EntityHitResult extends HitResult {
+            public Entity getEntity() { return null; }
+        }
+        """,
+
+    "net/minecraft/client/User.java": """
+        package net.minecraft.client;
+
+        /* getName() is what the ping module looks the player up by. */
+        public class User {
+            public String getName() {
+                return "";
+            }
+        }
+        """,
+
     "net/minecraft/client/multiplayer/ClientPacketListener.java": """
         package net.minecraft.client.multiplayer;
 
@@ -547,6 +848,11 @@ STUBS = {
         public class ClientPacketListener {
             public Collection<PlayerInfo> getOnlinePlayers() {
                 return java.util.List.of();
+            }
+
+            /** The player list, for the ping module. */
+            public PlayerInfo getPlayerInfo(String name) {
+                return null;
             }
         }
         """,
@@ -562,10 +868,15 @@ STUBS = {
          * mod needs: it is how a row's Minecraft username is read, and authlib
          * is an external library that has never been version-reshaped, so
          * GameProfile.getName() is safe on every version this mod serves.
+         * getLatency() is the ping module's only other use.
          */
         public class PlayerInfo {
             public GameProfile getProfile() {
                 return null;
+            }
+
+            public int getLatency() {
+                return 0;
             }
         }
         """,
@@ -587,14 +898,6 @@ STUBS = {
             public String getName() {
                 return "";
             }
-        }
-        """,
-
-    "net/minecraft/world/entity/LivingEntity.java": """
-        package net.minecraft.world.entity;
-
-        /* Superclass of LocalPlayer; no members the mod touches. */
-        public class LivingEntity {
         }
         """,
 
@@ -738,30 +1041,6 @@ STUBS = {
             }
         }
         """,
-
-    "net/minecraft/world/entity/player/Player.java": """
-        package net.minecraft.world.entity.player;
-
-        import net.minecraft.network.chat.Component;
-
-        /*
-         * Retained only as an API surface the OTHER mixins must not start
-         * depending on: this class existed so the nametag-badge mixin could be
-         * compile-checked without Minecraft, and the badge has since been
-         * removed. Nothing in the compiled mod set references Player any more -
-         * if a future mixin does, it needs a real justification for its target
-         * surface added here, not just this bare shell.
-         */
-        public class Player {
-            public Component getName() {
-                return Component.empty();
-            }
-
-            public Component getDisplayName() {
-                return Component.empty();
-            }
-        }
-        """,
 }
 
 
@@ -797,10 +1076,24 @@ def _check_mixin_wiring():
                    encoding="utf-8").read()
 
     for name in sorted(registered):
-        path = f"mod/src/main/java/com/cubeon/client/mixin/{name}.java"
-        say(os.path.isfile(os.path.join(ROOT, path)),
-            f"{name} is registered and its source exists", path)
-        say(path in MOD_SOURCES, f"{name}.java is in MOD_SOURCES")
+        # A mixin may be SHARED (src/main/java) or PER-BRACKET (one copy in
+        # each src/main/java-overlay-<key>, like HudMixin and CornerIcon, which
+        # target game calls that were genuinely reshaped between eras). The
+        # config names it either way, so both spellings are accepted here - but
+        # a per-bracket mixin must exist in EVERY overlay, or one bracket
+        # silently ships without it.
+        shared = f"mod/src/main/java/com/cubeon/client/mixin/{name}.java"
+        overlays = sorted(glob.glob(
+            f"mod/src/main/java-overlay-*/com/cubeon/client/mixin/{name}.java"))
+        if os.path.isfile(os.path.join(ROOT, shared)):
+            say(shared in MOD_SOURCES, f"{name}.java (shared) is in MOD_SOURCES")
+        else:
+            say(len(overlays) > 0,
+                f"{name} is per-bracket and has an overlay copy", shared)
+            say(len(overlays) == 2,
+                f"{name} exists in both bracket overlays",
+                f"found {len(overlays)}; a missing one ships that bracket "
+                f"without the mixin and the feature silently does nothing")
         say(f"{name}.class" in jar_src,
             f"{name}.class is in build_mod_jars REQUIRED_ENTRIES")
 

@@ -72,7 +72,10 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/CubeonClientScreen.class",
                     "com/cubeon/client/WorldPlayers.class",
                     "com/cubeon/client/CornerIcon.class",
+                    "com/cubeon/client/mixin/HudMixin.class",
+                    "com/cubeon/client/mixin/MenuPaintMixin.class",
                     "com/cubeon/client/mixin/PauseScreenMixin.class",
+                    "com/cubeon/client/mixin/PlayerTickMixin.class",
                     "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
                     "com/cubeon/client/mixin/TitleScreenMixin.class")
 

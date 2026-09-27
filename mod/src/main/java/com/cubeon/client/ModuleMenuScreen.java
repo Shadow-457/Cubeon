@@ -8,46 +8,81 @@ import com.cubeon.client.modules.Module;
 import com.cubeon.client.modules.ModuleCategory;
 import com.cubeon.client.modules.Modules;
 
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.components.StringWidget;
-import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 /**
- * The mod menu: category tabs, a search box, and a card per module with an
- * on/off toggle and its settings.
+ * The mod menu: a dark panel, category tabs, and a card per module.
  *
- * <p>Built entirely from {@link Button}s, {@link EditBox} and
- * {@link StringWidget}. That is a deliberate constraint, not laziness: those
- * three, plus {@code addRenderableWidget} and this class's own {@code font},
- * are the whole widget surface that has not moved between 1.20.1 and 26.x, so
- * one jar serves both brackets. It never overrides {@code render} or an input
- * callback either - a custom render is exactly what changed shape between
- * eras, and cards made of themed buttons look the same everywhere with no
- * per-era drawing code at all.
+ * <p><b>It paints itself.</b> The first version of this screen was built from
+ * vanilla Button and EditBox widgets, because avoiding any custom drawing is
+ * what lets one jar serve both brackets. It worked - and it looked like a
+ * Minecraft options screen: grey bevelled buttons in a ragged grid, nothing
+ * like a mod menu. This version draws the panel, tabs and cards itself through
+ * {@link MenuPaint}, whose two primitives are the only per-bracket part.
+ *
+ * <p>Inputs are still plain widgets: invisible Buttons sit over every painted
+ * element, because {@code mouseClicked} is one of the callbacks whose
+ * signature changed in 26.x, and widgets are the cross-era way to get clicks.
+ * The buttons draw nothing; {@link #drawOverlay} draws the whole menu.
+ *
+ * <p>Nothing here overrides {@code render} - see {@code MenuPaintMixin} (one
+ * per bracket) for the paint hook.
  */
 public class ModuleMenuScreen extends Screen {
-
-    private static final int COLS = 2;
-    private static final int CARD_W = 150;
-    private static final int CARD_H = 34;
-    private static final int CARD_GAP = 4;
-    private static final int TAB_Y = 22;
-    private static final int LIST_Y = 40;
-    private static final int BTN_H = 12;
-    private static final int NAME_W = 78;
-    private static final int TOGGLE_W = 46;
 
     private final Screen parent;
     private final List<Module> modules = Modules.get().all();
 
     private ModuleCategory category = ModuleCategory.ALL;
-    private String search = "";
-    /** The module whose settings are open, or null for the module list. */
     private Module settingsFor;
-    private EditBox searchBox;
+
+    // ---- layout, rebuilt on every init/rebuild -------------------------
+    // Package-private and mutable because the painter reads them; this class
+    // is the only writer, so the picture cannot drift out of step with the
+    // invisible hit targets.
+
+    int panelX;
+    int panelY;
+    int panelW;
+    int panelH;
+    int gridX;
+    int gridY;
+    int cols = 1;
+    final List<Card> cards = new ArrayList<>();
+    final int[] tabX = new int[ModuleCategory.values().length];
+    final int[] tabW = new int[ModuleCategory.values().length];
+    int[] closeRect = new int[4];
+    int[] actionRect = new int[4];
+    String settingsTitle = "";
+    final List<String> settingLabels = new ArrayList<>();
+
+    private static final int CARD_W = 150;
+    private static final int CARD_H = 30;
+    private static final int GAP = 6;
+
+    /** One card: shared by the painter and by hit-testing. */
+    public static final class Card {
+        public final int x;
+        public final int y;
+        public final int w;
+        public final int h;
+        public final Module module;
+
+        Card(int x, int y, int w, int h, Module module) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+            this.module = module;
+        }
+
+        public boolean contains(int mx, int my) {
+            return mx >= x && mx < x + w && my >= y && my < y + h;
+        }
+    }
 
     public ModuleMenuScreen(Screen parent) {
         super(Component.literal("Cubeon Modules"));
@@ -56,171 +91,229 @@ public class ModuleMenuScreen extends Screen {
 
     @Override
     protected void init() {
-        if (settingsFor != null) {
-            buildSettings();
+        layout();
+        buildHitTargets();
+    }
+
+
+    // ---- layout ---------------------------------------------------------
+
+    private void layout() {
+        panelW = Math.min(430, this.width - 40);
+        panelH = Math.min(256, this.height - 40);
+        panelX = (this.width - panelW) / 2;
+        panelY = (this.height - panelH) / 2;
+
+        // The column count comes from the panel width, so the grid is always
+        // aligned. The first version hard-coded two 150px columns and left the
+        // toggles floating outside their own cards, which read as three loose
+        // unrelated columns.
+        cols = Math.max(1, (panelW - 20) / (CARD_W + GAP));
+        int gridW = cols * CARD_W + (cols - 1) * GAP;
+        gridX = panelX + (panelW - gridW) / 2;
+        gridY = panelY + 48;
+
+        int tx = panelX + 10;
+        for (ModuleCategory cat : ModuleCategory.values()) {
+            int i = cat.ordinal();
+            tabX[i] = tx;
+            tabW[i] = 46;
+            tx += 48;
+        }
+        closeRect = new int[]{panelX + panelW - 20, panelY + 6, 14, 14};
+        actionRect = new int[]{panelX + (panelW - 70) / 2, panelY + panelH - 20, 70, 14};
+
+        cards.clear();
+        settingLabels.clear();
+        settingsTitle = "";
+        if (settingsFor == null) {
+            int y = gridY;
+            int col = 0;
+            for (Module module : visible()) {
+                if (y + CARD_H > panelY + panelH - 26) {
+                    break;
+                }
+                cards.add(new Card(gridX + col * (CARD_W + GAP), y, CARD_W,
+                        CARD_H, module));
+                col++;
+                if (col >= cols) {
+                    col = 0;
+                    y += CARD_H + GAP;
+                }
+            }
         } else {
-            buildList();
+            settingsTitle = settingsFor.name();
+            for (String key : settingsFor.settingKeys()) {
+                settingLabels.add(key + ": "
+                        + (settingsFor.isBoolSetting(key)
+                                ? (settingsFor.boolValue(key) ? "On" : "Off")
+                                : Integer.toString(settingsFor.intValue(key))));
+            }
         }
     }
 
-    // ---- the module list -------------------------------------------------
-
-    private void buildList() {
-        int tabX = 6;
+    /**
+     * Invisible buttons over every painted element.
+     *
+     * <p>They draw nothing at all - the menu is painted by
+     * {@link #drawOverlay}. They exist purely so the framework routes clicks,
+     * which is the only cross-era way to get input.
+     */
+    private void buildHitTargets() {
         for (ModuleCategory cat : ModuleCategory.values()) {
             final ModuleCategory chosen = cat;
-            addRenderableWidget(Button
-                    .builder(Component.literal(cat.label()), b -> {
-                        category = chosen;
-                        rebuild();
-                    })
-                    .bounds(tabX, TAB_Y, 44, BTN_H)
-                    .build());
-            tabX += 46;
+            int i = cat.ordinal();
+            hit(tabX[i], panelY + 22, tabW[i], 14, () -> {
+                category = chosen;
+                settingsFor = null;
+                rebuild();
+            });
         }
-
-        searchBox = new EditBox(this.font, this.width - 92, TAB_Y - 2, 86, 14,
-                Component.literal("Search"));
-        searchBox.setMaxLength(24);
-        searchBox.setValue(search);
-        searchBox.setResponder(value -> {
-            search = value;
-            rebuild();
-        });
-        addRenderableWidget(searchBox);
-
-        int left = (this.width - (COLS * CARD_W + (COLS - 1) * CARD_GAP)) / 2;
-        int y = LIST_Y;
-        int col = 0;
-        for (Module module : visible()) {
-            if (y + CARD_H > this.height - 26) {
-                break;   // out of room; Done stays reachable
+        hit(closeRect[0], closeRect[1], closeRect[2], closeRect[3], this::onClose);
+        if (settingsFor == null) {
+            hit(actionRect[0], actionRect[1], actionRect[2], actionRect[3],
+                    this::onClose);
+            for (Card card : cards) {
+                final Module module = card.module;
+                hit(card.x, card.y, card.w, card.h, () -> {
+                    module.setEnabled(!module.isEnabled());
+                    Modules.get().save();
+                    rebuild();
+                });
             }
-            int x = left + col * (CARD_W + CARD_GAP);
-            addRenderableWidget(Button
-                    .builder(Component.literal(module.name()), b -> toggle(module))
-                    .bounds(x, y, NAME_W, CARD_H)
-                    .tooltip(Tooltip.create(Component.literal(module.description())))
-                    .build());
-            addRenderableWidget(new StringWidget(x + 2, y + CARD_H - 11,
-                    CARD_W - TOGGLE_W - 8, 9,
-                    Component.literal(module.description()), this.font));
-            addRenderableWidget(Button
-                    .builder(Component.literal(module.isEnabled() ? "On" : "Off"),
-                            b -> toggle(module))
-                    .bounds(x + CARD_W - TOGGLE_W, y + 2, TOGGLE_W, BTN_H)
-                    .build());
-            if (!module.settingKeys().isEmpty()) {
-                addRenderableWidget(Button
-                        .builder(Component.literal("..."), b -> {
-                            settingsFor = module;
-                            rebuild();
-                        })
-                        .bounds(x + CARD_W - BTN_H - 2, y + CARD_H - BTN_H - 2,
-                                BTN_H, BTN_H)
-                        .tooltip(Tooltip.create(Component.literal("Settings")))
-                        .build());
-            }
-            col++;
-            if (col >= COLS) {
-                col = 0;
-                y += CARD_H + CARD_GAP;
+        } else {
+            hit(actionRect[0], actionRect[1], actionRect[2], actionRect[3], () -> {
+                settingsFor = null;
+                rebuild();
+            });
+            int y = panelY + 52;
+            for (String key : settingsFor.settingKeys()) {
+                final String settingKey = key;
+                hit(panelX + panelW - 92, y, 16, 12, () -> bump(settingKey, -1));
+                hit(panelX + panelW - 72, y, 16, 12, () -> bump(settingKey, 1));
+                y += 14;
             }
         }
-
-        addRenderableWidget(Button
-                .builder(Component.literal("Done"), b -> onClose())
-                .bounds((this.width - 70) / 2, this.height - 20, 70, BTN_H)
-                .build());
     }
 
-
-    private void toggle(Module module) {
-        module.setEnabled(!module.isEnabled());
-        Modules.get().save();
-        rebuild();
-    }
-
-    /** Modules passing both the category tab and the search box. */
+    /** Modules passing the category tab. */
     private List<Module> visible() {
-        String needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         List<Module> out = new ArrayList<>();
         for (Module module : modules) {
-            if (!category.matches(module.category())) {
-                continue;
+            if (category.matches(module.category())) {
+                out.add(module);
             }
-            String name = module.name().toLowerCase(Locale.ROOT);
-            String blurb = module.description().toLowerCase(Locale.ROOT);
-            if (!needle.isEmpty() && !name.contains(needle)
-                    && !blurb.contains(needle)) {
-                continue;
-            }
-            out.add(module);
         }
         return out;
     }
 
-    // ---- one module's settings -------------------------------------------
-
-    private void buildSettings() {
-        Module module = settingsFor;
-        addRenderableWidget(new StringWidget(8, 14, this.width - 16, 11,
-                Component.literal(module.name()), this.font));
-        int y = 30;
-        for (String key : module.settingKeys()) {
-            final boolean isBool = module.isBoolSetting(key);
-            addRenderableWidget(new StringWidget(10, y + 3, 150, 9,
-                    Component.literal(key + ": " + show(module, key)), this.font));
-            addRenderableWidget(Button
-                    .builder(Component.literal("-"), b -> {
-                        bump(module, key, -1, isBool);
-                        rebuild();
-                    })
-                    .bounds(this.width - 92, y, 16, BTN_H).build());
-            addRenderableWidget(Button
-                    .builder(Component.literal("+"), b -> {
-                        bump(module, key, 1, isBool);
-                        rebuild();
-                    })
-                    .bounds(this.width - 72, y, 16, BTN_H).build());
-            y += 16;
-        }
+    private void hit(int x, int y, int w, int h, Runnable action) {
         addRenderableWidget(Button
-                .builder(Component.literal("Back"), b -> {
-                    settingsFor = null;
-                    rebuild();
-                })
-                .bounds((this.width - 70) / 2, this.height - 20, 70, BTN_H)
+                .builder(Component.empty(), b -> action.run())
+                .bounds(x, y, w, h)
                 .build());
     }
 
-    private static String show(Module module, String key) {
-        return module.isBoolSetting(key)
-                ? (module.boolValue(key) ? "On" : "Off")
-                : Integer.toString(module.intValue(key));
-    }
-
-    private static void bump(Module module, String key, int delta, boolean isBool) {
-        if (isBool) {
+    private void bump(String key, int delta) {
+        Module module = settingsFor;
+        if (module == null) {
+            return;
+        }
+        if (module.isBoolSetting(key)) {
             module.setBoolValue(key, !module.boolValue(key));
         } else {
             module.setIntValue(key, module.intValue(key) + delta * 5);
         }
-        // A changed setting only reaches the game while the module is on, so
-        // re-apply it here instead of making the player toggle it off and on.
+        // A setting only reaches the game while the module is on, so re-apply
+        // rather than making the player toggle it off and on again.
         if (module.isEnabled()) {
             module.setEnabled(false);
             module.setEnabled(true);
         }
         Modules.get().save();
+        rebuild();
     }
 
-    // ---- plumbing --------------------------------------------------------
-
-    /** Rebuilds the widget set, the way a resize would. */
+    /** Rebuilds layout and widgets, the way a resize would. */
     private void rebuild() {
         this.clearWidgets();
         init();
+    }
+
+    /** Modules passing the category tab. */
+
+    // ---- painting --------------------------------------------------------
+
+    /** Paints the whole menu. Called from the per-bracket render hook. */
+    public void drawOverlay(MenuPaint paint, int mouseX, int mouseY) {
+        Font font = this.font;
+        paint.fill(0, 0, this.width, this.height, MenuPainter.PAGE_DIM);
+        MenuPainter.roundRect(paint, panelX, panelY, panelW, panelH, MenuPainter.PANEL);
+        MenuPainter.outline(paint, panelX, panelY, panelW, panelH, MenuPainter.PANEL_EDGE);
+
+        paint.text(font, "CUBEON", panelX + 10, panelY + 8, MenuPainter.TEXT, false);
+        String clock = Modules.get().clock().line();
+        paint.text(font, clock, (this.width - font.width(clock)) / 2,
+                panelY + 8, MenuPainter.TEXT_DIM, false);
+
+        if (settingsFor != null) {
+            paint.text(font, MenuPainter.clip(font, settingsTitle, panelW - 24),
+                    panelX + 12, panelY + 32, MenuPainter.TEXT, false);
+            int sy = panelY + 52;
+            for (String label : settingLabels) {
+                paint.text(font, MenuPainter.clip(font, label, panelW - 110),
+                        panelX + 16, sy, MenuPainter.TEXT_DIM, false);
+                sy += 14;
+            }
+            drawChrome(paint, font, "Back");
+            return;
+        }
+
+        for (ModuleCategory cat : ModuleCategory.values()) {
+            int i = cat.ordinal();
+            boolean on = cat == category;
+            MenuPainter.roundRect(paint, tabX[i], panelY + 22, tabW[i], 14,
+                    on ? MenuPainter.TAB_ON : MenuPainter.TAB_OFF);
+            String label = cat.label();
+            paint.text(font, label, tabX[i] + (tabW[i] - font.width(label)) / 2,
+                    panelY + 25, on ? MenuPainter.TEXT : MenuPainter.TEXT_DIM, false);
+        }
+
+        for (Card card : cards) {
+            boolean hover = card.contains(mouseX, mouseY);
+            MenuPainter.roundRect(paint, card.x, card.y, card.w, card.h,
+                    hover ? MenuPainter.CARD_HOVER : MenuPainter.CARD);
+            MenuPainter.outline(paint, card.x, card.y, card.w, card.h,
+                    hover ? MenuPainter.TAB_ON : MenuPainter.CARD_EDGE);
+            Module m = card.module;
+            paint.text(font, MenuPainter.clip(font, m.name(), card.w - 12),
+                    card.x + 6, card.y + 4, MenuPainter.TEXT, false);
+            paint.text(font, MenuPainter.clip(font, m.description(), card.w - 12),
+                    card.x + 6, card.y + 14, MenuPainter.TEXT_FAINT, false);
+            // The status bar sits INSIDE the card. The first version put the
+            // toggle to the right of the card, which read as three unrelated
+            // columns rather than one card with a state.
+            int barX = card.x + 5;
+            int barY = card.y + card.h - 10;
+            MenuPainter.roundRect(paint, barX, barY, 44, 9,
+                    m.isEnabled() ? MenuPainter.ON_BAR : MenuPainter.OFF_BAR);
+            String state = m.isEnabled() ? "Enabled" : "Disabled";
+            paint.text(font, state, barX + (44 - font.width(state)) / 2, barY + 1,
+                    m.isEnabled() ? MenuPainter.ON_TEXT : MenuPainter.OFF_TEXT, false);
+        }
+
+        drawChrome(paint, font, "Done");
+    }
+
+    private void drawChrome(MenuPaint paint, Font font, String label) {
+        MenuPainter.roundRect(paint, closeRect[0], closeRect[1], closeRect[2],
+                closeRect[3], MenuPainter.CLOSE);
+        paint.text(font, "X", closeRect[0] + 5, closeRect[1] + 3, MenuPainter.TEXT, false);
+        MenuPainter.roundRect(paint, actionRect[0], actionRect[1], actionRect[2],
+                actionRect[3], MenuPainter.TAB_OFF);
+        paint.text(font, label,
+                actionRect[0] + (actionRect[2] - font.width(label)) / 2,
+                actionRect[1] + 3, MenuPainter.TEXT, false);
     }
 
     @Override

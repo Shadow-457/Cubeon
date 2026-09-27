@@ -197,7 +197,7 @@ public final class Modules {
                 }
                 accessor.write(options, intValue(settingKey));
             } else if (previous != null) {
-                accessor.write(options, previous);
+                accessor.writeRaw(options, previous);
                 previous = null;
             }
         }
@@ -212,20 +212,6 @@ public final class Modules {
                 }
             }
         }
-    }
-
-    /**
-     * Reads and writes one of the game's options across both eras. The 26.x
-     * bracket turned these public fields into accessors, so every read and
-     * write goes through the method form, which exists in 1.20.1 too.
-     *
-     * <p>Implemented in {@link GameOptions} so the casts to
-     * {@code OptionInstance<Boolean/Double/Integer>} live in one place.
-     */
-    public interface OptionsAccessor {
-        Object read(Options options);
-
-        void write(Options options, int value);
     }
 
     /**
@@ -251,9 +237,14 @@ public final class Modules {
             if (mc.player == null) {
                 return;
             }
-            boolean forward = mc.options.keySprint.isDown()
-                    || mc.player.input.forwardImpulse > 0.0F;
-            if (forward && !mc.player.isSprinting()) {
+            // The keybind, NOT the movement input. `player.input` was the
+            // obvious thing to read and it is exactly what does not survive
+            // both brackets: 1.20.1 has a public `input.forwardImpulse` field,
+            // while 26.x turned the class into ClientInput with a
+            // hasForwardImpulse() method. The forward key exists with the same
+            // shape in both, so "are you holding forward" is asked of the
+            // keybind - which is also what auto-sprint actually means.
+            if (mc.options.keyUp.isDown() && !mc.player.isSprinting()) {
                 mc.player.setSprinting(true);
             }
         }
@@ -282,11 +273,3 @@ public final class Modules {
     }
 }
 
-}
-
-        for (Module module : all) {
-            if (module instanceof OptionModule option) {
-                optionModules.add(option);
-            }
-        }
-    }
