@@ -7,6 +7,33 @@ see the web bullets further down. The waitlist is gone, the repo is private.) If
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
+## A mixin must name a method its OWN target DECLARES (2026-09-27) — INVARIANT
+- **Mixin resolves `@Inject(method=...)` against the methods the TARGET CLASS
+  ITSELF declares. An inherited method is not found.** With `require = 0` that
+  is a **silent no-op**, not a failure — the mixin loads, the game runs, and
+  the feature simply never happens.
+- This cost a whole build cycle: `MenuPaintMixin` was written as
+  `@Mixin(ModuleMenuScreen.class)` injecting `render`, but `ModuleMenuScreen`
+  only INHERITS `render` from `Screen`. The menu never painted — no panel, no
+  text, just empty invisible buttons — while every test stayed green.
+- **Fix, and the pattern for any inherited method:** target the class that
+  DECLARES it and guard on the instance type —
+  `@Mixin(Screen.class)` + `if (!((Object) this instanceof ModuleMenuScreen)) return;`
+  Per bracket, because `render` is `Screen.render(GuiGraphics,…)` on 1.20-1.21
+  and `Screen.extractRenderState(GuiGraphicsExtractor,…)` on 26.x.
+- **Guard:** `tools/test_mod_compile.py` now parses every mixin in
+  `MOD_SOURCES`, resolves its `@Mixin` target (including unqualified names and
+  simple names — a mixin in `…client.mixin` imports its target from
+  `…client`), and asserts each injected method is declared in that source.
+  Verified it FAILS on the original bug and PASSES on the fix. The `@Mixin`
+  regex is line-anchored so a javadoc explaining the bug is not mistaken for the
+  annotation — that was a false positive the guard itself had first.
+- Every other mixin here is fine *by construction*: their targets declare
+  what they inject — `Gui.render`, `LocalPlayer.tick`, `PauseScreen.init`,
+  `TitleScreen.init`, `PlayerTabOverlay.getNameForDisplay`,
+  `Player.getDisplayName`. Check that list before adding another.
+
+
 ## The mod menu PAINTS itself — never use vanilla widgets for it (2026-09-27) — INVARIANT
 - **A lesson paid for once: the first mod menu was built from vanilla
   `Button`/`EditBox` widgets and the user rejected it outright** — grey bevelled

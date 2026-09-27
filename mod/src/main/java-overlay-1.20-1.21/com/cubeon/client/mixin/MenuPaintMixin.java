@@ -4,6 +4,7 @@ import com.cubeon.client.MenuPaintImpl;
 import com.cubeon.client.ModuleMenuScreen;
 
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -14,31 +15,41 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * Hands the mod menu its graphics object, then lets it paint itself - the
  * 1.20-1.21 half.
  *
- * <p>This mixin is the ONLY version-specific part of the menu, and there is a
- * second one in {@code java-overlay-26} under the same FQN, exactly as
- * {@code CornerIcon} and {@code HudMixin} do. It is per-bracket because the
- * screen draw call itself was renamed: here it is
- * {@code Screen.render(GuiGraphics, int, int, float)}, while 26.x has
- * {@code Screen.extractRenderState(GuiGraphicsExtractor, int, int, float)}.
- * Two signatures that unrelated cannot share one injector.
+ * <p><b>This mixes into {@link Screen}, not {@code ModuleMenuScreen}, and that
+ * is not a stylistic choice.</b> The screen draw call is declared on
+ * {@code Screen}, and {@code ModuleMenuScreen} only INHERITS it. Mixin resolves
+ * an {@code @Inject} against the methods the target class itself declares, so
+ * {@code @Mixin(ModuleMenuScreen.class)} + {@code method = "render"} found
+ * nothing - and because the injector is {@code require = 0} it failed
+ * SILENTLY. The result was a menu that never painted: no panel, no text, just
+ * the invisible hit-target buttons rendering empty. Every other mixin in this
+ * mod targets a class that really does declare its injected method
+ * ({@code Gui.render}, {@code LocalPlayer.tick}, {@code PauseScreen.init}),
+ * which is why this one was the only casualty.
  *
- * <p>Injected at TAIL so it runs after the framework has laid the screen out;
- * the menu's own hit targets are invisible buttons, so painting over them at
- * the end is what puts the picture on top.
+ * <p>So the target is {@code Screen} and the first thing the body does is
+ * check the instance type - which makes it a no-op for every other screen in
+ * the game. That is the standard price of inheriting a method you cannot
+ * override in shared source: {@code render} has different signatures in the two
+ * eras ({@code GuiGraphics} vs {@code GuiGraphicsExtractor}), so the screen
+ * itself cannot declare it once for both.
  */
-@Mixin(ModuleMenuScreen.class)
+@Mixin(Screen.class)
 public abstract class MenuPaintMixin {
 
     @Inject(method = "render", at = @At("TAIL"), require = 0)
     private void cubeon$paintMenu(GuiGraphics graphics, int mouseX, int mouseY,
                                   float partialTick, CallbackInfo ci) {
+        if (!((Object) this instanceof ModuleMenuScreen)) {
+            return;
+        }
         try {
             ((ModuleMenuScreen) (Object) this)
                     .drawOverlay(new MenuPaintImpl(graphics), mouseX, mouseY);
         } catch (Throwable ignored) {
-            // An unpainted menu still works - the invisible hit targets and the
-            // settings are all still live. It must never be able to break the
-            // screen the way a throw out of render would.
+            // An unpainted menu still works - the hit targets and the settings
+            // are live regardless. It must never break the screen, which is
+            // what a throw out of render would do.
         }
     }
 }

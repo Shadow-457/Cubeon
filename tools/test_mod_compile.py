@@ -33,6 +33,7 @@ Skips cleanly (exit 0) when no JDK with javac is installed.
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1096,6 +1097,51 @@ def _check_mixin_wiring():
                 f"without the mixin and the feature silently does nothing")
         say(f"{name}.class" in jar_src,
             f"{name}.class is in build_mod_jars REQUIRED_ENTRIES")
+
+    # A mixin that targets one of the mod's OWN classes must name a method that
+    # class actually DECLARES. Mixin resolves @Inject against the target's own
+    # methods, so an inherited one is not found - and with require = 0 that is a
+    # SILENT no-op, not a failure. This is not hypothetical: MenuPaintMixin
+    # aimed at ModuleMenuScreen for `render`, which ModuleMenuScreen only
+    # inherits from Screen, so the whole mod menu never painted, every string
+    # was missing, and the test suite stayed green throughout.
+    own = {}
+    for path in glob.glob("mod/src/main/java/com/cubeon/client/**/*.java",
+                          recursive=True):
+        src = open(path, encoding="utf-8").read()
+        simple = os.path.basename(path)[:-5]
+        fqn = ("com.cubeon.client.mixin." if
+               os.path.basename(os.path.dirname(path)) == "mixin"
+               else "com.cubeon.client.") + simple
+        own[fqn] = src
+        # Also index the simple name: a mixin lives in ...client.mixin but
+        # imports its target from ...client, so resolving against the mixin's
+        # own package would miss the very case this guard exists for.
+        own.setdefault(simple, src)
+
+    for path in MOD_SOURCES:
+        if "/mixin/" not in path.replace(os.sep, "/"):
+            continue
+        src = open(os.path.join(ROOT, path), encoding="utf-8").read()
+        # Anchored and MULTILINE on purpose: a javadoc that mentions
+        # `@Mixin(Other.class)` while explaining a bug must not be mistaken
+        # for the real annotation - which it was, and produced a false
+        # failure on the very fix this guard was written for.
+        m = re.search(r"^\s*@Mixin\(([\w.]+)\.class\)", src, re.M)
+        if not m:
+            continue
+        target = m.group(1)
+        if target not in own:
+            continue      # a Minecraft class - the javap evidence lives in the
+                           # overlay comment instead
+        for injected in re.findall(r'@Inject\(method\s*=\s*"([^"]+)"', src):
+            declared = re.search(rf"\b{re.escape(injected)}\s*\(", own[target])
+            say(declared is not None,
+                f"{os.path.basename(path)}: {target.split('.')[-1]}"
+                f".{injected}() is declared by its own target",
+                "Mixin resolves @Inject against the target class's OWN methods; "
+                "an inherited one is silently not found when require = 0 and the "
+                "feature just never runs")
 
     for path in MOD_SOURCES:
         name = os.path.basename(path)
