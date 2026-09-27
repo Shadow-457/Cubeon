@@ -246,7 +246,17 @@ public class ModuleMenuScreen extends Screen {
 
     /** Paints the whole menu. Called from the per-bracket render hook. */
     public void drawOverlay(MenuPaint paint, int mouseX, int mouseY) {
-        Font font = this.font;
+        // The font comes off the CLIENT, not off `this.font`. Both are the
+        // same object in practice, but the client's is the one every vanilla
+        // widget draws with, and a run where the labels were all missing is
+        // not a moment to be clever about where the font came from. The
+        // screen's own field is kept as a fallback.
+        Font font = net.minecraft.client.Minecraft.getInstance() == null
+                ? null
+                : net.minecraft.client.Minecraft.getInstance().font;
+        if (font == null) {
+            font = this.font;
+        }
         paint.fill(0, 0, this.width, this.height, MenuPainter.PAGE_DIM);
         MenuPainter.roundRect(paint, panelX, panelY, panelW, panelH, MenuPainter.PANEL);
         MenuPainter.outline(paint, panelX, panelY, panelW, panelH, MenuPainter.PANEL_EDGE);

@@ -1578,4 +1578,5 @@ check("crash reporting backend and wiring are gone",
       and "crash_reports" not in _src_main and "crashreport" not in _src_main)
 
 print(f"\n{passed} passed, {failed} failed")
+print("Smoke test complete: " + ("FAIL" if failed else "PASS"))
 sys.exit(1 if failed else 0)

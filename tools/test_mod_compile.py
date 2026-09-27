@@ -59,6 +59,7 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/modules/GameOptions.java",
     "mod/src/main/java/com/cubeon/client/modules/OptionsAccessor.java",
     "mod/src/main/java/com/cubeon/client/modules/Modules.java",
+    "mod/src/main/java/com/cubeon/client/keys/MenuKey.java",
     "mod/src/main/java/com/cubeon/client/ModuleMenuScreen.java",
     "mod/src/main/java/com/cubeon/client/MenuPaint.java",
     "mod/src/main/java/com/cubeon/client/MenuPainter.java",
@@ -584,6 +585,29 @@ STUBS = {
         }
         """,
 
+    "org/lwjgl/glfw/GLFW.java": """
+        package org.lwjgl.glfw;
+
+        /*
+         * Only what the mod's menu keybind uses. GLFW is a NATIVE library, so
+         * unlike Minecraft's own classes this API is identical on every
+         * version - which is the whole reason the keybind reads the key
+         * through here instead of a per-bracket KeyMapping.
+         */
+        public final class GLFW {
+            public static final int GLFW_KEY_K = 75;
+            public static final int GLFW_PRESS = 1;
+
+            public static long glfwGetCurrentContext() {
+                return 0L;
+            }
+
+            public static int glfwGetKey(long window, int key) {
+                return 0;
+            }
+        }
+        """,
+
     "net/minecraft/client/Options.java": """
         package net.minecraft.client;
 
@@ -1004,6 +1028,9 @@ STUBS = {
         package org.spongepowered.asm.mixin.injection.callback;
 
         public class CallbackInfo {
+            /** Only meaningful when the injector is cancellable=true. */
+            public void cancel() {
+            }
         }
         """,
 

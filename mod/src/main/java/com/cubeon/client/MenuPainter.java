@@ -27,7 +27,17 @@ public final class MenuPainter {
     // 26.x's extractor has no alpha fill, so a translucent panel would render
     // correctly on one bracket and as a solid block on the other.
 
-    public static final int PAGE_DIM = 0xFF070809;
+    /**
+     * Painted over the whole screen behind the panel, at ZERO alpha - the
+     * background is meant to be transparent, not dimmed.
+     *
+     * <p>The important half is what this does NOT achieve on its own:
+     * Minecraft's own background pass blurs and darkens the world before any
+     * of this runs, so a transparent fill over a blur still looks dark.
+     * {@code MenuPaintMixin} cancels that pass too - this constant is the
+     * belt to its braces.
+     */
+    public static final int PAGE_DIM = 0x00000000;
     public static final int PANEL = 0xFF0F1216;
     public static final int PANEL_EDGE = 0xFF23272E;
     public static final int HEADER_BG = 0xFF16191E;
@@ -108,22 +118,22 @@ public final class MenuPainter {
      */
     public static void text(MenuPaint p, Font font, String line, int x, int y,
                             int argb) {
-        if (font == null || line == null || line.isEmpty()) {
+        if (line == null || line.isEmpty()) {
+            return;
+        }
+        if (font == null) {
+            // NOT a silent return. A null font made every label vanish with
+            // nothing in any log, which is indistinguishable from "the text
+            // code never ran" - the same trap as the silent paint catch.
+            report("text", new NullPointerException("no Font for the menu"));
             return;
         }
         try {
             p.text(font, line, x, y, argb, false);
         } catch (Throwable first) {
-            if (!warned) {
-                warned = true;
-                System.err.println("[Cubeon] mod menu text failed once; "
-                        + "further text errors suppressed");
-                first.printStackTrace();
-            }
+            report("text", first);
         }
     }
-
-    private static boolean warned;
 
     /**
      * Width of a string, or 0 if there is no font.

@@ -61,8 +61,13 @@ MC_DIR = os.path.join(HOME, ".cubeon_minecraft")
 # guava, and the mixin annotations live in sponge-mixin. Everything else in
 # ~/.cubeon_minecraft/libraries is left out deliberately: a smaller classpath means a
 # missing library is a clear error instead of a mysterious one.
+# lwjgl-glfw is here for the mod menu KEYBIND (keys/MenuKey.java), which reads
+# the key through GLFW rather than a per-bracket KeyMapping. GLFW is a native
+# library, so unlike Minecraft's own classes its API is identical across
+# versions - which is exactly why the keybind is shared source.
 LIB_PREFIXES = ("sponge-mixin", "fabric-loader", "brigadier", "slf4j-api",
-                "guava", "datafixerupper", "authlib", "annotations")
+                "guava", "datafixerupper", "authlib", "annotations",
+                "lwjgl-glfw", "lwjgl")
 
 # What a healthy jar must contain. The two resources are the whole reason the mod
 # loads at all, and the screen class is the one most likely to be missing if a

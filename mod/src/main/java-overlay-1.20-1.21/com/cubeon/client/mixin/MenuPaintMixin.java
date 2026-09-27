@@ -37,6 +37,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(Screen.class)
 public abstract class MenuPaintMixin {
 
+    /**
+     * Cancels Minecraft's own screen background so the game shows through.
+     *
+     * <p>A mod menu is a HUD, not a settings page. The vanilla pass blurs and
+     * darkens the world, and it runs BEFORE this class's paint hook, so no
+     * colour chosen in {@link MenuPainter} can undo it - the pass itself has
+     * to be cancelled. Without this the "transparent" background is still
+     * Minecraft's blur, which reads as dark however it is painted over.
+     */
+    @Inject(method = "renderBackground", at = @At("HEAD"), cancellable = true,
+            require = 0)
+    private void cubeon$noVanillaBackdrop(GuiGraphics graphics, CallbackInfo ci) {
+        ci.cancel();
+    }
+
     @Inject(method = "render", at = @At("TAIL"), require = 0)
     private void cubeon$paintMenu(GuiGraphics graphics, int mouseX, int mouseY,
                                   float partialTick, CallbackInfo ci) {

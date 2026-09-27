@@ -34,7 +34,17 @@ public abstract class PlayerTickMixin {
     @Inject(method = "tick", at = @At("TAIL"), require = 0)
     private void cubeon$runModules(CallbackInfo ci) {
         try {
-            Modules.get().tick(Minecraft.getInstance());
+            Minecraft mc = Minecraft.getInstance();
+            // The keybind, checked BEFORE the modules so a keypress is not
+            // eaten by whatever a module does this tick. Only with no screen
+            // open: that is what stops K being intercepted while the player is
+            // typing, and it also stops an open menu being reopened by its own
+            // key.
+            if (mc.screen == null
+                    && com.cubeon.client.keys.MenuKey.justPressed()) {
+                mc.setScreen(new com.cubeon.client.ModuleMenuScreen(null));
+            }
+            Modules.get().tick(mc);
         } catch (Throwable ignored) {
             // A module must never be able to break the player's movement.
         }

@@ -59,6 +59,14 @@ dependencies {
     // does not exist". Compile-only: the annotations are CLASS retention and
     // the loader ships the real mixin at runtime.
     compileOnly "net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7"
+    // The mod menu keybind reads the key through GLFW (keys/MenuKey.java)
+    // rather than a KeyMapping, because KeyMapping's category type AND its
+    // registration call both differ between the two Minecraft eras this mod
+    // ships for. GLFW is a native library with one API across versions, so
+    // the keybind stays in shared source. compileOnly: Minecraft already
+    // provides it at runtime, and bundling a second copy is the kind of thing
+    // that quietly breaks the no-source invariant.
+    compileOnly "org.lwjgl:lwjgl-glfw:3.3.3"
 }
 
 // Every jar targets Java 17 bytecode regardless of which Minecraft it is built
