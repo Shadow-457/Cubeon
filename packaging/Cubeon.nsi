@@ -71,9 +71,112 @@ VIAddVersionKey "LegalCopyright" "Cubeon"
 !define MUI_ABORTWARNING
 
 !include "MUI2.nsh"
+!include "LogicLib.nsh"
+!include "WordFunc.nsh"
 
 !define APP_EXE "$INSTDIR\Cubeon.exe"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Cubeon"
+!define SETTINGS_KEY "Software\Cubeon"
+!define DEFAULT_INSTDIR "$LOCALAPPDATA\Cubeon"
+
+; Set in .onInit when an existing install was found, so the section knows this
+; run is an update/repair and must clear the old files first.
+Var IsUpdate
+
+; --- already-installed? ------------------------------------------------------
+; Launching the setup over an existing Cubeon used to silently overwrite it: the
+; user got no idea an older build was being replaced, and - worse - if Cubeon
+; was RUNNING, the copy fought the locked .exe and failed halfway with an
+; unhelpful error. So .onInit works out what is actually on the machine and
+; asks, in plain words, before touching anything.
+;
+; There is no process-listing plugin available to this NSIS build, so "is it
+; running?" is answered the way Windows answers it: try to open the exe for
+; writing. A running app holds that file locked, and the open fails. Far more
+; reliable than guessing from a window title - and the installer's own window
+; is titled "Cubeon" too, so a title search would have matched itself.
+
+; CompareVer $0 $1 -> pushes "0" equal, "1" left newer, "2" right newer.
+; Thin wrapper over WordFunc's ${VersionCompare}, which does a proper part-by-
+; part dotted compare (a string compare gets "1.0.9" vs "1.0.10" backwards).
+; It lives in a Function only so the .onInit code below reads as one call.
+Function CompareVer
+  ${VersionCompare} $0 $1 $2
+  Push $2
+FunctionEnd
+
+Function .onInit
+  ; A previous install is the normal case only if the uninstall entry exists;
+  ; a copied-over folder with no registry entry is still worth offering.
+  ReadRegStr $0 HKCU "${UNINST_KEY}" "DisplayVersion"
+  ReadRegStr $1 HKCU "${SETTINGS_KEY}" "InstallDir"
+  ${If} $1 != ""
+    StrCpy $INSTDIR $1
+  ${EndIf}
+  ; Explicit gotos, not fallthrough: the "already installed" branch has to jump
+  ; PAST the not-installed one, or finding an install would quietly return and
+  ; skip the question entirely.
+  ${If} $0 != ""
+    Goto ask
+  ${EndIf}
+  ; No registry entry - files on their own still count (interrupted install, or
+  ; a folder somebody copied by hand). Offer a repair rather than pretend this
+  ; is a first run.
+  IfFileExists "${APP_EXE}" not_installed ask
+not_installed:
+  Return
+
+ask:
+  StrCpy $IsUpdate "1"
+  ; Word the prompt by what will actually happen to the files. $0 is empty when
+  ; the files were found with no registry entry to read a version from.
+  ${If} $0 == ""
+    StrCpy $2 "Cubeon is already installed on this computer, but there is no version information for it.$\r$\n$\r$\nRun the setup again to repair it?$\r$\n$\r$\nClick Yes to repair, No to exit."
+  ${Else}
+    Push $0
+    Push "${DISPLAY_VERSION}"
+    Call CompareVer
+    Pop $3          ; 0 same, 1 incoming newer, 2 installed newer
+    Pop $0
+    ${If} $3 == "1"
+      StrCpy $2 "Update Cubeon?$\r$\n$\r$\nYou have Cubeon $0. This setup is Cubeon ${DISPLAY_VERSION}.$\r$\n$\r$\nClick Yes to update, No to exit."
+    ${ElseIf} $3 == "2"
+      StrCpy $2 "Cubeon $0 is already installed, and this setup is the OLDER Cubeon ${DISPLAY_VERSION}.$\r$\n$\r$\nClick Yes to install it anyway (this downgrades Cubeon), No to exit."
+    ${Else}
+      StrCpy $2 "Cubeon ${DISPLAY_VERSION} is already installed.$\r$\n$\r$\nClick Yes to reinstall it, No to exit."
+    ${EndIf}
+  ${EndIf}
+
+  ; A running launcher holds its own .exe open against writing, and
+  ; overwriting a locked file fails halfway through with a raw Windows error.
+  ; There is no process-listing plugin in this NSIS build, so the probe is the
+  ; one Windows itself answers with: try to open the file for writing. Opened
+  ; in APPEND mode so a successful probe cannot truncate anything - it only
+  ; proves the file is not locked. (Searching for a window by title would be
+  ; worse than useless here: the installer's own window is titled "Cubeon"
+  ; too, so it would always match itself.)
+  ;
+  ; Only worth asking when the exe is actually there - a registry entry with no
+  ; files is a broken install, and "close Cubeon first" would be a lie.
+  IfFileExists "${APP_EXE}" 0 exe_not_running
+  ClearErrors
+  FileOpen $4 "${APP_EXE}" "a"
+  ${If} $4 == ""
+    MessageBox MB_OK|MB_ICONEXCLAMATION \
+      "Cubeon is still running.$\r$\n$\r$\nClose Cubeon, then run this setup again."
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
+  FileClose $4
+exe_not_running:
+
+  ; /SD keeps unattended installs (the release CI, `setup /S`) going: there is
+  ; nobody to answer a dialog, so "proceed" is the only sensible default.
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON1 "$2" /SD IDYES IDYES do_install
+  SetErrorLevel 1
+  Quit
+do_install:
+FunctionEnd
 
 ; --- pages: welcome, where, install, done ---------------------------------
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Cubeon"
@@ -97,10 +200,24 @@ VIAddVersionKey "LegalCopyright" "Cubeon"
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Cubeon" SEC_MAIN
+  ; An update must start from an empty folder. `File /r` only ADDS and
+  ; overwrites - a jar, template or module the new build dropped would stay
+  ; behind and keep being imported, which is exactly the kind of bug nobody
+  ; reproduces on a clean machine. Everything the user owns (settings, auth
+  ; key, friends cache, downloaded runtimes) lives in %USERPROFILE%\.cubeon_launcher
+  ; and the game in \.cubeon_minecraft, so this folder is program files only.
+  ;
+  ; Guarded: only ever removed when it is the install folder we recognise. A
+  ; hand-edited InstallDir pointing at, say, Documents must not be deleted.
+  ${If} $IsUpdate == "1"
+  ${AndIf} $INSTDIR == "${DEFAULT_INSTDIR}"
+    RMDir /r "$INSTDIR"
+  ${EndIf}
+
   SetOutPath "$INSTDIR"
   File /r "${SOURCE_DIR}\*"
 
-  WriteRegStr HKCU "Software\Cubeon" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "${SETTINGS_KEY}" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall Cubeon.exe"
 
   ; Shortcuts - icon index 0 of the app exe (the Cubeon logo).
@@ -124,7 +241,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\Cubeon\Cubeon.lnk"
   Delete "$SMPROGRAMS\Cubeon\Uninstall Cubeon.lnk"
   RMDir "$SMPROGRAMS\Cubeon"
-  DeleteRegKey HKCU "Software\Cubeon"
+  DeleteRegKey HKCU "${SETTINGS_KEY}"
   DeleteRegKey HKCU "${UNINST_KEY}"
   RMDir /r "$INSTDIR"
 SectionEnd
