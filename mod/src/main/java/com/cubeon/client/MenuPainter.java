@@ -70,6 +70,81 @@ public final class MenuPainter {
         }
     }
 
+    /**
+     * Prints a swallowed failure ONCE, with its stack.
+     *
+     * <p>Every catch in the menu routes here. Silently ignoring an exception
+     * in a paint hook is the worst option available: the feature simply does
+     * not appear, nothing lands in any log, and the natural - but wrong -
+     * conclusion is "the mixin never applied". That is exactly the wrong
+     * conclusion that cost a build cycle already, so the rule is that the
+     * menu may fail soft but must never fail quiet.
+     */
+    public static void report(String what, Throwable failure) {
+        if (reported) {
+            return;
+        }
+        reported = true;
+        System.err.println("[Cubeon] mod menu " + what + " failed; further "
+                + "errors suppressed");
+        failure.printStackTrace();
+    }
+
+    private static boolean reported;
+
+    /**
+     * Draws a string, or swallows the failure AND says so.
+     *
+     * <p>Per-call, not per-screen, on purpose. The first version wrapped the
+     * WHOLE paint in one {@code catch (Throwable)}, which meant one failure on
+     * the first string silently ate the tabs, every card and the Done button -
+     * a completely blank panel with no clue why. One bad call now costs one
+     * label instead of the entire menu.
+     *
+     * <p>The log line matters more than it looks: text is the one call here
+     * that can fail for a reason the compiler cannot see (a font the screen
+     * has not set up yet, a colour the era rejects), and a swallowed
+     * exception here is indistinguishable from "the code never ran".
+     */
+    public static void text(MenuPaint p, Font font, String line, int x, int y,
+                            int argb) {
+        if (font == null || line == null || line.isEmpty()) {
+            return;
+        }
+        try {
+            p.text(font, line, x, y, argb, false);
+        } catch (Throwable first) {
+            if (!warned) {
+                warned = true;
+                System.err.println("[Cubeon] mod menu text failed once; "
+                        + "further text errors suppressed");
+                first.printStackTrace();
+            }
+        }
+    }
+
+    private static boolean warned;
+
+    /**
+     * Width of a string, or 0 if there is no font.
+     *
+     * <p>Null-safe on purpose, and used everywhere instead of
+     * {@code font.width(..)}. Those calls sit in the ARGUMENT list of the
+     * text calls, so they evaluate BEFORE the per-call guard can catch
+     * anything - a null font there would throw straight past it and take the
+     * rest of the menu down with it.
+     */
+    public static int w(Font font, String line) {
+        if (font == null || line == null) {
+            return 0;
+        }
+        try {
+            return font.width(line);
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
     /** A 1px border, so a card reads as a card rather than a smudge. */
     public static void outline(MenuPaint p, int x, int y, int w, int h, int rgb) {
         p.fill(x, y, x + w, y + 1, rgb);
@@ -80,11 +155,14 @@ public final class MenuPainter {
 
     /** Shortens a string to fit, adding an ellipsis. Cards are a fixed width. */
     public static String clip(Font font, String text, int maxWidth) {
-        if (font.width(text) <= maxWidth) {
+        if (text == null) {
+            return "";
+        }
+        if (w(font, text) <= maxWidth) {
             return text;
         }
         String cut = text;
-        while (cut.length() > 1 && font.width(cut + "...") > maxWidth) {
+        while (cut.length() > 1 && w(font, cut + "...") > maxWidth) {
             cut = cut.substring(0, cut.length() - 1);
         }
         return cut + "...";

@@ -251,18 +251,18 @@ public class ModuleMenuScreen extends Screen {
         MenuPainter.roundRect(paint, panelX, panelY, panelW, panelH, MenuPainter.PANEL);
         MenuPainter.outline(paint, panelX, panelY, panelW, panelH, MenuPainter.PANEL_EDGE);
 
-        paint.text(font, "CUBEON", panelX + 10, panelY + 8, MenuPainter.TEXT, false);
+        MenuPainter.text(paint, font, "CUBEON", panelX + 10, panelY + 8, MenuPainter.TEXT);
         String clock = Modules.get().clock().line();
-        paint.text(font, clock, (this.width - font.width(clock)) / 2,
-                panelY + 8, MenuPainter.TEXT_DIM, false);
+        MenuPainter.text(paint, font, clock, (this.width - MenuPainter.w(font, clock)) / 2,
+                panelY + 8, MenuPainter.TEXT_DIM);
 
         if (settingsFor != null) {
-            paint.text(font, MenuPainter.clip(font, settingsTitle, panelW - 24),
-                    panelX + 12, panelY + 32, MenuPainter.TEXT, false);
+            MenuPainter.text(paint, font, MenuPainter.clip(font, settingsTitle, panelW - 24),
+                    panelX + 12, panelY + 32, MenuPainter.TEXT);
             int sy = panelY + 52;
             for (String label : settingLabels) {
-                paint.text(font, MenuPainter.clip(font, label, panelW - 110),
-                        panelX + 16, sy, MenuPainter.TEXT_DIM, false);
+                MenuPainter.text(paint, font, MenuPainter.clip(font, label, panelW - 110),
+                        panelX + 16, sy, MenuPainter.TEXT_DIM);
                 sy += 14;
             }
             drawChrome(paint, font, "Back");
@@ -275,8 +275,8 @@ public class ModuleMenuScreen extends Screen {
             MenuPainter.roundRect(paint, tabX[i], panelY + 22, tabW[i], 14,
                     on ? MenuPainter.TAB_ON : MenuPainter.TAB_OFF);
             String label = cat.label();
-            paint.text(font, label, tabX[i] + (tabW[i] - font.width(label)) / 2,
-                    panelY + 25, on ? MenuPainter.TEXT : MenuPainter.TEXT_DIM, false);
+            MenuPainter.text(paint, font, label, tabX[i] + (tabW[i] - MenuPainter.w(font, label)) / 2,
+                    panelY + 25, on ? MenuPainter.TEXT : MenuPainter.TEXT_DIM);
         }
 
         for (Card card : cards) {
@@ -286,10 +286,10 @@ public class ModuleMenuScreen extends Screen {
             MenuPainter.outline(paint, card.x, card.y, card.w, card.h,
                     hover ? MenuPainter.TAB_ON : MenuPainter.CARD_EDGE);
             Module m = card.module;
-            paint.text(font, MenuPainter.clip(font, m.name(), card.w - 12),
-                    card.x + 6, card.y + 4, MenuPainter.TEXT, false);
-            paint.text(font, MenuPainter.clip(font, m.description(), card.w - 12),
-                    card.x + 6, card.y + 14, MenuPainter.TEXT_FAINT, false);
+            MenuPainter.text(paint, font, MenuPainter.clip(font, m.name(), card.w - 12),
+                    card.x + 6, card.y + 4, MenuPainter.TEXT);
+            MenuPainter.text(paint, font, MenuPainter.clip(font, m.description(), card.w - 12),
+                    card.x + 6, card.y + 14, MenuPainter.TEXT_FAINT);
             // The status bar sits INSIDE the card. The first version put the
             // toggle to the right of the card, which read as three unrelated
             // columns rather than one card with a state.
@@ -298,8 +298,8 @@ public class ModuleMenuScreen extends Screen {
             MenuPainter.roundRect(paint, barX, barY, 44, 9,
                     m.isEnabled() ? MenuPainter.ON_BAR : MenuPainter.OFF_BAR);
             String state = m.isEnabled() ? "Enabled" : "Disabled";
-            paint.text(font, state, barX + (44 - font.width(state)) / 2, barY + 1,
-                    m.isEnabled() ? MenuPainter.ON_TEXT : MenuPainter.OFF_TEXT, false);
+            MenuPainter.text(paint, font, state, barX + (44 - MenuPainter.w(font, state)) / 2, barY + 1,
+                    m.isEnabled() ? MenuPainter.ON_TEXT : MenuPainter.OFF_TEXT);
         }
 
         drawChrome(paint, font, "Done");
@@ -308,12 +308,12 @@ public class ModuleMenuScreen extends Screen {
     private void drawChrome(MenuPaint paint, Font font, String label) {
         MenuPainter.roundRect(paint, closeRect[0], closeRect[1], closeRect[2],
                 closeRect[3], MenuPainter.CLOSE);
-        paint.text(font, "X", closeRect[0] + 5, closeRect[1] + 3, MenuPainter.TEXT, false);
+        MenuPainter.text(paint, font, "X", closeRect[0] + 5, closeRect[1] + 3, MenuPainter.TEXT);
         MenuPainter.roundRect(paint, actionRect[0], actionRect[1], actionRect[2],
                 actionRect[3], MenuPainter.TAB_OFF);
-        paint.text(font, label,
-                actionRect[0] + (actionRect[2] - font.width(label)) / 2,
-                actionRect[1] + 3, MenuPainter.TEXT, false);
+        MenuPainter.text(paint, font, label,
+                actionRect[0] + (actionRect[2] - MenuPainter.w(font, label)) / 2,
+                actionRect[1] + 3, MenuPainter.TEXT);
     }
 
     @Override

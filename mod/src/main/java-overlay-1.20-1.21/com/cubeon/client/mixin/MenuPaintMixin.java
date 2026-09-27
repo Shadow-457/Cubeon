@@ -46,10 +46,12 @@ public abstract class MenuPaintMixin {
         try {
             ((ModuleMenuScreen) (Object) this)
                     .drawOverlay(new MenuPaintImpl(graphics), mouseX, mouseY);
-        } catch (Throwable ignored) {
-            // An unpainted menu still works - the hit targets and the settings
-            // are live regardless. It must never break the screen, which is
-            // what a throw out of render would do.
+        } catch (Throwable first) {
+            // Fail soft - a throw out of render takes the screen down - but do
+            // NOT fail silently. The first version swallowed this and the only
+            // symptom was a blank panel, which is indistinguishable from "the
+            // mixin never applied". One line in the log settles it.
+            com.cubeon.client.MenuPainter.report("paint", first);
         }
     }
 }

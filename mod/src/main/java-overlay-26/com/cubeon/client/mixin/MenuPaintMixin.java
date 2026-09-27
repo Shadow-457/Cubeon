@@ -41,8 +41,9 @@ public abstract class MenuPaintMixin {
         try {
             ((ModuleMenuScreen) (Object) this)
                     .drawOverlay(new MenuPaintImpl(graphics), mouseX, mouseY);
-        } catch (Throwable ignored) {
-            // See the 1.20-1.21 copy: an unpainted menu still works.
+        } catch (Throwable first) {
+            // See the 1.20-1.21 copy: fail soft, but say so once.
+            com.cubeon.client.MenuPainter.report("paint", first);
         }
     }
 }
