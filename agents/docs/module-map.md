@@ -7,6 +7,70 @@ see the web bullets further down. The waitlist is gone, the repo is private.) If
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
+## Tab-list `[Cubeon]` tag (2026-09-27) — INVARIANT
+- **Cubeon players are tagged in the TAB LIST only** — `TabListTag.decorate()`
+  prepends a green `[Cubeon]` to each row. The nametag above a head is
+  deliberately NOT tagged (see the badge-removal invariant below): the tab list
+  is your own screen and nobody else's, so this is private; a floating nametag
+  is on display to the whole server, which is why that one went. Guard in
+  `tools/test_mod_compile.py::_check_mixin_wiring` asserts the nametag mixin
+  stays unregistered.
+- **The injection target is `PlayerTabOverlay.getNameForDisplay(PlayerInfo)`**
+  and that choice is load-bearing. The tab list *renderer* is the most-reshaped
+  thing between eras — 1.20-1.21 has `render(GuiGraphics,…)`, 26.x has
+  `extractRenderState(GuiGraphicsExtractor,…)` — but `getNameForDisplay` is
+  byte-identical in both (verified with `javap` against the real 1.20.1 and
+  26.1.2 jars). One injection, both brackets. **If you retarget it, re-`javap`
+  both jars first**; don't assume. The guard fails loudly if the method name
+  changes.
+- **Exact green, via `TextColor.fromRgb(0x83C13D)`**, not
+  `ChatFormatting.GREEN` (a different colour, and all the old nametag badge
+  could use on 1.20-1.21). `Style.withColor(TextColor)` and
+  `TextColor.fromRgb(int)` are identical in both eras.
+- **Only names the launcher can vouch for.** Reuses `BadgeNames` — you, your
+  friends' Minecraft usernames, and the `/players` roster. A stranger running
+  Cubeon is NOT tagged; the client cannot ask "is this an arbitrary name a
+  Cubeon account". The name set is rebuilt only when `Bridge.revision()` /
+  `playersRevision()` move (this runs per-row per-frame).
+- **`_check_mixin_wiring()` in tools/test_mod_compile.py** is the guard for
+  the three moving parts (mixin config ↔ `MOD_SOURCES` ↔
+  `build_mod_jars.REQUIRED_ENTRIES`). An unregistered mixin silently does
+  nothing in-game; a stale `REQUIRED_ENTRIES` entry fails a real build over a
+  class that no longer exists. Verified it actually fails when broken.
+- Requires `net/minecraft/client/gui/components/PlayerTabOverlay` and
+- **`GameProfile`'s name accessor is resolved REFLECTIVELY**
+  (`TabListTag.nameOf`), and this is the one sanctioned exception to the "only
+  touch API that has not moved" rule. authlib 7 turned `GameProfile` into a
+  **record**, renaming `getName()` -> `name()`. The rename lands *inside* the
+  1.20-1.21 bracket's own range (1.20.1 ships authlib 6.0.54, 1.21.11 ships
+  7.0.61), so a per-bracket overlay cannot save it — `brackets.json`'s
+  "compile against the oldest" assumes the oldest's members still exist in the
+  newest, which is **false** for `getName`. Caught by the real 26 build, not
+  the stub. The 26 bracket is unaffected (7.0.63/10.0.77 are both records).
+
+## Nametag badge REMOVED from the in-game mod (2026-09-27) — INVARIANT
+  `net/minecraft/client/multiplayer/PlayerInfo` in the compile stub.
+
+## Nametag badge REMOVED from the in-game mod (2026-09-27) — INVARIANT
+- **The `[#]Shadow` nametag badge no longer exists.** It was drawn by a mixin
+  on `Player.getDisplayName()` (per-visible-player-per-frame). Removed because
+  it stamped the launcher onto other people's names in a game they did not
+  choose to join. `Nametag.java` and `mixin/PlayerNameMixin.java` are deleted,
+  `PlayerNameMixin` is out of `cubeon-client.mixins.json`, and the `badge()`
+  method is gone from BOTH `CornerIcon` overlays (1.20-1.21 and 26).
+- **`BadgeNames.java` is KEPT** (with its SelfTest coverage) even though nothing
+  in the mod calls it now. It encodes a hard-won rule — a relay *handle* is not
+  a Minecraft *username*, and matching on handles badged nobody. Reachable for
+  any future non-name-marking use. Don't delete it as "dead code."
+- **Two build lists must be kept in sync** or the mod silently stops
+  building/shipping: `tools/test_mod_compile.py` `MOD_SOURCES` and
+  `tools/build_mod_jars.py` `REQUIRED_ENTRIES`. Both referenced the deleted
+  mixin; a stale entry there is a build failure, not a warning.
+- `net/minecraft/.../Player` stays as a stub class in `test_mod_compile.py`'s
+  API surface, but nothing references it now — a future mixin that needs it
+  must justify its target surface there.
+
+## Managed Java runtimes (2026-09-27) — INVARIANT
 ## Managed Java runtimes (2026-09-27) — INVARIANT
 - **The launcher OFFERS to download Java; it never downloads unasked.**
   `cubeon/jre.py` fetches a Temurin **JRE** (not JDK — Minecraft never

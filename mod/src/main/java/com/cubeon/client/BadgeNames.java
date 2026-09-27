@@ -24,7 +24,14 @@ import java.util.TreeSet;
  *
  * <p>Minecraft-free on purpose: {@code mod/tools/SelfTest.java} covers it
  * against a bare JDK, which is the only way this matching rule can be tested
- * at all (the class that reads it, {@link Nametag}, needs Minecraft to run).
+ * at all (everything that used to read it needed Minecraft to run).
+ *
+ * <p><b>Currently unused by the mod itself.</b> This rule earned the
+ * {@code [#]Shadow} nametag badge, which has been removed - see the retired
+ * {@code Nametag} class in git history. The rule is kept because it encodes a
+ * genuinely hard-won lesson (a relay handle is not a name, and badging on
+ * handles badged nobody), it is still unit-tested, and it is the thing to reach
+ * for if a non-name-marking use ever needs it.
  */
 public final class BadgeNames {
 

@@ -36,11 +36,6 @@ public final class CornerIcon {
             .withColor(TextColor.fromRgb(0x83C13D));
     private static final String GLYPH = "\uE000";
 
-    /** Same nametag badge as the 1.20-1.21 copy, in the exact Cubeon green. */
-    private static final Style MARK_GREEN = Style.EMPTY.withColor(TextColor.fromRgb(0x83C13D));
-    private static final Style BRACKET = Style.EMPTY.withColor(TextColor.fromRgb(0x9A9A9A));
-    private static final String MARK = "\u25A0";
-
     private CornerIcon() {
     }
 
@@ -53,21 +48,5 @@ public final class CornerIcon {
             out = out.append(Component.literal(String.valueOf(pending)).withStyle(GREEN));
         }
         return out;
-    }
-
-    /**
-     * The badge drawn in front of a Cubeon player's name: {@code [#]Shadow}.
-     *
-     * <p>Deliberately the same bracketed square the 1.20-1.21 jar draws, not the
-     * mod's own font glyph: nametags are the one place the two eras stand side by
-     * side (your friend on 1.21, you on 26), and a badge that changes shape with
-     * the Minecraft version stops reading as one client's mark. What 26.x adds
-     * here is only the exact accent colour instead of the nearest chat colour.
-     */
-    public static Component badge() {
-        return Component.empty()
-                .append(Component.literal("[").withStyle(BRACKET))
-                .append(Component.literal(MARK).withStyle(MARK_GREEN))
-                .append(Component.literal("]").withStyle(BRACKET));
     }
 }

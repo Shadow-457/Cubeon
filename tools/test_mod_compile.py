@@ -30,6 +30,7 @@ Minecraft jar can confirm them.
 
 Skips cleanly (exit 0) when no JDK with javac is installed.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -46,11 +47,11 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/Bridge.java",
     "mod/src/main/java/com/cubeon/client/CubeonClientScreen.java",
     "mod/src/main/java/com/cubeon/client/CubeonClient.java",
-    "mod/src/main/java/com/cubeon/client/Nametag.java",
     "mod/src/main/java/com/cubeon/client/BadgeNames.java",
+    "mod/src/main/java/com/cubeon/client/TabListTag.java",
     "mod/src/main/java/com/cubeon/client/WorldPlayers.java",
     "mod/src/main/java/com/cubeon/client/mixin/PauseScreenMixin.java",
-    "mod/src/main/java/com/cubeon/client/mixin/PlayerNameMixin.java",
+    "mod/src/main/java/com/cubeon/client/mixin/PlayerTabOverlayMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/TitleScreenMixin.java",
     # The 1.20-1.21 overlay: CornerIcon's era-stable copy. The 26.x overlay is
     # NOT compiled here - it draws through the 26-only GuiGraphicsExtractor /
@@ -118,6 +119,52 @@ STUBS = {
 
             public MutableComponent withStyle(ChatFormatting formatting) {
                 return this;
+            }
+
+            public MutableComponent withStyle(Style style) {
+                return this;
+            }
+        }
+        """,
+
+    "net/minecraft/network/chat/Style.java": """
+        package net.minecraft.network.chat;
+
+        import net.minecraft.ChatFormatting;
+
+        /*
+         * Only what the mod styles with. withColor(TextColor) and
+         * withColor(ChatFormatting) both exist in 1.20.1 and 26.1.2 (javap'd in
+         * both real jars), which is why the Cubeon-green tab tag can be exact
+         * rather than approximated with ChatFormatting.GREEN - whose chat green
+         * is a different colour, and was all the old nametag badge could use
+         * on the 1.20-1.21 bracket.
+         *
+         * The real class also has withColor(int); deliberately NOT modelled,
+         * because it erases against withColor(TextColor) in a bare stub and the
+         * mod has no reason to reach for it - the int form is not what gives
+         * the exact green, TextColor.fromRgb is.
+         */
+        public final class Style {
+            public static final Style EMPTY = new Style();
+
+            public Style withColor(TextColor color) {
+                return this;
+            }
+
+            public Style withColor(ChatFormatting formatting) {
+                return this;
+            }
+        }
+        """,
+
+    "net/minecraft/network/chat/TextColor.java": """
+        package net.minecraft.network.chat;
+
+        /* fromRgb(int) is the one factory; present unchanged in both eras. */
+        public final class TextColor {
+            public static TextColor fromRgb(int rgb) {
+                return new TextColor();
             }
         }
         """,
@@ -509,6 +556,13 @@ STUBS = {
 
         import com.mojang.authlib.GameProfile;
 
+        /*
+         * One row of the tab list, and also the online-player list
+         * ClientPacketListener hands out. getProfile() is the whole surface the
+         * mod needs: it is how a row's Minecraft username is read, and authlib
+         * is an external library that has never been version-reshaped, so
+         * GameProfile.getName() is safe on every version this mod serves.
+         */
         public class PlayerInfo {
             public GameProfile getProfile() {
                 return null;
@@ -519,6 +573,16 @@ STUBS = {
     "com/mojang/authlib/GameProfile.java": """
         package com.mojang.authlib;
 
+        /*
+         * Modelled at its authlib 6 shape (plain class, getName()). authlib 7
+         * turned it into a record with name(), and the mod resolves whichever
+         * exists reflectively at runtime - see TabListTag.nameOf - because that
+         * rename lands INSIDE the 1.20-1.21 bracket's own range (1.20.1 ships
+         * authlib 6, 1.21.11 ships 7), so no single compile-time spelling can
+         * serve the whole bracket. getName() is modelled so the reflective
+         * lookup is actually exercised at class-init rather than quietly
+         * finding nothing and untagging every row.
+         */
         public class GameProfile {
             public String getName() {
                 return "";
@@ -652,18 +716,41 @@ STUBS = {
         }
         """,
 
+    "net/minecraft/client/gui/components/PlayerTabOverlay.java": """
+        package net.minecraft.client.gui.components;
+
+        import net.minecraft.client.multiplayer.PlayerInfo;
+        import net.minecraft.network.chat.Component;
+
+        /*
+         * The tab list. Only getNameForDisplay is declared: it is the one
+         * method the Cubeon mixin needs, and it is identical in 1.20.1 and
+         * 26.1.2 (verified with javap against both real jars) even though the
+         * render path around it is not - 1.20-1.21 has
+         * render(GuiGraphics, ...) where 26.x has
+         * extractRenderState(GuiGraphicsExtractor, ...). The renderer is
+         * deliberately ABSENT: if a future change ever needs it, that needs a
+         * real justification here per era, not a copy of this shell.
+         */
+        public class PlayerTabOverlay {
+            public Component getNameForDisplay(PlayerInfo info) {
+                return Component.empty();
+            }
+        }
+        """,
+
     "net/minecraft/world/entity/player/Player.java": """
         package net.minecraft.world.entity.player;
 
         import net.minecraft.network.chat.Component;
 
         /*
-         * The nametag badge's whole target surface, and nothing else. Both methods
-         * are declared on Player itself with this exact shape in 1.20.1 and in
-         * 26.1.2 (checked against the shipped 26.1.2 jar's method table), which is
-         * why the badge can be one injection for both eras. Absent on purpose:
-         * anything from the entity render path - renderNameTag, the render-state
-         * classes, PoseStack/GuiGraphics - all of which were reshaped in 26.x.
+         * Retained only as an API surface the OTHER mixins must not start
+         * depending on: this class existed so the nametag-badge mixin could be
+         * compile-checked without Minecraft, and the badge has since been
+         * removed. Nothing in the compiled mod set references Player any more -
+         * if a future mixin does, it needs a real justification for its target
+         * surface added here, not just this bare shell.
          */
         public class Player {
             public Component getName() {
@@ -684,12 +771,86 @@ def _dedent(source):
     return "\n".join(l[pad:] if l.strip() else "" for l in lines) + "\n"
 
 
+def _check_mixin_wiring():
+    """The mixin config, MOD_SOURCES and build_mod_jars must agree.
+
+    The [Cubeon] tab tag is three moving parts: the mixin, its registration in
+    cubeon-client.mixins.json, and the two build lists. Disagreement is never a
+    soft warning - an unregistered mixin silently does NOTHING in-game, and a
+    stale REQUIRED_ENTRIES entry fails a real build over a class that no longer
+    exists (that is exactly how the removed nametag badge surfaced). It is
+    cheap to check, so it is checked before anything is compiled.
+    """
+    ok = True
+
+    def say(good, label, detail=""):
+        nonlocal ok
+        print(("  ok   " if good else "  FAIL ") + label
+              + (f"\n       {detail}" if not good and detail else ""))
+        ok = ok and good
+
+    with open(os.path.join(ROOT, "mod", "src", "main", "resources",
+                           "cubeon-client.mixins.json"), encoding="utf-8") as fh:
+        registered = set(json.load(fh).get("client", []))
+
+    jar_src = open(os.path.join(ROOT, "tools", "build_mod_jars.py"),
+                   encoding="utf-8").read()
+
+    for name in sorted(registered):
+        path = f"mod/src/main/java/com/cubeon/client/mixin/{name}.java"
+        say(os.path.isfile(os.path.join(ROOT, path)),
+            f"{name} is registered and its source exists", path)
+        say(path in MOD_SOURCES, f"{name}.java is in MOD_SOURCES")
+        say(f"{name}.class" in jar_src,
+            f"{name}.class is in build_mod_jars REQUIRED_ENTRIES")
+
+    for path in MOD_SOURCES:
+        name = os.path.basename(path)
+        if "/mixin/" in path.replace(os.sep, "/"):
+            say(name[:-5] in registered,
+                f"{name[:-5]} (in MOD_SOURCES) is registered in the mixin config",
+                "a compiled-but-unregistered mixin does nothing at runtime")
+
+    # The tag is TAB LIST ONLY. The nametag badge was removed deliberately.
+    say("PlayerNameMixin" not in registered,
+        "the removed nametag mixin is NOT registered",
+        "the [Cubeon] tag is tab-list only; a nametag badge must not come back")
+    say("PlayerNameMixin.java" not in jar_src,
+        "the removed nametag mixin is gone from build_mod_jars")
+    say("PlayerNameMixin.java" not in "\n".join(MOD_SOURCES),
+        "the removed nametag mixin is gone from MOD_SOURCES")
+
+    # The cross-era seam, and the user-visible contract.
+    mixin = open(os.path.join(ROOT, "mod/src/main/java/com/cubeon/client/mixin/"
+                                  "PlayerTabOverlayMixin.java"),
+                 encoding="utf-8").read()
+    say('method = "getNameForDisplay"' in mixin,
+        "the mixin still targets getNameForDisplay (the cross-era seam)",
+        "re-check BOTH jars (1.20.1 and 26.1.2) before retargeting it: the "
+        "renderer differs between eras but this method does not")
+    say("require = 0" in mixin,
+        "the mixin stays non-required, so a moved method loses the tag not the game")
+    say("Throwable" in mixin, "the per-frame injection swallows everything")
+
+    tag = open(os.path.join(ROOT, "mod/src/main/java/com/cubeon/client/"
+                                  "TabListTag.java"), encoding="utf-8").read()
+    say('"[Cubeon]"' in tag, "the tag text is [Cubeon]")
+    say("0x83C13D" in tag, "the tag uses the exact Cubeon green")
+    say("TextColor.fromRgb" in tag,
+        "the green goes through TextColor.fromRgb (present in both eras)")
+    return ok
+
+
 def main():
     javac, _java = find_jdk()
     if not javac:
         print("SKIP  no working JDK found; the mod's Minecraft-facing code was "
               "not compile-checked (the Python suite is unaffected)")
         return 0
+
+    print("\nmixin wiring (mixin config <-> MOD_SOURCES <-> build_mod_jars)")
+    if not _check_mixin_wiring():
+        return 1
 
     missing = [s for s in MOD_SOURCES if not os.path.isfile(os.path.join(ROOT, s))]
     if missing:

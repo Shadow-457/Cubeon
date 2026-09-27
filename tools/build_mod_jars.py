@@ -73,7 +73,8 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/WorldPlayers.class",
                     "com/cubeon/client/CornerIcon.class",
                     "com/cubeon/client/mixin/PauseScreenMixin.class",
-                    "com/cubeon/client/mixin/PlayerNameMixin.class")
+                    "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
+                    "com/cubeon/client/mixin/TitleScreenMixin.class")
 
 
 def load_matrix():

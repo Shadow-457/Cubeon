@@ -1,6 +1,5 @@
 package com.cubeon.client;
 
-import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 
 /**
@@ -24,31 +23,10 @@ import net.minecraft.network.chat.Component;
  */
 public final class CornerIcon {
 
-    /**
-     * The nametag badge: a grey-bracketed Cubeon square in front of the name,
-     * {@code [#]Shadow}. Written as an escape so the glyph survives any editor
-     * or build that is careless about encodings.
-     *
-     * <p>Plain text rather than the mod's own font glyph, unlike the 26.x copy:
-     * this bracket spans several font-API generations (see the class javadoc), so
-     * a custom font here would render as a missing glyph on some of the versions
-     * it serves. U+25A0 comes out of Minecraft's bundled unifont provider, which
-     * every version in this range has.
-     */
-    private static final String MARK = "\u25A0";
-
     private CornerIcon() {
     }
 
     public static Component label(int pending) {
         return pending > 0 ? Component.literal(String.valueOf(pending)) : Component.empty();
-    }
-
-    /** The badge drawn in front of a Cubeon player's name. */
-    public static Component badge() {
-        return Component.empty()
-                .append(Component.literal("[").withStyle(ChatFormatting.GRAY))
-                .append(Component.literal(MARK).withStyle(ChatFormatting.GREEN))
-                .append(Component.literal("]").withStyle(ChatFormatting.GRAY));
     }
 }
