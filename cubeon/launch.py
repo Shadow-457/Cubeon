@@ -208,6 +208,21 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
     except Exception:
         logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
+    # Runtimes Cubeon downloaded itself, LAST. Every real source has been
+    # tried by now, so a managed JRE can only ever be reached on a machine
+    # that has no usable system Java at all - which is exactly the case the
+    # user was prompted about before the install. Ordering it after the rest
+    # is what guarantees installing one never changes what a user who already
+    # has Java is running.
+    try:
+        from .jre import installed_runtimes
+        managed = installed_runtimes()
+        for major in sorted(managed):
+            candidates.append(managed[major])
+    except Exception:
+        logging.getLogger(__name__).debug("managed runtimes unavailable",
+                                          exc_info=True)
+
     best, best_major = None, 10_000
     for c in candidates:
         maj = java_major_version(c)

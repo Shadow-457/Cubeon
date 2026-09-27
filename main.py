@@ -31,7 +31,7 @@ import launcher_core as core
 
 # End-of-session cleanup slot. Flet 0.86 delivers no window events to
 # Python on the real X button, so quit-time cleanup (Discord presence
-# clear, friends stop, geometry save, tray removal) is executed by the
+# clear, friends stop, geometry save) is executed by the
 # __main__ block right after ft.run returns - the one reliable "session
 # ended" moment. main() registers its callable in the dict; the retry
 # loop reads and clears it per attempt. Lives at module scope so main()
@@ -39,9 +39,10 @@ import launcher_core as core
 _session_end = {"handler": None}
 
 # Process-scoped Discord presence. See main() where it's created - the
-# window can be closed and reopened (tray mode) within one process, and
-# each new session must reuse THIS instance rather than stack a new
-# retry-loop thread and IPC socket per session.
+# window can be closed and relaunched (Settings > Restart, GPU-crash
+# recovery) within one process, and each new session must reuse THIS
+# instance rather than stack a new retry-loop thread and IPC socket per
+# session.
 _rpc = None
 
 
@@ -52,44 +53,39 @@ def _dispatch_controller(kind: str, arg) -> None:
     The watcher runs all through the process life; the page it should
     toast on belongs to the CURRENT session. main() refreshes the
     "controller_page" slot each session; when no session is live
-    (process parked in tray mode) there is no window and events are
-    dropped - correct: there's nothing to navigate with the window gone.
+    (between sessions, during a relaunch) there is no window and events
+    are dropped - correct: there's nothing to navigate with the window gone.
     """
-    page = _tray_runtime.get("controller_page")
+    page = _session_runtime.get("controller_page")
     if page is None:
         return
     try:
         if kind == "event":
-            _h = _tray_runtime.get("controller_handlers")
+            _h = _session_runtime.get("controller_handlers")
             if _h and "event" in _h:
                 _h["event"](arg)
         elif kind == "connect":
-            _h = _tray_runtime.get("controller_handlers")
+            _h = _session_runtime.get("controller_handlers")
             if _h and "connect" in _h:
                 _h["connect"](arg)
         elif kind == "disconnect":
-            _h = _tray_runtime.get("controller_handlers")
+            _h = _session_runtime.get("controller_handlers")
             if _h and "disconnect" in _h:
                 _h["disconnect"](arg)
     except Exception:
         pass
 
-# Tray runtime state, shared between main() (which creates the icon) and
-# the __main__ loop (which decides what happens after a session ends).
-# When tray mode is on and the user closes the window, the loop parks
-# instead of exiting: the process stays alive headless (tray icon, Friends
-# presence, P2P) until the user picks Quit. "Open" sets the reopen event
-# so the parked loop starts a fresh flet session - on this Flet build the
-# X button destroys the window/session permanently, so reopen = new
-# session, not "show the old window" (that simply doesn't work).
-_tray_runtime = {"controller": None, "reopen": None, "quit": None,
-                 "friends_service": None, "friends_client": None,
-                 "reopen_at": 0.0}
+# Process-scoped state shared between main() (which builds the UI) and the
+# __main__ session loop, plus the module-level dispatcher above. Anything here
+# must survive a process replacement: the friends service/client (one
+# connection per process, not per window session) and the gamepad watcher.
+_session_runtime = {"friends_service": None, "friends_client": None,
+                    "controller_page": None, "controller_handlers": None,
+                    "controller_watcher": None}
 # A user-requested relaunch ("Restart to apply" in Settings > Seasonal, and any
-# future "apply and restart" flow). The tray's reopen path only re-execs in tray
-# mode, so a foreground user needs their own request the __main__ loop honours
-# after this session ends - doing the execv from inside main() would orphan the
-# flet client as a ghost window, because `_kill_flet_client()` never gets to run.
+# future "apply and restart" flow). The execv must happen in the __main__ loop
+# once ft.run has returned - doing it from inside main() would orphan the flet
+# client as a ghost window, because `_kill_flet_client()` never gets to run.
 _relaunch = {"request": None}
 
 # Post-session SIGINT/SIGTERM presses, counted so the FIRST one can be graceful
@@ -108,25 +104,22 @@ def _reclaim_session_signals() -> None:
     (loop.call_soon_threadsafe -> RuntimeError('Event loop is closed')), and
     the exception is raised *from inside the signal handler*, on the main
     thread, at whatever frame happened to be running. Observed live
-    2026-09-24: ^C right after "cubeon: quit from tray" landed in
+    2026-09-24: ^C right after the session ended landed in
     _ct.join(timeout=3.0) and escaped _session_loop() as a cubeon.fatal
-    CRITICAL - the whole teardown (classification, geometry save, park
-    bookkeeping) can be hit this way.
+    CRITICAL - the whole teardown (classification, geometry save) can be hit
+    this way.
 
-    From here on a signal is a plain quit request: the first press sets the
-    tray quit event (the session loop notices within its park tick and exits
-    through os._exit(0)), a second press - an impatient user - ends the
+    From here on a signal is a plain quit request: the first press is counted
+    and swallowed, so the bounded teardown finishes and the loop exits through
+    its normal hard-exit; a second press - an impatient user - ends the
     process immediately, mirroring flet's own first-graceful/then-hard
-    design. Called right after every ft.run return, so a retry/reopen
-    session gets a fresh handler too.
+    design. Called right after every ft.run return, so a retry session gets a
+    fresh handler too.
     """
     _session_signal_hits["n"] = 0
 
     def _on_session_signal(signum, frame):
         _session_signal_hits["n"] += 1
-        quit_ev = _tray_runtime.get("quit")
-        if quit_ev is not None:
-            quit_ev.set()
         if _session_signal_hits["n"] >= 2:
             os._exit(0)  # second ^C: out NOW, teardown aborted
 
@@ -140,45 +133,25 @@ def _reclaim_session_signals() -> None:
             pass  # not the main thread, or the signal is unsupported here
 
 
-def _stop_tray_best_effort(timeout: float = 2.0) -> None:
-    """Stops the tray icon without letting native teardown block a process
-    replacement.
-
-    pystray/GLib teardown has been observed to hang (futex_wait during exit on
-    KDE - see the exit-cleanup watchdog below) and can raise. Every path that
-    is ABOUT to execv itself (Settings > Restart, GPU-crash recovery, tray
-    Open) must reach its re-exec no matter what the icon thread does: the
-    fresh image builds its own icon anyway. So stop() runs on a watchdogged
-    daemon thread and we move on after `timeout` seconds."""
-    ctrl = _tray_runtime["controller"]
-    if ctrl is None:
-        return
-
-    def _stop():
-        try:
-            ctrl.stop()
-        except Exception:
-            pass  # a dying icon must not abort the replacement process
-
-    t = threading.Thread(target=_stop, daemon=True, name="cubeon-tray-stop")
-    t.start()
-    t.join(timeout=timeout)
-
-
 def _relaunch_fresh_process() -> bool:
     """Replace this launcher with a fresh process, with a safe fallback.
 
-    Flet is effectively once-per-process, so tray reopen and Settings restart
-    must start a new interpreter.  ``execv`` is preferred because it avoids a
-    second launcher, but it can fail for a deleted/replaced executable or a
-    transient resource error.  In that case start the same command detached;
-    callers then leave the old process through the normal hard-exit path.
+    Flet is effectively once-per-process, so Settings > Restart and GPU-crash
+    recovery must start a new interpreter.  ``execv`` is preferred because it
+    avoids a second launcher, but it can fail for a deleted/replaced executable
+    or a transient resource error.  In that case start the same command
+    detached; callers then leave the old process through the normal hard-exit
+    path.
     """
     if getattr(sys, "frozen", False):
         argv = [sys.executable] + sys.argv[1:]
     else:
         argv = [sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
-    os.environ["CUBEON_TRAY_REOPEN"] = "1"
+    # Tells the replacement image this is a deliberate relaunch, not a cold
+    # start: it must not greet the user with an "orphaned session" prompt
+    # about a game that is perfectly well looked after (see the watchdog
+    # block in main()).
+    os.environ["CUBEON_RELAUNCH"] = "1"
     try:
         os.execv(sys.executable, argv)
     except OSError:
@@ -633,11 +606,11 @@ def main(page: ft.Page):
     # no-op otherwise, so a missing/misconfigured Discord never breaks the app.
     # See cubeon/discord_rpc.py for the two required Discord-side steps.
     #
-    # Process-scoped: the window can close and reopen many times in one
-    # process lifetime (tray mode starts a fresh session per Open). A new
-    # DiscordPresence per session would stack retry threads and sockets;
-    # instead the first session's instance is kept for the whole process
-    # (its 10s replay loop reconnects by itself after a close()).
+    # Process-scoped: the process can be relaunched in place (Settings >
+    # Restart, GPU-crash recovery) and a new DiscordPresence per session would
+    # stack retry threads and sockets; instead the first session's instance is
+    # kept for the whole process (its 10s replay loop reconnects by itself
+    # after a close()).
     global _rpc
     if _rpc is None:
         _rpc = DiscordPresence(cfg.get("discord_client_id"),
@@ -647,14 +620,6 @@ def main(page: ft.Page):
     _discord_img = cfg.get("discord_large_image") or None
     _discord_img_text = cfg.get("discord_large_text") or "Cubeon"
 
-    # --- System tray (background mode) --------------------------------------
-    # When enabled, closing the window hides it instead of quitting: the
-    # process keeps running (friends online, presence announced, skin
-    # serving) with a tray icon to reopen/quit - like chat clients do.
-    # TrayController degrades to a complete no-op when pystray is missing
-    # or the desktop has no tray, in which case X quits like before.
-    from cubeon.tray import TrayController
-    _tray_active = {"enabled": bool(cfg.get("close_to_tray", True))}
     # Announce "in the launcher" off the UI thread: connecting to Discord's IPC
     # socket is a network-ish call, and we never want a missing/slow Discord to
     # delay the window appearing. All later updates are tiny and fast.
@@ -2688,6 +2653,99 @@ def main(page: ft.Page):
         thread_safe_ui.refresh(progress_row)
         thread_safe_ui.refresh(progress_bar)
 
+    def _begin_install_and_launch(version_id, username, ensure_java_major=None):
+        """Paints the busy state and hands off to the install worker.
+
+        Split out of on_play_click so the Java prompt can run FIRST and still
+        end up in exactly this state once the user answers - otherwise the
+        button would paint "busy" for a question the user has not been asked
+        yet, and declining would leave it stuck on a spinner.
+
+        `ensure_java_major` makes the worker install a managed runtime before
+        anything else; None means Java is already known to be fine.
+        """
+        # Update UI to "busy" state. progress_label is reset explicitly: it may
+        # still be holding the previous launch's crash message, and leaving a
+        # stale "Crashed: ..." line under a new progress bar reads as though the
+        # new attempt failed instantly.
+        set_button_mode("busy")
+        progress_bar.visible = True
+        # Reset the bar itself, not just its label. It carries state from the
+        # previous run (the last launch ended on value=None, the indeterminate
+        # "running" pulse) and its `data` still holds that run's phase maximum.
+        # Start indeterminate on purpose: "Preparing" may involve no measurable
+        # work at all - an already-installed version reports no progress, and a
+        # click during a background prefetch just blocks on the install lock. A
+        # determinate bar pinned at 0% through either reads as frozen; the pulse
+        # says "working", and the first real progress_cb makes it determinate.
+        progress_bar.value = None
+        progress_bar.data = 1
+        progress_label.value = "Preparing"
+        progress_label.visible = True
+        progress_spinner.visible = True
+        progress_cancel_btn.disabled = False
+        progress_cancel_btn.visible = True
+        set_status("Preparing", busy=True)
+        page.update()
+
+        # Start the installation/launch in a background thread
+        threading.Thread(
+            target=lambda: do_install_and_launch(version_id, username,
+                                                 ensure_java_major),
+            daemon=True).start()
+
+    def _prompt_for_java(version_id, username, mc_version, jstatus):
+        """Asks whether Cubeon may download the Java this version needs.
+
+        Three answers, and each one must leave the launcher in a sane state:
+        Install goes ahead with the runtime fetched first, Not now cancels the
+        whole install (the user did not ask to install Minecraft, so installing
+        it anyway and then failing on Java would be worse), and a dismissed
+        dialog is treated exactly like Not now - an unanswered question is a
+        "no", never an implicit consent to a 50 MB download.
+        """
+        required = jstatus.get("required") or 17
+        found = jstatus.get("found")
+        if found:
+            why = (f"This version needs Java {required} or newer, and the only "
+                   f"Java on this computer is {found}.")
+        else:
+            why = (f"This version needs Java {required} or newer, and no Java "
+                   f"was found on this computer.")
+        approx = "50-100 MB" if required >= 17 else "around 40 MB"
+        body = (f"{why}\n\n"
+                f"Cubeon can download a Java {required} runtime from Eclipse "
+                f"Adoptium ({approx}) and keep it alongside the launcher. It "
+                f"won't touch any Java you already have installed.")
+
+        def _install(dlg):
+            _close_dialog(dlg=dlg)
+            _begin_install_and_launch(version_id, username,
+                                      ensure_java_major=required)
+
+        def _not_now(dlg):
+            _close_dialog(dlg=dlg)
+            set_button_mode("play" if version_id in state["installed"]
+                            else "download")
+            set_status("Ready")
+            page.update()
+
+        dlg = ft.AlertDialog(
+            modal=True, bgcolor=SURFACE,
+            title=ft.Text("Java isn't installed", color=TEXT,
+                          weight=ft.FontWeight.W_800),
+            content=ft.Container(
+                content=ft.Text(body, size=13, color=TEXT),
+                width=400,
+            ),
+            actions=[
+                ft.TextButton("Not now", on_click=lambda e: _not_now(dlg)),
+                ft.TextButton(f"Install Java {required}", on_click=lambda e: _install(dlg),
+                              style=ft.ButtonStyle(color=ACCENT)),
+            ],
+        )
+        _open_dialog(dlg)
+
     def on_play_click():
         """
         This is called when the user clicks the main play/download button.
@@ -2735,38 +2793,38 @@ def main(page: ft.Page):
             except Exception:
                 logging.getLogger(__name__).debug("username reconciliation failed", exc_info=True)
 
-        # Update UI to "busy" state. progress_label is reset explicitly: it may
-        # still be holding the previous launch's crash message, and leaving a
-        # stale "Crashed: ..." line under a running progress bar reads as though
-        # the new attempt failed instantly.
-        set_button_mode("busy")
-        progress_bar.visible = True
-        # Reset the bar itself, not just its label. It carries state from the
-        # previous run (the last launch ended on value=None, the indeterminate
-        # "running" pulse) and `data` still holds that run's phase maximum.
-        # Start indeterminate on purpose: "Preparing" may involve no measurable
-        # work at all - an already-installed version reports no progress, and a
-        # click during a background prefetch just blocks on the install lock. A
-        # determinate bar pinned at 0% through either reads as frozen; the pulse
-        # says "working", and the first real progress_cb makes it determinate.
-        progress_bar.value = None
-        progress_bar.data = 1
-        progress_label.value = "Preparing"
-        progress_label.visible = True
-        progress_spinner.visible = True
-        progress_cancel_btn.disabled = False
-        progress_cancel_btn.visible = True
-        set_status("Preparing", busy=True)
-        page.update()
-
-        # Start the installation/launch in a background thread
-        threading.Thread(target=lambda: do_install_and_launch(version_id, username), daemon=True).start()
+        # --- Java check, BEFORE anything is painted busy --------------------
+        # Minecraft needs a Java new enough for the SELECTED version, and
+        # before this existed a machine with no JDK just got an error banner
+        # and a link to read. So ask instead, and offer to fetch a Temurin
+        # runtime. The check is skipped when the game is already installed and
+        # we are only relaunching it: that machine demonstrably ran this
+        # version before, so re-asking on every launch would be noise.
+        #
+        # `version_id` can be a loader row ("fabric-loader-0.19.5-26.1.2"), so
+        # the numeric base is what the Java requirement is keyed off - same
+        # reason the loader checks further down use it.
+        mc_version = core.extract_mc_version(version_id)
+        try:
+            needs_install = version_id not in state["installed"]
+        except Exception:
+            needs_install = True
+        if needs_install:
+            try:
+                jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
+            except Exception:
+                jstatus = {"ok": True, "required": 0, "found": None}
+            if not jstatus.get("ok") and jstatus.get("required"):
+                _prompt_for_java(version_id, username, mc_version, jstatus)
+                return  # the dialog's action calls back into the install
+        _begin_install_and_launch(version_id, username)
 
     _launch_state_lock = threading.RLock()
 
-    def do_install_and_launch(version_id, username):
+    def do_install_and_launch(version_id, username, ensure_java_major=None):
         """
         This runs in a background thread. It handles:
+          - Installing a managed Java runtime first, if the user agreed to one
           - Installing the version if not already present
           - Installing Fabric if selected and supported
           - Launching the game with the chosen version
@@ -2820,6 +2878,23 @@ def main(page: ft.Page):
                 _check_cancel()
                 progress_bar.data = val
                 _paint_progress()
+
+            # --- The Java the user agreed to have fetched ---------------------
+            # Runs before anything else so the failure mode is the honest one
+            # ("couldn't install Java") rather than a half-downloaded Minecraft
+            # followed by a WinError 2 from the loader installer. The progress
+            # callbacks are reused, so this shows up in the same bar with the
+            # same cancel button. A JreError carries a message written for the
+            # user, so it is re-raised as-is and lands in the normal error path
+            # with that text instead of a traceback.
+            if ensure_java_major:
+                _check_cancel()
+                progress_bar.data = 1
+                core.jre.install_jre(
+                    int(ensure_java_major),
+                    progress_cb=lambda done, total: progress_cb(
+                        done / (total or 1)),
+                    status_cb=status_cb)
 
             # If the version is not installed, install it. The per-version
             # lock also covers the background prefetch (on_version_selected),
@@ -3825,8 +3900,9 @@ def main(page: ft.Page):
     # it entirely, so they make no Friends network connection or localhost
     # bridge and remain a normal launcher while the feature is in development.
     #
-    # Process-scoped (like the tray + Discord presence above): in tray mode
-    # the window closes and reopens as fresh sessions in ONE process. The
+    # Process-scoped (like the Discord presence above): the process can be
+    # relaunched in place (Settings > Restart, GPU-crash recovery), so
+    # several sessions can exist in ONE process over its life. The
     # service must not be rebuilt per session - FriendsClient.on() has no
     # unregister, so a second instance would double every event, and a
     # second local_api server would steal the mod's token file. Instead the
@@ -3834,18 +3910,18 @@ def main(page: ft.Page):
     # are re-pointed at the current session's dicts (both are plain dicts
     # the service reads live).
     if friends_enabled():
-        if _tray_runtime["friends_service"] is None:
-            _tray_runtime["friends_client"] = friends.FriendsClient()
-            _tray_runtime["friends_service"] = FriendsService(
-                cfg, state, _tray_runtime["friends_client"])
-            _tray_runtime["friends_service"].start()
+        if _session_runtime["friends_service"] is None:
+            _session_runtime["friends_client"] = friends.FriendsClient()
+            _session_runtime["friends_service"] = FriendsService(
+                cfg, state, _session_runtime["friends_client"])
+            _session_runtime["friends_service"].start()
         else:
-            _svc = _tray_runtime["friends_service"]
+            _svc = _session_runtime["friends_service"]
             _svc.cfg = cfg
             _svc.state = state
             _svc._save_config = lambda: core.save_config(cfg)
-        friends_client = _tray_runtime["friends_client"]
-        friends_service = _tray_runtime["friends_service"]
+        friends_client = _session_runtime["friends_client"]
+        friends_service = _session_runtime["friends_service"]
         if friends_service is not None:
             try:
                 friends_service.reconcile_username()
@@ -4641,8 +4717,8 @@ def main(page: ft.Page):
         """Self-heal the play button against a dead session record.
 
         on_exit() is the normal path, but a launcher re-exec (GPU-crash
-        recovery, tray Open) drops the in-process on_exit watcher while the
-        game record lives on - leaving state["running_version"] set forever
+        recovery, Settings > Restart) drops the in-process on_exit watcher
+        while the game record lives on - leaving state["running_version"] set
         and the button stuck on GAME RUNNING... Re-sync against the
         watchdog (cheap: one psutil probe, and only when a running version
         is even claimed).
@@ -5054,20 +5130,20 @@ def main(page: ft.Page):
         # Process-scoped watcher (see module-level _dispatch_controller):
         # one watcher serves every session; per-session handlers are
         # registered in the runtime slot and refreshed per session.
-        _tray_runtime["controller_handlers"] = {
+        _session_runtime["controller_handlers"] = {
             "event": _on_controller_event,
             "connect": _on_controller_connect,
             "disconnect": _on_controller_disconnect,
         }
-        _tray_runtime.setdefault("controller_watcher", None)
-        if _tray_runtime["controller_watcher"] is None:
-            _tray_runtime["controller_watcher"] = ControllerWatcher(
+        _session_runtime.setdefault("controller_watcher", None)
+        if _session_runtime["controller_watcher"] is None:
+            _session_runtime["controller_watcher"] = ControllerWatcher(
                 on_event=lambda btn: _dispatch_controller("event", btn),
                 on_connect=lambda name: _dispatch_controller("connect", name),
                 on_disconnect=lambda name: _dispatch_controller("disconnect", name),
             )
-        _tray_runtime["controller_page"] = page
-        _tray_runtime["controller_watcher"].start()
+        _session_runtime["controller_page"] = page
+        _session_runtime["controller_watcher"].start()
     except Exception:
         pass  # no /dev/input (or no perms) - pad stays off
 
@@ -5103,7 +5179,7 @@ def main(page: ft.Page):
     # The game outlives the launcher (see launch.py start_new_session), and a
     # GPU-crash re-exec replaces this process wholesale - killing the in-process
     # on_exit watcher that would otherwise credit playtime. Every start (INCLUDING
-    # the re-exec, which sets CUBEON_TRAY_REOPEN) reconciles the persisted
+    # a deliberate relaunch, which sets CUBEON_RELAUNCH) reconciles the persisted
     # session record so the game's time is still counted.
     # -----------------------------------------------------------------
     try:
@@ -5119,7 +5195,7 @@ def main(page: ft.Page):
     # -----------------------------------------------------------------
     try:
         from cubeon import watchdog as _watchdog
-        _stale = None if os.environ.pop("CUBEON_TRAY_REOPEN", None) \
+        _stale = None if os.environ.pop("CUBEON_RELAUNCH", None) \
             else _watchdog.stale_session()
         if _stale:
             def _kill_orphan(e=None):
@@ -5335,9 +5411,9 @@ def main(page: ft.Page):
                 # Python (only programmatic window.close() does, and only
                 # when prevent_close is set - which itself breaks real X
                 # clicks). So "close"/"hide" arriving here means the window
-                # is going away for real: do full quit cleanup. Background
-                # (tray) mode is implemented WITHOUT prevent_close - see the
-                # tray section below for why that's the safe design.
+                # is going away for real: do full quit cleanup. A closed
+                # window always ends the process - there is no windowless
+                # background state to return to (see _session_loop).
                 _save_geometry_now()  # last chance: capture final state
                 _rpc.clear()
                 _rpc.close()
@@ -5372,168 +5448,37 @@ def main(page: ft.Page):
 
     # End-of-session cleanup callable, executed by the __main__ block right
     # after ft.run returns (the only reliable "window session ended" moment
-    # on this build - see the long note there). In tray mode this runs after
-    # EACH session (window closed but process stays parked): RPC presence is
-    # re-announced by the next session, friends/tray keep running on
-    # purpose - that IS background mode.
+    # on this build - see the long note there). A session end means the
+    # process is on its way out, so everything process-scoped is stopped
+    # here - there is no windowless "background" state to stay alive for.
     def _do_session_end_cleanup():
         _save_geometry_now()
         _rpc.clear()
         _rpc.close()
         # The winter leaves must stop falling when the window is gone: the
-        # seasonal ticker is a per-session thread, and in tray mode the process
-        # parks with no window to animate.
+        # seasonal ticker is a per-session thread and there is no window
+        # left to animate.
         try:
             season_animator.stop()
         except Exception:
             pass  # a stopped ticker is not worth an error on the way out
         # The session's page is gone; the process-scoped controller watcher
-        # must stop routing events at it (parked mode drops them instead).
-        _tray_runtime["controller_page"] = None
-        _tray_runtime["controller_handlers"] = None
-        if not _tray_active["enabled"]:
-            # Foreground mode: the process is about to exit - stop
-            # everything. In tray mode friends_service must keep running
-            # (presence while windowless) and the icon must obviously stay.
-            try:
-                friends_service.stop()
-            except Exception:
-                pass
-            try:
-                _tray_runtime["controller"].stop()
-            except Exception:
-                pass
+        # must stop routing events at it.
+        _session_runtime["controller_page"] = None
+        _session_runtime["controller_handlers"] = None
+        try:
+            friends_service.stop()
+        except Exception:
+            pass
 
     # Module-level _session_end is defined near the top of the file (it
     # must exist when main() runs under any entry point, including the
     # test harness which imports main as a module).
     _session_end["handler"] = _do_session_end_cleanup
 
-    # --- Tray icon + callbacks (guarded by the close_to_tray setting) -----
-    # DESIGN: never set window.prevent_close. On Flet 0.86/GTK, prevent_close
-    # intercepts the native X button in the C++ client, but no "close" event
-    # reaches Python on the real desktop - the window stops closing and
-    # nothing else happens, i.e. THE USER CANNOT CLOSE THE APP. Proven the
-    # hard way during testing.
-    #
-    # Background mode instead: X closes the window; the __main__ loop then
-    # PARKS (process stays up: tray icon, Friends presence, P2P, Discord).
-    # "Open" from the tray starts a brand-new flet session (this build's X
-    # button destroys the session - nothing to re-show). "Quit" exits.
-    # All pystray callbacks arrive on pystray's own thread; they only touch
-    # plain threading events here, never Flet objects directly.
-    def _tray_activate():
-        # Do not gate this on controller_page/window.visible.  Flet 0.86 can
-        # leave both objects looking live after the native X button has
-        # already destroyed the window, which caused tray Open to discard the
-        # request forever.  The session loop is the single owner of reopen;
-        # it consumes this event only after ft.run has ended, so recording the
-        # request here cannot start a second UI over a live session.
-        ev = _tray_runtime["reopen"]
-        if ev is not None:
-            # Every click is recorded, whenever it arrives - including while
-            # the closing session is still tearing down, which is exactly
-            # when an impatient user clicks. The loop decides whether the
-            # request is current (see session_ended_at); dropping clicks
-            # here is what made a quick close-then-Open do nothing.
-            _tray_runtime["reopen_at"] = time.monotonic()
-            ev.set()
-            _c = _tray_runtime["controller"]
-            if _c is not None:
-                _c.set_tooltip("Cubeon - opening...")
-        # On some Flet/Linux combinations the native close leaves ft.run()
-        # blocked, so the parked session loop never gets a chance to consume
-        # the event above.  Hand off immediately in that case.  execv is
-        # process-wide and gives the new interpreter a clean Flet runtime.
-        if _tray_runtime.get("controller_page") is not None:
-            def _handoff():
-                try:
-                    _relaunch_fresh_process()
-                except Exception as ex:
-                    print(f"cubeon: tray Open handoff failed: {ex}",
-                          flush=True)
-            threading.Thread(target=_handoff, daemon=True,
-                             name="cubeon-tray-open").start()
-
-    def _tray_quit():
-        print("cubeon: quit from tray")
-        q = _tray_runtime["quit"]
-        if q is not None:
-            q.set()
-        # Quit must ALWAYS end the process. Two things used to stop it:
-        #   - the cleanup below can block on native teardown (discord IPC,
-        #     friends websocket, pystray/GLib), so this arms a hard exit
-        #     first and lets cleanup race it;
-        #   - _save_geometry_now() reads page.window.*, and when Quit is
-        #     picked while the process is PARKED that page belongs to a
-        #     destroyed session - the read never returns, so the process
-        #     just sat there with a dead icon. Geometry is now only saved
-        #     when this session's window is still the live one.
-        #
-        # ORDER IS LOAD-BEARING. The flet desktop client is killed FIRST,
-        # before any of the blocking cleanup: it is the window the user is
-        # looking at. The old order ran the cleanup first, and when that
-        # blocked the 3s bail timer fired os._exit(0) with the client still
-        # alive - the launcher process vanished but the window stayed
-        # mapped, disconnected, spinning the engine's "Working..."
-        # placeholder forever (the reported "Quit leaves the window open").
-        # Geometry is saved before the kill because it reads page.window,
-        # which only answers while the session is live.
-        _bail = threading.Timer(3.0, lambda: os._exit(0))
-        _bail.daemon = True
-        _bail.start()
-        if _tray_runtime.get("controller_page") is page:
-            _save_geometry_now()
-        # Best-effort client reaper (defined later in __main__; callbacks
-        # only run after startup has completed). Without this the hard exit
-        # below would skip the post-ft.run sweep and leave a ghost window.
-        try:
-            _kill_flet_client()
-        except Exception:
-            pass
-        try:
-            _rpc.clear()
-            _rpc.close()
-        except Exception:
-            pass
-        try:
-            friends_service.stop()
-        except Exception:
-            pass
-        os._exit(0)
-
-    _controller = _tray_runtime["controller"]
-    if _controller is None or not _controller.running:
-        # No icon from a previous session (first run, or the backend
-        # couldn't start). stopping first makes start() a clean reset in
-        # case the old icon half-died.
-        if _controller is not None:
-            _controller.stop()
-        _controller = TrayController(
-            icon_path=os.path.join(resolve_assets_dir(), "icon_256.png"),
-            tooltip="Cubeon",
-            on_activate=_tray_activate,
-            on_quit=_tray_quit,
-        )
-        _tray_runtime["controller"] = _controller
-        _tray_active["enabled"] = _tray_active["enabled"] and _controller.start()
-    else:
-        # Icon from the previous session is still up (window closed while
-        # parked in tray mode). Its callbacks captured the OLD session's
-        # _tray_activate/_tray_quit closures - which only touch the
-        # module-level _tray_runtime events, so they remain valid. Just
-        # keep it.
-        _tray_active["enabled"] = True
-    if _tray_active["enabled"]:
-        if _tray_runtime["reopen"] is None:
-            _tray_runtime["reopen"] = threading.Event()
-        if _tray_runtime["quit"] is None:
-            _tray_runtime["quit"] = threading.Event()
-
-    # "Restart to apply" (Settings > Seasonal) gets its own request event for
-    # every entry point, not just tray mode - the button must work with the
-    # tray off too. The session loop checks it the moment ft.run returns and
-    # re-execs into a fresh launcher (see _session_loop).
+    # "Restart to apply" (Settings > Seasonal) arms a request event; the
+    # session loop checks it the moment ft.run returns and re-execs into a
+    # fresh launcher (see _session_loop).
     if _relaunch["request"] is None:
         _relaunch["request"] = threading.Event()
 
@@ -5605,7 +5550,7 @@ if __name__ == "__main__":
     # But it can also WEDGE instead: window mapped, not a single frame
     # rendered, ~180% CPU spinning, and ft.run never returning. In that
     # state every recovery mechanism in _session_loop is unreachable (it
-    # all lives after ft.run returns), the tray events go nowhere, and the
+    # all lives after ft.run returns), and the
     # user is left with a zombie window - observed live on 2026-09-19
     # (Mesa 26.1 / AMD Polaris) right after a restart re-exec. The wedge
     # reproduces even AFTER _reveal_window has run: the marker proves the
@@ -5865,14 +5810,13 @@ if __name__ == "__main__":
     # session_loop: run flet sessions until the process should end.
     #
     #   run session -> crashed pre-paint? retry (up to 2) with software GL
-    #   session painted + user closed:
-    #       tray active -> PARK (process lives headless until tray Quit
-    #                     or tray Open; Open starts a fresh session above)
-    #       no tray    -> exit
+    #   session painted + user closed: exit (a clean close ends the process)
     #
-    # Parking keeps friends/P2P/presence alive with no window - that is
-    # the entire point of close-to-tray on this Flet build, where the X
-    # button destroys the session instead of hiding the window.
+    # Note the X button DESTROYS the window session on Flet 0.86/GTK and
+    # delivers no "close" event to Python, so there is nothing to re-show -
+    # a closed window is always the end of this process, never a park. That
+    # is also why window.prevent_close is never set: it stops the window
+    # closing at all, i.e. the user cannot quit.
     def _kill_flet_client():
         """Ends the flet desktop client left over from a finished session.
 
@@ -6037,7 +5981,6 @@ if __name__ == "__main__":
                 # _ct.join below used to raise out of the signal handler and
                 # escape as a cubeon.fatal CRITICAL).
                 _reclaim_session_signals()
-                _session_ended_at = time.monotonic()
 
                 # First thing, before any cleanup: get rid of any leftover
                 # ghost window (see _kill_flet_client). The flet 0.86 client is
@@ -6062,12 +6005,6 @@ if __name__ == "__main__":
                 if _rl is not None and _rl.is_set():
                     print("cubeon: restart requested - relaunching to apply "
                           "seasonal settings")
-                    # Watchdogged: a hanging pystray/GLib stop() on Linux used
-                    # to sit between the click and the execv, so the window
-                    # closed and NOTHING relaunched (the exact "Restart button
-                    # does nothing on Linux" report). execv comes first in
-                    # priority - the tray dies with the process regardless.
-                    _stop_tray_best_effort()
                     try:
                         _relaunch_fresh_process()
                     except Exception as ex:
@@ -6084,7 +6021,7 @@ if __name__ == "__main__":
                     except Exception:
                         pass
 
-                # Watchdogged: native teardown (pystray/GLib, discord IPC,
+                # Watchdogged: native teardown (discord IPC,
                 # friends WS) can deadlock - observed the whole process
                 # hanging in futex_wait during exit on KDE.
                 _ct = threading.Thread(target=_run_cleanup, daemon=True,
@@ -6117,7 +6054,7 @@ if __name__ == "__main__":
                     except OSError:
                         pass
                     os.environ.pop("CUBEON_GPU_RESTARTS", None)
-                    break  # to park-or-exit below
+                    return  # a clean close ends this process
 
                 if _session_end_kind == "mid_session_crash":
                     # The window HAD painted, but the client died to a signal:
@@ -6125,13 +6062,13 @@ if __name__ == "__main__":
                     # 26.1 SIGSEGV inside libgallium during a GTK paint).
                     # ft.run is ONCE-per-process - a second one hangs silently
                     # - so the in-process retry below is NOT an option here.
-                    # Recovery is the tray-reopen trick instead: arm the
-                    # software-GL fallback so the fresh image doesn't hit the
-                    # same driver bug, and replace this process wholesale.
+                    # Recovery is a wholesale process replacement instead: arm
+                    # the software-GL fallback so the fresh image doesn't hit
+                    # the same driver bug, and re-exec.
                     # Bounded by CUBEON_GPU_RESTARTS so a wedged driver can
                     # never turn this into an infinite relaunch loop; on
-                    # exhaustion we fall through to park-or-exit, exactly as
-                    # if the user had closed the window.
+                    # exhaustion we exit, exactly as if the user had closed
+                    # the window.
                     try:
                         _gpu_restarts = int(os.environ.get(
                             "CUBEON_GPU_RESTARTS", "0")) + 1
@@ -6148,14 +6085,13 @@ if __name__ == "__main__":
                               f"driver?) - restarting with software OpenGL "
                               f"(attempt {_gpu_restarts})")
                         time.sleep(1.5)  # let the WM/core dump settle
-                        _stop_tray_best_effort()  # new image makes its own icon
                         try:
                             _relaunch_fresh_process()
                         except Exception as ex:
                             print(f"cubeon: mid-session restart via re-exec "
-                                  f"failed ({ex}); falling back to the tray")
-                            break  # fallback also failed; park if possible
-                        return  # execv or detached handoff replaced us
+                                  f"failed ({ex})")
+                        return  # execv, detached handoff, or nothing left
+                    return  # restart budget exhausted: exit
 
                 if _session_end_kind == "pre_paint_crash":
                     # UI never painted: client crash. Arm fallback, retry.
@@ -6171,109 +6107,13 @@ if __name__ == "__main__":
                         time.sleep(1.5)  # let the WM/core dump settle
                     else:
                         print("cubeon: client keeps dying before the window "
-                              "shows - keeping the tray available")
-                        # A live tray icon is still a usable recovery path:
-                        # Open starts a fresh process, so a persistent GPU
-                        # failure does not strand the user with no launcher.
-                        break
-
-                if _session_end_kind == "mid_session_crash":
-                    # Mid-session crash budget exhausted: park (or exit)
-                    # instead of looping - exactly as if the user had closed
-                    # the window. Tray/friends stay up; Open starts fresh.
-                    break
-
-            # A painted session just ended (user closed the window).
-            _ctrl = _tray_runtime["controller"]
-            # Park ONLY with a live icon. If the tray backend never came up
-            # (or died during the session), parking would leave an invisible
-            # process the user can neither reopen nor quit except with a task
-            # manager - so in that case close means exit, like tray-off mode.
-            if not (_ctrl is not None and _ctrl.running
-                    and _tray_runtime["reopen"] is not None):
-                return  # no tray: plain exit
-
-            # Tray mode: park. The icon, friends service and watcher stay
-            # up; we idle until Open (fresh session) or Quit.
-            print("cubeon: window closed - staying in tray (Open to reopen, "
-                  "Quit to exit)")
-            _reopen = _tray_runtime["reopen"]
-            _quit_ev = _tray_runtime["quit"]
-            # A pending reopen is honored when the click is no older than the
-            # session's last few seconds - i.e. it was made while the window
-            # was closing or already gone. Anything older is a stray click
-            # from mid-session and must not spring the window back open the
-            # instant the user closes it.
-            #
-            # The events are otherwise NEVER cleared blindly here. They used
-            # to be, and that lost every fast click: close, click Open during
-            # the teardown gap (ghost-client kill + up to 3s of cleanup), and
-            # the clear wiped the request - the process parked forever and
-            # Open looked broken.
-            if _reopen.is_set() and \
-                    (_tray_runtime.get("reopen_at") or 0.0) < _session_ended_at - 5.0:
-                _reopen.clear()
-            # Wait for either signal. The tick is short ON PURPOSE: the
-            # post-session signal handler only SETS _quit_ev (it no longer
-            # raises, see _reclaim_session_signals), so a ^C during the park
-            # must be polled for - a 30s tick would make Ctrl+C feel dead.
-            # Tray Open is unaffected: _reopen.wait returns the instant the
-            # icon sets the event, whatever the timeout is.
-            while not _quit_ev.is_set():
-                try:
-                    if _reopen.wait(timeout=0.5):
-                        break
-                except RuntimeError:
-                    # flet's exit_gracefully signal handler calls into an
-                    # asyncio loop that is already closed at this point
-                    # (observed twice live: the wait is interrupted during
-                    # teardown and flet raises "Event loop is closed"). It
-                    # used to escape as a cubeon.fatal CRITICAL; it is just
-                    # teardown noise - treat it like a quit request. Belt and
-                    # braces: _reclaim_session_signals has usually already
-                    # replaced that handler by the time we park.
-                    return  # exit process
-                continue
-            if _quit_ev.is_set():
-                return  # exit process
-
-            # --- Reopen: re-exec, do NOT call ft.run again -----------------
-            # Calling ft.run() a second time in one process does spawn a new
-            # flet client (you can see the pid), but the new client never
-            # gets a working engine on 0.86 - it logs
-            #   "Attempted to set message handler on an FlBinaryMessenger
-            #    without an engine"
-            # and no window ever appears, because the first session left
-            # global connection/asyncio state behind that ft.run doesn't
-            # reset. So "Open" replaces this process with a brand-new
-            # launcher instead: same pid, fresh interpreter, guaranteed
-            # working first-run code path.
-            #
-            # execv is the right tool over Popen+exit: no window of two
-            # launchers alive at once, and any child Minecraft (its own
-            # session since the launch fix) is untouched by it.
-            print("cubeon: reopening the window (fresh session)")
-            # Watchdogged (same as Settings > Restart): a native stop() hang
-            # must never block the re-exec that actually reopens the window.
-            _stop_tray_best_effort()
-            try:
-                # The game we launched (if any) is still ours across execv -
-                # same pid lineage, same watchdog record - so tell the new
-                # image not to greet the user with an "orphaned session"
-                # prompt about a game that is perfectly well looked after.
-                _relaunch_fresh_process()
-            except OSError as ex:
-                # execv failing is exotic (deleted interpreter, no memory).
-                # Falling through to another ft.run at least tries. Consume
-                # the request first so this doesn't re-fire on the next close.
-                _reopen.clear()
-                print(f"cubeon: reopen via re-exec failed ({ex}); "
-                      f"trying an in-process session")
+                              "shows - giving up")
+                        return
 
     _session_loop()
 
-    # Hard exit. The tray (pystray/GLib) and pango fontconfig threads are
-    # native and occasionally ignore daemon status during interpreter
+    # Hard exit. Native threads (pango fontconfig, GLib leftovers) are
+    # occasionally still alive and ignore daemon status during interpreter
     # shutdown, leaving a zombie launcher process. os._exit skips all
     # teardown beyond what we already did explicitly above. Cleanup handlers
     # have ALREADY run at this point (see loop body) - nothing is skipped.

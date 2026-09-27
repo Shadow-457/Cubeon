@@ -7,6 +7,64 @@ see the web bullets further down. The waitlist is gone, the repo is private.) If
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
+## Managed Java runtimes (2026-09-27) — INVARIANT
+- **The launcher OFFERS to download Java; it never downloads unasked.**
+  `cubeon/jre.py` fetches a Temurin **JRE** (not JDK — Minecraft never
+  compiles) from the Adoptium API into `~/.cubeon_launcher/runtimes/<major>/`.
+  `main.on_play_click` calls `jre.java_status(mc_version, cfg["java_path"])`
+  and shows `_prompt_for_java` only when the machine has no Java new enough
+  AND the version is not already installed. "Not now" (or dismissing the
+  dialog) cancels the whole install — it must not fall through and install
+  Minecraft anyway. Guard: tools/test_launch_fixes.py §14.
+- **A managed runtime is a LAST resort, never a replacement.** They are
+  appended to the candidate list in `launch.find_java_for_version` AFTER
+  Settings → PATH → JAVA_HOME → the mll scan, so installing one can never
+  change what a user who already has Java is running. §14 asserts that
+  ordering by source position — do not "optimise" it into an earlier slot.
+- **The Temurin archive nests the JRE one level deep**
+  (`jdk-17.0.20.1+1-jre/bin/java`). `install_jre` MUST promote that inner
+  home to `runtimes/<major>/`, because `managed_java()` looks for exactly
+  `runtimes/<major>/bin/java`. This failed on the first real end-to-end run
+  ("Java 17 did not install correctly" with a working JVM on disk) — the
+  unpack was fine, the move was wrong. Don't "simplify" the staging back to
+  moving the extraction root.
+- **Atomic + verified:** sha256 from Adoptium is checked before unpacking;
+  extraction goes to `<major>.part`, the home to `<major>.part.home`, and
+  only then `os.replace` into place. Every failure path removes both temp
+  dirs, so a crashed install can never leave something `managed_java()`
+  reports as usable. Zip/tar members are checked for path escape (ZipSlip).
+- **`SUPPORTED_MAJORS = (8, 16, 17, 21, 25)`** is deliberately exactly the set
+  `required_java_major()` can return, so a version can never demand a Java
+  the launcher cannot supply. §14 asserts that correspondence.
+
+## Tray / background mode REMOVED (2026-09-27) — INVARIANT
+- **There is no system tray and no background mode any more.** `cubeon/tray.py`
+  is deleted, the `close_to_tray` setting is gone from `cubeon/config.py`, and
+  `pystray` is no longer a dependency. A closed window now ENDS the process:
+  `_session_loop` returns on `clean_close` instead of parking, and there is no
+  reopen/park bookkeeping. Reason: on Flet 0.86/GTK the X button destroys the
+  window/session and delivers no "close" event, so "background mode" could
+  only ever mean a headless parked process. Guard: tools/test_ui_smoke.py
+  "the tray is gone from the launcher entirely" (asserts `TrayController`,
+  `_stop_tray_best_effort`, `_tray_runtime` and `pystray` are all absent from
+  main.py). Do not reintroduce it without the user's say-so.
+- **`_tray_runtime` is now `_session_runtime`** (same shape minus the tray
+  keys): it still holds the process-scoped friends service/client and the
+  gamepad watcher's `controller_*` slots, which outlive a single window
+  session. Anything reading `app._tray_runtime` must be updated.
+- **`CUBEON_TRAY_REOPEN` is now `CUBEON_RELAUNCH`**, set by
+  `_relaunch_fresh_process()`; main() pops it to suppress the
+  "orphaned Minecraft session" prompt after a deliberate relaunch.
+- **`_reclaim_session_signals()` no longer sets an event.** It only counts
+  presses in `_session_signal_hits`: the first ^C is swallowed so the bounded
+  teardown finishes, the second is `os._exit(0)`. The reclaim itself is still
+  load-bearing — flet never removes its own handler, so without it a ^C during
+  `_ct.join` raises `RuntimeError('Event loop is closed')` from inside the
+  handler (guard: tools/test_ui_smoke.py §4d).
+- **`window.prevent_close` is still never set.** It makes the window
+  unclosable on this Flet build. Since the tray is gone there is no reason to
+  even consider it.
+
 ## Cancel outgoing requests / reopen dupes / geometry / no-source-leak (2026-09-23, 2nd pass) — INVARIANTS
 - **Cancel pending outgoing requests**: one DECLINE frame serves both
   directions — worker `onDecline` MUST delete

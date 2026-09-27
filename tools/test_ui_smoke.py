@@ -277,50 +277,18 @@ for args, expect in _end_cases:
     check(f"session end {args} -> {expect}", got == expect, f"got {got!r}")
 check("a normal close never relaunches (exit 0 is clean, not a crash)",
       app._classify_session_end(True, 0) == "clean_close",
-      "closing the window must park/exit, never re-exec with software GL")
+      "closing the window must exit, never re-exec with software GL")
 
-print("\n4c. restart/tray-stop can never block a re-exec (Linux)")
-# Regression for "the seasonal Restart button does nothing on Linux": the
-# relaunch branch called pystray's native stop() RAW before execv, and that
-# call is the one native teardown already documented hanging on (futex_wait
-# on KDE). A hang there means the window closes and the process sits there -
-# no restart. Every execv path must survive a stuck or exploding icon.
 import time as _t
 _main_src = open(os.path.abspath(app.__file__), encoding="utf-8").read()
-_real_tray_ctrl = app._tray_runtime["controller"]
-try:
-    class _Hanging:
-        def stop(self):
-            _t.sleep(30)   # the observed KDE deadlock, at small scale
 
-    class _Boom:
-        def stop(self):
-            raise RuntimeError("glib said no")
-
-    app._tray_runtime["controller"] = _Hanging()
-    _t0 = _t.monotonic()
-    app._stop_tray_best_effort(timeout=0.3)
-    _took = _t.monotonic() - _t0
-    check("a hanging tray stop() cannot block the caller",
-          _took < 2.0, f"took {_took:.2f}s")
-
-    app._tray_runtime["controller"] = _Boom()
-    try:
-        app._stop_tray_best_effort(timeout=0.3)
-        check("a raising tray stop() does not propagate", True)
-    except Exception as _ex:
-        check("a raising tray stop() does not propagate", False,
-              f"{type(_ex).__name__}: {_ex}")
-
-    app._tray_runtime["controller"] = None
-    check("no tray icon is a no-op", app._stop_tray_best_effort() is None)
-finally:
-    app._tray_runtime["controller"] = _real_tray_ctrl
-
-check("every execv path stops the tray through the watchdog, never raw",
-      "_ctrl.stop()" not in _main_src
-      and _main_src.count("_stop_tray_best_effort()") >= 3,
-      "Settings > Restart, GPU-crash recovery and tray Open all go through it")
+check("the tray is gone from the launcher entirely",
+      "TrayController" not in _main_src
+      and "_stop_tray_best_effort" not in _main_src
+      and "_tray_runtime" not in _main_src
+      and "pystray" not in _main_src,
+      "close-to-tray / background mode was removed on purpose: a closed "
+      "window now ends the process instead of parking it headless")
 
 # The button itself: click it the way the real UI does and prove it arms the
 # relaunch request AND asks the window to close. (This is the whole in-app
@@ -402,15 +370,13 @@ check("_reveal_window never shadows the saved-geometry names",
 
 _restart_src = _main_src[
     _main_src.index("restart requested"):][:900]
-check("the restart branch stops the tray BEFORE re-exec, watchdogged",
-      "_stop_tray_best_effort()" in _restart_src
-      and "_relaunch_fresh_process()" in _restart_src
-      and _restart_src.index("_stop_tray_best_effort()")
-      < _restart_src.index("_relaunch_fresh_process()"),
-      "the click must still reach execv when the icon thread wedges")
+check("the restart branch reaches execv with nothing blocking it first",
+      "_relaunch_fresh_process()" in _restart_src
+      and "_stop_tray_best_effort" not in _restart_src,
+      "the click must go straight to execv - no native teardown in the way")
 
 print("\n4d. Ctrl+C after the session ends can never raise flet's dead-loop error")
-# The 2026-09-24 crash: ^C right after "quit from tray" interrupted
+# The 2026-09-24 crash: ^C right after the session ended interrupted
 # _ct.join(timeout=3.0) while flet's STILL-INSTALLED exit_gracefully handler
 # poked its closed asyncio loop -> RuntimeError('Event loop is closed') raised
 # from INSIDE the signal handler, escaping _session_loop() as a cubeon.fatal
@@ -431,26 +397,19 @@ check("both flet-installed signals are taken over",
 check("the in-ft.run dead-loop race is caught by its exact message",
       'if "Event loop is closed" not in str(_ex):' in _main_src,
       "a signal delivered while ft.run unwinds must not kill the session loop")
-check("a second ^C still ends the process immediately",
-      "second ^C: out NOW" in _main_src,
-      "an impatient user must not be stuck behind a hung teardown")
-check("the parked wait polls the quit event on a short tick",
-      "_reopen.wait(timeout=0.5)" in _main_src,
-      "the reclaim handler only SETS _quit_ev - a 30s tick makes ^C feel dead")
-check("the parked wait still treats a flet signal as teardown noise",
-      "except RuntimeError:" in _sess_src)
+check("a first ^C is swallowed so the bounded teardown can finish",
+      "second ^C: out NOW" in _main_src
+      and "_session_signal_hits[\"n\"] >= 2" in _main_src,
+      "one press must not abort cleanup, two must end the process at once")
 
 # Behavioural: run the real reclaim and fire real signals at this process.
-# First press = quit request (graceful). The second-press escalation is NOT
-# exercised here on purpose - it calls os._exit(0), which would kill the test.
+# One press must be counted and swallowed (the loop exits normally right
+# after); the second-press escalation to os._exit(0) is NOT exercised here
+# on purpose - it would kill the test.
 import signal as _signal
-import threading as _threading_sig
 _real_handlers = {_s: _signal.getsignal(_s)
                   for _s in (_signal.SIGINT, _signal.SIGTERM)}
-_real_quit = app._tray_runtime["quit"]
 try:
-    _quit_ev = _threading_sig.Event()
-    app._tray_runtime["quit"] = _quit_ev
     app._reclaim_session_signals()
     check("the reclaim replaces flet's SIGINT handler",
           _signal.getsignal(_signal.SIGINT) is not _real_handlers[_signal.SIGINT])
@@ -459,22 +418,21 @@ try:
     if _signal.getsignal(_signal.SIGINT) is not _real_handlers[_signal.SIGINT]:
         os.kill(os.getpid(), _signal.SIGINT)
         _t.sleep(0.25)  # main-thread handler runs between bytecodes
-        check("^C after the session is a quit request, not a traceback",
-              _quit_ev.is_set())
-        _quit_ev.clear()
+        check("^C after the session is counted, not a traceback",
+              app._session_signal_hits["n"] == 1)
         # Reset the press counter: a second press is a HARD exit by design.
         app._session_signal_hits["n"] = 0
         os.kill(os.getpid(), _signal.SIGTERM)
         _t.sleep(0.25)
-        check("SIGTERM is a quit request too", _quit_ev.is_set())
+        check("SIGTERM is counted the same way",
+              app._session_signal_hits["n"] == 1)
     else:
-        check("^C after the session is a quit request, not a traceback", False,
+        check("^C after the session is counted, not a traceback", False,
               "handler was not installed - signal test skipped for safety")
 finally:
     app._session_signal_hits["n"] = 0
     for _s, _h in _real_handlers.items():
         _signal.signal(_s, _h)
-    app._tray_runtime["quit"] = _real_quit
 
 print("\n5. every tab builder accepts the shared theme (**THEME)")
 # The Profile dialog and the tab builders aren't reached by main()'s initial
@@ -1573,20 +1531,24 @@ except Exception:
     import traceback
     check("focused UI regressions complete", False, traceback.format_exc())
 
-# --- tray Quit while the window is open must not leave a ghost window ----------
-# Reported: "when I quit from tray while the window is open the window doesn't
-# close, it shows Working and a loading circle." The flet client (the actual
-# window) has to be killed BEFORE the blocking quit cleanup, because that
-# cleanup can deadlock on native teardown (Discord IPC, friends WS, pystray) -
-# when it did, the 3s bail timer's os._exit(0) fired with the client still
-# alive, leaving a mapped, disconnected engine spinner.
-_tray_quit_src = _fn_src(_src_main, "_tray_quit")
-check("tray Quit kills the flet client before the blocking cleanup",
-      _tray_quit_src.find("_kill_flet_client()") != -1
-      and _tray_quit_src.find("_kill_flet_client()")
-      < _tray_quit_src.find("friends_service.stop()"),
+# --- a clean close must not leave a ghost window -----------------------------
+# Reported: quitting left the window mapped, disconnected, spinning the
+# engine's "Working..." placeholder. _kill_flet_client() must run right after
+# every ft.run return (BEFORE the blocking cleanup, which can deadlock on
+# native teardown - Discord IPC, friends WS - leaving the 3s bail timer's
+# os._exit(0) to fire with the client still alive).
+_sess_loop_src = _fn_src(_src_main, "_session_loop")
+check("the session loop reaps the flet client the moment ft.run returns",
+      _sess_loop_src.count("_kill_flet_client()") >= 2
+      and _sess_loop_src.index("_kill_flet_client()")
+      < _sess_loop_src.index("_ct.join(timeout=3.0)"),
       "client kill must precede rpc/friends cleanup or a stalled cleanup "
       "strands the window on the engine's 'Working...' placeholder")
+
+check("the reclaimed signal handler raises nothing of its own",
+      "raise" not in _fn_src(_src_main, "_on_session_signal"),
+      "the handler only counts presses; a raise here would escape as a "
+      "cubeon.fatal CRITICAL")
 
 # --- startup splash ------------------------------------------------------------
 # User request: the launcher "takes time to start", so show a small loading

@@ -133,6 +133,14 @@ CUBEON_HOME = str(Path.home() / ".cubeon_launcher")
 CONFIG_PATH = os.path.join(CUBEON_HOME, "config.json")
 CACHE_DIR = os.path.join(CUBEON_HOME, "cache")
 
+# Java runtimes Cubeon downloads and manages itself, one folder per major
+# version (runtimes/17, runtimes/21, ...). A system Java always wins over
+# these - they exist so a machine with NO JDK can still install and play
+# without going to adoptium.net by hand. Kept out of the game folder so a
+# runtime is never mistaken for game content, and out of `bin/` (which holds
+# helper tools) so "what is this 200 MB folder" has one obvious answer.
+RUNTIMES_DIR = os.path.join(CUBEON_HOME, "runtimes")
+
 SKINS_DIR = os.path.join(CUBEON_HOME, "skins")
 SKINS_META_PATH = os.path.join(SKINS_DIR, "skins.json")
 
@@ -221,7 +229,7 @@ def ensure_dirs() -> None:
     """
     for d in (
         MINECRAFT_DIR, MODS_DIR, GLOBAL_MODS_DIR, CUBEON_HOME, CACHE_DIR, SKINS_DIR,
-        CAPES_DIR, PFP_DIR, SERVERS_DIR, PROFILES_DIR, BIN_DIR,
+        CAPES_DIR, PFP_DIR, SERVERS_DIR, PROFILES_DIR, BIN_DIR, RUNTIMES_DIR,
         RESOURCEPACKS_DIR, SHADERPACKS_DIR, GLOBAL_CONTENT_DIR,
     ):
         try:

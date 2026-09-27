@@ -657,5 +657,103 @@ finally:
             proc.wait(5)
     watchdog.clear()
 
+print("\n14. managed Java runtimes (offered, never forced)")
+# The launcher now offers to download a Temurin JRE when the selected
+# version needs one and the machine has none. The invariants worth pinning
+# down are the ones that could quietly break a user who already has Java:
+# it must never be downloaded unasked, never preferred over a system Java,
+# and an interrupted install must never look complete.
+from cubeon import jre  # noqa: E402
+
+check(jre.RUNTIMES_DIR.endswith(os.path.join(".cubeon_launcher", "runtimes")),
+      "managed runtimes live under .cubeon_launcher/runtimes",
+      f"got {jre.RUNTIMES_DIR}")
+check(tuple(sorted(jre.SUPPORTED_MAJORS)) == (8, 16, 17, 21, 25),
+      "only the majors required_java_major actually hands out are offered",
+      f"got {jre.SUPPORTED_MAJORS}")
+check(all(m in jre.SUPPORTED_MAJORS for m in
+          {launch.required_java_major(v) for v in
+           ("1.12.2", "1.16.5", "1.18.2", "1.20.1", "1.21.4", "26.1.2")}),
+      "every required_java_major result is installable",
+      "a version whose Java we cannot supply would be a dead end")
+
+try:
+    jre.install_jre(999)
+    check("an unsupported major is refused before any network call", False,
+          "install_jre(999) did not raise")
+except jre.JreError:
+    check(True, "an unsupported major is refused before any network call")
+# A folder with no bin/java (what a crashed install leaves behind) must not
+# be reported as a usable runtime.
+_sandbox = tempfile.mkdtemp()
+with patch.object(jre, "RUNTIMES_DIR", _sandbox):
+    os.makedirs(os.path.join(_sandbox, "17"), exist_ok=True)
+    check(jre.managed_java(17) is None,
+          "an empty runtime folder does not count as installed")
+    check(jre.installed_runtimes() == {},
+          "an empty runtime folder is not listed as a runtime")
+
+    # The nested-folder trap: Temurin ships jdk-<ver>-jre/bin/java INSIDE the
+    # archive, so a runtime unpacked without promoting that inner folder
+    # reads as "not installed" even though a working JVM is on disk. This
+    # failed for real on the first end-to-end run.
+    _home = os.path.join(_sandbox, "17", "jdk-17.0.20.1+1-jre", "bin")
+    os.makedirs(_home, exist_ok=True)
+    open(os.path.join(_home, "java"), "w").close()
+    check(jre.managed_java(17) is None,
+          "a too-deeply-nested java is still 'not installed' (layout is exact)")
+
+    # _extract must return the JRE home, not the extraction root: a single
+    # top-level folder is the archive's wrapper and gets promoted.
+    _arc = os.path.join(_sandbox, "jre.tar.gz")
+    import tarfile
+    with tarfile.open(_arc, "w:gz") as tf:
+        info = tarfile.TarInfo("jdk-17.0.20.1+1-jre/bin/java")
+        info.size = 0
+        tf.addfile(info)
+    with tarfile.open(_arc) as tf:
+        tf.getnames()
+    got = jre._extract(_arc, os.path.join(_sandbox, "out"))
+    check(got == "jdk-17.0.20.1+1-jre",
+          "_extract returns the JRE home, not the extraction root",
+          f"got {got!r}")
+
+    # ZipSlip: a member escaping the destination must be refused, not written.
+    _evil = os.path.join(_sandbox, "evil.zip")
+    with zipfile.ZipFile(_evil, "w") as zf:
+        zf.writestr("../../escaped.txt", "nope")
+    try:
+        jre._extract(_evil, os.path.join(_sandbox, "zout"))
+        check("a path-traversing archive member is refused", False,
+              "no JreError raised")
+    except jre.JreError:
+        check(True, "a path-traversing archive member is refused")
+    check(not os.path.exists(os.path.join(os.path.dirname(_sandbox),
+                                         "escaped.txt")),
+          "nothing was written outside the destination")
+
+# The launcher must not prompt a machine that already has a usable Java, and
+# must report a real shortfall when it does not.
+_st = jre.java_status("1.20.1")
+if _st["ok"]:
+    check(_st["found"] is None or _st["found"] >= _st["required"],
+          "java_status ok implies a new-enough Java was found", f"got {_st}")
+else:
+    check(_st["required"] > 0,
+          "java_status reports the major the version needs", f"got {_st}")
+
+# A managed runtime is a LAST resort, so a system Java still wins. Proven by
+# resolution order, not by downloading anything: the managed candidates are
+# appended after every system source in find_java_for_version.
+_src = open(os.path.abspath(launch.__file__), encoding="utf-8").read()
+_fn = _src[_src.index("def find_java_for_version"):]
+_fn = _fn[:_fn.index("\ndef ")] if "\ndef " in _fn else _fn
+check(_fn.index("find_system_java_versions()") < _fn.index("installed_runtimes()"),
+      "managed runtimes are appended AFTER every system Java source",
+      "a system Java must keep winning - the managed one is a fallback")
+check("java_status" in open(os.path.abspath(jre.__file__),
+                            encoding="utf-8").read(),
+      "java_status exists for the pre-install prompt")
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

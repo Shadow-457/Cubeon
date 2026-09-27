@@ -133,13 +133,6 @@ DEFAULT_CONFIG = {
     # running on this machine AND discord_client_id set; see
     # cubeon/discord_rpc.py for the Discord-side steps.
     "discord_rpc_enabled": True,
-    # System-tray icon with Open/Quit. When on, closing the window keeps
-    # the process running headless (friends presence, P2P, tray icon) and
-    # tray Open starts a fresh window session. When off, X quits normally.
-    # The window itself is never intercepted - prevent_close on Flet 0.86
-    # makes it unclosable, so background mode works by re-launching the
-    # UI session instead of hiding the window.
-    "close_to_tray": True,
     # Discord Rich Presence - show a "Cubeon" activity on your Discord profile
     # (like TLauncher shows itself as a game). Requires the Discord desktop app
     # running on this machine AND discord_client_id set; see

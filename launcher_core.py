@@ -58,6 +58,9 @@ from cubeon.launch import (
     launch_game,
 )
 
+# --- managed Java runtimes (downloaded on the user's say-so) ---
+from cubeon import jre
+
 # --- mods ---
 from cubeon.mods import (
     MODRINTH_API, RECOMMENDED_MOD_SLUGS, MOD_CATEGORIES,

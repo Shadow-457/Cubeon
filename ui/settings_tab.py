@@ -173,7 +173,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             section_label("Java"),
             ft.Container(height=2),
             ft.Text(
-                "Leave this blank unless you need a specific Java version.",
+                "Leave this blank unless you need a specific Java version. "
+                "Paste the java executable, or the JDK folder itself - both "
+                "work. Leave it empty and Cubeon uses the Java it finds, "
+                "including one it downloaded for you.",
                 size=12, color=TEXT_DIM,
             ),
             ft.Container(height=10),
