@@ -146,7 +146,7 @@ Staff don't argue in public: one reply ("handled in `#staff-tickets`") and done.
 
 **Bug report** (`#bug-reports`)
 ```
-**Version:** 1.0.1   **OS:** Windows 11   **Minecraft:** 1.21.1 (Fabric)
+**Version:** 1.0.2   **OS:** Windows 11   **Minecraft:** 1.21.1 (Fabric)
 **What I did:** <steps>
 **Expected:** <what should have happened>
 **Instead:** <what happened — paste the full error text>
@@ -173,7 +173,7 @@ It expires <time/date>. If you think this is wrong, open a ticket in
 
 **Changelog post** (`#changelog`)
 ```
-**v1.0.1** — <one line>
+**v1.0.2** — <one line>
 - Fixed: <user-visible fix>
 - Fixed: <another>
 - Changed: <behaviour change>

@@ -22,7 +22,7 @@ PROJECT_URL = "https://github.com/Shadow-457/Cubeon"
 
 
 def app_version() -> str:
-    """The running launcher's version, e.g. "1.0.1".
+    """The running launcher's version, e.g. "1.0.2".
 
     Read from `updater.APP_VERSION` because that module is the release-bump
     point - `packaging/build_windows_installer.py` greps the literal

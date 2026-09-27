@@ -132,15 +132,15 @@ git push
 Before making a release, change the version in `cubeon/updater.py`:
 
 ```python
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 ```
 
 Then create a tag and release:
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
-gh release create v1.0.1 --generate-notes
+git tag v1.0.2
+git push origin v1.0.2
+gh release create v1.0.2 --generate-notes
 ```
 
 The GitHub repository is private:
