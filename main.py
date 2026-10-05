@@ -5421,6 +5421,20 @@ def main(page: ft.Page):
                     friends_service.stop()
                 except Exception:
                     pass
+                if ev in ("close", "disconnect"):
+                    # A CLOSE event means the window is gone. On Windows the
+                    # flet client CAN deliver this while the Python interpreter
+                    # keeps running with no window - exactly the reported
+                    # "Cubeon is still running in the background after I close
+                    # it". Do not wait for ft.run() to return (it may not):
+                    # end the flet client and then hard-exit. os._exit skips
+                    # interpreter teardown, which is what keeps this from
+                    # hanging on native GLib/flutter state on the way out.
+                    try:
+                        _kill_flet_client()
+                    except Exception:
+                        pass
+                    os._exit(0)
             elif ev in ("resized", "resize", "move", "moved",
                         "maximize", "unmaximize", "rescale"):
                 # Debounced: dragging the window fires dozens of events, and
@@ -5836,7 +5850,47 @@ if __name__ == "__main__":
         never be touched by this.
         """
         if not os.path.isdir("/proc"):
-            return  # Linux-only fix for a Linux-only ghost window
+            # Windows/macOS have no /proc, but the same ghost can survive a
+            # close there - and on Windows the flet client is the thing users
+            # see as "Cubeon still running in the background". Find our flet
+            # client with psutil (a dependency) and end it. Two-factor match
+            # (our child, or our assets dir in its command line) so another
+            # live Cubeon instance is never touched; the "flet" name filter
+            # excludes Minecraft (java).
+            try:
+                import psutil
+            except Exception:
+                return False
+            me = os.getpid()
+            victims = []
+            for proc in psutil.process_iter(
+                    ["pid", "name", "ppid", "cmdline"]):
+                try:
+                    info = proc.info
+                    if "flet" not in (info.get("name") or "").lower():
+                        continue
+                    cmdline = " ".join(info.get("cmdline") or [])
+                    if info.get("ppid") == me or (
+                            _assets_dir and _assets_dir in cmdline):
+                        victims.append(info["pid"])
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            if not victims:
+                return False
+            for pid in victims:
+                try:
+                    psutil.Process(pid).terminate()
+                except Exception:
+                    pass
+            time.sleep(0.5)
+            for pid in victims:
+                try:
+                    proc = psutil.Process(pid)
+                    if proc.is_running():
+                        proc.kill()
+                except Exception:
+                    pass
+            return True
         me = os.getpid()
         victims = []
         for entry in os.listdir("/proc"):

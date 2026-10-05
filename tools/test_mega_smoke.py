@@ -326,6 +326,22 @@ def section_contracts():
           and "('assets', 'assets')" in spec_src.replace('"', "'"),
           "use collect_data_files (defaults to no .py), never collect_all")
 
+    # 3f-bis. The seasonal palettes are loaded by a DYNAMIC import, so every
+    # PyInstaller FRONT-END must name templates.* explicitly. `--collect-
+    # submodules templates` silently collects NOTHING on the Windows build
+    # interpreter (isolated WinPython sys.path) - the palette then falls back
+    # to green and only Windows loses the colours (2026-10-05). Guard that all
+    # three Windows builders carry the explicit hidden imports.
+    win_builders = ["packaging/build_windows.py",
+                    "packaging/build_windows_single.py",
+                    "packaging/build_public_windows.py"]
+    palette_bad = [p for p in win_builders
+                   if not os.path.exists(p)
+                   or "templates.color_autumn" not in open(p, encoding="utf-8").read()
+                   or "--collect-submodules" + '", "templates"' in open(p, encoding="utf-8").read()]
+    check("Windows builders name every palette template explicitly",
+          not palette_bad, "; ".join(palette_bad))
+
     # 3g. The .deb must be a VALID ar archive. io.BytesIO starts its cursor at
     # 0, so the first member used to overwrite the "!<arch>\n" magic - every
     # deb from build_deb.py began with "debian-binary/" and ar/dpkg rejected

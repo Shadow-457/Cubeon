@@ -77,12 +77,25 @@ def main() -> None:
         raise SystemExit(f"Missing {ICON}. The installer needs the Cubeon icon.")
     command, _ = _compiler()
     numeric_version, display_version = _app_version()
+
+    # Approximate installed size (KB) for the Programs & Features entry. NSIS
+    # can't recurse a tree on its own, so it's measured here from the payload
+    # it is about to compress.
+    size_kb = 0
+    for dirpath, _dirnames, filenames in os.walk(SOURCE):
+        for name in filenames:
+            try:
+                size_kb += os.path.getsize(os.path.join(dirpath, name)) // 1024
+            except OSError:
+                pass
+
     command += [
         f"/DSOURCE_DIR={_wine_path(SOURCE)}",
         f"/DOUTPUT_DIR={_wine_path(OUTPUT)}",
         f"/DICON_FILE={_wine_path(ICON)}",
         f"/DAPP_VERSION={numeric_version}",
         f"/DDISPLAY_VERSION={display_version}",
+        f"/DESTIMATED_SIZE_KB={size_kb}",
     ]
     wizard_bmp = ROOT / "packaging" / "graphics" / "wizard.bmp"
     header_bmp = ROOT / "packaging" / "graphics" / "header.bmp"

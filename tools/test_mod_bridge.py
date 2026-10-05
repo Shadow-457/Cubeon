@@ -23,10 +23,6 @@ SOURCES = [
     "mod/src/main/java/com/cubeon/client/Json.java",
     "mod/src/main/java/com/cubeon/client/Bridge.java",
     "mod/src/main/java/com/cubeon/client/BadgeNames.java",
-    "mod/src/main/java/com/cubeon/client/modules/ModuleCategory.java",
-    "mod/src/main/java/com/cubeon/client/modules/Module.java",
-    "mod/src/main/java/com/cubeon/client/modules/ModuleConfig.java",
-    "mod/src/main/java/com/cubeon/client/modules/HudText.java",
     "mod/tools/SelfTest.java",
 ]
 

@@ -1,8 +1,6 @@
 package com.cubeon.client;
 
 import com.cubeon.client.Bridge.Toast;
-import com.cubeon.client.modules.ModuleConfig;
-import com.cubeon.client.modules.Modules;
 
 import net.fabricmc.api.ClientModInitializer;
 
@@ -41,19 +39,6 @@ public class CubeonClient implements ClientModInitializer {
         Bridge bridge = Bridge.get();
         bridge.setToastSink(CubeonClient::announce);
         bridge.start();
-
-        // Load the module config on the client thread, and only once the game
-        // directory is known: the file lives beside the rest of the instance's
-        // config, so there is nothing to load before that.
-        Minecraft.getInstance().execute(() -> {
-            try {
-                java.nio.file.Path dir = net.fabricmc.loader.api.FabricLoader
-                        .getInstance().getConfigDir();
-                Modules.get().loadFrom(dir.resolve(ModuleConfig.FILE_NAME));
-            } catch (Throwable ignored) {
-                // A missing config is not an error; the modules just start off.
-            }
-        });
     }
 
     /**

@@ -12,6 +12,19 @@ spec = importlib.util.spec_from_file_location("public_assets", ROOT / "packaging
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
+# Palettes are loaded by a dynamic import (color_templates.py), so PyInstaller
+# must be told about them by name; `--collect-submodules templates` collects
+# nothing on the Windows build interpreter. See build_windows.py.
+TEMPLATE_HIDDEN_IMPORTS = (
+    "templates",
+    "templates.color_green", "templates.color_obsidian",
+    "templates.color_lapis", "templates.color_redstone",
+    "templates.color_carbon", "templates.color_amethyst",
+    "templates.color_diamond", "templates.color_autumn",
+    "templates.color_spring", "templates.color_winter",
+    "templates.color_summer",
+)
+
 
 def _bundle_flet_client():
     """flet_desktop must be collected + its client zip bundled, or the frozen
@@ -58,7 +71,9 @@ try:
                     "--collect-submodules", "minecraft_launcher_lib",
 
                     "--collect-binaries", "minecraft_launcher_lib",
-                    "--collect-submodules", "templates", "main.py"],
+                    "--paths", str(ROOT),
+                    *[f"--hidden-import={m}" for m in TEMPLATE_HIDDEN_IMPORTS],
+                    "main.py"],
                    check=True)
     zip_path = ROOT / "dist" / "Cubeon-public-Windows-x64.zip"
     shutil.make_archive(str(zip_path.with_suffix("")), "zip", ROOT / "dist", "Cubeon")

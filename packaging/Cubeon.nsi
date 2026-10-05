@@ -28,6 +28,12 @@
 !ifndef DISPLAY_VERSION
   !define DISPLAY_VERSION "1.0.0"
 !endif
+; Approximate installed size in KB for Programs & Features, supplied by
+; build_windows_installer.py (it walks the payload); the default is a sane
+; fallback so the .nsi can also be compiled by hand.
+!ifndef ESTIMATED_SIZE_KB
+  !define ESTIMATED_SIZE_KB "160000"
+!endif
 
 Unicode True
 Name "Cubeon"
@@ -80,8 +86,13 @@ VIAddVersionKey "LegalCopyright" "Cubeon"
 !define DEFAULT_INSTDIR "$LOCALAPPDATA\Cubeon"
 
 ; Set in .onInit when an existing install was found, so the section knows this
-; run is an update/repair and must clear the old files first.
+; run is an update/repair.
 Var IsUpdate
+; The folder a previous Cubeon was actually found in (NOT necessarily the
+; default - the user may have chosen a custom path, and InstallDirRegKey
+; restores it). Tracked so the update logic keys off the real old install, not
+; a hardcoded default.
+Var OldInstDir
 
 ; --- already-installed? ------------------------------------------------------
 ; Launching the setup over an existing Cubeon used to silently overwrite it: the
@@ -128,6 +139,10 @@ not_installed:
 
 ask:
   StrCpy $IsUpdate "1"
+  ; Remember where the old install actually lives (the registry path, or the
+  ; default we just resolved). The section below uses this instead of assuming
+  ; $LOCALAPPDATA\Cubeon.
+  StrCpy $OldInstDir "$INSTDIR"
   ; Word the prompt by what will actually happen to the files. $0 is empty when
   ; the files were found with no registry entry to read a version from.
   ${If} $0 == ""
@@ -163,7 +178,8 @@ ask:
   FileOpen $4 "${APP_EXE}" "a"
   ${If} $4 == ""
     MessageBox MB_OK|MB_ICONEXCLAMATION \
-      "Cubeon is still running.$\r$\n$\r$\nClose Cubeon, then run this setup again."
+      "Cubeon is still running.$\r$\n$\r$\nClose Cubeon, then run this setup again." \
+      /SD IDOK
     SetErrorLevel 1
     Quit
   ${EndIf}
@@ -200,22 +216,34 @@ FunctionEnd
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Cubeon" SEC_MAIN
-  ; An update must start from an empty folder. `File /r` only ADDS and
-  ; overwrites - a jar, template or module the new build dropped would stay
-  ; behind and keep being imported, which is exactly the kind of bug nobody
-  ; reproduces on a clean machine. Everything the user owns (settings, auth
-  ; key, friends cache, downloaded runtimes) lives in %USERPROFILE%\.cubeon_launcher
-  ; and the game in \.cubeon_minecraft, so this folder is program files only.
+  ; Updates no longer wipe the folder first. The old flow did `RMDir /r
+  ; "$INSTDIR"` then `File /r`, i.e. delete and rewrite every one of the
+  ; hundreds of files - double the disk I/O and double the antivirus scan,
+  ; which is the "updating deletes for ages" the user reported. We now copy
+  ; over the top with `SetOverwrite ifdiff`: NSIS compares each file and only
+  ; writes the ones that actually changed, so the big unchanged pieces
+  ; (assets/jars ~62 MB, the bundled flet client ~40 MB, the DLLs) are skipped
+  ; entirely.
   ;
-  ; Guarded: only ever removed when it is the install folder we recognise. A
-  ; hand-edited InstallDir pointing at, say, Documents must not be deleted.
+  ; `File /r` never deletes, so a file the new build DROPPED would linger. The
+  ; only spot that has bitten us is a stale `templates` package dir (the
+  ; seasonal palettes once shipped as data there). Clear just that small,
+  ; code-only path - never the large assets - so an update stays correct
+  ; without paying for a full wipe.
+  ;
+  ; Everything the user owns (settings, auth key, friends cache, downloaded
+  ; runtimes) lives in %USERPROFILE%\.cubeon_launcher and the game in
+  ; \.cubeon_minecraft, so this folder is program files only.
   ${If} $IsUpdate == "1"
-  ${AndIf} $INSTDIR == "${DEFAULT_INSTDIR}"
-    RMDir /r "$INSTDIR"
+    SetOverwrite ifdiff
+    RMDir /r "$INSTDIR\_internal\templates"
+  ${Else}
+    SetOverwrite on
   ${EndIf}
 
   SetOutPath "$INSTDIR"
   File /r "${SOURCE_DIR}\*"
+  SetOverwrite on
 
   WriteRegStr HKCU "${SETTINGS_KEY}" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall Cubeon.exe"
@@ -232,6 +260,10 @@ Section "Cubeon" SEC_MAIN
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${DISPLAY_VERSION}"
   WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "Cubeon"
   WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall Cubeon.exe"'
+  WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall Cubeon.exe" /S'
+  WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://cubeon.vercel.app"
+  WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" ${ESTIMATED_SIZE_KB}
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
@@ -243,5 +275,11 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\Cubeon"
   DeleteRegKey HKCU "${SETTINGS_KEY}"
   DeleteRegKey HKCU "${UNINST_KEY}"
+  ; Only delete the folder when it is demonstrably OURS - our uninstaller and
+  ; the app exe must both be present. A hand-edited or stale InstallDir must
+  ; never make uninstall recursively delete an unrelated folder.
+  IfFileExists "$INSTDIR\Uninstall Cubeon.exe" 0 uninstall_keep_folder
+  IfFileExists "$INSTDIR\Cubeon.exe" 0 uninstall_keep_folder
   RMDir /r "$INSTDIR"
+uninstall_keep_folder:
 SectionEnd

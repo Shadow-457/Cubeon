@@ -35,6 +35,27 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEP = ";" if os.name == "nt" else ":"  # PyInstaller path separator
 
+# cubeon/color_templates.py loads every palette by a DYNAMIC
+# importlib.import_module("templates.color_<key>"). PyInstaller cannot see a
+# dynamic import, so the palette modules must be named explicitly - and NOT via
+# `--collect-submodules templates`, which runs while the spec is being written,
+# BEFORE Analysis adds the repo to sys.path. On the Windows build interpreter
+# (WinPython runs in isolated _pth mode, so the repo is never on sys.path)
+# collect_submodules("templates") returns zero modules, the palette import
+# fails, and the launcher silently falls back to GREEN: seasonal weather and pet
+# still show (they do not touch templates) while the colours do not - exactly
+# the Windows bug. Explicit --hidden-import names are resolved by Analysis via
+# --paths ROOT. Adding a palette = add it in cubeon/color_templates.py AND here.
+TEMPLATE_HIDDEN_IMPORTS = (
+    "templates",
+    "templates.color_green", "templates.color_obsidian",
+    "templates.color_lapis", "templates.color_redstone",
+    "templates.color_carbon", "templates.color_amethyst",
+    "templates.color_diamond", "templates.color_autumn",
+    "templates.color_spring", "templates.color_winter",
+    "templates.color_summer",
+)
+
 FLET_VERSION = "0.86.5"  # keep in sync with requirements.txt (flet>=0.86,<0.87)
 FLET_CLIENT_URL = f"https://github.com/flet-dev/flet/releases/download/v{FLET_VERSION}/flet-windows.zip"
 
@@ -92,7 +113,8 @@ def main():
         "--collect-submodules", "flet_desktop",
 
         "--collect-binaries", "flet_desktop",
-        "--collect-submodules", "templates",
+        "--paths", ROOT,
+        *[f"--hidden-import={m}" for m in TEMPLATE_HIDDEN_IMPORTS],
         "main.py",
     ]
     print("+", " ".join(cmd))

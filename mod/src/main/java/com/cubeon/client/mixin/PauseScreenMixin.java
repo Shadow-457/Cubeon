@@ -72,21 +72,6 @@ public abstract class PauseScreenMixin extends Screen {
             friends.setX(CubeonClientScreen.ICON_INSET);
             friends.setY(CubeonClientScreen.ICON_INSET);
             this.addRenderableWidget(friends);
-
-            // The mod menu sits to the right of the Friends icon rather than in
-            // the menu's button column: a full-width "Cubeon" button in
-            // Minecraft's own pause menu is the thing this whole screen docks
-            // out of the way of. It only exists in a live world - a module is
-            // meaningless on the title screen, which never opens one.
-            Button mods = Button
-                    .builder(Component.literal("Mods"), button ->
-                            this.minecraft.setScreen(
-                                    new com.cubeon.client.ModuleMenuScreen(this)))
-                    .bounds(CubeonClientScreen.ICON_INSET
-                                    + CubeonClientScreen.ICON_W + 2,
-                            CubeonClientScreen.ICON_INSET, 34, CubeonClientScreen.ICON_H)
-                    .build();
-            this.addRenderableWidget(mods);
         } catch (Throwable ex) {
             // Whatever went wrong, the player still gets a working pause menu.
             if (!cubeon$warned) {

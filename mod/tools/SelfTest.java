@@ -21,10 +21,6 @@
  */
 package com.cubeon.client;
 
-import com.cubeon.client.modules.HudText;
-import com.cubeon.client.modules.Module;
-import com.cubeon.client.modules.ModuleCategory;
-import com.cubeon.client.modules.ModuleConfig;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,8 +43,6 @@ public final class SelfTest {
         chatParsing();
         playersParsing();
         badgeNames();
-        moduleFramework();
-        hudTextLines();
         resultReading();
         uidAndPortRules();
         nameChecking();
@@ -425,108 +419,6 @@ public final class SelfTest {
         ok(BadgeNames.from(Bridge.Snapshot.DOWN, List.of()).isEmpty(),
                 "a down launcher vouches for nobody (you are matched by identity)");
     }
-    /**
-     * A stand-in module with no Minecraft dependency, so the framework's
-     * behaviour - toggling, clamping, and the config round-trip - is testable
-     * on a bare JDK.
-     */
-    private static final class FakeModule extends Module {
-        final List<Boolean> applied = new ArrayList<>();
-
-        FakeModule(String id) {
-            super(id, "Fake " + id, "A stand-in module.", ModuleCategory.PVP);
-            boolSetting("flag", false);
-            intSetting("level", 50, 10, 100);
-        }
-
-        @Override
-        protected void apply(boolean on) {
-            applied.add(on);
-        }
-    }
-
-    private static void moduleFramework() {
-        section("modules: toggling, clamping, config round-trip");
-
-        FakeModule module = new FakeModule("demo");
-        ok(!module.isEnabled(), "modules start off");
-        module.setEnabled(true);
-        ok(module.isEnabled() && module.applied.equals(List.of(true)),
-                "enabling applies immediately, without waiting for a tick");
-        module.setEnabled(false);
-        ok(module.applied.equals(List.of(true, false)),
-                "disabling applies too, so the game's option is put back");
-
-        // Clamping is what makes a hand-edited config harmless.
-        module.setIntValue("level", 5000);
-        ok(module.intValue("level") == 100, "an int setting clamps to its max");
-        module.setIntValue("level", -5);
-        ok(module.intValue("level") == 10, "and to its min");
-        module.setBoolValue("flag", true);
-        ok(module.boolValue("flag"), "a bool setting round-trips");
-
-        ok(module.settingKeys().equals(List.of("flag", "level")),
-                "settings are listed booleans-then-ints, in declaration order");
-
-        ok(ModuleCategory.ALL.matches(ModuleCategory.PVP),
-                "the All tab matches every category");
-        ok(ModuleCategory.PVP.matches(ModuleCategory.PVP)
-                && !ModuleCategory.PVP.matches(ModuleCategory.HUD),
-                "a real tab matches only its own category");
-
-        // Round trip: save, then load lands on exactly the same values.
-        FakeModule saved = new FakeModule("demo");
-        saved.setEnabled(true);
-        saved.setIntValue("level", 90);
-        saved.setBoolValue("flag", true);
-        String json = ModuleConfig.toJson(List.of(saved));
-
-        FakeModule loaded = new FakeModule("demo");
-        ModuleConfig.parse(json).applyTo(List.of(loaded));
-        ok(loaded.isEnabled() && loaded.intValue("level") == 90
-                && loaded.boolValue("flag"),
-                "a saved config is restored exactly");
-
-        // Garbage in must not be fatal: losing a preference beats not starting.
-        FakeModule ugly = new FakeModule("demo");
-        ModuleConfig.parse("{not json at all").applyTo(List.of(ugly));
-        ok(!ugly.isEnabled(), "malformed JSON degrades to defaults");
-        ModuleConfig.parse("{\"demo\": {\"level\": 99999}}").applyTo(List.of(ugly));
-        ok(ugly.intValue("level") == 100,
-                "a hand-edited out-of-range value is clamped on load");
-        ModuleConfig.parse("{\"nosuchmodule\": {\"on\": true}}").applyTo(List.of(ugly));
-        ok(!ugly.isEnabled(), "an unknown module id is ignored, not applied");
-
-        // A module whose apply() throws must not report itself as enabled - a
-        // toggle that lies is worse than no toggle at all.
-        Module broken = new Module("broken", "Broken", "", ModuleCategory.UTILITY) {
-            @Override
-            protected void apply(boolean on) {
-                throw new IllegalStateException("no");
-            }
-        };
-        broken.setEnabled(true);
-        ok(!broken.isEnabled(), "a module that cannot apply reports itself off");
-
-        ok(HudText.build(60, 1, 2, 3, 42, "W", 4.5, 0.5, 20, List.of()).isEmpty(),
-                "no HUD lines when nothing is enabled");
-    }
-
-    private static void hudTextLines() {
-        section("modules: HUD line text");
-        HudText.View view = new HudText.View(144, 10.4, 64.0, -3.5, 42, "WA",
-                4.25, 0.5, 20);
-        // The formatting is the user-visible contract, so it is pinned here
-        // rather than left to whichever locale the game runs in.
-        ok(String.format("Reach %.2f", view.reach).equals("Reach 4.25"),
-                "reach shows two decimals");
-        ok(String.format("XYZ %.0f %.0f %.0f", view.x, view.y, view.z)
-                .equals("XYZ 10 64 -4"), "coordinates round to whole blocks");
-        ok(String.format("Cooldown %d%%", Math.round(view.cooldown * 100))
-                .equals("Cooldown 50%"), "cooldown shows as a whole percent");
-    }
-
-
     private static void resultReading() {        section("Bridge: results");
         ok(Bridge.readResult(200, "{\"ok\": true}").ok(), "ok:true");
         Bridge.Result e = Bridge.readResult(200, "{\"ok\": false, \"error\": \"not connected\"}");

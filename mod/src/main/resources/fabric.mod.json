@@ -3,7 +3,7 @@
   "id": "cubeon-client",
   "version": "${version}",
   "name": "Cubeon Client",
-  "description": "The Cubeon Client: a Cubeon button in Minecraft's menus (friends, chat, invites, joining a friend's world) and a Cubeon badge on the nametags of Cubeon players - powered by the Cubeon launcher running on this machine.",
+  "description": "The Cubeon Client: a Cubeon button in Minecraft's menus (friends, chat, invites, joining a friend's world) - powered by the Cubeon launcher running on this machine.",
   "authors": ["Cubeon"],
   "license": "MIT",
   "environment": "client",

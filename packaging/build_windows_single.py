@@ -15,6 +15,22 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# The palette modules are loaded by a dynamic import (see color_templates.py),
+# so PyInstaller must be told about them by name. `--collect-submodules
+# templates` silently collects NOTHING on the Windows build interpreter
+# (WinPython isolated sys.path), which dropped the seasonal colours on Windows;
+# explicit --hidden-import names + --paths ROOT fix it. Keep in sync with
+# build_windows.py's TEMPLATE_HIDDEN_IMPORTS.
+TEMPLATE_HIDDEN_IMPORTS = (
+    "templates",
+    "templates.color_green", "templates.color_obsidian",
+    "templates.color_lapis", "templates.color_redstone",
+    "templates.color_carbon", "templates.color_amethyst",
+    "templates.color_diamond", "templates.color_autumn",
+    "templates.color_spring", "templates.color_winter",
+    "templates.color_summer",
+)
+
 
 def _fetch_flet_client() -> str:
     """flet_desktop must be collected + its client zip bundled, or the frozen
@@ -63,7 +79,8 @@ def main() -> None:
         "--collect-submodules", "minecraft_launcher_lib",
 
         "--collect-binaries", "minecraft_launcher_lib",
-        "--collect-submodules", "templates",
+        "--paths", ROOT,
+        *[f"--hidden-import={m}" for m in TEMPLATE_HIDDEN_IMPORTS],
         "main.py",
     ]
     print("+", " ".join(cmd))

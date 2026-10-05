@@ -1,5 +1,64 @@
 # Cubeon module map — read this before reading any source
 
+## The in-game MOD MENU + module framework are GONE (2026-10-05) — INVARIANT
+- User request: remove the in-game Cubeon Client's "mods area and functionality".
+  Deleted the whole module framework and its UI from the Java mod:
+  `modules/` (`Module`, `Modules`, `ModuleConfig`, `ModuleCategory`, `HudText`,
+  `HudState`, `GameOptions`, `OptionsAccessor`), `ModuleMenuScreen.java`,
+  `MenuPaint.java`, `MenuPainter.java`, `keys/MenuKey.java`,
+  `mixin/PlayerTickMixin.java`, and per-overlay `MenuPaintImpl.java`,
+  `mixin/HudMixin.java`, `mixin/MenuPaintMixin.java`.
+- Kept: the Friends screen (`CubeonClientScreen`, `CornerIcon`, the pause-menu
+  Friends icon), the launcher bridge, and the `[Cubeon]` tab-list tag.
+- `cubeon-client.mixins.json` now registers only `PauseScreenMixin`,
+  `PlayerTabOverlayMixin`, `TitleScreenMixin`. The PauseScreen mixin no longer
+  adds a "Mods" button. `CubeonClient` no longer loads `cubeon-modules.json`.
+- Build lists updated in lockstep: `tools/build_mod_jars.py`
+  (`REQUIRED_ENTRIES`, and `lwjgl-glfw` dropped from `LIB_PREFIXES`),
+  `tools/test_mod_compile.py` (`MOD_SOURCES`), `tools/test_mod_bridge.py`
+  (`SOURCES`), `mod/tools/SelfTest.java` (module sections removed),
+  `mod/build.gradle` (glfw `compileOnly` removed).
+- **The 1.20-1.21 jar was rebuilt** (`tools/build_mod_jars.py 1.20-1.21`) so the
+  removal actually reaches Minecraft. **The 26 jar was NOT rebuilt** on
+  2026-10-05 (its javac path failed and the Gradle fallback stalled) - a 26.x
+  player still gets the old mod menu until it is. Rebuild it on a box with the
+  bracket's JDK 25 and network.
+- The old sections below ("The mod menu PAINTS itself", "Mod menu + module
+  framework") describe the REMOVED code. Kept for history only; do not
+  resurrect it without the user asking.
+
+## Windows seasonal colours + installer + close-to-background (2026-10-05) — INVARIANTS
+- **Seasonal PALETTE never showed on Windows (weather/pet did).** Root cause:
+  `cubeon/color_templates.py` loads every palette with a DYNAMIC
+  `importlib.import_module("templates.color_<key>")`, and the Windows builders
+  relied on `--collect-submodules templates`, which collects NOTHING on the
+  Windows build interpreter (WinPython runs isolated `_pth`, repo off sys.path)
+  because collect_submodules runs while the spec is written, before Analysis
+  adds `pathex`. The palette import failed, `cubeon/__init__` swallowed it
+  (a `print` that is a no-op in a `--windowed` exe), and it fell back to green.
+  **Fix: every Windows builder names each palette with `--hidden-import
+  templates.color_*` + `--paths ROOT`** (`TEMPLATE_HIDDEN_IMPORTS` in
+  `packaging/build_windows.py`, mirrored in `build_windows_single.py` and
+  `build_public_windows.py`). Guard: `tools/test_mega_smoke.py` §3f-bis. Adding
+  a palette = add it in `color_templates.py` AND those tuples. Do NOT go back to
+  `--collect-submodules templates` for Windows.
+- **Installer updates no longer wipe the folder.** `packaging/Cubeon.nsi` did
+  `RMDir /r "$INSTDIR"` then `File /r`, i.e. delete+rewrite every file (double
+  I/O + double AV scan) — the reported slow "deleting" step. Now it copies over
+  the top with `SetOverwrite ifdiff` (unchanged big files are skipped) and clears
+  only the small stale-prone `_internal\templates` path. Added `OldInstDir`
+  tracking, `/SD IDOK` on the running-app prompt (silent installs), an uninstall
+  guard (only deletes a folder containing our uninstaller+exe), and richer
+  Programs-and-Features keys (`EstimatedSize` computed in
+  `build_windows_installer.py`, `InstallLocation`, `QuietUninstallString`,
+  `URLInfoAbout`).
+- **Close-to-background on Windows.** Flet on Windows DELIVERS a `close` window
+  event (Linux/GTK does not), but the handler only ran cleanup — the process
+  could stay alive with no window. `main.py`'s `_on_window_event` now, on
+  `close`/`disconnect`, kills the flet client and calls `os._exit(0)`.
+  `_kill_flet_client()` also gained a Windows/macOS branch (psutil) since it was
+  `/proc`-only. Do not remove the hard-exit without a Windows test.
+
 Last updated: 2026-09-22 (site = `web/` on Vercel at cubeon.vercel.app: landing /
 download / help + legal pages sharing web/assets/site.css + site.js; its release
 download count has two sources, an API function and a CI-refreshed static JSON —
