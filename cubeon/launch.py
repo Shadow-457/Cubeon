@@ -37,7 +37,7 @@ from .lazy import LazyModule
 mll = LazyModule("minecraft_launcher_lib")
 
 from .paths import MINECRAFT_DIR, APP_NAME, CUBEON_HOME
-from .config import stable_uuid, save_config
+from .config import stable_uuid, save_config, get_system_ram_mb
 from .mods import sync_mods_to_game
 from . import csl
 from .skins import sync_local_skin_to_csl
@@ -294,9 +294,13 @@ _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 # This is Aikar's well-known client set (github.com/Aikar/timings), trimmed of
 # everything that could HURT an ordinary player's machine, per the repo rule
 # that performance must never cost stability:
-#   - no AlwaysPreTouch: commits and faults the whole heap at startup, which
-#     punishes low-RAM machines and doubles launch time for no FPS gain;
-#   - no huge G1HeapRegionSize beyond 16M: a client heap is small;
+#   - AlwaysPreTouch is OFF by default (below), because committing and
+#     faulting the whole heap at startup punishes low-RAM machines and doubles
+#     launch time. It is switched ON only for a roomy box (see
+#     `_pretouch_flag`): there it is a win, because it moves the page faults
+#     out of the first world load - where the heap grows by hundreds of MB in a
+#     second - and into startup where nothing is waiting on a frame.
+#   - nothing huge for G1HeapRegionSize: a client heap is small;
 #   - nothing newer than Java 8 supports, since Cubeon launches versions
 #     across Java 8 through 25.
 # UnlockExperimentalVMOptions comes FIRST because every G1 tuning flag below
@@ -306,33 +310,74 @@ _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 # Two flags are deliberately NOT the aggressive server values, because a
 # client's render thread shares the CPU with GC and a weak 4-6 core chip is
 # exactly where over-eager GC shows up as lost FPS:
-#   - MaxGCPauseMillis=200, not 40. A 40ms goal makes G1 shrink the young
-#     generation until it can hit it, i.e. young GCs run far more often and
-#     their CPU cost is paid on the same cores Minecraft is rendering on.
+#   - G1HeapRegionSize=8M, not 16M. Aikar uses 8M for the client-sized heaps
+#     this launcher hands out (half of system RAM, usually 4-8G); 16M makes
+#     the young gen coarser and lengthens each young-collection pause.
 #   - G1HeapWastePercent=5 is Aikar's value; without it G1 can leave more
 #     reclaimable old-gen garbage for longer, triggering more mixed cycles.
 # -Dorg.lwjgl.util.NoChecks disables LWJGL's per-call pointer validation,
 # which is a small but free CPU saving on the render thread.
-CLIENT_JVM_FLAGS = [
-    "-XX:+UseG1GC",
-    "-XX:+ParallelRefProcEnabled",
-    "-XX:MaxGCPauseMillis=200",
-    "-XX:+UnlockExperimentalVMOptions",
-    "-XX:+DisableExplicitGC",
-    "-XX:G1NewSizePercent=30",
-    "-XX:G1MaxNewSizePercent=40",
-    "-XX:G1HeapRegionSize=16M",
-    "-XX:G1ReservePercent=20",
-    "-XX:G1HeapWastePercent=5",
-    "-XX:G1MixedGCCountTarget=4",
-    "-XX:InitiatingHeapOccupancyPercent=15",
-    "-XX:G1MixedGCLiveThresholdPercent=90",
-    "-XX:G1RSetUpdatingPauseTimePercent=5",
-    "-XX:SurvivorRatio=32",
-    "-XX:MaxTenuringThreshold=1",
-    "-XX:+PerfDisableSharedMem",
-    "-Dorg.lwjgl.util.NoChecks=true",
-]
+#
+# Young-gen sizing is CPU-aware (2026-10-05). Aikar's 30-40% young gen assumes
+# a server's many GC threads; on a 2-4 thread client one young collection then
+# copies hundreds of MB on the same cores the game renders on, and the frame
+# time spike is visible. A low core count gets a smaller young gen (20-30%) and
+# a shorter pause goal, trading a few more collections for smoother frames.
+# `_available_cpus()` honours CPU affinity, so a player who pins the game to
+# fewer cores (e.g. `taskset -c 0,1`) gets the low-core tuning automatically.
+def _available_cpus() -> int:
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
+def client_jvm_flags(cores: int | None = None) -> list:
+    """The client GC tuning for a machine with `cores` usable CPUs."""
+    cores = cores or _available_cpus()
+    if cores <= 4:
+        new_pct, max_new_pct, pause_ms = 20, 30, 100
+    else:
+        new_pct, max_new_pct, pause_ms = 30, 40, 200
+    return [
+        "-XX:+UseG1GC",
+        "-XX:+ParallelRefProcEnabled",
+        f"-XX:MaxGCPauseMillis={pause_ms}",
+        "-XX:+UnlockExperimentalVMOptions",
+        "-XX:+DisableExplicitGC",
+        f"-XX:G1NewSizePercent={new_pct}",
+        f"-XX:G1MaxNewSizePercent={max_new_pct}",
+        "-XX:G1HeapRegionSize=8M",
+        "-XX:G1ReservePercent=20",
+        "-XX:G1HeapWastePercent=5",
+        "-XX:G1MixedGCCountTarget=4",
+        "-XX:InitiatingHeapOccupancyPercent=15",
+        "-XX:G1MixedGCLiveThresholdPercent=90",
+        "-XX:G1RSetUpdatingPauseTimePercent=5",
+        "-XX:SurvivorRatio=32",
+        "-XX:MaxTenuringThreshold=1",
+        "-XX:+PerfDisableSharedMem",
+        "-Dorg.lwjgl.util.NoChecks=true",
+    ]
+
+
+# The default (many-core) set, kept as a module constant for callers/tests.
+CLIENT_JVM_FLAGS = client_jvm_flags(8)
+
+
+def _pretouch_flag(ram_mb: int, system_ram_mb: int) -> str | None:
+    """`-XX:+AlwaysPreTouch` only when it is safe, else None.
+
+    Pre-touching faults the whole heap in at startup instead of on the render
+    thread during the first world load, which is exactly where a 2-core client
+    stalls. It costs commit-all-of-Xmx up front and roughly doubles launch
+    time, so it is gated to a machine that can afford it: at least 8 GB of
+    system RAM AND a heap no larger than half of it. A low-RAM box keeps the
+    flag off, which is the original reason the client set omitted it.
+    """
+    if system_ram_mb >= 8192 and 0 < ram_mb <= system_ram_mb // 2:
+        return "-XX:+AlwaysPreTouch"
+    return None
 
 
 @_client_json_transaction
@@ -519,6 +564,14 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     # whose install it already emptied. No-op on healthy versions.
     _restore_emptied_arguments(version_id)
 
+    jvm_args = [f"-Xmx{ram_mb}M", f"-Xms{ram_mb}M", *client_jvm_flags()]
+    try:
+        pretouch = _pretouch_flag(ram_mb, get_system_ram_mb())
+    except Exception:
+        pretouch = None
+    if pretouch:
+        jvm_args.append(pretouch)
+
     options = {
         "username": username,
         # The player's stable identity UUID, NOT offline_uuid(username). This is
@@ -532,7 +585,9 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         "launcherVersion": "1.0",
         # -Xms matches -Xmx so the heap never resizes mid-game (the resize is a
         # visible stutter), then the shared client GC tuning rides along.
-        "jvmArguments": [f"-Xmx{ram_mb}M", f"-Xms{ram_mb}M", *CLIENT_JVM_FLAGS],
+        # AlwaysPreTouch is added only on a machine that can afford it (see
+        # _pretouch_flag) so the first world load does not pay page faults.
+        "jvmArguments": jvm_args,
         "customResolution": True,
         "resolutionWidth": str(width),
         "resolutionHeight": str(height),
@@ -643,6 +698,12 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                                                 status_cb=status_cb)
             if report["installed"] and status_cb:
                 status_cb("FPS boost installed")
+            # The suite was narrowed to Sodium only; remove the retired mods so
+            # an existing profile stops loading the pile instead of leaving the
+            # user to delete eight jars by hand.
+            pruned = perf_mods.prune_retired_perf_mods(mc_version, loader)
+            if pruned and status_cb:
+                status_cb("Removed extra perf mods")
             # The game is not running yet (the JVM starts further down), so
             # options.txt can be edited safely. This is what stops a machine
             # that CAN render 120 FPS from still reading 60/30 because of
@@ -651,6 +712,20 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             unlocked = game_options.unlock_frame_rate()
             if unlocked["changed"] and status_cb:
                 status_cb("Frame rate unlocked")
+    except Exception:
+        pass
+
+    # EntityCulling ships with a whitelist that can hold a null/empty entry in
+    # a legacy config, which crashes the game on its first tick (see
+    # perf_mods.sanitize_entityculling_config). Repair it whenever the mod is
+    # present - even if the perf suite is switched off - because a stale broken
+    # config would otherwise keep crashing an install the user already has.
+    try:
+        from . import perf_mods
+        repaired = perf_mods.sanitize_entityculling_config()
+        if repaired["removed"]:
+            logging.getLogger(__name__).warning(
+                "repaired EntityCulling config: %s", repaired["detail"])
     except Exception:
         pass
 

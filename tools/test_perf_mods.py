@@ -28,7 +28,8 @@ _sandbox_home.isolate()
 
 import cubeon.perf_mods as perf  # noqa: E402
 import cubeon.game_options as game_options  # noqa: E402
-from cubeon.launch import CLIENT_JVM_FLAGS  # noqa: E402
+from cubeon.launch import (CLIENT_JVM_FLAGS, client_jvm_flags,  # noqa: E402
+                           _pretouch_flag)
 
 _passed = _failed = 0
 
@@ -64,7 +65,7 @@ def _wire(installed, download=None, download_raises=False):
     return calls
 
 
-print("1. a clean profile gets the whole performance suite, in order")
+print("1. a clean profile gets the performance suite, in order")
 calls = _wire([])
 report = perf.ensure_installed("1.21.11", "fabric")
 check("all installed", report["installed"] == ALL_SLUGS, f"got {report!r}")
@@ -72,8 +73,8 @@ check("downloaded in slug order", [c[1] for c in calls] == ALL_SLUGS,
       f"got {calls!r}")
 check("project ids are recorded on install",
       all(c[2] for c in calls), f"got {calls!r}")
-check("sodium and lithium are first",
-      calls[0][1] == "sodium" and calls[1][1] == "lithium", f"got {calls[0:2]!r}")
+check("sodium is the only/last install",
+      calls[0][1] == "sodium" and len(calls) == 1, f"got {calls!r}")
 # Now the profile really holds them.
 perf.list_mods = lambda mc, ld: [
     {"slug": s, "display_name": s.title(), "filename": s + ".jar"}
@@ -84,11 +85,18 @@ check("is_installed now true", perf.is_installed("1.21.11", "fabric"))
 print("\n2. already-present mods are never re-downloaded")
 calls = _wire([
     {"slug": "sodium", "display_name": "Sodium", "filename": "sodium-0.6.jar"},
-    {"project_id": "gvQqBUqZ", "display_name": "Lithium", "filename": "lithium-0.13.jar"},
 ])
 report = perf.ensure_installed("1.21.11", "fabric")
-check("sodium+lithium kept", {"sodium", "lithium"} <= set(report["kept"]), f"got {report!r}")
-check("neither re-downloaded", not ({"sodium", "lithium"} & set(report["installed"])), f"got {report!r}")
+check("sodium kept", "sodium" in report["kept"], f"got {report!r}")
+check("sodium not re-downloaded", "sodium" not in [c[1] for c in calls],
+      f"got {calls!r}")
+# A profile holding only a *retired* mod no longer satisfies the suite.
+calls = _wire([
+    {"slug": "lithium", "display_name": "Lithium", "filename": "lithium-0.13.jar"},
+])
+report = perf.ensure_installed("1.21.11", "fabric")
+check("retired lithium does not satisfy Sodium",
+      report["installed"] == ["sodium"], f"got {report!r}")
 
 print("\n3. a manual jar with a different filename still counts")
 calls = _wire([
@@ -131,13 +139,39 @@ check("heap-waste flag present", "-XX:G1HeapWastePercent=5" in CLIENT_JVM_FLAGS,
       f"got {CLIENT_JVM_FLAGS!r}")
 check("LWJGL pointer checks disabled",
       "-Dorg.lwjgl.util.NoChecks=true" in CLIENT_JVM_FLAGS, f"got {CLIENT_JVM_FLAGS!r}")
+check("G1 region size suits a client heap",
+      all("-XX:G1HeapRegionSize=8M" in client_jvm_flags(n) for n in (2, 4, 8, 16)),
+      f"got {client_jvm_flags(2)!r}")
+check("low-core flags shrink the young gen",
+      "-XX:G1NewSizePercent=20" in client_jvm_flags(2)
+      and "-XX:MaxGCPauseMillis=100" in client_jvm_flags(3),
+      f"got {client_jvm_flags(2)!r}")
+check("many-core flags use Aikar's larger young gen",
+      "-XX:G1NewSizePercent=30" in client_jvm_flags(8)
+      and "-XX:MaxGCPauseMillis=200" in client_jvm_flags(8),
+      f"got {client_jvm_flags(8)!r}")
+check("exactly one collector flag in either tuning",
+      sum(1 for f in client_jvm_flags(2)
+          if f.startswith("-XX:+Use") and f.endswith("GC")) == 1
+      and sum(1 for f in client_jvm_flags(16)
+              if f.startswith("-XX:+Use") and f.endswith("GC")) == 1,
+      f"got {client_jvm_flags(2)!r}")
+check("AlwaysPreTouch is offered on a roomy box",
+      _pretouch_flag(4096, 12288) == "-XX:+AlwaysPreTouch",
+      f"got {_pretouch_flag(4096, 12288)!r}")
+check("AlwaysPreTouch is withheld on low RAM",
+      _pretouch_flag(4096, 6144) is None, f"got {_pretouch_flag(4096, 6144)!r}")
+check("AlwaysPreTouch is withheld when the heap is most of RAM",
+      _pretouch_flag(8192, 12288) is None, f"got {_pretouch_flag(8192, 12288)!r}")
 
 _wire([{"slug": "sodium-extra", "display_name": "Sodium Extra",
         "filename": "sodium-extra-fabric-0.9.2.jar"}])
 check("Sodium Extra never satisfies Sodium", "sodium" not in perf._present("1.20.1", "fabric"))
 _wire([{"project_id": "AANobbMI"}, {"project_id": "gvQqBUqZ"}])
 check("opaque performance project IDs are recognized",
-      {"sodium", "lithium"} <= perf._present("1.20.1", "fabric"))
+      "sodium" in perf._present("1.20.1", "fabric"))
+check("retired project IDs are no longer recognized",
+      "lithium" not in perf._present("1.20.1", "fabric"))
 
 print("\n7. the frame-rate unlocker touches only vsync + the FPS cap")
 with tempfile.TemporaryDirectory() as tmp:
@@ -187,6 +221,68 @@ with tempfile.TemporaryDirectory() as tmp:
     check("no unknown enableVsync key invented",
           "enableVsync" not in after and before != after, repr(after))
     check("only maxFps reported", result["changed"] == ["maxFps"], f"got {result!r}")
+
+print("\n8. the EntityCulling config is repaired of crash-inducing entries")
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, "entityculling.json")
+    import json as _json
+    with open(path, "w", encoding="utf-8") as fh:
+        _json.dump({
+            "configVersion": 9,
+            "sleepDelay": 125,
+            "blockEntityWhitelist": ["minecraft:beacon", None,
+                                     "botania:flame_ring"],
+            "entityWhitelist": ["", "botania:mana_burst"],
+            "tickCullingWhitelist": ["minecraft:boat", "   ",
+                                     "minecraft:acacia_boat"],
+        }, fh)
+
+    result = perf.sanitize_entityculling_config(path)
+    check("all bad entries removed", result["removed"] == 3, f"got {result!r}")
+    with open(path, encoding="utf-8") as fh:
+        fixed = _json.load(fh)
+    check("null dropped from blockEntityWhitelist",
+          fixed["blockEntityWhitelist"] == ["minecraft:beacon", "botania:flame_ring"],
+          repr(fixed["blockEntityWhitelist"]))
+    check("empty dropped from entityWhitelist",
+          fixed["entityWhitelist"] == ["botania:mana_burst"],
+          repr(fixed["entityWhitelist"]))
+    check("blank dropped from tickCullingWhitelist",
+          fixed["tickCullingWhitelist"] == ["minecraft:boat", "minecraft:acacia_boat"],
+          repr(fixed["tickCullingWhitelist"]))
+    check("unrelated options untouched",
+          fixed["configVersion"] == 9 and fixed["sleepDelay"] == 125, repr(fixed))
+    second = perf.sanitize_entityculling_config(path)
+    check("idempotent: second run removes nothing", second["removed"] == 0,
+          f"got {second!r}")
+
+    check("missing config is safe",
+          perf.sanitize_entityculling_config(os.path.join(tmp, "nope.json"))["removed"] == 0)
+
+    bad = os.path.join(tmp, "bad.json")
+    with open(bad, "w", encoding="utf-8") as fh:
+        fh.write("[1, 2, 3]")
+    check("non-object JSON is reported, not raised",
+          perf.sanitize_entityculling_config(bad)["removed"] == 0)
+
+print("\n9. retired perf mods are pruned from an existing profile")
+_deleted = []
+perf.list_mods = lambda mc, ld: [
+    {"slug": "sodium", "project_id": "AANobbMI", "filename": "sodium.jar"},
+    {"slug": "lithium", "project_id": "gvQqBUqZ", "filename": "lithium.jar"},
+    {"project_id": "NNAgCjsB", "filename": "entityculling.jar"},
+    {"slug": None, "project_id": None, "filename": "my-own-mod.jar"},
+]
+perf.delete_mod = lambda mc, ld, fn: _deleted.append(fn)
+removed = perf.prune_retired_perf_mods("1.21.11", "fabric")
+check("only the Cubeon-installed retired mods are deleted",
+      sorted(_deleted) == ["entityculling.jar", "lithium.jar"], f"got {_deleted!r}")
+check("sodium and the hand-dropped jar survive",
+      "sodium.jar" not in _deleted and "my-own-mod.jar" not in _deleted,
+      f"got {_deleted!r}")
+check("reports what it removed", len(removed) == 2, f"got {removed!r}")
+check("non-Fabric loaders prune nothing",
+      perf.prune_retired_perf_mods("1.21.11", "forge") == [])
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

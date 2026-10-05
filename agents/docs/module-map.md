@@ -1172,9 +1172,9 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `minekube.py` | Public address tunnels: finds/installs Connect plugin, endpoint config. |
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |
 | `cubeonfriends.py` | Which Friends jar goes into which profile (brackets), injected at launch. `mod_stamp()` = jar freshness fingerprint. |
-| `perf_mods.py` | FPS boost: fetches the client perf suite (`PERF_MODS`: Sodium, Lithium, ImmediatelyFast, EntityCulling, MoreCulling, BadOptimizations, Krypton, ThreadTweak, Dynamic FPS) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled`. `_present()` dedupes by slug/name/id/filename; skip-if-present (no auto-update); best-effort, never raises. |
+| `perf_mods.py` | FPS boost: installs **Sodium only** (`PERF_MODS`) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled` (narrowed 2026-10-05 — the 8-mod suite added little and carried crash surface). `_present()` dedupes by slug/name/id/filename; skip-if-present (no auto-update); best-effort, never raises. `prune_retired_perf_mods()` deletes the 8 retired mods from a profile that has them (only Cubeon-installed, by recorded slug/project id). Also `sanitize_entityculling_config()` — strips null/blank whitelist entries that crash the game on tick 1 (called unconditionally on the launch path). |
 | `game_options.py` | Frame-rate unlocker: flips ONLY `enableVsync`→false and `maxFps`→260 in `MINECRAFT_DIR/options.txt` (atomic, idempotent, no unknown keys). Never rewrites any other game option. |
-| `launch.py` | `launch_game()` — injects CSL + friends jar + perf suite + frame-rate unlock, syncs mods, launches MC. `CLIENT_JVM_FLAGS` + matched `-Xms/-Xmx`. Requires mc_version/loader, no silent defaults. |
+| `launch.py` | `launch_game()` — injects CSL + friends jar + perf suite + frame-rate unlock, syncs mods, launches MC. `client_jvm_flags()` (CPU-aware, see below) + matched `-Xms/-Xmx` + RAM-gated `-XX:+AlwaysPreTouch`. Requires mc_version/loader, no silent defaults. |
 | `capes.py` | Custom capes: any image accepted, auto-fitted onto the cape layout, synced into CSL's LocalSkin. Static images only — the animated-cape system was removed 2026-09-07. No Worker/KV involvement at all. |
 | `config.py` | cfg schema, username validation, auth key (public_uuid/secret_token). |
 | `gate.py` | Server join password (PBKDF2, escalating lockouts). |
@@ -1915,24 +1915,35 @@ Still-true invariants from the pre-local era:
   leftover would still load). Smaller blast radius than
   features.friends_enabled(), which is a BUILD-time switch removing the whole
   backend.
-- **FPS boost (client perf suite)**: NO Settings toggle (the user explicitly
-  asked for it removed 2026-09-11 - don't add it back). It rides the existing
-  "Cubeon extras in-game" toggle: when `client_mod_enabled` is on (and the
-  config-only `perf_mods_enabled`, default True, is on) and the loader is
-  Fabric/Quilt, `cubeon/launch.py` calls
-  `perf_mods.ensure_installed(mc_version, loader)` before `sync_mods_to_game`,
-  which fetches a hand-picked client FPS suite from Modrinth (`PERF_MODS`: a
-  `(slug, project_id, label)` table — Sodium, Lithium, ImmediatelyFast,
-  EntityCulling, MoreCulling, BadOptimizations, Krypton, ThreadTweak,
-  Dynamic FPS) into the profile exactly like a user-installed mod.
-  `perf_mods._present()` matches slug/display_name/project_id/filename so a
-  manual jar is never duplicated (duplicate Sodium = crash). Best-effort: no
-  build/offline/load error is reported in the return dict, never raised.
-  Sodium stays first because it is the load-bearing renderer.
-  **Skip-if-present, no auto-update**: a found mod is never re-fetched (so a
-  hand-pinned version is respected); this is why an old Sodium can linger.
-  (2026-10-05: widened from Sodium+Lithium only, because culling/per-frame
-  mods are what actually lift a CPU-bound PvP client.)
+- **FPS boost = Sodium ONLY (2026-10-05).** The user asked for "no more mods,
+  just optimizing the Minecraft". The suite was cut from 9 mods to Sodium, the
+  one that replaces the renderer and is the overwhelming share of the client
+  FPS win; the other 8 added little and each was third-party crash surface
+  (EntityCulling alone killed the game on tick 1, see above). **Do NOT widen
+  `PERF_MODS` again without the user's say-so.** A clean profile gets Sodium
+  when `client_mod_enabled` (and config-only `perf_mods_enabled`) is on and the
+  loader is Fabric/Quilt; `_present()` matches slug/display_name/project_id/
+  filename so a manual jar is never duplicated; skip-if-present, no
+  auto-update. `prune_retired_perf_mods()` removes the 8 retired mods from a
+  profile that already has them, matching ONLY the recorded slug/project id, so
+  a hand-dropped or user-owned mod (Iris, Wurst, Xaero, Jade…) is untouched.
+  The user's own mods stay: "no more mods" means the launcher stops ADDING
+  them, not that it deletes what the player chose.
+- **EntityCulling's config is REPAIRED at launch (2026-10-05) — INVARIANT.**
+  EntityCulling 1.11.2's `clientTick` walks `blockEntityWhitelist` (and the
+  entity/tick lists) and parses every entry as a ResourceLocation. A **legacy
+  config with a `null` (or empty-string) entry** — which its defaults and
+  ConfigUpgrader never produce but never clean out either — throws
+  `NullPointerException: Cannot invoke "String.indexOf(int)" because "$$0" is
+  null` on the FIRST tick, so the window never reaches the menu. The user hit
+  exactly this on 2026-10-05 (`config/entityculling.json` had `null` +
+  `""`), immediately after the perf suite added the mod. Guard:
+  `perf_mods.sanitize_entityculling_config()` drops only entries that cannot
+  run (strips null/blank from the three whitelists, preserves every other key
+  and valid entry, atomic + idempotent), and `launch_game` calls it
+  UNCONDITIONALLY (even with the perf suite off) because the stale broken
+  config lingers. Guard: tools/test_perf_mods.py §8. Do NOT remove the mod's
+  crash-causing entry handling without re-reading this.
 - **Frame-rate unlock (cubeon/game_options.py)**: adding mods only raises what
   the machine CAN render; Minecraft's own `options.txt` will still read 60 (or
   ~30, Vsync halving) if `enableVsync:true` / a low `maxFps`. This module flips
@@ -1944,12 +1955,35 @@ Still-true invariants from the pre-local era:
   `launch_game` right after `perf_mods.ensure_installed`, gated by the same
   `perf_mods_enabled`. The game is not running yet at that point, so it cannot
   race the game's save-on-exit.
-- **Client JVM flags**: `cubeon/launch.py` `CLIENT_JVM_FLAGS` (G1GC,
-  MaxGCPauseMillis=200, ParallelRefProc, DisableExplicitGC, G1NewSize/Reserve,
-  G1HeapWastePercent=5, `-Dorg.lwjgl.util.NoChecks=true`) are appended to every
-  launch's `jvmArguments`, and `-Xms` now equals `-Xmx` (no mid-game
-  heap-growth stutter). Deliberately lighter than the server's Aikar set
-  (`HIGH_PING_JVM_FLAGS`); flags chosen to exist on Java 8–25.
+- **Client JVM flags are CPU-AWARE (2026-10-05) — INVARIANT.** `cubeon/launch.py`
+  builds them per launch with `client_jvm_flags()` (NOT a fixed list), so a
+  pinned/limited CPU is tuned correctly:
+  - `_available_cpus()` = `len(os.sched_getaffinity(0))`, so `taskset -c 0,1`
+    (2 cores) is seen as 2, not the 12 physical CPUs.
+  - **≤4 usable CPUs**: `G1NewSizePercent=20`, `G1MaxNewSizePercent=30`,
+    `MaxGCPauseMillis=100` — a smaller young gen because copying a huge young
+    generation on 2-4 threads is a visible frame spike.
+  - **>4 CPUs**: Aikar's `30/40` + `MaxGCPauseMillis=200`.
+  - `G1HeapRegionSize=8M` for both (was 16M) — correct for a client-sized heap
+    (half of system RAM); 16M made young collections coarser.
+  - `CLIENT_JVM_FLAGS` is kept as the many-core default for callers/tests.
+  - `-XX:+AlwaysPreTouch` is added by `build_launch_command` **only when
+    `_pretouch_flag(ram_mb, system_ram_mb)` allows it** (system RAM ≥ 8 GB AND
+    heap ≤ half of it). It faults the whole heap in at startup instead of on
+    the render thread during the first world load. Low-RAM boxes keep it OFF —
+    that was the original reason the client set omitted it; the gate preserves
+    that intent. Guard: tools/test_perf_mods.py §6.
+  - Flag changes MUST be validated against a real `java` before shipping (see
+    the JVM FLAGS gotcha above). The whole set incl. pretouch was run through
+    Java 21 on 2026-10-05.
+  - **World-entry stutter on 2 cores is NOT fixable by flags.** Measured
+    2026-10-05 on a 2c/4GB pin: entering a world saturates both cores
+    (integrated-server worldgen + chunk mesh build), `Preparing spawn area`
+    took 11.2 s, the server fell `2061ms / 41 ticks behind`, and the client
+    rendered ~1 FPS until it caught up — then settled to 70-80. Heap was
+    healthy (1.5 GB used / 1 GB young), so it is CPU contention, not GC. The
+    only real levers are fewer chunks (render/simulation distance) or more
+    cores.
 - **Mod detail menu + auto-repair (2026-09-12)**: clicking any mod row
   (browse OR installed, except protected/system files) opens a full menu via
   `ui/mods_tab.py:open_mod_detail()`. It fetches `mods.get_mod_details()`

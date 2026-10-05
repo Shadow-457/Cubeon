@@ -1,66 +1,142 @@
 """
-Client performance add-ons for the Cubeon Client.
+Client performance add-on for the Cubeon Client.
 
 The Cubeon Client itself is a social mod: it draws a small name badge and opens
 the Friends screen. It is deliberately cheap, which also means it does not make
 Minecraft render any faster - so "activate Cubeon Client" would otherwise get
-the button and nothing else. This module closes that gap: while the client mod
-is on, it makes sure a hand-picked set of client-side performance mods is
-installed in the same (mc_version, loader) profile.
+the button and nothing else. This module closes that gap by installing **Sodium**
+(Modrinth `sodium`) into the same (mc_version, loader) profile.
 
-This is deliberately wider than "Sodium + Lithium". Those two move raw frame
-rate, but they are not the whole story FastClient-style clients sell: on a
-CPU-bound machine (which every Minecraft client eventually is) the wins that
-turn a 40 FPS busy server into a smooth 100+ are mostly in *culling* and
-*per-frame overhead*:
+**Sodium only, on purpose (2026-10-05).** The suite used to carry eight more
+mods (Lithium, ImmediatelyFast, EntityCulling, MoreCulling, BadOptimizations,
+Krypton, ThreadTweak, Dynamic FPS). Sodium is by itself the overwhelming share
+of the client FPS win: it replaces the terrain/entity renderer, which is what a
+CPU-bound client actually waits on. The extras added little on top, and the
+broader the pile the more third-party crash surface it carried - EntityCulling
+alone crashed the game on its first tick from a legacy config (see
+`sanitize_entityculling_config` below). The user asked for exactly this: "no
+more mods, just optimizing the Minecraft". Do not widen this list again without
+the user's say-so.
 
-  - **Sodium** - replaces the terrain/entity renderer. The single biggest
-    client FPS win on every GPU.
-  - **Lithium** - optimises game-logic ticking (mob AI, block updates, entity
-    handling), which keeps the frame rate high in a busy world.
-  - **ImmediatelyFast** - fixes immediate-mode rendering (HUD, entities,
-    text) which is otherwise a per-frame CPU cost Sodium cannot touch.
-  - **EntityCulling** - skips entities hidden behind geometry entirely.
-  - **MoreCulling** - culls block/leaf/glass faces the vanilla renderer still
-    submits.
-  - **BadOptimizations** - a grab-bag of safe micro-optimisations in the
-    render/light paths.
-  - **Krypton** - moves networking off the render thread.
-  - **ThreadTweak** - adjusts client/server thread scheduling priorities.
-  - **Dynamic FPS** - drops frame rate while the window is unfocused.
-
-All are fetched from Modrinth exactly like a mod the user picked themselves:
+Sodium is fetched from Modrinth exactly like a mod the user picked themselves:
 matched to the profile's Minecraft version and loader, stored in the profile
-folder, and skipped when they are already present (including a manual install).
-The launcher's normal mod sync then carries them into the game.
+folder, and skipped when it is already present (including a manual install).
+The launcher's normal mod sync then carries it into the game.
+
+`prune_retired_perf_mods()` removes the eight retired mods from a profile that
+already has them, so an existing install stops loading the pile instead of
+waiting for the user to delete eight jars by hand.
 
 Best-effort by design, because this runs inside the launch path: no build for
 this Minecraft version, a dead network, or a jar the user manages by hand all
-just mean the boost is smaller. Nothing here can stop the game from starting.
+just mean there is no boost. Nothing here can stop the game from starting.
 """
+import json
+import os
+
 from .mod_loaders import MOD_CAPABLE_LOADERS
-from .mods import download_mod, get_mod_download, list_mods, name_stem
+from .mods import (delete_mod, download_mod, get_mod_download, list_mods,
+                   name_stem)
 
 # (Modrinth slug, Modrinth project id, display label), in install order.
-# Sodium/Lithium stay first because they are the load-bearing pair - if a
-# download runs out of time, the two mods that actually replace the renderer
-# and ticker landed first. Pure client FPS; nothing here changes gameplay.
+# Sodium only - see the module docstring for why the suite was narrowed.
 PERF_MODS = (
     ("sodium", "AANobbMI", "Sodium"),
-    ("lithium", "gvQqBUqZ", "Lithium"),
-    ("immediatelyfast", "5ZwdcRci", "ImmediatelyFast"),
-    ("entityculling", "NNAgCjsB", "EntityCulling"),
-    ("moreculling", "51shyZVL", "MoreCulling"),
-    ("badoptimizations", "g96Z4WVZ", "BadOptimizations"),
-    ("krypton", "fQEb0iXm", "Krypton"),
-    ("threadtweak", "vSEH1ERy", "ThreadTweak"),
-    ("dynamic-fps", "LQ3K71Q1", "Dynamic FPS"),
+)
+
+# The perf mods the suite used to install, kept here so an existing profile can
+# be cleaned up (see prune_retired_perf_mods). Do NOT re-add these to
+# PERF_MODS without the user's say-so.
+RETIRED_PERF_MODS = (
+    ("lithium", "gvQqBUqZ"),
+    ("immediatelyfast", "5ZwdcRci"),
+    ("entityculling", "NNAgCjsB"),
+    ("moreculling", "51shyZVL"),
+    ("badoptimizations", "g96Z4WVZ"),
+    ("krypton", "fQEb0iXm"),
+    ("threadtweak", "vSEH1ERy"),
+    ("dynamic-fps", "LQ3K71Q1"),
 )
 
 # Kept as its own name: tests and callers refer to the slug tuple.
 PERF_MOD_SLUGS = tuple(slug for slug, _pid, _label in PERF_MODS)
 
 _LABELS = {slug: label for slug, _pid, label in PERF_MODS}
+
+# EntityCulling's own whitelist arrays are a crash-on-start hazard. The mod is
+# no longer installed by the suite, but a profile that already has it (from an
+# older Cubeon, or the user's own install) can carry a legacy config: written by
+# an older EntityCulling and never cleaned, its defaults and ConfigUpgrader only
+# ever ADD resource ids. A `null` or an empty string in the list makes 1.11.2's
+# `clientTick` throw while parsing it as a ResourceLocation:
+#   NullPointerException: Cannot invoke "String.indexOf(int)" because "$$0" is null
+# on the first tick - the window never reaches the menu. So Cubeon repairs the
+# config before each launch. Only entries that cannot run are dropped; the
+# player's own (and every valid default) entry is preserved.
+_ENTITYCULLING_LISTS = (
+    "blockEntityWhitelist",
+    "entityWhitelist",
+    "tickCullingWhitelist",
+)
+
+
+def entityculling_config_path() -> str:
+    from .paths import MINECRAFT_DIR
+    return os.path.join(MINECRAFT_DIR, "config", "entityculling.json")
+
+
+def sanitize_entityculling_config(path: str | None = None) -> dict:
+    """Drops null/empty whitelist entries from EntityCulling's config, in place.
+
+    Returns {"removed", "detail", "path"}. Never raises: a missing or
+    unreadable file means EntityCulling has not run yet, or the user does not
+    use it - nothing to repair either way. Idempotent: a clean config is left
+    byte-for-byte and reports removed == 0.
+    """
+    target = path or entityculling_config_path()
+    result = {"removed": 0, "detail": "", "path": target}
+    try:
+        with open(target, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        result["detail"] = "no readable entityculling.json"
+        return result
+    if not isinstance(data, dict):
+        result["detail"] = "entityculling.json is not an object"
+        return result
+
+    removed = 0
+    for key in _ENTITYCULLING_LISTS:
+        current = data.get(key)
+        if not isinstance(current, list):
+            continue
+        cleaned = [v for v in current
+                   if isinstance(v, str) and v.strip()]
+        if len(cleaned) != len(current):
+            removed += len(current) - len(cleaned)
+            data[key] = cleaned
+    if not removed:
+        result["detail"] = "entityculling whitelists already clean"
+        return result
+
+    try:
+        tmp = target + ".cubeon-tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp, target)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        result["detail"] = "entityculling.json is not writable"
+        return result
+
+    result["removed"] = removed
+    result["detail"] = ("removed %d unrunnable EntityCulling whitelist "
+                        "entr%s" % (removed, "y" if removed == 1 else "ies"))
+    return result
 
 
 def _present(mc_version: str | None, loader: str | None) -> set:
@@ -91,6 +167,36 @@ def is_installed(mc_version: str | None, loader: str | None) -> bool:
     if not mc_version or loader not in MOD_CAPABLE_LOADERS:
         return False
     return _present(mc_version, loader) >= set(PERF_MOD_SLUGS)
+
+
+def prune_retired_perf_mods(mc_version: str | None, loader: str | None) -> list:
+    """Removes the retired perf mods from a profile that already has them.
+
+    Only entries Cubeon itself installed are eligible: the match is on the
+    Modrinth slug / project id recorded in the jar's sidecar metadata, never on
+    a filename stem, so a jar the user dropped in by hand is left alone.
+    Returns the display labels removed. Never raises - this is a cleanup on the
+    launch path, not a requirement.
+    """
+    removed: list = []
+    if not mc_version or loader not in ("fabric", "quilt"):
+        return removed
+    retired_slugs = {slug for slug, _pid in RETIRED_PERF_MODS}
+    retired_pids = {pid.lower() for _slug, pid in RETIRED_PERF_MODS}
+    try:
+        mods = list_mods(mc_version, loader)
+    except Exception:
+        return removed
+    for mod in mods:
+        slug = (mod.get("slug") or "").lower()
+        project_id = (mod.get("project_id") or "").lower()
+        if slug in retired_slugs or (project_id and project_id in retired_pids):
+            try:
+                delete_mod(mc_version, loader, mod["filename"])
+                removed.append(slug or project_id)
+            except Exception:
+                pass
+    return removed
 
 
 def ensure_installed(mc_version: str | None, loader: str | None,
