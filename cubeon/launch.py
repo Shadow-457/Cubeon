@@ -286,10 +286,10 @@ _VANILLA_JVM_ARGS = [
 _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 
 # Client-side JVM tuning, appended to every launch. Aimed squarely at the
-# thing players read as "low FPS": frame-time spikes. G1GC with a short pause
-# target keeps garbage collection off the render frames, and matching -Xms to
-# -Xmx (done in build_launch_command) removes the mid-game heap-growth hitches
-# where a long session suddenly stutters as the heap resizes.
+# thing players read as "low FPS": frame-time spikes. G1GC keeps garbage
+# collection off the render frames, and matching -Xms to -Xmx (done in
+# build_launch_command) removes the mid-game heap-growth hitches where a long
+# session suddenly stutters as the heap resizes.
 #
 # This is Aikar's well-known client set (github.com/Aikar/timings), trimmed of
 # everything that could HURT an ordinary player's machine, per the repo rule
@@ -302,16 +302,28 @@ _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 # UnlockExperimentalVMOptions comes FIRST because every G1 tuning flag below
 # it is experimental-gated. PerfDisableSharedMem stops the JVM writing perf
 # statistics to a mmap'd file, a known source of periodic micro-stutter.
+#
+# Two flags are deliberately NOT the aggressive server values, because a
+# client's render thread shares the CPU with GC and a weak 4-6 core chip is
+# exactly where over-eager GC shows up as lost FPS:
+#   - MaxGCPauseMillis=200, not 40. A 40ms goal makes G1 shrink the young
+#     generation until it can hit it, i.e. young GCs run far more often and
+#     their CPU cost is paid on the same cores Minecraft is rendering on.
+#   - G1HeapWastePercent=5 is Aikar's value; without it G1 can leave more
+#     reclaimable old-gen garbage for longer, triggering more mixed cycles.
+# -Dorg.lwjgl.util.NoChecks disables LWJGL's per-call pointer validation,
+# which is a small but free CPU saving on the render thread.
 CLIENT_JVM_FLAGS = [
     "-XX:+UseG1GC",
     "-XX:+ParallelRefProcEnabled",
-    "-XX:MaxGCPauseMillis=40",
+    "-XX:MaxGCPauseMillis=200",
     "-XX:+UnlockExperimentalVMOptions",
     "-XX:+DisableExplicitGC",
     "-XX:G1NewSizePercent=30",
     "-XX:G1MaxNewSizePercent=40",
     "-XX:G1HeapRegionSize=16M",
     "-XX:G1ReservePercent=20",
+    "-XX:G1HeapWastePercent=5",
     "-XX:G1MixedGCCountTarget=4",
     "-XX:InitiatingHeapOccupancyPercent=15",
     "-XX:G1MixedGCLiveThresholdPercent=90",
@@ -319,6 +331,7 @@ CLIENT_JVM_FLAGS = [
     "-XX:SurvivorRatio=32",
     "-XX:MaxTenuringThreshold=1",
     "-XX:+PerfDisableSharedMem",
+    "-Dorg.lwjgl.util.NoChecks=true",
 ]
 
 
@@ -615,11 +628,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         logging.getLogger(__name__).warning("friends mod setup failed", exc_info=True)
 
     # The Cubeon Client is a social mod and draws almost nothing; the actual
-    # frame-rate win comes from Sodium + Lithium, fetched here for the same
-    # profile. Tied to the client toggle (there is no separate switch in
-    # Settings - the user asked for that gone; `perf_mods_enabled` remains a
-    # config-only opt-out), and always before the mods sync so a jar fetched
-    # right now is live this launch.
+    # frame-rate win comes from the client performance mod suite (Sodium,
+    # Lithium, ImmediatelyFast, EntityCulling, MoreCulling, ...) fetched here
+    # for the same profile, plus unlocking Minecraft's own Vsync/FPS-cap
+    # options so those mods can actually be seen. Tied to the client toggle
+    # (there is no separate switch in Settings - the user asked for that gone;
+    # `perf_mods_enabled` remains a config-only opt-out), and always before
+    # the mods sync so a jar fetched right now is live this launch.
     try:
         if (cfg is not None and cfg.get("client_mod_enabled", True)
                 and cfg.get("perf_mods_enabled", True)):
@@ -628,6 +643,14 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                                                 status_cb=status_cb)
             if report["installed"] and status_cb:
                 status_cb("FPS boost installed")
+            # The game is not running yet (the JVM starts further down), so
+            # options.txt can be edited safely. This is what stops a machine
+            # that CAN render 120 FPS from still reading 60/30 because of
+            # Vsync and the frame cap.
+            from . import game_options
+            unlocked = game_options.unlock_frame_rate()
+            if unlocked["changed"] and status_cb:
+                status_cb("Frame rate unlocked")
     except Exception:
         pass
 

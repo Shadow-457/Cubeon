@@ -102,12 +102,16 @@ DEFAULT_CONFIG = {
     # that removes the whole Friends backend; this is the user's per-launch
     # choice about the jar.
     "client_mod_enabled": True,
-    # With the Cubeon Client on, also make sure the two client performance
-    # mods that actually raise frame rate (Sodium + Lithium, fetched from
-    # Modrinth like any other mod) are present in the Fabric/Quilt profile.
+    # With the Cubeon Client on, also make sure the client performance mods
+    # that actually raise frame rate (Sodium, Lithium, ImmediatelyFast,
+    # EntityCulling, MoreCulling, BadOptimizations, Krypton, ThreadTweak,
+    # Dynamic FPS - fetched from Modrinth like any other mod) are present in
+    # the Fabric/Quilt profile, AND unlock Minecraft's own options.txt frame
+    # rate (Vsync off, FPS cap lifted - see cubeon/game_options.py).
     # The Cubeon Client itself is a social mod and draws nothing expensive;
     # this is what turns "activate Cubeon Client" into a real FPS win.
-    # Turning it off leaves the mod set exactly as the user built it.
+    # Turning it off leaves the mod set and the game's options exactly as the
+    # user built them.
     "perf_mods_enabled": True,
     "server_ram_mb": 2048,  # RAM allocated to the local server started from the Server tab
     # Whether Smooth mode (low-ping optimization) is ON per server version.

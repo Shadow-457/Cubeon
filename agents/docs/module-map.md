@@ -690,7 +690,12 @@ facts belong HERE, not in diary notes.
 - JVM FLAGS (cubeon/launch.py CLIENT_JVM_FLAGS): Aikar-derived client G1 set,
   applied to EVERY launch as `-Xmx{ram}M -Xms{ram}M` + flags. Deliberately
   EXCLUDES AlwaysPreTouch (kills low-RAM machines / doubles launch time) and
-  G1HeapRegionSize > 16M. Constraint: Java 8–25 compatible.
+  G1HeapRegionSize > 16M. Constraint: Java 8–25 compatible. Two values are
+  deliberately softer than the server set because a weak client CPU shares its
+  cores between GC and the render thread: `MaxGCPauseMillis=200` (not 40 — a
+  40ms goal makes G1 shrink young gen and run young GCs far more often) and
+  `G1HeapWastePercent=5`. `-Dorg.lwjgl.util.NoChecks=true` skips LWJGL's
+  per-call pointer validation. (2026-10-05)
   GOTCHA: `-XX:G1RSetUpdatingIntervalTime` is REJECTED by Java 21 (and newer) —
   it made the JVM refuse to start. Validate flag changes against a real
   `java` before shipping:
@@ -1167,8 +1172,9 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `minekube.py` | Public address tunnels: finds/installs Connect plugin, endpoint config. |
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |
 | `cubeonfriends.py` | Which Friends jar goes into which profile (brackets), injected at launch. `mod_stamp()` = jar freshness fingerprint. |
-| `perf_mods.py` | FPS boost: fetches Sodium + Lithium (`PERF_MOD_SLUGS`) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled`. `_present()` dedupes by slug/name/id/filename; best-effort, never raises. |
-| `launch.py` | `launch_game()` — injects CSL + friends jar + Sodium/Lithium, syncs mods, launches MC. `CLIENT_JVM_FLAGS` + matched `-Xms/-Xmx`. Requires mc_version/loader, no silent defaults. |
+| `perf_mods.py` | FPS boost: fetches the client perf suite (`PERF_MODS`: Sodium, Lithium, ImmediatelyFast, EntityCulling, MoreCulling, BadOptimizations, Krypton, ThreadTweak, Dynamic FPS) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled`. `_present()` dedupes by slug/name/id/filename; skip-if-present (no auto-update); best-effort, never raises. |
+| `game_options.py` | Frame-rate unlocker: flips ONLY `enableVsync`→false and `maxFps`→260 in `MINECRAFT_DIR/options.txt` (atomic, idempotent, no unknown keys). Never rewrites any other game option. |
+| `launch.py` | `launch_game()` — injects CSL + friends jar + perf suite + frame-rate unlock, syncs mods, launches MC. `CLIENT_JVM_FLAGS` + matched `-Xms/-Xmx`. Requires mc_version/loader, no silent defaults. |
 | `capes.py` | Custom capes: any image accepted, auto-fitted onto the cape layout, synced into CSL's LocalSkin. Static images only — the animated-cape system was removed 2026-09-07. No Worker/KV involvement at all. |
 | `config.py` | cfg schema, username validation, auth key (public_uuid/secret_token). |
 | `gate.py` | Server join password (PBKDF2, escalating lockouts). |
@@ -1909,24 +1915,41 @@ Still-true invariants from the pre-local era:
   leftover would still load). Smaller blast radius than
   features.friends_enabled(), which is a BUILD-time switch removing the whole
   backend.
-- **FPS boost (Sodium + Lithium)**: NO Settings toggle (the user explicitly
+- **FPS boost (client perf suite)**: NO Settings toggle (the user explicitly
   asked for it removed 2026-09-11 - don't add it back). It rides the existing
   "Cubeon extras in-game" toggle: when `client_mod_enabled` is on (and the
   config-only `perf_mods_enabled`, default True, is on) and the loader is
   Fabric/Quilt, `cubeon/launch.py` calls
   `perf_mods.ensure_installed(mc_version, loader)` before `sync_mods_to_game`,
-  which fetches Sodium + Lithium from Modrinth (`PERF_MOD_SLUGS`) into the
-  profile exactly like a user-installed mod. `perf_mods._present()` matches
-  slug/display_name/project_id/filename so a manual jar is never duplicated
-  (duplicate Sodium = crash). Best-effort: no build/offline/load error is
-  reported in the return dict, never raised. The Cubeon Client itself is a
-  social mod and contributes ~0 FPS; Sodium is the actual frame-rate engine and
-  its own in-game settings are intentionally left untouched.
+  which fetches a hand-picked client FPS suite from Modrinth (`PERF_MODS`: a
+  `(slug, project_id, label)` table — Sodium, Lithium, ImmediatelyFast,
+  EntityCulling, MoreCulling, BadOptimizations, Krypton, ThreadTweak,
+  Dynamic FPS) into the profile exactly like a user-installed mod.
+  `perf_mods._present()` matches slug/display_name/project_id/filename so a
+  manual jar is never duplicated (duplicate Sodium = crash). Best-effort: no
+  build/offline/load error is reported in the return dict, never raised.
+  Sodium stays first because it is the load-bearing renderer.
+  **Skip-if-present, no auto-update**: a found mod is never re-fetched (so a
+  hand-pinned version is respected); this is why an old Sodium can linger.
+  (2026-10-05: widened from Sodium+Lithium only, because culling/per-frame
+  mods are what actually lift a CPU-bound PvP client.)
+- **Frame-rate unlock (cubeon/game_options.py)**: adding mods only raises what
+  the machine CAN render; Minecraft's own `options.txt` will still read 60 (or
+  ~30, Vsync halving) if `enableVsync:true` / a low `maxFps`. This module flips
+  EXACTLY those two keys (`enableVsync:false`, `maxFps:260`, vanilla's top
+  slider) on the launch path, atomically and idempotently, and touches NOTHING
+  else (render distance / graphics / packs / shaders stay the player's choice —
+  same rule as content.py). Only keys already present are changed, so an older
+  options.txt without them is not given unknown keys. Called in
+  `launch_game` right after `perf_mods.ensure_installed`, gated by the same
+  `perf_mods_enabled`. The game is not running yet at that point, so it cannot
+  race the game's save-on-exit.
 - **Client JVM flags**: `cubeon/launch.py` `CLIENT_JVM_FLAGS` (G1GC,
-  MaxGCPauseMillis=50, ParallelRefProc, DisableExplicitGC, G1NewSize/Reserve)
-  are appended to every launch's `jvmArguments`, and `-Xms` now equals `-Xmx`
-  (no mid-game heap-growth stutter). Deliberately lighter than the server's
-  Aikar set (`HIGH_PING_JVM_FLAGS`); flags chosen to exist on Java 8–25.
+  MaxGCPauseMillis=200, ParallelRefProc, DisableExplicitGC, G1NewSize/Reserve,
+  G1HeapWastePercent=5, `-Dorg.lwjgl.util.NoChecks=true`) are appended to every
+  launch's `jvmArguments`, and `-Xms` now equals `-Xmx` (no mid-game
+  heap-growth stutter). Deliberately lighter than the server's Aikar set
+  (`HIGH_PING_JVM_FLAGS`); flags chosen to exist on Java 8–25.
 - **Mod detail menu + auto-repair (2026-09-12)**: clicking any mod row
   (browse OR installed, except protected/system files) opens a full menu via
   `ui/mods_tab.py:open_mod_detail()`. It fetches `mods.get_mod_details()`

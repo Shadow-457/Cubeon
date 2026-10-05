@@ -5,34 +5,62 @@ The Cubeon Client itself is a social mod: it draws a small name badge and opens
 the Friends screen. It is deliberately cheap, which also means it does not make
 Minecraft render any faster - so "activate Cubeon Client" would otherwise get
 the button and nothing else. This module closes that gap: while the client mod
-is on, it makes sure the two mods that actually move frame rate are installed
-in the same (mc_version, loader) profile:
+is on, it makes sure a hand-picked set of client-side performance mods is
+installed in the same (mc_version, loader) profile.
 
-  - **Sodium** replaces the terrain/entity renderer. It is the single biggest
-    client FPS win on every GPU, and the one that turns a 70 FPS machine into
-    several hundred.
-  - **Lithium** optimises game-logic ticking (mob AI, block updates, entity
-    handling), which is what keeps that frame rate high in a busy world.
+This is deliberately wider than "Sodium + Lithium". Those two move raw frame
+rate, but they are not the whole story FastClient-style clients sell: on a
+CPU-bound machine (which every Minecraft client eventually is) the wins that
+turn a 40 FPS busy server into a smooth 100+ are mostly in *culling* and
+*per-frame overhead*:
 
-They are fetched from Modrinth exactly like a mod the user picked themselves:
+  - **Sodium** - replaces the terrain/entity renderer. The single biggest
+    client FPS win on every GPU.
+  - **Lithium** - optimises game-logic ticking (mob AI, block updates, entity
+    handling), which keeps the frame rate high in a busy world.
+  - **ImmediatelyFast** - fixes immediate-mode rendering (HUD, entities,
+    text) which is otherwise a per-frame CPU cost Sodium cannot touch.
+  - **EntityCulling** - skips entities hidden behind geometry entirely.
+  - **MoreCulling** - culls block/leaf/glass faces the vanilla renderer still
+    submits.
+  - **BadOptimizations** - a grab-bag of safe micro-optimisations in the
+    render/light paths.
+  - **Krypton** - moves networking off the render thread.
+  - **ThreadTweak** - adjusts client/server thread scheduling priorities.
+  - **Dynamic FPS** - drops frame rate while the window is unfocused.
+
+All are fetched from Modrinth exactly like a mod the user picked themselves:
 matched to the profile's Minecraft version and loader, stored in the profile
 folder, and skipped when they are already present (including a manual install).
 The launcher's normal mod sync then carries them into the game.
 
 Best-effort by design, because this runs inside the launch path: no build for
 this Minecraft version, a dead network, or a jar the user manages by hand all
-just mean the boost is unchanged. Nothing here can stop the game from starting.
+just mean the boost is smaller. Nothing here can stop the game from starting.
 """
 from .mod_loaders import MOD_CAPABLE_LOADERS
 from .mods import download_mod, get_mod_download, list_mods, name_stem
 
-# Modrinth slugs, in install order. Chosen for pure client FPS: Sodium is
-# rendering, Lithium is tick logic. Nothing here changes gameplay.
-PERF_MOD_SLUGS = ("sodium", "lithium")
+# (Modrinth slug, Modrinth project id, display label), in install order.
+# Sodium/Lithium stay first because they are the load-bearing pair - if a
+# download runs out of time, the two mods that actually replace the renderer
+# and ticker landed first. Pure client FPS; nothing here changes gameplay.
+PERF_MODS = (
+    ("sodium", "AANobbMI", "Sodium"),
+    ("lithium", "gvQqBUqZ", "Lithium"),
+    ("immediatelyfast", "5ZwdcRci", "ImmediatelyFast"),
+    ("entityculling", "NNAgCjsB", "EntityCulling"),
+    ("moreculling", "51shyZVL", "MoreCulling"),
+    ("badoptimizations", "g96Z4WVZ", "BadOptimizations"),
+    ("krypton", "fQEb0iXm", "Krypton"),
+    ("threadtweak", "vSEH1ERy", "ThreadTweak"),
+    ("dynamic-fps", "LQ3K71Q1", "Dynamic FPS"),
+)
 
-# What the user sees when the boost is being prepared. Kept short - it shares
-# the launch status line with mod and skin setup.
-_LABELS = {"sodium": "Sodium", "lithium": "Lithium"}
+# Kept as its own name: tests and callers refer to the slug tuple.
+PERF_MOD_SLUGS = tuple(slug for slug, _pid, _label in PERF_MODS)
+
+_LABELS = {slug: label for slug, _pid, label in PERF_MODS}
 
 
 def _present(mc_version: str | None, loader: str | None) -> set:
@@ -52,8 +80,8 @@ def _present(mc_version: str | None, loader: str | None) -> set:
         identities = {str(mod.get(key) or "").lower()
                       for key in ("slug", "display_name", "project_id")}
         identities.add(name_stem(mod.get("filename") or ""))
-        for slug, project_id in (("sodium", "aanobbmi"), ("lithium", "gvqqbuqz")):
-            if slug in identities or project_id in identities:
+        for slug, project_id, _label in PERF_MODS:
+            if slug in identities or project_id.lower() in identities:
                 found.add(slug)
     return found
 
@@ -79,13 +107,13 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         result["detail"] = "no Minecraft version selected"
         return result
     if loader not in ("fabric", "quilt"):
-        # The two mods ship as Fabric mods; Forge/NeoForge/vanilla have no
+        # These mods ship as Fabric mods; Forge/NeoForge/vanilla have no
         # compatible build to fetch, so there is nothing to pretend about.
         result["detail"] = "performance mods need a Fabric or Quilt profile"
         return result
 
     present = _present(mc_version, loader)
-    for slug in PERF_MOD_SLUGS:
+    for slug, project_id, label in PERF_MODS:
         if slug in present:
             result["kept"].append(slug)
             continue
@@ -95,10 +123,11 @@ def ensure_installed(mc_version: str | None, loader: str | None,
                 result["failed"].append(slug)
                 continue
             if status_cb:
-                status_cb(f"Installing {_LABELS.get(slug, slug)}")
+                status_cb(f"Installing {label}")
             download_mod(
                 file_info["url"], file_info["filename"],
-                slug=slug, mc_version=mc_version, loader=loader,
+                slug=slug, project_id=project_id,
+                mc_version=mc_version, loader=loader,
                 hashes=file_info.get("hashes"),
             )
             result["installed"].append(slug)
