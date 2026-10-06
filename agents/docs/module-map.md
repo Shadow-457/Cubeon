@@ -52,12 +52,17 @@
   Programs-and-Features keys (`EstimatedSize` computed in
   `build_windows_installer.py`, `InstallLocation`, `QuietUninstallString`,
   `URLInfoAbout`).
-- **Close-to-background on Windows.** Flet on Windows DELIVERS a `close` window
-  event (Linux/GTK does not), but the handler only ran cleanup — the process
-  could stay alive with no window. `main.py`'s `_on_window_event` now, on
-  `close`/`disconnect`, kills the flet client and calls `os._exit(0)`.
-  `_kill_flet_client()` also gained a Windows/macOS branch (psutil) since it was
-  `/proc`-only. Do not remove the hard-exit without a Windows test.
+- **Close-to-background on Windows.** The reliable "window is gone" hook is
+  the PAGE-level `page.on_disconnect` (flet dispatches it the moment the
+  desktop client's websocket drops, even if the client PROCESS lingers); it
+  now tears down and `os._exit(0)`. The window-level `close`/`disconnect`
+  events are also handled, and `_terminate_flet_clients()` (module-level,
+  psutil) kills the lingering client. Gated on the `ui_painted_ok` marker so a
+  pre-paint GPU crash still goes through the software-GL retry ladder instead
+  of exiting. `_kill_flet_client()` also gained a psutil branch (was
+  `/proc`-only). Do not remove the hard-exit without a Windows test. If a
+  "still in background" report recurs, note flet only dispatches
+  `on_disconnect` if the handler was set before the session connected.
 
 Last updated: 2026-09-22 (site = `web/` on Vercel at cubeon.vercel.app: landing /
 download / help + legal pages sharing web/assets/site.css + site.js; its release

@@ -322,6 +322,40 @@ def _classify_session_end(ui_painted: bool, client_exit):
     return "clean_close"
 
 
+def _terminate_flet_clients(assets_dir: "str | None" = None) -> int:
+    """Ends the flet desktop client process(es) this launcher started.
+
+    Used on the Windows/macOS window-close path: there is no /proc there, and
+    the desktop client can outlive the window, which is exactly the reported
+    "Cubeon is still running in the background after I close it". Matched
+    two-factor (our child, or our assets dir in its command line) so a second
+    live Cubeon is never touched; the "flet" name filter excludes Minecraft
+    (java). Best-effort; returns how many were ended.
+    """
+    try:
+        import psutil
+    except Exception:
+        return 0
+    me = os.getpid()
+    victims = []
+    for proc in psutil.process_iter(["pid", "name", "ppid", "cmdline"]):
+        try:
+            info = proc.info
+            if "flet" not in (info.get("name") or "").lower():
+                continue
+            cmdline = " ".join(info.get("cmdline") or [])
+            if info.get("ppid") == me or (assets_dir and assets_dir in cmdline):
+                victims.append(proc)
+        except Exception:
+            continue
+    for proc in victims:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    return len(victims)
+
+
 def _capture_flet_client_exit(slot: dict) -> None:
     """Installs a one-time wrapper that records the flet client's exit status.
 
@@ -5457,6 +5491,48 @@ def main(page: ft.Page):
     # never actually ran on this build). e.type is a WindowEventType enum.
     try:
         page.window.on_event = _on_window_event
+    except Exception:
+        pass
+
+    # The RELIABLE "the window is gone" signal on every platform. flet
+    # dispatches the page "disconnect" event the moment the desktop client's
+    # websocket drops - i.e. when the user closes the window - and it fires
+    # even if the client PROCESS lingers. That lingering process is exactly
+    # the "Cubeon keeps running in the background after I close it" report:
+    # on Windows the native window can be destroyed while the flet client and
+    # the Python interpreter stay alive, and ft.run() never returns, so none
+    # of the after-ft.run cleanup can recover. So: tear down and hard-exit
+    # here. The pre-paint case is deliberately left alone so the software-GL
+    # retry ladder (a dying GPU driver, not a user close) still runs.
+    def _on_page_disconnect(_e):
+        try:
+            from cubeon.paths import CUBEON_HOME as _home
+        except Exception:
+            _home = os.path.join(os.path.expanduser("~"), ".cubeon_launcher")
+        if not os.path.exists(os.path.join(_home, "ui_painted_ok")):
+            return  # never painted: a crash/retry, not a close
+        try:
+            _save_geometry_now()
+        except Exception:
+            pass
+        try:
+            _rpc.clear()
+            _rpc.close()
+        except Exception:
+            pass
+        try:
+            friends_service.stop()
+        except Exception:
+            pass
+        # End the desktop client too - os._exit won't reap it for us.
+        try:
+            _terminate_flet_clients(resolve_assets_dir())
+        except Exception:
+            pass
+        os._exit(0)
+
+    try:
+        page.on_disconnect = _on_page_disconnect
     except Exception:
         pass
 

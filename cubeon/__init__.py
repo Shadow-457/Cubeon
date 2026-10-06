@@ -39,6 +39,28 @@ skin_tab.py don't need to change their imports.
 DEFAULT_COLOR_TEMPLATE = "green"
 
 
+def _diagnose(message: str) -> None:
+    """Report a palette problem where it can actually be seen.
+
+    A --windowed exe has no console, so a print() to stderr disappears - which
+    is exactly why "the seasonal colours don't show on Windows" was invisible.
+    On top of stderr, append a line to <CUBEON_HOME>/seasonal-debug.log so the
+    failure is diagnosable on a user's machine instead of silent.
+    """
+    import sys
+    print(message, file=sys.stderr)
+    try:
+        import datetime
+        import os
+        from cubeon.paths import CUBEON_HOME
+        os.makedirs(CUBEON_HOME, exist_ok=True)
+        with open(os.path.join(CUBEON_HOME, "seasonal-debug.log"), "a",
+                  encoding="utf-8") as fh:
+            fh.write(f"{datetime.datetime.now().isoformat()} {message}\n")
+    except Exception:      # noqa: BLE001 - diagnostics must never break startup
+        pass
+
+
 def _color_arg(argv):
     """Pulls an explicit --color[=]value out of argv, or None."""
     name = None
@@ -75,8 +97,18 @@ def _load_color_template():
             from cubeon.seasonal import boot
             name, _info = boot()
         except Exception as ex:
-            print(f"[cubeon] seasonal theme: {ex}", file=sys.stderr)
-            name = None
+            _diagnose(f"[cubeon] seasonal theme: {ex}")
+            # boot() walks the same resolver the UI uses later, but if its
+            # import-time call raised, retry it directly before giving up on
+            # the season - falling straight to the default template is what
+            # made a Windows palette failure look like "seasonal colours are
+            # broken" while weather/pet (resolved later, successfully) worked.
+            try:
+                from cubeon.seasonal import theme_key_for
+                name = theme_key_for()
+            except Exception as ex2:
+                _diagnose(f"[cubeon] seasonal fallback: {ex2}")
+                name = None
 
     if not name:
         name = DEFAULT_COLOR_TEMPLATE
@@ -88,7 +120,7 @@ def _load_color_template():
     except SystemExit:
         raise
     except Exception as ex:
-        print(f"[cubeon] color template {name!r}: {ex}", file=sys.stderr)
+        _diagnose(f"[cubeon] color template {name!r}: {ex}")
 
 
 _load_color_template()
