@@ -1349,21 +1349,93 @@ try:
     _window_scope = {
         "threading": types.SimpleNamespace(Timer=lambda *args: (_events.append("timer") or _ManualTimer(*args))),
         "_save_geometry_now": lambda: _events.append("save"),
+        # Kept in scope ON PURPOSE: the close path must NOT touch them. This
+        # handler runs on flet's event loop, and blocking there froze the
+        # whole launcher (the "still running with no window" report).
         "_rpc": types.SimpleNamespace(clear=lambda: _events.append("clear"),
                                       close=lambda: _events.append("close")),
         "friends_service": types.SimpleNamespace(stop=lambda: _events.append("stop")),
+        "_kill_flet_client": lambda: _events.append("kill"),
+        "_arm_window_gone_exit": lambda reason, delay=3.0: _events.append(("arm", reason)),
     }
     _window_probe = _ui_functions(_main_src, ["_on_window_event"], _window_scope,
                                  "_geometry_timer = None")
     for _kind in (ft.WindowEventType.RESIZED, ft.WindowEventType.MOVE,
                   ft.WindowEventType.MAXIMIZE, "resized", "WindowEventType.MOVE"):
         _window_probe["_on_window_event"](types.SimpleNamespace(type=_kind))
-    _window_probe["_on_window_event"](types.SimpleNamespace(type=ft.WindowEventType.CLOSE))
-    check("enum and legacy window events reach handlers", _events == ["timer"] * 5 + ["save", "clear", "close", "stop"])
+    check("geometry debounce arms one timer per geometry event",
+          _events == ["timer"] * 5, str(_events))
+    # NOTE: flet has no WindowEventType.DISCONNECT - "disconnect" only ever
+    # arrives as the legacy plain-string spelling.
+    for _close_kind in (ft.WindowEventType.CLOSE, ft.WindowEventType.HIDE,
+                        "disconnect"):
+        _window_probe["_on_window_event"](types.SimpleNamespace(type=_close_kind))
+    # save geometry + (for close/disconnect) drop the client, then ARM the
+    # watchdog - and nothing that can block the event loop.
+    check("window close hands off to the watchdog, never blocks the loop",
+          _events == ["timer"] * 5 + [
+              "save", "kill", ("arm", "window close"),
+              "save", ("arm", "window hide"),
+              "save", "kill", ("arm", "window disconnect"),
+          ] and "clear" not in _events and "close" not in _events
+          and "stop" not in _events,
+          str(_events))
     _closure = dict(zip(_window_probe["_on_window_event"].__code__.co_freevars,
                         (c.cell_contents for c in _window_probe["_on_window_event"].__closure__)))
     _closure["_geometry_timer"].fire()
     check("resize/move/maximize schedule geometry persistence", _events[-1] == "save")
+
+    # --- the window-gone watchdog + the hook that actually fires ----------------
+    # Verified 2026-10-06 against flet 0.86.5 AND 1.0.3: a dying desktop client
+    # makes flet call session.close(), which dispatches PAGE "close" - and
+    # session.disconnect() has no callers in either build, so on_disconnect alone
+    # never fires and the process stays alive with no window.
+    check("main() hooks the page event that flet really dispatches",
+          '"on_close"' in _src_main,
+          "page.on_close must be wired: flet dispatches 'close' (not "
+          "'disconnect') when the desktop client dies")
+    check("on_disconnect is wired too, but never as the only hook",
+          '"on_disconnect"' in _src_main and '"on_close"' in _src_main,
+          "wire both; on_close is the one that fires on current builds")
+    _gone_src = _fn_src(_src_main, "_window_gone_finish")
+    check("the watchdog honours a pending seasonal restart before exiting",
+          "_relaunch_fresh_process()" in _gone_src and "_relaunch" in _gone_src,
+          "a hard exit here would make Settings > Seasonal's Restart button dead")
+    check("the watchdog gives up when ft.run() already returned",
+          '_window_gone["ft_returned"]' in _gone_src,
+          "the session loop owns the normal exit path")
+    check("the watchdog gives up while a flet client is still alive",
+          "_live_flet_clients(" in _gone_src,
+          "a minimize must not quit the launcher")
+    check("window-close cleanup is bounded, never inline on the event loop",
+          "_session_end" in _gone_src and "_ct.join(2.0)" in _gone_src,
+          "cleanup runs on a daemon thread with a 2s bail")
+
+    # --- Discord RPC close must not self-deadlock -------------------------------
+    # cubeon/discord_rpc.py: close() holds the lock while clear() takes it again.
+    # With a plain threading.Lock that blocked forever ON flet's event loop, which
+    # is what left the launcher running with no window after the X button.
+    import threading as _th
+    from cubeon import discord_rpc as _rpc_mod
+
+    _rpc_probe = _rpc_mod.DiscordPresence("000000000000000000", enabled=True)
+    _rpc_done = []
+    _rpc_thread = _th.Thread(target=lambda: (_rpc_probe.close(),
+                                             _rpc_done.append("closed")),
+                             daemon=True)
+    _rpc_thread.start()
+    _rpc_thread.join(6.0)
+    check("discord presence close() cannot self-deadlock",
+          not _rpc_thread.is_alive() and _rpc_done == ["closed"],
+          "close() re-entered its own non-reentrant lock - the background bug")
+    _rpc_src = open(os.path.join(_app_root, "cubeon", "discord_rpc.py"),
+                    encoding="utf-8").read()
+    check("discord presence lock is reentrant",
+          "_lock = threading.RLock()" in _rpc_src,
+          "close() nests clear() inside the lock, so it must be an RLock")
+    check("closing the presence stops its retry loop",
+          _rpc_probe._stop.is_set(),
+          "a closed launcher must not keep replaying presence in the background")
 
     _names = {"username": "Initial"}
     _left, _right = ft.TextField(value="Alice"), ft.TextField(value="Initial")

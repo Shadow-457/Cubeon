@@ -52,17 +52,55 @@
   Programs-and-Features keys (`EstimatedSize` computed in
   `build_windows_installer.py`, `InstallLocation`, `QuietUninstallString`,
   `URLInfoAbout`).
-- **Close-to-background on Windows.** The reliable "window is gone" hook is
-  the PAGE-level `page.on_disconnect` (flet dispatches it the moment the
-  desktop client's websocket drops, even if the client PROCESS lingers); it
-  now tears down and `os._exit(0)`. The window-level `close`/`disconnect`
-  events are also handled, and `_terminate_flet_clients()` (module-level,
-  psutil) kills the lingering client. Gated on the `ui_painted_ok` marker so a
-  pre-paint GPU crash still goes through the software-GL retry ladder instead
-  of exiting. `_kill_flet_client()` also gained a psutil branch (was
-  `/proc`-only). Do not remove the hard-exit without a Windows test. If a
-  "still in background" report recurs, note flet only dispatches
-  `on_disconnect` if the handler was set before the session connected.
+- **Close-to-background: `page.on_disconnect` NEVER fires — do not build on
+  it.** flet's `Session.disconnect()` has zero callers in 0.86.x AND 1.0.3, so
+  no session ever dispatches it; when the desktop client dies,
+  `session.close()` dispatches **`page.on_close`** instead. `main()` therefore
+  wires ONE handler to `page.on_close` and `page.on_disconnect` through a
+  `setattr` loop (harmless if one never arrives). On the window level,
+  KDE/Windows deliver `WindowEventType.HIDE`, not `close`, on a real X-button
+  close, so `hide` must be treated as terminal too. Guards:
+  `tools/test_ui_smoke.py` (wiring + watchdog) and
+  `tools/test_wedge_watchdog.py`.
+- **The actual "still running in the background" bug was a SELF-DEADLOCK in
+  Discord RPC, not a missing event.** `cubeon/discord_rpc.py` `close()` held a
+  non-reentrant `threading.Lock` while `clear()` → `_memoize_and_send()`
+  re-took it: flet's event loop froze inside `_on_window_event`, `ft.run()`
+  never returned, the client stayed a zombie, and the process lived on with no
+  window (identical on Windows). **`self._lock` must stay a `RLock`, and
+  `close()` must also `self._stop.set()`** or the retry loop keeps its thread
+  alive. Guard: `tools/test_ui_smoke.py` "real `DiscordPresence.close()`
+  no-deadlock".
+- **Nothing may block the flet event loop from a window/page event.**
+  `_on_window_event` only saves geometry, `_kill_flet_client()`, and arms the
+  watchdog — RPC clear/close and `friends_service.stop` moved to the bounded
+  session-end path (`_do_session_end_cleanup`, daemon thread, `join(2.0)`).
+- **The watchdog owns the process once the window is gone:**
+  `_arm_window_gone_exit(reason, delay)` → `_window_gone_finish()` (delay 1.0
+  for close, 2.0 for hide) → honors `_relaunch["request"]` via
+  `_relaunch_fresh_process()` (Settings > Seasonal "Restart to apply" must
+  survive a close) → `_terminate_flet_clients()` → `os._exit(0)`.
+  `_session_loop` sets `_window_gone["ft_returned"] = True` the instant
+  `ft.run()` returns and resets it + any stale timer before the next session,
+  so the watchdog never fires after a clean return or a legitimate relaunch.
+  `_terminate_flet_clients()` iterates `_live_flet_clients()` (two-factor
+  match, skips zombies) and must never raise. Gated on `ui_painted_ok` so a
+  pre-paint GPU crash still goes through the software-GL retry ladder. Do not
+  remove the hard-exit without a Windows test.
+- **Linux ships the PINNED flet 0.86.x** (`requirements.txt` pins
+  `flet>=0.86,<0.87`); the system python3.14 has drifted to flet 1.0.3 — never
+  build with it. Build with
+  `PATH=$HOME/cubeon-venv/bin:$PATH bash packaging/build_appimage.sh` then
+  `… python packaging/build_linux_installers.py`. ORDER: `build_appimage.sh`
+  does `mv dist/Cubeon/*` (clobbers the Windows onedir), so build the Windows
+  installer FIRST.
+- **Release v1.0.0 was clobbered 2026-10-06 with builds containing all of the
+  above**: `Cubeon-Windows-x64-Setup.exe`, `Cubeon-x86_64.AppImage`,
+  `Cubeon-Linux-x86_64-Setup.sh`, and `cubeon_1.0.0_amd64.deb` (built as
+  `cubeon_1.0.3_amd64.deb`, uploaded under the name the worker expects — see
+  `worker/cubeon-downloads.js`). Every asset was sha256-verified against
+  `gh api …/releases/tags/v1.0.0`. The close fix was then re-verified on the
+  shipped AppImage (exit in 1.0 s, zero survivors).
 
 Last updated: 2026-09-22 (site = `web/` on Vercel at cubeon.vercel.app: landing /
 download / help + legal pages sharing web/assets/site.css + site.js; its release

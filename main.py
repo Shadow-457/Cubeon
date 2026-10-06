@@ -322,38 +322,129 @@ def _classify_session_end(ui_painted: bool, client_exit):
     return "clean_close"
 
 
+def _live_flet_clients(assets_dir: "str | None" = None) -> "list[int]":
+    """PIDs of the flet desktop client(s) this launcher owns that are ALIVE.
+
+    Zombies are skipped: a dead-and-unreaped client is not a reason to keep
+    the process around (that is the "background after close" case). Matched
+    two-factor (our child, or our assets dir in the command line) so a second
+    live Cubeon is never touched; the "flet" name filter excludes Minecraft
+    (java). Never raises.
+    """
+    try:
+        import psutil
+    except Exception:
+        return []
+    me = os.getpid()
+    out = []
+    for proc in psutil.process_iter(["pid", "name", "ppid", "cmdline",
+                                     "status"]):
+        try:
+            info = proc.info
+            if "flet" not in (info.get("name") or "").lower():
+                continue
+            if info.get("status") == getattr(psutil, "STATUS_ZOMBIE", "zombie"):
+                continue  # already gone, only the exit status is pending
+            cmdline = " ".join(info.get("cmdline") or [])
+            if info.get("ppid") == me or (assets_dir and assets_dir in cmdline):
+                out.append(int(info.get("pid") or 0))
+        except Exception:
+            continue
+    return [p for p in out if p > 0]
+
+
 def _terminate_flet_clients(assets_dir: "str | None" = None) -> int:
     """Ends the flet desktop client process(es) this launcher started.
 
-    Used on the Windows/macOS window-close path: there is no /proc there, and
-    the desktop client can outlive the window, which is exactly the reported
-    "Cubeon is still running in the background after I close it". Matched
-    two-factor (our child, or our assets dir in its command line) so a second
-    live Cubeon is never touched; the "flet" name filter excludes Minecraft
-    (java). Best-effort; returns how many were ended.
+    Used whenever a windowless leftover must not survive: there is no /proc
+    on Windows/macOS, and the desktop client can outlive the window, which is
+    exactly the reported "Cubeon is still running in the background after I
+    close it". Best-effort; returns how many were ended.
     """
     try:
         import psutil
     except Exception:
         return 0
-    me = os.getpid()
-    victims = []
-    for proc in psutil.process_iter(["pid", "name", "ppid", "cmdline"]):
+    ended = 0
+    for pid in _live_flet_clients(assets_dir):
         try:
-            info = proc.info
-            if "flet" not in (info.get("name") or "").lower():
-                continue
-            cmdline = " ".join(info.get("cmdline") or [])
-            if info.get("ppid") == me or (assets_dir and assets_dir in cmdline):
-                victims.append(proc)
-        except Exception:
-            continue
-    for proc in victims:
-        try:
-            proc.kill()
+            psutil.Process(pid).kill()
+            ended += 1
         except Exception:
             pass
-    return len(victims)
+    return ended
+
+
+# ---------------------------------------------------------------------------
+# "The window is gone, but the process is still here" watchdog.
+#
+# The window-close path runs ON flet's event loop, so it must never do work
+# that can block: the observed failure (2026-10-06) was a Discord RPC
+# self-deadlock inside _rpc.close() freezing the loop, after which ft.run()
+# could not return and the launcher sat there with no window - the reported
+# Linux AND Windows background bug. So close-time code only SAVES and ARMS;
+# this timer is what actually leaves the process if ft.run() never comes back.
+#
+# It is deliberately conservative: it gives up whenever ft.run() already
+# returned (the session loop owns the exit, including a pending relaunch) or
+# whenever a flet client is still alive (a minimize, not a close).
+# ---------------------------------------------------------------------------
+_window_gone = {"timer": None, "ft_returned": False}
+
+
+def _arm_window_gone_exit(reason: str, delay: float = 3.0) -> None:
+    """Arms the last-resort exit for a window that vanished. Idempotent."""
+    if _window_gone["ft_returned"]:
+        return  # ft.run() returned: _session_loop is already handling the end
+    timer = _window_gone.get("timer")
+    if timer is not None and timer.is_alive():
+        return  # already armed by an earlier close/hide event
+    t = threading.Timer(delay, _window_gone_finish, args=(reason,))
+    t.daemon = True
+    _window_gone["timer"] = t
+    t.start()
+
+
+def _window_gone_finish(reason: str) -> None:
+    """Timer body: leave the process when nothing else is going to."""
+    _window_gone["timer"] = None
+    if _window_gone["ft_returned"]:
+        return  # the session loop took over while we were waiting
+    try:
+        if _live_flet_clients(resolve_assets_dir()):
+            return  # client still up: a minimize or a reconnect, not a close
+    except Exception:
+        pass
+    print(f"cubeon: window gone ({reason}) and ft.run() never returned - "
+          "exiting so nothing is left running in the background")
+    # Bounded: whatever cleanup is still pending gets a daemon thread and 2s,
+    # so a wedged teardown can never become the new hang.
+    _cleanup = _session_end.get("handler")
+    if _cleanup is not None:
+        _session_end["handler"] = None
+        try:
+            _ct = threading.Thread(target=_cleanup, daemon=True,
+                                   name="cubeon-gone-cleanup")
+            _ct.start()
+            _ct.join(2.0)
+        except Exception:
+            pass
+    # "Restart to apply" (Settings > Seasonal) outranks a plain close here,
+    # exactly as it does in _session_loop: the user asked for a re-exec, and
+    # leaving the process instead would make the Restart button look broken.
+    _rl = _relaunch.get("request")
+    if _rl is not None and _rl.is_set():
+        print("cubeon: restart requested - relaunching to apply seasonal "
+              "settings")
+        try:
+            _relaunch_fresh_process()
+        except Exception as ex:
+            print(f"cubeon: relaunch via re-exec failed ({ex})")
+    try:
+        _terminate_flet_clients(resolve_assets_dir())
+    except Exception:
+        pass
+    os._exit(0)
 
 
 def _capture_flet_client_exit(slot: dict) -> None:
@@ -5444,31 +5535,30 @@ def main(page: ft.Page):
                 # tears the window down WITHOUT delivering a "close" event to
                 # Python (only programmatic window.close() does, and only
                 # when prevent_close is set - which itself breaks real X
-                # clicks). So "close"/"hide" arriving here means the window
-                # is going away for real: do full quit cleanup. A closed
-                # window always ends the process - there is no windowless
-                # background state to return to (see _session_loop).
+                # clicks). What actually arrives on a real KDE/GTK close is
+                # "hide" (verified 2026-10-06); "close"/"disconnect" are what
+                # Windows and programmatic close deliver.
+                #
+                # NEVER block here: this runs on flet's event loop, and any
+                # hang in this handler freezes ft.run() itself - that is
+                # exactly how the launcher used to end up alive with no
+                # window. So save the geometry (cheap), let the client go so
+                # ft.run() can return, and arm the watchdog as the fallback.
                 _save_geometry_now()  # last chance: capture final state
-                _rpc.clear()
-                _rpc.close()
-                try:
-                    friends_service.stop()
-                except Exception:
-                    pass
                 if ev in ("close", "disconnect"):
-                    # A CLOSE event means the window is gone. On Windows the
-                    # flet client CAN deliver this while the Python interpreter
-                    # keeps running with no window - exactly the reported
-                    # "Cubeon is still running in the background after I close
-                    # it". Do not wait for ft.run() to return (it may not):
-                    # end the flet client and then hard-exit. os._exit skips
-                    # interpreter teardown, which is what keeps this from
-                    # hanging on native GLib/flutter state on the way out.
+                    # The window is gone for real. End the desktop client so
+                    # ft.run() - which waits on that process - returns and
+                    # _session_loop can classify the end and honour a pending
+                    # "Restart to apply" (it must NOT be skipped, which is
+                    # why there is no os._exit() here).
                     try:
                         _kill_flet_client()
                     except Exception:
-                        pass
-                    os._exit(0)
+                        pass  # module-global under __main__; absent in tests
+                # "hide" also fires on minimize, so the watchdog re-checks
+                # that no flet client is left before it touches anything.
+                _arm_window_gone_exit(f"window {ev}",
+                                      delay=2.0 if ev == "hide" else 1.0)
             elif ev in ("resized", "resize", "move", "moved",
                         "maximize", "unmaximize", "rescale"):
                 # Debounced: dragging the window fires dozens of events, and
@@ -5494,47 +5584,31 @@ def main(page: ft.Page):
     except Exception:
         pass
 
-    # The RELIABLE "the window is gone" signal on every platform. flet
-    # dispatches the page "disconnect" event the moment the desktop client's
-    # websocket drops - i.e. when the user closes the window - and it fires
-    # even if the client PROCESS lingers. That lingering process is exactly
-    # the "Cubeon keeps running in the background after I close it" report:
-    # on Windows the native window can be destroyed while the flet client and
-    # the Python interpreter stay alive, and ft.run() never returns, so none
-    # of the after-ft.run cleanup can recover. So: tear down and hard-exit
-    # here. The pre-paint case is deliberately left alone so the software-GL
-    # retry ladder (a dying GPU driver, not a user close) still runs.
-    def _on_page_disconnect(_e):
-        try:
-            from cubeon.paths import CUBEON_HOME as _home
-        except Exception:
-            _home = os.path.join(os.path.expanduser("~"), ".cubeon_launcher")
-        if not os.path.exists(os.path.join(_home, "ui_painted_ok")):
-            return  # never painted: a crash/retry, not a close
+    # The RELIABLE "the client is gone" signal, on every flet build we ship.
+    #
+    # Verified on BOTH flet 0.86.5 (the Windows build) and 1.0.3, 2026-10-06:
+    # when the desktop client dies, flet's socket server calls session.close(),
+    # which dispatches the PAGE-level "close" event. page.on_disconnect is
+    # NEVER dispatched - Session.disconnect() has no callers at all in either
+    # build - so wiring on_disconnect alone left the process running forever
+    # with no window (the background bug). on_disconnect is still wired below
+    # because some builds/web do deliver it; the handler is idempotent.
+    #
+    # It only saves geometry and arms the watchdog: the real exit happens in
+    # _window_gone_finish if ft.run() never comes back, and otherwise the
+    # session loop does it (which is what keeps "Restart to apply" working).
+    def _on_page_gone(_e):
         try:
             _save_geometry_now()
         except Exception:
             pass
-        try:
-            _rpc.clear()
-            _rpc.close()
-        except Exception:
-            pass
-        try:
-            friends_service.stop()
-        except Exception:
-            pass
-        # End the desktop client too - os._exit won't reap it for us.
-        try:
-            _terminate_flet_clients(resolve_assets_dir())
-        except Exception:
-            pass
-        os._exit(0)
+        _arm_window_gone_exit("page closed", delay=2.0)
 
-    try:
-        page.on_disconnect = _on_page_disconnect
-    except Exception:
-        pass
+    for _hook in ("on_close", "on_disconnect"):
+        try:
+            setattr(page, _hook, _on_page_gone)
+        except Exception:
+            pass
 
     # End-of-session cleanup callable, executed by the __main__ block right
     # after ft.run returns (the only reliable "window session ended" moment
@@ -6094,6 +6168,16 @@ if __name__ == "__main__":
                 # a second or two of teardown after the window is gone, and
                 # a click in that gap is the most common one there is.
                 try:
+                    # Fresh session: re-arm the window-gone watchdog (it was
+                    # disarmed when the previous ft.run() returned) and drop
+                    # any timer left over from that session.
+                    _window_gone["ft_returned"] = False
+                    if _window_gone.get("timer") is not None:
+                        try:
+                            _window_gone["timer"].cancel()
+                        except Exception:
+                            pass
+                        _window_gone["timer"] = None
                     _run_flet_once()
                 except RuntimeError as _ex:
                     # Narrow, known teardown race: ^C delivered in the sliver
@@ -6104,6 +6188,11 @@ if __name__ == "__main__":
                     # normally instead of dying with a cubeon.fatal CRITICAL.
                     if "Event loop is closed" not in str(_ex):
                         raise
+
+                # From here on THIS process owns the exit: the window-gone
+                # watchdog must not fire (it only exists for the case where
+                # ft.run() never returns).
+                _window_gone["ft_returned"] = True
 
                 # flet's exit_gracefully handler is still installed but now
                 # points at a closed loop - reclaim both signals before ANY

@@ -57,7 +57,15 @@ class DiscordPresence:
         self.client_id = (client_id or "").strip()
         self.enabled = bool(enabled)
         self._ipc = None            # socket (unix) or ("pipe", handle) on Windows
-        self._lock = threading.Lock()
+        # RLock, not Lock: close() holds the lock while it calls clear(), and
+        # clear() -> _memoize_and_send() takes it again. A plain Lock is not
+        # reentrant, so that nested take blocked FOREVER - observed live
+        # 2026-10-06 as the "Cubeon keeps running in the background after I
+        # close it" bug: the window-close handler deadlocked the flet event
+        # loop inside _rpc.close(), so ft.run() never returned and the process
+        # sat there with no window. Self-nesting is the only reentrancy here
+        # (the retry thread takes it once per cycle), so an RLock is enough.
+        self._lock = threading.RLock()
         self._last = {}             # last sent activity, to dedupe no-op updates
         self._stop = threading.Event()
         # Discord may not be running when the launcher starts (or may be
@@ -153,12 +161,16 @@ class DiscordPresence:
         self._memoize_and_send("activity", None, payload)
 
     def close(self) -> None:
-        """Best-effort clear + drop the socket. Idempotent."""
+        """Best-effort clear + drop the socket. Also stops the retry thread so
+        a closed launcher keeps no background IPC loop. Idempotent."""
         with self._lock:
             try:
                 self.clear()
             finally:
-                self._drop_ipc()
+                try:
+                    self._drop_ipc()
+                finally:
+                    self._stop.set()
 
     # ------------------------------------------------------------------
     # Internal plumbing.
