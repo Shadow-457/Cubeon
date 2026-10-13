@@ -137,6 +137,8 @@ INSTANCES = [
      "label": "1.20.1 Fabric"},
     {"version_id": "forge-47.2.0-1.21.11", "mc_version": "1.21.11",
      "label": "1.21.11 Forge"},
+    {"version_id": "1.21.11", "mc_version": "1.21.11",
+     "label": "1.21.11 Vanilla"},
 ]
 
 # --------------------------------------------------------------------------
@@ -254,8 +256,9 @@ check("clearing the filter shows everything again",
 print("import-to:")
 mod_entry = next(e for e in result["mods"] if e["name"] == "Sodium")
 model = pane.picker_model_ui(mod_entry)
-check("picker lists every instance (3)", len(model) == 3, str(len(model)))
-(inst_a, ok_a, reason_a), (inst_b, ok_b, reason_b), (inst_c, ok_c, reason_c) = model
+check("picker lists every instance (4)", len(model) == 4, str(len(model)))
+(inst_a, ok_a, reason_a), (inst_b, ok_b, reason_b), (inst_c, ok_c, reason_c), \
+    (inst_d, ok_d, reason_d) = model
 check("loader derived from the version id", inst_a["loader"] == "fabric",
       str(inst_a))
 check("compatible instance stays enabled", ok_a is True, str(reason_a))
@@ -263,6 +266,9 @@ check("MC-dependency mismatch is greyed out",
       ok_b is False and "1.21" in reason_b, str(reason_b))
 check("wrong loader is greyed out",
       ok_c is False and "fabric" in reason_c, str(reason_c))
+check("vanilla instance is greyed with an actionable reason",
+      ok_d is False and "vanilla" in reason_d.lower()
+      and "loader" in reason_d.lower(), str(reason_d))
 
 # Import into the ACTIVE target via the fallback (what a picker click ends
 # up calling when no explicit instance is passed).
@@ -325,6 +331,28 @@ check("another compatible instance stays enabled", old_row[1] is True,
 check("incompatible loader is still greyed (not 'already')",
       forge_row[1] is False and "already" not in forge_row[2].lower(),
       str(forge_row))
+
+# The vanilla instance can never take a mod. Its row is greyed above; this
+# drives home that the installer itself refuses too, so a stray click (or a
+# caller that skips the picker) gets the same actionable message instead of
+# silently dropping the jar into a profile the game never reads.
+vanilla_inst = next(i for i, _ok, _r in model if i["loader"] == "vanilla")
+pane._status_text.value = ""
+pane.import_item_ui(lithium, None, inst=vanilla_inst)
+deadline = time.time() + 6
+while time.time() < deadline and not (
+        pane._status_text.value or ""):
+    time.sleep(0.05)
+_v_msg = pane._status_text.value or ""
+check("importing a mod into vanilla is refused with a clear message",
+      "vanilla" in _v_msg.lower() and "loader" in _v_msg.lower(),
+      str(_v_msg))
+check("the vanilla profile received no mod",
+      not any(f.endswith(".jar")
+              for f in (os.listdir(mods.get_profile_dir("1.21.11", "vanilla"))
+                        if os.path.isdir(mods.get_profile_dir("1.21.11", "vanilla"))
+                        else [])),
+      "unexpected jar in vanilla profile")
 
 # Copy-path button wires the clipboard.
 copy_btn = [c for c in walk(pane._results_col)

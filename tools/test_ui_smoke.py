@@ -1652,6 +1652,122 @@ check("crash reporting backend and wiring are gone",
       not os.path.exists(os.path.join(_app_root, "cubeon", "crashreport.py"))
       and "crash_reports" not in _src_main and "crashreport" not in _src_main)
 
+# --- Adding a loader to an already-installed vanilla version -----------------
+# Bug: "if i installed vanilla then i want to fabric or quilt there no option
+# to install it". The toggle handler used to snap back with "pick it before
+# installing" - a dead end (there was nothing to pick), so a vanilla install
+# could never gain Fabric. It now arms a PENDING install; lock_loader_to_
+# installed respects it; the Play button becomes "INSTALL FABRIC & PLAY"; the
+# launch installs the loader. This drives the real closures to lock that in.
+print("\n4c. vanilla -> loader arms a pending install, not a dead end")
+
+
+class _Ctrl:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _probe_toggle(vid, installed, support_map, installed_loaders):
+    """Build the real loader-toggle closures with stub neighbours."""
+    import cubeon
+    calls = []
+
+    def _rec(name):
+        return lambda *a, **k: calls.append((name, a, k))
+
+    # find_installed_loader_version: which loaders already exist for this MC.
+    _core = types.SimpleNamespace(
+        SUPPORTED_LOADERS=dict(cubeon.mod_loaders.SUPPORTED_LOADERS),
+        extract_mc_version=lambda v: (cubeon.versions.extract_mc_version(v)
+                                      if v else None),
+        find_installed_loader_version=lambda inst, lid, mc: next(
+            (i for i in installed_loaders if lid in i), None),
+        is_loader_supported=lambda lid, mc: True,
+        install_mod_loader=lambda lid, mc, *a: (
+            calls.append(("install_mod_loader", (lid, mc), {}))
+            or f"{lid}-loader-{mc}"),
+        install_version=_rec("install_version"),
+        list_installed_modpacks=lambda: [],
+    )
+    scope = {
+        "core": _core,
+        "state": {"mod_loader": "vanilla", "installed": set(installed),
+                  "pending_loader_install": None},
+        "LOADER_IDS": list(cubeon.mod_loaders.SUPPORTED_LOADERS),
+        "loader_check_cache": {vid: dict(support_map)},
+        "version_dropdown": _Ctrl(value=vid),
+        "loader_toggle": _Ctrl(selected_index=0, disabled=False),
+        "loader_status_text": _Ctrl(value="", visible=False),
+        "style_loader_segments": _rec("style_loader_segments"),
+        "refresh_mods_list": _rec("refresh_mods_list"),
+        "update_hero": _rec("update_hero"),
+        "update_pack_badge": _rec("update_pack_badge"),
+        "set_button_mode": _rec("set_button_mode"),
+        "page": _Ctrl(update=_rec("page.update")),
+        "threading": types.SimpleNamespace(
+            Thread=lambda target=None, **k: types.SimpleNamespace(
+                start=lambda: target() if target else None)),
+    }
+    # The prelude runs before the extracted defs, so it is the ONLY place a
+    # stub reliably wins: `exec` into `scope` defines the real defs in the
+    # probe's locals() (not in `scope`), and a later rebinding of probe[...]
+    # is invisible to nested calls, which resolve the enclosing scope.
+    # That's why on_version_selected is NOT in the extracted names - it is
+    # defined only in the prelude, so it can never be shadowed. It pulls in
+    # the whole app (mod sync, version list, Java check); here it just records.
+    prelude = (
+        "def set_button_mode(mode):\n"
+        "    pass\n"
+        "_calls = []\n"
+        "def on_version_selected():\n"
+        "    _calls.append(('on_version_selected', (), {}))\n"
+    )
+    probe = _ui_functions(
+        _src_main,
+        ["lock_loader_to_installed", "on_loader_toggle_change"],
+        scope,
+        prelude=prelude)
+    # The probe's locals() carry the prelude's `_calls`; the closures' globals
+    # (`scope`) don't, so copy it back for the caller to assert on.
+    calls.extend(probe.get("_calls", ()))
+    return probe, calls, scope
+
+
+# A vanilla install of 1.21.11, with Fabric supported but NOT yet installed.
+_VID = "1.21.11"
+_support = {"fabric": (True, False), "quilt": (True, False),
+            "forge": (True, False), "neoforge": (True, False)}
+_probe, _calls, _scope = _probe_toggle(
+    _VID, installed={_VID}, support_map=_support, installed_loaders=[])
+_fab_idx = _scope["LOADER_IDS"].index("fabric")
+_probe["on_loader_toggle_change"](_fab_idx)
+
+check("toggling to an uninstalled loader arms a pending install",
+      _scope["state"].get("pending_loader_install")
+      == {"version_id": _VID, "loader": "fabric"},
+      str(_scope["state"].get("pending_loader_install")))
+check("the selected loader becomes the pending one (not snapped back)",
+      _scope["state"]["mod_loader"] == "fabric",
+      str(_scope["state"]["mod_loader"]))
+check("the toggle does NOT snap the pill back to vanilla",
+      _probe["lock_loader_to_installed"](_VID, _support) is None
+      and _scope["state"]["mod_loader"] == "fabric"
+      and _scope["loader_toggle"].selected_index == _fab_idx,
+      f"mod_loader={_scope['state']['mod_loader']!r} "
+      f"idx={_scope['loader_toggle'].selected_index}")
+check("the status text says the loader installs on Play",
+      "install" in (_scope["loader_status_text"].value or "").lower()
+      and _scope["loader_status_text"].visible,
+      str(_scope["loader_status_text"].value))
+
+# Switching back to Vanilla disarms the pending install.
+_probe["on_loader_toggle_change"](
+    _scope["LOADER_IDS"].index("vanilla"))
+check("switching back to Vanilla disarms the pending install",
+      _scope["state"].get("pending_loader_install") is None
+      and _scope["state"]["mod_loader"] == "vanilla",
+      str(_scope["state"]))
+
 print(f"\n{passed} passed, {failed} failed")
 print("Smoke test complete: " + ("FAIL" if failed else "PASS"))
 sys.exit(1 if failed else 0)

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>500 - a creeper got our server | Cubeon</title>
+<meta name="description" content="Something broke on our side. Head back to Cubeon's home page, download page or help page." />
+<meta name="robots" content="noindex" />
+<link rel="icon" href="assets/icon.svg" />
+<link rel="stylesheet" href="assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+<style>
+  .void{min-height:calc(100vh - 74px - 260px);display:flex;align-items:center;padding:clamp(50px,8vw,90px) 0}
+  .void-in{max-width:640px;margin-inline:auto;text-align:center}
+  .void-code{font-family:'Minecraftia','Inter',sans-serif;font-weight:700;font-size:clamp(64px,14vw,120px);line-height:1;color:var(--dirt);letter-spacing:.02em;position:relative;display:inline-block;text-shadow:3px 3px 0 var(--dirt-dark)}
+  .void h1{margin-top:6px}
+  .void .lede{margin:16px auto 0}
+  .void-actions{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-top:32px}
+  .void-hole{width:120px;height:120px;margin:34px auto 0;border:3px solid var(--ink);background-image:radial-gradient(circle at 30% 30%,#2c1a0c 0 6px,transparent 7px),radial-gradient(circle at 70% 60%,#2c1a0c 0 8px,transparent 9px),radial-gradient(circle at 45% 80%,#2c1a0c 0 5px,transparent 6px),repeating-linear-gradient(0deg,var(--dirt) 0 26px,var(--dirt-dark) 26px 28px),repeating-linear-gradient(90deg,transparent 0 26px,rgba(0,0,0,.4) 26px 28px);box-shadow:6px 6px 0 var(--dirt)}
+  .void-cmd{margin-top:36px;display:inline-flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);padding:10px 18px;font-family:'Minecraftia';font-weight:600;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--text-soft)}
+  .void-cmd b{color:var(--dirt);font-family:inherit}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+  html.js .void-code{animation:pulse 1.6s ease-in-out infinite}
+  @media(prefers-reduced-motion:reduce){html.js .void-code{animation:none}}
+</style>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Cubeon home"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">☰</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/download">Download</a>
+      <a href="/help">Help</a>
+      <a class="nav-discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/download">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+<section class="void">
+  <div class="wrap void-in">
+    <span class="void-code">500</span>
+    <div class="void-hole" aria-hidden="true"></div>
+    <h1>A creeper got to our server.</h1>
+    <p class="lede" style="margin-inline:auto">Something exploded on our end - not yours. The problem is logged and we're patching the hole. Give it a minute, then come back and try again.</p>
+    <div class="void-actions">
+      <a class="btn big" href="/">Back to home</a>
+      <a class="btn quiet" href="/download">Download Cubeon</a>
+    </div>
+    <span class="void-cmd">Still exploded? <b>/help</b> has fixes, Discord has us.</span>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="/"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+        <a href="/">Home</a>
+        <a href="/download">Download</a>
+        <a href="/help">Help</a>
+      <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="refunds.html">Refunds</a>
+        <a href="cookies.html">Cookies</a>
+        <a href="licenses.html">Credits</a>
+        <a href="privacy.html#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>Cubeon is run by Hamza. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+</body>
+</html>

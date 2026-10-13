@@ -1906,7 +1906,15 @@ def main(page: ft.Page):
         # the current pick isn't installed keeps old single-loader behaviour.
         current = state.get("mod_loader")
         detected = None
-        if current and support.get(current, (False, False))[1]:
+        # A PENDING loader install (user armed Play to add Fabric/Quilt/Forge
+        # to an installed vanilla version) outranks the on-disk truth: snap
+        # to it so the re-run of refresh_loader_support doesn't undo the
+        # choice, and let do_install_and_launch act on it.
+        pending = state.get("pending_loader_install") or {}
+        if (pending.get("version_id") == version_id
+                and pending.get("loader") in LOADER_IDS):
+            detected = pending["loader"]
+        if detected is None and current and support.get(current, (False, False))[1]:
             detected = current
         # Also check vanilla: a bare mc_version in installed_ids means
         # a vanilla (loader-less) install. Vanilla is always supported
@@ -1946,11 +1954,15 @@ def main(page: ft.Page):
             # isn't a trap: Vanilla is always allowed (the plain version is
             # on disk; launching it just skips the mods folder), and so is
             # any loader that's actually INSTALLED for this version (the
-            # launch finds it and plays it - no reinstall). Only a loader
-            # that would have to be installed fresh is blocked, and with a
-            # message - the old code silently snapped the pill back, which
-            # read as the control being broken.
+            # launch finds it and plays it - no reinstall). A loader that
+            # would have to be installed fresh is ALSO allowed now - it just
+            # arms the Play button to install it (mode "install_loader"),
+            # exactly like picking a not-yet-downloaded version arms it to
+            # download. The old code snapped the pill back with "pick it
+            # before installing", which was a dead end: there was nothing to
+            # pick, so a vanilla install could never gain Fabric.
             if new_loader == "vanilla":
+                state["pending_loader_install"] = None
                 if state["mod_loader"] != "vanilla":
                     state["mod_loader"] = "vanilla"
                     loader_status_text.value = "Switched to Vanilla - mods won't load for this version."
@@ -1965,6 +1977,7 @@ def main(page: ft.Page):
                 state["installed"], new_loader,
                 core.extract_mc_version(version_id) or version_id)
             if installed_loader:
+                state["pending_loader_install"] = None
                 state["mod_loader"] = new_loader
                 loader_status_text.visible = False
                 style_loader_segments(cached_support)
@@ -1973,13 +1986,33 @@ def main(page: ft.Page):
                 update_hero()
                 page.update()
                 return
-            loader_toggle.selected_index = max(0, LOADER_IDS.index(state["mod_loader"])) \
-                if state["mod_loader"] in LOADER_IDS else 0
-            loader_status_text.value = (f"{core.SUPPORTED_LOADERS[new_loader]} isn't installed "
-                                        f"for this version - pick it before installing.")
+            # Supported but not installed: select it and arm Play to install.
+            # lock_loader_to_installed (re-run on every version re-selection)
+            # would otherwise snap straight back to the installed truth, so the
+            # choice is recorded as a PENDING install it knows to respect.
+            supported = True
+            if cached_support is not None:
+                supported = cached_support.get(new_loader, (True, False))[0]
+            if not supported:
+                loader_toggle.selected_index = max(0, LOADER_IDS.index(state["mod_loader"])) \
+                    if state["mod_loader"] in LOADER_IDS else 0
+                loader_status_text.value = f"{core.SUPPORTED_LOADERS[new_loader]} isn't available for this version."
+                loader_status_text.visible = True
+                page.update()
+                return
+            state["pending_loader_install"] = {"version_id": version_id,
+                                               "loader": new_loader}
+            state["mod_loader"] = new_loader
+            loader_status_text.value = (f"{core.SUPPORTED_LOADERS[new_loader]} will be "
+                                        f"installed when you press Play.")
             loader_status_text.visible = True
+            style_loader_segments(cached_support)
+            refresh_mods_list()
+            on_version_selected()   # recomputes the button (-> install_loader)
+            update_hero()
             page.update()
             return
+        state["pending_loader_install"] = None
         cached = loader_check_cache.get(version_id) if version_id else None
         if cached and not cached.get(new_loader, (True, False))[0]:
             # Block the switch outright - snap back and explain, rather than
@@ -2449,6 +2482,15 @@ def main(page: ft.Page):
             play_button_icon.name = ft.Icons.DOWNLOAD_ROUNDED
             play_button_text.value = "DOWNLOAD & PLAY"
             play_button.disabled = False
+        elif mode == "install_loader":
+            # Same cyan as download: this arm's Play to fetch something new
+            # (a mod loader) rather than relaunch what's already on disk.
+            paint(INFO, ON_ACCENT)
+            play_button_icon.name = ft.Icons.DOWNLOAD_ROUNDED
+            _ldr_label = core.SUPPORTED_LOADERS.get(
+                state.get("mod_loader") or "", "loader").upper()
+            play_button_text.value = f"INSTALL {_ldr_label} & PLAY"
+            play_button.disabled = False
         elif mode == "busy":
             paint(SURFACE_HI, TEXT_DIM)
             play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
@@ -2589,6 +2631,12 @@ def main(page: ft.Page):
         _sync_version_button()   # the compact button mirrors the real dropdown
         version_id = version_dropdown.value
         state["selected_version"] = version_id  # keep Mods/Servers tabs in sync with the dropdown
+        # A pending loader install is armed against one specific version. If
+        # the user switches versions, that arm no longer applies - clear it so
+        # lock_loader_to_installed / the Play button don't advertise installing
+        # Fabric (etc.) onto whatever version is now selected.
+        if (state.get("pending_loader_install") or {}).get("version_id") != version_id:
+            state["pending_loader_install"] = None
         # Separate "clean" numeric version for anything that keys off a mods
         # profile folder. version_id is the raw launch id and for
         # TLauncher/manually-installed instances that's frequently something
@@ -2619,9 +2667,15 @@ def main(page: ft.Page):
             version_issue_text.visible = True
             set_button_mode("incomplete")
         elif version_id and version_id in state["installed"]:
-            # Installed and complete - ready to play
+            # Installed and complete - ready to play, unless a loader install
+            # is armed for this exact version (pending), in which case Play
+            # must advertise the install it's about to perform.
             version_issue_text.visible = False
-            set_button_mode("play")
+            pending = state.get("pending_loader_install") or {}
+            if pending.get("version_id") == version_id and pending.get("loader"):
+                set_button_mode("install_loader")
+            else:
+                set_button_mode("play")
         else:
             # Not installed - offer to download, and quietly start the
             # download in the background so Play is instant when clicked.
@@ -2945,6 +2999,13 @@ def main(page: ft.Page):
             needs_install = version_id not in state["installed"]
         except Exception:
             needs_install = True
+        # A pending loader install (e.g. adding Fabric to an already-installed
+        # vanilla version) still needs the Java check: the loader installer
+        # runs even though the base Minecraft version is present.
+        if not needs_install:
+            pending = state.get("pending_loader_install") or {}
+            if pending.get("version_id") == version_id and pending.get("loader"):
+                needs_install = True
         if needs_install:
             try:
                 jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
@@ -3080,6 +3141,14 @@ def main(page: ft.Page):
                         state["installed"].add(target_version)
                 else:
                     status_cb(f"{loader_label} unsupported for this version, using vanilla")
+
+            # The loader install is done (or was skipped) - the pending arm
+            # that put Play into "INSTALL FABRIC & PLAY" mode has served its
+            # purpose and must be cleared, so the button returns to a normal
+            # "play"/"running" state and lock_loader_to_installed doesn't
+            # keep re-arming it on the next version re-selection.
+            if (state.get("pending_loader_install") or {}).get("version_id") == version_id:
+                state["pending_loader_install"] = None
 
             # Now that the version (and loader, if any) is installed, the
             # loader choice is locked in - refresh the cached support map and

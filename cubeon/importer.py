@@ -601,6 +601,13 @@ def instance_compatibility(entry, mc_version, loader):
     their own loader+version, so they too are compatible everywhere."""
     if entry.get("kind") == "mods":
         want = entry.get("loader")
+        # Vanilla (or any non-mod loader) can't load mods at all, so pointing
+        # a mod jar at a vanilla instance would silently land it in a profile
+        # the game never reads. Refuse with an actionable reason instead.
+        from .mod_loaders import MOD_CAPABLE_LOADERS
+        if loader and loader not in MOD_CAPABLE_LOADERS:
+            return False, (f"vanilla can't load mods - switch the loader on the "
+                           f"Play tab and press Play to add one")
         if want and loader and loader not in _LOADERS_OK.get(want, {want}):
             return False, f"{want} mod - needs a {want} instance"
         dep = entry.get("mc_dep")
@@ -660,6 +667,14 @@ def import_item(entry, *, mc_version, loader, version_id=None,
 
     if kind == "mods":
         from cubeon import mods
+        # Vanilla can't load mods. Without this guard the jar would land in
+        # the vanilla profile folder the game never reads, and the import
+        # would look like it silently did nothing.
+        from .mod_loaders import MOD_CAPABLE_LOADERS
+        if loader and loader not in MOD_CAPABLE_LOADERS:
+            raise ValueError(
+                "Vanilla can't load mods - switch the loader on the Play tab "
+                "(e.g. Fabric) and press Play to add it, then import again.")
         # Exact-bytes guard: re-importing a jar that's already linked into
         # this profile would only create a foo_xxxxxx.jar twin (install_local_
         # mod suffixes on filename clashes), so refuse instead.

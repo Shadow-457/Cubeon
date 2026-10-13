@@ -255,6 +255,22 @@ try:
 except ValueError:
     check("unknown kind -> ValueError", True)
 
+# A mod pointed at a vanilla profile can never load there. Without this guard
+# the jar lands in the (mc, vanilla) profile folder the game never reads, so
+# the import looks like it silently did nothing.
+try:
+    importer.import_item(mod, mc_version=MC, loader="vanilla")
+    check("mod into vanilla -> ValueError", False)
+except ValueError as e:
+    check("mod into vanilla -> ValueError",
+          "vanilla" in str(e).lower() and "loader" in str(e).lower(), str(e))
+from cubeon import mods as _mods  # noqa: E402
+_v_dir = _mods.get_profile_dir(MC, "vanilla")
+check("the vanilla profile received no jar",
+      not any(f.endswith(".jar")
+              for f in (os.listdir(_v_dir) if os.path.isdir(_v_dir) else [])),
+      "unexpected jar")
+
 shutil.rmtree(_home, ignore_errors=True)
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

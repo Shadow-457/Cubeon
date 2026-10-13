@@ -111,7 +111,11 @@ Settings → Import reworked to per-instance "Import to" + search with duplicate
 detection, and the "launcher reopens after close" family fixed — exit-0 always
 clean + wedge burst-gap; scan now skips non-Minecraft jars/zips; version lists
 show friendly "X.Y.Z (Loader)" labels sorted newest-first; the site's
-"Free launcher · Windows & Linux" eyebrow removed; see those bullets.) If a
+"Free launcher · Windows & Linux" eyebrow removed; see those bullets.) Also
+2026-10-13: a vanilla install can GAIN a loader (the Play-tab toggle now arms
+a pending install instead of dead-ending — see the Play-button state-machine
+bullet), mods can never be imported to a vanilla target (see the import
+bullet), and playful error pages were added (403/429/500/502/503). If a
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
@@ -646,6 +650,21 @@ facts belong HERE, not in diary notes.
   remain allowed), and a `running-liveness` daemon thread (one per process)
   self-heals a claim whose game died without on_exit firing. All three
   mechanisms must stay in sync with any change to the claim's lifecycle.
+- **Adding a loader to an ALREADY-INSTALLED vanilla version (2026-10-13) —
+  INVARIANT.** `state["pending_loader_install"] = {"version_id", "loader"}`
+  is the arm that lets a vanilla install gain Fabric/Quilt/Forge. The toggle
+  handler (`on_loader_toggle_change`) sets it when the chosen loader isn't on
+  disk yet, and Play switches to button mode `"install_loader"` (cyan,
+  `INSTALL <LOADER> & PLAY`). It must be respected by
+  `lock_loader_to_installed`, which would otherwise snap the switcher back to
+  the on-disk truth (vanilla) and undo the pick. Cleared in three places
+  only: (1) `on_version_selected` when the selected version differs from the
+  armed one; (2) `do_install_and_launch` right after the loader install, and
+  only when the armed version matches the launching one; (3) switching the
+  toggle to vanilla/an already-installed loader. `on_play_click` treats a
+  matching pending arm as `needs_install` so the Java check still runs (the
+  loader installer needs Java even though the base version is present).
+  Regression: tools/test_ui_smoke §4c drives the real closures.
 
 ## Instance install cancellation (2026-09-22) — INVARIANT
 - The Play-tab progress row carries a `progress_cancel_btn` ("Cancel",
@@ -2308,6 +2327,18 @@ Still-true invariants from the pre-local era:
     `main.py:_import_target()`. No version selected and no instance chosen
     ⇒ every import refuses with "Pick a game version on the Play tab first."
     (never lands in the throwaway `unknown-vanilla` profile).
+  - **Mods can NEVER go to a vanilla target (2026-10-13) — INVARIANT.**
+    Vanilla (or anything outside `mod_loaders.MOD_CAPABLE_LOADERS`) can't
+    load mods, so a mod landing in the `(mc, vanilla)` profile folder is one
+    the game never reads — the import would look like it silently did
+    nothing. Both layers refuse: `import_item` raises ValueError with an
+    actionable message ("switch the loader on the Play tab … and press
+    Play to add it, then import again"), and
+    `instance_compatibility` returns `(False, "vanilla can't load mods …")`
+    so the picker greys the row with the same guidance. Packs/worlds/
+    modpacks still import to vanilla fine. `_import_target()` defaults the
+    loader to `"fabric"` but can read `"vanilla"` from the toggle, which is
+    why the hard guard lives in `import_item`, not just the picker.
   - **Duplicate detection** (2026-10-13): `importer.mark_installed(result,
     mc_version, loader)` flags scan-time finds already in the target (mods and
     zipped packs by SHA-256 incl. the pack store's `.origin` sidecar —
@@ -2322,8 +2353,8 @@ Still-true invariants from the pre-local era:
     1.0.x `get_directory_path` is a **coroutine returning `str|None`**, so the
     helper awaits it via `page.run_task`. Scans and imports all run on daemon
     threads; UI repaints go through `cubeon.thread_safe_ui.refresh`.
-  - Guards: `tools/test_importer.py` (50 checks, pure logic) and
-    `tools/test_import_ui.py` (45 checks, renders + search + picker model +
+  - Guards: `tools/test_importer.py` (52 checks, pure logic) and
+    `tools/test_import_ui.py` (48 checks, renders + search + picker model +
     per-instance imports). The pane exposes `pane.render_scan_result`,
     `pane.import_item_ui(entry, btn, inst=...)`, `pane.picker_model_ui`,
     `pane.open_picker_ui`, `pane.remark_installed_ui`, `pane._results_col`,
@@ -2616,7 +2647,7 @@ Still-true invariants from the pre-local era:
 - Deploy note: relay fixes require `cd worker && npx wrangler deploy -c
   wrangler-friends.toml` (plus -skins/-waitlist as touched) to go live.
 
-- `web/` is the site sharing `web/assets/site.css` + `web/assets/site.js` (no build step): `index.html` (landing), `download.html` (the binaries, clean routes to release assets — see the web bullets above), `help.html` (the manual), plus `404.html` + the legal pages. `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face lives in `site.css`, so its url is `fonts/...` — page-relative paths 404 there; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
+- `web/` is the site sharing `web/assets/site.css` + `web/assets/site.js` (no build step): `index.html` (landing), `download.html` (the binaries, clean routes to release assets — see the web bullets above), `help.html` (the manual), plus the error pages `404.html` (void/creeper), `403.html` (locked chest), `429.html` (rate-limit), `500.html` (server exploded), `502.html` (bad gateway), `503.html` (overloaded), and the legal pages. Each error page is a self-contained `noindex` stub reusing the shared navbar/footer + the `.void` layout from `404.html`; keep them in sync if the nav/footer changes. `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face lives in `site.css`, so its url is `fonts/...` — page-relative paths 404 there; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
 
 - `ui/skin_tab.py` (Profile > Skin/Cape panes) has NO browse/gallery area anymore (removed 2026-09-14): each pane is preview + installed card grid + upload CTA. `cubeon/gallery.py` survives only as core bookkeeping (`forget_file` in delete flows) + its tests; do not re-add library browsing without asking.
 

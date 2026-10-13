@@ -20,3 +20,10 @@
 /download.html  /download 301
 /help.html      /help 301
 /404.html       /404 301
+# Playful error pages (404 is served natively by Vercel; the rest get a
+# clean extensionless route via vercel.json rewrites).
+/403.html       /403 301
+/429.html       /429 301
+/500.html       /500 301
+/502.html       /502 301
+/503.html       /503 301
