@@ -45,6 +45,20 @@ mixin landed.
   rebuilt and verified, deployed to `~/.cubeon_launcher/cache/` and
   `assets/jars/`.
 
+## Push + read parity (same session, user request)
+- Committed 041436b and pushed to origin/main with the user's identity
+  (Shadow-457 <hamza1tan123456@gmail.com>). NOTE: this environment injects
+  `user.name=zwork`, so the commit needed explicit
+  `git commit --amend --author=...` + GIT_COMMITTER_* env; a bare commit comes
+  out authored as zwork <zwork@local>.
+- `FriendsService.chat_payload` now calls `mark_read(peer)` on both of its
+  return paths (first page + incremental poll): the in-game screen polls
+  /chat while a conversation is open, and without this, reading in Minecraft
+  left the launcher's unread badge lit. Guard added to test_chat_http
+  (373 checks now). Stray personal PDF
+  "Security - My Account Panel - Namecheap.com.pdf" deliberately left out of
+  the commit.
+
 ## Verification
 - `tools/test_mod_compile.py` clean (stub + all sources).
 - `tools/test_mod_bridge.py` 121/121; `test_mod_matrix.py` 68/68;
