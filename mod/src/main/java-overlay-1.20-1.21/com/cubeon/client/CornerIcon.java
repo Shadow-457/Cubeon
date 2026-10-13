@@ -3,7 +3,7 @@ package com.cubeon.client;
 import net.minecraft.network.chat.Component;
 
 /**
- * The 1.20-1.21 build of the Friends corner button's label.
+ * The 1.20-1.21 build of the chat corner button's label.
  *
  * <p>Sister class to the 26.x {@code CornerIcon}: same FQN, same
  * {@link #label(int)} entry point, compiled only by this bracket. Minecraft
@@ -11,8 +11,8 @@ import net.minecraft.network.chat.Component;
  * ({@code Style.withFont(ResourceLocation)} until ~1.21.5, the new
  * {@code FontDescription} chain by 1.21.11), so no single pre-26 jar can draw
  * the custom glyph on every version it serves. Until that bracket is split the
- * corner button here keeps its previous behaviour exactly - blank, or the
- * pending count as plain text when there is something actionable. Only
+ * corner button stays blank here (the chat screen carries no unread badge);
+ * the count parameter is kept so both brackets share one entry point. Only
  * {@link Component}'s literal/empty factories are touched, which is the one
  * text path that has not moved across this whole range.
  *

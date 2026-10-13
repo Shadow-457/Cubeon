@@ -347,6 +347,31 @@ def delete_version(version_id: str) -> None:
         raise ValueError(f"Couldn't delete this version: {ex}") from ex
 
 
+def _inherited_base_version(version_id: str) -> "str | None":
+    """The base Minecraft version a loader install on disk inherits from,
+    read from that install's own version json (`inheritsFrom`).
+
+    This is the only AUTHORITATIVE answer for a loader id that does not
+    encode the game version: NeoForge numbers itself after the game, so
+    "neoforge-21.1.99" means "99th NeoForge build for 1.21.1" and arithmetic
+    on the bare number would give "21.1.99" - a version that does not exist.
+    The older 1.20.1-era numbering ("neoforge-47.1.2") cannot be recovered by
+    arithmetic at all, so the json is the only safe source.
+
+    Returns None when the folder or json is missing (a half-written install,
+    or an id quoted from somewhere other than this disk) so the caller can
+    fall back to leaving the id untouched rather than guessing wrong.
+    """
+    if not _plain_filename(version_id):
+        return None
+    folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+    data = _load_version_json(folder, f"{version_id}.json")
+    if not isinstance(data, dict):
+        return None
+    base = data.get("inheritsFrom")
+    return base if isinstance(base, str) and _plain_filename(base) else None
+
+
 def extract_mc_version(version_id: str) -> str:
     """Pulls the plain numeric Minecraft version (e.g. "1.20.1") out of a
     launch id that may be loader-tagged or renamed by a third-party
@@ -371,12 +396,25 @@ def extract_mc_version(version_id: str) -> str:
     silently sync from an empty folder. Loader ids that START with the MC
     version ("1.20.1-forge-47.2.0") are already correct with the first
     group. NeoForge's own versioning ("neoforge-21.1.99") has no decodable
-    MC number and is deliberately left alone."""
+    MC number - it numbers ITSELF after the game, so 21.1.99 means "the 99th
+    NeoForge build for 1.21.1". The bare number is therefore NOT the MC
+    version, and returning it silently pointed the Mods tab at an empty
+    profile while find_installed_loader_version() failed to recognise the
+    install and offered to reinstall it on every launch. The real MC version
+    is the install's own inheritsFrom (read from disk); when the folder is
+    absent the id is left alone rather than guessed at, because the older
+    1.20.1-era numbering ("neoforge-47.1.2") and a future un-prefixed MC
+    major cannot be recovered by arithmetic."""
     raw = version_id or ""
     if re.match(r"(?:fabric|quilt)-loader-", raw):
         matches = list(re.finditer(r"(\d+\.\d+(?:\.\d+)?)", raw))
         if matches:
             return matches[-1].group(1)
+    if re.fullmatch(r"neoforge-\d+\.\d+\.\d+", raw):
+        inherited = _inherited_base_version(raw)
+        if inherited:
+            return inherited
+        return raw
     match = re.search(r"(\d+\.\d+(?:\.\d+)?)", raw)
     return match.group(1) if match else raw
 

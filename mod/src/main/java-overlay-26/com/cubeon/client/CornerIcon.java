@@ -8,7 +8,7 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.Identifier;
 
 /**
- * The 26.x build of the Friends corner button's label.
+ * The 26.x build of the chat corner button's label.
  *
  * <p>This class exists once per Minecraft era with the same FQN and the same
  * {@link #label(int)} entry point; the shared screen code never mentions an
@@ -17,9 +17,7 @@ import net.minecraft.resources.Identifier;
  * {@code FontDescription}, so the glyph is spelled out with the 26 names.
  * Only the bracket this file is compiled into sees it.
  *
- * <p>The button always shows the two-person glyph (the point of the icon - the
- * button used to be a blank square); when there are unanswered invites or
- * incoming requests their count is appended. Grass green {@code #83C13D}, the
+ * <p>The button shows the two-person glyph, grass green {@code #83C13D}, the
  * Cubeon accent, drawn through Minecraft's bitmap font: the texture is an
  * alpha mask of the two-person shape and the text colour supplies the green.
  *
@@ -39,14 +37,8 @@ public final class CornerIcon {
     private CornerIcon() {
     }
 
+    @SuppressWarnings("unused")
     public static Component label(int pending) {
-        MutableComponent out = Component.literal(GLYPH).withStyle(GREEN);
-        if (pending > 0) {
-            // No space: the glyph's cell already ends in an empty column, and a
-            // two-digit count would otherwise push the label past the 20px
-            // button. An overflow of a stray third digit is not worth crowding.
-            out = out.append(Component.literal(String.valueOf(pending)).withStyle(GREEN));
-        }
-        return out;
+        return Component.literal(GLYPH).withStyle(GREEN);
     }
 }

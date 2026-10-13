@@ -1,29 +1,19 @@
-# Clean public routes. The download files live in GitHub Releases, which is a
-# PRIVATE repository - anonymous visitors get an auth wall there, and signed
-# asset URLs expire within the hour. The cubeon-downloads Worker streams the
-# latest release's files out instead (token held server-side).
+# NOT APPLIED - historical record only, do not add rules here.
 #
-# Page routes (/download, /help, ...) are deliberately NOT listed here: the host
-# already serves `<page>.html` at the extensionless path (Vercel `cleanUrls`),
-# and a redirect from /download to /download.html bounced back via that rewrite
-# into ERR_TOO_MANY_REDIRECTS until 2026-09-22. Only the asset routes belong here.
-/linuxdownload  https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdownload 302
-/linuxdeb       https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdeb 302
-/linuxsetup     https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxsetup 302
-/windowsdownload https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload 302
-/privacy        /privacy.html 200
-/terms          /terms.html 200
-/refunds        /refunds.html 200
-/cookies        /cookies.html 200
-/licenses       /licenses.html 200
-/index.html     / 301
-/download.html  /download 301
-/help.html      /help 301
-/404.html       /404 301
-# Playful error pages (404 is served natively by Vercel; the rest get a
-# clean extensionless route via vercel.json rewrites).
-/403.html       /403 301
-/429.html       /429 301
-/500.html       /500 301
-/502.html       /502 301
-/503.html       /503 301
+# Vercel reads routing ONLY from `vercel.json` at the project root. This file
+# was served publicly as a raw download (HTTP 200) while none of the rules
+# below were in force - a file that looked like the route table and was not.
+# The routes it used to carry now live in the root `vercel.json`:
+#
+#   * the four /<os>download routes -> the cubeon-downloads Worker
+#     (GITHUB_TOKEN stays server-side; the repo is private, so anonymous
+#     requests to GitHub Releases hit an auth wall, and signed asset URLs
+#     expire within the hour)
+#
+#   * every page route needs NO rule at all. `cleanUrls: true` already serves
+#     `help.html` at `/help`, `privacy.html` at `/privacy` and so on, which is
+#     why the legal pages were removed from here on 2026-09-22.
+#
+# NEVER pair a `/page` -> `/page.html` redirect with `cleanUrls: true`: the
+# host rewrites `/page.html` back to `/page`, so the pair loops forever with
+# ERR_TOO_MANY_REDIRECTS. That shipped for /download, /help and /404.

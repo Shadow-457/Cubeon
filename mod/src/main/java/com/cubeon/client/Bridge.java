@@ -23,16 +23,15 @@ import java.util.function.Consumer;
  * Everything this mod knows about the launcher, and the only thing that talks
  * to it.
  *
- * <p>The launcher owns the friends account, the roster and the whole P2P
- * session state machine (see cubeon/friends_service.py); it publishes them over
+ * <p>The launcher owns the friends account, the roster and the chat store
+ * (see cubeon/friends_service.py); it publishes them over
  * a token-authenticated HTTP API bound to 127.0.0.1 (cubeon/local_api.py). This
  * class polls that API on ONE daemon thread and publishes an immutable
  * {@link Snapshot}, which the screen reads without ever blocking.
  *
  * <p>That split is the fix for the mod's worst bug rather than a style choice.
- * The screen used to call {@code isLauncherUp()}, {@code friends()},
- * {@code requestsIn()} and {@code currentName()} straight from
- * {@code Screen.init()} - four blocking HTTP round trips, each up to 1.5s, on
+ * The screen used to call blocking launch-bridge lookups straight from
+ * {@code Screen.init()} - blocking HTTP round trips, each up to 1.5s, on
  * the render thread. Opening the pause menu could therefore freeze Minecraft
  * for several seconds, and resizing the window did it all over again.
  *
@@ -109,81 +108,6 @@ public final class Bridge {
         }
     }
 
-    /** The live P2P world session, or {@link #NONE} when there isn't one. */
-    public record Session(String state, String peer, String error, boolean host,
-                          String quality, boolean canRetry, String peerUid,
-                          String peerMinecraftUsername) {
-
-        public static final Session NONE = new Session("", "", "", false, "", false, "", "");
-
-        public String peerDisplayName() {
-            return safeName(peerMinecraftUsername, peerUid);
-        }
-
-        public String peerLabel() {
-            return identityLabel(peerMinecraftUsername, peerUid);
-        }
-
-        public boolean active() {
-            return state != null && !state.isEmpty();
-        }
-
-        /** True while Cubeon is still working - the screen shows a busy marker. */
-        public boolean working() {
-            return switch (state) {
-                case "hosting_wait_port", "ringing_out", "connecting", "launching",
-                     "verifying" -> true;
-                default -> false;
-            };
-        }
-
-        /** True while the screen owes the session a password decision. */
-        public boolean needsGateChoice() {
-            return "gate_wait".equals(state) || "password_needed".equals(state);
-        }
-
-        /** True when there is something for a Cancel/Leave button to end. */
-        public boolean endable() {
-            return active() && !"failed".equals(state) && !"ended".equals(state);
-        }
-
-        /** One human sentence about this session. Ported from render_p2p_banner(). */
-        public String headline() {
-            String who = peerLabel();
-            return switch (state) {
-                case "hosting_wait_port" -> "Open your world to LAN from this menu.";
-                case "gate_wait" -> "Set a password for your world.";
-                case "verifying" -> "Checking the world password...";
-                case "password_needed" -> who + "'s world needs a password.";
-                case "ringing_out" -> "Inviting " + who + " to your world...";
-                case "ringing_in" -> who + " invited you to their world.";
-                case "connecting" -> "Connecting to " + who + "...";
-                case "connected" -> "Connected to " + who + "'s world.";
-                case "launching" -> "Launching Minecraft into " + who + "'s world...";
-                case "ended" -> "The world session with " + who + " ended.";
-                case "failed" -> error == null || error.isEmpty()
-                        ? "Couldn't connect to " + who + "." : error;
-                default -> active() ? state : "No world session right now.";
-            };
-        }
-
-        /** A second, dimmer line of detail, or "" when there's nothing to add. */
-        public String detail() {
-            return switch (state) {
-                case "hosting_wait_port" ->
-                        "Cubeon invites your friend the moment it sees the LAN port.";
-                case "gate_wait" ->
-                        "Type one below and press Save, or save it empty to skip.";
-                case "verifying" -> "Your friend is typing it now.";
-                case "password_needed" -> "Type it below and press Join.";
-                case "connecting" -> "Syncing mods and opening a direct path.";
-                case "connected" -> quality == null ? "" : quality;
-                case "launching" -> "The connection is ready - handing it to Minecraft.";
-                default -> "";
-            };
-        }
-    }
-
     /**
      * One consistent picture of the launcher. Immutable and compared by value,
      * so the screen can rebuild its widgets only when something really changed
@@ -191,14 +115,12 @@ public final class Bridge {
      */
     public record Snapshot(boolean launcherUp, boolean connected, boolean available,
                            String you, String youUid, List<Friend> friends,
-                           List<String> requestsIn,
-                           List<String> requestsOut, Session session, String problem,
-                           String modStamp, String youMinecraftUsername,
-                           List<Peer> requestsInDetails, List<Peer> requestsOutDetails) {
+                           String problem,
+                           String modStamp, String youMinecraftUsername) {
 
         public static final Snapshot DOWN = new Snapshot(
-                false, false, true, "", "", List.of(), List.of(), List.of(), Session.NONE,
-                "Looking for the Cubeon launcher...", "", "", List.of(), List.of());
+                false, false, true, "", "", List.of(),
+                "Looking for the Cubeon launcher...", "", "");
 
         public String youDisplayName() {
             return safeName(youMinecraftUsername, youUid);
@@ -209,15 +131,6 @@ public final class Bridge {
                 if (friend.name().equals(handle)) {
                     return new Peer(handle, friend.uid(), friend.minecraftUsername());
                 }
-            }
-            for (Peer peer : requestsInDetails) {
-                if (peer.name().equals(handle)) return peer;
-            }
-            for (Peer peer : requestsOutDetails) {
-                if (peer.name().equals(handle)) return peer;
-            }
-            if (session.peer().equals(handle)) {
-                return new Peer(handle, session.peerUid(), session.peerMinecraftUsername());
             }
             return new Peer(handle, "", "");
         }
@@ -379,37 +292,6 @@ public final class Bridge {
      * trees. Everything else here exists so the buttons can be enabled or
      * disabled without parsing that prose.
      */
-    public record SyncReport(String friend, String state, String error,
-                             boolean encrypted, String youVersion, String youLoader,
-                             int youMods, String themVersion, String themLoader,
-                             int themMods, boolean versionOk, boolean loaderOk,
-                             int missing, int extra, boolean canDownload,
-                             int downloadDone, int downloadTotal,
-                             boolean needsRelaunch, List<String> lines) {
-
-        public static final SyncReport NONE = new SyncReport(
-                "", "", "", false, "", "", 0, "", "", 0, true, true, 0, 0, false,
-                0, 0, false, List.of());
-
-        public boolean open() {
-            return friend != null && !friend.isEmpty();
-        }
-
-        /** True while the launcher is mid-request - the buttons show busy. */
-        public boolean working() {
-            return "asking".equals(state) || "downloading".equals(state);
-        }
-
-        public boolean failed() {
-            return "error".equals(state);
-        }
-
-        /** True before anything has been asked, so the view offers Compare. */
-        public boolean idle() {
-            return state == null || state.isEmpty() || "idle".equals(state);
-        }
-    }
-
     // ---- state -----------------------------------------------------------
 
     private final HttpClient http = HttpClient.newBuilder()
@@ -449,13 +331,6 @@ public final class Bridge {
     private ChatConversation chatCurrent = ChatConversation.NONE;  // guarded by chatLock
     private final AtomicLong chatRevision = new AtomicLong();
 
-    // ---- sync state ------------------------------------------------------
-    // A third poll stream, on the same terms as chat: it only costs anything
-    // while the Sync view is actually open on a friend.
-    private final Object syncLock = new Object();
-    private String syncFriend = "";                        // guarded by syncLock
-    private SyncReport syncCurrent = SyncReport.NONE;      // guarded by syncLock
-
     // ---- players state ----------------------------------------------------
     // A fourth poll stream, on the same terms as chat and sync: the launcher's
     // /players route. Unlike the other two it is not opened and closed by a
@@ -465,7 +340,6 @@ public final class Bridge {
     // degrades to is the correct answer for every reader.
     private final AtomicLong playersRevision = new AtomicLong();
     private volatile List<CubeonPlayer> players = List.of();
-    private final AtomicLong syncRevision = new AtomicLong();
 
     // Poll state is single-threaded; token fields are volatile because POST
     // actions may invalidate credentials from their worker threads.
@@ -477,7 +351,6 @@ public final class Bridge {
     private long eventCursor = -1;   // -1 asks the launcher to skip the backlog
     private String ownStamp;         // lazily fingerprinted jar hash, "" unknown
     private boolean staleWarned;     // the "restart Minecraft" notice fired once
-    private int statusMisses;
 
     private Bridge() {
     }
@@ -571,25 +444,6 @@ public final class Bridge {
         this.toastSink = sink;
     }
 
-    /** The friend whose Sync view is open, "" when none. Never blocks. */
-    public String syncFriend() {
-        synchronized (syncLock) {
-            return syncFriend;
-        }
-    }
-
-    /** Never null, never blocks. */
-    public SyncReport syncReport() {
-        synchronized (syncLock) {
-            return syncCurrent;
-        }
-    }
-
-    /** Bumped only when {@link #syncReport()} actually changed. */
-    public long syncRevision() {
-        return syncRevision.get();
-    }
-
     /**
      * The Cubeon players the launcher knows, as of the last poll. Never null,
      * never blocks; empty until the launcher answers (or if it predates the
@@ -618,42 +472,6 @@ public final class Bridge {
         if (!fresh.equals(players)) {
             players = fresh;
             playersRevision.incrementAndGet();
-        }
-    }
-
-    /**
-     * Opens (or closes, with an empty name) the Sync view for one friend. Only
-     * starts the poll stream - the compare itself is
-     * {@link #startSync(String)}, so opening the view costs no relay traffic
-     * until the player asks for it.
-     */
-    public void setSyncFriend(String friend) {
-        String next = friend == null ? "" : friend;
-        synchronized (syncLock) {
-            if (!next.equals(syncFriend)) {
-                syncFriend = next;
-                publishSyncLocked(next.isEmpty() ? SyncReport.NONE
-                        : new SyncReport(next, "", "", false, "", "", 0, "", "", 0,
-                                true, true, 0, 0, false, 0, 0, false, List.of()));
-                wake();
-            }
-        }
-    }
-
-    /**
-     * Closes a Sync stream only when it still belongs to the supplied friend.
-     * Screen teardown can race with construction of the next screen; an old
-     * screen must not close the new screen's report.
-     */
-    public void clearSyncFriend(String expectedFriend) {
-        String expected = expectedFriend == null ? "" : expectedFriend;
-        synchronized (syncLock) {
-            if (!expected.equals(syncFriend)) {
-                return;
-            }
-            syncFriend = "";
-            publishSyncLocked(SyncReport.NONE);
-            wake();
         }
     }
 
@@ -725,24 +543,12 @@ public final class Bridge {
             publish(down("Cubeon launcher isn't running."));
             return;
         }
-        String statusBody = get("/status");
         downStreak = 0;
-        if (statusBody == null) {
-            statusMisses = Math.min(statusMisses + 1, 3);
-        } else {
-            statusMisses = 0;
-        }
-        // /friends is the liveness check. A temporary /status timeout must not
-        // make an active world session disappear from the UI; after a few
-        // misses, clear it so an actually-dead endpoint cannot stay stale forever.
-        Session fallback = statusBody == null && statusMisses < 3
-                ? current.session() : Session.NONE;
-        Snapshot snap = parseSnapshot(friendsBody, statusBody, fallback);
+        Snapshot snap = parseSnapshot(friendsBody);
         publish(snap);
         checkModFreshness(snap);
         drainEvents();
         refreshChat();
-        refreshSync();
         refreshPlayers();
     }
 
@@ -813,8 +619,8 @@ public final class Bridge {
 
     private Snapshot down(String problem) {
         downStreak++;
-        return new Snapshot(false, false, true, "", "", List.of(), List.of(), List.of(),
-                Session.NONE, problem, "", "", List.of(), List.of());
+        return new Snapshot(false, false, true, "", "", List.of(),
+                problem, "", "");
     }
 
     private void publish(Snapshot next) {
@@ -834,12 +640,7 @@ public final class Bridge {
      * {@code /events} at all; the defaults below make that degrade to "no
      * notifications" rather than "everything looks offline".
      */
-    static Snapshot parseSnapshot(String friendsBody, String statusBody) {
-        return parseSnapshot(friendsBody, statusBody, Session.NONE);
-    }
-
-    private static Snapshot parseSnapshot(String friendsBody, String statusBody,
-                                          Session statusFallback) {
+    static Snapshot parseSnapshot(String friendsBody) {
         Map<String, Object> root = Json.parseObject(friendsBody);
         List<Friend> friends = new ArrayList<>();
         for (Object item : Json.list(root, "friends")) {
@@ -877,49 +678,11 @@ public final class Bridge {
                 // friend details show and what friends add you by.
                 uidOf(root, "you_uid"),
                 List.copyOf(friends),
-                Json.strings(root, "requests_in"),
-                Json.strings(root, "requests_out"),
-                statusBody == null ? statusFallback : parseSession(statusBody),
                 "",
                 // Empty from an older launcher - the freshness check is
                 // simply skipped, exactly as before this field existed.
                 Json.str(root, "mod_stamp", ""),
-                minecraftUsername(Json.str(root, "you_minecraft_username", "")),
-                parseRequests(root, "requests_in"),
-                parseRequests(root, "requests_out"));
-    }
-
-    private static List<Peer> parseRequests(Map<String, Object> root, String key) {
-        List<Peer> out = new ArrayList<>();
-        for (String handle : Json.strings(root, key)) {
-            Peer peer = new Peer(handle, "", "");
-            for (Object item : Json.list(root, key + "_details")) {
-                if (handle.equals(Json.str(item, "name", ""))) {
-                    peer = new Peer(handle, uidOf(item, "uid"),
-                            minecraftUsername(Json.str(item, "minecraft_username", "")));
-                    break;
-                }
-            }
-            out.add(peer);
-        }
-        return List.copyOf(out);
-    }
-
-    static Session parseSession(String statusBody) {
-        Map<String, Object> s = Json.parseObject(statusBody);
-        String state = Json.str(s, "state", "");
-        if (state.isEmpty()) {
-            return Session.NONE;
-        }
-        return new Session(
-                state,
-                Json.str(s, "peer", ""),
-                Json.str(s, "error", ""),
-                Json.bool(s, "is_host", false),
-                Json.str(s, "quality", ""),
-                Json.bool(s, "can_retry", false),
-                uidOf(s, "peer_uid"),
-                minecraftUsername(Json.str(s, "peer_minecraft_username", "")));
+                minecraftUsername(Json.str(root, "you_minecraft_username", "")));
     }
 
     /** Reads an /events body; returns the new cursor via {@code cursorOut[0]}. */
@@ -1104,141 +867,15 @@ public final class Bridge {
         return (long) value;
     }
 
-    /**
-     * The third poll stream. Only runs while a Sync friend is set. A null body
-     * means an older launcher with no /sync - the report is left as it was
-     * rather than flipped to an error, so the view degrades to "nothing here"
-     * instead of accusing the launcher of breaking.
-     */
-    private void refreshSync() {
-        String friend;
-        synchronized (syncLock) {
-            friend = syncFriend;
-        }
-        if (friend == null || friend.isEmpty()) {
-            return;
-        }
-        String body = get("/sync?friend=" + queryValue(friend));
-        if (body == null) {
-            return;
-        }
-        SyncReport fresh = parseSyncReport(friend, body);
-        synchronized (syncLock) {
-            // The player may have closed the view (or switched friend) between
-            // the GET and here; that reply must not land in the new one.
-            if (!friend.equals(syncFriend)) {
-                return;
-            }
-            publishSyncLocked(fresh);
-        }
-    }
-
-    private void publishSyncLocked(SyncReport next) {
-        if (!next.equals(syncCurrent)) {
-            syncCurrent = next;
-            syncRevision.incrementAndGet();
-        }
-    }
-
-    /**
-     * Parses one /sync body. Every field is optional and defaults to the
-     * harmless reading ("compatible, nothing to download"), so a launcher older
-     * or newer than this jar can never make the view claim an incompatibility
-     * it didn't actually report.
-     */
-    static SyncReport parseSyncReport(String friend, String body) {
-        Map<String, Object> root = Json.parseObject(body);
-        List<String> lines = Json.strings(root, "lines");
-        Object you = root.get("you");
-        Object them = root.get("them");
-        return new SyncReport(
-                friend,
-                Json.str(root, "state", "idle"),
-                Json.str(root, "error", ""),
-                Json.bool(root, "encrypted", false),
-                Json.str(you, "version", ""),
-                Json.str(you, "loader", ""),
-                intOf(you, "mods"),
-                Json.str(them, "version", ""),
-                Json.str(them, "loader", ""),
-                intOf(them, "mods"),
-                Json.bool(root, "version_ok", true),
-                Json.bool(root, "loader_ok", true),
-                Json.list(root, "missing").size(),
-                Json.list(root, "extra").size(),
-                Json.bool(root, "can_download", false),
-                intOf(root, "download_done"),
-                intOf(root, "download_total"),
-                Json.bool(root, "needs_relaunch", false),
-                lines);
-    }
-
-    private static int intOf(Object holder, String key) {
-        double v = Json.num(holder, key);
-        return Double.isNaN(v) ? 0 : (int) v;
-    }
-
     // ---- actions ---------------------------------------------------------
-    // All of these block on the network and MUST be called from a worker
-    // thread, never from render/init. CubeonClientScreen.submit() is the only
-    // caller and it always uses one.
+    // Blocks on the network and MUST be called from a worker thread, never
+    // from render/init. CubeonClientScreen.submit() is the only caller and it
+    // always uses one. Chat is the only action the in-game client offers; the
+    // launcher owns every roster and world-session verb.
 
-
-    public Result invite(String name) {
-        return post("/invite", Json.object("name", name));
-    }
-
-    public Result join(String name) {
-        return post("/join", Json.object("name", name));
-    }
-
-    public Result addFriend(String name) {
-        return post("/add", Json.object("name", name));
-    }
-
-    public Result acceptRequest(String name) {
-        return post("/accept", Json.object("name", name));
-    }
-
-    public Result declineRequest(String name) {
-        return post("/decline", Json.object("name", name));
-    }
-
-    public Result removeFriend(String name) {
-        return post("/remove", Json.object("name", name));
-    }
-
-    public Result setWhitelisted(String name, boolean on) {
-        return post("/whitelist", Json.object("name", name, "on", on));
-    }
-
+    /** Sends one encrypted chat message to a friend. */
     public Result sendChat(String friend, String text) {
         return post("/dm", Json.object("to", friend, "text", text));
-    }
-
-    /** Opens the profile compare with a friend. Answers immediately; the report
-     *  arrives on the next {@link #refreshSync()} poll. */
-    public Result startSync(String name) {
-        return post("/syncstart", Json.object("name", name));
-    }
-
-    /** Pulls the mods this machine is missing into the global mods store. */
-    public Result downloadMods(String name) {
-        return post("/syncdownload", Json.object("name", name));
-    }
-
-    /** Drops the compare room so the relay isn't holding one open. */
-    public Result closeSync(String name) {
-        return post("/syncclose", Json.object("name", name));
-    }
-
-    /** Asks a friend to open their world to us - the other half of Play. */
-    public Result askToJoin(String name) {
-        return post("/askjoin", Json.object("name", name));
-    }
-
-    public Result cancelSession() {
-        return post("/cancel", "{}");
     }
 
     /** The host's world-password decision: a non-empty password arms the
@@ -1251,10 +888,6 @@ public final class Bridge {
     /** The joiner's answer to the host's password challenge. */
     public Result sendJoinPassword(String password) {
         return post("/joinpassword", Json.object("password", password));
-    }
-
-    public Result retrySession() {
-        return post("/retry", "{}");
     }
 
     // ---- transport -------------------------------------------------------

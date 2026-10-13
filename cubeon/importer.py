@@ -711,25 +711,38 @@ def import_item(entry, *, mc_version, loader, version_id=None,
         from cubeon import content
         ct = CONTENT_KIND[kind]
         label = content.CONTENT_TYPES[ct]["label"].lower()
-        # Exact-bytes guard for zip packs (folders get re-zipped below, so
-        # their hash would differ - those are covered by mark_installed's
-        # name check and the scan-time UI badge instead). Comparing against
-        # the profile's stored bytes AND their install-time origin hashes,
-        # because _verify_and_fix may have rewritten the stored copy.
-        if not entry.get("is_dir"):
+        # Already-there guard, for ZIPS AND FOLDER PACKS alike.
+        #
+        # Zips compare exact bytes: the profile's stored bytes plus their
+        # install-time origin hashes, because _verify_and_fix may have
+        # rewritten the stored copy.
+        #
+        # Folders can't - they are re-zipped at import time, so the bytes
+        # hashed here would never match the stored zip - so they fall back to
+        # the pack's name (stem), which is stable across that re-zip. This
+        # matters because the ACTIVE target has no gate of its own: the Import-
+        # to picker refuses an instance the pack is installed in, but
+        # _import_one relies on the scan-time badge, which a rescan or a
+        # direct call can be stale about. Without it, re-adding a folder pack
+        # reported "Added ..." for work _store_entry had quietly reused.
+        if entry.get("is_dir"):
+            dup = _stem(path) in _profile_pack_stems(ct, mc_version, loader)
+        else:
             digest = entry.get("_src_hash")
             if digest is None:
                 try:
                     digest = content._entry_hash(path)
                 except OSError:
                     digest = None
+            dup = False
             if digest:
                 try:
                     known = _profile_pack_hashes(ct, mc_version, loader)
                 except Exception:
                     known = set()
-                if digest in known:
-                    return f"'{entry['name']}' is already in this profile."
+                dup = digest in known
+        if dup:
+            return f"'{entry['name']}' is already in this profile."
         tmp = None
         try:
             src = path
@@ -782,8 +795,26 @@ def _import_world(src_dir, name):
 
 
 def _zip_folder_to_temp(folder):
-    fd, tmp = tempfile.mkstemp(suffix=".zip")
-    os.close(fd)
+    # Zip an extracted pack folder under the folder's OWN name, so the stored
+    # pack is named "<folder>.zip" instead of a random temp name.
+    #
+    # install_local_content derives the stored pack's filename from the SOURCE
+    # basename (content._store_entry), and that filename is the pack's identity
+    # for dedup: the two folder checks (mark_installed / already_in_profile)
+    # compare the SOURCE folder's stem against the profile's pack stems. A bare
+    # mkstemp() named every import "tmpAbC123.zip", so the profile held
+    # "tmpAbC123" while the scan showed a folder called "Faithful-32x" - the
+    # stems could never match, and every rescan offered to import the same pack
+    # again, piling another random-named copy into both the store and the
+    # profile.
+    #
+    # mkstemp always appends a random token, so it cannot hand back the exact
+    # name needed. Stage inside a private temp directory instead, where the
+    # name is ours to choose and cannot collide with anything else in the
+    # system temp dir. _cleanup removes the whole directory.
+    staging = tempfile.mkdtemp(prefix="cubeon-pack-")
+    stem = _safe_name(os.path.splitext(os.path.basename(folder.rstrip("/\\")))[0])
+    tmp = os.path.join(staging, f"{stem}.zip")
     try:
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
             for dirpath, _dirnames, filenames in os.walk(folder):
@@ -801,7 +832,13 @@ def _zip_folder_to_temp(folder):
 
 
 def _cleanup(path):
+    # Remove the staged zip and the private directory _zip_folder_to_temp put
+    # it in. rmtree on the parent would also do, but only the parent is ours -
+    # a stray caller passing an ordinary file must not take a directory with it.
     try:
         os.remove(path)
     except OSError:
         pass
+    parent = os.path.dirname(os.path.abspath(path))
+    if os.path.basename(parent).startswith("cubeon-pack-"):
+        shutil.rmtree(parent, ignore_errors=True)

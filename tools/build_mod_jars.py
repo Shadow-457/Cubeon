@@ -63,7 +63,7 @@ MC_DIR = os.path.join(HOME, ".cubeon_minecraft")
 # missing library is a clear error instead of a mysterious one.
 LIB_PREFIXES = ("sponge-mixin", "fabric-loader", "brigadier", "slf4j-api",
                 "guava", "datafixerupper", "authlib", "annotations",
-                "lwjgl")
+                "jspecify", "fastutil", "lwjgl")
 
 # What a healthy jar must contain. The two resources are the whole reason the mod
 # loads at all, and the screen class is the one most likely to be missing if a
@@ -75,7 +75,8 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/CornerIcon.class",
                     "com/cubeon/client/mixin/PauseScreenMixin.class",
                     "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
-                    "com/cubeon/client/mixin/TitleScreenMixin.class")
+                    "com/cubeon/client/mixin/TitleScreenMixin.class",
+                    "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class")
 
 
 def load_matrix():

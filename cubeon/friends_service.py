@@ -1482,6 +1482,12 @@ class FriendsService:
                         "gen": self._connect_gen, "t": time.monotonic(), "attempts": 1}
                 if peer:
                     self.client.request_history(peer=peer)
+            # The in-game screen polls this route while a conversation is
+            # open, exactly as the launcher's Chat tab does in-process - so
+            # reading in Minecraft must also clear the unread badge the roster
+            # shows. Same monotonic marker, idempotent, one line of parity.
+            if peer and msgs:
+                self.mark_read(peer)
             return {"friend": peer, "you": you,
                     "messages": [m for m in msgs if m["seq"] > after]}
         if need_seed:
@@ -1490,6 +1496,8 @@ class FriendsService:
                     "gen": self._connect_gen, "t": time.monotonic(), "attempts": 1}
             if peer:
                 self.client.request_history(peer=peer)
+        if peer and msgs:
+            self.mark_read(peer)
         return {"friend": peer, "you": you,
                 "messages": msgs[-_CHAT_PAGE:]}
 

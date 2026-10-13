@@ -55,6 +55,7 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/mixin/PauseScreenMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/PlayerTabOverlayMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/TitleScreenMixin.java",
+    "mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java",
     # The 1.20-1.21 overlay: CornerIcon's era-stable copy. The 26.x overlay is
     # NOT compiled here - it draws through the 26-only GuiGraphicsExtractor /
     # FontDescription chain, so it would pollute the stub with types that do
@@ -1009,6 +1010,8 @@ STUBS = {
             Class<?>[] value() default {};
 
             String[] targets() default {};
+
+            boolean remap() default true;
         }
         """,
 
@@ -1045,6 +1048,8 @@ STUBS = {
             int require() default -1;
 
             boolean cancellable() default false;
+
+            boolean remap() default true;
         }
         """,
 

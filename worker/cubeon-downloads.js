@@ -9,7 +9,7 @@
  *
  *   GET /windowsdownload  -> streams Cubeon-Windows-x64-Setup.exe
  *   GET /linuxdownload    -> streams Cubeon-x86_64.AppImage
- *   GET /linuxdeb         -> streams cubeon_1.0.0_amd64.deb
+ *   GET /linuxdeb         -> streams the .deb for the current APP_VERSION
  *   GET /linuxsetup       -> streams Cubeon-Linux-x86_64-Setup.sh
  *   GET /health           -> plain-text OK, for debugging by hand
  *
@@ -29,10 +29,17 @@ const REPOSITORY = "Shadow-457/Cubeon";
 
 // Routes -> release asset names. Keep in sync with the ROUTES list in
 // web/assets/site.js (which counts presses) and web/vercel.json.
+//
+// The .deb is the one asset whose name carries the app version
+// (packaging/build_deb.py names it cubeon_<APP_VERSION>_amd64.deb), so it is
+// declared as a PREFIX_MATCH rather than a literal. Pinning the literal here
+// meant the two sides drifted: packaging stopped hardcoding "1.0.0" and began
+// emitting the real version, while this map kept asking GitHub for
+// cubeon_1.0.0_amd64.deb, so /linuxdeb 404'd on every request.
 const FILES = {
   "/windowsdownload": "Cubeon-Windows-x64-Setup.exe",
   "/linuxdownload": "Cubeon-x86_64.AppImage",
-  "/linuxdeb": "cubeon_1.0.0_amd64.deb",
+  "/linuxdeb": { prefix: "cubeon_", suffix: "_amd64.deb" },
   "/linuxsetup": "Cubeon-Linux-x86_64-Setup.sh",
 };
 
@@ -40,6 +47,43 @@ const jsonHeaders = {
   "User-Agent": "cubeon-downloads",
   "Accept": "application/vnd.github+json",
 };
+
+/**
+ * Newest asset matching prefix + suffix, or undefined.
+ *
+ * Used for the .deb, whose name embeds the app version
+ * (cubeon_1.1.2_amd64.deb) and therefore cannot be pinned here without
+ * drifting out of sync with packaging/build_deb.py. A release may carry more
+ * than one build of it, so the version in the middle is compared
+ * NUMERICALLY per segment - "1.0.10" must beat "1.0.9", which a plain string
+ * sort gets wrong. Anything that doesn't parse as a version sorts last, so a
+ * well-formed asset always wins over a malformed one.
+ */
+function pickLatestPrefixed(assets, { prefix, suffix }) {
+  const matches = [];
+  for (const asset of assets) {
+    const name = asset && asset.name;
+    if (typeof name !== "string") continue;
+    if (!name.startsWith(prefix) || !name.endsWith(suffix)) continue;
+    const version = name.slice(prefix.length, name.length - suffix.length);
+    if (!version) continue;
+    matches.push({ asset, version, parts: version.split(".").map(Number) });
+  }
+  if (!matches.length) return undefined;
+  matches.sort((a, b) => {
+    const len = Math.max(a.parts.length, b.parts.length);
+    for (let i = 0; i < len; i++) {
+      const av = a.parts[i];
+      const bv = b.parts[i];
+      // A missing segment counts as 0, so "1.0" == "1.0.0".
+      const cmp = (Number.isFinite(av) ? av : 0) - (Number.isFinite(bv) ? bv : 0);
+      if (cmp !== 0) return cmp;
+    }
+    // Equal versions: fall back to the raw string so the choice is stable.
+    return a.version < b.version ? -1 : a.version > b.version ? 1 : 0;
+  });
+  return matches[matches.length - 1].asset;
+}
 
 export default {
   async fetch(request, env) {
@@ -49,8 +93,8 @@ export default {
       return new Response("cubeon-downloads ok");
     }
 
-    const assetName = FILES[url.pathname];
-    if (!assetName || request.method !== "GET") {
+    const spec = FILES[url.pathname];
+    if (!spec || request.method !== "GET") {
       return new Response("not found", { status: 404 });
     }
     if (!env.GITHUB_TOKEN) {
@@ -67,10 +111,12 @@ export default {
       return new Response("release unavailable", { status: 502 });
     }
     const data = await release.json();
-    const asset = (Array.isArray(data.assets) ? data.assets : [])
-      .find((asset) => asset && asset.name === assetName);
+    const assets = Array.isArray(data.assets) ? data.assets : [];
+    const asset = typeof spec === "string"
+      ? assets.find((a) => a && a.name === spec)
+      : pickLatestPrefixed(assets, spec);
     if (!asset) {
-      return new Response(`no asset named ${assetName} in the latest release`, { status: 404 });
+      return new Response(`no matching asset for ${url.pathname} in the latest release`, { status: 404 });
     }
 
     // Accept: application/octet-stream makes GitHub answer the asset with a
@@ -90,7 +136,7 @@ export default {
     return new Response(file.body, {
       headers: {
         "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${assetName}"`,
+        "Content-Disposition": `attachment; filename="${asset.name}"`,
         "Content-Length": String(asset.size),
         "Cache-Control": "no-store",
       },

@@ -1,5 +1,46 @@
 # Cubeon module map — read this before reading any source
 
+## The in-game mod is CHAT-ONLY (2026-10-14) — INVARIANT
+- User request: "remove the whole friends stuff from the Cubeon client, the
+  connection and stuff, but add a chat area with friends where we can chat and
+  show same chat as the launcher."
+- `CubeonClientScreen` is now a chat screen only: a friends picker (rows with
+  presence, double-click-to-open idiom), a read-only prose transcript (incoming
+  WHITE / outgoing AQUA, newest at the bottom, 24-label pool) and a composer
+  (EditBox + Send, `CHAT_INPUT_MAX` 1000). No tabs, no requests, no account
+  view, no Play/Invite/Join, no session banner, no worldgate, no Sync, no
+  whitelist, no remove/add. The conversation is THE SAME store as the launcher's
+  Chat tab: both read `FriendsService` (mod via `/chat`+`/dm` on the localhost
+  bridge, launcher in-process), so they stay in sync live.
+- `Bridge.java` lost: the `Session` record, `parseSession`,
+  `parseRequests`, `SyncReport` + the `/sync` poll stream, the `/status` poll
+  (with `statusMisses`), and the actions `invite/join/addFriend/acceptRequest/
+  declineRequest/removeFriend/setWhitelisted/startSync/downloadMods/closeSync/
+  askToJoin/cancelSession/setWorldGate/sendJoinPassword/retrySession`.
+  `Snapshot` shrank to
+  `(launcherUp, connected, available, you, youUid, friends, problem, modStamp,
+  youMinecraftUsername)` — `requestsIn/requestsOut` and the session are GONE.
+  `sendChat` (`POST /dm`) is the mod's only action. SelfTest dropped
+  `sessionParsing` (121 checks now, was 164).
+- Kept: the corner icon + both menu mixins (no `canInvite` parameter any more),
+  toast notices (`[Cubeon]` chat HUD + screen status line), `[Cubeon]`
+  tab-list tag, `WorldPlayers`, the stale-jar tripwire, `/players` stream.
+  `BadgeNames` is untouched.
+- Chat reopen-dupe rule still applies in-game: the mod's `refreshChat()`
+  merge/cursor logic is unchanged — do not "simplify" it.
+- Both jars were REBUILT and verified this date (1.20-1.21 gradle+loom; 26 via
+  javac — which required re-downloading Temurin JDK 25 into `~/jdks` (the old
+  unpack was truncated) and fetching the 26.1.2 client jar into
+  `~/.cubeon_minecraft/versions/26.1.2/`, plus adding `jspecify` and
+  `fastutil` to `LIB_PREFIXES` in tools/build_mod_jars.py so javac can read
+  Mojang's annotated classes).
+- NOT verified in-game (no GUI session): the picker/transcript layout and
+  Send need one real launch to confirm visually.
+- **A worker-file write guard false-positives on Bridge.java** (the local API
+  token loader contains the JSON key "token"; `/worldgate` used to contain a
+  "password" key). If the guard fires again, edit via an approved shell script,
+  never by re-encoding content to dodge the scan.
+
 ## The in-game MOD MENU + module framework are GONE (2026-10-05) — INVARIANT
 - User request: remove the in-game Cubeon Client's "mods area and functionality".
   Deleted the whole module framework and its UI from the Java mod:
@@ -956,8 +997,9 @@ facts belong HERE, not in diary notes.
   `cd worker && npx wrangler deploy -c wrangler-friends.toml`. Verify the
   deployed shape with `curl <base>/uid/00000001` — 200 = current, 404 with
   `/uid/000000000001` = 200 means the stale 12-digit worker is live.
-- Chat identity labels use validated Minecraft usernames with the 12-digit
-  Cubeon UID visible separately. Auto-minted relay handles are routing keys,
+- Chat identity labels use validated Minecraft usernames with the Cubeon UID
+  (8-digit since `c28b8f0`, `UID_WIDTH=8` in `cubeon/friends.py`) visible
+  separately. Auto-minted relay handles are routing keys,
   never display-name or tooltip fallbacks; missing metadata uses UID/Player.
 - **Two-launcher testing:** `tools/launch_sandbox.py <name>` boots an isolated
   second launcher (fresh HOME → fresh friends account; `--list`/`--wipe`).
@@ -967,7 +1009,7 @@ facts belong HERE, not in diary notes.
   gives the sandbox its own game dir.
 - Chat identity card (ui/chat_tab.py): profile avatar (PFP via
   `cubeon.profile.get_profile_picture_path`) + roster `you_minecraft_username`
-  + the 12-digit UID as a secondary line with a copy button. Self metadata
+  + the 8-digit Cubeon UID as a secondary line with a copy button. Self metadata
   comes from the latest live game's captured username, otherwise the committed
   launcher username (`watchdog.effective_username`), not an editable field.
   Friends/request labels use `FriendsService.peer_metadata` / `peer_label`;
@@ -1215,6 +1257,14 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   — the raw dropdown id can be a loader-install row (`fabric-loader-…`),
   which makes `find_installed_loader_version` miss and `is_loader_supported`
   lie. The launch path always knew this; the UI path didn't (fixed).
+  **NeoForge specifically (2026-10-14):** a NeoForge id like
+  `neoforge-21.1.99` is a real on-disk folder whose base Minecraft version lives
+  in its version json's `inheritsFrom` — `extract_mc_version` MUST resolve it
+  via `cubeon/versions.py:_inherited_base_version()` (traversal-guarded
+  `_plain_filename`) and never by stripping the prefix/arithmetic (21.1.99 →
+  "21.1" and 26.x-era numbers are both wrong). If `_inherited_base_version`
+  can't read the json it returns the raw id as a safe fallback, so mods never
+  sync from an empty folder.
 - Loader checks run in PARALLEL (one thread/loader); results cached in the
   session `loader_check_cache` keyed by raw version id. mll timings:
   fabric 0.6s / quilt ~1s / forge ~1.9s / neoforge ~1s, cached 1 week via
@@ -1281,12 +1331,14 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
 ## What Cubeon is, in one paragraph
 
 A Minecraft launcher (Python/Flet desktop UI) with a friends/social layer:
-a Fabric mod (`mod/`) injects an in-game Friends screen (chat, P2P worlds,
-mod-sync), talking to the launcher over a localhost HTTP bridge, which talks to
+a Fabric mod (`mod/`) injects an in-game **chat screen** (2026-10-14: everything
+else friends-related was removed from the mod - see the invariant section),
+talking to the launcher over a localhost HTTP bridge, which talks to
 a Cloudflare Worker relay (`worker/`) over WebSocket. The launcher ALSO has its
 own top-nav **Chat tab** (`ui/chat_tab.py`, 2026-09-11) that drives the same
 process-scoped `FriendsService` directly, so the social layer works without
-launching the game. DMs and sync frames are E2EE (`cubeon/e2ee.py`). Local
+launching the game - and the in-game screen and the launcher tab show the SAME
+conversations. DMs and sync frames are E2EE (`cubeon/e2ee.py`). Local
 server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 
 ## Repo layout (top level)
@@ -1297,7 +1349,7 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `launcher_core.py` | Re-export shim over the `cubeon` package (legacy import surface). |
 | `cubeon/` | All launcher logic (see table below). |
 | `ui/` | Flet tab builders: `server_tab.py` (biggest), `mods_tab.py`, `modpacks_tab.py`, `skin_tab.py`, `stats_tab.py`, `chat_tab.py`. Pure builders — they receive `cfg`/`state` by reference and helpers (`section_label`, `pixel_divider`, theme) from main.py. |
-| `mod/` | The in-game Fabric mod. `src/main/java/com/cubeon/client/`: `CubeonClientScreen.java` (the Friends UI: FRIENDS/REQUESTS/ACCOUNT tabs only - chat was removed 2026-09-12 and lives in the launcher's Chat tab; Bridge chat plumbing is dormant, nothing calls setChatFriend), `Bridge.java` (localhost HTTP client + snapshot parsing), `CubeonClient.java` (entrypoint, chat notices), `Json.java`, `Nametag.java`, `WorldPlayers.java`; per-era overlays add `CornerIcon.java`. `brackets.json` = **single source of truth** for MC version brackets (read by build.gradle AND cubeonfriends.py). |
+| `mod/` | The in-game Fabric mod. `src/main/java/com/cubeon/client/`: `CubeonClientScreen.java` (the in-game CHAT UI since 2026-10-14: friends picker + transcript + composer, nothing else - no tabs, no requests/invites/sync/whitelist), `Bridge.java` (localhost HTTP client: roster/chat/players/events only - the session+sync poll streams and all management actions were removed 2026-10-14; `/dm` via sendChat is the mod's only POST), `CubeonClient.java` (entrypoint, chat notices), `Json.java`, `WorldPlayers.java`; per-era overlays add `CornerIcon.java`. `brackets.json` = **single source of truth** for MC version brackets (read by build.gradle AND cubeonfriends.py). |
 | `worker/` | Cloudflare Worker + Durable Object relay (`cubeon-friends.js`, `cubeon-invites.js`). Protocol constants must stay in parity with `cubeon/friends.py` (asserted by `tools/test_friends.py`). |
 | `assets/jars/` | Shippable jars: both Friends mod jars + `connect-spigot.jar` (Minekube Connect). |
 | `tools/` | Test harnesses (plain scripts printing `N passed, M failed`). |
@@ -1655,12 +1707,16 @@ Still-true invariants from the pre-local era:
   after any rebuild. Measured against the v1.0.4 artifacts (2026-10-13):
   installer 119,878,260 B → "120 MB", AppImage 108,034,552 B → "108 MB",
   deb 114,504,390 B → "114 MB", setup.sh 1,341 B → "1 KB" (decimal MB).
-  **The Worker's `/linuxdeb` is pinned to the literal filename
-  `cubeon_1.0.0_amd64.deb`** in `worker/cubeon-downloads.js` FILES — a version
-  bump that renames the deb silently 404s that route (it did after 1.0.4 shipped;
-  fixed by re-uploading the new bytes under the old name). After a version
-  bump: either upload an alias (`cp` the new deb to the old name +
-  `gh release upload`), or edit FILES and `npx wrangler deploy`.
+  **The Worker's `/linuxdeb` resolves the deb by prefix, not by a literal
+  name**: `FILES["/linuxdeb"]` is `{ prefix: "cubeon_", suffix: "_amd64.deb" }`
+  and `pickLatestPrefixed()` picks the highest version present (compared
+  numerically per segment, so `1.0.10` beats `1.0.9`). It previously pinned the
+  literal `cubeon_1.0.0_amd64.deb`, so every version bump that renamed the deb
+  silently 404'd that route — the 1.0.4 bump did exactly that, patched around
+  at the time by re-uploading the new bytes under the old name. **After a
+  version bump: just upload the normally-named deb and deploy the Worker —
+  no alias and no filename edit are needed.** The three other routes are
+  version-agnostic literals and stay as they are.
 - **What the site may claim about multiplayer (audited 2026-10-13 against the
   code):** the short-code invite system (`docs/protocols/invites-api.md`,
   `cubeon/invites.py`, the invites Worker) has **no UI anywhere** — the doc
@@ -1971,7 +2027,7 @@ Still-true invariants from the pre-local era:
     reserved). `friends.ensure_identity()` mints it only when no identity has a
     name, so it can never silently rotate a name a friend already knows; the
     server binds it claim-on-connect at WS hello. No claim prompt exists.
-  - the tab shows the server-assigned 12-digit **ID**, not a name: a name is
+  - the tab shows the server-assigned 8-digit **ID**, not a name: a name is
     only a cosmetic label and there is NO rename field (the old
     `rename_unique`/"Your name" flow was removed 2026-09-12; test_ui_smoke
     pins `name_field`/`rename_unique` OUT of chat_tab.py). Add a friend by ID
@@ -2227,8 +2283,17 @@ Still-true invariants from the pre-local era:
   `find_jar` checks `~/.cubeon_launcher/cache/` first), so a rebuild is live on
   the next launch. Tests: all green (launch 101, ui 176, mega 16, matrix 68,
   client_json 40). The `26` bracket does not build in this environment (Gradle
-  on JDK 21, Minecraft 26.x needs JDK 25) — a pre-existing env issue, not this
-  change; the old 26 jar is left untouched.
+   on JDK 21, Minecraft 26.x needs JDK 25) — a pre-existing env issue, not this
+   change; the old 26 jar is left untouched.
+- **KNOWN GAP (2026-10-14): `YggdrasilSessionServiceMixin` is not in
+  `tools/build_mod_jars.py`.** The mixin source exists and is registered in
+  `cubeon-client.mixins.json`, but it is missing from `MOD_SOURCES`
+  (`tools/test_mod_compile.py:47`) and from `REQUIRED_ENTRIES`
+  (`tools/build_mod_jars.py`, which lists Pause/PlayerTabOverlay/TitleScreen
+  Mixins only). So `build_mod_jars` cannot detect a half-compile that drops
+  this REQUIRED runtime mixin, and `tools/test_mod_compile.py` FAILs 2 checks
+  on a clean tree (pre-existing, not caused by any 2026-10-14 change).
+  Fix = register it in both lists (2 lines).
 - **Mixin confirmed working live; the remaining kick is server-side (204) and
   the username is the lever — INVARIANT (2026-10-12, verified on lemonmc.fun).**
   A live test after the mixin shipped proved the client-side fix works: the game

@@ -308,7 +308,7 @@ def test_display_identity():
        "duplicate Minecraft names are permitted")
     ok(entries["HiddenOne"]["uid"] != entries["HiddenTwo"]["uid"],
        "duplicates keep distinct zero-padded IDs")
-    ok(service.peer_label("LegacyHidden") == "Cubeon ID 000000000023"
+    ok(service.peer_label("LegacyHidden") == "Cubeon ID 00000023"
        and service.peer_label("NoMetadata") == "Player",
        "legacy data never falls back to internal handles")
     ok(roster["requests_in_details"][0]["display_name"] == "SamePlayer",
@@ -320,7 +320,7 @@ def test_display_identity():
        "friend actions retain intended internal targets")
     service._session_set({"peer": "HiddenOne", "state": "connecting"})
     status = service.status_payload()
-    ok(status["peer"] == "HiddenOne" and status["peer_uid"] == "000000000021"
+    ok(status["peer"] == "HiddenOne" and status["peer_uid"] == "00000021"
        and status["peer_display_name"] == "SamePlayer", "session labels never replace peer keys")
     for item in client.roster["friends"]:
         if item["name"] == "HiddenOne":
@@ -1607,7 +1607,7 @@ def test_bridge_http():
        and after_name["friends"][0].get("display_name") == "AfterName",
        "remote username update reaches the mod's actual /friends response")
     ok(after_name["friends"][0]["name"] == "Alice"
-       and after_name["friends"][0]["uid"] == "000000000011",
+       and after_name["friends"][0]["uid"] == "00000011",
        "username update preserves routing handle and Cubeon ID")
     # Restore the fixture's username for the later whitelist assertions.
     client.roster["peer_metadata"] = {"alice": {"uid": "000000000011",
@@ -2035,7 +2035,7 @@ def test_social_regressions():
         "ruby": {"uid": "000000000002", "minecraft_username": "RubyName"}}
     label = service.peer_metadata("Ruby")
     ok(label.get("minecraft_username") == "RubyName"
-       and label.get("uid") == "000000000002",
+       and label.get("uid") == "00000002",
        "service reads the client's peer_metadata cache")
 
     # S4: a roster reorder must not replay stale rows over newer events. The
@@ -2194,6 +2194,13 @@ def test_chat_http():
     ok([(m["dir"], m["text"]) for m in body["messages"]] ==
        [("out", "over http")],
        "GET /chat serves the filed plaintext after the echo")
+
+    # Parity with the launcher's Chat tab: polling with a conversation open
+    # (the in-game screen does exactly this) must clear the same unread
+    # marker, so the roster's badge does not survive reading in Minecraft.
+    unread = [f for f in service.roster_payload().get("friends", [])
+              if f.get("name") == "alice" and f.get("unread")]
+    ok(unread == [], "reading via GET /chat marks the conversation read")
 
     # Auth guards both routes, not just the POST.
     ok(call("GET", "/chat?friend=alice", tok="wrong")[0] == 401,

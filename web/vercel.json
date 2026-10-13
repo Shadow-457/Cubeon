@@ -1,6 +1,14 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "routes": [
+    { "src": "^/403$", "dest": "/403.html", "status": 403 },
+    { "src": "^/429$", "dest": "/429.html", "status": 429 },
+    { "src": "^/500$", "dest": "/500.html", "status": 500 },
+    { "src": "^/502$", "dest": "/502.html", "status": 502 },
+    { "src": "^/503$", "dest": "/503.html", "status": 503 },
+    { "src": "^/404$", "dest": "/404.html", "status": 404 }
+  ],
   "redirects": [
     { "source": "/linuxdownload", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdownload", "permanent": false },
     { "source": "/linuxdeb", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdeb", "permanent": false },

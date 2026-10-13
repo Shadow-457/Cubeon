@@ -2854,6 +2854,26 @@ def main(page: ft.Page):
         `ensure_java_major` makes the worker install a managed runtime before
         anything else; None means Java is already known to be fine.
         """
+        # Claim the install slot for this version before painting anything
+        # busy. This is the single funnel for both ways in - a direct click
+        # and the Java prompt's "Install Java" answer - so a second press for
+        # the SAME version lands here too: the button can repaint itself
+        # enabled out from under a click (a prefetch finishing, or
+        # on_version_selected firing from the picker, a toggle, a rename, a
+        # delete or a modpack handoff), and without this the second press
+        # starts a second worker that races the first on the install lock,
+        # double-downloads, and repaints over the first one's progress.
+        #
+        # Different versions are deliberately NOT refused: they are separate
+        # folders and the install lock already serialises the disk work. This
+        # only refuses the exact same instance twice, and it claims under the
+        # launch lock so two clicks in the same instant cannot both win.
+        with _launch_state_lock:
+            if state.get("installing_version") == version_id:
+                _show_snack("That version is already installing", duration=4000)
+                return
+            state["installing_version"] = version_id
+
         # Update UI to "busy" state. progress_label is reset explicitly: it may
         # still be holding the previous launch's crash message, and leaving a
         # stale "Crashed: ..." line under a new progress bar reads as though the
@@ -2878,11 +2898,19 @@ def main(page: ft.Page):
         set_status("Preparing", busy=True)
         page.update()
 
-        # Start the installation/launch in a background thread
-        threading.Thread(
-            target=lambda: do_install_and_launch(version_id, username,
-                                                 ensure_java_major),
-            daemon=True).start()
+        # Start the installation/launch in a background thread. If the thread
+        # cannot even be created, release the claim made above: the worker's
+        # finally is what normally clears it, and it will never run here, which
+        # would otherwise leave that version permanently un-launchable.
+        try:
+            threading.Thread(
+                target=lambda: do_install_and_launch(version_id, username,
+                                                     ensure_java_major),
+                daemon=True).start()
+        except Exception:
+            if state.get("installing_version") == version_id:
+                state["installing_version"] = None
+            raise
 
     def _prompt_for_java(version_id, username, mc_version, jstatus):
         """Asks whether Cubeon may download the Java this version needs.

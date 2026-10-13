@@ -15,10 +15,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Adds a small Friends corner icon to Minecraft's own game menu
+ * Adds a small chat corner icon to Minecraft's own game menu
  * (Escape / PauseScreen), docked at the top-left rather than joining the menu's
- * button column. The icon is a quiet square until invites or friend requests
- * are waiting, when it shows their count as a badge.
+ * button column. It opens the in-game Cubeon chat - the launcher's Chat tab,
+ * reachable mid-game.
  *
  * <p>Deliberately contains NO {@code @Shadow} members. A shadow has to belong to
  * the target class itself, and everything used here - {@code addRenderableWidget()},
@@ -26,11 +26,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * them is what makes this mixin portable: it touches only long-stable public
  * Screen API instead of fields that get renamed or moved between Minecraft
  * versions.
- *
- * <p>Invites are only offered in a singleplayer world: the invite flow ends with
- * "open your world to LAN", which only makes sense in a world the player hosts.
- * From a remote server's pause menu the icon still shows, but the Invite action
- * on the Friends screen is greyed out - joining and requests still work.
  *
  * <h2>Fail-soft on purpose</h2>
  *
@@ -62,13 +57,7 @@ public abstract class PauseScreenMixin extends Screen {
                 return;   // the pause screen also backs the "saving world" screen
             }
 
-            // Inviting only makes sense in a world the player hosts (the flow ends
-            // in "open your world to LAN"). A singleplayer world is such a world;
-            // a remote server's pause menu is not - there the icon still opens
-            // the screen, but Invite is blocked there.
-            boolean canInvite = this.minecraft.hasSingleplayerServer();
-
-            Button friends = CubeonClientScreen.menuButton(this, canInvite);
+            Button friends = CubeonClientScreen.menuButton(this);
             friends.setX(CubeonClientScreen.ICON_INSET);
             friends.setY(CubeonClientScreen.ICON_INSET);
             this.addRenderableWidget(friends);
@@ -76,7 +65,7 @@ public abstract class PauseScreenMixin extends Screen {
             // Whatever went wrong, the player still gets a working pause menu.
             if (!cubeon$warned) {
                 cubeon$warned = true;
-                LOGGER.warn("Cubeon Client: could not add the Friends icon", ex);
+                LOGGER.warn("Cubeon Client: could not add the chat icon", ex);
             }
         }
     }

@@ -38,7 +38,6 @@ public final class SelfTest {
         snapshotParsing();
         rosterOrdering();
         theOldParsingBugs();
-        sessionParsing();
         eventParsing();
         chatParsing();
         playersParsing();
@@ -129,52 +128,45 @@ public final class SelfTest {
             {"you": "Hamza", "connected": true, "available": true,
              "friends": [
                {"name": "Ali", "online": true, "version": "1.20.1",
-                "status": "playing", "invited": false, "whitelisted": true},
+                "status": "playing"},
                {"name": "Bea", "online": false, "version": "", "status": ""},
-               {"name": "Cai", "online": true, "status": "online", "invited": true}
-             ],
-             "requests_in": ["Dee"], "requests_out": ["Eli"]}
+               {"name": "Cai", "online": true, "status": "online"}
+             ]}
             """;
 
     private static void snapshotParsing() {
         section("Bridge: snapshot");
-        Bridge.Snapshot s = Bridge.parseSnapshot(ROSTER, "{}");
+        Bridge.Snapshot s = Bridge.parseSnapshot(ROSTER);
         ok(s.launcherUp(), "a parsed roster means the launcher is up");
         ok(s.claimed() && s.you().equals("Hamza"), "identity read");
         ok(s.friends().size() == 3, "three friends");
         ok(s.onlineCount() == 2, "two online");
-        ok(s.requestsIn().equals(List.of("Dee")), "incoming request");
-        ok(s.requestsOut().equals(List.of("Eli")), "outgoing request");
-        ok(s.session() == Bridge.Session.NONE, "no session from an empty /status");
-
         Bridge.Friend ali = s.friends().get(0);
-        ok(ali.name().equals("Ali") && ali.whitelisted() && !ali.invited(),
-                "per-friend flags read");
-        ok(s.friends().stream().anyMatch(Bridge.Friend::invited),
-                "invited flag lights up the Join button");
+        ok(ali.name().equals("Ali") && ali.online(),
+                "roster rows read");
 
         // Fields the launcher may not send at all (an older launcher, or a
         // future one that drops something) must not blank out the whole screen.
         Bridge.Snapshot old = Bridge.parseSnapshot(
-                "{\"friends\": [{\"name\": \"Ali\"}], \"you\": \"Hamza\"}", "");
+                "{\"friends\": [{\"name\": \"Ali\"}], \"you\": \"Hamza\"}");
         ok(old.launcherUp() && old.connected() && old.available(),
                 "missing connected/available default to true, not offline");
         ok(old.friends().size() == 1 && !old.friends().get(0).online(),
                 "missing online defaults to offline");
 
-        Bridge.Snapshot junk = Bridge.parseSnapshot("<html>500</html>", "<html>");
+        Bridge.Snapshot junk = Bridge.parseSnapshot("<html>500</html>");
         ok(junk.friends().isEmpty() && !junk.claimed(),
                 "an HTML error page parses to an empty roster, not an exception");
 
         // A nameless entry is unusable and must be dropped, not rendered blank.
         Bridge.Snapshot blank = Bridge.parseSnapshot(
-                "{\"friends\": [{\"online\": true}, {\"name\": \"Ali\"}]}", "{}");
+                "{\"friends\": [{\"online\": true}, {\"name\": \"Ali\"}]}");
         ok(blank.friends().size() == 1, "nameless roster entries dropped");
 
         // Value equality is what lets the screen skip rebuilding its widgets.
-        ok(Bridge.parseSnapshot(ROSTER, "{}").equals(s),
+        ok(Bridge.parseSnapshot(ROSTER).equals(s),
                 "identical bodies produce equal snapshots (no needless rebuilds)");
-        ok(!Bridge.parseSnapshot(ROSTER.replace("\"Ali\"", "\"Alj\""), "{}").equals(s),
+        ok(!Bridge.parseSnapshot(ROSTER.replace("\"Ali\"", "\"Alj\"")).equals(s),
                 "a changed roster produces a different snapshot");
     }
 
@@ -187,7 +179,7 @@ public final class SelfTest {
                   {"name": "amy", "online": false},
                   {"name": "Cal", "online": true}
                 ]}
-                """, "{}");
+                """);
         ok(s.friends().get(0).name().equals("Bob") && s.friends().get(1).name().equals("Cal"),
                 "online friends first");
         ok(s.friends().get(2).name().equals("amy") && s.friends().get(3).name().equals("zoe"),
@@ -205,69 +197,13 @@ public final class SelfTest {
                   {"name": "Ali", "online": false, "version": "1.20.1 {\\"online\\": true},"},
                   {"name": "Bea", "online": true, "version": ""}
                 ]}
-                """, "{}");
+                """);
         ok(s.friends().size() == 2, "a version string containing '},' no longer merges two rows");
         Bridge.Friend ali = s.friends().stream()
                 .filter(f -> f.name().equals("Ali")).findFirst().orElseThrow();
         ok(!ali.online(), "a version string containing '\"online\": true' no longer forces online");
         ok(s.friends().stream().filter(Bridge.Friend::online).count() == 1,
                 "exactly the friend who is online reads as online");
-    }
-
-    private static void sessionParsing() {
-        section("Bridge: session");
-        ok(Bridge.parseSession("{}") == Bridge.Session.NONE, "no state -> NONE");
-        ok(Bridge.parseSession("") == Bridge.Session.NONE, "empty body -> NONE");
-        ok(!Bridge.Session.NONE.active(), "NONE is inactive");
-
-        Bridge.Session hosting = Bridge.parseSession(
-                "{\"state\": \"hosting_wait_port\", \"peer\": \"Ali\", \"is_host\": true}");
-        ok(hosting.active() && hosting.working() && hosting.endable(), "hosting is live work");
-        ok(hosting.host(), "host flag read");
-        ok(hosting.headline().contains("LAN"), "hosting tells you to open to LAN");
-        ok(!hosting.detail().isEmpty(), "hosting explains what happens next");
-
-        Bridge.Session connected = Bridge.parseSession(
-                "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"Direct - 42 ms\","
-                        + " \"peer_uid\": \"00000042\","
-                        + " \"peer_minecraft_username\": \"Steve\"}");
-        ok(!connected.working() && connected.endable(), "connected is idle but leavable");
-        ok(connected.headline().contains("Steve")
-                && connected.headline().contains("00000042"),
-                "connected names the peer by Minecraft username with the Cubeon ID");
-        ok(!connected.headline().contains("Ali"), "the relay handle never reaches the headline");
-        ok(connected.peerDisplayName().equals("Steve"), "display name is the Minecraft username");
-        Bridge.Session connectedOld = Bridge.parseSession(
-                "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"Direct - 42 ms\","
-                        + " \"peer_uid\": \"00000042\"}");
-        ok(connectedOld.headline().contains("Cubeon ID 00000042"),
-                "an older payload without a username shows the Cubeon ID");
-        ok(!connectedOld.headline().contains("Ali"),
-                "an older payload never shows the internal handle");
-        Bridge.Session connectedBlank = Bridge.parseSession(
-                "{\"state\": \"connected\", \"peer\": \"Ali\", \"quality\": \"\"}");
-        ok(connectedBlank.peerDisplayName().equals("Player"),
-                "no metadata at all degrades to a neutral name");
-        ok(connected.detail().equals("Direct - 42 ms"), "quality shown verbatim from launcher");
-
-        Bridge.Session failed = Bridge.parseSession(
-                "{\"state\": \"failed\", \"peer\": \"Ali\", \"error\": \"NAT is symmetric\","
-                        + " \"can_retry\": true}");
-        ok(!failed.endable(), "a failed session has nothing left to end");
-        ok(failed.canRetry(), "retry offered");
-        ok(failed.headline().equals("NAT is symmetric"),
-                "the launcher's real error is what the player reads");
-
-        Bridge.Session failedBlank = Bridge.parseSession("{\"state\": \"failed\"}");
-        ok(!failedBlank.headline().isEmpty(),
-                "a failure with no message still says something");
-
-        // A state this jar has never heard of (a newer launcher) must render as
-        // itself instead of as an empty banner.
-        Bridge.Session future = Bridge.parseSession("{\"state\": \"teleporting\"}");
-        ok(future.active() && future.headline().equals("teleporting"),
-                "an unknown state degrades to showing the state name");
-        ok(future.endable(), "an unknown live state can still be cancelled");
     }
 
     private static void eventParsing() {
@@ -389,7 +325,7 @@ public final class SelfTest {
                    {"name": "Ali", "uid": "00000003",
                     "minecraft_username": "Ali", "online": false}
                  ]}
-                """, "{}");
+                """);
         Set<String> names = BadgeNames.from(snap, List.of());
 
         ok(names.contains("Shadow"), "your own Minecraft username earns the badge");
@@ -486,22 +422,22 @@ public final class SelfTest {
         section("Snapshot: header line");
         ok(Bridge.Snapshot.DOWN.connectionLine().contains("not found"),
                 "no launcher");
-        ok(Bridge.parseSnapshot("{\"you\": \"\"}", "{}").connectionLine().contains("not set up"),
+        ok(Bridge.parseSnapshot("{\"you\": \"\"}").connectionLine().contains("not set up"),
                 "launcher up, nothing claimed");
         // The UID system: the header never advertises the internal claimed
         // name - identity is the Cubeon ID, shown in friend details.
-        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": true}", "{}")
+        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": true}")
                 .connectionLine().equals("Connected to Cubeon"), "claimed and connected");
         ok(Bridge.parseSnapshot(
-                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": true}", "{}")
+                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": true}")
                 .youUid().equals("12345678"), "you_uid parsed from /state");
-        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"connected\": true}", "{}")
+        ok(Bridge.parseSnapshot("{\"you\": \"H\", \"connected\": true}")
                 .youUid().isEmpty(), "older launcher without you_uid degrades to empty");
         ok(Bridge.parseSnapshot(
-                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": false}", "{}")
+                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"connected\": false}")
                 .connectionLine().contains("reconnecting"), "claimed but socket down");
         ok(Bridge.parseSnapshot(
-                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"available\": false}", "{}")
+                "{\"you\": \"H\", \"you_uid\": \"12345678\", \"available\": false}")
                 .connectionLine().contains("add-on"), "launcher lacks websocket-client");
     }
 
