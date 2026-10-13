@@ -21,6 +21,7 @@ import inspect
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -557,14 +558,34 @@ def _sanitize_client_json(version_id: str) -> None:
     _write_client_json(json_path, data)
 
 
+def _parse_custom_jvm_flags(raw: str | None) -> list[str]:
+    """Split a user-supplied JVM-flag string into argv pieces.
+
+    Quotes are respected (`-Dfoo="a b"` stays one arg); an unbalanced quote
+    falls back to a naive whitespace split so a typo can never abort a launch.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+    try:
+        return shlex.split(raw)
+    except ValueError:
+        return raw.split()
+
+
 def build_launch_command(version_id: str, username: str, ram_mb: int,
-                          width: int, height: int, java_path: str | None = None) -> list[str]:
+                          width: int, height: int, java_path: str | None = None,
+                          custom_jvm_flags: str | None = None) -> list[str]:
     _sanitize_client_json(version_id)
     # Undo the damage done by the sanitizer Cubeon used to ship, for anyone
     # whose install it already emptied. No-op on healthy versions.
     _restore_emptied_arguments(version_id)
 
-    jvm_args = [f"-Xmx{ram_mb}M", f"-Xms{ram_mb}M", *client_jvm_flags()]
+    # User flags ride along AFTER the tuned defaults so they can override them
+    # (the JVM honors the last of a repeated flag). mll places everything in
+    # jvmArguments before the main class, so they land in the right spot.
+    jvm_args = [f"-Xmx{ram_mb}M", f"-Xms{ram_mb}M", *client_jvm_flags(),
+                *_parse_custom_jvm_flags(custom_jvm_flags)]
     try:
         pretouch = _pretouch_flag(ram_mb, get_system_ram_mb())
     except Exception:
@@ -607,6 +628,33 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     collector = re.compile(r"-XX:[+-]Use(?:G1|Parallel|ParallelOld|Serial|ConcMarkSweep|ParNew|Z|Shenandoah|Epsilon)GC$")
     command = [arg for arg in command if not collector.fullmatch(arg)]
     command.insert(1, "-XX:+UseG1GC")
+
+    # minecraft_launcher_lib 8.0's replace_arguments() does NOT know
+    # ${clientid} / ${auth_xuid} (vanilla placeholders tied to Microsoft
+    # account plumbing). Cubeon is offline-only, so those tokens are never
+    # substituted and ship through as the LITERAL strings "${clientid}" /
+    # "${auth_xuid}". They are not what causes "Invalid session" (that is
+    # the offline accessToken "0" being rejected by an online-mode server's
+    # session check, which no launcher can fix) - but leaving them means the
+    # game is handed garbage where a real clientId/xuid would go. Drop the
+    # flag+placeholder pairs so the game never sees them.
+    scrub = re.compile(r"^\$\{.+\}$")
+    cleaned: list[str] = []
+    i = 0
+    while i < len(command):
+        arg = command[i]
+        # Flag immediately followed by an unresolved ${...} placeholder: drop both.
+        if arg.startswith("--") and i + 1 < len(command) and scrub.fullmatch(command[i + 1]):
+            i += 2
+            continue
+        # A bare unresolved placeholder with no flag before it: drop just it.
+        if scrub.fullmatch(arg):
+            i += 1
+            continue
+        cleaned.append(arg)
+        i += 1
+    command = cleaned
+
     return command
 
 
@@ -729,7 +777,9 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     except Exception:
         pass
 
-    command = build_launch_command(version_id, username, ram_mb, width, height, java_path)
+    command = build_launch_command(version_id, username, ram_mb, width, height,
+                                   java_path,
+                                   custom_jvm_flags=(cfg or {}).get("custom_jvm_flags"))
 
     # Optional direct-connect arguments. Minecraft's client accepts these as
     # launch arguments, which lets features such as P2P hand the player

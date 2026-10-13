@@ -78,6 +78,12 @@ DEFAULT_CONFIG = {
     "ram_mb": 4096,
     "last_version": None,
     "java_path": None,  # None = auto-detect
+    # Extra JVM flags appended after Cubeon's own tuned defaults on every
+    # client launch, e.g. "-Dsome.prop=value -XX:MaxGCPauseMillis=100". One
+    # string, split on whitespace (quotes respected). Cubeon forces the G1
+    # garbage collector, so a GC-*algorithm* flag here is overridden; every
+    # other flag is honored and can override the defaults (last one wins).
+    "custom_jvm_flags": "",
     "width": 1280,
     "height": 720,
     "active_skin": None,  # filename (in SKINS_DIR) of the uploaded skin to use, or None
@@ -461,3 +467,41 @@ def run_file_picker(page, file_picker, on_files=None, **kwargs):
     # Old Flet: pick_files() already ran synchronously and will deliver
     # the result via file_picker.on_result, as originally wired by the
     # caller - nothing further to do here.
+
+
+def run_dir_picker(page, dir_picker, on_path=None, **kwargs):
+    """Open a Flet FilePicker's FOLDER dialog, delivering the chosen folder
+    path (or None on cancel) to on_path - the folder-select sibling of
+    run_file_picker, with the same old/new Flet split:
+
+      - Old Flet: get_directory_path() runs synchronously, opens the dialog,
+        and later fires dir_picker.on_result. The CALLER wires on_result to
+        pull `e.path` and hand it to on_path (a FilePickerResultEvent carries
+        the folder in `.path`, unlike files in `.files`).
+      - New Flet (0.80+): get_directory_path() is async and returns the path
+        directly, so we await it and call on_path ourselves, detaching
+        on_result for the duration so it can't also fire and double-report.
+
+    Takes `page`/`dir_picker` untyped so this module stays free of a flet
+    import (same reason as run_file_picker).
+    """
+    result = dir_picker.get_directory_path(**kwargs)
+    if inspect.isawaitable(result):
+        _prev_on_result = getattr(dir_picker, "on_result", None)
+        dir_picker.on_result = None
+
+        async def _await_it():
+            try:
+                path = await result
+                if on_path is not None:
+                    on_path(path)
+            finally:
+                dir_picker.on_result = _prev_on_result
+
+        run_task = getattr(page, "run_task", None)
+        if callable(run_task):
+            run_task(_await_it)
+        else:
+            dir_picker.on_result = _prev_on_result
+    # Old Flet: the result arrives later via dir_picker.on_result, wired by
+    # the caller - nothing further to do here.

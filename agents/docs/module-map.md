@@ -2086,6 +2086,175 @@ Still-true invariants from the pre-local era:
     healthy (1.5 GB used / 1 GB young), so it is CPU contention, not GC. The
     only real levers are fewer chunks (render/simulation distance) or more
     cores.
+- **"Invalid session" on online-mode servers is INHERENT, not a Cubeon bug —
+  INVARIANT (2026-10-12).** Cubeon hands the game `accessToken="0"`
+  (`cubeon/launch.py`). The vanilla client's OWN handshake listener
+  (`hie.class` in 1.21.11.jar, implements `ako`) calls
+  `MinecraftSessionService.joinServer(uuid, username, serverHash)` on the
+  encrypted/online-mode login path only (`hie.a(String, akz, Cipher, Cipher)`
+  takes ciphers). An `InvalidCredentialsException` from that call maps to
+  `disconnect.loginFailedInfo.invalidSession` = "Invalid session (Try
+  restarting your game and the launcher)". Offline-mode servers never hit this
+  path; LAN joins (`hit.d()` true only for `LAN`) downgrade it to a warning and
+  proceed. **No launcher-side argument can make token "0" pass an online-mode
+  server's session check** — a player hitting this on an `online-mode=true`
+  server needs a legitimate account, full stop. Do NOT chase this in the launch
+  path. (There is now ONE client-side exception — the Velocity cracked-fallback
+  case and the mixin that unlocks it — see the next invariant; it changes the
+  CLIENT's give-up point, not the server's check.)
+- **`YggdrasilSessionServiceMixin` — client-side session-check bypass for
+  cracked-enabled proxies — INVARIANT (2026-10-12).** Many cracked-enabled
+  networks run a **Velocity proxy** with `online-mode=true` plus a plugin that
+  treats a failed session verification as "this player is offline" and lets
+  cracked players through. The proxy sends an `EncryptionRequest`; the vanilla
+  client then calls `MinecraftSessionService.joinServer(uuid, username,
+  serverHash)`, which throws on Cubeon's `accessToken="0"`, and the client
+  disconnects with "Invalid session" BEFORE it sends the encryption response —
+  so the proxy's cracked-fallback never runs. Premium players and modified
+  cracked clients (which send the response anyway) get in; the vanilla cracked
+  client does not. This is the `lemonmc.fun` case (mcsrvstat: Velocity,
+  "Premium & Cracked supported"; the vanilla client gave up in ~2s, while other
+  launchers join). The mixin
+  (`mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java`)
+  cancels `joinServer` at HEAD (a clean no-op — the method only POSTs to Mojang
+  then throws on failure, so cancelling skips the POST and never throws), so the
+  handshake proceeds and the encryption response is sent. It is **client-side
+  only**: it does not make token "0" pass any server's real check. Offline-mode
+  servers are unaffected (the method is never called). A plain online-mode
+  server with no fallback still kicks the player — just by its own check instead
+  of the client giving up first. **Build safety:** the mixin uses
+  `@Mixin(targets = "com/mojang.authlib.yggdrasil.YggdrasilMinecraftSessionService",
+  remap = false)` with a STRING target, so it resolves at RUNTIME and never
+  imports authlib at compile time — one shared source file is safe across both
+  build brackets, and on Minecraft 26.x (authlib 10.x restructured these classes
+  away) the target is simply not found and the mixin is skipped (`required:
+  false` + `defaultRequire: 0`). authlib is a Mojang library with unobfuscated
+  names, so there is nothing to remap. Registered in
+  `cubeon-client.mixins.json` under `client`. Verified in the built
+  1.20-1.21 jar (string-target survives loom's remap intact); the launcher
+  reinstalls the jar on every launch (`ensure_installed` in the pre-launch path,
+  `find_jar` checks `~/.cubeon_launcher/cache/` first), so a rebuild is live on
+  the next launch. Tests: all green (launch 101, ui 176, mega 16, matrix 68,
+  client_json 40). The `26` bracket does not build in this environment (Gradle
+  on JDK 21, Minecraft 26.x needs JDK 25) — a pre-existing env issue, not this
+  change; the old 26 jar is left untouched.
+- **Mixin confirmed working live; the remaining kick is server-side (204) and
+  the username is the lever — INVARIANT (2026-10-12, verified on lemonmc.fun).**
+  A live test after the mixin shipped proved the client-side fix works: the game
+  log shows `Cubeon Client: skipped the online-mode session check…` and the
+  vanilla "Invalid session" key is gone. What replaced it is Velocity's own
+  `velocity.error.online-mode-only` ("You are not logged into your Minecraft
+  account…"). Source-confirmed in Velocity's
+  `InitialLoginSessionHandler.handle(EncryptionResponse)`: after the client sends
+  the encryption response, the proxy calls Mojang's `hasJoined` and **204 No
+  Content** (no session registered — unavoidable for a cracked client, since the
+  mixin skipped `joinServer`) maps exactly to that message. So the mixin moved
+  the failure from the CLIENT giving up to the SERVER deciding — which is the
+  whole point: a cracked-bypass plugin can only act on a connection that reaches
+  it. **The username is the remaining lever:** `shadoww_` is a REAL premium
+  Minecraft account (Mojang profile id `4e491dc22b654e8aa024d9ac1532f1de`).
+  Cracked-support proxies (FastLogin and friends) treat a premium name as
+  premium-only and demand a valid session, so a cracked client using that name
+  is kicked (impersonation protection) even though the server advertises cracked
+  support. A NON-premium name (e.g. `shadow4638`, already in the launcher config,
+  confirmed to have no Mojang profile) is treated as cracked and forwarded to the
+  backend for register/login. No code change is needed — the Play/Account
+  username field is the lever. Do NOT conclude "lemonmc.fun is premium-only"
+  from a `shadoww_` test alone; retest with a non-premium name first. If a
+  non-premium name STILL gets the `online-mode-only` kick, then that entry point
+  has no active cracked bypass and only the server admins can change that.
+- **`build_launch_command()` scrubs unresolved `${...}` placeholders —
+  INVARIANT (2026-10-12).** `minecraft_launcher_lib` 8.0's `replace_arguments()`
+  does NOT substitute `${clientid}` / `${auth_xuid}` (Microsoft-only
+  placeholders), so a real 1.21+ version.json leaks them into the argv as the
+  LITERAL strings `--clientId "${clientid}" --xuid "${auth_xuid}"`.
+  `build_launch_command` (`cubeon/launch.py`) does a final pass that drops any
+  `--flag` immediately followed by a bare `${...}` placeholder (both the flag
+  and its value) plus any stray bare `${...}`. Healthy substituted args are
+  untouched. Guard: tools/test_launch_fixes.py §N. This is cosmetic hygiene
+  (the game is never handed garbage where a real clientId/xuid would go) — it
+  is NOT what causes "Invalid Session" (see the invariant above).
+- **Custom JVM flags (Settings > Java) — contract (2026-10-12).** The config
+  key `custom_jvm_flags` (a single string, default `""`) holds extra JVM flags
+  the player types in the Settings tab's "Custom JVM flags" field (built in
+  `main.py` next to `java_path_field`, rendered in `ui/settings_tab.py`'s Java
+  section, saved by `save_settings` on blur/submit like width/height/java).
+  `build_launch_command` (`cubeon/launch.py`) takes an optional
+  `custom_jvm_flags` arg, splits it with `_parse_custom_jvm_flags` (shlex —
+  quotes respected, e.g. `-Dfoo="a b"` stays one arg; an unbalanced quote falls
+  back to a naive `.split()` so a typo never aborts a launch), and appends the
+  result AFTER Cubeon's tuned defaults in `options["jvmArguments"]` — so a
+  repeated flag overrides (JVM honors the last). `launch_game` passes it from
+  `cfg.get("custom_jvm_flags")`. Because the vanilla command builder force-inserts
+  `-XX:+UseG1GC` and strips every other `-XX:±Use(X)GC` collector flag, a custom
+  GC-*algorithm* flag is overridden by design (documented in the field's
+  subtitle); every other flag is honored. Guard: tools/test_launch_fixes.py §O.
+  NOTE: any `patch` of `build_launch_command` in a test MUST accept `**k`
+  (e.g. `lambda *a, **k: ...`) — the real call now passes `custom_jvm_flags=`
+  as a keyword, and a positional-only mock raises TypeError.
+- **Settings → Import (scan a folder, import what it finds) — contract
+  (2026-10-12).** A new rail section `("import", ...)` sits second in
+  `ui/settings_tab.py:SECTIONS`; `main.py` builds its pane via
+  `ui/import_section.build_import_section(...)` (passing `section_label`,
+  `get_active_target`, `show_snack`, `**THEME`) and hands the finished
+  `import_pane` into `build_settings_tab(...)`. All logic lives in the new
+  **`cubeon/importer.py`** (Flet-free, so it unit-tests with temp folders):
+  - `scan_folder(root, max_depth=8, max_files=50000)` walks a user folder and
+    classifies **mods** (`.jar`, loader read from `fabric.mod.json`/`quilt.mod.json`
+    — Forge/NeoForge jars have neither, so `loader=None`, still listed), **resource
+    packs** (`.zip` or folder with `pack.mcmeta`, incl. nested `MyPack/pack.mcmeta`),
+    **shader packs** (`.zip`/folder with `.fsh/.vsh/.glsl` or a `shaders/` dir),
+    **modpacks** (`.mrpack`/zip containing `modrinth.index.json` or `manifest.json`)
+    and **worlds** (folder with `level.dat`). Classifies by WHAT IS INSIDE each
+    archive, never extension alone; prunes `libraries/`, `versions/`, `assets/`,
+    hidden dirs and world interiors; a symlink/realpath loop guard and a
+    file-count cap keep it from running away. **Never raises** — per-file
+    failures go into `result["errors"]`. An unrecognised `.zip` is surfaced as a
+    best-effort resource pack (the game ignores a bad pack).
+  - `import_item(entry, mc_version, loader, version_id, ...)` reuses the trusted
+    installers: mods → `mods.install_local_mod` (lands in the **per-profile**
+    folder, NOT the wiped staging `MINECRAFT_DIR/mods`), packs →
+    `content.install_local_content` with content_type **`"resourcepack"`/`"shader"`
+    (SINGULAR — not the plural category name), modpacks →
+    `modpacks.install_modpack_from_file`, worlds → `shutil.copytree` into the
+    shared `SAVES_DIR` (with a guard so a world already under `saves/` isn't
+    duplicated onto itself). Extracted pack FOLDERS are zipped to a temp `.zip`
+    first (`install_local_content` only accepts a `.zip`).
+  - The import TARGET is whatever the player selected on the Play tab:
+    `main.py:_import_target()` → `(extract_mc_version(version_dropdown.value or
+    cfg["last_version"]), state["mod_loader"], version_id)`. No version selected
+    ⇒ `mc` is None ⇒ every import refuses with "Pick a game version on the Play
+    tab first." (never lands in the throwaway `unknown-vanilla` profile).
+  - Folder picking uses the new **`run_dir_picker(page, dir_picker, on_path, ...)`
+    helper in `cubeon/config.py`** (re-exported as `launcher_core.run_dir_picker`),
+    the `get_directory_path` sibling of `run_file_picker`. On Flet 0.86.5 and
+    1.0.x `get_directory_path` is a **coroutine returning `str|None`**, so the
+    helper awaits it via `page.run_task`. Scans and imports all run on daemon
+    threads; UI repaints go through `cubeon.thread_safe_ui.refresh`.
+  - Guards: `tools/test_importer.py` (32 checks, pure logic) and
+    `tools/test_import_ui.py` (25 checks, renders a result + drives an import).
+    The pane exposes `pane.render_scan_result`, `pane.import_item_ui`,
+    `pane._results_col`, `pane._status_text` so tests bypass the OS dialog.
+- **`ft.Icon` swaps glyphs via `.icon`, NOT `.name` — pre-existing bug found
+  (2026-10-12).** `ft.Icon` (both pinned 0.86.5 and current 1.0.3) stores its
+  glyph in `_values["icon"]`; assigning `.name` just sets an unrelated instance
+  attribute and the rendered arrow never changes. `main.py` (the play button:
+  `play_button_icon.name = ...` around :2438) and `ui/mods_tab.py` (:1452,
+  `icon.name = ft.Icons.CHECK_ROUNDED`) use the broken `.name` pattern, so those
+  runtime icon swaps are silently no-ops. The new Import section's chevron
+  correctly uses `chevron.icon = ...`. NOT yet fixed in main/mods_tab — flagged
+  here so the next agent can repair it (`.name` → `.icon`) if the user wants.
+- **Plain-English invalid-session diagnostic (2026-10-12).** `main.py` passes a
+  `log_cb=_game_log_cb` into `launch_game()`. It tails the live game log,
+  tracks the last `Connecting to X` server name, and on the FIRST
+  `loginFailedInfo.invalidSession` line fires one snackbar naming the server and
+  explaining it requires a premium account (a `shown` flag prevents repeat
+  toasts across reconnect spam). Purpose: the raw translation key reads like a
+  Cubeon bug to players who think the server allows cracked. `_show_snack`
+  (sibling closure, thread-safe) is the toast helper. Guard: verified against
+  the real `lemonmc.fun` log lines (tracks the name, fires once); UI smoke
+  176/0. This does NOT let you join an online-mode server — it only explains
+  the kick.
 - **Mod detail menu + auto-repair (2026-09-12)**: clicking any mod row
   (browse OR installed, except protected/system files) opens a full menu via
   `ui/mods_tab.py:open_mod_detail()`. It fetches `mods.get_mod_details()`

@@ -1503,7 +1503,8 @@ try:
     _width, _height = ft.TextField(value="-1"), ft.TextField(value="0")
     _settings_probe = _ui_functions(_main_src, ["save_settings"], dict(
         cfg=_dimensions, width_field=_width, height_field=_height,
-        java_path_field=ft.TextField(value=""), core=_name_core,
+        java_path_field=ft.TextField(value=""),
+        custom_jvm_field=ft.TextField(value=""), core=_name_core,
         set_status=lambda value: None, thread_safe_ui=_name_scope["thread_safe_ui"]))
     _name_core.save_config = lambda value: None
     _settings_probe["save_settings"]()

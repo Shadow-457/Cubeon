@@ -158,7 +158,7 @@ with ExitStack() as stack:
             (content, "sync_content_to_game", lambda *a: None),
             (doctor, "run_doctor", lambda *a, **kw: {}),
             (milestones, "begin_play_session", lambda *a: None),
-            (launch, "build_launch_command", lambda *a: ["java", "--username", a[1]])):
+            (launch, "build_launch_command", lambda *a, **k: ["java", "--username", a[1]])):
         stack.enter_context(patch.object(target, attr, value))
     published = []
     stack.enter_context(patch.object(FriendsService, "reconcile_username_active",

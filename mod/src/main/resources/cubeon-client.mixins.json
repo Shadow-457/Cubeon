@@ -5,7 +5,8 @@
   "client": [
     "PauseScreenMixin",
     "PlayerTabOverlayMixin",
-    "TitleScreenMixin"
+    "TitleScreenMixin",
+    "YggdrasilSessionServiceMixin"
   ],
   "injectors": {
     "defaultRequire": 0

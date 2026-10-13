@@ -28,6 +28,7 @@ from cubeon.theme import (
 # (key, icon, label) for the left rail. Order = display order.
 SECTIONS = [
     ("versions", ft.Icons.HISTORY_ROUNDED, "Game versions"),
+    ("import", ft.Icons.FOLDER_SHARED_ROUNDED, "Import"),
     ("memory", ft.Icons.MEMORY_ROUNDED, "Memory"),
     ("display", ft.Icons.MONITOR_ROUNDED, "Display"),
     ("java", ft.Icons.COFFEE_ROUNDED, "Java"),
@@ -85,7 +86,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        browse_online_row, legacy_btn, legacy_note,
                        client_mod_cb, ram_slider, ram_range_row, ram_label,
                        ram_warning, width_field, height_field,
-                       java_path_field, detected_java,
+                       java_path_field, custom_jvm_field, detected_java,
+                       import_pane,
                        backup_enabled_switch, frequency_dropdown,
                        include_saves_switch, keep_last_field,
                        backup_status_text, backup_now_btn, open_folder_btn,
@@ -184,6 +186,14 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             ft.Text(
                 f"Found: {detected_java or 'detect automatically'}",
                 size=11, color=TEXT_FAINT, font_family=FONT_MONO,
+            ),
+            ft.Container(height=10),
+            custom_jvm_field,
+            ft.Text(
+                "Extra Java flags added after Cubeon's defaults (last one "
+                "wins). Cubeon tunes the G1 collector, so a different GC "
+                "algorithm is ignored.",
+                size=11, color=TEXT_FAINT,
             ),
         ],
         spacing=8, visible=False,
@@ -303,9 +313,9 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     )
 
     panes = {
-        "versions": versions_pane, "memory": memory_pane,
-        "display": display_pane, "java": java_pane,
-        "seasonal": seasonal_pane,
+        "versions": versions_pane, "import": import_pane,
+        "memory": memory_pane, "display": display_pane,
+        "java": java_pane, "seasonal": seasonal_pane,
         "backups": backups_pane,
     }
 
@@ -393,11 +403,12 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     width_field.on_blur = _save_on_blur
     height_field.on_blur = _save_on_blur
     java_path_field.on_blur = _save_on_blur
+    custom_jvm_field.on_blur = _save_on_blur
     # Enter in the field also saves (and feels instant). The previous submit
     # handler is preserved, but each half is isolated so a failure in one
     # can't stop the other (previously `(p and p(e), _save_on_blur(e))` would
     # abort the whole tuple eval if p(e) raised).
-    for f in (width_field, height_field, java_path_field):
+    for f in (width_field, height_field, java_path_field, custom_jvm_field):
         prev = f.on_submit
 
         def _submit(e, p=prev):

@@ -176,6 +176,7 @@ from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab build
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetics counters
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
+from ui.import_section import build_import_section  # Settings -> Import: scan a folder, import what it finds
 from ui.seasonal_ui import (  # Seasonal badge/companion/ambience (the runtime half of cubeon/seasonal.py)
     SeasonalAnimator, build_ambience, build_badge as build_season_badge,
     build_perch as build_season_perch, icon_for as season_icon,
@@ -3251,6 +3252,68 @@ def main(page: ft.Page):
             # override cannot stage one loader and launch with another.
             launch_loader = loader_id
 
+            # Watch the live game log for an offline-session kick. Cubeon hands
+            # the game accessToken "0", so any server that actually verifies the
+            # session kicks the player. Two shapes show up in the log:
+            #   * the vanilla key `disconnect.loginFailedInfo.invalidSession`
+            #     (client gave up, or a strict online-mode server), and
+            #   * Velocity's own "You are not logged into your Minecraft
+            #     account..." (a cracked-enabled proxy that forwarded the login
+            #     but rejected it server-side after hasJoined returned 204).
+            # Both are meaningless to a player who thinks the server allows
+            # cracked. Translate into a plain-English toast that names the
+            # server AND - the confusing case - says when the username itself is
+            # a real Minecraft account (cracked servers block premium names to
+            # stop impersonation, so the fix is a different username). The
+            # premium check is a quick Mojang lookup run on a daemon thread so
+            # the log tail never blocks; _show_snack is thread-safe. Server name
+            # comes from the game's own most-recent "Connecting to X" line.
+            _session_watch = {"server": None, "shown": False}
+
+            def _explain_offline_kick(server, name):
+                def _worker():
+                    try:
+                        from cubeon import remotes as _remotes
+                        premium = _remotes.resolve_ign(name) is not None
+                    except Exception:  # noqa: BLE001 - network/parse: unknown
+                        premium = None
+                    if premium:
+                        msg = (f"{server} treats your username '{name}' as "
+                               f"premium-only, because '{name}' is a real "
+                               f"Minecraft account name. Cracked-enabled "
+                               f"servers still block premium names to stop "
+                               f"impersonation. In the launcher, switch to a "
+                               f"non-premium username (Account) and rejoin.")
+                    elif premium is False:
+                        msg = (f"{server} requires a premium Minecraft "
+                               f"account, or wants cracked players to "
+                               f"register first. Cubeon is offline-only, so a "
+                               f"strict online-mode server can't be joined - "
+                               f"but cracked-enabled servers (like mazer.club) "
+                               f"work fine.")
+                    else:
+                        msg = (f"{server} rejected the offline login. Cubeon "
+                               f"is offline-only, so it can't join strict "
+                               f"online-mode servers; cracked-enabled servers "
+                               f"may work.")
+                    _show_snack(msg, duration=13000)
+
+                threading.Thread(target=_worker, daemon=True).start()
+
+            def _game_log_cb(line):
+                if "Connecting to " in line:
+                    try:
+                        _session_watch["server"] = \
+                            line.split("Connecting to ", 1)[1].split(",")[0].strip()
+                    except Exception:
+                        pass
+                kicked = ("loginFailedInfo.invalidSession" in line
+                          or "not logged into your Minecraft account" in line)
+                if kicked and not _session_watch["shown"]:
+                    _session_watch["shown"] = True
+                    server = _session_watch["server"] or "That server"
+                    _explain_offline_kick(server, username)
+
             game = core.launch_game(
                 target_version, username, cfg["ram_mb"], cfg["width"], cfg["height"],
                 cfg.get("java_path"), on_exit=on_exit,
@@ -3260,7 +3323,7 @@ def main(page: ft.Page):
                 # id like "1.20.1-forge-47.2.0" synced from a different,
                 # always-empty profile every launch, so mods never applied.
                 mc_version=launch_mc, loader=launch_loader,
-                cfg=cfg, status_cb=status_cb,
+                cfg=cfg, status_cb=status_cb, log_cb=_game_log_cb,
             )
 
             # Session id from the watchdog record (mirrored on the Popen
@@ -4219,10 +4282,20 @@ def main(page: ft.Page):
         label_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI, border_radius=RADIUS,
     )
 
+    # Extra JVM flags the player can add on top of Cubeon's tuned defaults,
+    # e.g. "-Dsome.prop=value -XX:MaxGCPauseMillis=100". One line, split on
+    # whitespace (quotes respected). Saved like every other Settings field.
+    custom_jvm_field = ft.TextField(
+        value=cfg.get("custom_jvm_flags") or "", label="Custom JVM flags",
+        hint_text="e.g. -Dsome.prop=value -XX:MaxGCPauseMillis=100",
+        border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
+        label_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI, border_radius=RADIUS,
+    )
+
     def save_settings(e=None):
-        """Saves width/height/java_path from the UI fields to the config
-        file. Called on field blur/submit by the Settings tab (instant
-        save - there is no Save button anymore)."""
+        """Saves width/height/java_path/custom JVM flags from the UI fields
+        to the config file. Called on field blur/submit by the Settings tab
+        (instant save - there is no Save button anymore)."""
         for key, field, default, minimum, maximum in (
             ("width", width_field, 1280, 320, 7680),
             ("height", height_field, 720, 240, 4320),
@@ -4235,6 +4308,7 @@ def main(page: ft.Page):
             field.value = str(cfg[key])
             thread_safe_ui.refresh(field)
         cfg["java_path"] = java_path_field.value.strip() or None
+        cfg["custom_jvm_flags"] = custom_jvm_field.value.strip()
         core.save_config(cfg)
         set_status("Settings saved")
 
@@ -4784,6 +4858,21 @@ def main(page: ft.Page):
     season_ambience_switch.on_change = _on_season_ambience_toggle
     _season_controls_sync(season_info)
 
+    # The Import section's target: whatever version + loader the player has
+    # chosen on the Play tab, so a scanned mod/pack lands in the exact
+    # instance they are about to launch (mods and packs are per-profile).
+    def _import_target():
+        vid = version_dropdown.value or cfg.get("last_version")
+        mc = core.extract_mc_version(vid) if vid else None
+        loader = state.get("mod_loader") or "fabric"
+        return mc, loader, vid
+
+    import_pane = build_import_section(
+        page, cfg, section_label=section_label,
+        get_active_target=_import_target, show_snack=_show_snack,
+        **THEME,
+    )
+
     # Build the Settings tab UI - two panes (section rail + content), all
     # controls prebuilt above, arranged by ui/settings_tab.py. Every field
     # saves instantly on blur/submit; there is no Save button anymore.
@@ -4797,7 +4886,8 @@ def main(page: ft.Page):
         ram_slider=ram_slider, ram_range_row=ram_range_row,
         ram_label=ram_label, ram_warning=ram_warning,
         width_field=width_field, height_field=height_field,
-        java_path_field=java_path_field, detected_java=detected_java,
+        java_path_field=java_path_field, custom_jvm_field=custom_jvm_field,
+        detected_java=detected_java, import_pane=import_pane,
         backup_enabled_switch=backup_enabled_switch,
         frequency_dropdown=frequency_dropdown,
         include_saves_switch=include_saves_switch,

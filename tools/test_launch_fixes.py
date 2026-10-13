@@ -184,7 +184,7 @@ with tempfile.TemporaryDirectory() as tmp:
     with patch.object(content, "sync_content_to_game", lambda *a: None), \
             patch.object(doctor, "run_doctor", lambda *a, **kw: {}), \
             patch.object(launch, "sync_mods_to_game", slow_sync), \
-            patch.object(launch, "build_launch_command", lambda *a: ["java", "game"]), \
+            patch.object(launch, "build_launch_command", lambda *a, **k: ["java", "game"]), \
             patch.object(launch.subprocess, "Popen", side_effect=gated_spawn), \
             patch.object(milestones, "begin_play_session", lambda *a, **k: None), \
             patch.object(FriendsService, "reconcile_username_active", lambda: None, create=True):
@@ -754,6 +754,79 @@ check(_fn.index("find_system_java_versions()") < _fn.index("installed_runtimes()
 check("java_status" in open(os.path.abspath(jre.__file__),
                             encoding="utf-8").read(),
       "java_status exists for the pre-install prompt")
+
+# ---------------------------------------------------------------------- scrub
+print("\nN. unresolved ${...} placeholders scrubbed from the launch argv (offline)")
+# minecraft_launcher_lib 8.0 does not substitute ${clientid}/${auth_xuid}
+# (Microsoft-only placeholders), so a real 1.21+ version.json leaks them
+# through as the LITERAL strings. build_launch_command must drop both the
+# flag and its placeholder value so no "${" survives into the argv.
+with tempfile.TemporaryDirectory() as tmp:
+    version = "scrub-test"
+    vdir = os.path.join(launch.MINECRAFT_DIR, "versions", version)
+    os.makedirs(vdir, exist_ok=True)
+    with open(os.path.join(vdir, version + ".json"), "w") as fh:
+        json.dump({"id": version, "type": "release",
+                   "mainClass": "net.minecraft.client.main.Main",
+                   "arguments": {"game": [], "jvm": []}}, fh)
+    # Simulate what get_minecraft_command returns for a modern version.json:
+    # a healthy token/uuid substituted, but ${clientid}/${auth_xuid} left raw.
+    leaked = ["java", "-Xmx2G", "-cp", "x", "net.minecraft.client.main.Main",
+              "--username", "tester", "--uuid", "abc", "--accessToken", "0",
+              "--clientId", "${clientid}", "--xuid", "${auth_xuid}",
+              "--versionType", "release"]
+    with patch.object(launch.mll.command, "get_minecraft_command",
+                      side_effect=lambda vid, d, opts: leaked):
+        cmd = launch.build_launch_command(version, "tester", 2048, 854, 480, None)
+    leaked_args = [a for a in cmd if "${" in a]
+    check(not leaked_args, "no literal ${...} placeholder survives in the argv",
+          f"still present: {leaked_args}")
+    check("--clientId" not in cmd and "--xuid" not in cmd,
+          "--clientId/--xuid flags whose value was a placeholder are dropped")
+    check("--username" in cmd and "--accessToken" in cmd and "0" in cmd,
+          "healthy substituted args are preserved")
+
+# ------------------------------------------------------------------- custom jvm
+print("\nO. custom JVM flags from settings are appended to the launch argv")
+# The Settings tab stores one string (config key custom_jvm_flags); it must be
+# split (quotes respected) and ride along AFTER Cubeon's tuned defaults, in the
+# jvmArguments block (before the main class / minecraft args). A bad quote must
+# fall back to a naive split, never abort a launch.
+from cubeon.launch import _parse_custom_jvm_flags
+
+check(_parse_custom_jvm_flags(None) == [] and _parse_custom_jvm_flags("  ") == [],
+      "empty/blank custom flags parse to nothing")
+check(_parse_custom_jvm_flags('-Dmsg="a b" -Xss2M') == ["-Dmsg=a b", "-Xss2M"],
+      "quoted values stay one arg")
+check(_parse_custom_jvm_flags('-Dbad="oops') == ['-Dbad="oops'],
+      "unbalanced quote falls back to a naive split instead of raising")
+
+with tempfile.TemporaryDirectory() as tmp:
+    version = "jvmflags-test"
+    vdir = os.path.join(launch.MINECRAFT_DIR, "versions", version)
+    os.makedirs(vdir, exist_ok=True)
+    with open(os.path.join(vdir, version + ".json"), "w") as fh:
+        json.dump({"id": version, "type": "release",
+                   "mainClass": "net.minecraft.client.main.Main",
+                   "arguments": {"game": [], "jvm": []}}, fh)
+    seen = {}
+
+    def _capture(vid, d, opts):
+        seen.update(opts)
+        return ["java", "-Xmx2G", "net.minecraft.client.main.Main",
+                "--username", "tester"]
+
+    with patch.object(launch.mll.command, "get_minecraft_command",
+                      side_effect=_capture):
+        launch.build_launch_command(version, "tester", 2048, 854, 480, None,
+                                    custom_jvm_flags="-Dmy.prop=hello -XX:MaxGCPauseMillis=77")
+    jvm = seen.get("jvmArguments", [])
+    check("-Dmy.prop=hello" in jvm and "-XX:MaxGCPauseMillis=77" in jvm,
+          "custom flags land in jvmArguments", f"jvmArguments={jvm}")
+    # They ride after the defaults (last-one-wins override) and before -Xmx is
+    # still first, so the RAM slider keeps primacy unless the user overrides it.
+    check(jvm.index("-Xmx2048M") < jvm.index("-Dmy.prop=hello"),
+          "custom flags come after Cubeon's defaults (override wins)")
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
