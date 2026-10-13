@@ -173,7 +173,10 @@ def get_installed_versions() -> list[dict]:
         for v in mll.utils.get_installed_versions(MINECRAFT_DIR):
             found[v["id"]] = {
                 "id": v["id"],
-                "display_name": v["id"],
+                # Never surface the raw launch id ("fabric-loader-0.19.5-26.1.2")
+                # to the user - it reads as a second, separate game. The same
+                # friendly label the tolerant scan uses.
+                "display_name": suggest_friendly_name(v["id"], v["id"]),
                 "type": v.get("type", "release"),
                 "folder": v["id"],
             }
@@ -298,7 +301,17 @@ def get_installed_versions() -> list[dict]:
         if problem:
             found[vid] = _demote_incomplete(entry, problem)
 
-    return list(found.values())
+    # Display order: newest game version first, so vanilla "1.21.11" and
+    # "1.21.11 (Fabric)" sit next to each other instead of being scattered
+    # by os.listdir() luck. Complete installs before incomplete ones;
+    # entries with no decodable version (weird custom ids) last.
+    def _display_key(entry):
+        mc = extract_mc_version(entry.get("id") or entry.get("folder") or "")
+        nums = tuple(int(p) for p in mc.split(".") if p.isdigit())
+        return (bool(entry.get("incomplete")), not nums,
+                tuple(-n for n in nums), entry.get("id") or "")
+
+    return sorted(found.values(), key=_display_key)
 
 
 def delete_version(version_id: str) -> None:
@@ -370,9 +383,18 @@ def extract_mc_version(version_id: str) -> str:
 
 def suggest_friendly_name(version_id: str, folder_name: str) -> str:
     """Builds a readable label like '1.21.1 (Fabric)' or '1.20.4 (TLauncher)'
-    from whatever messy id/folder name we found."""
-    base = re.search(r"(\d+\.\d+(?:\.\d+)?)", version_id) or re.search(r"(\d+\.\d+(?:\.\d+)?)", folder_name)
-    version_num = base.group(1) if base else version_id
+    from whatever messy id/folder name we found.
+
+    Uses extract_mc_version so loader-tagged ids resolve to the GAME version,
+    not the loader's own: "fabric-loader-0.19.5-26.1.2" becomes
+    "26.1.2 (Fabric)", never "0.19.5 (Fabric)" - the list must read as
+    Minecraft versions with a loader tag, not as random other numbers."""
+    version_num = extract_mc_version(version_id or folder_name or "")
+    if not re.fullmatch(r"[\d.]+.*", version_num) and folder_name and folder_name != version_id:
+        # No decodable version in the id (custom/TLauncher ids): try the folder.
+        maybe = extract_mc_version(folder_name)
+        if re.fullmatch(r"[\d.]+.*", maybe):
+            version_num = maybe
 
     loader = ""
     lowered = (version_id + folder_name).lower()

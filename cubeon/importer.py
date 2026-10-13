@@ -105,11 +105,14 @@ def _safe_name(name):
 # ---------------------------------------------------------------------------
 
 def _read_mod_info(path):
-    """(loader, display_name, minecraft_dep) for a mod .jar.
+    """(loader, display_name, minecraft_dep) for a mod .jar - or None when
+    the file is NOT a mod at all.
 
-    Fabric/Quilt jars declare themselves in fabric.mod.json / quilt.mod.json.
-    Forge/NeoForge jars carry neither, so loader comes back None and we still
-    surface the file - the player may well be running that loader.
+    A jar only counts as a mod if it declares itself: fabric.mod.json /
+    quilt.mod.json (Fabric/Quilt), META-INF/mods.toml or neoforge.mods.toml
+    (NeoForge/Forge 1.13+), mcmod.info (legacy Forge). Everything else - a
+    library jar, a random .jar out of Downloads, a corrupt file - returns
+    None so the scan can skip it instead of flooding the list with junk.
     """
     try:
         with zipfile.ZipFile(path) as z:
@@ -121,9 +124,15 @@ def _read_mod_info(path):
                 d = json.loads(z.read("quilt.mod.json").decode("utf-8", "replace"))
                 q = d.get("quilt_loader") or {}
                 return "quilt", (q.get("name") or q.get("id") or ""), _mc_dep(q.get("depends"))
+            if "META-INF/neoforge.mods.toml" in names:
+                return "neoforge", "", None
+            if "META-INF/mods.toml" in names:
+                return "forge", "", None
+            if "mcmod.info" in names:
+                return "forge", "", None
     except Exception:
         pass
-    return None, "", None
+    return None
 
 
 def _mc_dep(depends):
@@ -141,10 +150,16 @@ def _classify_archive(path, ext):
     """('mods'|'resourcepacks'|'shaderpacks'|'modpacks'|None, extra) for a file.
 
     Decides by what is INSIDE the archive, never by extension alone - browsers
-    hand back "modpack.zip" all the time and users rename things.
+    hand back "modpack.zip" all the time and users rename things. Anything
+    that isn't recognisably Minecraft content returns (None, None) and is
+    silently skipped: a random zip or library jar out of Downloads is NOT
+    something to offer as a "resource pack".
     """
     if ext == ".jar":
-        loader, name, mc_dep = _read_mod_info(path)
+        info = _read_mod_info(path)
+        if info is None:
+            return None, None
+        loader, name, mc_dep = info
         return "mods", {"loader": loader, "display": name, "mc_dep": mc_dep}
 
     try:
@@ -173,10 +188,8 @@ def _classify_archive(path, ext):
                     return "resourcepacks", {}
             if has_shader:
                 return "shaderpacks", {}
-            # Unrecognised archive: treat as a resource pack. The game ignores a
-            # pack with no valid pack.mcmeta, so this is harmless and keeps the
-            # "make every bit possible to work" promise instead of hiding files.
-            return "resourcepacks", {}
+            # Nothing Minecraft about this archive - skip it.
+            return None, None
     except zipfile.BadZipFile:
         return None, None
     except Exception:

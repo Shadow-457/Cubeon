@@ -54,9 +54,11 @@ src = os.path.join(_home, "old_mc")
 mkzip(f"{src}/mods/sodium.jar",
       [("fabric.mod.json", json.dumps({"id": "sodium", "name": "Sodium",
                                        "depends": {"minecraft": "1.21"}}))])
-mkzip(f"{src}/mods/forge-mod.jar", [("META-INF/MANIFEST.MF", "x")])  # loader unknown
+mkzip(f"{src}/mods/forge-mod.jar",
+      [("META-INF/mods.toml", 'modLoader="javafml"')])  # real Forge marker
 with open(f"{src}/mods/broken.jar", "wb") as f:
-    f.write(b"not a zip at all")  # must not crash the scan
+    f.write(b"not a zip at all")  # must not crash the scan, must not be listed
+mkzip(f"{src}/mods/plain.jar", [("some/Random.class", "x")])  # library jar
 
 mkzip(f"{src}/resourcepacks/pack.zip",
       [("pack.mcmeta", json.dumps({"pack": {"pack_format": 34}}))])
@@ -84,24 +86,30 @@ mkzip(f"{src}/versions/1.21/game.jar", [("x", "y")])
 print("scan_folder:")
 r = importer.scan_folder(src)
 c = importer.counts(r)
-check("3 mods found", c["mods"] == 3, str(c))
-check("4 resource packs (zip, nested zip, folder, weird fallback)",
-      c["resourcepacks"] == 4, str(c))
+check("2 mods found (fabric + forge only)", c["mods"] == 2, str(c))
+check("3 resource packs (zip, nested zip, folder)",
+      c["resourcepacks"] == 3, str(c))
 check("1 shader pack", c["shaderpacks"] == 1, str(c))
 check("2 modpacks", c["modpacks"] == 2, str(c))
 check("1 world", c["worlds"] == 1, str(c))
 check("fabric loader detected", any(e["loader"] == "fabric" for e in r["mods"]))
-check("corrupt jar -> unknown loader, not a crash",
-      any(e["name"] == "broken" and e["loader"] is None for e in r["mods"]))
+check("forge loader detected (mods.toml)",
+      any(e["name"] == "forge-mod" and e["loader"] == "forge" for e in r["mods"]))
+check("corrupt jar is skipped, not listed",
+      not any(e["name"] == "broken" for e in r["mods"]))
+check("plain jar (no mod metadata) is skipped",
+      not any(e["name"] == "plain" for e in r["mods"]))
+check("random zip (no pack.mcmeta) is skipped",
+      not any(e["name"] == "weird" for e in r["resourcepacks"]))
 check("libraries/ pruned", not any("libraries" in e["rel"] for e in r["mods"]))
 check(".hidden/ pruned", not any(".hidden" in e["rel"] for e in r["mods"]))
 check("versions/ pruned (game.jar is not a mod)",
       not any("versions" in e["rel"] for e in r["mods"]))
 check("world is a dir", r["worlds"][0]["is_dir"] is True)
 check("extracted pack is a dir", any(e["is_dir"] for e in r["resourcepacks"]))
-check("summary reads naturally", importer.summary_line(r).startswith("Found 3 mods"),
+check("summary reads naturally", importer.summary_line(r).startswith("Found 2 mods"),
       importer.summary_line(r))
-check("total_found", importer.total_found(r) == 11, str(importer.total_found(r)))
+check("total_found", importer.total_found(r) == 9, str(importer.total_found(r)))
 
 print("scan edge cases:")
 check("empty folder -> nothing", importer.total_found(

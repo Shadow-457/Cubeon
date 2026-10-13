@@ -2723,8 +2723,12 @@ def main(page: ft.Page):
             is_installed = v["id"] in state["installed"]
             tag = "  ●" if is_installed else ""
             # A renamed instance keeps its nickname in the online list too, so
-            # it reads the same in both places.
+            # it reads the same in both places. Installed entries also fall
+            # back to the friendly display name ("1.21.11 (Fabric)") instead
+            # of the raw launch id.
             label = _labels.get(v["id"]) if is_installed else None
+            if not label and is_installed:
+                label = (state.get("installed_meta") or {}).get(v["id"], {}).get("display_name")
             options.append(ft.dropdown.Option(key=v["id"], text=f"{label or v['id']}{tag}"))
         pick_source["value"] = list(options)
         version_filter_field.value = ""

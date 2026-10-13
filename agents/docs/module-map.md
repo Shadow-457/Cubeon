@@ -109,7 +109,9 @@ further down. The download count is ONE shared Abacus total read by site.js; the
 old API-function/CI-JSON plumbing is gone and a test keeps it gone. Same day:
 Settings → Import reworked to per-instance "Import to" + search with duplicate
 detection, and the "launcher reopens after close" family fixed — exit-0 always
-clean + wedge burst-gap; see those bullets.) If a
+clean + wedge burst-gap; scan now skips non-Minecraft jars/zips; version lists
+show friendly "X.Y.Z (Loader)" labels sorted newest-first; the site's
+"Free launcher · Windows & Linux" eyebrow removed; see those bullets.) If a
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
@@ -597,6 +599,19 @@ facts belong HERE, not in diary notes.
   silently dropped half-installed folders whose template manifest still named
   another version (they showed as neither installed nor incomplete).
   Guard: `tools/test_version_integrity.py`'s forced-order check.
+- **Version lists show friendly labels, never raw ids (2026-10-13).**
+  `get_installed_versions()` sets `display_name` via
+  `versions.suggest_friendly_name(real_id, folder)` in BOTH passes (pass 1
+  used to surface the raw id, so "fabric-loader-0.19.5-26.1.2" appeared as a
+  second, separate game next to "26.1.2"). `suggest_friendly_name` routes
+  through `extract_mc_version`, so the label is the GAME version with a
+  loader tag: "26.1.2 (Fabric)", "1.20.1 (Forge)" — never "0.19.5 (Fabric)".
+  The list is sorted newest-first (complete installs, then incomplete, then
+  un-decodable custom ids) so vanilla + Fabric of the same version sit
+  together. The Play-tab dropdown, its pick dialog, the online list's
+  installed rows, and the Import-to picker all read `display_name` — do NOT
+  reintroduce `v["id"]` as display text anywhere. `version_labels` nicknames
+  still win over `display_name` (rename feature).
 
 ## CI / release storage (2026-09-19) — INVARIANT
 - One run's artifacts (~510 MB) are bigger than the whole free Actions storage
@@ -2257,17 +2272,19 @@ Still-true invariants from the pre-local era:
   `import_pane` into `build_settings_tab(...)`. All logic lives in the new
   **`cubeon/importer.py`** (Flet-free, so it unit-tests with temp folders):
   - `scan_folder(root, max_depth=8, max_files=50000)` walks a user folder and
-    classifies **mods** (`.jar`, loader read from `fabric.mod.json`/`quilt.mod.json`
-    — Forge/NeoForge jars have neither, so `loader=None`, still listed), **resource
-    packs** (`.zip` or folder with `pack.mcmeta`, incl. nested `MyPack/pack.mcmeta`),
-    **shader packs** (`.zip`/folder with `.fsh/.vsh/.glsl` or a `shaders/` dir),
-    **modpacks** (`.mrpack`/zip containing `modrinth.index.json` or `manifest.json`)
-    and **worlds** (folder with `level.dat`). Classifies by WHAT IS INSIDE each
-    archive, never extension alone; prunes `libraries/`, `versions/`, `assets/`,
-    hidden dirs and world interiors; a symlink/realpath loop guard and a
-    file-count cap keep it from running away. **Never raises** — per-file
-    failures go into `result["errors"]`. An unrecognised `.zip` is surfaced as a
-    best-effort resource pack (the game ignores a bad pack).
+    classifies **mods** (`.jar` ONLY if it declares itself: `fabric.mod.json`,
+    `quilt.mod.json`, `META-INF/mods.toml`, `META-INF/neoforge.mods.toml` or
+    `mcmod.info` — a library jar or corrupt file is SKIPPED, not listed),
+    **resource packs** (`.zip` or folder with `pack.mcmeta`, incl. nested
+    `MyPack/pack.mcmeta` — an unrecognised zip is SKIPPED, never guessed as a
+    pack), **shader packs** (`.zip`/folder with `.fsh/.vsh/.glsl` or a
+    `shaders/` dir), **modpacks** (`.mrpack`/zip containing
+    `modrinth.index.json` or `manifest.json`) and **worlds** (folder with
+    `level.dat`). Classifies by WHAT IS INSIDE each archive, never extension
+    alone; prunes `libraries/`, `versions/`, `assets/`, hidden dirs and world
+    interiors; a symlink/realpath loop guard and a file-count cap keep it from
+    running away. **Never raises** — per-file failures go into
+    `result["errors"]`.
   - `import_item(entry, mc_version, loader, version_id, ...)` reuses the trusted
     installers: mods → `mods.install_local_mod` (lands in the **per-profile**
     folder, NOT the wiped staging `MINECRAFT_DIR/mods`), packs →
@@ -2305,7 +2322,7 @@ Still-true invariants from the pre-local era:
     1.0.x `get_directory_path` is a **coroutine returning `str|None`**, so the
     helper awaits it via `page.run_task`. Scans and imports all run on daemon
     threads; UI repaints go through `cubeon.thread_safe_ui.refresh`.
-  - Guards: `tools/test_importer.py` (47 checks, pure logic) and
+  - Guards: `tools/test_importer.py` (50 checks, pure logic) and
     `tools/test_import_ui.py` (45 checks, renders + search + picker model +
     per-instance imports). The pane exposes `pane.render_scan_result`,
     `pane.import_item_ui(entry, btn, inst=...)`, `pane.picker_model_ui`,
