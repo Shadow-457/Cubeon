@@ -10,7 +10,11 @@ Layout and behaviour:
   * Results render as a one-line summary ("Found 12 mods, 3 resource packs...")
     plus one collapsible group per content type. Opening a group lists every
     find with its size / loader / Minecraft version, an "Import" button and a
-  * copy-path button. "Import all" imports a whole group in one click.
+    copy-path button. "Import all" imports a whole group in one click.
+  * Entries whose exact bytes (mods, packs) or world name are ALREADY in the
+    active profile show an "already" note with a disabled Import button, and
+    "Import all" skips them - re-scanning an old backup never piles up
+    foo_xxxxxx.jar / MyWorld_xxxxxx twins (cubeon.importer.mark_installed).
   * Every import runs on its own thread and reuses the exact installers the
     Mods / Modpacks tabs already trust (cubeon.importer.import_item), so a
     found mod lands in the per-profile folder and a world lands in saves/.
@@ -55,7 +59,7 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
     absent. Import progress goes to the pane's own status line, not the
     sidebar's persistent READY indicator.
     """
-    state = {"result": None, "root": None}
+    state = {"result": None, "root": None, "open": set()}
 
     def snack(msg, *, danger=False):
         if show_snack:
@@ -83,6 +87,19 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
             return get_active_target() or (None, None, None)
         except Exception:
             return (None, None, None)
+
+    def _remark():
+        """Re-run duplicate detection on the current scan result for the
+        active target. Swallows errors: a failed remark just means the list
+        stays un-flagged (import_item's own guards still refuse the import)."""
+        result = state.get("result")
+        if not result:
+            return 0
+        mc, loader, _vid = _target()
+        try:
+            return importer.mark_installed(result, mc_version=mc, loader=loader)
+        except Exception:
+            return 0
 
     # --- static controls ---------------------------------------------------
     target_text = ft.Text("", size=11.5, color=TEXT_FAINT, font_family=FONT_MONO)
@@ -128,6 +145,7 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
     def _clear_results(e=None):
         state["result"] = None
         state["root"] = None
+        state["open"].clear()
         results_col.controls.clear()
         clear_btn.visible = False
         status_text.value = ""
@@ -150,6 +168,8 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
                 _set_status(f"Scan failed: {ex}")
             state["result"] = result
             state["root"] = path
+            if result is not None:
+                _remark()
             _render(result)
             scan_btn.disabled = False
             thread_safe_ui.refresh(scan_btn)
@@ -194,14 +214,17 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
 
     def _category_group(kind, entries):
         label = importer.LABELS[kind][1]  # plural
-        details = ft.Column(spacing=4, visible=False)
+        is_open = kind in state["open"]
+        details = ft.Column(spacing=4, visible=is_open)
         if len(entries) > 10:
             details.height = 300
             details.scroll = ft.ScrollMode.AUTO
         for e in entries:
             details.controls.append(_item_row(kind, e))
 
-        chevron = ft.Icon(ft.Icons.KEYBOARD_ARROW_RIGHT, size=18, color=TEXT_DIM)
+        chevron = ft.Icon(
+            ft.Icons.KEYBOARD_ARROW_DOWN if is_open else ft.Icons.KEYBOARD_ARROW_RIGHT,
+            size=18, color=TEXT_DIM)
         count_badge = ft.Text(str(len(entries)), size=12, color=TEXT_FAINT)
         all_btn = ft.TextButton(
             "Import all", icon=ft.Icons.DOWNLOAD_ROUNDED, height=28,
@@ -222,15 +245,19 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
                 border_radius=RADIUS, padding=ft.padding.Padding.symmetric(
                     horizontal=10, vertical=8),
                 ink=False,
-                on_click=lambda e, d=details, c=chevron: _toggle(d, c),
+                on_click=lambda e, d=details, c=chevron, k=kind: _toggle(d, c, k),
             ),
             None, SURFACE_HI,
         )
         return ft.Column([header, details], spacing=4)
 
-    def _toggle(details, chevron):
+    def _toggle(details, chevron, kind):
         open_ = not details.visible
         details.visible = open_
+        if open_:
+            state["open"].add(kind)
+        else:
+            state["open"].discard(kind)
         # ft.Icon's glyph attribute is `.icon` (NOT `.name`) on every Flet
         # version we support - setting .name silently leaves the old arrow.
         chevron.icon = (ft.Icons.KEYBOARD_ARROW_DOWN if open_

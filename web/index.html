@@ -4,32 +4,27 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Cubeon - Minecraft is better with friends</title>
-<meta name="description" content="Cubeon is a free Minecraft launcher for playing with friends. Download it for Windows or Linux - no account needed." />
+<meta name="description" content="Cubeon is a free Minecraft launcher for Windows and Linux. Play with any name - no account - host a world with a code, and bring your own mods, skins and versions. Free, no adverts." />
 <meta property="og:title" content="Cubeon - the friendly Minecraft launcher" />
-<meta property="og:description" content="Free download for Windows and Linux: play with your friends, share a world with a code, no account needed." />
+<meta property="og:description" content="Free for Windows and Linux: no account needed, host a world with one code, mods and skins built in." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="assets/icon.svg" />
 <link rel="stylesheet" href="assets/site.css" />
 <script>document.documentElement.classList.add('js')</script>
 <style>
-  /* hero: grass-block seam runs through the middle of the screenshot */
-  .top{background:var(--grass-soft);padding:clamp(44px,7vw,84px) 0 clamp(28px,4vw,44px);text-align:center}
-  .title{display:flex;align-items:center;justify-content:center;gap:clamp(12px,2vw,22px)}
-  .title img{width:clamp(48px,8vw,84px);height:auto}
-  .top h1{font-size:clamp(52px,11vw,110px);line-height:1}
-  .top .lede{margin:16px auto 0;font-size:clamp(18px,2.2vw,24px)}
-  .dl{margin-top:32px;display:grid;justify-items:center;gap:16px}
-
+  /* hero download picker: one pane per OS, "Not your system?" swaps them
+     (the switching logic lives in shared assets/site.js) */
+  .dl{margin-top:30px;display:grid;justify-items:start;gap:16px}
   .osi{width:22px;height:22px;flex:none}
-  .pane{display:grid;justify-items:center;gap:12px;margin-bottom:8px}
+  .pane{display:grid;justify-items:start;gap:12px}
   html.js .pane{display:none}
   html.js .pane.on{display:grid}
   .btn.off{background:var(--paper);color:var(--text-soft);border-color:var(--line);box-shadow:none;cursor:not-allowed;filter:grayscale(1);opacity:.75}
   .btn.off:hover{transform:none;background:var(--paper)}
   .meta{font-size:14px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.02em}
-  .more summary{cursor:pointer;list-style:none;text-align:center;color:var(--grass-dark);font-weight:800;font-size:14.5px;text-decoration:underline;text-underline-offset:3px}
+  .more summary{cursor:pointer;list-style:none;color:var(--grass-dark);font-weight:800;font-size:14.5px;text-decoration:underline;text-underline-offset:3px}
   .more summary::-webkit-details-marker{display:none}
-  .more div{display:grid;gap:6px;margin-top:10px;text-align:center}
+  .more div{display:grid;gap:6px;margin-top:10px}
   .more a{color:var(--text-soft);font-weight:700;font-size:14.5px;text-decoration:underline;text-underline-offset:3px}
   .more a:hover{color:var(--ink)}
   .switch{display:none;font-size:13.5px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.02em}
@@ -38,77 +33,186 @@
   .switch button:hover{color:var(--ink)}
   .switch button[aria-pressed="true"]{color:var(--grass-dark);text-decoration:none}
 
-  .shotwrap{position:relative;margin-top:0;padding-block:clamp(36px,5vw,56px);background:linear-gradient(180deg,var(--grass-soft) 0,var(--grass-soft) 50%,var(--dirt-dark) 50%,var(--dirt-dark) 100%);border-bottom:4px solid var(--dirt)}
-  .shotwrap::before{content:"";position:absolute;left:0;right:0;top:50%;height:16px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='16' shape-rendering='crispEdges'%3E%3Crect width='64' height='6' fill='%2346BA34'/%3E%3Crect x='6' y='6' width='6' height='8' fill='%2346BA34'/%3E%3Crect x='22' y='6' width='6' height='4' fill='%2346BA34'/%3E%3Crect x='38' y='6' width='6' height='10' fill='%2346BA34'/%3E%3Crect x='52' y='6' width='6' height='6' fill='%2346BA34'/%3E%3C/svg%3E") repeat-x}
-  .shotwrap .shot{position:relative;z-index:1;max-width:980px;margin-inline:auto}
+  /* Discord buttons, hero and closing CTA */
+  .discord-cta{margin:20px 0 0}
+  .btn.discord{background:var(--paper);color:var(--ink);border-color:var(--line)}
+  .btn.discord:hover{background:var(--grass-soft)}
+  .btn.discord svg{width:20px;height:20px;flex:none;fill:#5865F2}
 
+  /* FAQ group headings */
   .faq-h{max-width:820px;margin:44px auto 0;font-size:20px}
   .faq-h+.faq{margin-top:14px}
+
+  /* fine-print cards: bulleted summaries with a "read the full page" link */
   .cards .wide{grid-column:1/-1}
   .card ul{margin:10px 0 0 20px}
   .card li{color:var(--text-soft);font-size:15.5px;margin-bottom:6px}
   .card li::marker{color:var(--grass-dark)}
   .card .full{display:inline-block;margin-top:12px;font-weight:800;font-size:15px;color:var(--grass-dark);text-decoration:underline;text-underline-offset:3px}
   .card .full:hover{color:var(--ink)}
-
-  .discord-cta{margin:10px auto 0}
-  .btn.discord{background:var(--paper);color:var(--ink);box-shadow:none}
-  .btn.discord:hover{background:var(--grass-soft);transform:none}
-  .btn.discord svg{width:20px;height:20px;flex:none;fill:#5865F2}
 </style>
 </head>
 <body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">☰</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <a href="/" aria-current="page">Home</a>
+      <a href="/download">Download</a>
+      <a href="/help">Help</a>
+      <a class="nav-discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/download">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
 
 <main id="content">
-<section class="top" id="download">
+
+<!-- ============================ hero ============================ -->
+<section class="hero" id="download">
   <div class="wrap">
-    <div class="title">
-      <img src="assets/icon.svg" alt="" width="84" height="84">
-      <h1>Cubeon</h1>
-    </div>
-    <p class="lede">Minecraft is better with friends.</p>
-    <p class="download-count" data-download-count hidden aria-live="polite"></p>
+    <div class="hero-in">
+      <div>
+        <span class="eyebrow">Free launcher &middot; Windows &amp; Linux</span>
+        <h1>Minecraft is better with friends.</h1>
+        <p class="lede">Cubeon is a free desktop launcher: play offline under any name, invite a friend straight into your world, and keep mods, skins and versions in one window.</p>
 
-    <div class="dl">
+        <div class="dl">
+          <div class="pane" data-os="windows">
+            <a class="btn big" href="/windowsdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5 11 3.4v8H3zM12 3.3 21 2v9.4h-9zM3 12.6h8v8L3 19.5zM12 12.6h9V22l-9-1.3z" fill="currentColor"/></svg>Download for Windows</a>
+            <p class="meta">v1.0.4 &middot; Installer &middot; 120 MB &middot; Free</p>
+          </div>
 
-      <div class="pane" data-os="windows">
-        <a class="btn big" href="/windowsdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5 11 3.4v8H3zM12 3.3 21 2v9.4h-9zM3 12.6h8v8L3 19.5zM12 12.6h9V22l-9-1.3z" fill="currentColor"/></svg>Download for Windows</a>
-        <p class="meta">v1.0.4 &middot; Installer &middot; 120 MB &middot; Free</p>
+          <div class="pane" data-os="linux">
+            <a class="btn big" href="/linuxdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m7.5 9 3 3-3 3M12.5 15h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for Linux</a>
+            <p class="meta">v1.0.4 &middot; Single file &middot; 108 MB &middot; Free</p>
+            <details class="more"><summary>Other versions</summary><div>
+              <a href="/linuxdeb">Debian and Ubuntu package (114 MB)</a>
+              <a href="/linuxsetup">Add it to your app menu (1 KB)</a>
+            </div></details>
+          </div>
+
+          <div class="pane" data-os="mac">
+            <span class="btn big off" aria-disabled="true"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v12H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2"/></svg>Download for macOS</span>
+            <p class="meta">Not available yet</p>
+          </div>
+
+          <p class="switch">Not your system?
+            <button type="button" data-pick="windows" aria-pressed="false">Windows</button>
+            <button type="button" data-pick="linux" aria-pressed="false">Linux</button>
+            <button type="button" data-pick="mac" aria-pressed="false">macOS</button>
+          </p>
+        </div>
+
+        <p class="download-count" data-download-count hidden aria-live="polite"></p>
+
+        <p class="discord-cta"><a class="btn discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Join the Discord - ask anything</a></p>
       </div>
 
-      <div class="pane" data-os="linux">
-        <a class="btn big" href="/linuxdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m7.5 9 3 3-3 3M12.5 15h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for Linux</a>
-        <p class="meta">v1.0.4 &middot; Single file &middot; 280 MB &middot; Free</p>
-        <details class="more"><summary>Other versions</summary><div>
-          <a href="/linuxdeb">Debian and Ubuntu package (411 MB)</a>
-          <a href="/linuxsetup">Add it to your app menu (1 KB)</a>
-        </div></details>
+      <div class="shot">
+        <img src="assets/cubeon-play.png" width="1177" height="756" alt="The Cubeon launcher window: a Minecraft profile, a version picker, a mod loader row and a big green Play button." />
       </div>
-
-      <div class="pane" data-os="mac">
-        <span class="btn big off" aria-disabled="true"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v12H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2"/></svg>Download for macOS</span>
-        <p class="meta">Not available yet</p>
-      </div>
-
-      <p class="switch">Not your system?
-        <button type="button" data-pick="windows" aria-pressed="false">Windows</button>
-        <button type="button" data-pick="linux" aria-pressed="false">Linux</button>
-        <button type="button" data-pick="mac" aria-pressed="false">macOS</button>
-      </p>
     </div>
   </div>
-
-  <p class="discord-cta"><a class="btn discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Join the Discord - ask anything</a></p>
 </section>
 
-<div class="shotwrap">
+<!-- ========================= facts strip ======================== -->
+<section class="strip">
   <div class="wrap">
-    <div class="shot">
-      <img src="assets/cubeon-play.png" width="1177" height="756" alt="The Cubeon launcher window: a Minecraft profile, a version picker, a mod loader row and a big green Play button." />
+    <div class="strip-in">
+      <div class="fact rise">
+        <span class="dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></span>
+        <div><b>No account</b><span>Any name, three to sixteen characters. No email, no password.</span></div>
+      </div>
+      <div class="fact rise">
+        <span class="dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></span>
+        <div><b>Made for friends</b><span>Invite a friend straight into your world from the in-game friends list - no rented server.</span></div>
+      </div>
+      <div class="fact rise">
+        <span class="dot"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></span>
+        <div><b>Free forever</b><span>Every feature works without paying, and there are no adverts.</span></div>
+      </div>
     </div>
   </div>
-</div>
+</section>
 
+<!-- ========================= feature cards ====================== -->
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="sec-head rise">
+      <span class="eyebrow">What's inside</span>
+      <h2>Everything you need to play</h2>
+      <p class="lede" style="margin-inline:auto">A whole launcher, not just a start button: friends, mods, skins and worlds live together in one window.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card rise">
+        <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></span>
+        <h3>Play with friends</h3>
+        <p>Add friends by their Cubeon name, then press Invite or Join on their row right in-game. Presence and chat come built in.</p>
+      </div>
+
+      <div class="card rise">
+        <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg></span>
+        <h3>Mods &amp; modpacks</h3>
+        <p>Vanilla, Fabric, Quilt, Forge or NeoForge - the loader installs itself for your version, and modpacks get their own profile.</p>
+        <span class="tag">New: import a whole folder</span>
+      </div>
+
+      <div class="card rise">
+        <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg></span>
+        <h3>Skins everyone sees</h3>
+        <p>Upload your skin once - other Cubeon players see it on any server you join. The shared Cubeon cape comes with it.</p>
+      </div>
+
+      <div class="card rise">
+        <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg></span>
+        <h3>Host your world</h3>
+        <p>Open your single-player world to a friend with one press - or install a server in the launcher and give it a free public address and a join password. Nothing to rent.</p>
+      </div>
+
+      <div class="card rise">
+        <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg></span>
+        <h3>Every version, ready</h3>
+        <p>Releases and snapshots download on first launch, each one started with Java arguments tuned for smooth frame times.</p>
+      </div>
+
+      <div class="card rise">
+        <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-1 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></span>
+        <h3>Make it yours</h3>
+        <p>RAM slider, window size, custom Java and JVM flags - plus a seasonal launcher look you can change or switch off in Settings.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========================== getting started =================== -->
+<section class="section tint" id="start">
+  <div class="wrap">
+    <div class="sec-head rise">
+      <span class="eyebrow">Getting started</span>
+      <h2>Three steps to your first world</h2>
+    </div>
+    <div class="steps">
+      <div class="step rise"><span class="num">1</span><h3>Download it</h3><p>The Windows installer or the Linux single file - every button shows the size before you click it.</p></div>
+      <div class="step rise"><span class="num">2</span><h3>Type a name</h3><p>Three to sixteen characters. There is no account, no email and no password to come up with.</p></div>
+      <div class="step rise"><span class="num">3</span><h3>Invite a friend</h3><p>Open your friends list in-game and press Invite on their row - they join your world. No server to rent, nothing to forward.</p></div>
+    </div>
+    <div class="note tip rise">
+      <b>Nothing hidden in the download</b>
+      <p>No extra software rides along, no toolbars, no trial that expires - and nothing to pay, now or later. The first launch downloads Minecraft itself, so give it a minute or two.</p>
+    </div>
+    <div class="note rise">
+      <b>Stuck on something?</b>
+      <p>The <a href="/help">help page</a> has short answers for the usual bumps: the game not starting, a friend who can't get in, or a warning from your computer.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== FAQ =========================== -->
 <section class="section" id="faq">
   <div class="wrap">
     <div class="sec-head">
@@ -120,10 +224,11 @@
     <h3 class="faq-h">The basics</h3>
     <div class="faq">
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Is it really free?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Yes. Every feature works without paying and there are no adverts. Playing with your friends will never sit behind a paywall.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">Do I need a Minecraft account?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Pick a name (three to sixteen characters) and play. No email, no password. If you own Minecraft, that works fine too.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">How do I play with friends?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Add friends by their Cubeon name, press Host, and send them the short code. They join from their friends list. No server to rent, nothing to change on anyone's computer.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Do I need a Minecraft account?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Pick a name (three to sixteen characters) and play. No email, no password. If you already own the game, just use the name you always use.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">How do I play with friends?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Add friends by their Cubeon name, then use the friends list in-game: press Invite to open your world to them, Join to hop into theirs, or Ask to join. No server to rent, nothing to change on anyone's computer.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Can I bring my own mods or modpacks?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Yes. Open Settings, go to Import, and point it at the folder your mods live in. Cubeon lists everything it finds - mods, resource packs, shader packs, modpacks and worlds - and installs what you pick for the version you chose.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">What does my computer need?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows 10 or 11, or a modern 64-bit Linux. There is no Mac version yet.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">Where are my name and skins kept, and who sees them?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>On your computer, in a Cubeon folder inside your user folder. Your skin and cape are shared so other Cubeon players see them when you play together. Change or remove them whenever you like.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Where are my name and skins kept, and who sees them?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>On your computer, in the <strong>.cubeon_launcher</strong> folder inside your user folder. Your skin and cape are shared so other Cubeon players see them when you play together. Change or remove them whenever you like.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Will you email me?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Cubeon never asks for an email address, so there is nothing to unsubscribe from.</p></div></div></div>
     </div>
 
@@ -132,12 +237,27 @@
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the installer. Linux: the single file (make it executable, then run it); the package version is for Debian and Ubuntu.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">The game won't start<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Minecraft needs Java. Install it free from <a href="https://adoptium.net" target="_blank" rel="noopener" style="color:var(--grass-dark);text-decoration:underline">adoptium.net</a> and try again.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">My computer warns me about the file<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Normal for small independent apps, which aren't signed by a big company. On Windows choose Keep, then More info, then Run anyway.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">A friend can't get in, or I can't find them<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Resend the code and ask them to click the invitation in their friends list. You both need the newest version. A friend's name only exists once they've opened Cubeon at least once.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">A friend can't get in, or I can't find them<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Ask them to press Ask to join on your row, or invite them again - the request shows up in their friends list. You both need the newest version. A friend's name only exists once they've opened Cubeon at least once.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Something else entirely<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Email <a href="mailto:hamza.457.shahbaz@gmail.com" style="color:var(--grass-dark);text-decoration:underline">hamza.457.shahbaz@gmail.com</a> with what you were doing. Attaching the small log in the <strong>.cubeon_launcher</strong> folder makes a fix much faster.</p></div></div></div>
     </div>
   </div>
 </section>
 
+<!-- ========================== closing CTA ======================= -->
+<section class="cta">
+  <div class="wrap">
+    <h2>Ready when you are</h2>
+    <p class="lede">Download it, type a name, invite a friend. Free on Windows and Linux - no account, nothing to pay.</p>
+    <div class="hero-actions">
+      <a class="btn big" href="/windowsdownload">Download for Windows</a>
+      <a class="btn quiet" href="/linuxdownload">Download for Linux</a>
+      <a class="btn discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Join the Discord</a>
+    </div>
+    <p class="hero-note">v1.0.4 &middot; Free &middot; No account needed</p>
+  </div>
+</section>
+
+<!-- ========================== fine print ======================== -->
 <section class="section tint" id="fine">
   <div class="wrap">
     <div class="sec-head">
@@ -196,21 +316,24 @@
     </div>
   </div>
 </section>
+
 </main>
 
 <footer>
   <div class="wrap foot">
     <div>
-      <a class="brand" href="#download"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <a class="brand" href="/"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
       <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
     </div>
     <div>
       <h4>On this page</h4>
       <nav class="foot-links" aria-label="Sections">
         <a href="#download">Download</a>
+        <a href="#features">Features</a>
+        <a href="#start">Getting started</a>
         <a href="#faq">FAQ</a>
         <a href="#fine">Terms &amp; privacy</a>
-      <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
+        <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
       </nav>
     </div>
     <div>

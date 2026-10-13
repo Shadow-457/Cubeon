@@ -102,10 +102,11 @@
   `gh api …/releases/tags/v1.0.0`. The close fix was then re-verified on the
   shipped AppImage (exit in 1.0 s, zero survivors).
 
-Last updated: 2026-09-22 (site = `web/` on Vercel at cubeon.vercel.app: landing /
-download / help + legal pages sharing web/assets/site.css + site.js; its release
-download count has two sources, an API function and a CI-refreshed static JSON —
-see the web bullets further down. The waitlist is gone, the repo is private.) If a
+Last updated: 2026-10-13 (site = `web/` on Vercel at cubeon.vercel.app: landing /
+download / help + legal pages sharing web/assets/site.css + site.js; the landing
+page was rebuilt onto the full design system on this date — see the site bullets
+further down. The download count is ONE shared Abacus total read by site.js; the
+old API-function/CI-JSON plumbing is gone and a test keeps it gone.) If a
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
@@ -1575,6 +1576,25 @@ Still-true invariants from the pre-local era:
   (`html.js .pane` hidden until a pane carries `.on`, the "Not your system?"
   buttons) now lives in site.js's `markSystem` block. `tools/test_web_download_count.py`
   now fails if any `web/*.html` lacks the tag or keeps a second copy of a handler.
+- **Landing page (rebuilt 2026-10-13)**: `web/index.html` is the full design-system
+  page now — shared `navbar` (Home/Download/Help/Discord/Get Cubeon) + `.hero`
+  (grass/dirt split, OS-pane picker, `.shot`) + `.strip` facts + `.cards` features
+  + `.steps` how-to + `.faq` + closing `.cta` + fine-print cards + footer. It keeps
+  four things `tools/test_web_download_count.py` asserts verbatim: the
+  `<script …assets/site.js>` tag, a hidden `<p data-download-count>`, the class
+  `discord-cta`, and the Discord invite `https://discord.gg/Vj7g7vVY8K` (subpages
+  need `nav-discord`, index is exempt but carries it too). All interactive
+  behaviour (menu, FAQ, OS panes, counter) is site.js only — never inline.
+- The download-count guard in that test only rejects **per-device count**
+  storage: since `2aeae94` the counter block legitimately touches localStorage
+  for its testing-mode flag (`TEST_FLAG` lines, Ctrl+Shift+T / `?nocount=1`).
+  The check greps `localStorage.` lines excluding `TEST_FLAG` (fixed 2026-10-13;
+  it had been red since that commit).
+- Site verification gotcha: headless Chrome (`google-chrome-stable --headless
+  --screenshot --window-size=W,H`) has a **500px minimum window width** — a
+  390px shot silently renders at 500px and crops, which looks like horizontal
+  overflow. Real narrow-layout checks: shoot at 500px, or inject a probe that
+  reports `innerWidth`/`scrollWidth` via `--dump-dom`.
 - **Never pair a `/page` → `/page.html` redirect with `cleanUrls: true`** (both
   `web/vercel.json` and the repo-root one): the host already serves the page at
   the extensionless path and rewrites `/page.html` back to `/page`, so the rule
@@ -1588,7 +1608,28 @@ Still-true invariants from the pre-local era:
   gone (`dist/` is gitignored and absent from the deploy). The public UI offers
   the Windows installer and the Linux trio; macOS is an honest "not available
   yet" card. Byte sizes printed in the cards are hand-written — re-check them
-  after any rebuild.
+  after any rebuild. Measured against the v1.0.4 artifacts (2026-10-13):
+  installer 119,878,260 B → "120 MB", AppImage 108,034,552 B → "108 MB",
+  deb 114,504,390 B → "114 MB", setup.sh 1,341 B → "1 KB" (decimal MB).
+  **The Worker's `/linuxdeb` is pinned to the literal filename
+  `cubeon_1.0.0_amd64.deb`** in `worker/cubeon-downloads.js` FILES — a version
+  bump that renames the deb silently 404s that route (it did after 1.0.4 shipped;
+  fixed by re-uploading the new bytes under the old name). After a version
+  bump: either upload an alias (`cp` the new deb to the old name +
+  `gh release upload`), or edit FILES and `npx wrangler deploy`.
+- **What the site may claim about multiplayer (audited 2026-10-13 against the
+  code):** the short-code invite system (`docs/protocols/invites-api.md`,
+  `cubeon/invites.py`, the invites Worker) has **no UI anywhere** — the doc
+  itself says "Nothing calls it until the host UI lands". The real shipped
+  flow is the in-game friends list (mod `CubeonClientScreen`): per-friend row
+  buttons **Invite / Join / Ask to join**, plus the launcher Servers tab
+  (install a local server → free public Minekube address + join password +
+  whitelist). "Groups" exist only as frames in `cubeon/friends.py` (no UI);
+  "voice" is signalling-only behind the optional `cubeon/voice.py` add-on
+  ("voice UI was removed" — see friends_service.py). Chat = the launcher Chat
+  tab, which only appears when `friends_enabled()` is true. Site copy
+  (index/help/download) was corrected to match; don't reintroduce "press Host
+  and send a short code" phrasing until that UI actually ships.
 - **The GitHub repo is PRIVATE** (anonymous `github.com/Shadow-457/Cubeon` → 404,
   and anonymous `releases/latest/download/<asset>` → an auth wall too). Visitors
   get the files through the `cubeon-downloads` Worker instead — see the direct

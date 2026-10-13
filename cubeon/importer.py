@@ -3,17 +3,24 @@
 This is the logic behind Settings -> Import. It is deliberately free of any
 Flet import so it can be unit-tested with plain temp folders.
 
-Two jobs:
+Three jobs:
 
-  scan_folder(root)   Walk a user-chosen folder and classify every piece of
-                      Minecraft content it holds - mods, resource packs,
-                      shader packs, modpacks and worlds - without ever raising
-                      on a broken/locked/oddly-nested file. Every failure is
-                      collected into ``errors`` and the walk continues.
+  scan_folder(root)       Walk a user-chosen folder and classify every piece of
+                          Minecraft content it holds - mods, resource packs,
+                          shader packs, modpacks and worlds - without ever
+                          raising on a broken/locked/oddly-nested file. Every
+                          failure is collected into ``errors`` and the walk
+                          continues.
 
-  import_item(entry)  Install ONE scanned entry into the currently-active
-                      (mc_version, loader) profile, reusing the exact same
-                      installers the Mods/Modpacks tabs already trust.
+  mark_installed(result)  Flag the scanned entries whose exact bytes (mods,
+                          packs) or folder name (worlds) are ALREADY in the
+                          active profile / saves folder, so re-importing an
+                          old backup never piles up duplicate copies.
+
+  import_item(entry)      Install ONE scanned entry into the currently-active
+                          (mc_version, loader) profile, reusing the exact same
+                          installers the Mods/Modpacks tabs already trust -
+                          or report "already there" and do nothing.
 
 Layout facts this module depends on (see agents/docs/module-map.md):
   * Mods and packs live in a PER-PROFILE folder, not the wiped staging
@@ -29,7 +36,6 @@ import json
 import os
 import shutil
 import tempfile
-import uuid
 import zipfile
 
 from cubeon.paths import MINECRAFT_DIR
@@ -329,8 +335,192 @@ def summary_line(result):
     if not parts:
         return "Nothing to import here."
     if len(parts) == 1:
-        return f"Found {parts[0]}."
-    return "Found " + ", ".join(parts[:-1]) + f" and {parts[-1]}."
+        line = f"Found {parts[0]}."
+    else:
+        line = "Found " + ", ".join(parts[:-1]) + f" and {parts[-1]}."
+    already = already_count(result)
+    if already:
+        line = line[:-1] + f" - {already} already added."
+    return line
+
+
+# ---------------------------------------------------------------------------
+# Duplicate detection (mark_installed + the import_item guards it feeds)
+# ---------------------------------------------------------------------------
+#
+# "Import the same backup twice" used to quietly pile up a suffixed second
+# copy of every mod (foo_xxxxxx.jar), a suffixed world (MyWorld_xxxxxx/) and
+# another link for every pack. Now: mods and zipped packs are compared by the
+# SHA-256 of their bytes against the target profile, worlds by folder name in
+# the shared saves/, and anything matching comes back flagged so the UI can
+# grey it out and import_item refuses it. Modpacks are exempt: installing one
+# recreates its version profile in place (an update, not a second copy).
+
+def _sha256_file(path):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _stem(name):
+    return os.path.splitext(os.path.basename(str(name or "")))[0].lower()
+
+
+def _profile_mod_hashes(mc_version, loader):
+    """SHA-256 of every jar (enabled or disabled) in the target profile."""
+    from cubeon import mods
+    out = set()
+    d = mods.get_profile_dir(mc_version, loader)
+    for fn in os.listdir(d):
+        if fn.endswith(".jar") or fn.endswith(".jar.disabled"):
+            try:
+                out.add(_sha256_file(os.path.join(d, fn)))
+            except OSError:
+                continue
+    return out
+
+
+def _profile_pack_hashes(content_type, mc_version, loader):
+    """SHA-256 of every pack linked into the target profile (symlinks,
+    hardlinks or a copied folder - _entry_hash follows all of those)."""
+    from cubeon import content
+    out = set()
+    d = content.profile_dir(content_type, mc_version, loader)
+    for fn in os.listdir(d):
+        try:
+            out.add(content._entry_hash(os.path.join(d, fn)))
+        except OSError:
+            continue
+    return out
+
+
+def _profile_pack_stems(content_type, mc_version, loader):
+    """Filenames (stems, lowercased) of the packs linked into the profile -
+    the fallback check for extracted-folder packs, whose zip-on-import bytes
+    can't be hashed ahead of time."""
+    from cubeon import content
+    d = content.profile_dir(content_type, mc_version, loader)
+    try:
+        return {_stem(fn) for fn in os.listdir(d)}
+    except OSError:
+        return set()
+
+
+def _saves_names():
+    try:
+        return set(os.listdir(SAVES_DIR))
+    except OSError:
+        return set()
+
+
+def mark_installed(result, *, mc_version, loader, version_id=None):
+    """Flag every scanned entry the target already has, in place.
+
+    Sets entry["already"] to a short human reason (the UI shows it and greys
+    the row out) and caches the entry's content hash on the entry as
+    "_src_sha"/"_src_hash" so the import-time guard doesn't hash it twice.
+    Returns how many entries got flagged. Flags are cleared on entries that
+    don't match, so calling again after a target change or after imports is
+    always correct. Without (mc_version, loader) every flag is cleared -
+    there is no profile to compare against.
+    """
+    if not result:
+        return 0
+
+    mod_hashes = None
+    pack_hashes = {}
+    pack_stems = {}
+    saves_names = None
+    if mc_version and loader:
+        try:
+            mod_hashes = _profile_mod_hashes(mc_version, loader)
+        except Exception:
+            mod_hashes = set()
+        try:
+            saves_names = _saves_names()
+        except Exception:
+            saves_names = set()
+        for kind, ct in CONTENT_KIND.items():
+            try:
+                pack_hashes[ct] = _profile_pack_hashes(ct, mc_version, loader)
+                pack_stems[ct] = _profile_pack_stems(ct, mc_version, loader)
+            except Exception:
+                pack_hashes[ct] = set()
+                pack_stems[ct] = set()
+
+    def _flag(entries, reason, pred):
+        n = 0
+        for e in entries or []:
+            e.pop("_src_sha", None)
+            e.pop("_src_hash", None)
+            if pred(e):
+                e["already"] = reason
+                n += 1
+            else:
+                e.pop("already", None)
+        return n
+
+    if mod_hashes is None:  # no target selected - nothing is "already" anything
+        for c in CATEGORIES:
+            for e in result.get(c) or []:
+                e.pop("already", None)
+                e.pop("_src_sha", None)
+                e.pop("_src_hash", None)
+        return 0
+
+    marked = 0
+
+    def _mod_pred(e):
+        try:
+            digest = _sha256_file(e["path"])
+        except OSError:
+            return False
+        e["_src_sha"] = digest
+        return digest in mod_hashes
+
+    marked += _flag(result.get("mods"), "Already in this profile.", _mod_pred)
+
+    for kind in ("resourcepacks", "shaderpacks"):
+        ct = CONTENT_KIND[kind]
+
+        def _pack_pred(e, _ct=ct):
+            hashes = pack_hashes.get(_ct) or set()
+            stems = pack_stems.get(_ct) or set()
+            if e.get("is_dir"):
+                # An extracted folder gets zipped at import time, so its bytes
+                # can't be compared ahead of time - fall back to the name.
+                return _stem(e["path"]) in stems
+            from cubeon import content
+            try:
+                digest = content._entry_hash(e["path"])
+            except OSError:
+                return False
+            e["_src_hash"] = digest
+            return digest in hashes
+
+        marked += _flag(result.get(kind), "Already in this profile.", _pack_pred)
+
+    saves = saves_names or set()
+
+    def _world_pred(e):
+        return e["name"] in saves
+
+    marked += _flag(result.get("worlds"), "Already in your worlds folder.",
+                    _world_pred)
+
+    # Modpacks are deliberately never flagged (see the section comment above).
+    for e in result.get("modpacks") or []:
+        e.pop("already", None)
+    return marked
+
+
+def already_count(result):
+    """How many scanned entries are already in the target profile / saves."""
+    return sum(1 for c in CATEGORIES
+               for e in (result.get(c) or []) if e.get("already"))
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +539,29 @@ def import_item(entry, *, mc_version, loader, version_id=None,
 
     if kind == "mods":
         from cubeon import mods
+        # Exact-bytes guard: re-importing a jar that's already linked into
+        # this profile would only create a foo_xxxxxx.jar twin (install_local_
+        # mod suffixes on filename clashes), so refuse instead.
+        digest = entry.get("_src_sha")
+        if digest is None:
+            try:
+                digest = _sha256_file(path)
+            except OSError:
+                digest = None
+        if digest:
+            pdir = mods.get_profile_dir(mc_version, loader)
+            try:
+                names = os.listdir(pdir)
+            except OSError:
+                names = []
+            for fn in names:
+                if not (fn.endswith(".jar") or fn.endswith(".jar.disabled")):
+                    continue
+                try:
+                    if _sha256_file(os.path.join(pdir, fn)) == digest:
+                        return f"'{entry['name']}' is already in this profile."
+                except OSError:
+                    continue
         moved = []
         name = mods.install_local_mod(
             path, mc_version, loader,
@@ -362,6 +575,28 @@ def import_item(entry, *, mc_version, loader, version_id=None,
         from cubeon import content
         ct = CONTENT_KIND[kind]
         label = content.CONTENT_TYPES[ct]["label"].lower()
+        # Exact-bytes guard for zip packs (folders get re-zipped below, so
+        # their hash would differ - those are covered by mark_installed's
+        # name check and the scan-time UI badge instead).
+        if not entry.get("is_dir"):
+            digest = entry.get("_src_hash")
+            if digest is None:
+                try:
+                    digest = content._entry_hash(path)
+                except OSError:
+                    digest = None
+            if digest:
+                pdir = content.profile_dir(ct, mc_version, loader)
+                try:
+                    names = os.listdir(pdir)
+                except OSError:
+                    names = []
+                for fn in names:
+                    try:
+                        if content._entry_hash(os.path.join(pdir, fn)) == digest:
+                            return f"'{entry['name']}' is already in this profile."
+                    except OSError:
+                        continue
         tmp = None
         try:
             src = path
@@ -401,11 +636,16 @@ def _import_world(src_dir, name):
     except OSError:
         pass
     os.makedirs(SAVES_DIR, exist_ok=True)
-    dest = os.path.join(SAVES_DIR, _safe_name(name))
+    dest_name = _safe_name(name)
+    dest = os.path.join(SAVES_DIR, dest_name)
+    # A world with this name is already there: importing again would just
+    # create a MyWorld_xxxxxx twin, so treat it as the duplicate it is. (The
+    # rare "different world, same name" case is fixed by renaming the source
+    # folder first - better than silently accumulating copies.)
     if os.path.exists(dest):
-        dest = os.path.join(SAVES_DIR, f"{_safe_name(name)}_{uuid.uuid4().hex[:6]}")
+        return f"'{name}' is already in your worlds folder."
     shutil.copytree(src_dir, dest)
-    return f"Imported world '{os.path.basename(dest)}'."
+    return f"Imported world '{dest_name}'."
 
 
 def _zip_folder_to_temp(folder):

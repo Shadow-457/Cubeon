@@ -245,8 +245,14 @@ check("the count is the shared Abacus total",
       ABACUS in site_source and "ask('get')" in site_source and "ask('hit')" in site_source)
 count_block = site_source.split("(function downloadCount")[1].split("})();")[0] \
     if "(function downloadCount" in site_source else ""
-check("the counter block holds no per-device storage", "localStorage" not in count_block,
-      count_block[:80])
+# The count itself must never be read from or written to localStorage - it only
+# ever comes from Abacus. The one localStorage use allowed here is the testing
+# mode's local flag (Ctrl+Shift+T / ?nocount=1): it stores nothing about the
+# count, and every line touching storage for it names TEST_FLAG.
+per_device_storage = [line.strip() for line in count_block.splitlines()
+                      if "localStorage." in line and "TEST_FLAG" not in line]
+check("the counter block holds no per-device storage", not per_device_storage,
+      per_device_storage[0] if per_device_storage else count_block[:80])
 check("nothing of the rejected GitHub plumbing remains on the page",
       "/api/download-count" not in site_source and "download-count.json" not in site_source)
 
