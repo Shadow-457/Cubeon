@@ -106,7 +106,10 @@ Last updated: 2026-10-13 (site = `web/` on Vercel at cubeon.vercel.app: landing 
 download / help + legal pages sharing web/assets/site.css + site.js; the landing
 page was rebuilt onto the full design system on this date — see the site bullets
 further down. The download count is ONE shared Abacus total read by site.js; the
-old API-function/CI-JSON plumbing is gone and a test keeps it gone.) If a
+old API-function/CI-JSON plumbing is gone and a test keeps it gone. Same day:
+Settings → Import reworked to per-instance "Import to" + search with duplicate
+detection, and the "launcher reopens after close" family fixed — exit-0 always
+clean + wedge burst-gap; see those bullets.) If a
 fact here contradicts the code, the code wins — but fix this file too. Durable
 facts belong HERE, not in diary notes.
 
@@ -555,6 +558,13 @@ facts belong HERE, not in diary notes.
   ghost). Hence `_WEDGE_TIMEOUTS = 2`, `_WEDGE_RECENT = 25.0`, with
   `_WEDGE_GRACE = 12s` / `_WEDGE_WINDOW = 60s`. A threshold of 3 was
   unreachable dead code — do not raise it back without new measurements.
+  **The burst GAP matters as much as the count** (2026-10-13): each timeout
+  line means 10s of no frame, so a merely SLOW client also emits several —
+  but spaced ~10s apart. Only a client producing NOTHING emits them seconds
+  apart. `_WEDGE_BURST_GAP = 4.0` requires the two newest stamps to be that
+  close; without it, two slow frames in the first minute killed a healthy
+  session and the recovery ladder immediately REOPENED Cubeon (the
+  "it reopens after I close it" bug). Stamps live in `_wedge_state["stamps"]`.
 - The watchdog only KILLS the client (SIGTERM, SIGKILL after 3s). It never tears
   down the session itself: `ft.run` is once-per-process. The kill makes `ft.run`
   return and the EXISTING classified ladder does the rest (pre-paint ->
@@ -1757,6 +1767,12 @@ Still-true invariants from the pre-local era:
   treat as clean close (never a surprise relaunch). Verified live under Xvfb:
   window close → 0 → exits with no relaunch; `kill -SEGV` on the client → -11 →
   restarts with software GL. Regression covered by `test_ui_smoke.py` §4b.
+  **A client that exited 0 is ALWAYS a clean close (2026-10-13)**, even when
+  the `ui_painted_ok` marker is missing: the marker write in `_reveal_window`
+  is OSError-swallowed best-effort, and "marker lost + exit 0 → pre_paint_crash
+  → software-GL retry" was the second "Cubeon reopens after I close it" bug
+  (first was the live-child test above; third was the wedge false positive —
+  see the burst-gap note). Signal (<0) still classifies by the marker.
 - `_kill_flet_client()` is kept only as a best-effort ghost-window cleanup; its
   return value no longer classifies the session. Zombie flet children are still
   excluded from the scan (state `fields[0]` of /proc stat after
@@ -2261,21 +2277,40 @@ Still-true invariants from the pre-local era:
     shared `SAVES_DIR` (with a guard so a world already under `saves/` isn't
     duplicated onto itself). Extracted pack FOLDERS are zipped to a temp `.zip`
     first (`install_local_content` only accepts a `.zip`).
-  - The import TARGET is whatever the player selected on the Play tab:
-    `main.py:_import_target()` → `(extract_mc_version(version_dropdown.value or
-    cfg["last_version"]), state["mod_loader"], version_id)`. No version selected
-    ⇒ `mc` is None ⇒ every import refuses with "Pick a game version on the Play
-    tab first." (never lands in the throwaway `unknown-vanilla` profile).
+  - The import TARGET is per item via the **"Import to..." picker** (2026-10-13;
+    "Import all" was removed on purpose). `main.py` also passes
+  `get_instances=_import_instances` → `[{"version_id", "mc_version", "loader",
+    "label"}, ...]` from `core.get_installed_versions()`; loader is derived by
+    `importer.loader_of(version_id)` (the only place it's known for non-active
+    instances). The picker greys out (a) incompatible rows —
+    `importer.instance_compatibility(entry, mc, loader)`: a Fabric jar never
+    goes into Forge, a declared `mc_dep` like "1.21" fails on 1.20.1 — and
+    (b) rows that already contain the exact item —
+    `importer.already_in_profile(...)`. The DEFAULT target (and the basis of
+    the scan-time duplicate flags) is still the Play-tab selection via
+    `main.py:_import_target()`. No version selected and no instance chosen
+    ⇒ every import refuses with "Pick a game version on the Play tab first."
+    (never lands in the throwaway `unknown-vanilla` profile).
+  - **Duplicate detection** (2026-10-13): `importer.mark_installed(result,
+    mc_version, loader)` flags scan-time finds already in the target (mods and
+    zipped packs by SHA-256 incl. the pack store's `.origin` sidecar —
+    `_verify_and_fix` REWRITES stored packs, so current bytes alone never match —
+    worlds by folder name in `saves/`); `import_item` refuses the same
+    matches (no more `foo_xxxxxx.jar` / `MyWorld_xxxxxx` twins). Folder packs
+    fall back to a stem check (they get re-zipped at import). Modpacks are
+    never flagged (they update in place). The search field filters finds live.
   - Folder picking uses the new **`run_dir_picker(page, dir_picker, on_path, ...)`
     helper in `cubeon/config.py`** (re-exported as `launcher_core.run_dir_picker`),
     the `get_directory_path` sibling of `run_file_picker`. On Flet 0.86.5 and
     1.0.x `get_directory_path` is a **coroutine returning `str|None`**, so the
     helper awaits it via `page.run_task`. Scans and imports all run on daemon
     threads; UI repaints go through `cubeon.thread_safe_ui.refresh`.
-  - Guards: `tools/test_importer.py` (32 checks, pure logic) and
-    `tools/test_import_ui.py` (25 checks, renders a result + drives an import).
-    The pane exposes `pane.render_scan_result`, `pane.import_item_ui`,
-    `pane._results_col`, `pane._status_text` so tests bypass the OS dialog.
+  - Guards: `tools/test_importer.py` (47 checks, pure logic) and
+    `tools/test_import_ui.py` (45 checks, renders + search + picker model +
+    per-instance imports). The pane exposes `pane.render_scan_result`,
+    `pane.import_item_ui(entry, btn, inst=...)`, `pane.picker_model_ui`,
+    `pane.open_picker_ui`, `pane.remark_installed_ui`, `pane._results_col`,
+    `pane._status_text`, `pane._search_field` so tests bypass the OS dialog.
 - **`ft.Icon` swaps glyphs via `.icon`, NOT `.name` — pre-existing bug found
   (2026-10-12).** `ft.Icon` (both pinned 0.86.5 and current 1.0.3) stores its
   glyph in `_values["icon"]`; assigning `.name` just sets an unrelated instance

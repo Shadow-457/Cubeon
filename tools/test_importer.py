@@ -176,6 +176,64 @@ finally:
 check("modpack routed to install_modpack_from_file", called.get("path") == mp["path"])
 check("modpack message", "Installed modpack" in name, name)
 
+# --------------------------------------------------------------------------
+# Duplicate detection: re-scanning the same folder must flag what's already
+# in the profile, and re-importing must refuse instead of creating twins
+# (foo_xxxxxx.jar, MyWorld_xxxxxx/, a second pack link).
+# --------------------------------------------------------------------------
+print("mark_installed:")
+scan2 = importer.scan_folder(src)
+marked = importer.mark_installed(scan2, mc_version=MC, loader=LOADER)
+check("mark_installed reports the flagged count", marked >= 3, str(marked))
+
+sodium2 = next(e for e in scan2["mods"] if e["name"] == "Sodium")
+check("already-imported mod is flagged", bool(sodium2.get("already")),
+      str(sodium2.get("already")))
+forge2 = next(e for e in scan2["mods"] if e["name"] == "forge-mod")
+check("not-yet-imported mod stays unflagged", not forge2.get("already"))
+pack2 = next(e for e in scan2["resourcepacks"]
+             if e["name"] == "pack" and not e["is_dir"])
+check("already-imported pack is flagged", bool(pack2.get("already")),
+      str(pack2.get("already")))
+world2 = next(e for e in scan2["worlds"])
+check("already-imported world is flagged", bool(world2.get("already")),
+      str(world2.get("already")))
+mp2 = scan2["modpacks"][0]
+check("modpacks are never flagged", not mp2.get("already"))
+check("summary mentions the already count", "already added" in
+      importer.summary_line(scan2), importer.summary_line(scan2))
+check("caches the source hash for the import guard",
+      bool(sodium2.get("_src_sha")), str(sodium2.get("_src_sha")))
+
+print("import refuses duplicates:")
+name = importer.import_item(sodium2, mc_version=MC, loader=LOADER)
+check("re-import of the same jar bytes is refused",
+      "already in this profile" in name, name)
+jars = [f for f in os.listdir(mods.get_profile_dir(MC, LOADER))
+        if f.endswith(".jar")]
+check("no suffixed twin jar created", jars == ["sodium.jar"], str(jars))
+
+name = importer.import_item(pack2, mc_version=MC, loader=LOADER, version_id=VID)
+check("re-import of the same pack bytes is refused",
+      "already in this profile" in name, name)
+check("still exactly two packs in the profile",
+      len(content.list_content("resourcepack", MC, loader=LOADER)) == 2,
+      str(content.list_content("resourcepack", MC, loader=LOADER)))
+
+name = importer.import_item(world2, mc_version=MC, loader=LOADER)
+check("re-import of the same world name is refused",
+      "already in your worlds" in name, name)
+check("no suffixed twin world folder created",
+      not any(f.startswith("MyWorld_") for f in os.listdir(importer.SAVES_DIR)),
+      str(os.listdir(importer.SAVES_DIR)))
+
+# A clean scan of a fresh target finds nothing flagged.
+scan3 = importer.scan_folder(src)
+check("no flags without a version/loader target",
+      importer.mark_installed(scan3, mc_version=None, loader=None) == 0 and
+      not any(e.get("already") for c in importer.CATEGORIES
+              for e in scan3[c]))
+
 print("import error paths:")
 try:
     importer.import_item(mod, mc_version=None, loader=None)

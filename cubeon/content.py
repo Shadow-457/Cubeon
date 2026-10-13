@@ -226,6 +226,39 @@ def _entry_hash(path: str) -> str:
     return _dir_sha256(path) if os.path.isdir(path) else _sha256(path)
 
 
+def _origin_path(stored_path: str) -> str:
+    """Sidecar next to a STORED pack holding the SHA-256 of the bytes the user
+    handed us. Dot-prefixed so it stays invisible to every pack lister (they
+    skip dotfiles) and to file managers by default."""
+    return os.path.join(os.path.dirname(stored_path),
+                        "." + os.path.basename(stored_path) + ".origin")
+
+
+def _write_origin_hash(stored_path: str, src_hash: str) -> None:
+    """Records the source-bytes hash for a stored pack. Needed because
+    _verify_and_fix REWRITES the stored copy (pack.mcmeta repair, shader
+    flattening), after which its own hash no longer matches the file on the
+    user's disk - and Import's duplicate detection (cubeon.importer.
+    mark_installed) must still recognise "that's the pack I already added".
+    Best-effort: a sidecar we can't write just makes detection fall back to
+    comparing current bytes."""
+    try:
+        with open(_origin_path(stored_path), "w", encoding="ascii") as f:
+            f.write(src_hash)
+    except OSError:
+        pass
+
+
+def origin_hash(stored_path: str) -> str | None:
+    """The source-bytes SHA-256 recorded at install time, or None."""
+    try:
+        with open(_origin_path(stored_path), "r", encoding="ascii") as f:
+            h = f.read().strip()
+        return h or None
+    except OSError:
+        return None
+
+
 def _store_entry(content_type: str, src_path: str,
                  human_name: str | None = None) -> str:
     """Puts a real pack file/folder into the global store, returning the stored
@@ -502,7 +535,17 @@ def install_local_content(content_type: str, src_path: str,
     if not os.path.isfile(src_path):
         raise ValueError("Couldn't find that file.")
 
+    # Hash BEFORE storing: _verify_and_fix may rewrite the stored copy (it can
+    # even hardlink back onto the source), and the origin record must describe
+    # the bytes the user actually had.
+    try:
+        src_hash = _entry_hash(src_path)
+    except OSError:
+        src_hash = None
+
     stored = _store_entry(content_type, src_path)
+    if src_hash:
+        _write_origin_hash(stored, src_hash)
     dest = link_into_profile(content_type, stored, mc_version, loader)
     _verify_and_fix(content_type, dest, mc_version, version_id, fix_cb)
     return os.path.basename(dest)

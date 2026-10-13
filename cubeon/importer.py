@@ -384,16 +384,26 @@ def _profile_mod_hashes(mc_version, loader):
 
 
 def _profile_pack_hashes(content_type, mc_version, loader):
-    """SHA-256 of every pack linked into the target profile (symlinks,
-    hardlinks or a copied folder - _entry_hash follows all of those)."""
+    """Every hash that identifies a pack already linked into the target
+    profile: the SHA-256 of its CURRENT stored bytes plus the pre-repair
+    "origin" hash recorded at install time (content._verify_and_fix rewrites
+    packs on install, after which their own bytes no longer match the file on
+    the user's disk). Symlinks, hardlinks and copied folders are all fine -
+    _entry_hash follows them."""
     from cubeon import content
     out = set()
     d = content.profile_dir(content_type, mc_version, loader)
+    store = content.store_dir(content_type)
     for fn in os.listdir(d):
+        full = os.path.join(d, fn)
         try:
-            out.add(content._entry_hash(os.path.join(d, fn)))
+            out.add(content._entry_hash(full))
         except OSError:
             continue
+        if not os.path.isdir(full):
+            origin = content.origin_hash(os.path.join(store, fn))
+            if origin:
+                out.add(origin)
     return out
 
 
@@ -524,6 +534,104 @@ def already_count(result):
 
 
 # ---------------------------------------------------------------------------
+# Instance targeting (the "Import to" picker)
+# ---------------------------------------------------------------------------
+
+def loader_of(version_id):
+    """Best-effort loader name for a version id:
+    'fabric-loader-0.16.9-1.21.11' -> 'fabric'; '1.21.11' -> 'vanilla'."""
+    vid = str(version_id or "").lower()
+    if "fabric" in vid:
+        return "fabric"
+    if "quilt" in vid:
+        return "quilt"
+    if "neoforge" in vid:
+        return "neoforge"
+    if "forge" in vid:
+        return "forge"
+    return "vanilla"
+
+
+# Which instances can host jars built for a given loader. Quilt loads Fabric
+# jars; nothing else crosses over. A mod whose loader we couldn't read
+# (want=None) is allowed everywhere - the game is the final judge.
+_LOADERS_OK = {
+    "fabric": {"fabric", "quilt"},
+    "quilt": {"quilt"},
+    "forge": {"forge"},
+    "neoforge": {"neoforge"},
+}
+
+
+def _plain_version(s):
+    """True for a bare dotted version ('1.21', '1.20.1') - not a range
+    expression ('>=1.20', '~1.21'), which we can't evaluate offline."""
+    s = str(s or "")
+    return bool(s) and s[0].isdigit() and all(c in "0123456789." for c in s)
+
+
+def _mc_matches(mc_version, dep):
+    """'1.21' satisfies 1.21.11 (dot-boundary prefix); '1.20.1' satisfies
+    1.20.1 and 1.20.14-no such thing (dot boundary again)."""
+    mc = str(mc_version or "")
+    dep = str(dep or "")
+    return mc == dep or mc.startswith(dep + ".")
+
+
+def instance_compatibility(entry, mc_version, loader):
+    """(ok, reason) - may this scanned entry go into that instance?
+
+    Only mods can be incompatible: a loader mismatch (a Fabric jar into a
+    Forge instance) or a declared Minecraft dependency the instance doesn't
+    match. Packs are format-repaired at install time and worlds live in the
+    shared saves/ folder, so both are compatible everywhere. Modpacks bring
+    their own loader+version, so they too are compatible everywhere."""
+    if entry.get("kind") == "mods":
+        want = entry.get("loader")
+        if want and loader and loader not in _LOADERS_OK.get(want, {want}):
+            return False, f"{want} mod - needs a {want} instance"
+        dep = entry.get("mc_dep")
+        if dep and mc_version and _plain_version(dep) and not _mc_matches(mc_version, dep):
+            return False, f"needs Minecraft {dep}"
+    return True, ""
+
+
+def already_in_profile(entry, mc_version, loader):
+    """Is this exact entry already in that instance (or saves/, which every
+    instance shares, for worlds)? The same checks mark_installed uses, one
+    entry at a time - the Import-to picker calls it once per instance row."""
+    kind = entry.get("kind")
+    if not mc_version or not loader:
+        return False
+    if kind == "mods":
+        try:
+            digest = entry.get("_src_sha") or _sha256_file(entry["path"])
+        except OSError:
+            return False
+        try:
+            return digest in _profile_mod_hashes(mc_version, loader)
+        except Exception:
+            return False
+    if kind in ("resourcepacks", "shaderpacks"):
+        from cubeon import content
+        ct = CONTENT_KIND[kind]
+        try:
+            if entry.get("is_dir"):
+                return _stem(entry["path"]) in _profile_pack_stems(
+                    ct, mc_version, loader)
+            digest = entry.get("_src_hash") or content._entry_hash(entry["path"])
+        except OSError:
+            return False
+        try:
+            return digest in _profile_pack_hashes(ct, mc_version, loader)
+        except Exception:
+            return False
+    if kind == "worlds":
+        return entry["name"] in _saves_names()
+    return False  # modpacks install/update in place - never a duplicate
+
+
+# ---------------------------------------------------------------------------
 # Import
 # ---------------------------------------------------------------------------
 
@@ -577,7 +685,9 @@ def import_item(entry, *, mc_version, loader, version_id=None,
         label = content.CONTENT_TYPES[ct]["label"].lower()
         # Exact-bytes guard for zip packs (folders get re-zipped below, so
         # their hash would differ - those are covered by mark_installed's
-        # name check and the scan-time UI badge instead).
+        # name check and the scan-time UI badge instead). Comparing against
+        # the profile's stored bytes AND their install-time origin hashes,
+        # because _verify_and_fix may have rewritten the stored copy.
         if not entry.get("is_dir"):
             digest = entry.get("_src_hash")
             if digest is None:
@@ -586,17 +696,12 @@ def import_item(entry, *, mc_version, loader, version_id=None,
                 except OSError:
                     digest = None
             if digest:
-                pdir = content.profile_dir(ct, mc_version, loader)
                 try:
-                    names = os.listdir(pdir)
-                except OSError:
-                    names = []
-                for fn in names:
-                    try:
-                        if content._entry_hash(os.path.join(pdir, fn)) == digest:
-                            return f"'{entry['name']}' is already in this profile."
-                    except OSError:
-                        continue
+                    known = _profile_pack_hashes(ct, mc_version, loader)
+                except Exception:
+                    known = set()
+                if digest in known:
+                    return f"'{entry['name']}' is already in this profile."
         tmp = None
         try:
             src = path

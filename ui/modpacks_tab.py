@@ -645,6 +645,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
             threading.Thread(target=worker, daemon=True).start()
 
+        def clear_key(e=None):
+            # flet 0.86's Control.update() takes NO kwargs - setting .value
+            # AND calling update() used to raise TypeError here, which the
+            # driver retried as a zero-arg call and the dialog's Remove
+            # button surfaced as a crash.
+            key_field.value = ""
+            thread_safe_ui.refresh(key_field)
+
         dlg = ft.AlertDialog(
             modal=True, bgcolor=SURFACE,
             title=ft.Text("CurseForge catalogue", color=TEXT,
@@ -655,8 +663,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda e: close_dlg()),
-                ft.TextButton("Remove", on_click=lambda e: key_field.update(
-                    value=""), style=ft.ButtonStyle(color=DANGER)),
+                ft.TextButton("Remove", on_click=clear_key,
+                              style=ft.ButtonStyle(color=DANGER)),
                 ft.TextButton("Save", on_click=do_save,
                               style=ft.ButtonStyle(color=ACCENT)),
             ],

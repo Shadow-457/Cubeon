@@ -266,6 +266,7 @@ print("\n4b. session end classification (close vs GPU crash)")
 _end_cases = [
     ((False, None), "pre_paint_crash"),
     ((False, -11), "pre_paint_crash"),
+    ((False, 0), "clean_close"),   # exit 0 outranks a lost paint marker
     ((True, 0), "clean_close"),
     ((True, None), "clean_close"),
     ((True, 1), "clean_close"),
@@ -276,7 +277,8 @@ for args, expect in _end_cases:
     got = app._classify_session_end(*args)
     check(f"session end {args} -> {expect}", got == expect, f"got {got!r}")
 check("a normal close never relaunches (exit 0 is clean, not a crash)",
-      app._classify_session_end(True, 0) == "clean_close",
+      app._classify_session_end(True, 0) == "clean_close"
+      and app._classify_session_end(False, 0) == "clean_close",
       "closing the window must exit, never re-exec with software GL")
 
 import time as _t

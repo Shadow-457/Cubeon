@@ -315,12 +315,18 @@ def _classify_session_end(ui_painted: bool, client_exit):
       * ``"pre_paint_crash"``  - died before the window showed
       * ``"mid_session_crash"``- died to a signal after the window showed
       * ``"clean_close"``      - a normal close (default when unsure)
+
+    A client that exited 0 is ALWAYS a clean close, even when the paint
+    marker is missing: the marker write is best-effort (OSError-swallowed),
+    and treating "marker lost + exit 0" as a pre-paint crash is exactly the
+    bug that made Cubeon close and immediately reopen itself with software
+    OpenGL after a perfectly normal session.
     """
-    if not ui_painted:
-        return "pre_paint_crash"
     if client_exit is not None and client_exit < 0:
-        return "mid_session_crash"
-    return "clean_close"
+        return "mid_session_crash" if ui_painted else "pre_paint_crash"
+    if client_exit == 0:
+        return "clean_close"
+    return "pre_paint_crash" if not ui_painted else "clean_close"
 
 
 def _live_flet_clients(assets_dir: "str | None" = None) -> "list[int]":
@@ -4867,9 +4873,36 @@ def main(page: ft.Page):
         loader = state.get("mod_loader") or "fabric"
         return mc, loader, vid
 
+    # Every installed instance for the Import-to picker. Loader is derived
+    # from the version id (the only place it's recorded for non-active
+    # instances); mc_version from the id as well, so the picker can grey out
+    # a Fabric jar offered to a Forge instance or a mod that needs 1.20.1.
+    def _import_instances():
+        out = []
+        try:
+            installed = core.get_installed_versions()
+        except Exception:
+            installed = []
+        for v in installed or []:
+            vid = v.get("id") or v.get("version_id")
+            if not vid:
+                continue
+            try:
+                mc = core.extract_mc_version(vid)
+            except Exception:
+                mc = None
+            out.append({
+                "version_id": vid,
+                "mc_version": mc,
+                "loader": None,  # importer.loader_of fills it from the id
+                "label": v.get("display_name") or vid,
+            })
+        return out
+
     import_pane = build_import_section(
         page, cfg, section_label=section_label,
-        get_active_target=_import_target, show_snack=_show_snack,
+        get_active_target=_import_target,
+        get_instances=_import_instances, show_snack=_show_snack,
         **THEME,
     )
 
@@ -5834,8 +5867,9 @@ if __name__ == "__main__":
     # (much rarer) mid-session case left to its own path.
     _wedge_lock = threading.Lock()
     # pid/armed_at None = no live client being judged; set on each spawn.
-    _wedge_state = {"timeouts": 0, "last_at": None,
-                    "pid": None, "armed_at": None}
+    # "stamps" are the recent GL-frame timeout times (monotonic), pruned to
+    # _WEDGE_RECENT - the BURST test below reads them.
+    _wedge_state = {"stamps": [], "pid": None, "armed_at": None}
     _WEDGE_GRACE = 12.0    # min client age before judging
     _WEDGE_WINDOW = 60.0   # only judge a client this early in its life
     # The numbers below are NOT guesses - they come from the measured
@@ -5847,35 +5881,42 @@ if __name__ == "__main__":
     #   rt.log  slaves 22020/22263: 1 line each, then killed by the next
     #                                restart
     # So the burst length is TWO (a threshold of 3 could never fire - the
-    # original value was dead code), and the freshness bound has to cover
-    # the whole burst-plus-reporting window rather than a few seconds.
+    # original value was dead code). The burst GAP matters just as much:
+    # each timeout line means 10s of no frame, so a merely SLOW client also
+    # emits several - but spaced ~10s apart, one per failed frame. Only a
+    # client that is producing NOTHING emits them seconds apart, and THAT
+    # is the wedge. Without the gap test, two slow frames in the first
+    # minute killed a healthy session and the recovery ladder immediately
+    # reopened Cubeon - the "it reopens after I close it" bug.
     # Tradeoff, stated plainly: a false positive costs one automatic
     # session restart (the client is killed and ft.run returns, so the
     # EXISTING recovery ladder runs); a false negative is a frozen window
     # the user can never dismiss and a launcher that can never be reopened.
-    # Erring toward the restart is correct.
+    # Erring toward the restart is correct - but only for the real burst.
     _WEDGE_TIMEOUTS = 2    # GL-frame timeout lines required (measured: 2)
     _WEDGE_RECENT = 25.0   # newest timeout must be this fresh
+    _WEDGE_BURST_GAP = 4.0  # two stamps must be closer than this (measured: ~0.2s)
     _WEDGE_ESCALATE = 3.0  # SIGTERM -> SIGKILL wait
 
     def _wedge_note_gl_timeout():
         with _wedge_lock:
-            _wedge_state["timeouts"] += 1
-            _wedge_state["last_at"] = time.monotonic()
+            now = time.monotonic()
+            stamps = [t for t in _wedge_state["stamps"]
+                      if now - t <= _WEDGE_RECENT]
+            stamps.append(now)
+            _wedge_state["stamps"] = stamps[-8:]
 
     def _wedge_arm(pid):
         with _wedge_lock:
             _wedge_state["pid"] = pid
             _wedge_state["armed_at"] = time.monotonic()
-            _wedge_state["timeouts"] = 0
-            _wedge_state["last_at"] = None
+            _wedge_state["stamps"] = []
 
     def _wedge_disarm():
         with _wedge_lock:
             _wedge_state["pid"] = None
             _wedge_state["armed_at"] = None
-            _wedge_state["timeouts"] = 0
-            _wedge_state["last_at"] = None
+            _wedge_state["stamps"] = []
 
     def _wedge_watchdog():
         # One daemon for the whole process life: wait for a client, judge
@@ -5890,17 +5931,18 @@ if __name__ == "__main__":
             now = time.monotonic()
             age = now - armed_at
             with _wedge_lock:
-                pid, n, last_at = (_wedge_state["pid"],
-                                   _wedge_state["timeouts"],
-                                   _wedge_state["last_at"])
+                pid, stamps = (_wedge_state["pid"],
+                               list(_wedge_state["stamps"]))
             if pid is None:
                 continue  # disarmed between reads; take the next client
             if age > _WEDGE_WINDOW:
                 _wedge_disarm()  # stable client; done judging this one
                 continue
-            if (age >= _WEDGE_GRACE and n >= _WEDGE_TIMEOUTS
-                    and last_at is not None
-                    and now - last_at <= _WEDGE_RECENT):
+            stamps = [t for t in stamps if now - t <= _WEDGE_RECENT]
+            burst = (len(stamps) >= _WEDGE_TIMEOUTS
+                     and (stamps[-1] - stamps[-2]) <= _WEDGE_BURST_GAP)
+            if (age >= _WEDGE_GRACE and burst
+                    and now - stamps[-1] <= _WEDGE_RECENT):
                 # Wedged: kill so ft.run returns and the classified
                 # recovery ladder restarts the session.
                 print("cubeon: client is producing no OpenGL frames - "
