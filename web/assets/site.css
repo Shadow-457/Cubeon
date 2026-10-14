@@ -142,7 +142,7 @@ main{display:block}
 }
 
 /* ---- hero: literal grass-block colour split, no gradient blur ---- */
-.hero{background:linear-gradient(180deg,var(--grass-glass) 0%,var(--grass-glass) 62%,var(--dirt-dark-glass) 62%,var(--dirt-dark-glass) 100%);border-bottom:4px solid var(--dirt);padding:clamp(46px,7vw,86px) 0 clamp(40px,6vw,72px)}
+.hero{border-bottom:4px solid var(--dirt);padding:clamp(46px,7vw,86px) 0 clamp(40px,6vw,72px)}
 .hero-in{display:grid;grid-template-columns:1.05fr .95fr;gap:52px;align-items:center}
 .hero h1{max-width:20ch}
 .hero .lede{margin-top:20px}

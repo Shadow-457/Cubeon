@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import threading
 
 # minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
 # nothing here needs it until the user actually installs/launches, so it
@@ -532,8 +533,161 @@ def _jar_sizes(folder: str) -> "dict[str, int]":
     return sizes
 
 
-def install_version(version_id: str, progress_cb, status_cb, max_cb) -> None:
+# --- Cancellation-aware downloads -------------------------------------------
+#
+# mll 8.0 downloads every file with requests but WITHOUT a timeout, and
+# copies the body with shutil.copyfileobj - one big file (client jar, Java
+# runtime, asset index) or a stalled connection can hold the install for
+# minutes with NO callback firing. That is why a cancelled install used to
+# keep running for minutes: the cancel was only ever checked at the next
+# file boundary. While an install with a cancel_event runs, mll's
+# download_file (the module-global name in `install` and `runtime`, the two
+# modules the version installer drives) is patched with the mirror below:
+# same behavior, plus a read timeout and a per-chunk cancel check.
+#
+# Thread mapping: mll calls setStatus from the very worker thread that is
+# about to download, right before it starts - so the callback wrappers
+# register that thread under this install's bridge, and the chunk loop can
+# tell "this thread belongs to a cancelled install" from "another install
+# was cancelled" (two versions may legally install at once).
+
+
+class _InstallCancelBridge:
+    """Maps the threads inside one install call to its cancel event."""
+
+    def __init__(self, event: threading.Event):
+        self.event = event
+        self._lock = threading.Lock()
+        self._threads: set[int] = set()
+
+    def note_thread(self) -> None:
+        with self._lock:
+            self._threads.add(threading.get_ident())
+
+    def release(self) -> None:
+        with self._lock:
+            self._threads.clear()
+
+    def should_stop(self) -> bool:
+        with self._lock:
+            return self.event.is_set() and threading.get_ident() in self._threads
+
+
+class _DownloadCancelled(Exception):
+    """Raised mid-chunk when the owning install's cancel event is set.
+    install_version re-wraps anything mll raises as a RuntimeError; callers
+    decide "cancelled vs failed" from the event, never the exception type."""
+
+
+_live_cancel_bridges: "list[_InstallCancelBridge]" = []
+_bridges_lock = threading.Lock()
+
+_MIRROR_TIMEOUT = (15, 60)  # (connect, read-between-bytes) - a stalled
+# connection must never hang the install forever, but a slow one that keeps
+# moving is legitimate and only bounded by the chunk-level cancel check.
+
+
+def _make_cancel_aware_download_file():
+    """Builds a mirror of mll 8.0's _helper.download_file with a request
+    timeout and per-chunk cancellation. Built lazily: only a cancelled-capable
+    install pays for importing mll's helpers."""
+    import lzma
+    import requests
+    from minecraft_launcher_lib._helper import (
+        check_path_inside_minecraft_directory, get_sha1_hash, get_user_agent)
+    from minecraft_launcher_lib.exceptions import InvalidChecksum
+
+    def download_file(url, path, callback={}, sha1=None, lzma_compressed=False,
+                      session=None, minecraft_directory=None, overwrite=False):
+        if minecraft_directory is not None:
+            check_path_inside_minecraft_directory(minecraft_directory, path)
+        if os.path.isfile(path) and not overwrite:
+            if sha1 is None:
+                return False
+            elif get_sha1_hash(path) == sha1:
+                return False
+        try:
+            os.makedirs(os.path.dirname(path))
+        except Exception:
+            pass
+        callback.get("setStatus", lambda *_: None)(
+            "Download " + os.path.basename(path))
+        for bridge in tuple(_live_cancel_bridges):
+            if bridge.should_stop():
+                raise _DownloadCancelled()
+        headers = {"user-agent": get_user_agent()}
+        if session is None:
+            r = requests.get(url, stream=True, timeout=_MIRROR_TIMEOUT,
+                             headers=headers)
+        else:
+            r = session.get(url, stream=True, timeout=_MIRROR_TIMEOUT,
+                            headers=headers)
+        if r.status_code != 200:
+            return False
+        with open(path, "wb") as f:
+            r.raw.decode_content = True
+            if lzma_compressed:
+                f.write(lzma.decompress(r.content))
+            else:
+                while True:
+                    for bridge in tuple(_live_cancel_bridges):
+                        if bridge.should_stop():
+                            r.close()
+                            raise _DownloadCancelled()
+                    chunk = r.raw.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        if sha1 is not None:
+            checksum = get_sha1_hash(path)
+            if checksum != sha1:
+                raise InvalidChecksum(url, path, sha1, checksum)
+        return True
+
+    return download_file
+
+
+class _PatchedMllDownloads:
+    """Context manager: swaps mll's download_file for the cancel-aware mirror
+    while one install runs, then restores exactly what was there. Tolerant of
+    a fake mll (tests): only modules that actually expose download_file are
+    touched."""
+
+    def __init__(self, bridge: _InstallCancelBridge):
+        self._bridge = bridge
+        self._saved: "list[tuple[object, object]]" = []
+
+    def __enter__(self):
+        with _bridges_lock:
+            _live_cancel_bridges.append(self._bridge)
+            patched = _make_cancel_aware_download_file()
+            for mod in (getattr(mll, "install", None),
+                        getattr(mll, "runtime", None)):
+                if mod is not None and hasattr(mod, "download_file"):
+                    self._saved.append((mod, mod.download_file))
+                    mod.download_file = patched
+
+    def __exit__(self, *exc):
+        with _bridges_lock:
+            if self._bridge in _live_cancel_bridges:
+                _live_cancel_bridges.remove(self._bridge)
+            for mod, orig in self._saved:
+                try:
+                    mod.download_file = orig
+                except Exception:
+                    pass  # a fake mll that rejects rebinding - nothing to undo
+        return False
+
+
+def install_version(version_id: str, progress_cb, status_cb, max_cb,
+                    cancel_event: "threading.Event | None" = None) -> None:
     """progress_cb(int), status_cb(str), max_cb(int) - mirrors mll's callback dict.
+
+    cancel_event (optional): a threading.Event; when given, the download mll
+    performs is made cancellable PER CHUNK and gets a read timeout - without
+    it a cancel was only honored at the next file boundary, and a stalled
+    connection could hang the install for minutes with no callback firing.
+    See the _PatchedMllDownloads comment above for how the mapping works.
 
     Guarded: mll's own downloader has no resume and no integrity check, so a
     network death mid-install used to leave a truncated jar that the version
@@ -550,6 +704,23 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb) -> None:
         destroy a working install (or the user's own files).
     """
     callback = {"setStatus": status_cb, "setProgress": progress_cb, "setMax": max_cb}
+    if cancel_event is not None:
+        # The download runs on mll's own worker threads; register each thread
+        # with this install's bridge the moment it reports a status, so the
+        # chunk loop below knows exactly whose cancel it is checking.
+        bridge = _InstallCancelBridge(cancel_event)
+        bridge.note_thread()  # the install thread itself downloads json/index/jar
+
+        def _noted(cb):
+            def call(*a):
+                bridge.note_thread()
+                cb(*a)
+            return call
+        callback = {"setStatus": _noted(status_cb),
+                    "setProgress": _noted(progress_cb),
+                    "setMax": _noted(max_cb)}
+    else:
+        bridge = None
     folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
     json_path = os.path.join(folder, version_id + ".json")
     jar_sizes_before = _jar_sizes(folder)
@@ -579,8 +750,17 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb) -> None:
                   "Reconnect and try again.")
 
     try:
-        mll.install.install_minecraft_version(version_id, MINECRAFT_DIR,
-                                              callback=callback)
+        try:
+            if bridge is not None:
+                with _PatchedMllDownloads(bridge):
+                    mll.install.install_minecraft_version(
+                        version_id, MINECRAFT_DIR, callback=callback)
+            else:
+                mll.install.install_minecraft_version(
+                    version_id, MINECRAFT_DIR, callback=callback)
+        finally:
+            if bridge is not None:
+                bridge.release()
     except Exception as ex:
         _drop_attempt_jars()
         raise RuntimeError(

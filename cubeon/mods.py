@@ -570,6 +570,12 @@ def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
     if not os.path.isfile(src_path):
         raise ValueError("Couldn't find that file.")
     require_loader_and_version(mc_version, loader, "install a mod")
+    if str(loader).lower() == "vanilla":
+        # Vanilla can't load mods at all - a jar dropped into the vanilla
+        # profile would sit there forever, never read by the game (the same
+        # rule the Import section enforces). Fail loudly instead.
+        raise ValueError("Vanilla can't load mods - switch the loader to "
+                         "Fabric, Forge or Quilt on the Play tab first.")
 
     profile_dir = get_profile_dir(mc_version, loader)
     filename = _safe_jar_filename(os.path.basename(src_path))

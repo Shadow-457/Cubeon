@@ -746,6 +746,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def open_local_mod_picker(e):
         if _is_mod():
+            # Vanilla can't load mods: refuse here instead of letting the
+            # install land in a profile the game never reads. (install_local_
+            # mod enforces the same rule at the core layer as a backstop.)
+            if state["mod_loader"] == "vanilla":
+                local_install_status.value = (
+                    "Vanilla can't load mods - switch the loader on the "
+                    "Play tab first.")
+                local_install_status.visible = True
+                thread_safe_ui.refresh(local_install_status)
+                return
             exts, title = ["jar"], "Choose a mod .jar"
         else:
             exts, title = ["zip"], f"Choose a {_type_label()} .zip"

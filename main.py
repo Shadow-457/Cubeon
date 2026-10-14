@@ -2408,18 +2408,13 @@ def main(page: ft.Page):
     progress_spinner = ft.ProgressRing(
         width=16, height=16, stroke_width=2, color=ACCENT, visible=False,
     )
-    # Cancel affordance: the install progress row is the only place a user can
-    # see that a download is in flight, so it's also where stopping must live.
-    # Hidden unless an install is actually cancellable (see do_install_and_launch);
-    # it must never look like it can abort the launch phase, which it can't.
-    progress_cancel_btn = ft.TextButton(
-        "Cancel", visible=False,
-        style=ft.ButtonStyle(color=TEXT_DIM),
-        tooltip="Stop this install",
-        on_click=lambda e: on_cancel_install(),
-    )
+    # The main play button doubles as the stop control: while an install is
+    # in flight it shows CANCEL, and while a game is live it shows QUIT GAME
+    # (see set_button_mode / _main_action_click). A separate little Cancel
+    # pill next to the progress bar used to compete with the big button and
+    # was easy to miss - the row now carries only progress.
     progress_row = ft.Row(
-        [progress_spinner, progress_label, progress_cancel_btn], spacing=8,
+        [progress_spinner, progress_label], spacing=8,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
@@ -2429,16 +2424,38 @@ def main(page: ft.Page):
                                weight=ft.FontWeight.W_700,
                                style=ft.TextStyle(letter_spacing=0.5))
 
+    # Soft red fill for the button's stop meanings (CANCEL / QUIT GAME): a
+    # redstone tint over the dark surface, quiet enough to sit in the card
+    # but unmistakably not a green "go" action.
+    _STOP_BG = ft.Colors.with_opacity(0.16, DANGER)
+    _STOP_BG_HI = ft.Colors.with_opacity(0.28, DANGER)
+
+    def _main_action_click(e=None):
+        """The one big button, three meanings: while an install is in flight
+        it is Cancel, while a game is live it is Quit Game, otherwise it
+        starts the normal play/download flow. Defined before play_button (it
+        is its on_click); every name it touches resolves at click time."""
+        if state.get("installing_version"):
+            on_cancel_install()
+            return
+        if state.get("running_version"):
+            _quit_running_game()
+            return
+        on_play_click()
+
     def _on_play_hover(e):
         """Brighten the hero button on hover so it reads as the obvious next
-        step. Only the two live fills (play=green, download=cyan) react; the
-        disabled busy/running/incomplete states must not appear clickable."""
+        step. Only the live fills react; the disabled states (launching,
+        cancelling, ending, incomplete) must not appear clickable."""
         if play_button.disabled:
             return
         hovering = e.data == "true"
-        if play_button_text.value == "PLAY":
+        value = play_button_text.value
+        if value == "PLAY":
             play_button.bgcolor = ACCENT_HI if hovering else ACCENT
-        else:  # download
+        elif value in ("CANCEL", "QUIT GAME"):
+            play_button.bgcolor = _STOP_BG_HI if hovering else _STOP_BG
+        else:  # download / install loader
             play_button.bgcolor = "#63C7D8" if hovering else INFO
         play_button.update()
 
@@ -2453,7 +2470,7 @@ def main(page: ft.Page):
         padding=ft.padding.Padding.symmetric(vertical=14, horizontal=20),
         alignment=ft.Alignment.CENTER,
         ink=False,
-        on_click=lambda e: on_play_click(),  # The main action
+        on_click=_main_action_click,  # play / cancel / quit, by state
         on_hover=_on_play_hover,
     )
 
@@ -2482,8 +2499,11 @@ def main(page: ft.Page):
         Modes:
           - 'play': ready to launch (green)
           - 'download': version not installed, offer download (cyan)
-          - 'busy': working on something before launch, e.g. installing (disabled, spinning icon)
-          - 'running': the game process is currently open (disabled, distinct look)
+          - 'busy': install in flight - the button IS Cancel (red, active)
+          - 'launching' / 'cancelling' / 'ending': transient, non-stoppable
+            waits (disabled, hourglass)
+          - 'running': the game process is currently open - the button IS
+            Quit Game (red, active)
           - 'incomplete': installed but broken (disabled, error icon)
 
         Foreground colour is set per-mode alongside the fill, not just once at
@@ -2519,20 +2539,44 @@ def main(page: ft.Page):
             play_button_text.value = f"INSTALL {_ldr_label} & PLAY"
             play_button.disabled = False
         elif mode == "busy":
+            # While an install runs the main button IS the cancel button -
+            # the old separate Cancel pill next to the progress bar competed
+            # with the big button and was easy to miss.
+            paint(_STOP_BG, DANGER)
+            play_button_icon.name = ft.Icons.CANCEL_ROUNDED
+            play_button_text.value = "CANCEL"
+            play_button.disabled = False
+        elif mode in ("launching", "cancelling", "ending"):
+            # Transient waits where stopping is no longer (or not yet)
+            # possible: the install phase is over and the game is spawning
+            # (launching), a cancel has been requested and the worker is
+            # aborting (cancelling), a quit was requested and the process is
+            # going down (ending). Disabled, quiet, honest.
             paint(SURFACE_HI, TEXT_DIM)
             play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
-            play_button_text.value = "WORKING..."
+            play_button_text.value = {
+                "launching": "LAUNCHING...",
+                "cancelling": "CANCELLING...",
+                "ending": "ENDING...",
+            }[mode]
             play_button.disabled = True
         elif mode == "running":
-            paint(SURFACE_HI, ACCENT)
-            play_button_icon.name = ft.Icons.SPORTS_ESPORTS_ROUNDED
-            play_button_text.value = "GAME RUNNING..."
-            play_button.disabled = True
-        elif mode == "incomplete":
+            # The main button IS the quit button while the game is live.
+            # The old disabled "GAME RUNNING..." left the user with no way
+            # to end the game from the launcher at all.
+            paint(_STOP_BG, DANGER)
+            play_button_icon.name = ft.Icons.STOP_CIRCLE_ROUNDED
+            play_button_text.value = "QUIT GAME"
+            play_button.disabled = False
+            play_button.tooltip = ("Close Minecraft now. Unsaved progress "
+                                   "since the game's last autosave is lost.")
+        else:  # incomplete
             paint(SURFACE_HI, DANGER)
             play_button_icon.name = ft.Icons.ERROR_OUTLINE_ROUNDED
             play_button_text.value = "INCOMPLETE INSTALL"
             play_button.disabled = True
+        if mode != "running":
+            play_button.tooltip = None
         # Scoped repaint: every icon/text/fill mutated above lives inside
         # play_button, so diffing just its subtree (~3 controls) paints the
         # change instead of page.update()'s whole-page diff (~hundreds of
@@ -2633,13 +2677,18 @@ def main(page: ft.Page):
                         progress_cb=_guard,
                         status_cb=_guard,
                         max_cb=_guard,
+                        cancel_event=cancel,
                     )
                     state["installed"].add(version_id)
                     try:
                         # The version is on disk now, so the hero button must
                         # stop saying DOWNLOAD. page.update() alone repaints
                         # the old label - the mode has to be recomputed.
-                        if version_dropdown.value == version_id:
+                        # Never steal the button from an install in flight -
+                        # it is the cancel affordance then (clicks route by
+                        # installing_version, so a PLAY paint here would lie).
+                        if (version_dropdown.value == version_id
+                                and not state.get("installing_version")):
                             set_button_mode("play")
                         page.update()
                     except Exception:
@@ -2710,11 +2759,17 @@ def main(page: ft.Page):
             set_button_mode("download")
             prefetch_version(version_id)
         # Mirror a live game: re-selecting the version that is currently
-        # running must show GAME RUNNING..., not PLAY (the old code happily
+        # running must show QUIT GAME, not PLAY (the old code happily
         # offered a second launch of the same instance). One in-process dict
         # read - no psutil, no disk - so it adds nothing to the selection path.
         if state.get("running_version") == version_id:
             set_button_mode("running")
+        # The button IS the cancel affordance while an install is in flight
+        # (even for a different version - the click routes by installing_
+        # version, so a repainted PLAY here would click as CANCEL and lie).
+        # Keep the honest state until the worker's own repaint.
+        if state.get("installing_version"):
+            set_button_mode("busy")
 
         # Fix any existing mod problems for this profile in the background now,
         # rather than waiting for the launch-time pass (which is filesystem-only
@@ -2853,22 +2908,62 @@ def main(page: ft.Page):
         thread_safe_ui.refresh(status_dot)
 
     def on_cancel_install():
-        """Requests cancellation of the install shown in the progress row.
+        """Requests cancellation of the install the main button (in CANCEL
+        mode) refers to.
 
         This only flips the flag - the installing worker notices it between
-        download steps and aborts with its own cleanup, so the button can't
-        leave a half-claimed state behind. Launching is deliberately NOT
-        cancellable; by then the flag is disarmed and the button hidden.
+        download steps AND mid-file (versions.install_version patches mll's
+        downloader with a per-chunk check when a cancel event is armed), so
+        the request lands within a second or two instead of at the next file
+        boundary. Launching is deliberately NOT cancellable; by then the flag
+        is disarmed and the button is in the honest 'launching' state.
         """
         vid = state.get("installing_version")
         ev = _install_cancels.get(vid) if vid else None
         if ev is None:
             return
         ev.set()
-        progress_cancel_btn.disabled = True
+        # The button is the cancel affordance: flip it to a disabled
+        # "CANCELLING..." so a second click can't re-arm; the worker repaints
+        # the honest mode once the abort lands.
+        set_button_mode("cancelling")
         progress_label.value = "Cancelling..."
         thread_safe_ui.refresh(progress_row)
         thread_safe_ui.refresh(progress_bar)
+
+    def _quit_running_game():
+        """Ends the live game from the QUIT GAME button.
+
+        The watchdog's terminate() is graceful first (SIGTERM, SIGKILL after
+        2s) and identity-checked, so it can never hit the wrong process. The
+        call blocks for up to ~4s, so it runs on a daemon thread; the normal
+        on_exit path repaints the button when the game is actually down. If
+        termination is refused (stale record), the button self-heals instead
+        of pretending.
+        """
+        try:
+            from cubeon import watchdog as _watchdog
+            rec = _watchdog.stale_session()
+        except Exception:
+            rec = None
+        if rec is None:
+            _reconcile_running_button()
+            return
+        set_button_mode("ending")
+        set_status("Stopping", busy=True)
+        page.update()
+
+        def _work():
+            try:
+                stopped = _watchdog.terminate(rec["pid"], rec.get("session_id"))
+            except Exception:
+                stopped = False
+            if not stopped:
+                # The game died between the probe and the terminate (or the
+                # record went stale): on_exit won't fire for it, so heal.
+                _reconcile_running_button()
+
+        threading.Thread(target=_work, daemon=True, name="quit-game").start()
 
     def _begin_install_and_launch(version_id, username, ensure_java_major=None):
         """Paints the busy state and hands off to the install worker.
@@ -2920,8 +3015,6 @@ def main(page: ft.Page):
         progress_label.value = "Preparing"
         progress_label.visible = True
         progress_spinner.visible = True
-        progress_cancel_btn.disabled = False
-        progress_cancel_btn.visible = True
         set_status("Preparing", busy=True)
         page.update()
 
@@ -3073,6 +3166,25 @@ def main(page: ft.Page):
 
     _launch_state_lock = threading.RLock()
 
+    def _reset_button_after_worker(version_id):
+        """Repaint the main button after an install worker ends in cancel or
+        error. The old code always painted for the worker's version - but the
+        user may have selected a DIFFERENT version mid-install (the guard in
+        on_version_selected keeps the button honest meanwhile), and then the
+        reset painted a mode for a version nobody is looking at. Selection
+        unchanged: the simple recompute; changed: the full selection refresh
+        (which also re-arms prefetch for the newly-selected version)."""
+        if version_dropdown.value == version_id:
+            set_button_mode("play" if version_id in state["installed"]
+                            else "download")
+        else:
+            try:
+                on_version_selected()
+            except Exception:
+                set_button_mode("play"
+                                if version_dropdown.value in state["installed"]
+                                else "download")
+
     def do_install_and_launch(version_id, username, ensure_java_major=None):
         """
         This runs in a background thread. It handles:
@@ -3160,7 +3272,8 @@ def main(page: ft.Page):
                     # flag), and starting a fresh install then would ignore it.
                     _check_cancel()
                     if version_id not in state["installed"]:
-                        core.install_version(version_id, progress_cb, status_cb, max_cb)
+                        core.install_version(version_id, progress_cb, status_cb,
+                                             max_cb, cancel_event=cancel)
                         state["installed"].add(version_id)
 
             # If a mod loader is selected, install it if supported - but only
@@ -3224,11 +3337,12 @@ def main(page: ft.Page):
 
             # Everything installable is on disk now. From here on the work is
             # local setup + spawning the game, which cannot be interrupted
-            # safely - disarm cancellation and hide the button so it stops
-            # promising an abort that is no longer possible.
+            # safely - disarm cancellation and flip the button to the honest
+            # disabled state so it stops promising an abort that is no longer
+            # possible.
             cancellable["on"] = False
             state["installing_version"] = None
-            progress_cancel_btn.visible = False
+            set_button_mode("launching")
 
             # Launch the game
             progress_label.value = "Launching"
@@ -3525,7 +3639,7 @@ def main(page: ft.Page):
                 progress_label.visible = True
                 progress_spinner.visible = False
                 progress_bar.visible = False
-                set_button_mode("play" if version_id in state["installed"] else "download")
+                _reset_button_after_worker(version_id)
                 set_status("Ready")
                 page.update()
                 return
@@ -3548,23 +3662,18 @@ def main(page: ft.Page):
             progress_label.visible = True
             progress_spinner.visible = False
             progress_bar.visible = False
-            set_button_mode("play" if version_id in state["installed"] else "download")
+            _reset_button_after_worker(version_id)
             set_status("Error")
             page.update()
             traceback.print_exc()  # full trace to the console for bug reports
         finally:
             # Whatever happened - success, crash, cancel, or the early return
-            # after a launch that died instantly - the cancel affordance is
-            # never left armed on a finished install.
+            # after a launch that died instantly - no install is in flight
+            # any more. The button's paint is owned by the paths above (the
+            # cancel/error resets, or the running state on success).
             cancellable["on"] = False
             if state.get("installing_version") == version_id:
                 state["installing_version"] = None
-            progress_cancel_btn.visible = False
-            progress_cancel_btn.disabled = False
-            try:
-                thread_safe_ui.refresh(progress_row)
-            except Exception:
-                pass
 
     # --- Server status panel - the right column below the grass block was
     # dead space, and "is my server running" is a genuinely useful thing to
@@ -3773,7 +3882,11 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
     )
     delete_instance_btn = ft.IconButton(
-        ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=TEXT_DIM, icon_size=18,
+        ft.Icons.DELETE_OUTLINE_ROUNDED,
+        # A quiet red (not the full DANGER flood) so the destructive affordance
+        # reads as destructive before anyone hovers it.
+        icon_color=ft.Colors.with_opacity(0.7, DANGER),
+        icon_size=18,
         tooltip="Delete instance", on_click=on_delete_instance,
         # Secondary until the pointer is on it - the destructive action then
         # reads red without the row looking alarming at rest.
