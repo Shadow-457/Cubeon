@@ -29,6 +29,7 @@ import os
 import re
 import threading
 import time
+from collections import OrderedDict
 
 from .net import get_with_retry
 from .paths import CACHE_DIR, user_agent
@@ -53,6 +54,24 @@ _mem: dict[str, "str | None"] = {}
 _mem_lock = threading.Lock()
 _feed_mem: dict = {"value": None}
 _feed_lock = threading.Lock()
+
+# ENCODED-ART CACHE. src() is called from the render path - on every Play-tab
+# selection change and on every card rebuild - and each call used to re-open
+# the file and base64-encode it again. Mojang's key art is a JPEG of 27-53 KB,
+# so that was a genuine read + encode per call per control on the UI thread
+# (measured 0.127 ms uncached vs 0.023 ms cached). It is the cheaper half of
+# the fix: the expensive part is downstream, because each encoded banner is
+# what gets shipped to the client for that image control - which is why the
+# cards themselves are no longer rebuilt (see _rebuild_instance_cards in
+# main.py, and tools/test_version_art_cache.py which pins both).
+#
+# The encoded string is keyed by the file's (mtime, size), so a re-downloaded
+# banner - which lands via os.replace, giving it a new mtime - is picked up
+# automatically and nothing can go stale. LRU-capped because a long session can
+# walk through many versions and each entry is held in memory.
+_src_cache: "OrderedDict[str, tuple]" = OrderedDict()   # path -> (mtime_ns, size, b64)
+_SRC_CACHE_MAX = 12
+_src_lock = threading.Lock()
 
 
 def _enc(version: str) -> str:
@@ -347,15 +366,36 @@ def src(version: "str | None") -> "str | None":
     ~/.cubeon_launcher silently renders as a blank box. A cached banner is
     therefore fed back base64-encoded - the same trick cubeon/icons.py and the
     skin preview use. None means "not cached yet": call fetch_async()/prefetch()
-    or fall back to a bundled placeholder image."""
+    or fall back to a bundled placeholder image.
+
+    The encoded string is cached per file (see _src_cache), so repeated renders
+    - a card rebuild, or one selection change after another - are a dict lookup
+    instead of a fresh read + encode of the banner.
+    """
     path = cached_path(version)
     if not path:
         return None
     try:
-        with open(path, "rb") as fh:
-            return base64.b64encode(fh.read()).decode("ascii")
+        info = os.stat(path)
     except OSError:
         return None
+    stamp = (info.st_mtime_ns, info.st_size)
+    with _src_lock:
+        hit = _src_cache.get(path)
+        if hit is not None and hit[0] == stamp:
+            _src_cache.move_to_end(path)
+            return hit[1]
+    try:
+        with open(path, "rb") as fh:
+            encoded = base64.b64encode(fh.read()).decode("ascii")
+    except OSError:
+        return None
+    with _src_lock:
+        _src_cache[path] = (stamp, encoded)
+        _src_cache.move_to_end(path)
+        while len(_src_cache) > _SRC_CACHE_MAX:
+            _src_cache.popitem(last=False)
+    return encoded
 
 
 def prefetch(version: "str | None", on_ready=None) -> None:

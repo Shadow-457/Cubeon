@@ -3816,13 +3816,12 @@ def main(page: ft.Page):
     # page is never a blank box.
     #
     # The banner tracks the SELECTED version; the "Jump back in" cards give
-    # each INSTALLED version its own banner. Both download off the UI thread
-    # and repaint via thread_safe_ui, and both guard against a late download
+    # each INSTALLED version its own art. Both download off the UI thread and
+    # repaint via thread_safe_ui, and both guard against a late download
     # landing after the user already switched away.
     #
-    # Art is requested at most once per version per session (_art_requested):
-    # update_hero runs on every selection change, and re-spawning the fetch
-    # thread each time would be pure churn.
+    # One fetch per version serves every interested control (_art_watchers), so
+    # update_hero running on every selection change doesn't re-spawn the fetch.
     # -----------------------------------------------------------------
     ART_RADIUS = 12  # the design is blocky (RADIUS=2); the art reads better rounded
     # The version spotlight: the official key art at its TRUE aspect (Mojang's
@@ -3855,25 +3854,32 @@ def main(page: ft.Page):
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
     )
     _hero_art_uid = {"value": None}
-    _art_requested: set = set()
+    # Multiple controls can want the same version's art (the hero spotlight and
+    # that version's card). Each registers a callback; one fetch serves them
+    # all - a per-base "already requested" flag would leave the second caller
+    # stuck on the placeholder forever.
+    _art_watchers: dict = {}
+    _art_inflight: set = set()
 
     def _request_art(base, apply_fn):
         """Ensure the best available art for `base` lands in `apply_fn(value)`
         (an ft.Image.src-safe base64 string, or None). Fires immediately when
-        the official art is already cached; otherwise downloads off-thread."""
+        the official art is already cached; otherwise downloads off-thread and
+        notifies every waiting caller when it lands."""
         if not base:
             return
         if version_art.has_official(base):
             apply_fn(version_art.src(base))
             return
-        if base in _art_requested:
+        _art_watchers.setdefault(base, []).append(apply_fn)
+        if base in _art_inflight:
             return
-        _art_requested.add(base)
+        _art_inflight.add(base)
 
         def _done(value):
-            apply_fn(value)
-            if value is None:
-                _art_requested.discard(base)  # let a later render retry
+            _art_inflight.discard(base)
+            for fn in _art_watchers.pop(base, []):
+                fn(value)
 
         version_art.prefetch(base, _done)
 
@@ -3915,7 +3921,14 @@ def main(page: ft.Page):
         "No versions installed yet - pick one above and press Play.",
         size=12, color=TEXT_DIM, visible=False,
     )
-    _cards_sig = {"value": None}
+    # "Jump back in" cards are built ONCE and afterwards only RESTYLED. Both
+    # halves matter: a rebuilt ft.Image is a brand-new control, so Flet re-sends
+    # its entire base64 payload and every thumbnail in the row visibly reloads -
+    # and the art used to be re-read and re-encoded on every rebuild.
+    _card_widgets: dict = {}      # version_id -> (card, art_image)
+    _card_names: dict = {}        # version_id -> the name that card was drawn with
+    _cards_order = {"value": None}    # the installed set/order the row holds
+    _cards_selected = {"value": None}  # the selection the cards are styled for
 
     def _select_instance(version_id):
         if version_id not in state["installed"]:
@@ -3923,7 +3936,9 @@ def main(page: ft.Page):
         version_dropdown.value = version_id
         on_version_selected()
 
-    def _instance_card(version_id, meta, selected):
+    def _instance_card(version_id, meta):
+        """Builds one card, unselected - the caller styles it (see
+        _style_instance_card), so changing the selection never rebuilds it."""
         base = core.extract_mc_version(version_id) or version_id
         name = ((cfg.get("version_labels") or {}).get(version_id)
                 or meta.get("display_name") or version_id)
@@ -3936,7 +3951,7 @@ def main(page: ft.Page):
                 thread_safe_ui.refresh(img)
 
         _request_art(base, _ready)
-        return ft.Container(
+        card = ft.Container(
             content=ft.Column(
                 [
                     ft.Container(content=art, height=150,
@@ -3964,32 +3979,68 @@ def main(page: ft.Page):
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
             width=210,
-            bgcolor=ACCENT_TINT if selected else CARD_FILL,
-            border=ft.border.Border.all(1, ACCENT if selected else CARD_BORDER),
+            bgcolor=CARD_FILL,
+            border=ft.border.Border.all(1, CARD_BORDER),
             border_radius=ART_RADIUS,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             ink=False,
             tooltip=f"Select {name}",
             on_click=lambda e, k=version_id: _select_instance(k),
         )
+        return card, art
+
+    def _style_instance_card(card, selected):
+        """Selection is a border + fill change, never a rebuild. Flet diffs a
+        control's own properties, so updating the card sends those two fields
+        and nothing else - in particular not its image."""
+        card.bgcolor = ACCENT_TINT if selected else CARD_FILL
+        card.border = ft.border.Border.all(1, ACCENT if selected else CARD_BORDER)
 
     def _rebuild_instance_cards():
-        """One banner-headed card per installed version. Rebuilt only when the
-        installed set or the selection actually changes, so the frequent
-        update_hero() calls don't churn controls."""
-        selected = version_dropdown.value
-        sig = "|".join(sorted(state.get("installed") or [])) + "::" + (selected or "")
-        if sig == _cards_sig["value"]:
-            return
-        _cards_sig["value"] = sig
+        """One banner-headed card per installed version.
+
+        Rebuilt only when the installed SET (or a version's display name)
+        actually changes; selecting a different version merely restyles the
+        two cards involved. That distinction is the whole point - the old
+        change signature included the selection, so every version change threw
+        away and re-created all the cards, and a re-created ft.Image carries
+        its full payload again: the Play tab's thumbnails reloading on every
+        selection change. The frequent update_hero() calls stay free.
+        """
         metas = state.get("installed_meta") or {}
-        cards = [_instance_card(vid, metas.get(vid, {}), vid == selected)
-                 for vid in metas]
-        instance_cards_row.controls = cards
-        instance_cards_row.visible = bool(cards)
-        instance_cards_empty.visible = not cards
-        thread_safe_ui.refresh(instance_cards_row)
-        thread_safe_ui.refresh(instance_cards_empty)
+        labels = cfg.get("version_labels") or {}
+        touched = False
+        for gone in [v for v in _card_widgets if v not in metas]:
+            _card_widgets.pop(gone, None)   # its widget leaves with it
+            _card_names.pop(gone, None)
+            touched = True
+        for vid in metas:
+            meta = metas.get(vid, {})
+            name = labels.get(vid) or meta.get("display_name") or vid
+            # Re-created ONLY when the drawn name changed (a new version, or a
+            # rename) - never because the selection moved.
+            if vid not in _card_widgets or _card_names.get(vid) != name:
+                _card_widgets[vid] = _instance_card(vid, meta)
+                _card_names[vid] = name
+                touched = True
+        order = list(metas)
+        if order != _cards_order["value"]:
+            _cards_order["value"] = order
+            touched = True
+        if touched:
+            cards = [_card_widgets[vid][0] for vid in order]
+            instance_cards_row.controls = cards
+            instance_cards_row.visible = bool(cards)
+            instance_cards_empty.visible = not cards
+            thread_safe_ui.refresh(instance_cards_row)
+            thread_safe_ui.refresh(instance_cards_empty)
+            _cards_selected["value"] = None     # a fresh row still needs styling
+        selected = version_dropdown.value
+        if selected != _cards_selected["value"]:
+            _cards_selected["value"] = selected
+            for vid, (card, _art) in _card_widgets.items():
+                _style_instance_card(card, vid == selected)
+                thread_safe_ui.refresh(card)
 
     def update_hero():
         """Syncs the hero's big title / meta chips with the current version +
