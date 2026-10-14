@@ -203,7 +203,7 @@ from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driv
 # keep working untouched.
 # ---------------------------------------------------------------------------
 from cubeon.theme import (  # noqa: E402  (kept with the other token setup)
-    BG, SURFACE, SURFACE_HI, SURFACE_MAX, BORDER, BORDER_HI,
+    BG, BG_GLASS, SURFACE, SURFACE_HI, SURFACE_MAX, BORDER, BORDER_HI,
     ACCENT, ACCENT_HI, ACCENT_DIM, ON_ACCENT,
     TEXT, TEXT_DIM, TEXT_FAINT, DANGER, INFO, WARNING,
     FONT_DISPLAY, FONT_BODY, FONT_MONO,
@@ -212,6 +212,7 @@ from cubeon.theme import (  # noqa: E402  (kept with the other token setup)
     card as glass_card,
 )
 from cubeon import theme  # for theme.pixel_divider / theme.section_label
+from cubeon import maintenance as maintenance_mod  # disk hygiene (see cubeon/maintenance.py)
 
 
 def resolve_assets_dir() -> str:
@@ -531,6 +532,11 @@ def main(page: ft.Page):
     setup_logging()
     # --- Basic window configuration ---
     page.title = "Cubeon"
+    # Glass mode (Settings toggle, default on) is applied in
+    # _apply_real_geometry(), where the config has been loaded - the early
+    # window here only gets the opaque default so the pre-config splash is
+    # always readable on any compositor.
+    page.window.bgcolor = BG
     page.bgcolor = BG
     page.padding = 0
     # The window process must ALREADY be started hidden (see ft.run below,
@@ -629,6 +635,14 @@ def main(page: ft.Page):
             # async center method after mapping. This function is synchronous
             # and must not call Window.center() without awaiting it.
         page.window.maximized = _saved_maximized
+        # Glass mode: translucent window + glass canvas. Only the BACKGROUND
+        # goes translucent - panels/text keep full opacity, so contrast is
+        # unchanged. A compositor that refuses alpha simply shows the colours
+        # opaque (ARGB alpha is best-effort on every platform).
+        _glass = bool(cfg.get("glass_mode_enabled", True))
+        if _glass:
+            page.window.bgcolor = BG_GLASS
+            page.bgcolor = BG_GLASS
         nonlocal _geometry_ready
         _geometry_ready = True
 
@@ -731,6 +745,18 @@ def main(page: ft.Page):
     # and the F12 hook both see the resolved value.
     from cubeon.inspector import inspector_enabled as _insp_enabled
     _inspector_enabled = _insp_enabled(cfg)
+
+    # --- Disk hygiene: tidy Cubeon's own folders, off the UI thread ---
+    # Idempotent and non-destructive (see cubeon/maintenance.py): it merges
+    # stray game assets back into assets/objects/, drops superseded duplicates
+    # from the global mod/content stores, archives foreign-launcher leftovers
+    # to <game>/_legacy/ and clears .part/.tmp debris. It NEVER touches game
+    # content (saves, versions, mods, packs, worlds). Turn it off by setting
+    # auto_organize_files to false; the Settings button still runs it on demand.
+    threading.Thread(
+        target=maintenance_mod.run_at_startup, args=(cfg,),
+        name="cubeon-maintenance", daemon=True,
+    ).start()
 
     # --- Optional Discord Rich Presence ("Cubeon" on your Discord profile) ---
     # Only does anything if Discord is running AND the user has pasted a Discord
@@ -4457,6 +4483,47 @@ def main(page: ft.Page):
 
     max_fps_cb.on_change = on_max_fps_change
 
+    # Glass background: translucent window so the desktop shows through
+    # faintly. Restart-to-apply (the window alpha is set once at startup).
+    glass_cb = ft.Checkbox(
+        label="",
+        value=bool(cfg.get("glass_mode_enabled", True)),
+        active_color=ACCENT,
+    )
+
+    def on_glass_change(e):
+        cfg["glass_mode_enabled"] = bool(glass_cb.value)
+        core.save_config(cfg)
+        set_status("Glass background " +
+                   ("on - restart Cubeon to apply" if glass_cb.value
+                    else "off - restart Cubeon to apply"))
+
+    glass_cb.on_change = on_glass_change
+
+    # "Tidy up files": runs cubeon/maintenance.py's organizer on demand. It is
+    # idempotent and never touches game content, so the button is always safe
+    # to press; it reports what it did in the status line. The same pass also
+    # runs automatically at startup unless auto_organize_files is turned off.
+    def run_tidy_up(e=None):
+        set_status("Tidying up Cubeon's files…")
+
+        def _work():
+            try:
+                rep = maintenance_mod.organize(apply=True)
+                set_status(maintenance_mod.summary(rep, applied=True))
+            except Exception:
+                logging.getLogger(__name__).warning("tidy up failed", exc_info=True)
+                set_status("Couldn't tidy the files - see the log for details")
+
+        threading.Thread(target=_work, name="cubeon-tidy-up", daemon=True).start()
+
+    tidy_btn = ft.Container(
+        content=ft.Text("Tidy up files", color=TEXT, weight=ft.FontWeight.W_600, size=14),
+        bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(vertical=11),
+        alignment=ft.Alignment.CENTER, ink=False, on_click=run_tidy_up,
+    )
+
     detected_java = core.find_java()  # Try to auto-detect Java
 
     # -----------------------------------------------------------------
@@ -5037,7 +5104,7 @@ def main(page: ft.Page):
         save_width_height_java=save_settings,
         browse_online_row=browse_online_row, legacy_btn=legacy_btn,
         legacy_note=legacy_note, client_mod_cb=client_mod_cb,
-        max_fps_cb=max_fps_cb,
+        max_fps_cb=max_fps_cb, glass_cb=glass_cb, tidy_btn=tidy_btn,
         ram_slider=ram_slider, ram_range_row=ram_range_row,
         ram_label=ram_label, ram_warning=ram_warning,
         width_field=width_field, height_field=height_field,

@@ -61,6 +61,12 @@ import flet as ft
 # green", never grey. Stepped so each level of elevation is distinguishable
 # without shadows.
 BG = "#050505"           # app canvas - true black
+# Translucent canvas (Max FPS-era look, 2026-10-14): the same colours with an
+# alpha channel, ARGGGAARRGG - wait, ARGB "#AARRGGBB". page.window.bgcolor
+# with alpha makes the NATIVE window translucent; the page then paints
+# BG_GLASS over it. Flutter's convention is #AARRGGBB (alpha first).
+BG_GLASS = "#E6050505"       # ~90% opaque canvas
+SURFACE_GLASS = "#E60B0D0A"  # ~90% panels
 SURFACE = "#0B0D0A"      # panels, cards, containers
 SURFACE_HI = "#131711"   # hovered/elevated panels, inputs - one step up
 SURFACE_MAX = "#1A2015"  # top elevation - dialogs, menus, popovers

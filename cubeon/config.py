@@ -126,6 +126,14 @@ DEFAULT_CONFIG = {
     # choices like render distance are never touched. Off = the launcher
     # leaves options.txt alone entirely.
     "max_fps_enabled": True,
+    # Translucent ("glass") launcher window: the native window AND the page
+    # canvas are painted with an alpha channel so the desktop shows through
+    # faintly behind the UI. Only the BACKGROUND goes translucent - panels and
+    # text keep full opacity, so contrast is unchanged. Best-effort on every
+    # platform: a compositor/protocol that refuses alpha just shows the opaque
+    # colours. The window alpha is set once at startup, so changing this needs
+    # a relaunch. See BG_GLASS/SURFACE_GLASS in cubeon/theme.py.
+    "glass_mode_enabled": True,
     "server_ram_mb": 2048,  # RAM allocated to the local server started from the Server tab
     # Whether Smooth mode (low-ping optimization) is ON per server version.
     # Stored explicitly rather than inferred from server.properties, because
@@ -190,6 +198,16 @@ DEFAULT_CONFIG = {
     # once-a-season hello happens once, including across the Dec->Jan boundary
     # (see seasonal.season_year).
     "season_seen": None,
+
+    # --- Disk hygiene (see cubeon/maintenance.py) -------------------------
+    # Let Cubeon tidy its own folders at startup: merge stray Minecraft asset
+    # objects back into assets/objects/, drop superseded duplicates from the
+    # global mod/content stores, archive foreign-launcher leftovers to
+    # <game>/_legacy/ and clear .part/.tmp debris. It never touches game
+    # content (saves, versions, mods, packs, worlds). Turning this off leaves
+    # the folders exactly as they are; the Settings > Game versions "Tidy up
+    # files" action still works on demand.
+    "auto_organize_files": True,
 }
 
 

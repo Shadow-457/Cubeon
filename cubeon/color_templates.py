@@ -114,7 +114,21 @@ def _derive(palette: dict) -> dict:
     palette.setdefault("ROW_HOVER", ft.Colors.with_opacity(0.65, palette["SURFACE_HI"]))
     palette.setdefault("ACCENT_TINT", ft.Colors.with_opacity(0.12, palette["ACCENT"]))
     palette.setdefault("ACCENT_TINT_HI", ft.Colors.with_opacity(0.20, palette["ACCENT"]))
+    # Translucent canvas tokens (glass look): the template's own BG/SURFACE with
+    # an alpha channel prepended, ARGB. 0xE6 = ~90% opaque - enough depth for
+    # text contrast, enough transparency for the desktop to show through.
+    palette.setdefault("BG_GLASS", _with_alpha(palette["BG"], 0.90))
+    palette.setdefault("SURFACE_GLASS", _with_alpha(palette["SURFACE"], 0.90))
     return palette
+
+
+def _with_alpha(hex_color: str, opacity: float) -> str:
+    """'#RRGGBB' -> '#AARRGGBB' with A = opacity*255."""
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) == 8:
+        hex_color = hex_color[2:]   # already has alpha - replace it
+    alpha = round(max(0.0, min(1.0, opacity)) * 255)
+    return f"#{alpha:02X}{hex_color}"
 
 
 def apply_template(name: str) -> str:

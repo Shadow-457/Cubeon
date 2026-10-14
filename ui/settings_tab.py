@@ -84,7 +84,7 @@ def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
 def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        set_status, save_width_height_java,
                        browse_online_row, legacy_btn, legacy_note,
-                       client_mod_cb, max_fps_cb, ram_slider, ram_range_row, ram_label,
+                       client_mod_cb, max_fps_cb, glass_cb, tidy_btn, ram_slider, ram_range_row, ram_label,
                        ram_warning, width_field, height_field,
                        java_path_field, custom_jvm_field, detected_java,
                        import_pane,
@@ -137,6 +137,21 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 "Fast graphics, minimal particles, no entity shadows at launch. "
                 "Render distance is never touched.",
                 max_fps_cb, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+            ),
+            _setting_row(
+                "Glass background",
+                "Translucent launcher background - the desktop shows through "
+                "faintly. Restart to apply.",
+                glass_cb, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+            ),
+            ft.Container(height=4),
+            tidy_btn,
+            ft.Text(
+                "Tidies Cubeon's own folders: merges stray game assets, "
+                "removes duplicate mod files, archives old-launcher leftovers "
+                "and clears temp files. Your worlds, versions and packs are "
+                "never touched.",
+                size=11, color=TEXT_FAINT,
             ),
         ],
         spacing=8, visible=True,
