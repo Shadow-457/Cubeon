@@ -11,6 +11,8 @@ __pycache__/
 .DS_Store
 .directory
 .kilo/worktrees/
+.freebuff
+.claude
 
 # --- local secrets (tokens, keys) ---
 .env
