@@ -49,6 +49,10 @@ jobs:
             # checking (test_mod_compile) stays, building does not.
             case "$t" in
               tools/test_visual_*.py) echo "skip (manual) $t"; continue;;
+              # Spawns REAL flet GUI clients (wedge detector + software-GL
+              # ladder); has no display on CI and fails there identically
+              # (documented 2026-10-14: fails the same on a clean tree).
+              tools/test_wedge_watchdog.py) echo "skip (headless CI) $t"; continue;;
             esac
             echo "::group::$t"
             # Each script gets a fresh game directory. Several suites create
@@ -171,6 +175,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
+
+      - name: Install NSIS
+        # The runner has neither makensis on PATH nor wine, so without this
+        # the installer step failed every Windows build ("NSIS not found").
+        run: choco install nsis -y --no-progress
 
       - name: Build Windows EXE & ZIP
         run: |
