@@ -2198,6 +2198,18 @@ sanitize at launch (below). The four still-retired mods
   UNCONDITIONALLY (even with the perf suite off) because the stale broken
   config lingers. Guard: tools/test_perf_mods.py §8. Do NOT remove the mod's
   crash-causing entry handling without re-reading this.
+- **Max FPS mode (2026-10-14, cubeon/game_options.py `apply_max_fps`) —
+  INVARIANT.** On the launch path (gated on `max_fps_enabled`, default True, a
+  Settings checkbox "Max FPS mode") the launcher ALSO sets the game's own
+  speed-only options: graphicsMode:0, particles:0, entityShadows:false,
+  entityDistanceScaling:0.75, biomeBlendRadius:0, syncChunkWrites:false
+  (`MAX_FPS_OPTIONS`). unlock_frame_rate() and apply_max_fps() share
+  `_set_options()` — the contract is: only keys ALREADY in options.txt are
+  touched (no invented unknown keys), values written only when they differ,
+  atomic + idempotent, never raises. **Render distance / simulation distance /
+  mipmap / smooth lighting / clouds / leaves / water are NEVER rewritten** —
+  those are the player's visual choices (the content.py rule). Tests:
+  tools/test_perf_mods.py section 10.
 - **Frame-rate unlock (cubeon/game_options.py)**: adding mods only raises what
   the machine CAN render; Minecraft's own `options.txt` will still read 60 (or
   ~30, Vsync halving) if `enableVsync:true` / a low `maxFps`. This module flips

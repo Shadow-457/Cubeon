@@ -119,6 +119,13 @@ DEFAULT_CONFIG = {
     # Turning it off leaves the mod set and the game's options exactly as the
     # user built them.
     "perf_mods_enabled": True,
+    # Max FPS mode: with the perf mods on, also set Minecraft's own
+    # speed-only graphics options (Fast graphics, minimal particles, no entity
+    # shadows, trimmed entity distance, biome blend 0, chunk writes off the
+    # render thread - see cubeon/game_options.py MAX_FPS_OPTIONS). Visual
+    # choices like render distance are never touched. Off = the launcher
+    # leaves options.txt alone entirely.
+    "max_fps_enabled": True,
     "server_ram_mb": 2048,  # RAM allocated to the local server started from the Server tab
     # Whether Smooth mode (low-ping optimization) is ON per server version.
     # Stored explicitly rather than inferred from server.properties, because

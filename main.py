@@ -4437,6 +4437,26 @@ def main(page: ft.Page):
 
     client_mod_cb.on_change = on_client_mod_change
 
+    # Max FPS mode: the launcher sets Minecraft's own speed-only graphics
+    # options at launch (Fast graphics, minimal particles, no entity shadows,
+    # biome blend 0, chunk writes off the render thread). Pure speed, no
+    # gameplay change; the player's visual choices (render distance etc.) are
+    # never rewritten. Off = the launcher leaves options.txt alone.
+    max_fps_cb = ft.Checkbox(
+        label="",
+        value=bool(cfg.get("max_fps_enabled", True)),
+        active_color=ACCENT,
+    )
+
+    def on_max_fps_change(e):
+        cfg["max_fps_enabled"] = bool(max_fps_cb.value)
+        core.save_config(cfg)
+        set_status("Max FPS mode " +
+                   ("on - Fast graphics at launch" if max_fps_cb.value
+                    else "off - your in-game graphics choices are kept"))
+
+    max_fps_cb.on_change = on_max_fps_change
+
     detected_java = core.find_java()  # Try to auto-detect Java
 
     # -----------------------------------------------------------------
@@ -5017,6 +5037,7 @@ def main(page: ft.Page):
         save_width_height_java=save_settings,
         browse_online_row=browse_online_row, legacy_btn=legacy_btn,
         legacy_note=legacy_note, client_mod_cb=client_mod_cb,
+        max_fps_cb=max_fps_cb,
         ram_slider=ram_slider, ram_range_row=ram_range_row,
         ram_label=ram_label, ram_warning=ram_warning,
         width_field=width_field, height_field=height_field,

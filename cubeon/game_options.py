@@ -31,6 +31,21 @@ from .paths import MINECRAFT_DIR
 VSYNC_KEY = "enableVsync"
 MAX_FPS_KEY = "maxFps"
 
+# Max FPS mode (2026-10-14): Minecraft's own options that are pure speed with
+# no gameplay cost. Each entry is (key, value, why). Deliberately absent:
+# renderDistance / simulationDistance / mipmapLevels / smooth lighting /
+# clouds / leaves / water - those change what the player SEES, and the
+# launcher does not rewrite a player's visual choices (the content.py rule);
+# these six only stop the engine wasting work.
+MAX_FPS_OPTIONS = (
+    ("graphicsMode", "0", "Fast graphics - the biggest lever after the renderer"),
+    ("particles", "0", "Minimal particles"),
+    ("entityShadows", "false", "no entity shadow passes"),
+    ("entityDistanceScaling", "0.75", "fewer far-away entity updates"),
+    ("biomeBlendRadius", "0", "fewer biome blend samples per pixel"),
+    ("syncChunkWrites", "false", "chunk saves off the render thread"),
+)
+
 # Vanilla's FPS slider tops out at 260 and labels it "Unlimited"; anything
 # above the slider is meaningless, and 260 is high enough to never be the cap
 # on real hardware.
@@ -49,9 +64,21 @@ def unlock_frame_rate(path: str | None = None) -> dict:
     options.txt yet). Never raises: a missing/unwritable file is reported, not
     fatal - this is a bonus on top of the mods, not a launch requirement.
     """
-    target = path or options_path()
-    result = {"changed": [], "detail": "", "path": target}
+    return _set_options(path or options_path(),
+                        {VSYNC_KEY: "false", MAX_FPS_KEY: str(UNLIMITED_FPS)},
+                        "frame rate unlock")
 
+
+def _set_options(target: str, wanted: dict, label: str) -> dict:
+    """Rewrites exactly the `wanted` keys in an options.txt, in place.
+
+    Same contract as unlock_frame_rate(): only keys that already exist are
+    touched (an older version's file is never given an unknown key), the value
+    is written only when it differs, the write is atomic and idempotent, and
+    every failure is reported instead of raised - a bonus on top of the mods,
+    never a launch requirement. `label` is the wording of the summary line.
+    """
+    result = {"changed": [], "detail": "", "path": target}
     try:
         with open(target, "r", encoding="utf-8", errors="replace") as fh:
             original = fh.read()
@@ -66,28 +93,29 @@ def unlock_frame_rate(path: str | None = None) -> dict:
         lines.pop()
 
     out = []
+    seen_wanted = set()
     for line in lines:
         stripped = line.strip()
         key, sep, raw = stripped.partition(":")
-        if sep and key == VSYNC_KEY:
-            if raw.strip().lower() != "false":
-                out.append(f"{VSYNC_KEY}:false")
-                result["changed"].append(VSYNC_KEY)
-                continue
-        elif sep and key == MAX_FPS_KEY:
-            value = raw.strip().strip('"')
-            try:
-                current = int(float(value))
-            except ValueError:
-                current = None
-            if current is None or current < UNLIMITED_FPS:
-                out.append(f"{MAX_FPS_KEY}:{UNLIMITED_FPS}")
-                result["changed"].append(MAX_FPS_KEY)
+        if sep and key in wanted:
+            seen_wanted.add(key)
+            value = wanted[key]
+            current = raw.strip().strip('"')
+            if current != value:
+                out.append(f"{key}:{value}")
+                result["changed"].append(key)
                 continue
         out.append(line)
 
+    # A key Minecraft has not written yet cannot be set: inventing it in a
+    # file the game owns is how unknown-key bugs happen. Report honestly.
+    missing = [k for k in wanted if k not in seen_wanted]
+    if missing:
+        result["detail"] = "skipped (not in options.txt yet): " + ", ".join(missing)
+
     if not result["changed"]:
-        result["detail"] = "frame rate already unlocked"
+        if not result["detail"]:
+            result["detail"] = f"{label} already applied"
         return result
 
     text = newline.join(out)
@@ -108,5 +136,18 @@ def unlock_frame_rate(path: str | None = None) -> dict:
         result["detail"] = "options.txt is not writable"
         return result
 
-    result["detail"] = "turned off Vsync, lifted the FPS cap"
+    parts = [f"{k}={wanted[k]}" for k in result["changed"]]
+    result["detail"] = (", ".join(parts) + ("; " + result["detail"]
+                        if result["detail"] else "")).strip("; ")
     return result
+
+
+def apply_max_fps(path: str | None = None) -> dict:
+    """Max FPS mode: set Minecraft's speed-only graphics options.
+
+    Same never-raises contract as unlock_frame_rate(). Returns the same
+    {"changed", "detail", "path"} shape.
+    """
+    return _set_options(path or options_path(),
+                        {k: v for k, v, _ in MAX_FPS_OPTIONS},
+                        "max fps")

@@ -207,7 +207,7 @@ with tempfile.TemporaryDirectory() as tmp:
 
     second = game_options.unlock_frame_rate(path)
     check("idempotent: second run is a no-op",
-          second["changed"] == [] and second["detail"] == "frame rate already unlocked",
+          second["changed"] == [] and "already applied" in second["detail"],
           f"got {second!r}")
 
     check("missing file is reported, not raised",
@@ -286,6 +286,52 @@ check("sodium and the hand-dropped jar survive",
 check("reports what it removed", len(removed) == 2, f"got {removed!r}")
 check("non-Fabric loaders prune nothing",
       perf.prune_retired_perf_mods("1.21.11", "forge") == [])
+
+print("\n10. Max FPS mode sets the speed-only graphics options")
+go = game_options
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, "options.txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(
+            "version:4671\n"
+            "graphicsMode:2\n"
+            "particles:2\n"
+            "entityShadows:true\n"
+            "entityDistanceScaling:1.0\n"
+            "biomeBlendRadius:2\n"
+            "syncChunkWrites:true\n"
+            "renderDistance:12\n"
+        )
+    original = open(path, encoding="utf-8").read()
+    result = go.apply_max_fps(path)
+    check("every speed-only key applied",
+          result["changed"] == ["graphicsMode", "particles", "entityShadows",
+                                "entityDistanceScaling", "biomeBlendRadius",
+                                "syncChunkWrites"], f"got {result!r}")
+    text = open(path, encoding="utf-8").read()
+    check("values are the fast ones",
+          all(line in text for line in (
+              "graphicsMode:0", "particles:0", "entityShadows:false",
+              "entityDistanceScaling:0.75", "biomeBlendRadius:0",
+              "syncChunkWrites:false")), repr(text))
+    check("renderDistance is NEVER touched", "renderDistance:12" in text
+          and "renderDistance" not in result["changed"], repr(text))
+    check("untouched lines byte-identical",
+          "version:4671" in text and "renderDistance:12" in text)
+    again = go.apply_max_fps(path)
+    check("idempotent", again["changed"] == [] and "already applied" in again["detail"],
+          f"got {again!r}")
+
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, "fresh.txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("renderDistance:8\n")
+    result = go.apply_max_fps(path)
+    check("a fresh options.txt is not given unknown keys",
+          result["changed"] == [] and "not in options.txt" in result["detail"],
+          f"got {result!r}")
+    check("its only key survives untouched",
+          open(path, encoding="utf-8").read() == "renderDistance:8\n")
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

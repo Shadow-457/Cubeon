@@ -760,6 +760,14 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             unlocked = game_options.unlock_frame_rate()
             if unlocked["changed"] and status_cb:
                 status_cb("Frame rate unlocked")
+            # Max FPS mode: the game's own speed-only graphics options.
+            # Same launch-path spot as the frame unlock - options.txt is not
+            # owned by a running JVM yet. Gated on its own setting so a
+            # player who prefers Fancy visuals can switch it off entirely.
+            if cfg.get("max_fps_enabled", True):
+                maxed = game_options.apply_max_fps()
+                if maxed["changed"] and status_cb:
+                    status_cb("Max FPS options applied")
     except Exception:
         pass
 
