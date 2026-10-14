@@ -20,6 +20,7 @@ Lookup order for a version:
    (1.9/1.12/1.18 use "Java_Edition_<v>.png", 1.16 uses an unofficial
    banner; a 404 on shape 1 does NOT mean no art exists).
 """
+import base64
 import json
 import os
 import re
@@ -63,10 +64,23 @@ def _page_lead_image(version: str) -> "str | None":
     return None
 
 
+def _plausible_version(version: "str | None") -> bool:
+    """True when `version` could actually have a wiki page.
+
+    Every Minecraft release and snapshot id starts with a digit (1.21.11,
+    25w14craftmine). Custom/junk instance ids the tolerant version scanner
+    surfaces ("fgdg", a TLauncher folder name) never do, so skipping them
+    avoids a pointless wiki 404 + retry on every launch - those just keep the
+    bundled placeholder art instead."""
+    return bool(version) and version[0].isdigit()
+
+
 def _fetch(version: str) -> "str | None":
     """Try the banner URL shape, then the page's lead image. Returns the
     local cache path or None; caches the miss in memory only (a version
     whose page gains art later still gets another chance next launch)."""
+    if not _plausible_version(version):
+        return None
     os.makedirs(ART_DIR, exist_ok=True)
     enc = re.sub(r"[^A-Za-z0-9._-]", "_", version)
     candidates = [f"{enc}_banner.jpg"]
@@ -151,3 +165,65 @@ def fetch_async(version: "str | None", callback) -> None:
 
     threading.Thread(target=_work, daemon=True,
                      name=f"cubeon-version-art-{version}").start()
+
+
+def cached_path(version: "str | None") -> "str | None":
+    """Disk-only path to the cached banner for a version, or None. No
+    network - safe to call on the UI thread."""
+    return _cache_probe(version) if version else None
+
+
+def src(version: "str | None") -> "str | None":
+    """A value `ft.Image.src` can actually load for this version's banner,
+    or None when nothing is cached yet.
+
+    Flet resolves a non-URL string against the app's assets folder and has no
+    filesystem access of its own, so an absolute path under
+    ~/.cubeon_launcher silently renders as a blank box. A cached banner is
+    therefore fed back base64-encoded - the same trick cubeon/icons.py and the
+    skin preview use. None means "not cached yet": call fetch_async()/prefetch()
+    or fall back to a bundled placeholder image."""
+    path = cached_path(version)
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            return base64.b64encode(fh.read()).decode("ascii")
+    except OSError:
+        return None
+
+
+def prefetch(version: "str | None", on_ready=None) -> None:
+    """Ensure a version's banner is cached, then hand `on_ready` an
+    `ft.Image.src`-safe value (base64 or None).
+
+    If the banner is already cached, on_ready fires immediately on the calling
+    thread. Otherwise the download runs on a daemon thread and on_ready fires
+    there, so the callback must marshal its own UI update (thread_safe_ui).
+    Never raises; a failed download simply reports None. Safe to call on every
+    render - the download is a no-op once the file exists."""
+    if not version:
+        return
+    if cached_path(version) is not None:
+        if on_ready:
+            try:
+                on_ready(src(version))
+            except Exception:
+                pass
+        return
+    if not _plausible_version(version):
+        if on_ready:
+            try:
+                on_ready(None)
+            except Exception:
+                pass
+        return
+
+    def _done(_path):
+        if on_ready:
+            try:
+                on_ready(src(version))
+            except Exception:
+                pass
+
+    fetch_async(version, _done)

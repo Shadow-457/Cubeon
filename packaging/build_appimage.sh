@@ -60,7 +60,11 @@ chmod +x "$APPDIR/AppRun"
 mkdir -p dist
 if [ -x dist/appimagetool ] || curl -sL -o dist/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage; then
   chmod +x dist/appimagetool
-  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$APPDIR" dist/Cubeon-x86_64.AppImage
+  # Absolute paths: appimagetool re-executes itself from a temp mount when run
+  # with APPIMAGE_EXTRACT_AND_RUN=1 (no FUSE), and the continuous build then
+  # fails to resolve a RELATIVE AppDir ("no such file or directory: dist/AppDir")
+  # even though it exists. $PWD is absolute, so this works either way.
+  APPIMAGE_EXTRACT_AND_RUN=1 dist/appimagetool "$PWD/$APPDIR" "$PWD/dist/Cubeon-x86_64.AppImage"
   echo "Built dist/Cubeon-x86_64.AppImage"
 else
   tar -czf dist/Cubeon-Linux-x86_64.tar.gz -C dist AppDir

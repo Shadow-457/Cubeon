@@ -169,6 +169,7 @@ def _relaunch_fresh_process() -> bool:
         return True
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
+from cubeon import version_art  # Per-version wiki banners for the Play tab
 from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
 from ui.skin_tab import build_skin_section  # Imports the skin section builder, now embedded in the Profile dialog
 from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
@@ -3803,6 +3804,124 @@ def main(page: ft.Page):
         padding=ft.padding.Padding.symmetric(horizontal=8, vertical=3),
     )
 
+    # -----------------------------------------------------------------
+    # VERSION ART - the Play tab's visual identity.
+    #
+    # version_art fetches each release's official wiki banner once and caches
+    # it forever; ft.Image can't read an absolute path, so the banner is fed
+    # back base64-encoded (see version_art.src). Until a version has a cached
+    # banner - or for one whose wiki page has none - the bundled OG key art
+    # (titleimg.jpg) stands in, so the page is never a blank box.
+    #
+    # The banner tracks the SELECTED version; the "Jump back in" cards give
+    # each INSTALLED version its own banner. Both download off the UI thread
+    # and repaint via thread_safe_ui, and both guard against a late download
+    # landing after the user already switched away.
+    # -----------------------------------------------------------------
+    hero_banner = ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER)
+    _hero_art_uid = {"value": None}
+
+    def _refresh_hero_banner(version):
+        base = core.extract_mc_version(version) or version
+        _hero_art_uid["value"] = version
+        cached = version_art.src(base) if base else None
+        new_src = cached or "titleimg.jpg"
+        if hero_banner.src != new_src:
+            hero_banner.src = new_src
+            thread_safe_ui.refresh(hero_banner)
+        if not base or cached:
+            return
+        uid = version
+
+        def _ready(value):
+            # A download that finished after the user switched versions is
+            # stale - drop it rather than flash the wrong art.
+            if uid != _hero_art_uid["value"]:
+                return
+            art = value or "titleimg.jpg"
+            if hero_banner.src != art:
+                hero_banner.src = art
+                thread_safe_ui.refresh(hero_banner)
+
+        version_art.prefetch(base, _ready)
+
+    instance_cards_row = ft.Row([], spacing=14, scroll=ft.ScrollMode.AUTO)
+    instance_cards_empty = ft.Text(
+        "No versions installed yet - pick one above and press Play.",
+        size=12, color=TEXT_DIM, visible=False,
+    )
+    _cards_sig = {"value": None}
+
+    def _select_instance(version_id):
+        if version_id not in state["installed"]:
+            return
+        version_dropdown.value = version_id
+        on_version_selected()
+
+    def _instance_card(version_id, meta, selected):
+        base = core.extract_mc_version(version_id) or version_id
+        name = ((cfg.get("version_labels") or {}).get(version_id)
+                or meta.get("display_name") or version_id)
+        art = ft.Image(src=version_art.src(base) or "titleimg.jpg",
+                       fit=ft.BoxFit.COVER, width=208)
+        if version_art.cached_path(base) is None:
+            def _ready(value, img=art):
+                if value:
+                    img.src = value
+                    thread_safe_ui.refresh(img)
+            version_art.prefetch(base, _ready)
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Container(content=art, height=84,
+                                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Text(name, size=13.5, color=TEXT,
+                                        weight=ft.FontWeight.W_600, max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Text(version_id, size=10.5, color=TEXT_FAINT,
+                                        font_family=FONT_MONO, max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS),
+                            ],
+                            spacing=2, tight=True,
+                        ),
+                        padding=ft.padding.Padding.symmetric(horizontal=10,
+                                                              vertical=9),
+                    ),
+                ],
+                spacing=0, tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+            width=210,
+            bgcolor=ACCENT_TINT if selected else CARD_FILL,
+            border=ft.border.Border.all(1, ACCENT if selected else CARD_BORDER),
+            border_radius=RADIUS_LG,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            ink=False,
+            tooltip=f"Select {name}",
+            on_click=lambda e, k=version_id: _select_instance(k),
+        )
+
+    def _rebuild_instance_cards():
+        """One banner-headed card per installed version. Rebuilt only when the
+        installed set or the selection actually changes, so the frequent
+        update_hero() calls don't churn controls."""
+        selected = version_dropdown.value
+        sig = "|".join(sorted(state.get("installed") or [])) + "::" + (selected or "")
+        if sig == _cards_sig["value"]:
+            return
+        _cards_sig["value"] = sig
+        metas = state.get("installed_meta") or {}
+        cards = [_instance_card(vid, metas.get(vid, {}), vid == selected)
+                 for vid in metas]
+        instance_cards_row.controls = cards
+        instance_cards_row.visible = bool(cards)
+        instance_cards_empty.visible = not cards
+        thread_safe_ui.refresh(instance_cards_row)
+        thread_safe_ui.refresh(instance_cards_empty)
+
     def update_hero():
         """Syncs the hero's big title / meta chips with the current version +
         loader selection. Called wherever those change (version pick, loader
@@ -3822,6 +3941,8 @@ def main(page: ft.Page):
         hero_version_text.value = vid or "no version selected"
         hero_loader_chip_text.value = core.SUPPORTED_LOADERS.get(
             LOADER_IDS[loader_toggle.selected_index], "Vanilla")
+        _refresh_hero_banner(vid)
+        _rebuild_instance_cards()
 
     # Now assemble the actual Play tab UI. Hierarchy is deliberate:
     #   PAGE HEADING  -> INSTANCE CARD
@@ -3943,17 +4064,19 @@ def main(page: ft.Page):
                 **glass_card(hero=True, padding=20),
             ),
 
-            ft.Container(height=20),  # card -> OG key-art banner
+            ft.Container(height=20),  # card -> per-version banner
 
-            # Full-width OG Minecraft key art beneath the instance card. The
-            # card above stays compact on purpose, so the image is wrapped in a
-            # Row with an expanded child - that stretches the banner edge-to-edge
-            # without stretching the card. Fixed height + COVER crops it cleanly
-            # at any window width; rounded/clipped to match the blocky panels.
+            # Full-width banner for the SELECTED version. version_art swaps in
+            # that release's official wiki banner once it's cached; until then
+            # (or for a version with no art) it shows the bundled OG key art.
+            # The card above stays compact on purpose, so the image is wrapped
+            # in a Row with an expanded child - that stretches the banner
+            # edge-to-edge without stretching the card. Fixed height + COVER
+            # crops it cleanly at any width; rounded/clipped to match the panels.
             ft.Row(
                 [
                     ft.Container(
-                        content=ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER),
+                        content=hero_banner,
                         expand=True,
                         height=220,
                         border_radius=RADIUS_LG,
@@ -3962,6 +4085,16 @@ def main(page: ft.Page):
                     ),
                 ],
             ),
+
+            ft.Container(height=26),
+
+            # JUMP BACK IN - one banner-headed card per installed version, so
+            # the page has real content under the hero instead of ending a
+            # third of the way down. Clicking a card selects that instance.
+            theme.section_label("Jump back in"),
+            ft.Container(height=10),
+            instance_cards_row,
+            instance_cards_empty,
         ],
         spacing=4,
         scroll=ft.ScrollMode.AUTO,
