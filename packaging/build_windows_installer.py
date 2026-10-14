@@ -53,19 +53,48 @@ def _wine_path(path: Path) -> str:
     return str(path)
 
 
+def _nsis_candidates() -> list[Path]:
+    """Windows makensis.exe copies to probe under Wine, best first."""
+    cands = []
+    for candidate in (
+        DEFAULT_NSIS,
+        Path.home() / ".cache/electron-builder/nsis/nsis-3.0.4.1/NSIS.exe",
+        Path.home() / ".wine/drive_c/nsis/nsis-3.0.4.1/makensis.exe",
+    ):
+        if candidate.is_file():
+            cands.append(candidate)
+    return cands
+
+
 def _compiler() -> tuple[list[str], Path]:
+    """Prefer a native makensis (GitHub's windows-latest runner, distro
+    packages). Fall back to a Windows makensis.exe under Wine - on this
+    repo's Linux build box the WinPython/NSIS tooling is Windows-hosted,
+    and wine's Python resolves Path.home() to C:\\users\\..., so the
+    candidates are probed with /VERSION before being trusted."""
     native = shutil.which("makensis")
     if native:
         return [native], Path(native)
-    nsis = DEFAULT_NSIS if DEFAULT_NSIS.is_file() else None
-    if nsis is None:
+    wine = shutil.which("wine")
+    if not wine:
         raise SystemExit(
             "NSIS not found. Install makensis, or install NSIS under Wine."
         )
-    wine = shutil.which("wine")
-    if not wine:
-        raise SystemExit("Wine is required to run the Windows NSIS compiler on Linux.")
-    return [wine, _wine_path(nsis)], nsis
+    for nsis in _nsis_candidates():
+        try:
+            result = subprocess.run(
+                [wine, _wine_path(nsis), "/VERSION"],
+                capture_output=True, text=True, timeout=60,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0 and re.search(r"v?\d+\.\d+", result.stdout or ""):
+            return [wine, _wine_path(nsis)], nsis
+    raise SystemExit(
+        "NSIS not found. makensis.exe candidates probed under Wine: "
+        + (", ".join(str(p) for p in _nsis_candidates()) or "none")
+        + "."
+    )
 
 
 def main() -> None:

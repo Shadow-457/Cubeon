@@ -142,6 +142,25 @@
   `worker/cubeon-downloads.js`). Every asset was sha256-verified against
   `gh api …/releases/tags/v1.0.0`. The close fix was then re-verified on the
   shipped AppImage (exit in 1.0 s, zero survivors).
+- **Release v1.0.0 was CLOBBERED AGAIN 2026-10-15 and v1.1.2 was created**
+  (both carry the 1.1.2 builds; the stale 1.0.0/1.0.4 debs were deleted from
+  v1.0.0). v1.0.0 asset names must stay exactly
+  `Cubeon-Windows-x64-Setup.exe`, `Cubeon-Windows-x64.zip`,
+  `Cubeon-x86_64.AppImage`, `cubeon_1.0.0_amd64.deb`,
+  `Cubeon-Linux-x86_64-Setup.sh` - the deb is uploaded under the 1.0.0 name
+  whatever it was built as, because `worker/cubeon-downloads.js` /linuxdeb
+  matches by prefix+suffix. **The Windows NSIS step must run under the LINUX
+  python3, never wine's python** (from inside wine, host wine is not on PATH,
+  so `build_windows_installer.py` cannot find wine; the script execs wine
+  itself and must run with the Linux python3).
+  `build_windows_installer.py` prefers native makensis (CI has no wine) and
+  probes the electron-builder and wine-prefix makensis.exe copies under wine
+  otherwise.
+- **All 217 commits are authored as Shadow-457** (3 author name variants, all
+  emails map to the same GitHub account; 3 commits carry a Codebuff
+  co-author trailer, kept deliberately). New commits need an explicit author
+  + committer identity because this environment injects a different
+  `user.name` by default (see the 2026-10-14 note).
 
 Last updated: 2026-10-13 (site = `web/` on Vercel at cubeon.vercel.app: landing /
 download / help + legal pages sharing web/assets/site.css + site.js; the landing
