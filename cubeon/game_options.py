@@ -19,6 +19,13 @@ graphics, resource packs and shaders are the player's choices and the launcher
 does not rewrite them (see content.py's rule) - raising the cap cannot make a
 slow machine fast, it only stops a fast machine being held back.
 
+Max FPS mode (apply_max_fps) goes a step further and also sets the handful of
+options that are pure engine work with no look the player picked - fast
+graphics preset, minimal particles, no ambient occlusion/shadow passes, a
+little less entity update distance, no biome blending, and chunk saves off the
+render thread. It still never touches render distance, resource packs or
+shaders.
+
 Only keys that already exist are touched, so an options.txt from an older
 Minecraft version that has no such key is not given an unknown one. The write
 is atomic and idempotent. It is called on the launch path, before the JVM
@@ -33,13 +40,27 @@ MAX_FPS_KEY = "maxFps"
 
 # Max FPS mode (2026-10-14): Minecraft's own options that are pure speed with
 # no gameplay cost. Each entry is (key, value, why). Deliberately absent:
-# renderDistance / simulationDistance / mipmapLevels / smooth lighting /
-# clouds / leaves / water - those change what the player SEES, and the
-# launcher does not rewrite a player's visual choices (the content.py rule);
-# these six only stop the engine wasting work.
+# renderDistance / simulationDistance / mipmapLevels / clouds / leaves / water -
+# those change what the player SEES, and the launcher does not rewrite a
+# player's visual choices (the content.py rule); these only stop the engine
+# wasting work on frame-rate, not on looks the player chose.
+#
+# Two of these were WRONG until 2026-10-14 (both verified against the real
+# 1.21.11 jar by tools/test_perf_mods.py's companion audit):
+#   * `graphicsMode` does not exist any more - it survives only in a legacy
+#     DataFixer, so writing it was a silent no-op and the "biggest lever" never
+#     fired. The live key is `graphicsPreset`.
+#   * `particles:"0"` is ALL particles, not minimal: the value is an enum id
+#     (ALL=0, DECREASED=1, MINIMAL=2). Max FPS mode was *maximising* particles.
 MAX_FPS_OPTIONS = (
-    ("graphicsMode", "0", "Fast graphics - the biggest lever after the renderer"),
-    ("particles", "0", "Minimal particles"),
+    # A STRING option - the value must be written QUOTED (see _set_options).
+    ("graphicsPreset", '"fast"',
+     "Fast graphics - the biggest lever after the renderer"),
+    # Minimise particles (id 2 = MINIMAL; 0 = ALL).
+    ("particles", "2", "Minimal particles"),
+    # Ambient occlusion (smooth lighting) - real terrain-shading and meshing
+    # work, and the last of the fast-preset defaults left on.
+    ("ao", "false", "no ambient occlusion (smooth lighting)"),
     ("entityShadows", "false", "no entity shadow passes"),
     ("entityDistanceScaling", "0.75", "fewer far-away entity updates"),
     ("biomeBlendRadius", "0", "fewer biome blend samples per pixel"),
@@ -100,8 +121,14 @@ def _set_options(target: str, wanted: dict, label: str) -> dict:
         if sep and key in wanted:
             seen_wanted.add(key)
             value = wanted[key]
-            current = raw.strip().strip('"')
-            if current != value:
+            # Compare the file's RAW text (quotes included) against the exact
+            # string we would write. Stripping the quotes here was the bug:
+            # a caller passing a quoted string (graphicsPreset:"fast") never
+            # matched, so the file was rewritten and reported as "changed" on
+            # EVERY launch. Now a quoted value round-trips and the write is
+            # idempotent. A bare value (false/2/0.75) is written bare, which is
+            # what options.txt uses for bool/number options.
+            if raw.strip() != value:
                 out.append(f"{key}:{value}")
                 result["changed"].append(key)
                 continue

@@ -66,16 +66,14 @@ LIB_PREFIXES = ("sponge-mixin", "fabric-loader", "brigadier", "slf4j-api",
                 "jspecify", "fastutil", "lwjgl")
 
 # What a healthy jar must contain. The two resources are the whole reason the mod
-# loads at all, and the screen class is the one most likely to be missing if a
+# loads at all, and the mixins are the one thing most likely to be missing if a
 # compile half-failed.
 REQUIRED_ENTRIES = ("fabric.mod.json",
                     "cubeon-client.mixins.json",
-                    "com/cubeon/client/CubeonClientScreen.class",
+                    "com/cubeon/client/CubeonClient.class",
                     "com/cubeon/client/WorldPlayers.class",
-                    "com/cubeon/client/CornerIcon.class",
-                    "com/cubeon/client/mixin/PauseScreenMixin.class",
+                    "com/cubeon/client/TabListTag.class",
                     "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
-                    "com/cubeon/client/mixin/TitleScreenMixin.class",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class")
 
 

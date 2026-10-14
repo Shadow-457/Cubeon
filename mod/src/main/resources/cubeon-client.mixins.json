@@ -3,9 +3,7 @@
   "package": "com.cubeon.client.mixin",
   "compatibilityLevel": "JAVA_17",
   "client": [
-    "PauseScreenMixin",
     "PlayerTabOverlayMixin",
-    "TitleScreenMixin",
     "YggdrasilSessionServiceMixin"
   ],
   "injectors": {

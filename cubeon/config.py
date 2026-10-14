@@ -73,6 +73,11 @@ def recommended_max_ram_mb(system_ram_mb: int) -> int:
     half = (half // 512) * 512
     return max(half, 1024)
 
+
+# The most a brand-new install is seeded with, regardless of how much RAM the
+# machine has. See load_config.
+DEFAULT_HEAP_CEILING_MB = 6144
+
 DEFAULT_CONFIG = {
     "username": "Player",
     "ram_mb": 4096,
@@ -226,7 +231,13 @@ def load_config() -> dict:
     # under-using what it has).
     cfg = dict(DEFAULT_CONFIG)
     try:
-        cfg["ram_mb"] = recommended_max_ram_mb(get_system_ram_mb())
+        # Capped: half of a big machine's RAM is a poor default heap.
+        # Minecraft rarely benefits past ~6 GB, and an over-large heap only
+        # lengthens GC pauses and starves the rest of the system (combined with
+        # a small -Xms it is also no longer committed up front). The slider
+        # still goes higher - this is only what a NEW install starts at.
+        cfg["ram_mb"] = min(recommended_max_ram_mb(get_system_ram_mb()),
+                            DEFAULT_HEAP_CEILING_MB)
     except Exception:
         pass
     return cfg

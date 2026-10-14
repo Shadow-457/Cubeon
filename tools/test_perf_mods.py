@@ -29,7 +29,7 @@ _sandbox_home.isolate()
 import cubeon.perf_mods as perf  # noqa: E402
 import cubeon.game_options as game_options  # noqa: E402
 from cubeon.launch import (CLIENT_JVM_FLAGS, client_jvm_flags,  # noqa: E402
-                           _pretouch_flag)
+                           _initial_heap_mb, _pretouch_flag)
 
 _passed = _failed = 0
 
@@ -131,10 +131,15 @@ check("download error -> failed list", report["failed"] == ALL_SLUGS, f"got {rep
 print("\n6. the launch command carries the client GC tuning")
 check("G1GC requested", any("UseG1GC" in f for f in CLIENT_JVM_FLAGS),
       f"got {CLIENT_JVM_FLAGS!r}")
-check("heap Xms/Xmx are matched in the built args",
-      "-Xms{ram_mb}M" in open(
-          os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                       "cubeon", "launch.py"), encoding="utf-8").read())
+_launch_src = open(
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "cubeon", "launch.py"), encoding="utf-8").read()
+check("the JVM is not asked to commit the whole heap (-Xms != -Xmx)",
+      "-Xms{ram_mb}M" not in _launch_src and "_initial_heap_mb(ram_mb)" in _launch_src,
+      "an -Xms equal to -Xmx commits and pins the whole heap (F3: Allocated 100%)")
+check("a small -Xmx is never given a bigger -Xms",
+      _initial_heap_mb(4096) == 512 and _initial_heap_mb(256) == 256,
+      f"got {_initial_heap_mb(4096)!r} / {_initial_heap_mb(256)!r}")
 check("pause goal is the non-aggressive value",
       "-XX:MaxGCPauseMillis=200" in CLIENT_JVM_FLAGS, f"got {CLIENT_JVM_FLAGS!r}")
 check("heap-waste flag present", "-XX:G1HeapWastePercent=5" in CLIENT_JVM_FLAGS,
@@ -145,12 +150,18 @@ check("G1 region size suits a client heap",
       all("-XX:G1HeapRegionSize=8M" in client_jvm_flags(n) for n in (2, 4, 8, 16)),
       f"got {client_jvm_flags(2)!r}")
 check("low-core flags shrink the young gen",
-      "-XX:G1NewSizePercent=20" in client_jvm_flags(2)
+      "-XX:G1NewSizePercent=10" in client_jvm_flags(2)
       and "-XX:MaxGCPauseMillis=100" in client_jvm_flags(3),
       f"got {client_jvm_flags(2)!r}")
-check("many-core flags use Aikar's larger young gen",
-      "-XX:G1NewSizePercent=30" in client_jvm_flags(8)
+check("many-core flags keep the young gen small (client, not Aikar server)",
+      "-XX:G1NewSizePercent=10" in client_jvm_flags(8)
+      and "-XX:G1MaxNewSizePercent=40" in client_jvm_flags(8)
       and "-XX:MaxGCPauseMillis=200" in client_jvm_flags(8),
+      f"got {client_jvm_flags(8)!r}")
+check("Aikar's server-only GC values are gone",
+      all(flag not in client_jvm_flags(8) for flag in (
+          "-XX:G1ReservePercent=20", "-XX:InitiatingHeapOccupancyPercent=15",
+          "-XX:SurvivorRatio=32", "-XX:MaxTenuringThreshold=1")),
       f"got {client_jvm_flags(8)!r}")
 check("exactly one collector flag in either tuning",
       sum(1 for f in client_jvm_flags(2)
@@ -294,8 +305,9 @@ with tempfile.TemporaryDirectory() as tmp:
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(
             "version:4671\n"
-            "graphicsMode:2\n"
-            "particles:2\n"
+            "graphicsPreset:\"custom\"\n"
+            "ao:true\n"
+            "particles:0\n"
             "entityShadows:true\n"
             "entityDistanceScaling:1.0\n"
             "biomeBlendRadius:2\n"
@@ -305,15 +317,19 @@ with tempfile.TemporaryDirectory() as tmp:
     original = open(path, encoding="utf-8").read()
     result = go.apply_max_fps(path)
     check("every speed-only key applied",
-          result["changed"] == ["graphicsMode", "particles", "entityShadows",
-                                "entityDistanceScaling", "biomeBlendRadius",
-                                "syncChunkWrites"], f"got {result!r}")
+          sorted(result["changed"]) == sorted(
+              ["graphicsPreset", "particles", "ao", "entityShadows",
+               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites"]),
+          f"got {result!r}")
     text = open(path, encoding="utf-8").read()
     check("values are the fast ones",
           all(line in text for line in (
-              "graphicsMode:0", "particles:0", "entityShadows:false",
-              "entityDistanceScaling:0.75", "biomeBlendRadius:0",
-              "syncChunkWrites:false")), repr(text))
+              'graphicsPreset:"fast"', "particles:2", "ao:false",
+              "entityShadows:false", "entityDistanceScaling:0.75",
+              "biomeBlendRadius:0", "syncChunkWrites:false")), repr(text))
+    check("particles is MINIMAL (id 2), never ALL (id 0)", "particles:2" in text)
+    check("the LIVE fast-graphics key is written, not the dead one",
+          "graphicsPreset:" in text and "graphicsMode" not in text, repr(text))
     check("renderDistance is NEVER touched", "renderDistance:12" in text
           and "renderDistance" not in result["changed"], repr(text))
     check("untouched lines byte-identical",
@@ -321,6 +337,21 @@ with tempfile.TemporaryDirectory() as tmp:
     again = go.apply_max_fps(path)
     check("idempotent", again["changed"] == [] and "already applied" in again["detail"],
           f"got {again!r}")
+
+    # A bare (unquoted) string value is normalised ONCE, then left alone - the
+    # old code rewrote a quoted string on every single launch.
+    with tempfile.TemporaryDirectory() as tmp:
+        p2 = os.path.join(tmp, "options.txt")
+        with open(p2, "w", encoding="utf-8") as fh:
+            fh.write("graphicsPreset:custom\nparticles:0\n")
+        first = go.apply_max_fps(p2)
+        check("a bare string value is rewritten quoted",
+              first["changed"] == ["graphicsPreset", "particles"]
+              and 'graphicsPreset:"fast"' in open(p2, encoding="utf-8").read(),
+              f"got {first!r}")
+        second = go.apply_max_fps(p2)
+        check("and stays put on the next launch (the old bug rewrote every time)",
+              second["changed"] == [], f"got {second!r}")
 
 with tempfile.TemporaryDirectory() as tmp:
     path = os.path.join(tmp, "fresh.txt")

@@ -47,20 +47,12 @@ from test_mod_bridge import find_jdk, _java_version  # noqa: E402
 MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/Json.java",
     "mod/src/main/java/com/cubeon/client/Bridge.java",
-    "mod/src/main/java/com/cubeon/client/CubeonClientScreen.java",
     "mod/src/main/java/com/cubeon/client/CubeonClient.java",
     "mod/src/main/java/com/cubeon/client/BadgeNames.java",
     "mod/src/main/java/com/cubeon/client/TabListTag.java",
     "mod/src/main/java/com/cubeon/client/WorldPlayers.java",
-    "mod/src/main/java/com/cubeon/client/mixin/PauseScreenMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/PlayerTabOverlayMixin.java",
-    "mod/src/main/java/com/cubeon/client/mixin/TitleScreenMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java",
-    # The 1.20-1.21 overlay: CornerIcon's era-stable copy. The 26.x overlay is
-    # NOT compiled here - it draws through the 26-only GuiGraphicsExtractor /
-    # FontDescription chain, so it would pollute the stub with types that do
-    # not exist on 1.20. That copy is checked by the real 26 build instead.
-    "mod/src/main/java-overlay-1.20-1.21/com/cubeon/client/CornerIcon.java",
 ]
 
 # The mod targets Java 17 bytecode (mod/build.gradle explains why), so the stub

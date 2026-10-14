@@ -2,7 +2,6 @@ package com.cubeon.client;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -14,9 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -41,9 +38,7 @@ import java.util.function.Consumer;
  */
 public final class Bridge {
 
-    /** Polling period while a Friends screen is open. */
-    private static final long ACTIVE_POLL_MS = 1_200;
-    /** Polling period with no screen open - just enough to catch notifications. */
+    /** Polling period - just enough to catch notifications without cost. */
     private static final long IDLE_POLL_MS = 6_000;
     /** Backoff steps used while the launcher looks absent. */
     private static final long[] DOWN_BACKOFF_MS = {1_000, 2_000, 4_000, 8_000};
@@ -265,33 +260,6 @@ public final class Bridge {
         }
     }
 
-    /** One line of a chat transcript, as the launcher serves it (decrypted). */
-    public record ChatMessage(long seq, boolean incoming, String name, String text) {}
-
-    /**
-     * The launcher's decrypted transcript for one friend. {@code friend} is ""
-     * when no conversation is open, which is what the screen reads to decide
-     * between the friend picker and the transcript.
-     */
-    public record ChatConversation(String friend, List<ChatMessage> messages) {
-
-        public static final ChatConversation NONE = new ChatConversation("", List.of());
-
-        public boolean open() {
-            return friend != null && !friend.isEmpty();
-        }
-    }
-
-    /**
-     * The launcher's profile-compare report for one friend - the Sync view.
-     *
-     * <p>{@code lines} is pre-rendered prose from the launcher, deliberately:
-     * this screen is widget-only (no custom render pass), so text can only reach
-     * the player through a fixed pool of label widgets, and the wording lives
-     * better in one Python file than duplicated across two Minecraft-era source
-     * trees. Everything else here exists so the buttons can be enabled or
-     * disabled without parsing that prose.
-     */
     // ---- state -----------------------------------------------------------
 
     private final HttpClient http = HttpClient.newBuilder()
@@ -300,36 +268,13 @@ public final class Bridge {
             .build();
 
     private final Object wakeLock = new Object();
-    private final AtomicInteger viewers = new AtomicInteger();
     private final AtomicLong revision = new AtomicLong();
 
     private volatile Snapshot current = Snapshot.DOWN;
     private volatile Consumer<Toast> toastSink;
     private volatile Thread poller;
 
-    /**
-     * The Friends screen while it is open. Notices are routed here instead of
-     * the overlay sink, which needs a live player and is invisible from a menu -
-     * exactly when this screen is up.
-     */
-    private final AtomicReference<Consumer<Toast>> screenToastSink =
-            new AtomicReference<>();
-
     private boolean wakeRequested;
-
-    // ---- chat state ------------------------------------------------------
-    // A second, independent poll stream: while a chat partner is set, the poll
-    // thread also asks the launcher for new lines since the last one it saw.
-    // The transcript is capped to the most recent _CHAT_KEEP, mirroring the
-    // launcher's own bounded ring, so a session left running for a week can't
-    // grow this list without bound.
-    private static final int CHAT_KEEP = 200;
-
-    private final Object chatLock = new Object();
-    private String chatFriend = "";          // "" = no chat open (guarded by chatLock)
-    private long chatCursor = -1;            // guarded by chatLock; -1 = full page
-    private ChatConversation chatCurrent = ChatConversation.NONE;  // guarded by chatLock
-    private final AtomicLong chatRevision = new AtomicLong();
 
     // ---- players state ----------------------------------------------------
     // A fourth poll stream, on the same terms as chat and sync: the launcher's
@@ -375,16 +320,6 @@ public final class Bridge {
         t.start();
     }
 
-    /** Called by the screen while it is on-screen, so polling speeds up. */
-    public void addViewer() {
-        viewers.incrementAndGet();
-        wake();
-    }
-
-    public void removeViewer() {
-        viewers.updateAndGet(n -> n > 0 ? n - 1 : 0);
-    }
-
     /** Ask for a refresh now instead of at the end of the current poll period. */
     public void wake() {
         synchronized (wakeLock) {
@@ -401,42 +336,6 @@ public final class Bridge {
     /** Bumped only when {@link #snapshot()} actually changed. */
     public long revision() {
         return revision.get();
-    }
-
-    /** The friend whose chat is open, "" when none. Never blocks. */
-    public String chatFriend() {
-        synchronized (chatLock) {
-            return chatFriend;
-        }
-    }
-
-    /** Never null, never blocks. friend()=="" when no chat is open. */
-    public ChatConversation chat() {
-        synchronized (chatLock) {
-            return chatCurrent;
-        }
-    }
-
-    /** Bumped only when {@link #chat()} actually changed. */
-    public long chatRevision() {
-        return chatRevision.get();
-    }
-
-    /**
-     * Opens (or closes, with an empty name) the chat for one friend, resetting
-     * the poll cursor so the next refresh pulls a full page of history rather
-     * than only what arrived since a previous conversation.
-     */
-    public void setChatFriend(String friend) {
-        String next = friend == null ? "" : friend;
-        synchronized (chatLock) {
-            if (!next.equals(chatFriend)) {
-                chatFriend = next;
-                chatCursor = -1;
-                publishChatLocked(new ChatConversation(next, List.of()));
-                wake();
-            }
-        }
     }
 
     /** Where launcher notifications are delivered. Called on the poll thread. */
@@ -475,23 +374,6 @@ public final class Bridge {
         }
     }
 
-    /**
-     * While a {@link CubeonClientScreen} is open it takes notice delivery, so
-     * an error reaches the player from a menu too. Call with null on close.
-     */
-    public void setScreenToastSink(Consumer<Toast> sink) {
-        this.screenToastSink.set(sink);
-    }
-
-    /**
-     * Clears a screen callback only if it is still the callback supplied by the
-     * caller. This matters when Minecraft closes one screen after constructing
-     * the next one: an old screen must not silence the new screen's notices.
-     */
-    public void clearScreenToastSink(Consumer<Toast> sink) {
-        screenToastSink.compareAndSet(sink, null);
-    }
-
     private void pollLoop() {
         try {
             while (true) {
@@ -505,7 +387,7 @@ public final class Bridge {
                     publish(down("Cubeon bridge error: " + ex));
                 }
                 long wait = current.launcherUp()
-                        ? (viewers.get() > 0 ? ACTIVE_POLL_MS : IDLE_POLL_MS)
+                        ? IDLE_POLL_MS
                         : DOWN_BACKOFF_MS[Math.min(downStreak, DOWN_BACKOFF_MS.length - 1)];
                 synchronized (wakeLock) {
                     if (!wakeRequested) {
@@ -548,7 +430,6 @@ public final class Bridge {
         publish(snap);
         checkModFreshness(snap);
         drainEvents();
-        refreshChat();
         refreshPlayers();
     }
 
@@ -572,8 +453,7 @@ public final class Bridge {
             return;
         }
         staleWarned = true;
-        Consumer<Toast> screenSink = screenToastSink.get();
-        Consumer<Toast> sink = screenSink != null ? screenSink : toastSink;
+        Consumer<Toast> sink = toastSink;
         if (sink != null) {
             sink.accept(new Toast(-2,
                     "Cubeon was updated - restart Minecraft to get the "
@@ -751,110 +631,13 @@ public final class Bridge {
         long[] cursorOut = {eventCursor};
         List<Toast> toasts = parseEvents(body, cursorOut);
         eventCursor = cursorOut[0];
-        // A notice while the Friends screen is open goes to its status line;
-        // the overlay sink needs a live player and is invisible from a menu.
-        Consumer<Toast> screenSink = screenToastSink.get();
-        Consumer<Toast> sink = screenSink != null ? screenSink : toastSink;
+        Consumer<Toast> sink = toastSink;
         if (sink == null) {
             return;
         }
         for (Toast toast : toasts) {
             sink.accept(toast);
         }
-    }
-
-    /**
-     * The second poll stream. Only runs while a chat partner is set, so an
-     * idle screen costs the launcher nothing extra. A body of null means an
-     * older launcher with no /chat - not an error, the conversation is simply
-     * left as it was.
-     */
-    private void refreshChat() {
-        String friend;
-        long cursor;
-        synchronized (chatLock) {
-            friend = chatFriend;
-            cursor = chatCursor;
-        }
-        if (friend == null || friend.isEmpty()) {
-            return;
-        }
-        String body = get("/chat?friend=" + queryValue(friend) + "&after=" + Math.max(-1, cursor));
-        if (body == null) {
-            return;
-        }
-        long[] cursorOut = {cursor};
-        List<ChatMessage> fresh = parseChatMessages(body, cursorOut);
-        synchronized (chatLock) {
-            // A friend switch could have happened between the GET and this
-            // merge; the reply for the old friend must not land in the new
-            // conversation.
-            if (!friend.equals(chatFriend)) {
-                return;
-            }
-            if (cursor < 0) {
-                // First page: the launcher answered with the whole recent
-                // window, so it replaces the transcript outright.
-                chatCursor = cursorOut[0];
-                publishChatLocked(new ChatConversation(friend, keepFresh(fresh)));
-                return;
-            }
-            List<ChatMessage> merged = new ArrayList<>(chatCurrent.messages());
-            for (ChatMessage message : fresh) {
-                if (message.seq() > chatCursor) {
-                    merged.add(message);
-                }
-            }
-            long last = cursorOut[0];
-            if (last > chatCursor) {
-                chatCursor = last;
-            }
-            publishChatLocked(new ChatConversation(friend, keepFresh(merged)));
-        }
-    }
-
-    private static List<ChatMessage> keepFresh(List<ChatMessage> messages) {
-        int size = messages.size();
-        if (size <= CHAT_KEEP) {
-            return List.copyOf(messages);
-        }
-        return List.copyOf(messages.subList(size - CHAT_KEEP, size));
-    }
-
-    private void publishChatLocked(ChatConversation next) {
-        if (!next.equals(chatCurrent)) {
-            chatCurrent = next;
-            chatRevision.incrementAndGet();
-        }
-    }
-
-    /**
-     * Parses one /chat body into transcript lines, advancing {@code cursorOut}
-     * to the newest seq it contains. Every field is optional: a launcher older
-     * than this jar, or one that has changed shape, must degrade to an empty
-     * page, never an exception on the poll thread.
-     */
-    static List<ChatMessage> parseChatMessages(String body, long[] cursorOut) {
-        Map<String, Object> root = Json.parseObject(body);
-        List<ChatMessage> out = new ArrayList<>();
-        long last = cursorOut != null && cursorOut.length > 0 ? cursorOut[0] : -1;
-        for (Object item : Json.list(root, "messages")) {
-            long seq = sequence(item, "seq");
-            if (seq < 0) {
-                continue;
-            }
-            String text = Json.str(item, "text", "");
-            if (text.isEmpty()) {
-                continue;
-            }
-            boolean incoming = !"out".equals(Json.str(item, "dir", ""));
-            out.add(new ChatMessage(seq, incoming, Json.str(item, "name", ""), text));
-            last = Math.max(last, seq);
-        }
-        if (cursorOut != null && cursorOut.length > 0) {
-            cursorOut[0] = last;
-        }
-        return out;
     }
 
     /** A JSON sequence number, or -1 for missing/non-integral/out-of-range data. */
@@ -869,14 +652,7 @@ public final class Bridge {
 
     // ---- actions ---------------------------------------------------------
     // Blocks on the network and MUST be called from a worker thread, never
-    // from render/init. CubeonClientScreen.submit() is the only caller and it
-    // always uses one. Chat is the only action the in-game client offers; the
-    // launcher owns every roster and world-session verb.
-
-    /** Sends one encrypted chat message to a friend. */
-    public Result sendChat(String friend, String text) {
-        return post("/dm", Json.object("to", friend, "text", text));
-    }
+    // from render/init.
 
     /** The host's world-password decision: a non-empty password arms the
      *  gate, an empty one skips it (the launcher treats "" as Skip). The
@@ -951,10 +727,6 @@ public final class Bridge {
 
     private static boolean usableBody(String body) {
         return body != null && body.length() <= MAX_RESPONSE_CHARS;
-    }
-
-    private static String queryValue(String value) {
-        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
     }
 
     /** Response body, or null for any failure at all. */

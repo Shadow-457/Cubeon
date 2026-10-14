@@ -3,7 +3,7 @@
   "id": "cubeon-client",
   "version": "${version}",
   "name": "Cubeon Client",
-  "description": "The Cubeon Client: chat with your Cubeon friends from inside Minecraft - powered by the Cubeon launcher running on this machine.",
+  "description": "The Cubeon Client: marks Cubeon players in Minecraft's player list and keeps the offline session working. Powered by the Cubeon launcher running on this machine.",
   "authors": ["Cubeon"],
   "license": "MIT",
   "environment": "client",

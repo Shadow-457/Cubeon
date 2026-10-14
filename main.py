@@ -5385,10 +5385,28 @@ def main(page: ft.Page):
     # Swap the loading splash for the real UI. The window is already mapped
     # (showing the splash), so this swap IS the transition the user sees -
     # no hidden build, no flash of an empty frame.
+    #
+    # Glass background: a single dark artwork layer painted BEHIND everything,
+    # under the translucent content panel (CARD_FILL is 55% opaque) and the thin
+    # margins around it - so the window reads as panels floating over a lit
+    # backdrop rather than a flat black slab. Painting the backdrop in-app is
+    # deliberate: a translucent NATIVE window is not portable (the Linux embedder
+    # has to opt into per-pixel alpha and usually does not), whereas a background
+    # layer looks the same everywhere. Toggle in Settings; needs a relaunch.
+    _glass_on = bool(cfg.get("glass_mode_enabled", True))
+    _bg_path = os.path.join(resolve_assets_dir(), "bg", "glass.jpg")
+    _bg_kwargs = {}
+    if _glass_on and os.path.isfile(_bg_path):
+        _bg_kwargs["image"] = ft.DecorationImage(
+            src=_bg_path, fit=ft.BoxFit.COVER, opacity=1.0,
+            filter_quality=ft.FilterQuality.MEDIUM,
+        )
     _app_root = ft.Container(
         content=ft.Column([top_bar, subnav_bar, season_band, content_surface],
                           expand=True, spacing=0),
         expand=True,
+        bgcolor=BG,
+        **_bg_kwargs,
     )
     page.controls.clear()
     page.controls.append(_app_root)

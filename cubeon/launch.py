@@ -288,13 +288,17 @@ _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 
 # Client-side JVM tuning, appended to every launch. Aimed squarely at the
 # thing players read as "low FPS": frame-time spikes. G1GC keeps garbage
-# collection off the render frames, and matching -Xms to -Xmx (done in
-# build_launch_command) removes the mid-game heap-growth hitches where a long
-# session suddenly stutters as the heap resizes.
+# collection off the render frames, and a deliberately small -Xms (see
+# `_initial_heap_mb`) lets the heap grow into -Xmx instead of committing and
+# faulting all of it up front.
 #
-# This is Aikar's well-known client set (github.com/Aikar/timings), trimmed of
-# everything that could HURT an ordinary player's machine, per the repo rule
-# that performance must never cost stability:
+# This started as Aikar's well-known set (github.com/Aikar/timings) and has
+# been pulled back to a CLIENT tuning, per the repo rule that performance must
+# never cost stability. Aikar's numbers are a *server* profile: a server
+# optimises throughput and its GC threads have nothing else to do, whereas on a
+# client GC competes with the render thread for the same cores. The values
+# below that differ from Aikar's are called out where they are set, and the
+# remaining trim is:
 #   - AlwaysPreTouch is OFF by default (below), because committing and
 #     faulting the whole heap at startup punishes low-RAM machines and doubles
 #     launch time. It is switched ON only for a roomy box (see
@@ -319,13 +323,16 @@ _FABRIC_JVM_ARG = "-DFabricMcEmu= net.minecraft.client.main.Main "
 # -Dorg.lwjgl.util.NoChecks disables LWJGL's per-call pointer validation,
 # which is a small but free CPU saving on the render thread.
 #
-# Young-gen sizing is CPU-aware (2026-10-05). Aikar's 30-40% young gen assumes
-# a server's many GC threads; on a 2-4 thread client one young collection then
-# copies hundreds of MB on the same cores the game renders on, and the frame
-# time spike is visible. A low core count gets a smaller young gen (20-30%) and
-# a shorter pause goal, trading a few more collections for smoother frames.
-# `_available_cpus()` honours CPU affinity, so a player who pins the game to
-# fewer cores (e.g. `taskset -c 0,1`) gets the low-core tuning automatically.
+# YOUNG-GEN SIZING IS THE CLIENT FIX (2026-10-14). This is a CLIENT set, not
+# Aikar's server set. Aikar sizes the young generation at 30-40% of the heap
+# because a server optimises throughput and its GC threads are otherwise idle.
+# On a client the GC shares cores with the render thread, so a big young gen
+# makes G1 wait until eden is ~30% of the heap before collecting: heap climbs to
+# ~50% before it "cleans" (exactly the "why does Cubeon clean at 50%+" report)
+# and every collection copies hundreds of MB on the frames' cores. At 10% young
+# GCs run earlier and are small. `_available_cpus()` honours CPU affinity, so a
+# player who pins the game to fewer cores (e.g. `taskset -c 0,1`) gets the
+# shorter pause goal automatically.
 def _available_cpus() -> int:
     try:
         return max(1, len(os.sched_getaffinity(0)))
@@ -333,30 +340,39 @@ def _available_cpus() -> int:
         return os.cpu_count() or 1
 
 
+# Young generation's floor, as a percentage of the heap. The JVM's own default
+# is 5; 10 keeps collections early without making them constant.
+G1_NEW_SIZE_PERCENT = 10
+
+
 def client_jvm_flags(cores: int | None = None) -> list:
     """The client GC tuning for a machine with `cores` usable CPUs."""
     cores = cores or _available_cpus()
-    if cores <= 4:
-        new_pct, max_new_pct, pause_ms = 20, 30, 100
-    else:
-        new_pct, max_new_pct, pause_ms = 30, 40, 200
+    max_new_pct, pause_ms = (30, 100) if cores <= 4 else (40, 200)
     return [
         "-XX:+UseG1GC",
         "-XX:+ParallelRefProcEnabled",
         f"-XX:MaxGCPauseMillis={pause_ms}",
         "-XX:+UnlockExperimentalVMOptions",
         "-XX:+DisableExplicitGC",
-        f"-XX:G1NewSizePercent={new_pct}",
+        f"-XX:G1NewSizePercent={G1_NEW_SIZE_PERCENT}",
         f"-XX:G1MaxNewSizePercent={max_new_pct}",
         "-XX:G1HeapRegionSize=8M",
-        "-XX:G1ReservePercent=20",
+        # Reserve / concurrent-marking threshold / tenuring moved off Aikar's
+        # server values onto the JVM's own client-sane defaults: a 20% reserve
+        # and concurrent marking starting at 15% heap both put GC work on the
+        # cores the render thread wants, and SurvivorRatio=32 with
+        # MaxTenuringThreshold=1 promotes almost everything straight to the old
+        # generation - buying more (and costlier) mixed collections than it
+        # saves.
+        "-XX:G1ReservePercent=10",
         "-XX:G1HeapWastePercent=5",
         "-XX:G1MixedGCCountTarget=4",
-        "-XX:InitiatingHeapOccupancyPercent=15",
+        "-XX:InitiatingHeapOccupancyPercent=45",
         "-XX:G1MixedGCLiveThresholdPercent=90",
         "-XX:G1RSetUpdatingPauseTimePercent=5",
-        "-XX:SurvivorRatio=32",
-        "-XX:MaxTenuringThreshold=1",
+        "-XX:SurvivorRatio=8",
+        "-XX:MaxTenuringThreshold=15",
         "-XX:+PerfDisableSharedMem",
         "-Dorg.lwjgl.util.NoChecks=true",
     ]
@@ -364,6 +380,20 @@ def client_jvm_flags(cores: int | None = None) -> list:
 
 # The default (many-core) set, kept as a module constant for callers/tests.
 CLIENT_JVM_FLAGS = client_jvm_flags(8)
+
+
+# Initial heap. Deliberately NOT equal to -Xmx (2026-10-14): -Xms==-Xmx commits
+# the whole heap up front - F3 shows "Allocated: 100%" - and pins RSS for the
+# whole session, which is what makes Cubeon look like it hoards memory next to a
+# client that starts small and grows. A modest -Xms lets the JVM grow into -Xmx
+# as the player actually needs it; growing is free (no pause).
+INITIAL_HEAP_MB = 512
+
+
+def _initial_heap_mb(ram_mb: int) -> int:
+    """Starting heap for a given -Xmx: the fixed start, but never more than half
+    the ceiling, so a tiny -Xmx is not given a bigger -Xms."""
+    return max(256, min(INITIAL_HEAP_MB, max(1, ram_mb // 2)))
 
 
 def _pretouch_flag(ram_mb: int, system_ram_mb: int) -> str | None:
@@ -584,7 +614,8 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     # User flags ride along AFTER the tuned defaults so they can override them
     # (the JVM honors the last of a repeated flag). mll places everything in
     # jvmArguments before the main class, so they land in the right spot.
-    jvm_args = [f"-Xmx{ram_mb}M", f"-Xms{ram_mb}M", *client_jvm_flags(),
+    jvm_args = [f"-Xmx{ram_mb}M", f"-Xms{_initial_heap_mb(ram_mb)}M",
+                *client_jvm_flags(),
                 *_parse_custom_jvm_flags(custom_jvm_flags)]
     try:
         pretouch = _pretouch_flag(ram_mb, get_system_ram_mb())
@@ -604,8 +635,8 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         "token": "0",  # offline/cracked token placeholder
         "launcherName": APP_NAME,
         "launcherVersion": "1.0",
-        # -Xms matches -Xmx so the heap never resizes mid-game (the resize is a
-        # visible stutter), then the shared client GC tuning rides along.
+        # -Xms is deliberately SMALLER than -Xmx so the JVM grows into the
+        # ceiling on demand, then the shared client GC tuning rides along.
         # AlwaysPreTouch is added only on a machine that can afford it (see
         # _pretouch_flag) so the first world load does not pay page faults.
         "jvmArguments": jvm_args,

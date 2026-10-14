@@ -39,7 +39,6 @@ public final class SelfTest {
         rosterOrdering();
         theOldParsingBugs();
         eventParsing();
-        chatParsing();
         playersParsing();
         badgeNames();
         resultReading();
@@ -237,45 +236,6 @@ public final class SelfTest {
         long[] any = {0};
         ok(Bridge.parseEvents("{\"cursor\": 3, \"events\": [{\"seq\": 3}]}", any).isEmpty(),
                 "a textless event is dropped");
-    }
-
-    private static void chatParsing() {
-        section("Bridge: chat");
-        long[] cursor = {-1};
-        List<Bridge.ChatMessage> msgs = Bridge.parseChatMessages("""
-                {"friend": "Ali", "you": "Hamza", "messages": [
-                  {"seq": 1, "dir": "in", "name": "Ali", "text": "hey", "ts": 1},
-                  {"seq": 2, "dir": "out", "name": "Hamza", "text": "hi!", "ts": 1}
-                ]}
-                """, cursor);
-        ok(msgs.size() == 2, "two transcript lines");
-        ok(cursor[0] == 2, "cursor advanced to the newest seq");
-        ok(msgs.get(0).incoming() && !msgs.get(1).incoming(), "dir maps to incoming");
-        ok(msgs.get(0).name().equals("Ali") && msgs.get(1).name().equals("Hamza"),
-                "sender names carried");
-        ok(msgs.get(1).text().equals("hi!"), "text carried");
-
-        long[] empty = {7};
-        ok(Bridge.parseChatMessages("{\"messages\": []}", empty).isEmpty() && empty[0] == 7,
-                "an empty page leaves the cursor alone");
-        long[] junk = {3};
-        ok(Bridge.parseChatMessages("", junk).isEmpty() && junk[0] == 3,
-                "an unreachable /chat changes nothing");
-        ok(Bridge.parseChatMessages("<html>502</html>", junk).isEmpty(),
-                "an HTML error page parses to no lines, not an exception");
-
-        long[] skip = {-1};
-        List<Bridge.ChatMessage> one = Bridge.parseChatMessages(
-                "{\"messages\": [{\"seq\": 9, \"dir\": \"in\", \"text\": \"no name\"}]}", skip);
-        ok(one.size() == 1 && one.get(0).incoming(),
-                "a missing dir (older launcher) reads as incoming");
-        ok(Bridge.parseChatMessages(
-                "{\"messages\": [{\"seq\": 1, \"text\": \"\"}]}", new long[]{-1}).isEmpty(),
-                "a textless line is dropped");
-        ok(Bridge.parseChatMessages(
-                "{\"messages\": [{\"seq\": 1.5, \"text\": \"bad\"}]}",
-                new long[]{-1}).isEmpty(),
-                "a non-integral chat sequence is dropped");
     }
 
     private static void playersParsing() {
