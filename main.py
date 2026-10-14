@@ -3807,30 +3807,95 @@ def main(page: ft.Page):
     # -----------------------------------------------------------------
     # VERSION ART - the Play tab's visual identity.
     #
-    # version_art fetches each release's official wiki banner once and caches
-    # it forever; ft.Image can't read an absolute path, so the banner is fed
-    # back base64-encoded (see version_art.src). Until a version has a cached
-    # banner - or for one whose wiki page has none - the bundled OG key art
-    # (titleimg.jpg) stands in, so the page is never a blank box.
+    # version_art fetches each release's OFFICIAL Mojang key art (the same
+    # launcher-content feed the real Minecraft Launcher uses), falling back to
+    # the fan wiki only for versions Mojang's feed doesn't carry (pre-1.13
+    # releases, week-numbered snapshots). ft.Image can't read an absolute path,
+    # so cached art is fed back base64-encoded (see version_art.src). Until a
+    # version has art, the bundled OG key art (titleimg.jpg) stands in, so the
+    # page is never a blank box.
     #
     # The banner tracks the SELECTED version; the "Jump back in" cards give
     # each INSTALLED version its own banner. Both download off the UI thread
     # and repaint via thread_safe_ui, and both guard against a late download
     # landing after the user already switched away.
+    #
+    # Art is requested at most once per version per session (_art_requested):
+    # update_hero runs on every selection change, and re-spawning the fetch
+    # thread each time would be pure churn.
     # -----------------------------------------------------------------
-    hero_banner = ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER)
+    ART_RADIUS = 12  # the design is blocky (RADIUS=2); the art reads better rounded
+    # The version spotlight: the official key art at its TRUE aspect (Mojang's
+    # art is square, so cropping it into a wide banner threw most of it away)
+    # beside the official release title and a line of patch-notes flavour.
+    hero_art = ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER,
+                        width=152, height=152, border_radius=ART_RADIUS)
+    hero_art_title = ft.Text("", size=15, color=TEXT,
+                             weight=ft.FontWeight.W_700, max_lines=1,
+                             overflow=ft.TextOverflow.ELLIPSIS)
+    hero_art_note = ft.Text("", size=12, color=TEXT_DIM, max_lines=3,
+                            overflow=ft.TextOverflow.ELLIPSIS)
+    hero_art_panel = ft.Container(
+        content=ft.Row(
+            [
+                hero_art,
+                ft.Container(width=16),
+                ft.Column(
+                    [hero_art_title, ft.Container(height=6), hero_art_note],
+                    spacing=0, expand=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=16,
+        bgcolor=CARD_FILL,
+        border=ft.border.Border.all(1, CARD_BORDER),
+        border_radius=ART_RADIUS,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+    )
     _hero_art_uid = {"value": None}
+    _art_requested: set = set()
+
+    def _request_art(base, apply_fn):
+        """Ensure the best available art for `base` lands in `apply_fn(value)`
+        (an ft.Image.src-safe base64 string, or None). Fires immediately when
+        the official art is already cached; otherwise downloads off-thread."""
+        if not base:
+            return
+        if version_art.has_official(base):
+            apply_fn(version_art.src(base))
+            return
+        if base in _art_requested:
+            return
+        _art_requested.add(base)
+
+        def _done(value):
+            apply_fn(value)
+            if value is None:
+                _art_requested.discard(base)  # let a later render retry
+
+        version_art.prefetch(base, _done)
 
     def _refresh_hero_banner(version):
         base = core.extract_mc_version(version) or version
         _hero_art_uid["value"] = version
+
+        # Text first - it comes from the cached feed, so it's right even before
+        # the image bytes are on disk.
+        info = version_art.meta(base) if base else {}
+        hero_art_title.value = (info.get("title")
+                                or (f"Minecraft {base}" if base else "Minecraft"))
+        note = info.get("shortText") or ""
+        hero_art_note.value = note
+        hero_art_note.visible = bool(note)
+        thread_safe_ui.refresh(hero_art_title)
+        thread_safe_ui.refresh(hero_art_note)
+
         cached = version_art.src(base) if base else None
-        new_src = cached or "titleimg.jpg"
-        if hero_banner.src != new_src:
-            hero_banner.src = new_src
-            thread_safe_ui.refresh(hero_banner)
-        if not base or cached:
-            return
+        if hero_art.src != (cached or "titleimg.jpg"):
+            hero_art.src = cached or "titleimg.jpg"
+            thread_safe_ui.refresh(hero_art)
         uid = version
 
         def _ready(value):
@@ -3839,11 +3904,11 @@ def main(page: ft.Page):
             if uid != _hero_art_uid["value"]:
                 return
             art = value or "titleimg.jpg"
-            if hero_banner.src != art:
-                hero_banner.src = art
-                thread_safe_ui.refresh(hero_banner)
+            if hero_art.src != art:
+                hero_art.src = art
+                thread_safe_ui.refresh(hero_art)
 
-        version_art.prefetch(base, _ready)
+        _request_art(base, _ready)
 
     instance_cards_row = ft.Row([], spacing=14, scroll=ft.ScrollMode.AUTO)
     instance_cards_empty = ft.Text(
@@ -3863,18 +3928,22 @@ def main(page: ft.Page):
         name = ((cfg.get("version_labels") or {}).get(version_id)
                 or meta.get("display_name") or version_id)
         art = ft.Image(src=version_art.src(base) or "titleimg.jpg",
-                       fit=ft.BoxFit.COVER, width=208)
-        if version_art.cached_path(base) is None:
-            def _ready(value, img=art):
-                if value:
-                    img.src = value
-                    thread_safe_ui.refresh(img)
-            version_art.prefetch(base, _ready)
+                       fit=ft.BoxFit.COVER, width=208, height=150)
+
+        def _ready(value, img=art):
+            if value and img.src != value:
+                img.src = value
+                thread_safe_ui.refresh(img)
+
+        _request_art(base, _ready)
         return ft.Container(
             content=ft.Column(
                 [
-                    ft.Container(content=art, height=84,
-                                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS),
+                    ft.Container(content=art, height=150,
+                                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                 border_radius=ft.BorderRadius(
+                                     top_left=ART_RADIUS, top_right=ART_RADIUS,
+                                     bottom_left=0, bottom_right=0)),
                     ft.Container(
                         content=ft.Column(
                             [
@@ -3897,7 +3966,7 @@ def main(page: ft.Page):
             width=210,
             bgcolor=ACCENT_TINT if selected else CARD_FILL,
             border=ft.border.Border.all(1, ACCENT if selected else CARD_BORDER),
-            border_radius=RADIUS_LG,
+            border_radius=ART_RADIUS,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             ink=False,
             tooltip=f"Select {name}",
@@ -4064,31 +4133,19 @@ def main(page: ft.Page):
                 **glass_card(hero=True, padding=20),
             ),
 
-            ft.Container(height=20),  # card -> per-version banner
+            ft.Container(height=18),  # card -> version spotlight
 
-            # Full-width banner for the SELECTED version. version_art swaps in
-            # that release's official wiki banner once it's cached; until then
-            # (or for a version with no art) it shows the bundled OG key art.
-            # The card above stays compact on purpose, so the image is wrapped
-            # in a Row with an expanded child - that stretches the banner
-            # edge-to-edge without stretching the card. Fixed height + COVER
-            # crops it cleanly at any width; rounded/clipped to match the panels.
-            ft.Row(
-                [
-                    ft.Container(
-                        content=hero_banner,
-                        expand=True,
-                        height=220,
-                        border_radius=RADIUS_LG,
-                        border=ft.border.Border.all(1, CARD_BORDER),
-                        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                    ),
-                ],
-            ),
+            # VERSION SPOTLIGHT - the selected version's official key art at its
+            # true (square) aspect beside the official release title and a line
+            # of patch-notes flavour from Mojang's own feed. Cropping the square
+            # art into a full-width banner threw most of it away, which is what
+            # made it read as "not showing correctly". Falls back to the bundled
+            # key art (and a plain label) for versions the feed doesn't carry.
+            hero_art_panel,
 
-            ft.Container(height=26),
+            ft.Container(height=24),
 
-            # JUMP BACK IN - one banner-headed card per installed version, so
+            # JUMP BACK IN - one art-headed card per installed version, so
             # the page has real content under the hero instead of ending a
             # third of the way down. Clicking a card selects that instance.
             theme.section_label("Jump back in"),

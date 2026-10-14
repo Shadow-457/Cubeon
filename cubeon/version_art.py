@@ -1,43 +1,143 @@
 """Official per-version artwork for the launcher UI.
 
-Every Minecraft release has a banner image on its official wiki page
-(e.g. https://minecraft.wiki/w/Java_Edition_1.21.4 shows the "Garden
-Awakens" banner). Those banners are the closest thing to "official"
-version artwork that exists, so the new-UI template uses them to give
-each version a visual identity instead of a bare text id.
+The real Minecraft Launcher paints every version's patch-notes card with the
+release's OFFICIAL key art, served from Mojang's own content host. We use the
+exact same source: the launcher-content patch-notes feed at
+https://launchercontent.mojang.com/v2/javaPatchNotes.json, whose entries pair a
+version id ("1.21.11") with an image path ("/v2/images/...") on the same host.
+That is the closest thing to "the real Minecraft artwork" that exists.
 
-This module maps a version id ("1.21.4", "1.20.1", snapshot ids) to a
-local image file, downloading from the wiki on first use and caching
-under CACHE_DIR/version_art/ forever (banners never change for a
-released version). All lookups happen on background threads; the UI
-never blocks on this.
+This module maps a version id to a local image file, downloading on first use
+and caching under CACHE_DIR/version_art/. All lookups happen on background
+threads; the UI never blocks on this.
 
 Lookup order for a version:
-1. "<id>_banner.jpg" - the standard banner most version pages have
-   (verified live: 1.15.2 .. 1.21.11, snapshots like 25w14craftmine).
-2. The page's own lead image via the MediaWiki API (pageimages prop) -
-   covers old versions whose pages predate the banner convention
-   (1.9/1.12/1.18 use "Java_Edition_<v>.png", 1.16 uses an unofficial
-   banner; a 404 on shape 1 does NOT mean no art exists).
+1. The OFFICIAL Mojang image (above). Covers 1.13+ releases and the modern
+   snapshot ids. Cached as "official_<id>.<ext>".
+2. Fallback to the fan wiki (minecraft.wiki) for versions Mojang's feed does
+   not carry - the pre-1.13 releases and the week-numbered snapshots
+   ("25w14craftmine") whose ids don't match the feed's. Cached as "<id>.<ext>".
+   The wiki path tries the standard "<id>_banner.jpg" first, then the page's
+   own lead image via the MediaWiki API (pageimages prop) for older pages.
+
+The official image is preferred, so a version that gains official art later
+wins over a wiki banner already on disk.
 """
 import base64
 import json
 import os
 import re
 import threading
+import time
 
 from .net import get_with_retry
 from .paths import CACHE_DIR, user_agent
 
 ART_DIR = os.path.join(CACHE_DIR, "version_art")
 
+# Mojang's launcher-content host: the patch-notes feed and the key art it
+# points at. This is what the official Minecraft Launcher itself reads.
+_OFFICIAL_FEED = "https://launchercontent.mojang.com/v2/javaPatchNotes.json"
+_OFFICIAL_BASE = "https://launchercontent.mojang.com"
+# The feed JSON is ~250KB and gains entries as versions ship; re-fetch daily.
+_FEED_CACHE = os.path.join(CACHE_DIR, "version_art_feed.json")
+_FEED_TTL = 24 * 60 * 60
+
 _HEADERS = {
     "User-Agent": user_agent("version artwork fetch"),
     "Referer": "https://minecraft.wiki/",
 }
+_OFFICIAL_HEADERS = {"User-Agent": user_agent("version artwork fetch")}
 
 _mem: dict[str, "str | None"] = {}
 _mem_lock = threading.Lock()
+_feed_mem: dict = {"value": None}
+_feed_lock = threading.Lock()
+
+
+def _enc(version: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]", "_", version)
+
+
+def _parse_feed(data: dict) -> dict:
+    """{version_id: {"image", "title", "shortText"}} from a patch-notes feed
+    payload."""
+    out: dict = {}
+    for entry in (data.get("entries") or []):
+        if not isinstance(entry, dict):
+            continue
+        version = entry.get("version")
+        image = (entry.get("image") or {}).get("url")
+        if version and image:
+            out.setdefault(version, {
+                "image": image,
+                "title": (entry.get("title") or "").strip(),
+                "shortText": (entry.get("shortText") or "").strip(),
+            })
+    return out
+
+
+def meta(version: "str | None") -> dict:
+    """Official release metadata for a version: {"image", "title",
+    "shortText"}, or {} when Mojang's feed has no entry (old releases,
+    week-numbered snapshots). Disk-only after the daily feed fetch; safe on
+    the UI thread."""
+    if not version or not _plausible_version(version):
+        return {}
+    return _official_map().get(version, {})
+
+
+def _official_map() -> dict:
+    """version id -> official image url, from a disk-cached copy of Mojang's
+    feed (refreshed once a day). Never raises; {} when offline with no cache."""
+    if _feed_mem["value"] is not None:
+        return _feed_mem["value"]
+    with _feed_lock:
+        if _feed_mem["value"] is not None:
+            return _feed_mem["value"]
+        mapping: dict = {}
+        try:
+            if time.time() - os.path.getmtime(_FEED_CACHE) < _FEED_TTL:
+                with open(_FEED_CACHE, "r", encoding="utf-8") as fh:
+                    mapping = _parse_feed(json.load(fh))
+        except (OSError, ValueError):
+            mapping = {}
+        if not mapping:
+            try:
+                resp = get_with_retry(_OFFICIAL_FEED,
+                                      headers=_OFFICIAL_HEADERS, timeout=20)
+                try:
+                    raw = resp.content
+                finally:
+                    resp.close()
+                mapping = _parse_feed(json.loads(raw.decode("utf-8", "replace")))
+                try:
+                    tmp = _FEED_CACHE + ".tmp"
+                    with open(tmp, "wb") as fh:
+                        fh.write(raw)
+                    os.replace(tmp, _FEED_CACHE)
+                except OSError:
+                    pass
+            except Exception:
+                mapping = {}
+        _feed_mem["value"] = mapping
+        return mapping
+
+
+def _save_image(data: bytes, prefix: str) -> "str | None":
+    """Write image bytes to ART_DIR as <prefix>.<ext>; None if not an image.
+    Tiny payloads are error pages, not art."""
+    is_jpeg = data[:3] == b"\xff\xd8\xff"
+    is_png = data[:8] == b"\x89PNG\r\n\x1a\n"
+    if len(data) <= 4096 or not (is_jpeg or is_png):
+        return None
+    ext = ".png" if is_png else ".jpg"
+    dest = os.path.join(ART_DIR, f"{prefix}{ext}")
+    tmp = dest + ".tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, dest)
+    return dest
 
 
 def _wiki_url(file_name: str) -> str:
@@ -65,61 +165,119 @@ def _page_lead_image(version: str) -> "str | None":
 
 
 def _plausible_version(version: "str | None") -> bool:
-    """True when `version` could actually have a wiki page.
+    """True when `version` could actually have official/wiki art.
 
     Every Minecraft release and snapshot id starts with a digit (1.21.11,
     25w14craftmine). Custom/junk instance ids the tolerant version scanner
     surfaces ("fgdg", a TLauncher folder name) never do, so skipping them
-    avoids a pointless wiki 404 + retry on every launch - those just keep the
+    avoids a pointless lookup + retry on every launch - those just keep the
     bundled placeholder art instead."""
     return bool(version) and version[0].isdigit()
 
 
+def _official_cached(version: str) -> "str | None":
+    enc = _enc(version)
+    for ext in (".jpg", ".png"):
+        path = os.path.join(ART_DIR, f"official_{enc}{ext}")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _wiki_cached(version: str) -> "str | None":
+    enc = _enc(version)
+    for ext in (".jpg", ".png"):
+        path = os.path.join(ART_DIR, f"wiki_{enc}{ext}")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _cleanup_legacy_files() -> None:
+    """One-time: drop the pre-official cache files.
+
+    Older builds cached wiki banners as "<id>.jpg" with no source prefix. The
+    official art is the whole point of this module now, and the user's
+    complaint was that the wiki images looked wrong, so those un-prefixed files
+    are removed rather than left to linger unused. Files written by this
+    version ("official_*"/"wiki_*") are untouched. Best-effort."""
+    try:
+        for name in os.listdir(ART_DIR):
+            if name.startswith(("official_", "wiki_")):
+                continue
+            try:
+                os.unlink(os.path.join(ART_DIR, name))
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def _fetch(version: str) -> "str | None":
-    """Try the banner URL shape, then the page's lead image. Returns the
-    local cache path or None; caches the miss in memory only (a version
-    whose page gains art later still gets another chance next launch)."""
+    """Download this version's art into the cache, returning the local path or
+    None. Official Mojang art first, then the wiki fallback. Caches the miss in
+    memory only (a version whose art appears later still gets another chance
+    next launch)."""
     if not _plausible_version(version):
         return None
     os.makedirs(ART_DIR, exist_ok=True)
-    enc = re.sub(r"[^A-Za-z0-9._-]", "_", version)
-    candidates = [f"{enc}_banner.jpg"]
-    lead = _page_lead_image(enc)
-    if lead:
-        candidates.append(lead)
-    for file_name in candidates:
-        url = _wiki_url(file_name)
+    _cleanup_legacy_files()
+    enc = _enc(version)
+
+    # 1. Official Mojang key art (what the real launcher shows).
+    already = _official_cached(version)
+    if already:
+        return already
+    image_url = (_official_map().get(version) or {}).get("image")
+    if image_url:
         try:
-            resp = get_with_retry(url, headers=_HEADERS, timeout=20)
+            resp = get_with_retry(_OFFICIAL_BASE + image_url,
+                                  headers=_OFFICIAL_HEADERS, timeout=20)
+        except Exception:
+            resp = None
+        if resp is not None:
+            try:
+                data = resp.content
+            finally:
+                resp.close()
+            saved = _save_image(data, f"official_{enc}")
+            if saved:
+                return saved
+
+    # 2. Wiki fallback: the "<id>_banner.jpg" convention, then the page's own
+    #    lead image. Covers pre-1.13 releases and week-numbered snapshots. An
+    #    existing wiki file is reused instead of re-downloaded.
+    cached_wiki = _wiki_cached(version)
+    if cached_wiki:
+        return cached_wiki
+    for file_name in _wiki_candidates(enc):
+        try:
+            resp = get_with_retry(_wiki_url(file_name), headers=_HEADERS,
+                                  timeout=20)
         except Exception:
             continue
         try:
             data = resp.content
         finally:
             resp.close()
-        # Banners are ~100-500KB; anything tinier is an error page. Accept
-        # JPEG or PNG lead images.
-        is_jpeg = data[:3] == b"\xff\xd8\xff"
-        is_png = data[:8] == b"\x89PNG\r\n\x1a\n"
-        if len(data) > 4096 and (is_jpeg or is_png):
-            ext = ".png" if is_png else ".jpg"
-            dest = os.path.join(ART_DIR, f"{enc}{ext}")
-            tmp = dest + ".tmp"
-            with open(tmp, "wb") as fh:
-                fh.write(data)
-            os.replace(tmp, dest)
-            return dest
+        saved = _save_image(data, f"wiki_{enc}")
+        if saved:
+            return saved
     return None
+
+
+def _wiki_candidates(enc: str) -> list:
+    candidates = [f"{enc}_banner.jpg"]
+    lead = _page_lead_image(enc)
+    if lead:
+        candidates.append(lead)
+    return candidates
 
 
 def _cache_probe(version: str) -> "str | None":
-    """Disk-only lookup for both extensions. No network."""
-    enc = re.sub(r"[^A-Za-z0-9._-]", "_", version)
-    for ext in (".jpg", ".png"):
-        path = os.path.join(ART_DIR, f"{enc}{ext}")
-        if os.path.isfile(path):
-            return path
-    return None
+    """Disk-only lookup. Prefers official art, then the wiki fallback. No
+    network."""
+    return _official_cached(version) or _wiki_cached(version)
 
 
 def get_version_art(version: "str | None") -> "str | None":
@@ -173,6 +331,13 @@ def cached_path(version: "str | None") -> "str | None":
     return _cache_probe(version) if version else None
 
 
+def has_official(version: "str | None") -> bool:
+    """True when the OFFICIAL Mojang art (not just the wiki fallback) is
+    cached, so callers know nothing better can arrive. Disk-only."""
+    return bool(version) and _plausible_version(version) \
+        and _official_cached(version) is not None
+
+
 def src(version: "str | None") -> "str | None":
     """A value `ft.Image.src` can actually load for this version's banner,
     or None when nothing is cached yet.
@@ -194,17 +359,18 @@ def src(version: "str | None") -> "str | None":
 
 
 def prefetch(version: "str | None", on_ready=None) -> None:
-    """Ensure a version's banner is cached, then hand `on_ready` an
+    """Ensure a version's art is cached, then hand `on_ready` an
     `ft.Image.src`-safe value (base64 or None).
 
-    If the banner is already cached, on_ready fires immediately on the calling
-    thread. Otherwise the download runs on a daemon thread and on_ready fires
-    there, so the callback must marshal its own UI update (thread_safe_ui).
-    Never raises; a failed download simply reports None. Safe to call on every
-    render - the download is a no-op once the file exists."""
+    If the OFFICIAL art is already cached, on_ready fires immediately on the
+    calling thread. Otherwise the work runs on a daemon thread and on_ready
+    fires there, so the callback must marshal its own UI update
+    (thread_safe_ui) - this keeps the feed fetch and downloads off the UI
+    thread. Never raises; a failed download simply reports whatever is cached
+    (or None). Safe to call on every render."""
     if not version:
         return
-    if cached_path(version) is not None:
+    if _official_cached(version):
         if on_ready:
             try:
                 on_ready(src(version))
