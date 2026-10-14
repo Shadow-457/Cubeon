@@ -73,8 +73,8 @@ check("downloaded in slug order", [c[1] for c in calls] == ALL_SLUGS,
       f"got {calls!r}")
 check("project ids are recorded on install",
       all(c[2] for c in calls), f"got {calls!r}")
-check("sodium is the only/last install",
-      calls[0][1] == "sodium" and len(calls) == 1, f"got {calls!r}")
+check("sodium installs first (biggest win), then the companions",
+      calls[0][1] == "sodium" and len(calls) == len(ALL_SLUGS), f"got {calls!r}")
 # Now the profile really holds them.
 perf.list_mods = lambda mc, ld: [
     {"slug": s, "display_name": s.title(), "filename": s + ".jar"}
@@ -90,13 +90,15 @@ report = perf.ensure_installed("1.21.11", "fabric")
 check("sodium kept", "sodium" in report["kept"], f"got {report!r}")
 check("sodium not re-downloaded", "sodium" not in [c[1] for c in calls],
       f"got {calls!r}")
-# A profile holding only a *retired* mod no longer satisfies the suite.
+# A profile holding a suite mod by a hand-dropped jar counts for that mod.
 calls = _wire([
     {"slug": "lithium", "display_name": "Lithium", "filename": "lithium-0.13.jar"},
 ])
 report = perf.ensure_installed("1.21.11", "fabric")
-check("retired lithium does not satisfy Sodium",
-      report["installed"] == ["sodium"], f"got {report!r}")
+check("hand-dropped lithium is kept, the rest installed",
+      report["kept"] == ["lithium"]
+      and report["installed"] == [s for s in ALL_SLUGS if s != "lithium"],
+      f"got {report!r}")
 
 print("\n3. a manual jar with a different filename still counts")
 calls = _wire([
@@ -169,9 +171,10 @@ _wire([{"slug": "sodium-extra", "display_name": "Sodium Extra",
 check("Sodium Extra never satisfies Sodium", "sodium" not in perf._present("1.20.1", "fabric"))
 _wire([{"project_id": "AANobbMI"}, {"project_id": "gvQqBUqZ"}])
 check("opaque performance project IDs are recognized",
-      "sodium" in perf._present("1.20.1", "fabric"))
+      "sodium" in perf._present("1.20.1", "fabric")
+      and "lithium" in perf._present("1.20.1", "fabric"))
 check("retired project IDs are no longer recognized",
-      "lithium" not in perf._present("1.20.1", "fabric"))
+      "badoptimizations" not in perf._present("1.20.1", "fabric"))
 
 print("\n7. the frame-rate unlocker touches only vsync + the FPS cap")
 with tempfile.TemporaryDirectory() as tmp:
@@ -269,14 +272,14 @@ print("\n9. retired perf mods are pruned from an existing profile")
 _deleted = []
 perf.list_mods = lambda mc, ld: [
     {"slug": "sodium", "project_id": "AANobbMI", "filename": "sodium.jar"},
-    {"slug": "lithium", "project_id": "gvQqBUqZ", "filename": "lithium.jar"},
-    {"project_id": "NNAgCjsB", "filename": "entityculling.jar"},
+    {"slug": "krypton", "project_id": "fQEb0iXm", "filename": "krypton.jar"},
+    {"project_id": "vSEH1ERy", "filename": "threadtweak.jar"},
     {"slug": None, "project_id": None, "filename": "my-own-mod.jar"},
 ]
 perf.delete_mod = lambda mc, ld, fn: _deleted.append(fn)
 removed = perf.prune_retired_perf_mods("1.21.11", "fabric")
 check("only the Cubeon-installed retired mods are deleted",
-      sorted(_deleted) == ["entityculling.jar", "lithium.jar"], f"got {_deleted!r}")
+      sorted(_deleted) == ["krypton.jar", "threadtweak.jar"], f"got {_deleted!r}")
 check("sodium and the hand-dropped jar survive",
       "sodium.jar" not in _deleted and "my-own-mod.jar" not in _deleted,
       f"got {_deleted!r}")

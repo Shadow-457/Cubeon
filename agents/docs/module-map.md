@@ -2164,8 +2164,13 @@ Still-true invariants from the pre-local era:
   leftover would still load). Smaller blast radius than
   features.friends_enabled(), which is a BUILD-time switch removing the whole
   backend.
-- **FPS boost = Sodium ONLY (2026-10-05).** The user asked for "no more mods,
-  just optimizing the Minecraft". The suite was cut from 9 mods to Sodium, the
+- **FPS boost = SIX MODS (2026-10-14, supersedes the 2026-10-05 Sodium-only
+  narrowing).** The user then asked for "twice as much FPS"; Sodium alone
+cannot deliver that, so the suite is Sodium + Lithium + ImmediatelyFast +
+Entity Culling + FerriteCore + More Culling (all IDs verified live on
+Modrinth). EntityCulling's tick-1 crash is neutralised by the unconditional
+sanitize at launch (below). The four still-retired mods
+(BadOptimizations/Krypton/ThreadTweak/Dynamic FPS) stay retired. Older bullet (2026-10-05): The suite was cut from 9 mods to Sodium, the
   one that replaces the renderer and is the overwhelming share of the client
   FPS win; the other 8 added little and each was third-party crash surface
   (EntityCulling alone killed the game on tick 1, see above). **Do NOT widen

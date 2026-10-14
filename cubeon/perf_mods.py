@@ -7,16 +7,23 @@ Minecraft render any faster - so "activate Cubeon Client" would otherwise get
 the button and nothing else. This module closes that gap by installing **Sodium**
 (Modrinth `sodium`) into the same (mc_version, loader) profile.
 
-**Sodium only, on purpose (2026-10-05).** The suite used to carry eight more
-mods (Lithium, ImmediatelyFast, EntityCulling, MoreCulling, BadOptimizations,
-Krypton, ThreadTweak, Dynamic FPS). Sodium is by itself the overwhelming share
-of the client FPS win: it replaces the terrain/entity renderer, which is what a
-CPU-bound client actually waits on. The extras added little on top, and the
-broader the pile the more third-party crash surface it carried - EntityCulling
-alone crashed the game on its first tick from a legacy config (see
-`sanitize_entityculling_config` below). The user asked for exactly this: "no
-more mods, just optimizing the Minecraft". Do not widen this list again without
-the user's say-so.
+**Six mods (2026-10-14).** Sodium alone was the 2026-10-05 answer ("no more
+mods"), but the user then asked for "twice as much FPS as any launcher", which
+Sodium alone cannot deliver - its win is the terrain/entity renderer, and the
+rest of the frame budget lives elsewhere. The suite is therefore the proven
+companion set, each with a distinct job and measured gains on top of Sodium:
+
+  - Sodium            terrain/entity renderer (the big one)
+  - Lithium           game logic (tick loop, physics, block entities)
+  - ImmediatelyFast   HUD/text/entity immediate-mode rendering
+  - Entity Culling    skips drawing entities/blocks the camera can't see
+  - FerriteCore       memory footprint (smaller heap -> shorter GC pauses)
+  - More Culling      culls block faces/particles the camera can't see
+
+ThreadTweak, BadOptimizations, Krypton and Dynamic FPS stay retired: measured
+to add little on this stack and each is more third-party crash surface. This
+list is again user-directed ("I need twice as much FPS, more fps please") -
+narrowing it back is fine, widening it further needs the user's say-so.
 
 Sodium is fetched from Modrinth exactly like a mod the user picked themselves:
 matched to the profile's Minecraft version and loader, stored in the profile
@@ -39,19 +46,20 @@ from .mods import (delete_mod, download_mod, get_mod_download, list_mods,
                    name_stem)
 
 # (Modrinth slug, Modrinth project id, display label), in install order.
-# Sodium only - see the module docstring for why the suite was narrowed.
+# Sodium first (biggest win, the one players recognise), then the companions.
 PERF_MODS = (
     ("sodium", "AANobbMI", "Sodium"),
+    ("lithium", "gvQqBUqZ", "Lithium"),
+    ("immediatelyfast", "5ZwdcRci", "ImmediatelyFast"),
+    ("entityculling", "NNAgCjsB", "Entity Culling"),
+    ("ferrite-core", "uXXizFIs", "FerriteCore"),
+    ("moreculling", "51shyZVL", "More Culling"),
 )
 
-# The perf mods the suite used to install, kept here so an existing profile can
-# be cleaned up (see prune_retired_perf_mods). Do NOT re-add these to
-# PERF_MODS without the user's say-so.
+# The perf mods the suite used to install (2026-10-05 - 2026-10-14), kept here
+# so an existing profile can be cleaned up (see prune_retired_perf_mods). Do
+# NOT re-add these to PERF_MODS without the user's say-so.
 RETIRED_PERF_MODS = (
-    ("lithium", "gvQqBUqZ"),
-    ("immediatelyfast", "5ZwdcRci"),
-    ("entityculling", "NNAgCjsB"),
-    ("moreculling", "51shyZVL"),
     ("badoptimizations", "g96Z4WVZ"),
     ("krypton", "fQEb0iXm"),
     ("threadtweak", "vSEH1ERy"),
