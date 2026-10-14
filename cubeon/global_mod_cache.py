@@ -126,14 +126,17 @@ def _resolve_manifest_hash(hashes: dict):
 def link_into_place(cached_path: str, dest_path: str) -> None:
     """Symlink engine: place a stored file at dest_path via a real OS
     symlink first, hardlink second, plain copy as the last-resort fallback -
-    in that order of preference, cheapest/most-correct first."""
+    in that order of preference, cheapest/most-correct first.
+
+    Logs which strategy succeeded so the user can tell whether their
+    filesystem is doing symlinks, hardlinks, or copies."""
     parent = os.path.dirname(os.path.abspath(dest_path))
     os.makedirs(parent, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".link-", dir=parent) as staging:
         staged = os.path.join(staging, "payload")
         try:
             os.symlink(os.path.abspath(cached_path), staged)
-        except OSError:
+        except OSError as e:
             try:
                 os.link(cached_path, staged)
             except OSError:
