@@ -1,4 +1,4 @@
-name: Build Cubeon (AppImage & Windows EXE)
+name: Build & publish Cubeon binaries
 
 on:
   push:
@@ -7,7 +7,14 @@ on:
   workflow_dispatch:
 
 # Builds run read-only by default; only the build jobs that attach binaries
-# to a GitHub release get contents:write (tag builds only).
+# to a GitHub release get contents:write (tag builds and main/master pushes).
+#
+# Publishing rules (2026-10-15):
+#   * a TAG push (v*) creates/updates that tag's own release, as before;
+#   * a push to main/master rebuilds ONLY Windows + macOS and refreshes the
+#     repo's LATEST release in place (assets replaced, --clobber);
+#   * the Linux AppImage is no longer built on branch pushes (the maintainer
+#     builds it locally) - tags and manual runs still produce it.
 permissions:
   contents: read
 
@@ -70,6 +77,10 @@ jobs:
 
   build-linux-appimage:
     name: Build Linux AppImage
+    # Branch pushes only rebuild Windows + macOS. The maintainer builds the
+    # AppImage locally, so don't spend ~5 CI minutes on it per push; tags and
+    # manual runs still build it (and still attach it to the release below).
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -206,24 +217,26 @@ jobs:
           name: Cubeon-Windows-x64-ZIP
           path: dist/Cubeon-Windows-x64.zip
 
-      - name: Attach Windows ZIP to the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish Windows builds to the release
+        # Tag push  -> create/update that tag's release.
+        # main push -> refresh the repo's LATEST release in place (--clobber).
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "Cubeon $GITHUB_REF_NAME" \
-            --notes "Automated build of $GITHUB_REF_NAME." \
-            --verify-tag || true
-          gh release upload "$GITHUB_REF_NAME" dist/Cubeon-Windows-x64.zip --clobber
-
-      - name: Attach Windows installer to the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/Cubeon-Windows-x64-Setup.exe --clobber
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            gh release create "$TAG" \
+              --title "Cubeon $TAG" \
+              --notes "Automated build of $TAG." \
+              --verify-tag || true
+          else
+            TAG="$(gh release view --json tagName --jq .tagName)"
+            echo "branch build -> refreshing latest release: $TAG"
+          fi
+          gh release upload "$TAG" dist/Cubeon-Windows-x64.zip --clobber
+          gh release upload "$TAG" dist/Cubeon-Windows-x64-Setup.exe --clobber
 
   build-macos:
     name: Build macOS app
@@ -249,15 +262,23 @@ jobs:
           chmod +x packaging/build_macos.sh
           ./packaging/build_macos.sh
 
-      - name: Attach macOS app to the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish macOS app to the release
+        # Tag push  -> create/update that tag's release.
+        # main push -> refresh the repo's LATEST release in place (--clobber).
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           ditto -c -k --sequesterRsrc --keepParent dist/Cubeon Cubeon-macOS.zip
-          gh release create "$GITHUB_REF_NAME" \
-            --title "Cubeon $GITHUB_REF_NAME" \
-            --notes "Automated build of $GITHUB_REF_NAME." \
-            --verify-tag || true
-          gh release upload "$GITHUB_REF_NAME" Cubeon-macOS.zip --clobber
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+            gh release create "$TAG" \
+              --title "Cubeon $TAG" \
+              --notes "Automated build of $TAG." \
+              --verify-tag || true
+          else
+            TAG="$(gh release view --json tagName --jq .tagName)"
+            echo "branch build -> refreshing latest release: $TAG"
+          fi
+          gh release upload "$TAG" Cubeon-macOS.zip --clobber
