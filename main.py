@@ -1746,6 +1746,28 @@ def main(page: ft.Page):
 
     loader_status_text = ft.Text("", size=11, color=TEXT_DIM, visible=False)
 
+    # FPS boost: the Play-menu toggle (moved out of Settings on 2026-10-15).
+    # ON = the launcher sets Minecraft's own speed-only graphics options at
+    # launch (Fast graphics, minimal particles, no entity shadows, biome
+    # blend 0, chunk writes off the render thread) - the big FPS win. OFF =
+    # those same keys are written back to Minecraft's defaults at launch, so
+    # an install that ran boosted actually looks vanilla again. The player's
+    # own visual choices (render distance etc.) are never rewritten either
+    # way. Built here so both the Play card and any future surface share it.
+    fps_boost_switch = ft.Switch(
+        value=bool(cfg.get("fps_boost_enabled", True)),
+        active_color=ACCENT,
+    )
+
+    def on_fps_boost_change(e):
+        cfg["fps_boost_enabled"] = bool(fps_boost_switch.value)
+        core.save_config(cfg)
+        set_status("FPS boost " +
+                   ("on - max FPS at launch" if fps_boost_switch.value
+                    else "off - vanilla graphics restored at launch"))
+
+    fps_boost_switch.on_change = on_fps_boost_change
+
     # Switcher between Vanilla and each supported mod loader. The selected
     # segment is marked by a subtle green wash behind it plus green, semibold
     # label text; the inactive segments stay clearly readable (TEXT_DIM). The
@@ -4279,6 +4301,33 @@ def main(page: ft.Page):
 
                         ft.Container(height=18),
 
+                        # FPS BOOST: the toggle that actually helps. Sits in
+                        # the Play menu (not Settings) because it changes what
+                        # THIS launch looks and feels like, right next to the
+                        # loader choice it rides on. See the fps_boost_switch
+                        # builder above.
+                        ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        section_label("FPS boost"),
+                                        ft.Container(height=2),
+                                        ft.Text(
+                                            "Max FPS at launch. Off restores vanilla graphics "
+                                            "(fancy, smooth lighting, shadows) on the next launch.",
+                                            size=11, color=TEXT_DIM,
+                                        ),
+                                    ],
+                                    spacing=0,
+                                    expand=True,
+                                ),
+                                fps_boost_switch,
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+
+                        ft.Container(height=18),
+
                         # ACTION FOOTER: the primary PLAY action on the right.
                         ft.Row(
                             [
@@ -4816,26 +4865,6 @@ def main(page: ft.Page):
                     else "disabled - launches clean"))
 
     client_mod_cb.on_change = on_client_mod_change
-
-    # Max FPS mode: the launcher sets Minecraft's own speed-only graphics
-    # options at launch (Fast graphics, minimal particles, no entity shadows,
-    # biome blend 0, chunk writes off the render thread). Pure speed, no
-    # gameplay change; the player's visual choices (render distance etc.) are
-    # never rewritten. Off = the launcher leaves options.txt alone.
-    max_fps_cb = ft.Checkbox(
-        label="",
-        value=bool(cfg.get("max_fps_enabled", True)),
-        active_color=ACCENT,
-    )
-
-    def on_max_fps_change(e):
-        cfg["max_fps_enabled"] = bool(max_fps_cb.value)
-        core.save_config(cfg)
-        set_status("Max FPS mode " +
-                   ("on - Fast graphics at launch" if max_fps_cb.value
-                    else "off - your in-game graphics choices are kept"))
-
-    max_fps_cb.on_change = on_max_fps_change
 
     # Glass background: translucent window so the desktop shows through
     # faintly. Restart-to-apply (the window alpha is set once at startup).
@@ -5458,7 +5487,7 @@ def main(page: ft.Page):
         save_width_height_java=save_settings,
         browse_online_row=browse_online_row, legacy_btn=legacy_btn,
         legacy_note=legacy_note, client_mod_cb=client_mod_cb,
-        max_fps_cb=max_fps_cb, glass_cb=glass_cb, tidy_btn=tidy_btn,
+        glass_cb=glass_cb, tidy_btn=tidy_btn,
         ram_slider=ram_slider, ram_range_row=ram_range_row,
         ram_label=ram_label, ram_warning=ram_warning,
         width_field=width_field, height_field=height_field,

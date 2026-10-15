@@ -26,6 +26,16 @@ little less entity update distance, no biome blending, and chunk saves off the
 render thread. It still never touches render distance, resource packs or
 shaders.
 
+restore_vanilla_look() is Max FPS mode's OFF switch (2026-10-15): it rewrites
+the SAME keys back to Minecraft's own defaults, so turning FPS boost off in
+the Play menu actually undoes the boost on an already-installed instance -
+instead of leaving the fast values baked into options.txt (the old Settings
+toggle only stopped FUTURE launches from re-applying them, which is why it
+"did nothing" once installed). It also restores the smooth-lighting key, so
+shadows and textures come back the way vanilla draws them. Like every applier
+here it only touches keys the file already has, and never render distance,
+resource packs or shaders.
+
 Only keys that already exist are touched, so an options.txt from an older
 Minecraft version that has no such key is not given an unknown one. The write
 is atomic and idempotent. It is called on the launch path, before the JVM
@@ -66,6 +76,27 @@ MAX_FPS_OPTIONS = (
     ("biomeBlendRadius", "0", "fewer biome blend samples per pixel"),
     ("syncChunkWrites", "false", "chunk saves off the render thread"),
 )
+
+# The OFF switch for Max FPS mode: the SAME keys, at Minecraft's own defaults
+# (verified against the 1.21.11 jar's options.txt - the same audit that fixed
+# the values above). ao:true is smooth lighting, the "shadows on the ground"
+# look; graphicsPreset fancy is textured, shadowed terrain. Only keys the
+# file already has are touched, so a fresh install that has never written
+# e.g. syncChunkWrites is not given one. DELIBERATELY never here:
+# renderDistance / simulationDistance / mipmapLevels / clouds / leaves /
+# water - turning the boost off restores the ENGINE defaults, it does not
+# un-do the player's own visual choices.
+VANILLA_LOOK_OPTIONS = {
+    "graphicsPreset": '"fancy"',
+    "particles": "0",
+    "ao": "true",
+    "entityShadows": "true",
+    "entityDistanceScaling": "1.0",
+    "biomeBlendRadius": "2",
+    "syncChunkWrites": "true",
+    # Smooth lighting (per-vertex light smoothing; vanilla ON). A bool, like ao.
+    "smoothLighting": "true",
+}
 
 # Vanilla's FPS slider tops out at 260 and labels it "Unlimited"; anything
 # above the slider is meaningless, and 260 is high enough to never be the cap
@@ -178,3 +209,13 @@ def apply_max_fps(path: str | None = None) -> dict:
     return _set_options(path or options_path(),
                         {k: v for k, v, _ in MAX_FPS_OPTIONS},
                         "max fps")
+
+
+def restore_vanilla_look(path: str | None = None) -> dict:
+    """FPS boost OFF: put Minecraft's speed-only graphics options back to the
+    game's own defaults, so an install that ran with the boost on looks
+    vanilla again (fancy graphics, smooth lighting, entity shadows, all
+    particles, full biome blend). Never raises; same result shape.
+    """
+    return _set_options(path or options_path(), dict(VANILLA_LOOK_OPTIONS),
+                        "vanilla look restored")

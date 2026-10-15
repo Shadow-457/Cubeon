@@ -364,5 +364,62 @@ with tempfile.TemporaryDirectory() as tmp:
     check("its only key survives untouched",
           open(path, encoding="utf-8").read() == "renderDistance:8\n")
 
+print("\n11. FPS boost OFF restores the vanilla look (the same keys, defaults)")
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, "options.txt")
+    # An options.txt as it looks after running with the boost ON for a while.
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(
+            "version:4671\n"
+            "graphicsPreset:\"fast\"\n"
+            "ao:false\n"
+            "particles:2\n"
+            "entityShadows:false\n"
+            "entityDistanceScaling:0.75\n"
+            "biomeBlendRadius:0\n"
+            "syncChunkWrites:false\n"
+            "smoothLighting:true\n"
+            "renderDistance:6\n"
+            "mipmapLevels:4\n"
+        )
+    result = go.restore_vanilla_look(path)
+    check("every boost key is restored",
+          sorted(result["changed"]) == sorted(
+              ["graphicsPreset", "particles", "ao", "entityShadows",
+               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites"]),
+          f"got {result!r}")
+    text = open(path, encoding="utf-8").read()
+    check("values are Minecraft's own defaults again",
+          all(line in text for line in (
+              'graphicsPreset:"fancy"', "particles:0", "ao:true",
+              "entityShadows:true", "entityDistanceScaling:1.0",
+              "biomeBlendRadius:2", "syncChunkWrites:true")), repr(text))
+    check("smooth lighting stays true (never nerfed, never invented)",
+          "smoothLighting:true" in text and "smoothLighting" not in result["changed"],
+          repr(text))
+    check("the player's own visual choices are untouched",
+          "renderDistance:6" in text and "mipmapLevels:4" in text,
+          repr(text))
+    again = go.restore_vanilla_look(path)
+    check("restore is idempotent",
+          again["changed"] == [] and "already applied" in again["detail"],
+          f"got {again!r}")
+    # And round-trips: boost on again after a restore.
+    back = go.apply_max_fps(path)
+    check("boost can be re-applied after a restore",
+          sorted(back["changed"]) == sorted(
+              ["graphicsPreset", "particles", "ao", "entityShadows",
+               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites"]),
+          f"got {back!r}")
+
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, "fresh.txt")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("renderDistance:8\n")
+    result = go.restore_vanilla_look(path)
+    check("restore never invents keys in a fresh options.txt",
+          result["changed"] == [] and "not in options.txt" in result["detail"],
+          f"got {result!r}")
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

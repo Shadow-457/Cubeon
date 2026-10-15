@@ -1,5 +1,34 @@
 # Cubeon module map — read this before reading any source
 
+## FPS boost lives in the PLAY menu; OFF RESTORES vanilla (2026-10-15) — INVARIANT
+- The user request: the Settings "Max FPS mode" toggle "doesn't do much if the
+  install is already installed", and the boost "nerfs shadows and textures".
+  Both true: the old OFF just stopped FUTURE launches from re-applying, so the
+  fast values stayed baked in options.txt forever; and the boost's keys
+  (graphicsPreset fast, ao:false, entityShadows:false, particles:2 …) ARE the
+  look - that is where its FPS comes from. It cannot be "3x FPS with zero
+  visual change" - the honest contract is ON = fast, OFF = vanilla look
+  restored.
+- `cubeon/config.py`: the key is now `fps_boost_enabled` (default True);
+  `load_config` MIGRATES `max_fps_enabled` so a user's choice carries over.
+- The toggle is a `ft.Switch` in the PLAY card under "Mod loader"
+  (`fps_boost_switch` in main.py, defined BEFORE `play_tab = ft.Column(` —
+  it is referenced in that literal; defining it after was an
+  UnboundLocalError caught by test_ui_smoke). The Settings row is GONE.
+- `cubeon/game_options.py`: `restore_vanilla_look()` rewrites the SAME keys to
+  Minecraft's own defaults (graphicsPreset "fancy", particles 0, ao true,
+  entityShadows true, entityDistanceScaling 1.0, biomeBlendRadius 2,
+  syncChunkWrites true, smoothLighting true) - only keys the file already has.
+  `apply_max_fps()` is unchanged (do NOT weaken it; it is the "3x fps" the
+  user wants). `cubeon/launch.py` calls restore when the boost is off, so an
+  install that ran boosted actually looks vanilla again on the next launch.
+- renderDistance / simulationDistance / mipmap / clouds / leaves / water stay
+  untouched in BOTH directions - those are the player's own choices.
+- Guards: tools/test_perf_mods.py §11 (restore values, idempotence, round
+  trip, no invented keys), tools/test_ui_smoke.py "FPS boost lives in the PLAY
+  menu" block (Settings row gone, switch-before-play_tab ordering, launch.py
+  restore call, config migration).
+
 ## The in-game mod is CHAT-ONLY (2026-10-14) — INVARIANT
 - User request: "remove the whole friends stuff from the Cubeon client, the
   connection and stuff, but add a chat area with friends where we can chat and

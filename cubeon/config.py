@@ -124,13 +124,16 @@ DEFAULT_CONFIG = {
     # Turning it off leaves the mod set and the game's options exactly as the
     # user built them.
     "perf_mods_enabled": True,
-    # Max FPS mode: with the perf mods on, also set Minecraft's own
-    # speed-only graphics options (Fast graphics, minimal particles, no entity
-    # shadows, trimmed entity distance, biome blend 0, chunk writes off the
-    # render thread - see cubeon/game_options.py MAX_FPS_OPTIONS). Visual
-    # choices like render distance are never touched. Off = the launcher
-    # leaves options.txt alone entirely.
-    "max_fps_enabled": True,
+    # FPS boost (the Play-menu toggle): with the perf mods on, also set
+    # Minecraft's own speed-only graphics options (Fast graphics, minimal
+    # particles, no entity shadows, trimmed entity distance, biome blend 0,
+    # chunk writes off the render thread - see cubeon/game_options.py
+    # MAX_FPS_OPTIONS). Visual choices like render distance are never
+    # touched. OFF actively RESTORES Minecraft's defaults for those same keys
+    # at every launch (restore_vanilla_look), so an install that ran boosted
+    # goes back to fancy/shadowed vanilla looks. Renamed from
+    # max_fps_enabled (2026-10-15); the old key is migrated in load_config.
+    "fps_boost_enabled": True,
     # Translucent ("glass") launcher window: the native window AND the page
     # canvas are painted with an alpha channel so the desktop shows through
     # faintly behind the UI. Only the BACKGROUND goes translucent - panels and
@@ -221,7 +224,13 @@ def load_config() -> dict:
         with open(CONFIG_PATH, "r") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            return {**DEFAULT_CONFIG, **data}
+            cfg = {**DEFAULT_CONFIG, **data}
+            # Key migration: max_fps_enabled -> fps_boost_enabled (2026-10-15,
+            # the toggle moved from Settings to the Play menu and gained the
+            # restore-on-off behaviour). The user's ON/OFF choice carries over.
+            if "max_fps_enabled" in data and "fps_boost_enabled" not in data:
+                cfg["fps_boost_enabled"] = bool(data["max_fps_enabled"])
+            return cfg
     except (json.JSONDecodeError, OSError, FileNotFoundError):
         pass
     # Brand-new install (or a config whose JSON is not an object - never a

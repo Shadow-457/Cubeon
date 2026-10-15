@@ -1652,6 +1652,33 @@ check("crash reporting backend and wiring are gone",
       not os.path.exists(os.path.join(_app_root, "cubeon", "crashreport.py"))
       and "crash_reports" not in _src_main and "crashreport" not in _src_main)
 
+# --- FPS boost lives in the PLAY menu, not Settings (2026-10-15) -------------
+# User request: the Settings toggle "doesn't do much if the install is already
+# installed" and the boost "nerfs shadows and textures". The toggle moved to
+# the Play card and OFF now RESTORES vanilla values for the same keys
+# (cubeon/game_options.py restore_vanilla_look) instead of doing nothing.
+check("Settings no longer carries the Max FPS row",
+      "max_fps_cb" not in _privacy_src and "Max FPS mode" not in _privacy_src,
+      "ui/settings_tab.py still references the old toggle")
+check("the FPS boost switch is built in main.py",
+      "fps_boost_switch = ft.Switch(" in _src_main
+      and "on_fps_boost_change" in _src_main,
+      "main.py lost the Play-menu switch")
+check("the boost switch sits in the PLAY card, defined before play_tab",
+      _src_main.index("fps_boost_switch = ft.Switch(")
+      < _src_main.index("play_tab = ft.Column("),
+      "the switch must exist before the Play tab builds (UnboundLocalError)")
+check("OFF actively restores vanilla graphics at launch",
+      "restore_vanilla_look" in open(os.path.join(_app_root, "cubeon", "launch.py"),
+                                     encoding="utf-8").read(),
+      "cubeon/launch.py must call restore_vanilla_look when the boost is off")
+check("the old max_fps_enabled key migrates, it does not silently reset",
+      "fps_boost_enabled" in open(os.path.join(_app_root, "cubeon", "config.py"),
+                                  encoding="utf-8").read()
+      and "max_fps_enabled" in open(os.path.join(_app_root, "cubeon", "config.py"),
+                                    encoding="utf-8").read(),
+      "cubeon/config.py lost the key migration")
+
 # --- Adding a loader to an already-installed vanilla version -----------------
 # Bug: "if i installed vanilla then i want to fabric or quilt there no option
 # to install it". The toggle handler used to snap back with "pick it before

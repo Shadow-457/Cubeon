@@ -793,12 +793,20 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 status_cb("Frame rate unlocked")
             # Max FPS mode: the game's own speed-only graphics options.
             # Same launch-path spot as the frame unlock - options.txt is not
-            # owned by a running JVM yet. Gated on its own setting so a
-            # player who prefers Fancy visuals can switch it off entirely.
-            if cfg.get("max_fps_enabled", True):
+            # owned by a running JVM yet. Gated on the Play-menu FPS boost
+            # toggle; when the boost is OFF the SAME keys are written back to
+            # Minecraft's defaults instead, so an install that ran boosted
+            # actually looks vanilla again (a plain "do nothing" left the
+            # fast values baked in, which is what made the old Settings
+            # toggle feel useless on an installed instance).
+            if cfg.get("fps_boost_enabled", True):
                 maxed = game_options.apply_max_fps()
                 if maxed["changed"] and status_cb:
-                    status_cb("Max FPS options applied")
+                    status_cb("FPS boost applied")
+            else:
+                restored = game_options.restore_vanilla_look()
+                if restored["changed"] and status_cb:
+                    status_cb("Vanilla graphics restored")
     except Exception:
         pass
 
