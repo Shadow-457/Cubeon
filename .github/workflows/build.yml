@@ -188,38 +188,29 @@ jobs:
           python -m pip install -r requirements.txt pyinstaller
 
       - name: Install NSIS
-        # The runner has neither makensis on PATH nor wine, so without this
-        # the installer step failed every Windows build ("NSIS not found").
-        run: choco install nsis -y --no-progress
-
-      - name: Build Windows EXE & ZIP
+        # choco drops NSIS in "C:\Program Files (x86)\NSIS" but does NOT
+        # refresh PATH inside the running job. build_windows_installer.py
+        # looks makensis up with shutil.which(), so without the GITHUB_PATH
+        # line every Windows installer build died with "NSIS not found" (the
+        # ZIP had already been built, which is why the job failed only after
+        # the zipping line).
         run: |
-          python packaging/build_windows.py
-          python packaging/build_windows_installer.py
+          choco install nsis -y --no-progress
+          $candidates = @(
+            (Join-Path ${env:ProgramFiles} 'NSIS'),
+            (Join-Path ${env:ProgramFiles(x86)} 'NSIS')
+          )
+          $dir = $candidates | Where-Object {
+            Test-Path (Join-Path $_ 'makensis.exe')
+          } | Select-Object -First 1
+          if (-not $dir) { throw "makensis.exe not found after choco install" }
+          Write-Host "makensis: $(Join-Path $dir 'makensis.exe')"
+          $dir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Upload Windows Standalone Folder Artifact
-        # OFF deliberately: the ZIP below contains the same folder, and the
-        # unpacked copy is ~128 MB of the ~500 MB free storage quota. See the
-        # note on the Linux upload step.
-        if: false
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 7
-          name: Cubeon-Windows-x64-Folder
-          path: dist/Cubeon/
-
-      - name: Upload Windows Portable ZIP Artifact
-        if: startsWith(github.ref, 'refs/tags/v')
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 7
-          name: Cubeon-Windows-x64-ZIP
-          path: dist/Cubeon-Windows-x64.zip
-
-      - name: Publish Windows builds to the release
-        # Tag push  -> create/update that tag's release.
-        # main push -> refresh the repo's LATEST release in place (--clobber).
+      - name: Resolve the release tag
+        # Tag push  -> that tag's own release (created if missing).
+        # main push -> the repo's LATEST release, refreshed in place below.
+        # Exported through GITHUB_ENV so every publish step shares it.
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -235,8 +226,36 @@ jobs:
             TAG="$(gh release view --json tagName --jq .tagName)"
             echo "branch build -> refreshing latest release: $TAG"
           fi
-          gh release upload "$TAG" dist/Cubeon-Windows-x64.zip --clobber
-          gh release upload "$TAG" dist/Cubeon-Windows-x64-Setup.exe --clobber
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Build Windows onedir + portable ZIP
+        run: python packaging/build_windows.py
+
+      - name: Publish Windows ZIP to the release
+        # Published BEFORE the NSIS installer step on purpose: the portable
+        # build still reaches the release even if the installer build fails.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Windows-x64.zip --clobber
+
+      - name: Upload Windows Portable ZIP Artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          retention-days: 7
+          name: Cubeon-Windows-x64-ZIP
+          path: dist/Cubeon-Windows-x64.zip
+
+      - name: Build Windows installer (NSIS)
+        run: python packaging/build_windows_installer.py
+
+      - name: Publish Windows installer to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Windows-x64-Setup.exe --clobber
 
   build-macos:
     name: Build macOS app
@@ -262,15 +281,14 @@ jobs:
           chmod +x packaging/build_macos.sh
           ./packaging/build_macos.sh
 
-      - name: Publish macOS app to the release
-        # Tag push  -> create/update that tag's release.
-        # main push -> refresh the repo's LATEST release in place (--clobber).
+      - name: Resolve the release tag
+        # Tag push  -> that tag's own release (created if missing).
+        # main push -> the repo's LATEST release, refreshed in place below.
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ditto -c -k --sequesterRsrc --keepParent dist/Cubeon Cubeon-macOS.zip
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="$GITHUB_REF_NAME"
             gh release create "$TAG" \
@@ -281,4 +299,13 @@ jobs:
             TAG="$(gh release view --json tagName --jq .tagName)"
             echo "branch build -> refreshing latest release: $TAG"
           fi
-          gh release upload "$TAG" Cubeon-macOS.zip --clobber
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Publish macOS app to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent dist/Cubeon Cubeon-macOS.zip
+          gh release upload "$RELEASE_TAG" Cubeon-macOS.zip --clobber
