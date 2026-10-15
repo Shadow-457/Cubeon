@@ -37,10 +37,16 @@ built by hand.
 - `tools/test_mega_smoke.py --static` → 16 passed / 0 failed *with* the spec;
   **15 passed / 0 failed with the spec moved away** (the CI case) and it prints
   the skip instead of crashing.
-- `tools/test_mega_smoke.py --suites` → see commit (run from the repo root).
+- `tools/test_mega_smoke.py --suites` → **42 passed, 0 failed**.
 - **Live proof the pipeline works:** the a9fcaa6 push (first run of this
   workflow) refreshed `Cubeon-macOS.zip` on v1.1.2 to 16:20Z — the macOS half
   published. The Windows assets stayed at 00:07/00:13Z because of failure #2.
+- **Fully green after the fix:** run `38769059117` (push 0ac5826) →
+  Test suite ✅, Build Windows EXE & ZIP ✅, Build macOS app ✅,
+  Build Linux AppImage skipped. v1.1.2's assets then read
+  `Cubeon-Windows-x64-Setup.exe` 16:30Z, `Cubeon-Windows-x64.zip` 16:29Z,
+  `Cubeon-macOS.zip` 16:28Z (Linux assets untouched). The NSIS installer
+  build worked once makensis was on PATH.
 
 ## Note
 Pushing to main **overwrites the latest release's assets with an untagged
