@@ -44,16 +44,36 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 from test_mod_bridge import find_jdk, _java_version  # noqa: E402
 
+# The mod's Minecraft-facing sources come in two namespace copies now that the
+# HUD has moved in: src/main/java-overlay-api-mojang (26.x, unobfuscated, plain
+# Mojang names) and src/main/java-overlay-api-yarn (1.20-1.21.11, Yarn names that
+# loom remaps). Only the Mojang copy is compiled here, because the stub below is
+# written in Mojang names - the Yarn copy is the same code against the same seam
+# under Yarn's names (PlayerListHud#getPlayerName rather than
+# PlayerTabOverlay#getNameForDisplay), so compiling it against a Mojang stub
+# would prove nothing. The real Gradle builds in mod/ are what validate it.
+#
+# The HUD (dev/keyhud/**) is deliberately absent: it is ~800 lines per era of
+# genuine Minecraft rendering, it needs Fabric API, and stubbing all of that
+# would be a second implementation to keep in sync rather than a check. Its
+# cross-version discipline is enforced by the 24 real builds - see brackets.json.
 MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/Json.java",
     "mod/src/main/java/com/cubeon/client/Bridge.java",
-    "mod/src/main/java/com/cubeon/client/CubeonClient.java",
     "mod/src/main/java/com/cubeon/client/BadgeNames.java",
-    "mod/src/main/java/com/cubeon/client/TabListTag.java",
-    "mod/src/main/java/com/cubeon/client/WorldPlayers.java",
-    "mod/src/main/java/com/cubeon/client/mixin/PlayerTabOverlayMixin.java",
     "mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java",
+    "mod/src/main/java-overlay-api-mojang/com/cubeon/client/CubeonClient.java",
+    "mod/src/main/java-overlay-api-mojang/com/cubeon/client/TabListTag.java",
+    "mod/src/main/java-overlay-api-mojang/com/cubeon/client/WorldPlayers.java",
+    "mod/src/main/java-overlay-api-mojang/com/cubeon/client/mixin/PlayerTabOverlayMixin.java",
 ]
+
+# The per-namespace copies of everything MOD_SOURCES lists under an overlay, as
+# (label, overlay directory) - used by both the seam checks and the wiring pass.
+API_OVERLAYS = (
+    ("mojang", "mod/src/main/java-overlay-api-mojang/com/cubeon/client"),
+    ("yarn", "mod/src/main/java-overlay-api-yarn/com/cubeon/client"),
+)
 
 # The mod targets Java 17 bytecode (mod/build.gradle explains why), so the stub
 # compile targets it too - that way a Java 21-only construct fails here rather
@@ -1207,24 +1227,31 @@ def _check_mixin_wiring():
     say("PlayerNameMixin.java" not in "\n".join(MOD_SOURCES),
         "the removed nametag mixin is gone from MOD_SOURCES")
 
-    # The cross-era seam, and the user-visible contract.
-    mixin = open(os.path.join(ROOT, "mod/src/main/java/com/cubeon/client/mixin/"
-                                  "PlayerTabOverlayMixin.java"),
-                 encoding="utf-8").read()
-    say('method = "getNameForDisplay"' in mixin,
-        "the mixin still targets getNameForDisplay (the cross-era seam)",
-        "re-check BOTH jars (1.20.1 and 26.1.2) before retargeting it: the "
-        "renderer differs between eras but this method does not")
-    say("require = 0" in mixin,
-        "the mixin stays non-required, so a moved method loses the tag not the game")
-    say("Throwable" in mixin, "the per-frame injection swallows everything")
+    # The cross-era seam, and the user-visible contract. Each namespace copy has
+    # to name the SAME seam in its own vocabulary: Yarn calls it
+    # PlayerListHud#getPlayerName, Mojang calls it PlayerTabOverlay#getNameForDisplay.
+    # If these two ever disagree, one whole era silently loses the tag (the
+    # injectors are require = 0, so a missed target is not an error).
+    for label, base in API_OVERLAYS:
+        mixin = open(os.path.join(ROOT, base, "mixin",
+                                  "PlayerTabOverlayMixin.java"), encoding="utf-8").read()
+        target, method = (("PlayerTabOverlay", "getNameForDisplay") if label == "mojang"
+                          else ("PlayerListHud", "getPlayerName"))
+        say(f"@Mixin({target}.class)" in mixin,
+            f"the {label} mixin targets {target} (the cross-era seam)",
+            "re-check BOTH jars before retargeting it: the renderer differs "
+            "between eras but this method does not")
+        say(f'method = "{method}"' in mixin,
+            f"the {label} mixin still injects into {method}")
+        say("require = 0" in mixin,
+            f"the {label} mixin stays non-required, so a moved method loses the tag not the game")
+        say("Throwable" in mixin, f"the {label} per-frame injection swallows everything")
 
-    tag = open(os.path.join(ROOT, "mod/src/main/java/com/cubeon/client/"
-                                  "TabListTag.java"), encoding="utf-8").read()
-    say('"[Cubeon]"' in tag, "the tag text is [Cubeon]")
-    say("0x83C13D" in tag, "the tag uses the exact Cubeon green")
-    say("TextColor.fromRgb" in tag,
-        "the green goes through TextColor.fromRgb (present in both eras)")
+        tag = open(os.path.join(ROOT, base, "TabListTag.java"), encoding="utf-8").read()
+        say('"[Cubeon]"' in tag, f"the {label} tag text is [Cubeon]")
+        say("0x83C13D" in tag, f"the {label} tag uses the exact Cubeon green")
+        say("TextColor.fromRgb" in tag,
+            f"the {label} green goes through TextColor.fromRgb (present in both eras)")
     return ok
 
 

@@ -1,0 +1,23 @@
+{
+	"key.category.keyhud.main": "KeyHUD",
+
+	"key.keyhud.open_menu": "Open KeyHUD Menu",
+
+	"keyhud.menu.title": "KeyHUD Settings",
+	"keyhud.menu.show_fps": "Show FPS: %s",
+	"keyhud.menu.show_keys": "Show Keystrokes: %s",
+	"keyhud.state.on": "ON",
+	"keyhud.state.off": "OFF",
+	"keyhud.menu.show_armor": "Show Armour: %s",
+	"keyhud.menu.show_ping": "Show Ping: %s",
+	"keyhud.menu.show_cps": "Show CPS: %s",
+	"keyhud.menu.move": "Move",
+	"keyhud.menu.reset_positions": "Reset Positions",
+
+	"keyhud.editor.fps": "Move the FPS display",
+	"keyhud.editor.keys": "Move the keystrokes display",
+	"keyhud.editor.armor": "Move the armour display",
+	"keyhud.editor.ping": "Move the ping display",
+	"keyhud.editor.cps": "Move the CPS display",
+	"keyhud.editor.hint": "Drag with the left mouse button, then press Done"
+}

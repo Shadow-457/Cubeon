@@ -6,67 +6,443 @@
     "into a profile. Two hand-maintained copies of the same table would drift,",
     "and the failure mode of drift is a mod that loads into the wrong Minecraft.",
     "",
-    "There are exactly two brackets, and the line between them is not an API",
-    "change - it is a namespace change. Minecraft up to 1.21.x ships obfuscated,",
-    "so a Fabric mod's compiled references have to be in the *intermediary*",
-    "namespace (class_437.method_25411), which is what fabric-loom produces when",
-    "it remaps a build. Minecraft 26.x ships unobfuscated: its Fabric profile has",
-    "no intermediary library at all, and the names in the jar are already the real",
-    "ones. Fabric does no remapping at runtime, so no single jar can carry both",
-    "sets of references. Two jars is the floor, not a choice.",
+    "One bracket per Minecraft release, unlike the two it started with. Merging",
+    "KeyHUD in brought ~800 lines per era of HUD rendering that track Minecraft's",
+    "own GUI classes closely - closer than the Cubeon button ever did - so a jar",
+    "per exact version is what the HUD can actually be tested against. The ranges",
+    "below are still consecutive and the newest is still open-ended, so a",
+    "Minecraft released after this launcher falls into the newest bracket instead",
+    "of silently losing both the button and the HUD.",
     "",
-    "Within each bracket one jar covers everything, because the mod's source only",
-    "touches API that has not moved: Screen's lifecycle, addRenderableWidget, and",
-    "Button/EditBox/StringWidget (see the long comment in CubeonClientScreen for",
-    "why it never overrides render or an input callback). Intermediary names are",
-    "stable across versions by design, so the 1.20.1-built jar's references still",
-    "resolve on 1.21.x. tools/test_mod_compile.py is what keeps the source inside",
-    "that subset: the stub it compiles against deliberately omits everything that",
-    "changed shape between the two eras.",
+    "The line between the two halves of this table is not an API change - it is a",
+    "NAMESPACE change. Minecraft up to 1.21.11 ships obfuscated, so a Fabric mod's",
+    "compiled references have to be in Yarn names (which loom remaps to",
+    "intermediary), and the mod's own Minecraft-facing sources are written in",
+    "Yarn. Minecraft 26.x ships unobfuscated: there is no Yarn for it at all and",
+    "the names in the jar are already the real ones, so those brackets declare no",
+    "mappings and their sources use plain Mojang names. Fabric does no remapping",
+    "at runtime, so no single jar can carry both sets of references.",
     "",
-    "The newer bracket has no upper bound on purpose. Minecraft 26.2 or 26.3 will",
-    "almost certainly still have these widgets, and an open range means the button",
-    "keeps working on a version released after this launcher. If a future version",
-    "does rename something, the mixin is declared non-required, so the button goes",
-    "missing rather than the game.",
+    "That is what the two overlay families are for:",
+    "  api-yarn / api-mojang   the four Cubeon sources that touch Minecraft",
+    "                          (CubeonClient, TabListTag, WorldPlayers, the tab",
+    "                          overlay mixin), written twice, once per namespace.",
+    "  hud-<variant>           the KeyHUD HUD, one copy per HUD era (seven of",
+    "                          them), because Minecraft's GUI classes moved",
+    "                          between 1.20, 1.20.2, 1.21.9, 26.1 and 26.2 - and",
+    "                          26.3 renamed InputConstants.Type.KEYSYM to",
+    "                          KEYBOARD, so 26.3 needs its own copy of the",
+    "                          keybind file even though its GUI is 26.2's.",
+    "A bracket layers its api overlay and its hud overlay over the shared,",
+    "Minecraft-free tree in src/main/java.",
     "",
-    "Anything below 1.20.1 is deliberately absent: StringWidget and the Button",
-    "builder this screen is built from arrived around then, so there is no jar to",
-    "install and the launcher installs nothing rather than a mod that would crash",
-    "on class load.",
+    "Every bracket also needs Fabric API at compile time and at runtime: the HUD",
+    "is built on HudRenderCallback / HudElementRegistry / KeyBindingHelper. The",
+    "launcher installs Fabric API alongside this jar, and fabric.mod.json declares",
+    "it under 'recommends' rather than 'depends' on purpose - a missing Fabric API",
+    "must cost the player the HUD, never the game (see KeyHudClient's guard).",
     "",
-    "compile_against is the OLDEST version in each bracket on purpose. A method",
-    "that exists in the oldest exists in the newer ones too; compiling against the",
-    "newest and running on the oldest is how you get a NoSuchMethodError.",
+    "compile_against is the exact Minecraft version this key builds for. jdk is",
+    "the toolchain that has to read that Minecraft's class files; the bytecode",
+    "emitted is Java 17 for every bracket, because the mixin config declares",
+    "compatibilityLevel JAVA_17 and Mixin refuses to apply a mixin whose class file",
+    "is newer than that. A Java 25 JVM runs Java 17 bytecode happily.",
     "",
-    "mappings: 'official' pulls Mojang's own names via loom (these versions ship",
-    "obfuscated, and the source uses Mojang names). 'none' is for 26.x and later,",
-    "which ship unobfuscated - and because nothing has to be remapped, that jar",
-    "can be built with plain javac against the copy of Minecraft the launcher has",
-    "already downloaded, no Gradle and no network. See tools/build_mod_jars.py."
+    "mappings: 'yarn' for the obfuscated releases (loom remaps to intermediary at",
+    "build time). 'none' for 26.x and later, which ship unobfuscated - nothing has",
+    "to be remapped, so nothing may ask for mappings.",
+    "",
+    "depends mirrors KeyHUD's '~<version>' so a future patch release of the same",
+    "minor still loads the newest jar of that minor; the newest bracket is left",
+    "open-ended ('>=26.3') so a 26.x released after this launcher still works.",
+    "",
+    "Anything below 1.20 is deliberately absent: the mod's sources use APIs that",
+    "arrived with 1.20, so there is no jar to install and the launcher installs",
+    "nothing rather than a mod that would crash on class load."
   ],
   "mod_version": "1.0.0",
-  "loader_version": "0.19.3",
-  "loader_min": "0.14.0",
+  "loader_version": "0.19.5",
+  "loader_min": "0.15.0",
   "jar_name": "cubeon-client-{version}+mc{key}.jar",
   "brackets": [
     {
-      "key": "1.20-1.21",
-      "compile_against": "1.20.1",
-      "jdk": 21,
-      "mappings": "official",
-      "min": "1.20.1",
-      "below": "26",
-      "depends": ">=1.20.1 <26"
+      "key": "1.20",
+      "compile_against": "1.20",
+      "jdk": 17,
+      "mappings": "yarn",
+      "yarn": "1.20+build.1",
+      "fabric_api": "0.83.0+1.20",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20"
+      ],
+      "java": ">=17",
+      "min": "1.20",
+      "below": "1.20.1",
+      "depends": "~1.20"
     },
     {
-      "key": "26",
+      "key": "1.20.1",
+      "compile_against": "1.20.1",
+      "jdk": 17,
+      "mappings": "yarn",
+      "yarn": "1.20.1+build.10",
+      "fabric_api": "0.92.12+1.20.1",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.1"
+      ],
+      "java": ">=17",
+      "min": "1.20.1",
+      "below": "1.20.2",
+      "depends": "~1.20.1"
+    },
+    {
+      "key": "1.20.2",
+      "compile_against": "1.20.2",
+      "jdk": 17,
+      "mappings": "yarn",
+      "yarn": "1.20.2+build.4",
+      "fabric_api": "0.91.6+1.20.2",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=17",
+      "min": "1.20.2",
+      "below": "1.20.3",
+      "depends": "~1.20.2"
+    },
+    {
+      "key": "1.20.3",
+      "compile_against": "1.20.3",
+      "jdk": 17,
+      "mappings": "yarn",
+      "yarn": "1.20.3+build.1",
+      "fabric_api": "0.91.1+1.20.3",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=17",
+      "min": "1.20.3",
+      "below": "1.20.4",
+      "depends": "~1.20.3"
+    },
+    {
+      "key": "1.20.4",
+      "compile_against": "1.20.4",
+      "jdk": 17,
+      "mappings": "yarn",
+      "yarn": "1.20.4+build.3",
+      "fabric_api": "0.97.3+1.20.4",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=17",
+      "min": "1.20.4",
+      "below": "1.20.5",
+      "depends": "~1.20.4"
+    },
+    {
+      "key": "1.20.5",
+      "compile_against": "1.20.5",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.20.5+build.1",
+      "fabric_api": "0.97.8+1.20.5",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=17",
+      "min": "1.20.5",
+      "below": "1.20.6",
+      "depends": "~1.20.5"
+    },
+    {
+      "key": "1.20.6",
+      "compile_against": "1.20.6",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.20.6+build.3",
+      "fabric_api": "0.100.8+1.20.6",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=17",
+      "min": "1.20.6",
+      "below": "1.21",
+      "depends": "~1.20.6"
+    },
+    {
+      "key": "1.21",
+      "compile_against": "1.21",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21+build.9",
+      "fabric_api": "0.102.0+1.21",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21",
+      "below": "1.21.1",
+      "depends": "~1.21"
+    },
+    {
+      "key": "1.21.1",
+      "compile_against": "1.21.1",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.1+build.3",
+      "fabric_api": "0.116.17+1.21.1",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.1",
+      "below": "1.21.2",
+      "depends": "~1.21.1"
+    },
+    {
+      "key": "1.21.2",
+      "compile_against": "1.21.2",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.2+build.1",
+      "fabric_api": "0.106.1+1.21.2",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.2",
+      "below": "1.21.3",
+      "depends": "~1.21.2"
+    },
+    {
+      "key": "1.21.3",
+      "compile_against": "1.21.3",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.3+build.2",
+      "fabric_api": "0.114.1+1.21.3",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.3",
+      "below": "1.21.4",
+      "depends": "~1.21.3"
+    },
+    {
+      "key": "1.21.4",
+      "compile_against": "1.21.4",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.4+build.8",
+      "fabric_api": "0.119.4+1.21.4",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.4",
+      "below": "1.21.5",
+      "depends": "~1.21.4"
+    },
+    {
+      "key": "1.21.5",
+      "compile_against": "1.21.5",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.5+build.1",
+      "fabric_api": "0.128.2+1.21.5",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.5",
+      "below": "1.21.6",
+      "depends": "~1.21.5"
+    },
+    {
+      "key": "1.21.6",
+      "compile_against": "1.21.6",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.6+build.1",
+      "fabric_api": "0.128.2+1.21.6",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.6",
+      "below": "1.21.7",
+      "depends": "~1.21.6"
+    },
+    {
+      "key": "1.21.7",
+      "compile_against": "1.21.7",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.7+build.8",
+      "fabric_api": "0.129.0+1.21.7",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.7",
+      "below": "1.21.8",
+      "depends": "~1.21.7"
+    },
+    {
+      "key": "1.21.8",
+      "compile_against": "1.21.8",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.8+build.1",
+      "fabric_api": "0.136.1+1.21.8",
+      "overlays": [
+        "api-yarn",
+        "hud-1.20.2"
+      ],
+      "java": ">=21",
+      "min": "1.21.8",
+      "below": "1.21.9",
+      "depends": "~1.21.8"
+    },
+    {
+      "key": "1.21.9",
+      "compile_against": "1.21.9",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.9+build.1",
+      "fabric_api": "0.134.1+1.21.9",
+      "overlays": [
+        "api-yarn",
+        "hud-1.21.9"
+      ],
+      "java": ">=21",
+      "min": "1.21.9",
+      "below": "1.21.10",
+      "depends": "~1.21.9"
+    },
+    {
+      "key": "1.21.10",
+      "compile_against": "1.21.10",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.10+build.3",
+      "fabric_api": "0.138.4+1.21.10",
+      "overlays": [
+        "api-yarn",
+        "hud-1.21.9"
+      ],
+      "java": ">=21",
+      "min": "1.21.10",
+      "below": "1.21.11",
+      "depends": "~1.21.10"
+    },
+    {
+      "key": "1.21.11",
+      "compile_against": "1.21.11",
+      "jdk": 21,
+      "mappings": "yarn",
+      "yarn": "1.21.11+build.6",
+      "fabric_api": "0.141.6+1.21.11",
+      "overlays": [
+        "api-yarn",
+        "hud-1.21.9"
+      ],
+      "java": ">=21",
+      "min": "1.21.11",
+      "below": "26.1",
+      "depends": "~1.21.11"
+    },
+    {
+      "key": "26.1",
+      "compile_against": "26.1",
+      "jdk": 25,
+      "mappings": "none",
+      "fabric_api": "0.155.3+26.1.2",
+      "overlays": [
+        "api-mojang",
+        "hud-26.1"
+      ],
+      "java": ">=25",
+      "min": "26.1",
+      "below": "26.1.1",
+      "depends": "~26.1"
+    },
+    {
+      "key": "26.1.1",
+      "compile_against": "26.1.1",
+      "jdk": 25,
+      "mappings": "none",
+      "fabric_api": "0.155.3+26.1.2",
+      "overlays": [
+        "api-mojang",
+        "hud-26.1"
+      ],
+      "java": ">=25",
+      "min": "26.1.1",
+      "below": "26.1.2",
+      "depends": "~26.1.1"
+    },
+    {
+      "key": "26.1.2",
       "compile_against": "26.1.2",
       "jdk": 25,
       "mappings": "none",
-      "min": "26",
+      "fabric_api": "0.155.3+26.1.2",
+      "overlays": [
+        "api-mojang",
+        "hud-26.1"
+      ],
+      "java": ">=25",
+      "min": "26.1.2",
+      "below": "26.2",
+      "depends": "~26.1.2"
+    },
+    {
+      "key": "26.2",
+      "compile_against": "26.2",
+      "jdk": 25,
+      "mappings": "none",
+      "fabric_api": "0.161.0+26.2",
+      "overlays": [
+        "api-mojang",
+        "hud-26.2"
+      ],
+      "java": ">=25",
+      "min": "26.2",
+      "below": "26.3",
+      "depends": "~26.2"
+    },
+    {
+      "key": "26.3",
+      "compile_against": "26.3",
+      "jdk": 25,
+      "mappings": "none",
+      "fabric_api": "0.160.7+26.3",
+      "overlays": [
+        "api-mojang",
+        "hud-26.3"
+      ],
+      "java": ">=25",
+      "min": "26.3",
       "below": null,
-      "depends": ">=26"
+      "depends": ">=26.3"
     }
   ]
 }

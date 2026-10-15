@@ -12,14 +12,24 @@ per-(mc_version, loader) mod profile - the same folder sync_mods_to_game()
 copies from - so it lands in the game's mods directory like any other mod,
 but is always up to date and doesn't need a Modrinth download.
 
-Why brackets instead of one jar: not an API difference but a namespace one.
-Minecraft up to 1.21.x ships obfuscated, so a Fabric mod's compiled references
-live in the intermediary namespace; 26.x ships unobfuscated and its references
-are plain names. Fabric remaps nothing at runtime, so one jar cannot hold both.
-There are exactly two brackets for that reason, each covering its whole era, and
-the newer one has no upper bound so a version released after this launcher still
-gets the button. mod/brackets.json is the table, shared with the Gradle build so
-the two can't disagree.
+Why one jar per Minecraft version: two reasons, and the second is new.
+
+The hard one is a namespace change. Minecraft up to 1.21.11 ships obfuscated, so
+a Fabric mod's compiled references live in Yarn names that loom remaps to
+intermediary; 26.x ships unobfuscated and its references are plain names. Fabric
+remaps nothing at runtime, so no single jar can hold both.
+
+The other is the HUD. Merging KeyHUD in brought per-era rendering code that
+tracks Minecraft's own GUI classes closely - closer than the Cubeon button ever
+did - so a jar per exact version is what can actually be tested. The ranges stay
+consecutive and the newest stays open-ended, so a Minecraft released after this
+launcher falls into the newest bracket instead of silently losing the button and
+the HUD. mod/brackets.json is the table, shared with the Gradle build so the two
+can't disagree.
+
+Fabric API is required for the HUD and the launcher installs it alongside this
+jar; the mod only *recommends* it, so a missing API costs the HUD and never the
+game.
 
 Fail-safe throughout: no jar, an unsupported version, or a copy error just means
 the in-game button is absent - it never blocks a launch. The one thing this
@@ -287,3 +297,81 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         return True
     except OSError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Fabric API: the one thing the merged mod cannot draw its HUD without
+# ---------------------------------------------------------------------------
+# The HUD half of Cubeon Client is built on Fabric API (HudRenderCallback,
+# HudElementRegistry, KeyBindingHelper), and Fabric API is a *mod*, not part of
+# the loader - a Fabric profile without it simply has not got those classes and
+# the HUD cannot load. The mod declares it under "recommends" so that a profile
+# that ends up without it still gets the Cubeon button and only loses the HUD,
+# but "ends up without it" should not be the normal case. So the launcher
+# installs it the same way it installs its own jar, and the same way it installs
+# CustomSkinLoader: through the mod store, from Modrinth, best-effort.
+FABRIC_API_SLUG = "fabric-api"
+
+
+def _looks_like_fabric_api(mod: dict) -> bool:
+    """Whether one list_mods() entry is Fabric API.
+
+    Matches on anything identifying, because the jar gets into a profile three
+    ways and only one of them records a slug: our own download (slug), the mod
+    browse view (slug), and the player dropping it in by hand (filename only).
+    Re-downloading over a hand-installed copy would be both rude and a second
+    copy of the same mod id, which Fabric refuses to load.
+    """
+    text = " ".join(str(mod.get(field) or "") for field in
+                    ("slug", "project_id", "filename", "display_name")).lower()
+    return "fabric-api" in text or "fabric api" in text
+
+
+def fabric_api_installed(mc_version: str | None, loader: str | None) -> bool:
+    """Whether Fabric API is already in the (mc_version, loader) profile."""
+    if not mc_version or loader not in ("fabric", "quilt"):
+        return False
+    try:
+        from .mods import list_mods
+        return any(_looks_like_fabric_api(mod) for mod in list_mods(mc_version, loader))
+    except Exception:
+        # Best-effort: unreadable profile means "don't know", and the caller
+        # should not download on top of a copy it failed to see.
+        return True
+
+
+def ensure_fabric_api(mc_version: str | None, loader: str | None,
+                      status_cb=None) -> str:
+    """Best-effort install of Fabric API for this profile.
+
+    Runs from the launch path, so it reports rather than raises: a dead network
+    or a Modrinth outage must cost the player the HUD, never the launch. Returns
+    a short human-readable detail string.
+    """
+    if not mc_version or loader not in ("fabric", "quilt"):
+        return ""
+
+    if fabric_api_installed(mc_version, loader):
+        return "Fabric API already installed"
+
+    try:
+        from .mods import download_mod, get_mod_download
+        # Always ask Modrinth for the "fabric" build: it is what Quilt loads
+        # too, and Modrinth lists no separate quilt file for it.
+        file_info = get_mod_download(FABRIC_API_SLUG, mc_version=mc_version,
+                                     loader="fabric")
+    except Exception as ex:
+        return f"couldn't reach Modrinth ({ex.__class__.__name__})"
+
+    if not file_info:
+        return f"no Fabric API build for {mc_version}"
+
+    if status_cb:
+        status_cb("Installing Fabric API (the HUD needs it)")
+    try:
+        download_mod(file_info["url"], file_info["filename"],
+                     slug=FABRIC_API_SLUG, mc_version=mc_version, loader=loader,
+                     hashes=file_info.get("hashes"))
+    except Exception as ex:
+        return f"download failed ({ex.__class__.__name__})"
+    return f"installed Fabric API {file_info.get('version_number')}"

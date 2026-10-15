@@ -3,22 +3,29 @@
   "id": "cubeon-client",
   "version": "${version}",
   "name": "Cubeon Client",
-  "description": "The Cubeon Client: marks Cubeon players in Minecraft's player list and keeps the offline session working. Powered by the Cubeon launcher running on this machine.",
+  "description": "The Cubeon Client: marks Cubeon players in Minecraft's player list, keeps the offline session working, and adds the KeyHUD overlays (FPS, keystrokes, armour durability, ping, CPS - press K). Powered by the Cubeon launcher running on this machine.",
   "authors": ["Cubeon"],
   "license": "MIT",
+  "icon": "assets/keyhud/icon.png",
   "environment": "client",
   "entrypoints": {
-    "client": ["com.cubeon.client.CubeonClient"]
+    "client": [
+      "com.cubeon.client.CubeonClient",
+      "dev.keyhud.client.KeyHudClient"
+    ]
   },
   "mixins": [
     {
       "config": "cubeon-client.mixins.json",
       "environment": "client"
-    }
+    }${mixins_extra}
   ],
   "depends": {
     "minecraft": "${minecraft_range}",
     "fabricloader": ">=${loader_range}",
-    "java": ">=17"
+    "java": "${java_range}"
+  },
+  "recommends": {
+    "fabric-api": "*"
   }
 }

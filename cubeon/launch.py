@@ -759,6 +759,21 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             if not friends_ok and status_cb and loader in ("fabric", "quilt"):
                 status_cb("Cubeon Friends mod not built for this Minecraft "
                           "version - the in-game Friends button will be missing")
+            if friends_ok:
+                # The HUD half of the client mod is built on Fabric API, which
+                # is a mod rather than part of the loader. Install it too, so
+                # "the overlays work" is not something the player has to arrange
+                # - but only alongside a jar we actually shipped, and only
+                # best-effort: a profile without it still gets the button.
+                try:
+                    _api_detail = cubeonfriends.ensure_fabric_api(
+                        mc_version, loader, status_cb=status_cb)
+                    if _api_detail.startswith(("couldn't", "no ", "download")):
+                        logging.getLogger(__name__).info(
+                            "Fabric API not installed: %s", _api_detail)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "Fabric API setup failed", exc_info=True)
     except Exception:
         logging.getLogger(__name__).warning("friends mod setup failed", exc_info=True)
 

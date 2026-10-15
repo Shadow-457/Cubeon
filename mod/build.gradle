@@ -1,19 +1,24 @@
 import groovy.json.JsonSlurper
 
 plugins {
-    // "fabric-loom" is the real plugin id. "net.fabricmc.fabric-loom" also
-    // resolves on the maven, but it's loom's NO-REMAP MARKER plugin: applying
-    // it makes loom's LoomGradleExtensionImpl force disableObfuscation=true,
-    // which then rejects Mojang mappings ("Cannot use Mojang mappings in a
-    // non-obfuscated environment") - exactly what broke the 1.20-1.21 build.
-    id 'fabric-loom' version '1.14.10'
+    // Both plugin ids are on the table, and which one actually runs is a
+    // property of the bracket, so neither is applied here - see the `apply`
+    // below. "fabric-loom" is the real plugin and is what remaps Yarn names to
+    // intermediary for the obfuscated releases. "net.fabricmc.fabric-loom" is
+    // loom's NO-REMAP MARKER plugin: it resolves on the same maven, and applying
+    // it makes loom's LoomGradleExtensionImpl force disableObfuscation=true -
+    // which is exactly right for 26.x (it ships unobfuscated) and exactly wrong
+    // for 1.20-1.21.11 (asking for mappings there fails the build with "Cannot
+    // use Mojang mappings in a non-obfuscated environment").
+    id 'fabric-loom' version '1.18.2' apply false
+    id 'net.fabricmc.fabric-loom' version '1.18.2' apply false
 }
 
 // ---------------------------------------------------------------------------
-// One source tree, one jar per Minecraft bracket.
+// One source tree, one jar per Minecraft version.
 //
 //   gradle build -PmcVersion=1.20.1     -> cubeon-client-1.0.0+mc1.20.1.jar
-//   gradle build -PmcVersion=26.1       -> cubeon-client-1.0.0+mc26.1.jar
+//   gradle build -PmcVersion=26.3       -> cubeon-client-1.0.0+mc26.3.jar
 //   gradle build                        -> the newest bracket in brackets.json
 //
 // or all of them at once, with the jars copied where the launcher looks:
@@ -23,6 +28,14 @@ plugins {
 // The matrix itself lives in brackets.json because cubeon/cubeonfriends.py needs
 // exactly the same table to decide which jar to install into a profile, and a
 // second hand-maintained copy of it would eventually disagree with this one.
+//
+// GRADLE MUST RUN ON JVM 25 OR NEWER (loom 1.18 needs it). The mod's own
+// bytecode still targets Java 17 - see the java {} block - and the *toolchain*
+// that reads each Minecraft jar is chosen per bracket. If `gradle` here is an
+// older JVM, tools/build_mod_jars.py points JAVA_HOME at a 25+ JDK for you;
+// running Gradle by hand needs the same:
+//
+//   JAVA_HOME=/usr/lib/jvm/java-26-openjdk gradle build -PmcVersion=1.20.1
 // ---------------------------------------------------------------------------
 
 def matrix = new JsonSlurper().parse(file('brackets.json'))
@@ -35,24 +48,38 @@ if (bracket == null) {
             + ". Add a new one to mod/brackets.json if Minecraft has moved on.")
 }
 
+// "yarn" means the release ships obfuscated and has to be remapped; "none"
+// means 26.x and later, which do not. Everything downstream forks on this.
+def obfuscated = bracket.mappings == 'yarn'
+apply plugin: (obfuscated ? 'fabric-loom' : 'net.fabricmc.fabric-loom')
+
 version = "${matrix.mod_version}+mc${bracket.key}"
 group = 'com.cubeon'
 
 base { archivesName = 'cubeon-client' }
 
 repositories {
+    mavenCentral()
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${bracket.compile_against}"
-    if (bracket.mappings == 'official') {
-        // These versions ship obfuscated, and the source is written in Mojang's
-        // own names (PauseScreen, GuiGraphics, EditBox), so Mojang's mappings are
-        // the ones that match. 26.x needs no mappings line at all - it ships
-        // unobfuscated, and asking for mappings there fails the build.
-        mappings loom.officialMojangMappings()
+    if (obfuscated) {
+        // Yarn, not Mojang's mappings: the HUD half of this mod came from KeyHUD
+        // and is written in Yarn names (MinecraftClient, DrawContext, Text...),
+        // and loom remaps those to intermediary so the jar runs on the real game.
+        mappings "net.fabricmc:yarn:${bracket.yarn}:v2"
+        modImplementation "net.fabricmc:fabric-loader:${matrix.loader_version}"
+        // The HUD is built on Fabric API (HudRenderCallback, HudElementRegistry,
+        // KeyBindingHelper), so the API has to be on the compile classpath.
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${bracket.fabric_api}"
+    } else {
+        // 26.x ships unobfuscated, so there is nothing to remap and the no-remap
+        // marker plugin above has no mod-specific configurations at all -
+        // plain implementation is what the official template uses there.
+        implementation "net.fabricmc:fabric-loader:${matrix.loader_version}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${bracket.fabric_api}"
     }
-    implementation "net.fabricmc:fabric-loader:${matrix.loader_version}"
     // Loom doesn't put sponge-mixin (the mixin annotation processor's own
     // annotations) on the compile classpath via the loader dependency, so
     // a mixin source file fails with "package org.spongepowered.asm.mixin
@@ -62,14 +89,14 @@ dependencies {
 }
 
 // Every jar targets Java 17 bytecode regardless of which Minecraft it is built
-// against. That is not laziness: the mixin config declares
+// against, and that matters more now than it used to. The mixin config declares
 // compatibilityLevel JAVA_17, and Mixin refuses to apply a mixin whose class
-// file is newer than the declared level - so emitting Java 25 bytecode for the
-// 26.x jar and Java 17 for the rest would need two mixin configs. The mod uses
-// no language or library feature newer than 17, so one level covers all of them.
-// javac reads Minecraft's newer class files from the classpath quite happily
-// while emitting older bytecode; only the JDK doing the reading has to be new
-// enough, which is what the toolchain below is for.
+// file is newer than the declared level - so emitting Java 21 bytecode for the
+// 1.21.x jars (as KeyHUD did) or Java 25 for 26.x would need a per-bracket mixin
+// config. The mod uses no language or library feature newer than 17, so one
+// level covers all 24. javac reads the newer class files of its classpath quite
+// happily while emitting older bytecode; only the JDK doing the reading has to be
+// new enough, which is what the toolchain below is for.
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(bracket.jdk as int)
@@ -78,12 +105,38 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
-// Per-bracket source overlays: a class that needs one FQN but an era-specific
-// body lives in src/main/java-overlay-<bracket key>, layered on top of the
-// shared tree. No class needs an overlay right now (the in-game chat UI, whose
-// corner glyph was the last one, was removed); the mechanism stays so a future
-// per-bracket class has an obvious home.
-sourceSets.main.java.srcDir "src/main/java-overlay-${bracket.key}"
+// Per-bracket source overlays, layered on top of the shared tree. Two families:
+//
+//   api-yarn / api-mojang  the four Cubeon sources that touch Minecraft, written
+//                          once per namespace (see brackets.json's note). Exactly
+//                          one of them applies to any bracket.
+//   hud-<variant>          the KeyHUD HUD, one copy per HUD era. Seven of them
+//                          cover 24 Minecraft versions because the HUD's
+//                          Minecraft-facing API only moved five times (26.3
+//                          also renamed one keybind constant, which is why it
+//                          has its own copy of a 26.2-era HUD).
+//
+// A bracket with no overlay still builds from src/main/java alone, which is now
+// entirely Minecraft-free (Json, Bridge, BadgeNames, KeyHudConfig and the
+// Yggdrasil mixin).
+bracket.overlays.each { overlay ->
+    def dir = "src/main/java-overlay-${overlay}"
+    if (!file(dir).isDirectory()) {
+        throw new GradleException("Bracket ${bracket.key} needs overlay ${overlay}, "
+                + "but ${dir} does not exist.")
+    }
+    sourceSets.main.java.srcDir dir
+}
+
+// The 26.x HUD brings a mixin of its own - a ClientPacketListener hook that feeds
+// pong responses into KeyHUD's latency probe so the HUD ping updates every second
+// instead of waiting for the next tab-list refresh. Its mixin config therefore
+// only exists for the unobfuscated brackets, and fabric.mod.json only lists it
+// there (see mixins_extra below): a config naming a class that is not in the jar
+// is a startup warning at best. 1.20-1.21.11 measure ping without a mixin.
+if (!obfuscated) {
+    sourceSets.main.resources.srcDir 'src/main/resources-26x'
+}
 
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 17
@@ -94,12 +147,21 @@ tasks.withType(JavaCompile).configureEach {
 processResources {
     // fabric.mod.json declares the exact Minecraft range this jar was built for.
     // That declaration is the mod's real cross-version safety net: drop the wrong
-    // jar into a profile and Fabric says "requires Minecraft 1.20.x" on a tidy
+    // jar into a profile and Fabric says "requires Minecraft 1.20.2" on a tidy
     // screen instead of half-loading and crashing later.
+    //
+    // mixins_extra is the 26.x-only second mixin config, injected as a JSON
+    // fragment: the file it names is only in the jar for those brackets, so
+    // listing it unconditionally would have every Yarn jar point at a config
+    // that is not there.
     def replacements = [
             version        : project.version,
             minecraft_range: bracket.depends,
             loader_range   : matrix.loader_min,
+            java_range     : bracket.java,
+            mixins_extra   : obfuscated ? '' :
+                    ',\n    {\n      "config": "keyhud.client.mixins.json",\n' +
+                            '      "environment": "client"\n    }',
     ]
     inputs.properties replacements
     filesMatching('fabric.mod.json') {
@@ -112,6 +174,7 @@ tasks.register('printBracket') {
     doLast {
         println "bracket=${bracket.key} minecraft=${bracket.compile_against} " +
                 "jdk=${bracket.jdk} mappings=${bracket.mappings} " +
+                "overlays=${bracket.overlays.join('+')} " +
                 "range='${bracket.depends}' jar=${base.archivesName.get()}-${version}.jar"
     }
 }

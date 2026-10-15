@@ -71,8 +71,17 @@ def test_table():
 
     keys = [b["key"] for b in brackets]
     ok(len(keys) == len(set(keys)), "bracket keys are unique")
-    ok(all(b["mappings"] in ("official", "none") for b in brackets),
-       "mappings is either official or none")
+    # "yarn" means the release ships obfuscated and loom remaps Yarn names to
+    # intermediary; "none" means 26.x and later, which ship unobfuscated.
+    ok(all(b["mappings"] in ("yarn", "none") for b in brackets),
+       "mappings is either yarn or none")
+    ok(all(("yarn" in b) == (b["mappings"] == "yarn") for b in brackets),
+       "every yarn bracket names the mappings version it builds against")
+    ok(all("fabric_api" in b and b["overlays"] for b in brackets),
+       "every bracket names its Fabric API version and its source overlays")
+    ok(all(b["overlays"][0] == ("api-yarn" if b["mappings"] == "yarn" else "api-mojang")
+           for b in brackets),
+       "each bracket layers the api overlay for its own namespace")
 
     parse = cubeonfriends.parse_mc_version
     for b in brackets:
@@ -84,10 +93,10 @@ def test_table():
         ok(parse(b["min"]) <= parse(b["compile_against"])
            and (below is None or parse(b["compile_against"]) < below),
            f"{b['key']}: compiles against a version inside its own range")
-        expected = f">={b['min']}" if b["below"] is None \
-            else f">={b['min']} <{b['below']}"
+        expected = f">={b['min']}" if b["below"] is None else f"~{b['key']}"
         ok(b["depends"] == expected,
-           f"{b['key']}: fabric.mod.json range matches min/below")
+           f"{b['key']}: fabric.mod.json range is {expected} (looser than the "
+           f"bracket's own min/below on purpose - see the assertion below)")
 
     # Overlapping ranges would make jar selection depend on table order, which
     # is exactly the kind of bug that only shows up on one player's machine.
@@ -111,6 +120,20 @@ def test_table():
 
     ok(all(int(b["jdk"]) >= 17 for b in brackets),
        "every bracket builds on JDK 17 or newer")
+
+    # The toolchain has to be able to READ the Minecraft jar it compiles
+    # against, and Minecraft raised its own floor twice: 1.20.5 moved to Java 21
+    # (its classes are major 65) and 26.x to Java 25. A bracket that reads 1.20.5
+    # on a 17 toolchain fails with "class file has wrong version 65.0, should be
+    # 61.0" - exactly how 1.20.5 and 1.20.6 failed the first time all 24 were
+    # built, because those two were the only brackets KeyHUD never got round to
+    # building on this machine. The *bytecode* stays Java 17 either way.
+    for b in brackets:
+        mc = parse(b["compile_against"])
+        floor = 25 if mc >= (26, 0, 0) else 21 if mc >= (1, 20, 5) else 17
+        ok(int(b["jdk"]) >= floor,
+           f"{b['key']}: toolchain {b['jdk']} can read that Minecraft "
+           f"(needs {floor}+)")
     return matrix
 
 
@@ -134,20 +157,27 @@ def test_version_parsing():
 def test_selection(matrix):
     section("pick_bracket")
     pick = cubeonfriends.pick_bracket
-    for version, expected in (("1.20.1", "1.20-1.21"),
-                              ("1.20.2", "1.20-1.21"),
-                              ("1.20.6", "1.20-1.21"),
-                              ("1.21", "1.20-1.21"),
-                              ("1.21.5", "1.20-1.21"),
+    for version, expected in (("1.20", "1.20"),
+                              ("1.20.1", "1.20.1"),
+                              ("1.20.2", "1.20.2"),
+                              ("1.20.6", "1.20.6"),
+                              ("1.21", "1.21"),
+                              ("1.21.5", "1.21.5"),
                               # The version that started this: obfuscated era, so
                               # it needs the intermediary-namespace jar, and used
                               # to get nothing at all.
-                              ("1.21.11", "1.20-1.21"),
-                              ("26.1", "26"),
-                              ("26.1.2", "26"),
+                              ("1.21.11", "1.21.11"),
+                              ("26.1", "26.1"),
+                              ("26.1.2", "26.1.2"),
+                              ("26.3", "26.3"),
                               # Unobfuscated era, released after this launcher.
-                              ("26.4", "26"),
-                              ("27.0.1", "26")):
+                              ("26.4", "26.3"),
+                              ("27.0.1", "26.3"),
+                              # A patch that does not exist yet rides on the
+                              # newest jar of its own minor rather than falling
+                              # into the next era.
+                              ("1.20.7", "1.20.6"),
+                              ("1.21.12", "1.21.11")):
         got = pick(version)
         ok(got is not None and got["key"] == expected,
            f"{version} -> {expected} (got {got and got['key']})")
@@ -160,10 +190,19 @@ def test_selection(matrix):
 
     # The eras must not be confused for one another. A jar whose references are
     # in the wrong namespace resolves to nothing at runtime.
-    ok(pick("1.21.11")["mappings"] == "official",
-       "the obfuscated era is built with mappings, so its jar is intermediary")
+    ok(pick("1.21.11")["mappings"] == "yarn",
+       "the obfuscated era is built from Yarn, so its jar is intermediary")
     ok(pick("26.1.2")["mappings"] == "none",
        "the unobfuscated era is built without")
+
+    # Every Minecraft release from 1.20 up is covered, one bracket each: the
+    # merge's whole point was that no version silently loses the HUD.
+    listed = [b["key"] for b in matrix["brackets"]]
+    for release in ("1.20", "1.20.1", "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6",
+                    "1.21", "1.21.1", "1.21.2", "1.21.3", "1.21.4", "1.21.5", "1.21.6",
+                    "1.21.7", "1.21.8", "1.21.9", "1.21.10", "1.21.11",
+                    "26.1", "26.1.1", "26.1.2", "26.2", "26.3"):
+        ok(release in listed, f"{release} has its own bracket")
 
     keys = {b["key"] for b in matrix["brackets"]}
     names = {cubeonfriends.jar_name(b) for b in matrix["brackets"]}
@@ -319,6 +358,107 @@ def test_resources(matrix):
     ok(matrix["loader_min"] in fabric_json or "${loader_range}" in fabric_json,
        "the loader minimum reaches fabric.mod.json")
 
+    # The 26.x half ships a second mixin config of its own (the HUD's ping
+    # probe). It has to exist, be fail-soft like the other one, and be listed
+    # only for the brackets that actually carry the class it names.
+    keyhud_cfg_path = os.path.join(MOD, "src", "main", "resources-26x",
+                                   "keyhud.client.mixins.json")
+    ok(os.path.isfile(keyhud_cfg_path), "the 26.x HUD's own mixin config is shipped")
+    if os.path.isfile(keyhud_cfg_path):
+        keyhud_cfg = load(keyhud_cfg_path)
+        ok(keyhud_cfg.get("package") == "dev.keyhud.client.mixin",
+           "it names the HUD's mixin package")
+        ok(keyhud_cfg.get("required") is False
+           and keyhud_cfg.get("injectors", {}).get("defaultRequire") == 0,
+           "and it is fail-soft too: a moved packet hook costs the ping, not the game")
+        ok(release is not None
+           and int(keyhud_cfg.get("compatibilityLevel", "JAVA_0").split("_")[1])
+           >= int(release.group(1)),
+           "its compatibilityLevel is not below the jar's own bytecode")
+    ok("mixins_extra" in gradle and "keyhud.client.mixins.json" in gradle,
+       "the build lists that config only via the templated mixins array")
+    ok("resources-26x" in gradle,
+       "and ships the folder holding it only for the brackets that need it")
+
+
+def test_fabric_api_install():
+    section("ensure_fabric_api")
+    from cubeon import mods as mods_module
+
+    real_mods = (mods_module.get_mod_download, mods_module.download_mod)
+    real_installed = cubeonfriends.fabric_api_installed
+    calls = []
+    try:
+        # A vanilla/forge profile has no mod loader to install into at all.
+        ok(cubeonfriends.ensure_fabric_api("1.20.1", "forge") == "",
+           "a non-Fabric profile is a quiet no-op")
+        ok(cubeonfriends.ensure_fabric_api(None, "fabric") == "",
+           "and no version is too")
+
+        ok(cubeonfriends._looks_like_fabric_api({"slug": "fabric-api"}),
+           "recognises the slug the launcher records")
+        ok(cubeonfriends._looks_like_fabric_api(
+            {"display_name": "fabric-api-0.92.2+1.20.1"}),
+           "recognises a jar the player dropped in by hand")
+        ok(cubeonfriends._looks_like_fabric_api({"filename": "Fabric API 0.92.2.jar"}),
+           "and the spaced spelling")
+        ok(not cubeonfriends._looks_like_fabric_api(
+            {"display_name": "sodium-fabric-0.9.2-alpha.4.jar"}),
+           "but not another mod that merely mentions fabric")
+
+        cubeonfriends.fabric_api_installed = lambda mc, loader: True
+        ok("already installed" in cubeonfriends.ensure_fabric_api("1.20.1", "fabric"),
+           "an existing copy is left alone, with no download at all")
+
+        cubeonfriends.fabric_api_installed = lambda mc, loader: False
+        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None: {
+            "url": "https://cdn.example/fabric-api.jar",
+            "filename": "fabric-api-0.92.2+1.20.1.jar",
+            "version_number": "0.92.2+1.20.1",
+            "hashes": {"sha1": "x"}}
+
+        def fake_download(url, filename, **kwargs):
+            calls.append((url, filename, kwargs))
+            return "/profile/" + filename
+
+        mods_module.download_mod = fake_download
+        said = []
+        detail = cubeonfriends.ensure_fabric_api("1.20.1", "fabric",
+                                                status_cb=said.append)
+        ok(detail == "installed Fabric API 0.92.2+1.20.1", f"installs it ({detail})")
+        ok(calls and calls[0][2].get("slug") == "fabric-api"
+           and calls[0][2].get("mc_version") == "1.20.1"
+           and calls[0][2].get("loader") == "fabric",
+           "into this profile, under the slug/version/loader the mod store expects")
+        ok(any("Fabric API" in line for line in said),
+           "and says so in the launch status")
+
+        def dead(slug, mc_version=None, loader=None):
+            raise OSError("no network")
+
+        mods_module.get_mod_download = dead
+        detail = cubeonfriends.ensure_fabric_api("1.20.1", "fabric")
+        ok("couldn't reach Modrinth" in detail,
+           f"a dead network is reported, never raised ({detail})")
+
+        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None: None
+        detail = cubeonfriends.ensure_fabric_api("1.16.5", "fabric")
+        ok("no Fabric API build" in detail,
+           f"a Minecraft with no Fabric API build is reported too ({detail})")
+
+        def exploding_download(url, filename, **kwargs):
+            raise RuntimeError("sha mismatch")
+
+        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None: {
+            "url": "u", "filename": "f", "version_number": "v", "hashes": {}}
+        mods_module.download_mod = exploding_download
+        detail = cubeonfriends.ensure_fabric_api("1.20.1", "fabric")
+        ok("download failed" in detail,
+           f"a failed download does not propagate out of the launch path ({detail})")
+    finally:
+        mods_module.get_mod_download, mods_module.download_mod = real_mods
+        cubeonfriends.fabric_api_installed = real_installed
+
 
 def main():
     matrix = test_table()
@@ -326,6 +466,7 @@ def main():
     test_selection(matrix)
     test_no_cross_era_fallback()
     test_install()
+    test_fabric_api_install()
     test_resources(matrix)
     print()
     print(f"{passed} passed, {failed} failed")

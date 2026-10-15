@@ -5,4 +5,12 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+plugins {
+    // Lets Gradle download a JDK 25 for the 26.x brackets on a machine that has
+    // none, so no system-wide JDK install (and no root) is required. The 1.20.x
+    // and 1.21.x toolchains come from the same mechanism when absent.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
 rootProject.name = 'cubeon-client'

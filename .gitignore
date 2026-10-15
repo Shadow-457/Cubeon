@@ -28,7 +28,14 @@ Cubeon.spec
 # --- OS ---
 Thumbs.db
 ehthumbs.db
-Desktop.inimod/.gradle/
+Desktop.ini
 
 # Gradle build cache (mod/)
 mod/.gradle/
+
+# --- KeyHUD, the standalone mod this repo absorbed ---
+# Its HUD now lives in mod/src/main/java-overlay-hud-* and its per-version
+# build parameters in mod/brackets.json, so nothing here is a source of truth
+# any more. Kept on the machine (732 MB of Gradle projects and downloaded
+# Minecraft jars) only as the reference the merge was transcribed from.
+KeyHud/

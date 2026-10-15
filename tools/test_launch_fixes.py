@@ -40,6 +40,13 @@ def check(cond, label, detail=""):
 
 from cubeon import launch, milestones, watchdog, cubeonfriends, config  # noqa: E402
 
+# launch_game also installs Fabric API next to the client mod (the HUD half is
+# built on it). In a sandboxed HOME nothing is installed yet, so the real
+# function would go to Modrinth and download - network work this suite has no
+# business doing, and enough of it to blow the staging test's timings. The
+# wiring itself is covered by tools/test_mod_matrix.py; here it is stubbed.
+cubeonfriends.ensure_fabric_api = lambda *a, **k: "Fabric API already installed"
+
 # ---------------------------------------------------------------------- L5 ---
 print("\n1. GC collector selection (L5)")
 
