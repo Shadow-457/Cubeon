@@ -206,6 +206,43 @@ def _extract(archive: str, dest: str) -> str:
     return entries[0] if len(entries) == 1 else dest
 
 
+def _probe_version(java_path: str) -> int | None:
+    """Runs the binary and returns its actual Java major, or None.
+
+    The download is sha256-verified and the archive checked for path escapes,
+    but neither can catch a TRUNCATED EXTRACT: an interrupted unpack can leave
+    bin/java present while lib/modules is missing, and that binary exists but
+    cannot run (this exact failure mode ate a real JDK 25 install on the dev
+    box - see the module map). So before a runtime is allowed to call itself
+    installed, it must actually execute and report its version.
+    """
+    try:
+        from .launch import java_major_version
+    except Exception:
+        # A lazy-import failure must not turn a working runtime into an error
+        # path; fall back to a minimal direct probe.
+        import re
+        import subprocess
+        try:
+            out = subprocess.run([java_path, "-version"], capture_output=True,
+                                 text=True, timeout=15).stderr
+        except (OSError, subprocess.SubprocessError):
+            return None
+        m = re.search(r'version "([^"]+)"', out)
+        if not m:
+            return None
+        raw = m.group(1)
+        if raw.startswith("1."):
+            tail = raw.split(".")[1] if len(raw.split(".")) > 1 else ""
+            return int(tail) if tail.isdigit() else None
+        head = raw.split(".")[0]
+        return int(head) if head.isdigit() else None
+    try:
+        return java_major_version(java_path)
+    except Exception:
+        return None
+
+
 def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
     """Downloads and installs a managed Temurin JRE for `major`.
 
@@ -268,6 +305,23 @@ def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
             except OSError:
                 pass
 
+            # The binary must actually RUN before anything is moved into
+            # place. A hash-valid download can still unpack short (disk full,
+            # antivirus, interrupted move) and leave a bin/java that exists
+            # but cannot start; probing here keeps that from ever becoming
+            # the installed runtime.
+            _status(f"Verifying Java {major}")
+            probed = _probe_version(java)
+            if probed is None:
+                raise JreError(
+                    f"The downloaded Java {major} could not be started - the "
+                    f"download or unpack was damaged. Nothing was installed; "
+                    f"try again, or install Java yourself.")
+            if probed != major:
+                raise JreError(
+                    f"The downloaded runtime reports Java {probed}, not "
+                    f"Java {major}. Nothing was installed.")
+
             # Promote the JRE home itself to the final name. The archive wraps
             # it in a versioned folder ("jdk-17.0.20.1+1-jre"), and
             # managed_java() looks for runtimes/<major>/bin/java - so moving
@@ -278,10 +332,31 @@ def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
             shutil.rmtree(staged, ignore_errors=True)
             os.replace(os.path.join(part_dir, home), staged)
             # Replace a leftover from an earlier crashed attempt first;
-            # os.replace cannot overwrite a non-empty directory.
-            shutil.rmtree(final_dir, ignore_errors=True)
-            os.replace(staged, final_dir)
+            # os.replace cannot overwrite a non-empty directory. The old
+            # folder is moved aside rather than deleted outright, and only
+            # removed once the new runtime is in place - so a failure mid
+            # swap can never leave the machine with NO runtime where it had
+            # one (the leftover is restored on the error path below).
+            had_old = os.path.isdir(final_dir)
+            old_dir = final_dir + ".old"
+            if had_old:
+                shutil.rmtree(old_dir, ignore_errors=True)
+                try:
+                    os.replace(final_dir, old_dir)
+                except OSError:
+                    old_dir = None
+            try:
+                os.replace(staged, final_dir)
+            except OSError:
+                if old_dir and not os.path.isdir(final_dir):
+                    try:
+                        os.replace(old_dir, final_dir)
+                    except OSError:
+                        pass
+                raise
             shutil.rmtree(part_dir, ignore_errors=True)
+            if old_dir:
+                shutil.rmtree(old_dir, ignore_errors=True)
     except JreError:
         shutil.rmtree(part_dir, ignore_errors=True)
         shutil.rmtree(staged_dir, ignore_errors=True)
@@ -296,6 +371,16 @@ def install_jre(major: int, progress_cb=None, status_cb=None) -> str:
     java = managed_java(major)
     if not java:
         raise JreError(f"Java {major} did not install correctly.")
+    # Final belt-and-braces: the INSTALLED runtime (not just the staged copy)
+    # must run. If it somehow cannot, the install is not reported as done -
+    # and the machine is left without a half-trustworthy runtime pretending
+    # to work.
+    final_probe = _probe_version(java)
+    if final_probe != major:
+        shutil.rmtree(final_dir, ignore_errors=True)
+        raise JreError(
+            f"Java {major} did not install correctly (verification failed). "
+            f"Try again, or install Java yourself.")
     _status(f"Java {major} ready")
     return java
 

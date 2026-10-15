@@ -10,7 +10,9 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
+from collections import OrderedDict
 import threading
 import time
 import zipfile
@@ -754,6 +756,84 @@ check(_fn.index("find_system_java_versions()") < _fn.index("installed_runtimes()
 check("java_status" in open(os.path.abspath(jre.__file__),
                             encoding="utf-8").read(),
       "java_status exists for the pre-install prompt")
+
+# --- A runtime must RUN before it may call itself installed -----------------
+# A sha256-valid download can still unpack short (disk full, antivirus,
+# interrupted move) and leave a bin/java that exists but cannot start. That
+# exact failure ate a real JDK 25 install on the dev box (module map,
+# 2026-10-14): the unpack was truncated, lib/modules was missing, and the
+# binary "looked installed". install_jre now probes the staged binary and the
+# final one before reporting success.
+_garbage_home = tempfile.mkdtemp()
+_bin = os.path.join(_garbage_home, "bin")
+os.makedirs(_bin, exist_ok=True)
+_java = os.path.join(_bin, "java")
+open(_java, "w").write("#!/bin/sh\nexit 1\n")   # exists, cannot start
+os.chmod(_java, os.stat(_java).st_mode | 0o111)
+check(jre._probe_version(_java) is None,
+      "a binary that cannot run probes as None (never 'installed')",
+      f"got {jre._probe_version(_java)!r}")
+shutil.rmtree(_garbage_home, ignore_errors=True)
+
+# A working runtime probes to its real major (the live machine's java, when
+# there is one, must be recognized - the probe is the same code the resolver
+# uses).
+_sys = shutil.which("java")
+if _sys:
+    _maj = jre._probe_version(_sys)
+    check(_maj is None or isinstance(_maj, int) and _maj >= 8,
+          "a real java probes to its major", f"got {_maj!r}")
+
+# install_jre refuses to mark an install complete when verification fails:
+# the source must still call _probe_version on BOTH the staged and the final
+# binary (source-order guard - a real download would need network).
+_jre_src = open(os.path.abspath(jre.__file__), encoding="utf-8").read()
+check(_jre_src.count("_probe_version(") >= 3,
+      "install_jre verifies the staged AND the installed binary",
+      "the probe must run before the move and after it")
+check("did not install correctly (verification failed)" in _jre_src,
+      "a failed final verification removes the runtime and says so")
+
+# --- The FIRST launch after an install runs the FULL doctor (online) --------
+# The launch-time doctor used to run check_online=False only, so a fresh
+# install with a missing dependency or an incompatible jar launched broken
+# and only the Mods tab's "Fix problems" (online) repaired it. The first
+# launch per profile now runs the full pass once (a cache marker), then
+# every later launch goes back to the fast offline pass.
+from cubeon import local_cache  # noqa: E402
+
+with patch.object(content, "sync_content_to_game", lambda *a: None), \
+        patch.object(launch, "sync_mods_to_game", lambda *a: None), \
+        patch.object(launch, "build_launch_command", lambda *a, **k: ["java", "game"]), \
+        patch.object(launch.subprocess, "Popen", side_effect=lambda *a, **k: GameProcess(777)), \
+        patch.object(milestones, "begin_play_session", lambda *a, **k: None), \
+        patch.object(FriendsService, "reconcile_username_active", lambda: None, create=True):
+    seen = []
+    with tempfile.TemporaryDirectory() as _ctmp, \
+            patch.object(local_cache, "CACHE_DIR", _ctmp), \
+            patch.object(local_cache, "_MEM", OrderedDict()):
+        def fake_doctor(mc, loader, *, auto_fix, check_online, **kw):
+            seen.append(check_online)
+            return {"fixed": []}
+        with patch.object(doctor, "run_doctor", side_effect=fake_doctor):
+            local_cache._MEM.clear()
+            launch.launch_game("1.20.1", "A", 800, 600, 400, None,
+                               mc_version="1.20.1", loader="fabric")
+            launch.launch_game("1.20.1", "A", 800, 600, 400, None,
+                               mc_version="1.20.1", loader="fabric")
+            launch.launch_game("1.20.1", "A", 800, 600, 400, None,
+                               mc_version="1.20.1", loader="fabric")
+    check(seen[:1] == [True],
+          "the first launch after an install runs the doctor ONLINE",
+          f"got {seen!r}")
+    check(all(not c for c in seen[1:]),
+          "later launches go back to the fast offline pass",
+          f"got {seen!r}")
+    # The pre-spawn offline doctor also runs every launch (by design), so
+    # the marker's win is measured in ONLINE calls: exactly one.
+    check(sum(1 for c in seen if c) == 1,
+          "the marker makes the full pass a ONE-TIME cost per profile",
+          f"{sum(1 for c in seen if c)} online passes across {len(seen)} doctor calls")
 
 # ---------------------------------------------------------------------- scrub
 print("\nN. unresolved ${...} placeholders scrubbed from the launch argv (offline)")

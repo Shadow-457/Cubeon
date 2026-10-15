@@ -905,6 +905,41 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     popen_kwargs["env"] = _game_env
 
     from . import watchdog
+    # First launch after an install gets the FULL doctor (network checks on):
+    # the fast offline pass below has always run before every launch, but it
+    # skips the dependency and loader/version passes - so a fresh install with
+    # a missing dependency or an incompatible jar launched broken, and only
+    # the Mods tab's "Fix problems" (which IS online) repaired it. The first
+    # launch is exactly when a fresh profile most needs the full check, and
+    # it is a one-time cost per profile: a marker in the cache records that
+    # this launch already did it. Every later launch goes back to the fast
+    # offline pass. Never raises into the spawn path.
+    _full_doctor_done = False
+    try:
+        from . import local_cache
+        _doctor_key = (str(mc_version), str(loader))
+        _full_doctor_done = local_cache.get(
+            "first_launch_doctor", _doctor_key, max_age=30 * 86400) is not None
+    except Exception:
+        pass
+    if not _full_doctor_done:
+        try:
+            from .doctor import run_doctor as _full_doctor
+            from . import local_cache as _lc
+            _rep = _full_doctor(mc_version, loader, auto_fix=True,
+                                check_online=True, version_id=version_id,
+                                include=("mods",))
+            _fixed = len(_rep.get("fixed") or [])
+            if _fixed and status_cb:
+                status_cb(f"Fixed {_fixed} mod problem(s)")
+            # Recorded even when offline broke the check: retrying the full
+            # pass on every launch of a permanently-offline machine would
+            # turn a one-time cost into a launch-time stall. The offline
+            # pass and the doctor's filesystem checks still run every launch.
+            _lc.set("first_launch_doctor", _doctor_key, True)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "first-launch doctor failed", exc_info=True)
     try:
         with _spawn_lock:
             try:

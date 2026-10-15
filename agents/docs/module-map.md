@@ -1,5 +1,27 @@
 # Cubeon module map — read this before reading any source
 
+## Managed Java verifies by RUNNING; first launch runs the FULL doctor (2026-10-15)
+- User reports: (a) "make the java install much safer", (b) "fps mods doesn't
+  install correctly - fresh install + Java, first launch gave an error, only
+  the Mods tab's Fix problems fixed it".
+- (a) `cubeon/jre.py::_probe_version` runs the binary and reads its major.
+  `install_jre` probes the STAGED binary before anything moves into place and
+  the INSTALLED binary after the move; either failure removes the runtime and
+  raises a user-worded JreError. This closes the truncated-extract hole (a
+  sha256-valid download can still unpack short - bin/java present,
+  lib/modules missing - which ate a real JDK 25 on the dev box). The swap
+  moves the old runtime to `<major>.old` and only deletes it after the new
+  one is in place, so a failed swap can never leave NO runtime.
+- (b) `cubeon/launch.py::launch_game` runs the FULL online doctor once per
+  (mc_version, loader) before the first spawn: the pre-spawn offline pass
+  skips the dependency + loader/version checks, which is exactly what a fresh
+  profile needs. The marker lives in local_cache namespace
+  "first_launch_doctor" (30-day max_age); the pre-spawn offline doctor still
+  runs EVERY launch. Do not "optimise" the first-launch pass away - it is the
+  fix for the user's exact complaint.
+- Guards: tools/test_launch_fixes.py §14 probe/marker blocks (113 checks) and
+  the "first launch" block pinning online-once-then-offline.
+
 ## FPS boost lives in the PLAY menu; OFF RESTORES vanilla (2026-10-15) — INVARIANT
 - The user request: the Settings "Max FPS mode" toggle "doesn't do much if the
   install is already installed", and the boost "nerfs shadows and textures".
