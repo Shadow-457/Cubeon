@@ -39,9 +39,21 @@ Windows makensis copies under wine with `/VERSION` (DEFAULT_NSIS back to
   control: `Package: cubeon / Version: 1.1.2`. sha256s recorded in the release
   verification step (`gh api …/assets` digests vs local).
 
-## Releases
+## Releases (DONE, sha256-verified via the API digest fields)
 - v1.0.0: deleted the stale `cubeon_1.0.0_amd64.deb` + `cubeon_1.0.4_amd64.deb`
   assets, clobbered the other 4 with today's 1.1.2 builds and added the
   Windows zip (5 assets total).
-- v1.1.2: new tag + release, same 5 assets (binaries point at the pushed
-  commit that carries the NSIS fix).
+- v1.1.2: new tag + release; it also carries CI's `Cubeon-macOS.zip` (the
+  workflow has a macOS job the older map sections never mentioned). The
+  clobber overwrote CI's Linux assets with these verified local builds.
+- GitHub `releases/latest` now resolves to v1.1.2, so the
+  `worker/cubeon-downloads.js` proxy (which fetches `/releases/latest` at
+  request time) and the site's download buttons serve the new builds with NO
+  web/worker edits — nothing was ever hardcoded to a tag.
+- CI fix commit a2a5c1f: windows job installs NSIS via chocolatey; the test
+  job skips the headless-only wedge watchdog. NOTE: v1.1.2's own CI run still
+  used the old workflow (NSIS step failed there too) — its Linux/macOS assets
+  are fine and were clobbered anyway; only a future tag build gets the fix.
+- Uploads to this box's uplink ran ~10 min per 110 MB file; parallel uploads
+  (one gh process per asset) was what finally finished them — serial uploads
+  kept outliving the 10-minute tool timeout.
