@@ -891,10 +891,21 @@ facts belong HERE, not in diary notes.
 - One `threading.Event` per version id (`_install_cancels` / `_cancel_event`),
   shared by `prefetch_version` and the Play-click `do_install_and_launch` —
   otherwise a cancel during a prefetch would just make the Play worker wait
-  forever on `_install_lock`. The prefetch's noop callbacks are now a
-  `_guard` that raises when the flag is set. `do_install_and_launch`
+  forever on `_install_lock`. The prefetch's callbacks (`_note_status` /
+  `_note_progress` / `_note_max`) both publish into `main._prefetch_view` and
+  call `_guard`, which raises when the flag is set. `do_install_and_launch`
   re-checks the flag AFTER acquiring the lock (a cancel can land while it
   waits behind the prefetch).
+- **A Play click waiting on the prefetch lock PAINTS THE PREFETCH** (2026-10-16,
+  "when installing an instance it prepares for a long time"). Selecting a
+  version starts an invisible prefetch of the whole thing; the click then
+  blocked on `_install_lock` behind a frozen "Preparing" for however long that
+  invisible download had left. The click now acquires the lock in 0.25 s slices
+  (`while not lock.acquire(timeout=...)`) and calls `_adopt_prefetch(version_id)`
+  each slice, which repaints the progress row from `_prefetch_view` (status,
+  max/value, fed into the same `EtaEstimator`). `_prefetch_view` entries are
+  never deleted — harmless, because a free lock means the loop body never runs.
+  Regression: tools/test_install_prepare.py §1-2, tools/test_ui_smoke.
 - The abort mechanism is raising `_InstallCancelled` from the mll progress
   callbacks (`setStatus` is called before each download, so queued tasks bail
   instantly and the executor's `shutdown(wait=True)` drains fast).
@@ -913,6 +924,19 @@ facts belong HERE, not in diary notes.
   `state["installing_version"]`.
 - `state["installing_version"]` = the launch id with a cancellable install in
   flight (not necessarily the current dropdown selection).
+- **`versions._seed_version_json` — the OTHER half of "it prepares for a long
+  time" (2026-10-16).** mll's `install_minecraft_version()` answers a missing
+  `versions/<id>/<id>.json` with a bare, un-timed `requests.get()` of Mojang's
+  ~4 MB `version_manifest_v2.json` — no status, no progress, no timeout, no
+  retry — before its first callback, i.e. a silent "Preparing" (or an outright
+  hang) on the first install of every version. `install_version` now seeds that
+  one small file itself from `_manifest_entry()` (Cubeon's cached/mirrored/
+  stale-serving manifest), reporting "Fetching the version files" plus real
+  progress, then hands mll a json that is already on disk. Strictly
+  best-effort: no manifest entry, a bad checksum or no network falls back to
+  mll's own lookup — but a CANCEL is re-raised (it is a choice, not a failure
+  to swallow), checked through the install's own `_InstallCancelBridge`.
+  Regression: tools/test_install_prepare.py, tools/test_install_cancel.py §2.
 
 ## Tray/session lifecycle (2026-09-18) — INVARIANT
 - `_tray_runtime["controller_page"]` tracks the current session page and is
@@ -1571,7 +1595,7 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `launcher_core.py` | Re-export shim over the `cubeon` package (legacy import surface). |
 | `cubeon/` | All launcher logic (see table below). |
 | `ui/` | Flet tab builders: `server_tab.py` (biggest), `mods_tab.py`, `modpacks_tab.py`, `skin_tab.py`, `stats_tab.py`, `chat_tab.py`. Pure builders — they receive `cfg`/`state` by reference and helpers (`section_label`, `pixel_divider`, theme) from main.py. |
-| `mod/` | The in-game Fabric mod. `src/main/java/com/cubeon/client/`: `CubeonClientScreen.java` (the in-game CHAT UI since 2026-10-14: friends picker + transcript + composer, nothing else - no tabs, no requests/invites/sync/whitelist), `Bridge.java` (localhost HTTP client: roster/chat/players/events only - the session+sync poll streams and all management actions were removed 2026-10-14; `/dm` via sendChat is the mod's only POST), `CubeonClient.java` (entrypoint, chat notices), `Json.java`, `WorldPlayers.java`; per-era overlays add `CornerIcon.java`. `brackets.json` = **single source of truth** for MC version brackets (read by build.gradle AND cubeonfriends.py). |
+| `mod/` | The in-game Fabric mod. **2026-10-15: KeyHUD merged in — one jar per Minecraft version, 24 of them, 1.20 → 26.3.** Shared tree `src/main/java/` is now Minecraft-FREE: `Bridge.java` (localhost HTTP client: roster/chat/players/events only - `/dm` via sendChat is the mod's only POST), `Json.java`, `BadgeNames.java`, `mixin/YggdrasilSessionServiceMixin.java`, `dev/keyhud/client/KeyHudConfig.java`. Everything that touches Minecraft lives in a per-bracket overlay: `java-overlay-api-yarn/` (1.20–1.21.11, Yarn names - `CubeonClient.java` entrypoint/chat notices, `TabListTag.java`, `WorldPlayers.java`, `mixin/PlayerTabOverlayMixin.java`) and `java-overlay-api-mojang/` (26.x, the same four files in plain names). The HUD is seven `java-overlay-hud-*/` copies (its Minecraft-facing API only moved 5 times across the 24 versions; 26.3 also renamed `InputConstants.Type.KEYSYM` to `KEYBOARD`, so it has its own copy of the 26.2-era HUD); 26.x also adds `resources-26x/keyhud.client.mixins.json` + `dev/keyhud/client/PingProbe.java`. `brackets.json` = **single source of truth** for the matrix (read by build.gradle AND cubeonfriends.py). |
 | `worker/` | Cloudflare Worker + Durable Object relay (`cubeon-friends.js`, `cubeon-invites.js`). Protocol constants must stay in parity with `cubeon/friends.py` (asserted by `tools/test_friends.py`). |
 | `assets/jars/` | Shippable jars: both Friends mod jars + `connect-spigot.jar` (Minekube Connect). |
 | `tools/` | Test harnesses (plain scripts printing `N passed, M failed`). |
@@ -1592,21 +1616,51 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `server.py` | Paper server hosting: install (Fill v3 API), start/stop, properties, orphan detection. |
 | `minekube.py` | Public address tunnels: finds/installs Connect plugin, endpoint config. |
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |
-| `cubeonfriends.py` | Which Friends jar goes into which profile (brackets), injected at launch. `mod_stamp()` = jar freshness fingerprint. |
+| `cubeonfriends.py` | Which Cubeon Client jar goes into which profile (24 brackets, one per exact MC version), injected at launch. Also `ensure_fabric_api()`: installs **Fabric API** from Modrinth beside the jar, because the merged HUD is built on it — the mod only *recommends* it (and `KeyHudClient` catches `NoClassDefFoundError`), so a missing API costs the HUD, never the game. `mod_stamp()` = jar freshness fingerprint. |
 | `perf_mods.py` | FPS boost: installs **Sodium only** (`PERF_MODS`) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled` (narrowed 2026-10-05 — the 8-mod suite added little and carried crash surface). `_present()` dedupes by slug/name/id/filename; skip-if-present (no auto-update); best-effort, never raises. `prune_retired_perf_mods()` deletes the 8 retired mods from a profile that has them (only Cubeon-installed, by recorded slug/project id). Also `sanitize_entityculling_config()` — strips null/blank whitelist entries that crash the game on tick 1 (called unconditionally on the launch path). |
 | `game_options.py` | Frame-rate unlocker: flips ONLY `enableVsync`→false and `maxFps`→260 in `MINECRAFT_DIR/options.txt` (atomic, idempotent, no unknown keys). Never rewrites any other game option. |
-| `launch.py` | `launch_game()` — injects CSL + friends jar + perf suite + frame-rate unlock, syncs mods, launches MC. `client_jvm_flags()` (CPU-aware, see below) + matched `-Xms/-Xmx` + RAM-gated `-XX:+AlwaysPreTouch`. Requires mc_version/loader, no silent defaults. |
+| `launch.py` | `launch_game()` — injects CSL + friends jar + **Fabric API** (via `cubeonfriends.ensure_fabric_api`, the HUD's dependency) + perf suite + frame-rate unlock, syncs mods, launches MC. `client_jvm_flags()` (CPU-aware, see below) + matched `-Xms/-Xmx` + RAM-gated `-XX:+AlwaysPreTouch`. Requires mc_version/loader, no silent defaults. |
 | `capes.py` | Custom capes: any image accepted, auto-fitted onto the cape layout, synced into CSL's LocalSkin. Static images only — the animated-cape system was removed 2026-09-07. No Worker/KV involvement at all. |
 | `config.py` | cfg schema, username validation, auth key (public_uuid/secret_token). |
 | `gate.py` | Server join password (PBKDF2, escalating lockouts). |
+| `eta.py` | Measured "time left" for downloads (`EtaEstimator`). There is no size to divide by (mll reports file COUNTS per phase, mod installs file units, content downloads bytes), so it samples how fast the fraction actually moves. Silent until ~2s and ≥1% of movement, recalculates from the last 30s, drops its history on a BACKWARDS jump (a new phase — libraries→assets, or the next file of a batch), stops promising after 15s of no progress, and never reports past 6h. Used by main.py's install label, the mods Download button, the modpack install line and the server plugin row. |
+| `status_text.py` | `human(text)` — strips Python object reprs (`<... at 0x7f...>`) out of anything user-facing. `str(requests.ConnectionError)` genuinely contains `<urllib3.connection.HTTPSConnection object at 0x7f3c8a1b2d90>: Failed to establish a new connection...`, which is what painted a memory address into the UI when a download failed. Applied in `net.py` when it builds `DownloadError`, and at the UI status/error setters. Only reprs are removed — hashes stay (they are diagnostic in an integrity error); the one meaningless bare hash, an asset's sha1 as a "file name", is fixed at the source by `versions.py:_FriendlyStatus` (→ "Downloading game assets (412/2586)"). |
 
 ## Facts that bite if you don't know them
 
-- **Two jar namespaces**: MC ≤1.21 (obfuscated, loom, intermediary names) vs
-  26.x (unobfuscated, plain javac). Two jars, chosen via `mod/brackets.json`.
-  The mod compiles against a stub API subset (`tools/test_mod_compile.py`) —
-  only API that exists identically in both eras. If javac fails on 26.x, the
-  API moved; javap the real jar in `~/.minecraft/versions/26.1.2/26.1.2.jar`.
+- **24 jars, not two (2026-10-15).** One jar per Minecraft version, 1.20 → 26.3,
+  all through Gradle. `fabric-loom` + **Yarn** mappings (remapped to intermediary)
+  for the obfuscated 1.20–1.21.11; loom's **no-remap marker plugin**
+  (`net.fabricmc.fabric-loom`) with no `mappings` line for the unobfuscated 26.x.
+  Which plugin is applied is derived from the bracket's `mappings` field — using
+  the real plugin on 26.x fails with "Cannot use Mojang mappings in a
+  non-obfuscated environment", using the marker on 1.20.x can't remap.
+  - Every bracket needs **Fabric API** on the compile classpath (the HUD is built
+    on `HudRenderCallback` / `HudElementRegistry` / `KeyBindingHelper`), which is
+    why the old javac path is gone: javac cannot read Fabric API's nested module
+    jars. The 26.x build fetches it too.
+  - Every jar emits **Java 17** bytecode regardless of bracket, because
+    `cubeon-client.mixins.json` declares `compatibilityLevel: JAVA_17` and Mixin
+    refuses a mixin class newer than that. The *toolchain* that reads each
+    Minecraft jar is per bracket (17 / 21 / 25).
+  - **Gradle itself must RUN on a JDK 25+** (loom 1.18 requirement) while the
+    system gradle here sits on 21. `tools/build_mod_jars.py` finds a 25+ JDK and
+    sets `JAVA_HOME` for the build; running `gradlew` by hand needs
+    `JAVA_HOME=/usr/lib/jvm/java-26-openjdk` or it dies during configuration.
+  - The mod still compiles against a stub API subset (`tools/test_mod_compile.py`)
+    — but the stub is written in **Mojang** names, so that test covers the
+    `api-mojang` overlay only. The real per-version check is
+    `python3 tools/build_mod_jars.py` (24 real builds). If javac fails on 26.x,
+    the API moved; javap the real jar in `~/.minecraft/versions/26.1.2/26.1.2.jar`.
+  - `KeyHud/` (the standalone mod this absorbed, 732 MB) is git-ignored and is
+    **not** a source of truth any more — `mod/` is.
+  - `launch_game` also calls `cubeonfriends.ensure_fabric_api`, which is a
+    LOCAL check first (`fabric_api_installed` → `list_mods`) and only reaches
+    Modrinth when the profile really has no Fabric API. Any suite that drives
+    `launch_game` must stub it (`cubeonfriends.ensure_fabric_api = lambda *a,
+    **k: ""`): in a sandboxed HOME the real one downloads, and
+    `tools/test_launch_fixes.py`'s staging test failed on exactly that network
+    wait instead of on what it tests.
 - **Animated capes were REMOVED (2026-09-07).** Custom capes are static
   images only now: no `AnimatedCape.java`, no `.frames.json`, no
   `GET /cape/frames`, no `animated` flag in capes.json. If it ever comes
@@ -1642,7 +1696,7 @@ python3 tools/test_friends_service.py   # 213: service + bridge contract + ident
 python3 tools/test_friends.py           # 37: relay client + worker parity
 python3 tools/test_mod_bridge.py        # 137: reads Bridge.java, asserts launcher serves it
 python3 tools/test_mod_compile.py       # mod source compiles vs the stub API subset
-python3 tools/test_mod_matrix.py        # 68: brackets/jar routing
+python3 tools/test_mod_matrix.py        # 206: brackets/jar routing + Fabric API install
 python3 tools/test_capes.py             # 14: flexible capes + CSL sync
 python3 tools/test_ui_smoke.py          # 148: tab builders build, invariants hold
 python3 tools/test_invites.py           # 127: Minekube/tunnel flows
@@ -1878,9 +1932,10 @@ Still-true invariants from the pre-local era:
   (project root = `web/`, so `web/vercel.json` + `web/_redirects` are the live
   route tables and `web/api/*.js` are the serverless functions). Still NO build
   step. Pages sharing `web/assets/site.css` + `web/assets/site.js`: `index.html`
-  = landing (story), `download.html` = the files, `help.html` = the manual, plus
-  `404.html` and the legal pages (cookies / licenses / privacy / refunds /
-  terms). They cross-link by clean route (`/download`, `/help`, ...) and mark
+  = landing (story), `download.html` = the files, `benchmarks.html` = the measured
+  FPS comparison, `help.html` = the manual, plus `404.html` and the legal pages
+  (cookies / licenses / privacy / refunds / terms). The navbar is
+  Home / Download / Benchmarks / Help / Discord / Get Cubeon on every page. They cross-link by clean route (`/download`, `/help`, ...) and mark
   the current page with `aria-current="page"` (the old `docs.html` name and the
   `download.html#files` / `docs.html#faq` fragments are GONE). `site.js` is
   shared verbatim: every block bails out when the page lacks its elements (the
@@ -1895,7 +1950,7 @@ Still-true invariants from the pre-local era:
   buttons) now lives in site.js's `markSystem` block. `tools/test_web_download_count.py`
   now fails if any `web/*.html` lacks the tag or keeps a second copy of a handler.
 - **Landing page (rebuilt 2026-10-13)**: `web/index.html` is the full design-system
-  page now — shared `navbar` (Home/Download/Help/Discord/Get Cubeon) + `.hero`
+  page now — shared `navbar` (Home/Download/Benchmarks/Help/Discord/Get Cubeon) + `.hero`
   (grass/dirt split, OS-pane picker, `.shot`) + `.strip` facts + `.cards` features
   + `.steps` how-to + `.faq` + closing `.cta` + fine-print cards + footer. It keeps
   four things `tools/test_web_download_count.py` asserts verbatim: the
@@ -1903,6 +1958,20 @@ Still-true invariants from the pre-local era:
   `discord-cta`, and the Discord invite `https://discord.gg/Vj7g7vVY8K` (subpages
   need `nav-discord`, index is exempt but carries it too). All interactive
   behaviour (menu, FAQ, OS panes, counter) is site.js only — never inline.
+- **`web/benchmarks.html` (added 2026-10-16)**: the measured-FPS comparison
+  (Cubeon vs SKLauncher vs FastClient, Minecraft 1.21.11, Xeon E5-1650 / RX 580).
+  The numbers' source of truth is `benchmarks/Minecraft_FPS_Report-1.pdf`
+  (8 pages, written 2026-10-15), copied verbatim to
+  `web/assets/Minecraft-FPS-Report.pdf` and linked twice (download + open in tab).
+  The page draws its own bars in CSS (the `.bm-*` rules at the end of
+  `web/assets/site.css`): a bar's width IS its number, scaled to the fastest run
+  in that same chart, and the exact value is printed beside it, so no figure has
+  to be read off a pixel. The full stats table sits in `.bm-scroll` (min-width
+  640px) so it scrolls on a phone instead of squashing. The "Read it honestly"
+  section is deliberate and must stay: SKLauncher ran vanilla with no Sodium,
+  F3 was on for two of the three launchers, and each run was in a different
+  world spot. `index.html` links it from the "Is it fast?" FAQ entry and the
+  "Every version, ready" card; `help.html` links it from a frame-rate answer.
 - The download-count guard in that test only rejects **per-device count**
   storage: since `2aeae94` the counter block legitimately touches localStorage
   for its testing-mode flag (`TEST_FLAG` lines, Ctrl+Shift+T / `?nocount=1`).
