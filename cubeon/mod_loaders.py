@@ -173,6 +173,13 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
 
     before = {v["id"] for v in get_installed_versions()}
 
+    # mll's FABRIC installer runs its jar with a plain subprocess.run (quilt
+    # hides the window, fabric missed it upstream) -> on Windows a black cmd
+    # box flashed on every loader install. Patch the shim in before anything
+    # runs; no-op off Windows and safe to repeat.
+    from .winproc import patch_mll
+    patch_mll()
+
     callback = {"setStatus": status_cb, "setProgress": progress_cb, "setMax": max_cb}
     loader = mll.mod_loader.get_mod_loader(loader_id)
     # Resolve Java BEFORE the download starts: failing here is instant and the

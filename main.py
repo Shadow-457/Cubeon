@@ -157,6 +157,7 @@ def _relaunch_fresh_process() -> bool:
     except OSError:
         # The parent must not keep running after handing off: it may still
         # own native Flet/GLib state and would race the replacement process.
+        from cubeon.winproc import hidden
         subprocess.Popen(
             argv,
             env=os.environ.copy(),
@@ -165,6 +166,7 @@ def _relaunch_fresh_process() -> bool:
             stderr=subprocess.DEVNULL,
             close_fds=True,
             start_new_session=True,
+            **hidden(),
         )
         return True
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
@@ -6573,6 +6575,9 @@ if __name__ == "__main__":
         args, flet_env, pid_file = \
             _flet_desktop.__locate_and_unpack_flet_view(
                 page_url, assets_dir, hidden)
+        # The flet.exe client must not flash its own console either
+        # (asyncio passes kwargs to the underlying subprocess on Windows).
+        from cubeon.winproc import hidden as _hidden_kw
         proc = await asyncio.create_subprocess_exec(
             args[0], *args[1:], env=flet_env,
             # Capture BOTH streams and merge them (stderr -> stdout) so the
@@ -6585,6 +6590,7 @@ if __name__ == "__main__":
             # silently never firing once already; one pipe, no assumption.
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            **_hidden_kw(),
         )
         # Fresh client: (re)start the wedge judgment window for it. Any
         # previous client is already gone by the time flet spawns the next.

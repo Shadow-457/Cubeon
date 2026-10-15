@@ -21,6 +21,8 @@ import re
 import shutil
 import signal
 import subprocess
+
+from .winproc import hidden as _hidden
 import tempfile
 import threading
 import time
@@ -968,7 +970,8 @@ def start_server(version_id: str, ram_mb: int, java_path: str | None = None,
         # means only stop_server() (or an explicit kill of this specific
         # process) can ever stop it.
         start_new_session=(os.name != "nt"),
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+        **_hidden(creationflags=(
+            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0)),
     )
     with _server_processes_lock:
         _server_processes[version_id] = process

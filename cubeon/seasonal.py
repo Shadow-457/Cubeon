@@ -151,8 +151,9 @@ def _read_text(path: str) -> str:
 def _windows_zone() -> "str | None":
     """Windows has no IANA name, only `tzutil /g`'s Windows zone name."""
     try:
+        from .winproc import hidden
         out = subprocess.run(["tzutil", "/g"], capture_output=True, text=True,
-                             timeout=5)
+                             timeout=5, **hidden())
     except (OSError, subprocess.SubprocessError):
         return None
     return _geo.WIN_ZONES.get((out.stdout or "").strip())

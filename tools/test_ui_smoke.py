@@ -1679,6 +1679,45 @@ check("the old max_fps_enabled key migrates, it does not silently reset",
                                     encoding="utf-8").read(),
       "cubeon/config.py lost the key migration")
 
+# --- Windows must never flash a console window ------------------------------
+# User report 2026-10-15: "it opens random cmd when starting or closing or
+# doing anything - cmd opens and closes". Cubeon.exe is a --windowed app;
+# every child spawn without CREATE_NO_WINDOW/STARTF_USESHOWWINDOW popped its
+# own console on Windows. winproc.hidden() is the one helper; the probes, the
+# fabric installer (mll upstream gap), tzutil, the server, the relaunch and
+# the flet client must all go through it.
+_winproc_src = open(os.path.join(_app_root, "cubeon", "winproc.py"),
+                    encoding="utf-8").read()
+check("winproc.hidden() exists and covers run + Popen",
+      "def hidden(" in _winproc_src and "_HiddenSubprocess" in _winproc_src
+      and "patch_mll" in _winproc_src,
+      "cubeon/winproc.py lost the hidden-window helper")
+
+_launch_src2 = open(os.path.join(_app_root, "cubeon", "launch.py"),
+                    encoding="utf-8").read()
+check("the java probe no longer passes startupinfo=None",
+      "startupinfo=None" not in _launch_src2 and "**hidden()" in _launch_src2,
+      "cubeon/launch.py: java_major_version must use winproc.hidden()")
+
+_modloaders_src = open(os.path.join(_app_root, "cubeon", "mod_loaders.py"),
+                       encoding="utf-8").read()
+check("loader installs patch mll's fabric module before running it",
+      "patch_mll()" in _modloaders_src,
+      "cubeon/mod_loaders.py must call winproc.patch_mll() (fabric cmd flash)")
+
+for _f in ("cubeon/jre.py", "cubeon/seasonal.py", "cubeon/server.py"):
+    _s = open(os.path.join(_app_root, _f), encoding="utf-8").read()
+    check(f"{_f} uses winproc.hidden",
+          "winproc import hidden" in _s.replace("from", "winproc import")
+          or "from .winproc import hidden" in _s,
+          f"{_f} spawns without the hidden-window kwargs")
+
+_main_src2 = open(os.path.join(_app_root, "main.py"), encoding="utf-8").read()
+check("the flet client + relaunch spawns are hidden on Windows",
+      _main_src2.count("**_hidden_kw()") >= 1
+      and "**hidden()" in _main_src2,
+      "main.py: flet client / relaunch must use winproc.hidden()")
+
 # --- Adding a loader to an already-installed vanilla version -----------------
 # Bug: "if i installed vanilla then i want to fabric or quilt there no option
 # to install it". The toggle handler used to snap back with "pick it before

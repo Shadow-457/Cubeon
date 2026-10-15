@@ -165,9 +165,10 @@ def required_java_major(version_id: str) -> int:
 def java_major_version(java_path: str) -> int | None:
     """Major version of a Java executable, or None if it can't be probed."""
     try:
+        from .winproc import hidden
         out = subprocess.run(
             [java_path, "-version"], capture_output=True, text=True,
-            timeout=8, startupinfo=None,
+            timeout=8, **hidden(),
         ).stderr
     except (OSError, subprocess.SubprocessError):
         return None

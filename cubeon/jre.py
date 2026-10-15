@@ -223,9 +223,10 @@ def _probe_version(java_path: str) -> int | None:
         # path; fall back to a minimal direct probe.
         import re
         import subprocess
+        from .winproc import hidden
         try:
             out = subprocess.run([java_path, "-version"], capture_output=True,
-                                 text=True, timeout=15).stderr
+                                 text=True, timeout=15, **hidden()).stderr
         except (OSError, subprocess.SubprocessError):
             return None
         m = re.search(r'version "([^"]+)"', out)

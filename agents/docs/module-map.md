@@ -1,5 +1,26 @@
 # Cubeon module map — read this before reading any source
 
+## Windows: EVERY child spawn must hide its console (2026-10-15) — INVARIANT
+- User report: "it opens random cmd when starting or closing or doing
+  anything - cmd opens and closes." Cubeon.exe is a --windowed app, but every
+  child process spawned without CREATE_NO_WINDOW + STARTF_USESHOWWINDOW(SW_HIDE)
+  got its own console window on Windows: the `java -version` probes (one PER
+  candidate Java per Play click), mll's FABRIC installer jar (its quilt module
+  hides the window; fabric missed it upstream), `tzutil`, the local server,
+  the relaunch fallback and the flet.exe client.
+- `cubeon/winproc.py` is the ONLY way to spawn: `hidden(**extra)` returns the
+  subprocess kwargs (OR-ing a caller's creationflags, so server.py's
+  CREATE_NEW_PROCESS_GROUP survives) and `patch_mll()` swaps a hiding shim
+  into minecraft_launcher_lib.fabric's subprocess module (idempotent, no-op
+  off Windows). The game itself already had CREATE_NO_WINDOW in launch.py.
+- Rules: any NEW subprocess call reachable on Windows must pass `**hidden()`
+  (or go through patch_mll's shim). `startupinfo=None` in a probe is the bug
+  signature - do not write it again. mll modules other than fabric already
+  use SUBPROCESS_STARTUP_INFO upstream.
+- Guard: tools/test_ui_smoke.py "Windows must never flash a console window"
+  (helper exists, probe fixed, patch_mll called, jre/seasonal/server/main all
+  wired). winproc's own semantics are covered in the 2026-10-15 note.
+
 ## Managed Java verifies by RUNNING; first launch runs the FULL doctor (2026-10-15)
 - User reports: (a) "make the java install much safer", (b) "fps mods doesn't
   install correctly - fresh install + Java, first launch gave an error, only
