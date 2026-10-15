@@ -1514,6 +1514,75 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                                          prev[1] or "") > 0:
             id_map[key] = (m, meta.get("version") or "")
 
+    # --- 4b. UNSATISFIED `depends` (the loader hard-crash shape) -----------
+    # A jar's own fabric.mod.json `depends` is what the LOADER enforces:
+    # "More Culling requires cloth-config, which is missing!" is a hard
+    # refuse-to-load for the whole game, not a degraded mod. The Modrinth
+    # dependency pass above only knows the LATEST version's deps; the jar's
+    # own declared deps are read locally from the SAME metas map the breaks
+    # check just built. A dep id present in id_map with a matching version is
+    # satisfied; anything else is repaired: the dep is fetched from Modrinth
+    # (matched by fabric mod id), and a dep that cannot be resolved means the
+    # DECLARER is turned off - the same last resort the breaks check uses.
+    for m in mods:
+        if m.get("protected") or not m.get("enabled") or not m.get("filename"):
+            continue
+        meta = metas.get(m.get("filename"))
+        if not meta:
+            continue
+        for dep_id, predicate in (meta.get("depends") or {}).items():
+            dep_key = str(dep_id).lower()
+            # Minecraft itself and the loader are always "present".
+            if dep_key in ("minecraft", "fabricloader", "fabric-api",
+                           "java", "quilt_loader", "quilted_fabric_loader"):
+                continue
+            hit = id_map.get(dep_key)
+            if hit and version_satisfies(hit[1] or "*", predicate):
+                continue
+            if hit and not version_satisfies(hit[1] or "*", predicate):
+                # Present but the wrong version - the network conflict
+                # resolver below (breaks pass) and the Modrinth dep pass
+                # handle updates; here just report it, no local fix exists.
+                _report("missing-dependency", m.get("display_name"),
+                        f"needs {dep_id} {predicate} (found {hit[1]})",
+                        False)
+                continue
+            dep_name = str(dep_id)
+            fixed, fix_label = False, ""
+            if auto_fix and check_online:
+                try:
+                    file_info = get_mod_download(dep_id, mc_version=mc_version,
+                                                 loader=loader)
+                except Exception:
+                    file_info = None
+                if file_info:
+                    if status_cb:
+                        status_cb(f"Installing {name_stem(file_info.get('filename') or dep_name)}")
+                    try:
+                        download_mod(file_info["url"], file_info["filename"],
+                                     mc_version=mc_version, loader=loader,
+                                     slug=dep_id, hashes=file_info.get("hashes"))
+                        fixed, fix_label = True, "installed"
+                        metas[file_info["filename"]] = {
+                            "id": dep_id,
+                            "version": str(file_info.get("version_number") or ""),
+                            "name": dep_name, "depends": {}, "breaks": {},
+                        }
+                        id_map[dep_key] = (m, str(file_info.get("version_number") or ""))
+                    except Exception:
+                        fixed = False
+            if not fixed and auto_fix:
+                # Unresolvable: the declarer cannot load at all, so the game
+                # would hard-fail. Turn the DECLARER off (reversible).
+                try:
+                    toggle_mod(mc_version, loader, m["filename"])
+                    fixed, fix_label = True, f"turned off {m.get('display_name')}"
+                except Exception:
+                    fixed = False
+            _report("missing-dependency", m.get("display_name"),
+                    f"requires {dep_name} ({predicate}), which is missing",
+                    fixed, fix_label)
+
     seen_pairs: set = set()
     disabled_targets: set = set()
     for m in mods:
