@@ -326,3 +326,45 @@ html.js .rise{opacity:1;transform:none}
 .pick li{color:var(--text-soft);font-size:15.5px;text-transform:none}
 .pick b{color:var(--ink)}
 .fact .dot{color:#04120A}.fact .dot svg{width:20px;height:20px}.fact .dot svg path,.fact .dot svg circle,.fact .dot svg rect{fill:currentColor}
+
+/* ---- benchmarks page (benchmarks.html) ---------------------------------
+   Measured FPS drawn the way the rest of the site is drawn: flat blocks, thick
+   borders, one hard shadow. A bar's WIDTH is its number (scaled to the fastest
+   run in that same chart) and the value is printed beside it, so nothing has to
+   be read off a pixel. The winner's bar is grass green, everyone else dirt -
+   the same green/dirt split as the hero, used here to mean "fastest". */
+.bm-charts{display:grid;grid-template-columns:repeat(2,1fr);gap:24px;margin-top:40px}
+.bm-card{background:var(--card-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:2px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:24px}
+.bm-card h3{font-size:17px;margin-bottom:4px}
+.bm-card .bm-sub{color:var(--text-soft);font-size:14.5px;font-weight:600;text-transform:none;margin-bottom:18px}
+.bm-chart{display:grid;gap:12px}
+.bm-row{display:grid;grid-template-columns:118px 1fr 62px;align-items:center;gap:12px}
+.bm-row .who{font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:13px;color:var(--ink);text-transform:uppercase;letter-spacing:.02em}
+.bm-bar{height:32px;background:var(--paper);border:2px solid var(--line);box-shadow:3px 3px 0 var(--line)}
+.bm-bar i{display:block;height:100%;background:var(--dirt);border-right:2px solid var(--line)}
+.bm-row.win .bm-bar i{background:var(--grass)}
+.bm-val{font-family:'Minecraftia','Inter',sans-serif;font-weight:700;font-size:16px;color:var(--text-soft);text-align:right;font-variant-numeric:tabular-nums}
+.bm-row.win .bm-val{color:var(--grass-dark)}
+.bm-cap{margin-top:16px;font-size:13px;font-weight:800;color:var(--hint);text-transform:uppercase;letter-spacing:.02em}
+table.bm-table{width:100%;border-collapse:collapse;margin-top:36px;font-variant-numeric:tabular-nums}
+table.bm-table caption{caption-side:top;text-align:left;font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:16px;color:var(--ink);text-transform:uppercase;letter-spacing:.02em;padding-bottom:12px}
+table.bm-table th,table.bm-table td{border:2px solid var(--line);padding:11px 13px;text-align:right;font-size:15px}
+table.bm-table th:first-child,table.bm-table td:first-child{text-align:left}
+table.bm-table thead th{background:var(--grass-soft);font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:12.5px;color:var(--ink);text-transform:uppercase;letter-spacing:.02em}
+table.bm-table tbody td{color:var(--text-soft);font-weight:700}
+table.bm-table tbody tr.bm-best{background:var(--grass-soft)}
+table.bm-table tbody tr.bm-best td{color:var(--ink)}
+table.bm-table tbody th{text-align:left;font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:13px;color:var(--ink);text-transform:uppercase;letter-spacing:.02em;background:var(--card)}
+.bm-scroll{overflow-x:auto}
+.bm-scroll table{min-width:640px}
+/* Lists outside .prose get no browser padding (the reset zeroes it), so the
+   bullet is drawn as a small green block instead - a checkbox, on brand. */
+.bm-list{list-style:none;display:grid;gap:11px;margin-top:18px}
+.bm-list li{position:relative;padding-left:28px;color:var(--text-soft);font-size:16px;text-transform:none}
+.bm-list li::before{content:"";position:absolute;left:4px;top:.5em;width:9px;height:9px;background:var(--grass);border:2px solid var(--btn-line)}
+.bm-list b{color:var(--ink)}
+@media(max-width:820px){
+  .bm-charts{grid-template-columns:1fr}
+  .bm-row{grid-template-columns:96px 1fr 56px;gap:9px}
+  .bm-row .who{font-size:12px}
+}
