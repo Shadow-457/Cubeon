@@ -29,6 +29,8 @@ from cubeon.theme import (  # design system: corner radius, hover helper/tokens/
     ROW_HOVER, ACCENT_TINT, TEXT_FAINT, CARD_BORDER, CARD_FILL,
 )
 from cubeon import icons as _icons  # disk cache for Modrinth project art
+from cubeon import eta as cubeon_eta  # measured "time left" for downloads
+from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 
 import launcher_core as core
 from cubeon import modpacks as modpacks_backend
@@ -116,9 +118,21 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         padding=16, visible=False,
     )
 
+    # The measured "time left" (cubeon/eta.py). The status line always carries
+    # the core's own text; the estimate is appended to it while it is worth
+    # showing, so a pack install stops being a bare percent with no horizon.
+    _eta = cubeon_eta.EtaEstimator()
+    _status_line = {"text": "Starting..."}
+
+    def _status_with_eta(text):
+        text = status_text.human(text)
+        _status_line["text"] = text
+        left = _eta.text()
+        return f"{text} · {left}" if left else text
+
     def status_cb(text):
         _check_cancel()
-        install_status.value = text
+        install_status.value = _status_with_eta(text)
         install_status.color = TEXT
         # The core installer deletes the target profile's _modpack.json marker
         # the instant its rebuild starts (before downloading the MC version).
@@ -138,7 +152,10 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         _check_cancel()
         mx = install_bar.data or 1
         install_bar.value = (val / mx) if mx else None
+        _eta.note(val, mx)
+        install_status.value = _status_with_eta(_status_line["text"])
         thread_safe_ui.refresh(install_bar)
+        thread_safe_ui.refresh(install_status)
 
     def max_cb(val):
         _check_cancel()
@@ -152,6 +169,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         install_card.visible = True
         install_bar.value = None  # indeterminate until the first real progress
         install_bar.data = 1
+        _eta.reset()
+        _status_line["text"] = "Starting..."
         install_status.value = "Starting..."
         install_status.color = TEXT
         install_cancel_btn.disabled = False
@@ -176,7 +195,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _end_install_err(message):
         busy["value"] = False
         install_cancel_btn.visible = False
-        install_status.value = message
+        install_status.value = status_text.human(message)
         install_status.color = DANGER
         install_bar.value = 0
         page.update()

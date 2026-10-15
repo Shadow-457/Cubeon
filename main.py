@@ -171,6 +171,8 @@ def _relaunch_fresh_process() -> bool:
         return True
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
+from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
+from cubeon import status_text as cubeon_status  # strips "<... at 0x...>" from labels
 from cubeon import version_art  # Per-version wiki banners for the Play tab
 from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
 from ui.skin_tab import build_skin_section  # Imports the skin section builder, now embedded in the Profile dialog
@@ -2556,6 +2558,13 @@ def main(page: ft.Page):
 
     _prefetched: set[str] = set()
 
+    # Live progress of the invisible prefetch, per version id. A Play click has
+    # to wait for that prefetch (they share the per-version install lock), and
+    # it used to wait behind a frozen "Preparing" for however long the
+    # invisible download had left. It paints from here instead, so the bar and
+    # the label keep moving while it waits. Keys: status / value / max.
+    _prefetch_view: dict[str, dict] = {}
+
     class _InstallCancelled(Exception):
         """Raised from an install progress callback to abort a cancelled
         install. mll's own installer does stop when a callback raises, so this
@@ -2602,11 +2611,28 @@ def main(page: ft.Page):
                         if cancel.is_set():
                             raise _InstallCancelled()
 
+                    # Publish progress into the shared view as well as honoring
+                    # cancel: a click waiting on the lock paints from it.
+                    view = _prefetch_view.setdefault(version_id, {})
+                    view.clear()
+
+                    def _note_status(text):
+                        _guard()
+                        view["status"] = text
+
+                    def _note_progress(value):
+                        _guard()
+                        view["value"] = value
+
+                    def _note_max(value):
+                        _guard()
+                        view["max"] = value
+
                     core.install_version(
                         version_id,
-                        progress_cb=_guard,
-                        status_cb=_guard,
-                        max_cb=_guard,
+                        progress_cb=_note_progress,
+                        status_cb=_note_status,
+                        max_cb=_note_max,
                         cancel_event=cancel,
                     )
                     state["installed"].add(version_id)
@@ -2964,10 +2990,12 @@ def main(page: ft.Page):
         # previous run (the last launch ended on value=None, the indeterminate
         # "running" pulse) and its `data` still holds that run's phase maximum.
         # Start indeterminate on purpose: "Preparing" may involve no measurable
-        # work at all - an already-installed version reports no progress, and a
-        # click during a background prefetch just blocks on the install lock. A
-        # determinate bar pinned at 0% through either reads as frozen; the pulse
+        # work at all - an already-installed version reports no progress. A
+        # determinate bar pinned at 0% through that reads as frozen; the pulse
         # says "working", and the first real progress_cb makes it determinate.
+        # A click that has to wait for a background prefetch gets there the same
+        # way - see _adopt_prefetch, which paints that prefetch's own progress
+        # instead of leaving the pulse up for the whole download.
         progress_bar.value = None
         progress_bar.data = 1
         progress_label.value = "Preparing"
@@ -3182,9 +3210,23 @@ def main(page: ft.Page):
                 thread_safe_ui.refresh(progress_row)
                 thread_safe_ui.refresh(progress_bar)
 
+            # "Time left" is measured, never assumed: the estimator watches how
+            # fast the fraction has actually moved (see cubeon/eta.py). The
+            # label is always rebuilt from the LAST raw status text, so the
+            # per-file name mll sends stays visible beside the estimate.
+            _eta = cubeon_eta.EtaEstimator()
+            _status_line = {"text": "Preparing"}
+
+            def _status_text():
+                eta = _eta.text()
+                return f"{_status_line['text']} · {eta}" if eta else _status_line["text"]
+
             def status_cb(text):
                 _check_cancel()
-                progress_label.value = text
+                # Third-party status text can carry an object repr (requests
+                # does - see cubeon/status_text.py); it never reaches the UI.
+                _status_line["text"] = cubeon_status.human(text)
+                progress_label.value = _status_text()
                 _paint_progress()
 
             def progress_cb(val):
@@ -3194,6 +3236,8 @@ def main(page: ft.Page):
                 # that emits progress before its setMax lands would otherwise
                 # divide by the previous phase's (smaller) max and overshoot.
                 progress_bar.value = min(1.0, max(0.0, val / mx)) if mx else 0
+                _eta.note(val, mx)
+                progress_label.value = _status_text()
                 _paint_progress()
 
             def max_cb(val):
@@ -3218,13 +3262,45 @@ def main(page: ft.Page):
                         done / (total or 1)),
                     status_cb=status_cb)
 
+            def _adopt_prefetch(version_id):
+                """Paint the waiting click with the prefetch's own progress.
+
+                The version selected before the click is prefetched in the
+                background, invisibly, and both share one install lock - so a
+                click can wait seconds to minutes on that lock. Painting from
+                the prefetch's live view means the user watches the download
+                they are actually waiting for instead of a frozen "Preparing".
+                """
+                view = _prefetch_view.get(version_id)
+                if not view:
+                    return
+                if view.get("status"):
+                    _status_line["text"] = cubeon_status.human(view["status"])
+                mx = view.get("max")
+                if mx:
+                    val = view.get("value") or 0
+                    progress_bar.data = mx
+                    progress_bar.value = min(1.0, max(0.0, val / mx))
+                    _eta.note(val, mx)
+                progress_label.value = _status_text()
+                _paint_progress()
+
             # If the version is not installed, install it. The per-version
             # lock also covers the background prefetch (on_version_selected),
             # so a click during a prefetch waits for it instead of racing it,
             # and an install completed by the prefetch is not repeated.
             _check_cancel()
             if version_id not in state["installed"]:
-                with _install_lock(version_id):
+                lock = _install_lock(version_id)
+                # Acquire in short slices rather than blocking outright: while
+                # the prefetch holds the lock this loop keeps the progress row
+                # showing ITS progress (see _adopt_prefetch), and it keeps
+                # honoring Cancel - the prefetch checks the same flag, so
+                # cancelling here stops whichever of the two is running.
+                while not lock.acquire(timeout=0.25):
+                    _check_cancel()
+                    _adopt_prefetch(version_id)
+                try:
                     # Re-check after the lock: a cancel can land while waiting
                     # behind the background prefetch (which honors the same
                     # flag), and starting a fresh install then would ignore it.
@@ -3233,6 +3309,8 @@ def main(page: ft.Page):
                         core.install_version(version_id, progress_cb, status_cb,
                                              max_cb, cancel_event=cancel)
                         state["installed"].add(version_id)
+                finally:
+                    lock.release()
 
             # If a mod loader is selected, install it if supported - but only
             # if it isn't already installed for this version, otherwise every

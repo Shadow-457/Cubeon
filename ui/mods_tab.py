@@ -28,11 +28,13 @@ from cubeon.theme import (  # design system: corner radius, on-accent fg, hover 
 import launcher_core as core
 
 from cubeon import icons as _icons  # disk cache for Modrinth project art
+from cubeon import eta as cubeon_eta  # measured "time left" for downloads
+from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 
 
-def batch_progress_text(value: float, total: float) -> str:
+def batch_progress_text(value: float, total: float, eta: "str | None" = None) -> str:
     """The download label for one batch of files.
 
     A single click can install several files: a mod plus its required
@@ -41,13 +43,17 @@ def batch_progress_text(value: float, total: float) -> str:
     is the file being fetched now. Saying "file 2/3" is what stops a
     multi-file install from reading as a stuck 0-100 loop, and the percent is
     still of the WHOLE batch, so it never falls back to 0 between files.
+
+    `eta` is the measured "~2m left" from cubeon/eta.py, appended when the
+    estimate is worth showing (see that module for why it often is not).
     """
     files = int(total) if total else 1
     pct = int(value * 100 / total) if total else 0
+    left = f" · {eta}" if eta else ""
     if files <= 1:
-        return f"Downloading… {pct}%"
+        return f"Downloading… {pct}%{left}"
     now = min(int(value) + 1, files)
-    return f"Downloading… {pct}% (file {now}/{files})"
+    return f"Downloading… {pct}% (file {now}/{files}){left}"
 
 
 def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.Dropdown, *,
@@ -1361,6 +1367,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # - a single file no longer restarts the bar at 0 (see
             # batch_progress_text).
             _pct = {"v": -1}
+            _eta = cubeon_eta.EtaEstimator()
 
             def _install_progress(done, total):
                 if not total:
@@ -1368,7 +1375,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 pct = int(done * 100 / total)
                 if pct != _pct["v"]:
                     _pct["v"] = pct
-                    on_status(batch_progress_text(done, total))
+                    on_status(batch_progress_text(done, total,
+                                                  _eta.note(done, total)))
 
             def worker():
                 try:
@@ -1866,6 +1874,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     _pct = {"v": -1}
 
                     def _reporter(label_fn):
+                        _eta = cubeon_eta.EtaEstimator()
+
                         def _report(done, total):
                             if not total:
                                 return
@@ -1873,12 +1883,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             if pct == _pct["v"]:
                                 return
                             _pct["v"] = pct
-                            download_btn_text.value = label_fn(done, total)
+                            download_btn_text.value = label_fn(
+                                done, total, _eta.note(done, total))
                             thread_safe_ui.refresh(download_btn)
                         return _report
 
-                    def _bytes_label(done, total):
-                        return f"Downloading… {int(done * 100 / total)}%"
+                    def _bytes_label(done, total, eta=None):
+                        left = f" · {eta}" if eta else ""
+                        return f"Downloading… {int(done * 100 / total)}%{left}"
 
                     _progress = _reporter(_bytes_label)
                     _batch_progress = _reporter(batch_progress_text)
@@ -1905,7 +1917,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         # yet (Fabric API is the classic one), so a fresh click
                         # actually results in a mod that loads in-game.
                         def _dep_status(t):
-                            download_btn_text.value = t
+                            download_btn_text.value = status_text.human(t)
                             thread_safe_ui.refresh(download_btn)
                         result = core.install_mod_with_dependencies(
                             file_info["url"], file_info["filename"],
@@ -1967,7 +1979,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # file. net.DownloadError messages are already human-sized.
                     reason = (str(ex).strip().splitlines() or [""])[0] \
                         or type(ex).__name__
-                    download_btn_text.value = f"Failed - {reason}"[:70]
+                    download_btn_text.value = f"Failed - {status_text.human(reason)}"[:70]
                     download_btn_text.color = DANGER
                     download_btn.disabled = False
                     download_btn.bgcolor = ACCENT_TINT

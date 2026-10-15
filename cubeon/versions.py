@@ -685,6 +685,137 @@ class _PatchedMllDownloads:
         return False
 
 
+#: An asset object's name on disk is its sha1 - 40 hex characters, no
+#: extension, nothing a human can read. Deliberately narrow (the full 40, or a
+#: long run of hex) so no real library/file name can be swallowed by it.
+_HEX_NAME_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{16,})$")
+
+
+class _FriendlyStatus:
+    """Turns mll's per-file status into something a player can read.
+
+    mll names every file it fetches by its basename, which is fine for
+    libraries ("authlib-6.0.54.jar") but useless for the asset phase: there the
+    basename is the object's raw sha1, so the launcher's status line read
+    "Download c4dbabc820f04ba685694c63359429b22e3a62b5" - a wall of hex that
+    looks like a memory address and tells the user nothing at all. Assets are
+    interchangeable to a human, so they are reported as their phase plus how
+    many of how many, which is also what makes the progress bar's numbers mean
+    something.
+    """
+
+    def __init__(self):
+        self.max = 0
+        self.current = 0
+
+    def progress(self, value) -> None:
+        try:
+            self.current = int(value)
+        except (TypeError, ValueError):
+            pass
+
+    def maximum(self, value) -> None:
+        try:
+            self.max = int(value)
+        except (TypeError, ValueError):
+            pass
+
+    def status(self, text) -> str:
+        if not isinstance(text, str) or not text.startswith("Download "):
+            return text
+        name = text[len("Download "):].strip()
+        if not _HEX_NAME_RE.match(name):
+            return text
+        if self.max > 0:
+            return (f"Downloading game assets "
+                    f"({min(self.current, self.max)}/{self.max})")
+        return "Downloading game assets"
+
+
+def _manifest_entry(version_id: str) -> "dict | None":
+    """The cached manifest's own record for a version - its json url + sha1 -
+    or None when the manifest doesn't know it (a snapshot, an old alpha, or a
+    renamed TLauncher-style id)."""
+    try:
+        for v in _manifest().get("versions", []):
+            if v.get("id") == version_id and isinstance(v.get("url"), str):
+                return v
+    except Exception:
+        return None
+    return None
+
+
+def _seed_version_json(version_id: str, folder: str, json_path: str,
+                       status_cb, max_cb, progress_cb,
+                       bridge: "_InstallCancelBridge | None" = None) -> None:
+    """Put a version's own json on disk before mll goes looking for it.
+
+    Why this exists: mll's install_minecraft_version() checks for
+    versions/<id>/<id>.json and, when it is missing, starts with a bare
+    requests.get() of Mojang's ~4 MB version_manifest_v2.json - no status, no
+    progress, no timeout and no retry. That is a long silent "Preparing" on a
+    slow link (and a possible indefinite hang on a flaky one) on the FIRST
+    install of every version, before a single progress callback can fire.
+
+    Cubeon already keeps that manifest for the version list - cached on disk,
+    served stale when offline, retried, with a mirror fallback - so the one
+    small file mll actually needs can be fetched here instead, where progress
+    and cancellation work. mll then finds it waiting and goes straight to the
+    libraries/assets phases, whose progress is what the user expects to see.
+
+    Strictly best-effort: anything unexpected (no manifest entry, a bad
+    checksum, no network) and mll does it the old way. A slow path must never
+    become a broken one.
+
+    A cancel is the one failure NOT swallowed: this runs before mll, so a
+    cancel arriving here (or during the fetch) has to abort the install the
+    same way a mid-download cancel does, not sit behind a blocking request.
+    `bridge` is the install's own cancel bridge, so only this install's
+    threads see the flag - see _InstallCancelBridge.
+    """
+    if os.path.isfile(json_path):
+        return
+    status_cb("Fetching the version files")
+    if bridge is not None and bridge.should_stop():
+        raise _DownloadCancelled()
+    entry = _manifest_entry(version_id)
+    if not entry:
+        return  # not ours to guess - mll's own lookup handles it
+    sha1 = entry.get("sha1")
+    seen_total = {"v": None}
+
+    def _on_progress(done, total):
+        if bridge is not None and bridge.should_stop():
+            raise _DownloadCancelled()
+        if total and total != seen_total["v"]:
+            seen_total["v"] = total
+            max_cb(total)
+        progress_cb(done)
+
+    try:
+        os.makedirs(folder, exist_ok=True)
+        net.download_to(
+            json_path, entry["url"],
+            expected_hash=("sha1", sha1) if sha1 else None,
+            progress_cb=_on_progress)
+    except _DownloadCancelled:
+        # A cancel is a choice, not a failure to fall back from: drop the
+        # partial and let install_version report it like any other cancel.
+        try:
+            os.unlink(json_path + ".part")
+        except OSError:
+            pass
+        raise
+    except Exception:
+        # Leave nothing half-written behind for mll to read as the version
+        # metadata; a download_to failure keeps its bytes in the .part file.
+        try:
+            if not os.path.isfile(json_path):
+                os.unlink(json_path + ".part")
+        except OSError:
+            pass
+
+
 def install_version(version_id: str, progress_cb, status_cb, max_cb,
                     cancel_event: "threading.Event | None" = None) -> None:
     """progress_cb(int), status_cb(str), max_cb(int) - mirrors mll's callback dict.
@@ -709,7 +840,24 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
         hand-placed jar - are never touched: a failed reinstall must not
         destroy a working install (or the user's own files).
     """
-    callback = {"setStatus": status_cb, "setProgress": progress_cb, "setMax": max_cb}
+    # Every callback is wrapped: the status one so the asset phase reports
+    # something readable instead of a sha1 (see _FriendlyStatus), and all three
+    # so the cancel bridge sees which thread is downloading.
+    friendly = _FriendlyStatus()
+
+    def _status(text):
+        status_cb(friendly.status(text))
+
+    def _progress(value):
+        friendly.progress(value)
+        progress_cb(value)
+
+    def _maximum(value):
+        friendly.maximum(value)
+        max_cb(value)
+
+    callback = {"setStatus": _status, "setProgress": _progress,
+                "setMax": _maximum}
     if cancel_event is not None:
         # The download runs on mll's own worker threads; register each thread
         # with this install's bridge the moment it reports a status, so the
@@ -722,13 +870,24 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
                 bridge.note_thread()
                 cb(*a)
             return call
-        callback = {"setStatus": _noted(status_cb),
-                    "setProgress": _noted(progress_cb),
-                    "setMax": _noted(max_cb)}
+        callback = {"setStatus": _noted(_status),
+                    "setProgress": _noted(_progress),
+                    "setMax": _noted(_maximum)}
     else:
         bridge = None
     folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
     json_path = os.path.join(folder, version_id + ".json")
+    # Seed the version json ourselves (see _seed_version_json) - without this,
+    # mll answers the missing json with a silent, un-timed 4 MB manifest fetch
+    # before its first progress callback, which is the "it prepares for a long
+    # time" the user sees on a first install. It carries the same cancel
+    # bridge as the mll call below, so Cancel works during this step too.
+    try:
+        _seed_version_json(version_id, folder, json_path, status_cb, _maximum,
+                           _progress, bridge)
+    except _DownloadCancelled as ex:
+        raise RuntimeError(
+            "The download was cancelled.") from ex
     jar_sizes_before = _jar_sizes(folder)
 
     def _drop_attempt_jars() -> None:

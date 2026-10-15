@@ -24,6 +24,7 @@ import launcher_core as core
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from ui.detail_dialog import open_project_detail
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
+from cubeon import eta as cubeon_eta  # measured "time left" for downloads
 
 
 def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
@@ -566,22 +567,29 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # older run check it before hiding the row, so a fresh install's progress
     # can never be dismissed by a stale timer.
     _smooth_gen = {"v": 0}
+    _smooth_eta = cubeon_eta.EtaEstimator()
 
     def _smooth_progress(ev):
         """Runs on the install worker thread; refresh() is thread-safe."""
         stage = ev.get("stage")
         title = ev.get("title", "")
         if stage == "start":
+            _smooth_eta.reset()
             smooth_progress_text.value = f"Installing {title}..."
             smooth_progress_bar.value = None   # indeterminate until bytes flow
         elif stage == "progress":
             total = ev.get("total") or 0
             done = ev.get("done") or 0
+            left = _smooth_eta.note(done, total) if total else None
+            suffix = f" · {left}" if left else ""
             if total:
                 smooth_progress_bar.value = done / total
-                smooth_progress_text.value = f"Downloading {title}... {int(done * 100 / max(total, 1))}%"
+                smooth_progress_text.value = (f"Downloading {title}... "
+                                              f"{int(done * 100 / max(total, 1))}%"
+                                              f"{suffix}")
             else:
-                smooth_progress_text.value = f"Downloading {title}... {done // 1024} KB"
+                smooth_progress_text.value = (f"Downloading {title}... "
+                                              f"{done // 1024} KB")
         elif stage == "done":
             if not ev.get("ok"):
                 smooth_progress_text.value = f"Couldn't install {title}."

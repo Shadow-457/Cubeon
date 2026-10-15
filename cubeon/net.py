@@ -32,6 +32,8 @@ import time
 from .lazy import LazyModule
 requests = LazyModule("requests")
 
+from .status_text import human  # strips "<... at 0x...>" out of error text
+
 log = logging.getLogger(__name__)
 
 # A modpack install fans out into many single-file downloads; without a cap
@@ -112,7 +114,8 @@ def get_with_retry(url: str, *, headers: dict | None = None,
                 log.info("download %s: %s, retrying in %.1fs",
                          url, ex.__class__.__name__, delay)
                 time.sleep(delay)
-    raise DownloadError(f"Couldn't reach {url} after {attempts} tries: {last_err}")
+    raise DownloadError(human(
+        f"Couldn't reach {url} after {attempts} tries: {last_err}"))
 
 
 def get_json(url: str, *, headers: dict | None = None, params: dict | None = None,
@@ -238,4 +241,4 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                 log.info("download %s: attempt %d failed (%s)",
                          url, attempt + 1, ex.__class__.__name__)
                 time.sleep(BACKOFF_BASE * (2 ** attempt))
-    raise DownloadError(f"Couldn't download {url}: {last_err}")
+    raise DownloadError(human(f"Couldn't download {url}: {last_err}"))

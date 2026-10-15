@@ -258,6 +258,17 @@ check("a zero total (unknown size) can't divide by zero",
       _label(0, 0) == "Downloading… 0%", _label(0, 0))
 check("an out-of-range value can't claim a file that doesn't exist",
       _label(9, 3).endswith("(file 3/3)"), _label(9, 3))
+# The measured "time left" (cubeon/eta.py) rides along when it is worth
+# showing, and must leave no stray separator when it isn't.
+check("a measured time left rides along with the label",
+      _label(1.0, 3, "~2m 10s left")
+      == "Downloading… 33% (file 2/3) · ~2m 10s left",
+      _label(1.0, 3, "~2m 10s left"))
+check("a single-file download shows it too",
+      _label(0.5, 1, "~30s left") == "Downloading… 50% · ~30s left",
+      _label(0.5, 1, "~30s left"))
+check("no estimate means no stray separator",
+      _label(0.5, 1) == "Downloading… 50%", _label(0.5, 1))
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
