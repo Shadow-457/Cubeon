@@ -939,6 +939,20 @@ facts belong HERE, not in diary notes.
   startup, so the splash doesn't open full-size. The seasonal ambience uses
   the saved `_gw`, not `page.window.width` (which is the splash width during
   the build). Do NOT move the geometry assignment back before the splash.
+- **Showing the window needs a REAL change (2026-10-15)**: the app is started
+  hidden (`ft.run(..., view=FLET_APP_HIDDEN)`) and revealed via `_show_window()`
+  in `main()`, which writes `page.window.visible = False` and then `= True`.
+  That pair is load-bearing, not noise: Flet declares `Window.visible` with a
+  default of `True` and `Prop.__set__` DROPS any write equal to the declared
+  default - no store, no dirty flag, nothing sent - so a bare
+  `page.window.visible = True` emits nothing and the client is never told to
+  show. Linux/GTK and Wine do not honour the hidden start (the window mapped
+  anyway), which is exactly why this only showed up on real Windows:
+  `Cubeon.exe` in Task Manager, no window at all. The False->True pair emits
+  `visible: true` and is a no-op where the window is already visible.
+  `wait_until_ready_to_show()` is also bounded (5 s `asyncio.wait_for`) so a
+  client that never answers cannot keep the window hidden forever.
+  `tools/test_ui_smoke.py` asserts the pair plus the `_show_window()` call.
 - **Seasonal Restart button + open/close polish (2026-10-15):**
   - `_on_restart_click` (main.py) raises a full-window `restart_overlay`
     (`page.overlay`, `left/top/right/bottom=0`, `animate_opacity` — the same

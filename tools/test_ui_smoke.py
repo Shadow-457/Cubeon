@@ -1195,7 +1195,7 @@ def _fn_src(source, name):
     i = source.find(f"def {name}")
     if i < 0:
         return ""
-    m = _re.search(r"\n    def |\n\ndef ", source[i+1:])
+    m = _re.search(r"\n    def |\n    async def |\n\ndef ", source[i+1:])
     return source[i:i+1+m.start()] if m else source[i:]
 
 _mods_src = open(os.path.join(_app_root, "ui", "mods_tab.py"), encoding="utf-8").read()
@@ -1717,6 +1717,24 @@ check("the finished UI fades in on reveal instead of hard-cutting",
       and "animate_opacity" in _src_main
       and "_app_root.opacity = 1.0" in _reveal_body,
       "the app root must start at opacity 0 and be faded to 1 in _reveal_window")
+# Flet's Window.visible declares a DEFAULT of True, and its property setter
+# DROPS any write equal to the declared default (no store, no dirty flag,
+# nothing sent) - so a bare `page.window.visible = True` sends NOTHING and the
+# AppView.FLET_APP_HIDDEN client is never told to show its window. On Linux/GTK
+# (and under Wine) the hidden start is not honoured and the window mapped
+# anyway, which is why this went unnoticed; on real Windows the window stayed
+# hidden forever - Cubeon.exe in Task Manager with no window anywhere
+# (reported 2026-10-15). _show_window() writes False first so the True becomes
+# a real change. Do not "simplify" that pair away.
+_show_body = _fn_src(_src_main, "_show_window")
+_show_false = _show_body.find("\n            page.window.visible = False")
+_show_true = _show_body.find("\n            page.window.visible = True")
+check("the window is shown with a REAL visible change, not a no-op True",
+      _show_false != -1 and _show_true != -1 and _show_false < _show_true
+      and "_show_window()" in _reveal_body,
+      "_show_window() must set visible False then True (Flet drops a write "
+      "equal to the default, so a lone True is never sent) and _reveal_window "
+      "must call it")
 
 # --- Privacy/crash reporting is gone -------------------------------------------
 # User request: "remove the privacy option completely from settings and backend."

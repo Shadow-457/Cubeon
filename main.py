@@ -771,23 +771,54 @@ def main(page: ft.Page):
     )
     page.add(_splash)
 
-    async def _reveal_splash():
+    def _show_window():
+        """Tell the desktop client to show its window.
+
+        A bare ``page.window.visible = True`` is a NO-OP, and that is exactly
+        how the launcher came to run with NO WINDOW on Windows (2026-10-15):
+        ``Cubeon.exe`` sat in Task Manager, nothing appeared anywhere. Flet
+        declares ``Window.visible`` with a default of True, and ``Prop.__set__``
+        DROPS any write equal to the declared default - no value stored, no
+        dirty flag, nothing sent. The client is created with
+        ``AppView.FLET_APP_HIDDEN``, so once it honoured that flag it was never
+        told to show anything.
+
+        Writing False first stores a real state, which makes the True a genuine
+        change; the emitted patch carries ``visible: true`` and the window
+        appears. Where the hidden start is NOT honoured (Linux/GTK and Wine map
+        the window anyway) the window is already visible, the patch is a
+        no-op, and nothing flickers - which is why this looked fine during
+        local and Wine testing. Do NOT "simplify" this back to one assignment;
+        tools/test_ui_smoke.py pins it.
+        """
         try:
-            await page.window.wait_until_ready_to_show()
+            page.window.visible = False
+            page.window.visible = True
         except Exception:
-            pass  # non-desktop or an odd runtime: visible still applies
-        page.window.visible = True
+            return
         try:
             page.window.update()
         except Exception:
-            page.update()
+            pass
+
+    async def _reveal_splash():
+        # Bounded: this is a handshake with the desktop client, and a client
+        # that never answers (or a platform where it never resolves) must not
+        # be allowed to keep a hidden window hidden forever. Showing the splash
+        # late is a cosmetic loss; never showing it is the bug.
+        try:
+            await asyncio.wait_for(
+                page.window.wait_until_ready_to_show(), timeout=5)
+        except Exception:
+            pass  # non-desktop, an odd runtime, or a slow client: visible still applies
+        _show_window()
 
     try:
         page.run_task(_reveal_splash)
     except Exception:
         # No event loop to schedule on (headless/test harness): show
         # synchronously so automated checks still see the window.
-        page.window.visible = True
+        _show_window()
 
     # --- Load configuration (saved settings) from disk ---
     cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
@@ -5731,10 +5762,11 @@ def main(page: ft.Page):
     async def _reveal_window():
         _apply_real_geometry()
         try:
-            await page.window.wait_until_ready_to_show()
+            await asyncio.wait_for(
+                page.window.wait_until_ready_to_show(), timeout=5)
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
-        page.window.visible = True
+        _show_window()
         # Fade the finished UI in. It was mounted at opacity 0 (see _app_root
         # in main), so this single property change turns the splash -> app hand
         # off into one smooth fade instead of a hard cut. One control-level
@@ -5817,7 +5849,7 @@ def main(page: ft.Page):
         # No event loop to schedule on (headless/test harness): show
         # synchronously so automated checks still see the window.
         _apply_real_geometry()
-        page.window.visible = True
+        _show_window()
         try:
             _app_root.opacity = 1.0  # never leave the UI stuck invisible
         except Exception:
