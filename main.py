@@ -193,6 +193,10 @@ from cubeon.friends_service import FriendsService  # Headless owner of friends/P
 from cubeon.features import friends_enabled  # Development vs. public (no-Friends) builds
 from ui.chat_tab import build_chat_tab  # Chat tab: friends list, requests, encrypted chat
 from ui.screenshot_gallery import build_screenshot_gallery_tab
+from ui.versions import (  # Play tab version management: picker, cards, instances manager
+    VersionPicker, InstanceCards, InstancesManager,
+)
+from cubeon import instances as instance_info  # instance descriptors: loader / mods / size / last-played
 from cubeon.discord_rpc import DiscordPresence  # Optional Discord Rich Presence (no-op unless configured)
 from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driving (no-op without a pad)
 
@@ -285,12 +289,19 @@ def _explain_exit(code: int, lines=None) -> str:
         return "Crashed: graphics driver couldn't start the game window. Update your GPU drivers."
     if "cannot run program" in low or "no such file or directory" in low and "java" in low:
         return "Crashed: Java not found. Install Java, or set its path in Settings."
-    # A missing loader entrypoint means the classpath was wrong, not that the
-    # user did anything. It reads like a broken Fabric install, so say what it
-    # really is - this was Cubeon's own client.json bug (see cubeon/launch.py).
+    # A missing loader entrypoint means the classpath was wrong, so Fabric
+    # could not start - the version's files are incomplete or broken. Do NOT
+    # claim Cubeon fixed it: the client.json repair (_sanitize_client_json /
+    # _restore_emptied_arguments in cubeon/launch.py) already runs BEFORE every
+    # spawn, so if the game still died this way the repair was attempted and
+    # did not help. The old "Cubeon repaired it. Press Play again." promised a
+    # fix that had never worked, and left users relaunching a broken version
+    # forever instead of reinstalling it (the reported "it says it fixed it but
+    # it isn't actually fixed" confusion).
     if "knotclient" in low or "knotserver" in low:
-        return ("Crashed: this version's config was incomplete, so Fabric couldn't start. "
-                "Cubeon repaired it. Press Play again.")
+        return ("Crashed: Fabric couldn't start - this version's files look "
+                "incomplete. If pressing Play again still crashes, reinstall "
+                "this version from the Play tab.")
     if "classnotfoundexception" in low and "net.minecraft" in low:
         return ("Crashed: the game files for this version look incomplete. "
                 "Reinstall it, or pick another version.")
@@ -331,6 +342,28 @@ def _classify_session_end(ui_painted: bool, client_exit):
     if client_exit == 0:
         return "clean_close"
     return "pre_paint_crash" if not ui_painted else "clean_close"
+
+
+# A window close/hide/disconnect event is the user asking the window to go
+# away. If the flet client then dies to a SIGNAL within this many seconds, that
+# is teardown noise from a flaky GPU driver - NOT a crash worth auto-reopening
+# for. Without this the mid-session recovery re-execs the launcher and the
+# window pops straight back up after the user closed it (the reported "why did
+# it launch again when I close, it's annoying"). A genuine mid-session crash
+# has NO preceding window event, so it is completely unaffected.
+_CLOSE_GRACE = 10.0
+
+
+def _apply_dismissed_close(kind: str, dismissed_at, now: float) -> str:
+    """Downgrade a crash to a clean close once the user dismissed the window.
+
+    ``dismissed_at`` is the monotonic time of the last window close/hide/
+    disconnect event (see ``_arm_window_gone_exit``), or None if none arrived.
+    """
+    if (kind != "clean_close" and dismissed_at is not None
+            and (now - dismissed_at) <= _CLOSE_GRACE):
+        return "clean_close"
+    return kind
 
 
 def _live_flet_clients(assets_dir: "str | None" = None) -> "list[int]":
@@ -400,11 +433,17 @@ def _terminate_flet_clients(assets_dir: "str | None" = None) -> int:
 # returned (the session loop owns the exit, including a pending relaunch) or
 # whenever a flet client is still alive (a minimize, not a close).
 # ---------------------------------------------------------------------------
-_window_gone = {"timer": None, "ft_returned": False}
+_window_gone = {"timer": None, "ft_returned": False, "dismissed_at": None}
 
 
 def _arm_window_gone_exit(reason: str, delay: float = 3.0) -> None:
     """Arms the last-resort exit for a window that vanished. Idempotent."""
+    # Remember WHEN the window was dismissed: _session_loop uses this to tell
+    # a flaky-driver death during teardown (the user is closing - never
+    # reopen) from a genuine mid-session crash (recover). Recorded even when a
+    # timer is already armed, because a repeated hide is still the user
+    # asking the window to go away.
+    _window_gone["dismissed_at"] = time.monotonic()
     if _window_gone["ft_returned"]:
         return  # ft.run() returned: _session_loop is already handling the end
     timer = _window_gone.get("timer")
@@ -421,11 +460,22 @@ def _window_gone_finish(reason: str) -> None:
     _window_gone["timer"] = None
     if _window_gone["ft_returned"]:
         return  # the session loop took over while we were waiting
-    try:
-        if _live_flet_clients(resolve_assets_dir()):
-            return  # client still up: a minimize or a reconnect, not a close
-    except Exception:
-        pass
+    # A pending "Restart to apply" (Settings > Seasonal) outranks everything
+    # else, including the live-client guard below. The Restart button closes
+    # the window through the native close request, which on Linux/KDE can
+    # arrive as a HIDE with the flet client still alive: the guard would then
+    # treat a deliberate restart as a minimize and return, stranding the user
+    # with a hidden window and a process that never re-execs ("restart closes
+    # but never reopens"). When a relaunch is armed that cannot happen - the
+    # restart IS the reason the window is going away.
+    _rl = _relaunch.get("request")
+    _relaunching = _rl is not None and _rl.is_set()
+    if not _relaunching:
+        try:
+            if _live_flet_clients(resolve_assets_dir()):
+                return  # client still up: a minimize or a reconnect, not a close
+        except Exception:
+            pass
     print(f"cubeon: window gone ({reason}) and ft.run() never returned - "
           "exiting so nothing is left running in the background")
     # Bounded: whatever cleanup is still pending gets a daemon thread and 2s,
@@ -443,8 +493,7 @@ def _window_gone_finish(reason: str) -> None:
     # "Restart to apply" (Settings > Seasonal) outranks a plain close here,
     # exactly as it does in _session_loop: the user asked for a re-exec, and
     # leaving the process instead would make the Restart button look broken.
-    _rl = _relaunch.get("request")
-    if _rl is not None and _rl.is_set():
+    if _relaunching:
         print("cubeon: restart requested - relaunching to apply seasonal "
               "settings")
         try:
@@ -676,7 +725,7 @@ def main(page: ft.Page):
     # names in cubeon/theme.py, so a font can't be referenced by name without
     # also being registered here.
     page.fonts = dict(FONT_URLS)
-    # Install the full design system (blocky shapes + on-palette ColorScheme for
+    # Install the full design system (rounded shapes + on-palette ColorScheme for
     # every default Flet control - dialogs, buttons, menus, scrollbars). See
     # cubeon/theme.apply_page_theme for the colour-theory rationale.
     theme.apply_page_theme(page)
@@ -2207,215 +2256,41 @@ def main(page: ft.Page):
         tooltip="Show or hide versions below 1.20",
     )
 
-    # Online mode pulls in every release Mojang has ever shipped (600+
-    # entries) with no way to jump to one - the raw dropdown became a wall of
-    # text nobody could scan. This filters that list live as the user types
-    # (e.g. "1.20" narrows straight to the 1.20.x releases) instead of making
-    # them scroll past hundreds of versions from 2011 onward to find one from
-    # this year. Only shown once there's actually a long online list to
-    # filter; the short offline (installed-only) list doesn't need it.
-    # The picker dialog's source list (installed-only offline, or the full
-    # online list). Kept SEPARATE from version_dropdown.options on purpose:
-    # the old filter rewrote the canonical dropdown options/value on every
-    # keystroke, which meant typing in the search box could silently move the
-    # selection to the first match and kick off a prefetch/download - and
-    # closing the dialog left the dropdown stuck on a narrowed list. The
-    # dialog now filters this snapshot and only commits via a row click.
-    pick_source = {"value": []}
-
-    version_filter_field = ft.TextField(
-        hint_text="Filter versions... e.g. 1.20",
-        border_color=BORDER,
-        focused_border_color=ACCENT,
-        color=TEXT,
-        bgcolor=SURFACE_HI,
-        border_radius=RADIUS,
-        height=44,
-        text_size=13,
-        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
-        prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        on_change=None,   # wired to on_pick_search once the picker exists
-        visible=False,  # shown only once online browsing is active
-    )
-
-    # Notice shown when offline (no internet)
-    offline_notice = ft.Container(
-        content=ft.Row(
-            [
-                ft.Icon(ft.Icons.WIFI_OFF_ROUNDED, color=TEXT_DIM, size=14),
-                ft.Text("No internet. Showing installed versions only.", size=12, color=TEXT_DIM),
-            ],
-            spacing=8,
-        ),
-        visible=False,
-    )
-
-    # (browse_online_link was folded into the version picker dialog's
-    # "Browse all versions →" link - same action, plus a list rebuild.)
-
     # -----------------------------------------------------------------
     # THE VERSION PICKER - the dropdown's face and its search dialog.
     #
-    # The ft.Dropdown itself is the source of truth (value/options - dozens
-    # of code paths read and write it) but it is NOT mounted: a plain
-    # dropdown can't hold a search box, and 600+ online versions turned the
-    # separate filter field into permanent visual weight on the Play tab.
-    # Instead the compact button below opens a dialog with the search field,
-    # the filtered list, and the browse/snapshot controls inside it - the
-    # mockup's "Search versions... / list / Browse all versions ->".
+    # Online mode pulls in every release Mojang has ever shipped (600+
+    # entries), so the raw dropdown became a wall of text nobody could scan.
+    # The ft.Dropdown itself stays the source of truth (value/options - dozens
+    # of code paths read and write it) but it is NOT mounted: a plain dropdown
+    # can't hold a search box. Instead the compact button below opens a dialog
+    # that filters its OWN snapshot of the list and only commits via a row
+    # click - typing in the search box must never move the live selection or
+    # kick off a download. The whole thing (rows grouped Installed / Available,
+    # each tagged with its loader and release date) lives in ui/versions.py.
     # -----------------------------------------------------------------
 
-    version_button_label = ft.Text(
-        "No versions installed yet", size=14, color=TEXT_DIM,
-        font_family=FONT_MONO, expand=True,
-    )
-    version_dropdown_button = ft.Container(
-        content=ft.Row(
-            [
-                version_button_label,
-                ft.Icon(ft.Icons.ARROW_DROP_DOWN_ROUNDED, size=18, color=TEXT_DIM),
-            ],
-            spacing=6,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        bgcolor=SURFACE_HI,
-        border=ft.border.Border.all(1, BORDER),
-        border_radius=RADIUS,
-        height=48,
-        padding=ft.padding.Padding.symmetric(horizontal=12),
-        ink=False,
-        tooltip="Pick a Minecraft version",
-    )
-
-    def _sync_version_button():
-        """Mirror the dropdown's current value onto the button's label."""
-        val = version_dropdown.value
-        label = None
+    def _dropdown_label(val):
+        """The text the dropdown currently shows for `val`, or None."""
         for o in version_dropdown.options or []:
             if o.key == val:
-                label = (o.text or o.key).strip() or val
-                break
-        if not label and val:
-            label = val
-        version_button_label.value = label or "No versions installed yet"
-        version_button_label.color = TEXT if label else TEXT_DIM
+                return (o.text or o.key).strip() or val
+        return None
 
     def _pick_version(key):
-        """A click on a row in the picker dialog: select it and close."""
+        """A click on a row in the picker dialog: select it and apply it."""
         version_dropdown.value = key
-        _close_dialog(version_pick_dialog)
-        _sync_version_button()
+        picker.sync_label()
         on_version_selected()
 
-    def _rebuild_pick_list():
-        """The dialog's rows: the full pick source, narrowed by whatever is
-        typed in the search field. Selected row is marked and tinted.
-
-        Filtering is local to the dialog - it never touches
-        version_dropdown.options/value, so browsing doesn't change the
-        selection or start a download.
-
-        Ends in page.update() on purpose: every caller mutates the list after
-        some other control already updated the page (the browse link runs
-        refresh_version_list first, the search field's own keystroke updates
-        only itself), so without this the rebuilt rows would sit invisible
-        until the NEXT event repainted - the "browse loads only after I
-        reopen the menu" bug."""
-        query = (version_filter_field.value or "").strip().lower()
-        rows = []
-        for o in pick_source["value"]:
-            text = (o.text or o.key).strip()
-            if query and query not in o.key.lower() and query not in text.lower():
-                continue
-            selected = o.key == version_dropdown.value
-            rows.append(ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Icon(ft.Icons.CHECK_ROUNDED if selected else ft.Icons.CIRCLE,
-                                size=12, color=ACCENT if selected else "transparent"),
-                        ft.Text(text, size=13, expand=True,
-                                color=TEXT if selected else TEXT_DIM,
-                                weight=ft.FontWeight.W_600 if selected else ft.FontWeight.W_400),
-                    ],
-                    spacing=10,
-                ),
-                bgcolor=ACCENT_TINT if selected else None,
-                border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
-                ink=False,
-                on_click=lambda e, k=o.key: _pick_version(k),
-                animate=100,
-            ))
-        if not rows:
-            # Never show a blank box - say what to do next. This happens on a
-            # fresh install (nothing downloaded yet) and on a filter that
-            # matches nothing.
-            rows.append(ft.Container(
-                content=ft.Text(
-                    "No versions here yet. Press “Browse all versions” to load "
-                    "the online list." if not pick_source["value"]
-                    else "No versions match your search.",
-                    size=12, color=TEXT_DIM,
-                ),
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16),
-            ))
-        pick_list.controls = rows
-        page.update()
-
-    def on_pick_search(e=None):
-        _rebuild_pick_list()
-
-    version_filter_field.on_change = on_pick_search
-    version_filter_field.border_radius = RADIUS
-
-    def on_browse_all_in_dialog(e=None):
-        refresh_version_list(online=True)
-        _rebuild_pick_list()
-
-    browse_all_link = ft.Container(
-        content=ft.Row(
-            [
-                ft.Icon(ft.Icons.CLOUD_DOWNLOAD_ROUNDED, color=ACCENT, size=14),
-                ft.Text("Browse all versions →", size=12, color=ACCENT,
-                        weight=ft.FontWeight.W_600),
-            ],
-            spacing=8,
-        ),
-        on_click=on_browse_all_in_dialog,
-        ink=False,
+    picker = VersionPicker(
+        page,
+        get_selected=lambda: version_dropdown.value,
+        label_for=_dropdown_label,
+        on_pick=_pick_version,
+        on_browse_online=lambda: refresh_version_list(online=True),
     )
-
-    pick_list = ft.Column([], spacing=2, scroll=ft.ScrollMode.AUTO, height=320)
-
-    def _open_version_picker(e=None):
-        version_filter_field.value = ""
-        _rebuild_pick_list()
-        _open_dialog(version_pick_dialog)
-
-    version_dropdown_button.on_click = _open_version_picker
-
-    version_pick_dialog = ft.AlertDialog(
-        modal=False, bgcolor=SURFACE,
-        title=ft.Text("Game version", color=TEXT, weight=ft.FontWeight.W_800),
-        content=ft.Container(
-            width=420,
-            content=ft.Column(
-                [
-                    version_filter_field,
-                    ft.Container(height=4),
-                    pick_list,
-                    ft.Container(height=6),
-                    ft.Row(
-                        [ft.Container(expand=True),
-                         ft.Row([offline_notice, browse_all_link], spacing=14)],
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                ],
-                spacing=4, tight=True,
-            ),
-        ),
-    )
+    version_dropdown_button = picker.button
 
     # Progress bar and label shown during installation/launch
     progress_bar = ft.ProgressBar(
@@ -2728,7 +2603,7 @@ def main(page: ft.Page):
         It checks if the version is installed, and if it's complete or incomplete.
         Then it updates the play button mode accordingly.
         """
-        _sync_version_button()   # the compact button mirrors the real dropdown
+        picker.sync_label()   # the compact button mirrors the real dropdown
         version_id = version_dropdown.value
         state["selected_version"] = version_id  # keep Mods/Servers tabs in sync with the dropdown
         # A pending loader install is armed against one specific version. If
@@ -2780,13 +2655,25 @@ def main(page: ft.Page):
             # Not installed - offer to download, and quietly start the
             # download in the background so Play is instant when clicked.
             version_issue_text.visible = False
-            set_button_mode("download")
-            prefetch_version(version_id)
+            if version_id:
+                set_button_mode("download")
+                prefetch_version(version_id)
+            else:
+                # No instance at all ("No versions installed yet"): there is
+                # nothing to download, so keep the neutral PLAY the empty
+                # startup state mounts. on_play_click is already a no-op with
+                # no selection.
+                set_button_mode("play")
         # Mirror a live game: re-selecting the version that is currently
         # running must show QUIT GAME, not PLAY (the old code happily
         # offered a second launch of the same instance). One in-process dict
         # read - no psutil, no disk - so it adds nothing to the selection path.
-        if state.get("running_version") == version_id:
+        # The `version_id and` guard is LOAD-BEARING: with nothing installed
+        # the dropdown value is None and state["running_version"] is None too,
+        # so a bare == matched None == None and painted QUIT GAME out of
+        # nowhere - most visibly right after changing the mod loader, which
+        # re-runs this whole selection path (on_loader_toggle_change).
+        if version_id and state.get("running_version") == version_id:
             set_button_mode("running")
         # The button IS the cancel affordance while an install is in flight
         # (even for a different version - the click routes by installing_
@@ -2821,20 +2708,26 @@ def main(page: ft.Page):
             # entries stay hidden until the user opts in via the Legacy
             # button - same rule as the online list.
             _labels = cfg.get("version_labels") or {}
-            options = [
-                ft.dropdown.Option(
-                    key=v["id"],
-                    text=f"{_labels.get(v['id']) or v.get('display_name', v['id'])}  {'⚠' if v.get('incomplete') else '●'}",
-                )
-                for v in installed
-                if state.get("legacy_ok") or not _is_legacy_version(v["id"])
-            ]
+            options = []
+            entries = []
+            for v in installed:
+                vid = v["id"]
+                if not state.get("legacy_ok") and _is_legacy_version(vid):
+                    continue
+                # The dropdown option keeps the plain "name ⚠/●" text (other
+                # code mirrors it onto the button label); the picker gets the
+                # richer descriptor it groups and tags rows with.
+                info = instance_info.describe(vid, v, _labels.get(vid), with_mods=False)
+                mark = "⚠" if info["incomplete"] else "●"
+                options.append(ft.dropdown.Option(key=vid, text=f"{info['display_name']}  {mark}"))
+                entries.append({
+                    "id": vid, "text": info["display_name"], "installed": True,
+                    "loader": info["loader"], "loader_label": info["loader_label"],
+                    "incomplete": info["incomplete"], "type": "", "release_time": None,
+                })
             version_dropdown.options = options
-            pick_source["value"] = list(options)
-            offline_notice.visible = False
+            picker.set_source(entries, online=False)
             legacy_note.visible = state.get("legacy_ok", False)
-            version_filter_field.visible = False
-            version_filter_field.value = ""
 
             # Select the first option or the previously selected version
             if options:
@@ -2867,35 +2760,45 @@ def main(page: ft.Page):
             versions = core.get_available_versions(include_snapshots=show_snapshots.value)
         except Exception:
             # If network fails, show the offline notice
-            offline_notice.visible = True
-            version_filter_field.visible = False
+            picker.set_offline()
             set_status("Offline")
             page.update()
             return
 
         # Build options: show installed versions with a "●" marker. Legacy
-        # (below 1.20) entries are skipped unless the user opted in.
+        # (below 1.20) entries are skipped unless the user opted in. The
+        # picker additionally gets the loader / snapshot / release-date tags.
         _labels = cfg.get("version_labels") or {}
         options = []
+        entries = []
         for v in versions:
-            if not state.get("legacy_ok") and _is_legacy_version(v["id"]):
+            vid = v["id"]
+            if not state.get("legacy_ok") and _is_legacy_version(vid):
                 continue
-            is_installed = v["id"] in state["installed"]
+            is_installed = vid in state["installed"]
             tag = "  ●" if is_installed else ""
             # A renamed instance keeps its nickname in the online list too, so
             # it reads the same in both places. Installed entries also fall
             # back to the friendly display name ("1.21.11 (Fabric)") instead
             # of the raw launch id.
-            label = _labels.get(v["id"]) if is_installed else None
+            label = _labels.get(vid) if is_installed else None
             if not label and is_installed:
-                label = (state.get("installed_meta") or {}).get(v["id"], {}).get("display_name")
-            options.append(ft.dropdown.Option(key=v["id"], text=f"{label or v['id']}{tag}"))
-        pick_source["value"] = list(options)
-        version_filter_field.value = ""
-        version_filter_field.visible = True
+                label = (state.get("installed_meta") or {}).get(vid, {}).get("display_name")
+            options.append(ft.dropdown.Option(key=vid, text=f"{label or vid}{tag}"))
+            info = instance_info.describe(vid, v, _labels.get(vid), with_mods=False)
+            entries.append({
+                "id": vid, "text": label or vid, "installed": is_installed,
+                "loader": info["loader"], "loader_label": info["loader_label"],
+                "incomplete": info["incomplete"], "type": v.get("type") or "",
+                "release_time": v.get("releaseTime"),
+            })
         version_dropdown.options = options
+        try:
+            latest = core.get_latest_release()
+        except Exception:
+            latest = None
+        picker.set_source(entries, online=True, latest=latest)
         legacy_note.visible = state.get("legacy_ok", False)
-        offline_notice.visible = False
 
         # Set the dropdown value to either the previously selected, the latest release, or the first
         if state["selected_version"] and any(o.key == state["selected_version"] for o in options):
@@ -3598,6 +3501,10 @@ def main(page: ft.Page):
                 cfg=cfg, status_cb=status_cb, log_cb=_game_log_cb,
             )
 
+            # Remember this launch for the Play tab's "last played" label (see
+            # cubeon/instances.py). Best-effort - never blocks the launch.
+            instance_info.mark_played(version_id)
+
             # Session id from the watchdog record (mirrored on the Popen
             # object): on_exit compares against the live session so an older
             # game's exit cannot clear a newer game's presence/indicator.
@@ -3783,8 +3690,8 @@ def main(page: ft.Page):
         vid = version_dropdown.value
         return vid if (vid and vid in state["installed"]) else None
 
-    def on_rename_instance(e=None):
-        vid = _selected_installed_id()
+    def on_rename_instance(e=None, vid=None):
+        vid = vid or _selected_installed_id()
         if not vid:
             set_status("Install this version before renaming it")
             return
@@ -3834,8 +3741,8 @@ def main(page: ft.Page):
         )
         _open_dialog(dlg)
 
-    def on_delete_instance(e=None):
-        vid = _selected_installed_id()
+    def on_delete_instance(e=None, vid=None):
+        vid = vid or _selected_installed_id()
         if not vid:
             set_status("Install this version before deleting it")
             return
@@ -3960,7 +3867,7 @@ def main(page: ft.Page):
     # One fetch per version serves every interested control (_art_watchers), so
     # update_hero running on every selection change doesn't re-spawn the fetch.
     # -----------------------------------------------------------------
-    ART_RADIUS = 12  # the design is blocky (RADIUS=2); the art reads better rounded
+    ART_RADIUS = 12  # version art keeps a rounder corner than the 8px controls
     # The version spotlight: the official key art at its TRUE aspect (Mojang's
     # art is square, so cropping it into a wide banner threw most of it away)
     # beside the official release title and a line of patch-notes flavour.
@@ -4053,131 +3960,56 @@ def main(page: ft.Page):
 
         _request_art(base, _ready)
 
-    instance_cards_row = ft.Row([], spacing=14, scroll=ft.ScrollMode.AUTO)
-    instance_cards_empty = ft.Text(
-        "No versions installed yet - pick one above and press Play.",
-        size=12, color=TEXT_DIM, visible=False,
-    )
-    # "Jump back in" cards are built ONCE and afterwards only RESTYLED. Both
-    # halves matter: a rebuilt ft.Image is a brand-new control, so Flet re-sends
-    # its entire base64 payload and every thumbnail in the row visibly reloads -
-    # and the art used to be re-read and re-encoded on every rebuild.
-    _card_widgets: dict = {}      # version_id -> (card, art_image)
-    _card_names: dict = {}        # version_id -> the name that card was drawn with
-    _cards_order = {"value": None}    # the installed set/order the row holds
-    _cards_selected = {"value": None}  # the selection the cards are styled for
-
+    # "Jump back in": one art card per installed version. The row lives in
+    # ui/versions.py (InstanceCards) - it builds each card ONCE and afterwards
+    # only restyles the selection / refreshes the (imageless) chip row, so Flet
+    # never re-sends a card's base64 thumbnail payload on a selection change
+    # (the invariant tools/test_version_art_cache.py pins).
     def _select_instance(version_id):
         if version_id not in state["installed"]:
             return
         version_dropdown.value = version_id
         on_version_selected()
 
-    def _instance_card(version_id, meta):
-        """Builds one card, unselected - the caller styles it (see
-        _style_instance_card), so changing the selection never rebuilds it."""
-        base = core.extract_mc_version(version_id) or version_id
-        name = ((cfg.get("version_labels") or {}).get(version_id)
-                or meta.get("display_name") or version_id)
-        art = ft.Image(src=version_art.src(base) or "titleimg.jpg",
-                       fit=ft.BoxFit.COVER, width=208, height=150)
+    instance_cards = InstanceCards(
+        page,
+        get_metas=lambda: state.get("installed_meta") or {},
+        get_labels=lambda: cfg.get("version_labels") or {},
+        get_selected=lambda: version_dropdown.value,
+        on_select=_select_instance,
+        art_src=version_art.src,
+        request_art=_request_art,
+    )
+    instance_cards_row = instance_cards.row
+    instance_cards_empty = instance_cards.empty
 
-        def _ready(value, img=art):
-            if value and img.src != value:
-                img.src = value
-                thread_safe_ui.refresh(img)
+    def _play_instance(version_id):
+        """Play one specific installed instance (from the Instances manager)."""
+        if version_id not in state["installed"]:
+            set_status("That version isn't installed")
+            return
+        if state.get("installing_version"):
+            set_status("Wait for the current install to finish")
+            return
+        if state.get("running_version"):
+            set_status("A game is already running")
+            return
+        version_dropdown.value = version_id
+        on_version_selected()
+        on_play_click()
 
-        _request_art(base, _ready)
-        card = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Container(content=art, height=150,
-                                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                 border_radius=ft.BorderRadius(
-                                     top_left=ART_RADIUS, top_right=ART_RADIUS,
-                                     bottom_left=0, bottom_right=0)),
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                ft.Text(name, size=13.5, color=TEXT,
-                                        weight=ft.FontWeight.W_600, max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS),
-                                ft.Text(version_id, size=10.5, color=TEXT_FAINT,
-                                        font_family=FONT_MONO, max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS),
-                            ],
-                            spacing=2, tight=True,
-                        ),
-                        padding=ft.padding.Padding.symmetric(horizontal=10,
-                                                              vertical=9),
-                    ),
-                ],
-                spacing=0, tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            ),
-            width=210,
-            bgcolor=CARD_FILL,
-            border=ft.border.Border.all(1, CARD_BORDER),
-            border_radius=ART_RADIUS,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            ink=False,
-            tooltip=f"Select {name}",
-            on_click=lambda e, k=version_id: _select_instance(k),
-        )
-        return card, art
-
-    def _style_instance_card(card, selected):
-        """Selection is a border + fill change, never a rebuild. Flet diffs a
-        control's own properties, so updating the card sends those two fields
-        and nothing else - in particular not its image."""
-        card.bgcolor = ACCENT_TINT if selected else CARD_FILL
-        card.border = ft.border.Border.all(1, ACCENT if selected else CARD_BORDER)
-
-    def _rebuild_instance_cards():
-        """One banner-headed card per installed version.
-
-        Rebuilt only when the installed SET (or a version's display name)
-        actually changes; selecting a different version merely restyles the
-        two cards involved. That distinction is the whole point - the old
-        change signature included the selection, so every version change threw
-        away and re-created all the cards, and a re-created ft.Image carries
-        its full payload again: the Play tab's thumbnails reloading on every
-        selection change. The frequent update_hero() calls stay free.
-        """
-        metas = state.get("installed_meta") or {}
-        labels = cfg.get("version_labels") or {}
-        touched = False
-        for gone in [v for v in _card_widgets if v not in metas]:
-            _card_widgets.pop(gone, None)   # its widget leaves with it
-            _card_names.pop(gone, None)
-            touched = True
-        for vid in metas:
-            meta = metas.get(vid, {})
-            name = labels.get(vid) or meta.get("display_name") or vid
-            # Re-created ONLY when the drawn name changed (a new version, or a
-            # rename) - never because the selection moved.
-            if vid not in _card_widgets or _card_names.get(vid) != name:
-                _card_widgets[vid] = _instance_card(vid, meta)
-                _card_names[vid] = name
-                touched = True
-        order = list(metas)
-        if order != _cards_order["value"]:
-            _cards_order["value"] = order
-            touched = True
-        if touched:
-            cards = [_card_widgets[vid][0] for vid in order]
-            instance_cards_row.controls = cards
-            instance_cards_row.visible = bool(cards)
-            instance_cards_empty.visible = not cards
-            thread_safe_ui.refresh(instance_cards_row)
-            thread_safe_ui.refresh(instance_cards_empty)
-            _cards_selected["value"] = None     # a fresh row still needs styling
-        selected = version_dropdown.value
-        if selected != _cards_selected["value"]:
-            _cards_selected["value"] = selected
-            for vid, (card, _art) in _card_widgets.items():
-                _style_instance_card(card, vid == selected)
-                thread_safe_ui.refresh(card)
+    # Instances manager - one dialog to see and manage every install (see
+    # ui/versions.py). It re-reads the live installed set on each open.
+    instances_manager = InstancesManager(
+        page,
+        get_instances=lambda: instance_info.list_installed(
+            list((state.get("installed_meta") or {}).values()),
+            cfg.get("version_labels") or {}),
+        get_selected=lambda: version_dropdown.value,
+        on_play=_play_instance,
+        on_rename=lambda vid: on_rename_instance(vid=vid),
+        on_delete=lambda vid: on_delete_instance(vid=vid),
+    )
 
     def update_hero():
         """Syncs the hero's big title / meta chips with the current version +
@@ -4199,7 +4031,7 @@ def main(page: ft.Page):
         hero_loader_chip_text.value = core.SUPPORTED_LOADERS.get(
             LOADER_IDS[loader_toggle.selected_index], "Vanilla")
         _refresh_hero_banner(vid)
-        _rebuild_instance_cards()
+        instance_cards.rebuild()
 
     # Now assemble the actual Play tab UI. Hierarchy is deliberate:
     #   PAGE HEADING  -> INSTANCE CARD
@@ -4362,8 +4194,14 @@ def main(page: ft.Page):
 
             # JUMP BACK IN - one art-headed card per installed version, so
             # the page has real content under the hero instead of ending a
-            # third of the way down. Clicking a card selects that instance.
-            theme.section_label("Jump back in"),
+            # third of the way down. Clicking a card selects that instance;
+            # "Manage" opens the full instances dialog.
+            ft.Row(
+                [theme.section_label("Jump back in"),
+                 ft.Container(expand=True),
+                 instances_manager.button],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
             ft.Container(height=10),
             instance_cards_row,
             instance_cards_empty,
@@ -5301,14 +5139,44 @@ def main(page: ft.Page):
         label="", value=bool(cfg.get("season_ambience", False)), active_color=ACCENT,
     )
 
+    # Full-window "Restarting…" cover, shown the instant the Restart button is
+    # clicked and held until the native window goes away. Same proven pattern
+    # as the account scrim (left/top/right/bottom=0 in page.overlay, opacity
+    # animated): without it the window blinks out on `window.close()` and the
+    # user sees no acknowledgement at all between the old and the new process.
+    restart_overlay = ft.Container(
+        bgcolor=ft.Colors.with_opacity(0.72, "#000000"),
+        left=0, top=0, right=0, bottom=0,
+        opacity=0,
+        visible=False,
+        ink=False,
+        alignment=ft.Alignment.CENTER,
+        animate_opacity=ft.Animation(170, ft.AnimationCurve.EASE_OUT),
+        content=ft.Column(
+            [
+                ft.ProgressRing(width=26, height=26, stroke_width=3,
+                                color=ACCENT),
+                ft.Container(height=2),
+                ft.Text("Restarting Cubeon…", size=14, color=TEXT,
+                        font_family=FONT_DISPLAY),
+                ft.Text("Applying your seasonal look.", size=11.5,
+                        color=TEXT_DIM),
+            ],
+            spacing=8, tight=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+    )
+    page.overlay.append(restart_overlay)
+
     def _on_restart_click(e=None):
         """Ask the __main__ loop to relaunch Cubeon after this session ends.
 
         The re-exec happens THERE, never here: execv from inside main() would
         replace the interpreter while the flet client is still running, and
         `_kill_flet_client()` (which only runs in __main__) would never get to
-        clean it up - leaving a ghost window. So this sets the request and closes
-        the window, nothing more.
+        clean it up - leaving a ghost window. So this sets the request, shows
+        the "Restarting…" cover, and asks the window to close, nothing more.
         """
         try:
             core.save_config(cfg)
@@ -5320,19 +5188,55 @@ def main(page: ft.Page):
             _show_snack("Close Cubeon and open it again to apply the seasonal "
                         "colors.", duration=6000)
             return
+        if _relaunch["request"].is_set():
+            return  # already restarting: a double-click must not double-fire
         _relaunch["request"].set()
         seasonal_restart_btn.disabled = True
-        seasonal_restart_note.value = "Restarting..."
-        thread_safe_ui.refresh(seasonal_restart_btn)
-        thread_safe_ui.refresh(seasonal_restart_note)
+        seasonal_restart_note.value = "Restarting…"
+        restart_overlay.visible = True
+        restart_overlay.opacity = 1
+        for _c in (seasonal_restart_btn, seasonal_restart_note,
+                   restart_overlay):
+            thread_safe_ui.refresh(_c)
+
+        async def _restart_close_after_beat():
+            # Let the cover fade in BEFORE the native close, so the transition
+            # reads as an intentional restart instead of the UI blinking out.
+            # The request stays armed for the __main__ loop either way; this
+            # only paces the native close.
+            try:
+                await asyncio.sleep(0.4)
+            except Exception:
+                pass
+            try:
+                await page.window.close()
+            except Exception:
+                # The window would not take the close request: un-arm so the
+                # button isn't left looking stuck, and tell the truth.
+                _relaunch["request"].clear()
+                seasonal_restart_btn.disabled = False
+                seasonal_restart_note.value = "Close and reopen Cubeon to apply."
+                restart_overlay.opacity = 0
+                restart_overlay.visible = False
+                for _c in (seasonal_restart_btn, seasonal_restart_note,
+                           restart_overlay):
+                    thread_safe_ui.refresh(_c)
+
         try:
-            page.run_task(page.window.close)
+            page.run_task(_restart_close_after_beat)
         except Exception:
-            _relaunch["request"].clear()
-            seasonal_restart_btn.disabled = False
-            seasonal_restart_note.value = "Close and reopen Cubeon to apply."
-            thread_safe_ui.refresh(seasonal_restart_btn)
-            thread_safe_ui.refresh(seasonal_restart_note)
+            # No event loop to schedule on: fall back to the immediate close.
+            try:
+                page.run_task(page.window.close)
+            except Exception:
+                _relaunch["request"].clear()
+                seasonal_restart_btn.disabled = False
+                seasonal_restart_note.value = "Close and reopen Cubeon to apply."
+                restart_overlay.visible = False
+                restart_overlay.opacity = 0
+                for _c in (seasonal_restart_btn, seasonal_restart_note,
+                           restart_overlay):
+                    thread_safe_ui.refresh(_c)
 
     seasonal_restart_btn = ft.Container(
         content=ft.Row(
@@ -5791,6 +5695,13 @@ def main(page: ft.Page):
                           expand=True, spacing=0),
         expand=True,
         bgcolor=BG,
+        # Start transparent and fade in on reveal (see _reveal_window): the
+        # splash is swapped for this root a beat before the window is shown, so
+        # a 0 -> 1 fade turns what would be a hard cut into one smooth reveal.
+        # The values below are the safety net - if the reveal task never runs,
+        # opacity is forced to 1 there too, so the UI can never stay invisible.
+        opacity=0.0,
+        animate_opacity=ft.Animation(260, ft.AnimationCurve.EASE_OUT),
         **_bg_kwargs,
     )
     page.controls.clear()
@@ -5824,6 +5735,16 @@ def main(page: ft.Page):
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
         page.window.visible = True
+        # Fade the finished UI in. It was mounted at opacity 0 (see _app_root
+        # in main), so this single property change turns the splash -> app hand
+        # off into one smooth fade instead of a hard cut. One control-level
+        # patch for the root: the diff walk still covers the whole subtree, but
+        # the patch SENT is one number, and it happens once at startup.
+        try:
+            _app_root.opacity = 1.0
+            thread_safe_ui.refresh(_app_root)
+        except Exception:
+            pass
         # Some desktop clients apply their native default position when the
         # hidden window is first mapped, after the earlier geometry call. That
         # late native write is why the launcher could still appear at (0, 0)
@@ -5897,6 +5818,10 @@ def main(page: ft.Page):
         # synchronously so automated checks still see the window.
         _apply_real_geometry()
         page.window.visible = True
+        try:
+            _app_root.opacity = 1.0  # never leave the UI stuck invisible
+        except Exception:
+            pass
 
     # The Cubeon name is automatic now: ensure_identity() mints the
     # secret-derived handle (no claim prompt) and the server binds it on the
@@ -6382,15 +6307,6 @@ def main(page: ft.Page):
 
 # This is the standard Python entry point - when the script is run directly, start the Flet app.
 if __name__ == "__main__":
-    # --new-ui: run the REDESIGN PREVIEW instead of the real launcher.
-    # The preview (ui_new/preview.py) is a standalone mock - a different
-    # layout (top-bar nav, cinematic hero with official version banners)
-    # that shares nothing with the real UI below. Approving the design
-    # means porting it by hand; nothing here is live.
-    if "--new-ui" in sys.argv[1:]:
-        from ui_new.preview import run as _run_new_ui
-        _run_new_ui()
-        os._exit(0)
 
     # Silence GTK's accessibility bridge on the flet client. It fails to
     # plug into AT-SPI on KDE/X11 and prints
@@ -6900,6 +6816,7 @@ if __name__ == "__main__":
                     # disarmed when the previous ft.run() returned) and drop
                     # any timer left over from that session.
                     _window_gone["ft_returned"] = False
+                    _window_gone["dismissed_at"] = None
                     if _window_gone.get("timer") is not None:
                         try:
                             _window_gone["timer"].cancel()
@@ -6989,6 +6906,13 @@ if __name__ == "__main__":
 
                 _session_end_kind = _classify_session_end(
                     ui_painted, _last_client_exit["code"])
+                # If the user already dismissed the window (close/hide/
+                # disconnect), a signal death during teardown is NOT a crash to
+                # recover from - it would re-exec the launcher and pop the
+                # window back up right after the user closed it.
+                _session_end_kind = _apply_dismissed_close(
+                    _session_end_kind, _window_gone.get("dismissed_at"),
+                    time.monotonic())
 
                 if _session_end_kind == "clean_close":
                     # Real user close: clear any crash-fallback flag so the

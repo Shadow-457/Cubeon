@@ -503,12 +503,16 @@ def get_available_versions(include_snapshots=False, include_old=False) -> list[d
     out = []
     for v in _manifest().get("versions", []):
         vtype = v.get("type")
+        # releaseTime rides along so the Play tab's picker can show when a
+        # release shipped - Mojang ships it in the manifest we already fetched,
+        # so this costs nothing extra.
+        entry = {"id": v["id"], "type": vtype, "releaseTime": v.get("releaseTime")}
         if vtype == "release":
-            out.append({"id": v["id"], "type": vtype})
+            out.append(entry)
         elif vtype == "snapshot" and include_snapshots:
-            out.append({"id": v["id"], "type": vtype})
+            out.append(entry)
         elif vtype in ("old_alpha", "old_beta") and include_old:
-            out.append({"id": v["id"], "type": vtype})
+            out.append(entry)
     return out
 
 
@@ -597,8 +601,10 @@ def _make_cancel_aware_download_file():
         check_path_inside_minecraft_directory, get_sha1_hash, get_user_agent)
     from minecraft_launcher_lib.exceptions import InvalidChecksum
 
-    def download_file(url, path, callback={}, sha1=None, lzma_compressed=False,
+    def download_file(url, path, callback=None, sha1=None, lzma_compressed=False,
                       session=None, minecraft_directory=None, overwrite=False):
+        if callback is None:
+            callback = {}
         if minecraft_directory is not None:
             check_path_inside_minecraft_directory(minecraft_directory, path)
         if os.path.isfile(path) and not overwrite:

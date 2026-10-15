@@ -19,7 +19,7 @@ import threading
 import flet as ft
 
 from cubeon.theme import (
-    RADIUS,        # blocky corner radius (design system single source)
+    RADIUS,        # corner radius (design system single source)
     attach_hover,  # hover-state helper for hand-built Container "buttons"
     ACCENT_TINT, ACCENT_TINT_HI,  # selected/hover washes for tiles/cards
     text_tab,      # underline-style segment tab (same chrome as Mods' content types)

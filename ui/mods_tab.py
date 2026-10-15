@@ -18,7 +18,7 @@ import threading   # For running network calls in the background without freezin
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
 
-from cubeon.theme import (  # design system: blocky radius, on-accent fg, hover states
+from cubeon.theme import (  # design system: corner radius, on-accent fg, hover states
     RADIUS, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
     TEXT_FAINT, CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT,
     quiet_chip, text_tab, pixel_divider, animated_switch,

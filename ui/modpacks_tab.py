@@ -24,7 +24,7 @@ import threading
 
 import flet as ft
 
-from cubeon.theme import (  # design system: blocky radius, hover helper/tokens/underline tabs
+from cubeon.theme import (  # design system: corner radius, hover helper/tokens/underline tabs
     RADIUS, attach_hover, ACCENT_HI, ON_ACCENT, text_tab,
     ROW_HOVER, ACCENT_TINT, TEXT_FAINT, CARD_BORDER, CARD_FILL,
 )

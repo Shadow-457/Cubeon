@@ -1,5 +1,56 @@
 # Cubeon module map — read this before reading any source
 
+## Version management lives in ui/versions.py + cubeon/instances.py (2026-10-15)
+- The Play tab's "manage my versions" surface was extracted out of `main()`'s
+  4,000-line closure into two modules:
+  - `cubeon/instances.py` — **pure data** (no Flet): `detect_loader`,
+    `describe`/`list_installed` (id, base version, loader, nickname, mod count,
+    folder, last-played), `instance_size_bytes`, `format_size`,
+    `mark_played`/`last_played`/`relative_time`. Single source of truth for
+    "what loader / how many mods / how big / when did I last play it". The size
+    walk is the only expensive call — never do it on the event loop; the
+    Instances manager runs it on a worker.
+  - `ui/versions.py` — `VersionPicker` (Game-version button + dialog, rows
+    grouped Installed/Available, loader/snapshot/release-date tags, "Latest
+    release" shortcut), `InstanceCards` ("Jump back in" row), `InstancesManager`
+    (per-install Play/Rename/Delete dialog). Pure view: callbacks + descriptor
+    dicts in, no config/network/game-dir access.
+- INVARIANTS (guarded by tools/test_version_ui.py + test_instances.py):
+  - The picker filters its OWN `self._entries` snapshot and **never touches
+    `version_dropdown`** (the live dropdown is main.py's alone).
+  - Instance cards are built once and only restyled/refresh their imageless chip
+    row — a rebuilt `ft.Image` re-sends its base64 payload (see
+    test_version_art_cache.py). Cards stay width=210 with a one-default-str
+    `on_click` (`lambda e, k=vid: on_select(k)`); that shape is how
+    test_version_art_cache finds them.
+  - `main.py` keeps the `ft.Dropdown` as the source of truth; `refresh_version_list`
+    feeds the picker richer entry dicts and mirrors the plain option text.
+  - `on_rename_instance`/`on_delete_instance` take an optional `vid=` so the
+    manager can target any instance (not just the selected one).
+- Last-played is a tiny `CUBEON_HOME/instance_play.json` sidecar written at
+  launch (`instance_info.mark_played`) — deliberately NOT config.json, which is
+  the most-written file in the launcher.
+
+## Crash text must never promise a fix (2026-10-15) — INVARIANT
+- User report: "when the game crashes cubeon says game crashed, cubeon doctor
+  fixed it, run it again - but it isn't actually fixed." The culprit was
+  `main.py::_explain_exit`'s KnotClient/KnotServer branch, which returned
+  *"Crashed: this version's config was incomplete... Cubeon repaired it. Press
+  Play again."*
+- **That claim was false by construction.** The client.json repair
+  (`launch._sanitize_client_json` + `launch._restore_emptied_arguments`) runs in
+  `build_launch_command` BEFORE every spawn, so by the time a KnotClient crash
+  is shown the repair had already run and did not help. The message sent users
+  into an infinite relaunch loop on a broken install.
+- The branch now says: *"Crashed: Fabric couldn't start - this version's files
+  look incomplete. If pressing Play again still crashes, reinstall this version
+  from the Play tab."* No "repaired"/"fixed" wording. Guard:
+  `tools/test_ui_smoke.py` §4 ("does not claim a fix that never happened" +
+  "names the real recovery step").
+- Rule for any future crash/status text: only claim a fix when THIS code path
+  actually performed and verified one. Repairs that run pre-spawn must not be
+  advertised as fixes for a crash that already happened.
+
 ## Windows: EVERY child spawn must hide its console (2026-10-15) — INVARIANT
 - User report: "it opens random cmd when starting or closing or doing
   anything - cmd opens and closes." Cubeon.exe is a --windowed app, but every
@@ -782,6 +833,18 @@ facts belong HERE, not in diary notes.
   remain allowed), and a `running-liveness` daemon thread (one per process)
   self-heals a claim whose game died without on_exit firing. All three
   mechanisms must stay in sync with any change to the claim's lifecycle.
+- **The "running" comparison MUST be guarded by `version_id` (2026-10-15,
+  live bug).** In `on_version_selected`, `version_id = version_dropdown.value`
+  is `None` when nothing is installed ("No versions installed yet"), and
+  `state["running_version"]` is also `None` when no game is live — so a bare
+  `if state.get("running_version") == version_id:` matched `None == None` and
+  painted **QUIT GAME on an empty launcher**. It fires the instant the user
+  changes the mod loader, because `on_loader_toggle_change` re-runs the
+  selection path. Correct form:
+  `if version_id and state.get("running_version") == version_id:`. The
+  same `else` branch must not promise a phantom DOWNLOAD either — with
+  `version_id` falsy it paints the neutral PLAY (there is nothing to
+  download). Regression: tools/test_ui_smoke §"no phantom QUIT GAME".
 - **Adding a loader to an ALREADY-INSTALLED vanilla version (2026-10-13) —
   INVARIANT.** `state["pending_loader_install"] = {"version_id", "loader"}`
   is the arm that lets a vanilla install gain Fabric/Quilt/Forge. The toggle
@@ -854,6 +917,26 @@ facts belong HERE, not in diary notes.
   startup, so the splash doesn't open full-size. The seasonal ambience uses
   the saved `_gw`, not `page.window.width` (which is the splash width during
   the build). Do NOT move the geometry assignment back before the splash.
+- **Seasonal Restart button + open/close polish (2026-10-15):**
+  - `_on_restart_click` (main.py) raises a full-window `restart_overlay`
+    (`page.overlay`, `left/top/right/bottom=0`, `animate_opacity` — the same
+    proven pattern as `account_scrim`) the instant the button is clicked, and
+    only THEN, after a 0.4 s beat, closes the window through a named async
+    task `_restart_close_after_beat` (the name matters: `test_ui_smoke.py`'s
+    "schedules the window close" check matches `"close"` in the task name). A
+    second click while the request is set is ignored.
+  - **A pending relaunch OUTRANKS the live-client guard in
+    `_window_gone_finish`.** The button's native close can arrive as a HIDE
+    with the flet client still alive (Linux/KDE); the old
+    `if _live_flet_clients(): return` then read a deliberate restart as a
+    minimize and stranded the user with a hidden window and no re-exec
+    ("restart closes but never reopens"). The `_relaunching` check must stay
+    ABOVE `_live_flet_clients(`; `test_ui_smoke.py` asserts that order.
+  - **Open fade**: `_app_root` is mounted at `opacity=0` with
+    `animate_opacity`; `_reveal_window` sets `_app_root.opacity = 1.0` right
+    after `page.window.visible = True` (the no-loop fallback sets it too), so
+    the splash -> UI hand-off fades instead of hard-cutting. Never remove
+    either opacity-1 write or a reveal failure leaves the UI invisible.
 
 ## Minecraft screenshot gallery (2026-09-19) — INVARIANT
 - Screenshots live in Cubeon's private game folder at
@@ -1327,6 +1410,18 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   `cubeon/theme.py`; templates that don't declare it get it derived in
   `cubeon/color_templates._derive()` (darkened `ACCENT_DIM`). The old olive
   literals (`#33431E`, `#0E110A`, ...) must not come back.
+- **Corners are softened (2026-10-15, user request) — INVARIANT-ish.**
+  The one radius family in `cubeon/theme.py` is now `RADIUS = 8`
+  (controls/inputs/chips/nav), `RADIUS_LG = 12` (cards/dialogs/large panels),
+  `RADIUS_PILL = 999` (genuinely round; defined but no live call site),
+  `RADIUS_NONE = 0` (flush insets: progress bars, dividers, image edges).
+  It used to be dead-square `RADIUS = 2`, which read as sharp/harsh. `block()`
+  defaults to `RADIUS`, so Flet's own controls (dialogs/buttons/chips/cards)
+  follow it through `apply_page_theme`. Deliberate hardcoded exceptions to
+  leave alone: pixel-art confetti particles (`ui/seasonal_ui.py`, 2px), the
+  connection dot (`ui/chat_tab.py`, 4px → a circle) and the unread badge
+  (9px). Version art keeps its own `ART_RADIUS = 12` (rounder than controls).
+  No test pins a radius value — change the tokens, not call sites.
 - **Copy rule (binding, 2026-09-11):** all user-facing text is plain and
   gamer-friendly — no jargon (`jar`, `process`, `PID`, `hash`, `config.json`,
   `UUID`, `endpoint`, `.zip`, `OS`, `plugin stack`, "in this build"). Settings/

@@ -41,7 +41,7 @@ sys.path.insert(0, REPO)
 
 SKIP_DIRS = {"archive", "dist", "build", ".git", "__pycache__",
              "node_modules", ".wrangler", "agents"}
-CHECK_SUBDIRS = ("cubeon", "ui", "tools", "worker", "templates", "ui_new")
+CHECK_SUBDIRS = ("cubeon", "ui", "tools", "worker", "templates")
 
 # section_imports() calls _sandbox_home.isolate(), which rewrites HOME in this
 # process. Child suites inherit os.environ, and a rewritten HOME hides flet in
@@ -228,7 +228,7 @@ def section_contracts():
     none_hits = []
     for path in iter_py_files():
         rel = os.path.relpath(path, REPO)
-        if rel.startswith("archive") or "ui_new" in rel:
+        if rel.startswith("archive"):
             continue
         try:
             _, tree = parse_file(path)
@@ -417,7 +417,7 @@ def section_control_flow():
                "swallowed": [], "while-true": [], "dup-def": []}
     for path in iter_py_files():
         rel = os.path.relpath(path, REPO)
-        if rel.startswith("archive") or "ui_new" in rel:
+        if rel.startswith("archive"):
             continue
         try:
             _, tree = parse_file(path)
@@ -493,6 +493,7 @@ SUITES = [
     "test_modpacks.py", "test_mod_store.py", "test_net.py",
     "test_fuzz.py", "test_production.py", "test_content_instance.py",
     "test_version_integrity.py", "test_local_api_gate.py",
+    "test_instances.py", "test_version_art_cache.py", "test_version_ui.py",
     "test_install_cancel.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",
     "test_faces.py", "test_chat_optimistic.py",

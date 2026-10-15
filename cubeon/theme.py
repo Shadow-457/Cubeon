@@ -21,10 +21,13 @@ importing main.py, which would be a circular import (main.py imports the tabs).
 --------------------------------------------------------------------------------
 THE DESIGN SYSTEM  (colour theory + why it looks the way it does)
 --------------------------------------------------------------------------------
-Cubeon is a launcher for a game made of cubes, so the UI is deliberately BLOCKY:
-one small corner radius (RADIUS = 2px) on everything - crisp, grid-like, never
-pill-shaped. A single radius token drives buttons, inputs, cards, chips, nav and
-dialogs so the "blockiness" is uniform rather than a per-widget guess.
+Cubeon is a launcher for a game made of cubes, so the UI keeps a calm, tidy
+Minecraft-adjacent feel: one small radius family (RADIUS = 8px on controls,
+RADIUS_LG = 12px on cards/panels) softly rounds every corner. It used to be dead
+square (RADIUS = 2px) - softened on 2026-10-15 because the hard edges read as
+sharp rather than crisp. A single token family still drives buttons, inputs,
+cards, chips, nav and dialogs so the rounding is uniform rather than a
+per-widget guess.
 
 Colour follows a disciplined dark-UI system:
 
@@ -133,8 +136,8 @@ ACCENT_TINT_HI = ft.Colors.with_opacity(0.20, ACCENT) # hovered version of the s
 
 def card(*, padding=24, hero=False):
     """Kwargs for a glassy panel Container: translucent fill, faint border,
-    blocky radius. `hero=True` uses the slightly brighter flat fill reserved
-    for the single dominant panel on a screen (the Play tab's launcher)."""
+    softly rounded radius. `hero=True` uses the slightly brighter flat fill
+    reserved for the single dominant panel on a screen (the Play tab's launcher)."""
     return {
         "bgcolor": CARD_FILL_HERO if hero else CARD_FILL,
         "border": ft.border.Border.all(1, CARD_BORDER),
@@ -149,13 +152,14 @@ def card_border():
     return ft.border.Border.all(1, CARD_BORDER)
 
 
-# --- Shape (the "blocky" system) -------------------------------------------
-# ONE small radius drives the whole app. Minecraft is cubic; the UI is too. The
-# aliases are all equal on purpose - they exist so a hand-written call site can
-# say what it means (RADIUS_PILL on a former pill) while the value stays uniform.
-RADIUS = 2          # default - buttons, inputs, chips, nav items, small elements
-RADIUS_LG = 2       # cards, dialogs, large panels (kept equal for uniformity)
-RADIUS_PILL = 2     # former pills/chips - now blocky like everything else
+# --- Shape (the "softly rounded" system) -----------------------------------
+# ONE small radius family drives the whole app. Corners are gently rounded now
+# (2026-10-15, user request - the old 2px read as sharp/harsh), not dead square;
+# big surfaces take a touch more than small ones so a card doesn't look
+# under-rounded next to its own padding. RADIUS_NONE stays 0 for flush insets.
+RADIUS = 8          # default - buttons, inputs, chips, nav items, small elements
+RADIUS_LG = 12      # cards, dialogs, large panels
+RADIUS_PILL = 999   # former pills/chips - genuinely round now (clamped by size)
 RADIUS_NONE = 0     # flush insets - progress bars, dividers, image edges
 
 # --- Spacing scale ---------------------------------------------------------
@@ -238,15 +242,15 @@ def attach_hover(container, base_bg, hover_bg):
 def apply_page_theme(page):
     """Install the design system onto the Page.
 
-    This is where the "blocky + on-palette" treatment lands for Flet's OWN
-    controls - the ones we don't build by hand. Custom `ft.Container` widgets get
-    their look from explicit `bgcolor`/`border`/`border_radius`, but real Flet
-    controls (TextButton, Dropdown menus, AlertDialog, Card, Chip, Slider,
+    This is where the "softly rounded + on-palette" treatment lands for Flet's
+    OWN controls - the ones we don't build by hand. Custom `ft.Container` widgets
+    get their look from explicit `bgcolor`/`border`/`border_radius`, but real
+    Flet controls (TextButton, Dropdown menus, AlertDialog, Card, Chip, Slider,
     Checkbox, scrollbars, text selection, focus rings) take their shape and
     colour from the page theme. Setting it once here means:
 
-      * every dialog and button is squared off (shape = block()), matching the
-        hand-built Containers instead of Flet's default ~8-20px rounding;
+      * every dialog and button shares the app's rounded corner
+        (shape = block(), i.e. RADIUS), instead of Flet's own default rounding;
       * default controls pull warm Cubeon surfaces/greens from the ColorScheme
         instead of Material's stock purple-tinted greys and blue accents (this is
         what kills the off-palette blue on a bare "Cancel" TextButton);
@@ -255,8 +259,8 @@ def apply_page_theme(page):
         (DANGER) carries the meaning - colour = intent, not decoration.
     """
     shape = block()
-    # Neutral, blocky style shared by the text/icon buttons that don't declare
-    # their own colour. overlay_color = a faint green wash on hover/press.
+    # Neutral style shared by the text/icon buttons that don't declare their own
+    # colour. overlay_color = a faint green wash on hover/press.
     neutral_btn = ft.ButtonStyle(
         shape=shape,
         color=TEXT,
@@ -302,7 +306,7 @@ def apply_page_theme(page):
                 color=TEXT, font_family=FONT_DISPLAY, size=20),
             content_text_style=ft.TextStyle(color=TEXT_DIM, font_family=FONT_BODY, size=13),
         ),
-        # All button families squared off; text buttons default to neutral.
+        # All button families share the app corner; text buttons default neutral.
         text_button_theme=ft.TextButtonTheme(style=neutral_btn),
         icon_button_theme=ft.IconButtonTheme(style=shaped_btn),
         filled_button_theme=ft.FilledButtonTheme(style=shaped_btn),

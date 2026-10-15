@@ -45,7 +45,9 @@ def check(label, ok, extra=""):
 # body copy. It must resolve download_file through the MODULE GLOBAL (like
 # the real minecraft_launcher_lib.install does via `from ._helper import
 # download_file`), or the probe would bypass the patch and prove nothing.
-def _fake_download_file(url, path, callback={}, **k):
+def _fake_download_file(url, path, callback=None, **k):
+    if callback is None:
+        callback = {}
     for _ in range(100):
         time.sleep(0.05)  # 5s if a cancel never lands
         callback.get("setStatus", lambda *_: None)("x")

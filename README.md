@@ -45,7 +45,6 @@ Cubeon/
 ├── launcher_core.py        # Facade: import launcher_core as core
 ├── cubeon/                 # ALL business logic (no UI imports)
 ├── ui/                     # Flet UI layer - one module per tab
-├── ui_new/                 # Preview UI (--new-ui flag)
 ├── mod/                    # In-game Fabric mod (Gradle)
 ├── worker/                 # Cloudflare Workers (JS)
 ├── templates/              # Color-theme palettes

@@ -251,6 +251,20 @@ for lines, expect in cases:
     got = app._explain_exit(1, lines).lower()
     check(f"{expect!r} explained", expect in got, f"got {got!r}")
 
+# The Fabric "KnotClient" crash used to answer "Cubeon repaired it. Press Play
+# again." - but the client.json repair runs BEFORE every spawn, so by the time
+# this crash is shown the repair had already run and failed. The message
+# promised a fix that never happened ("it says it fixed it but it isn't
+# actually fixed"). Pin the honest behaviour: no repair claim, tell the user
+# the real next step.
+_fabric_line = app._explain_exit(
+    1, ["ClassNotFoundException: net.fabricmc.loader.impl.launch.knot.KnotClient"]).lower()
+check("the Fabric crash message does not claim a fix that never happened",
+      "repaired" not in _fabric_line and "fixed" not in _fabric_line,
+      f"got {_fabric_line!r}")
+check("the Fabric crash message names the real recovery step",
+      "reinstall" in _fabric_line, f"got {_fabric_line!r}")
+
 check("unknown crash still names the error",
       "boom" in app._explain_exit(1, ["Exception: boom"]).lower())
 check("no output still returns something useful",
@@ -280,6 +294,27 @@ check("a normal close never relaunches (exit 0 is clean, not a crash)",
       app._classify_session_end(True, 0) == "clean_close"
       and app._classify_session_end(False, 0) == "clean_close",
       "closing the window must exit, never re-exec with software GL")
+
+# A flaky driver can SIGSEGV the client while the user is closing. The exit is
+# negative so _classify_session_end rightly says "mid_session_crash" - but once
+# the user has dismissed the window (close/hide/disconnect) that must NOT
+# re-exec the launcher ("why did it launch again when I close").
+_now = 1000.0
+check("a crash after the user dismissed the window is a close, not a reopen",
+      app._apply_dismissed_close("mid_session_crash", _now - 1.0, _now)
+      == "clean_close"
+      and app._apply_dismissed_close("pre_paint_crash", _now - 2.0, _now)
+      == "clean_close")
+check("a genuine mid-session crash (no window event) still recovers",
+      app._apply_dismissed_close("mid_session_crash", None, _now)
+      == "mid_session_crash")
+check("the dismissal grace expires so a later crash still recovers",
+      app._apply_dismissed_close("mid_session_crash",
+                                 _now - app._CLOSE_GRACE - 1.0, _now)
+      == "mid_session_crash")
+check("a clean close stays clean through the dismissal guard",
+      app._apply_dismissed_close("clean_close", _now - 1.0, _now)
+      == "clean_close")
 
 import time as _t
 _main_src = open(os.path.abspath(app.__file__), encoding="utf-8").read()
@@ -325,6 +360,20 @@ try:
         check("clicking it schedules the window close",
               any("close" in str(c) for c in _run_task_calls),
               f"run_task calls: {_run_task_calls}")
+        # The click must acknowledge itself BEFORE the native window vanishes:
+        # `window.close()` alone just makes the window blink out with no
+        # feedback until the fresh process paints its splash.
+        _cover = None
+        for _o in page.overlay:
+            if any("restarting cubeon" in _s for _s in all_text(_o)):
+                _cover = _o
+                break
+        check("clicking it raises the full-window 'Restarting…' cover",
+              _cover is not None and _cover.visible
+              and _cover.opacity == 1,
+              f"cover={_cover!r} visible="
+              f"{getattr(_cover, 'visible', None)} "
+              f"opacity={getattr(_cover, 'opacity', None)}")
 finally:
     page.run_task = _page_run_task
     if app._relaunch["request"] is not None:
@@ -403,6 +452,14 @@ check("a first ^C is swallowed so the bounded teardown can finish",
       "second ^C: out NOW" in _main_src
       and "_session_signal_hits[\"n\"] >= 2" in _main_src,
       "one press must not abort cleanup, two must end the process at once")
+check("the session loop folds in the window-dismissed close guard",
+      "_apply_dismissed_close(" in _sess_src
+      and '_window_gone.get("dismissed_at")' in _sess_src,
+      "without it a driver SIGSEGV while closing re-execs the launcher")
+check("a window close/hide records the dismissal time",
+      '_window_gone["dismissed_at"] = time.monotonic()'
+      in _main_src,
+      "_arm_window_gone_exit must timestamp the dismissal")
 
 # Behavioural: run the real reclaim and fire real signals at this process.
 # One press must be counted and swallowed (the loop exits normally right
@@ -1047,11 +1104,14 @@ check("launch path honors the off-switch (and removes stale jars)",
 # call on_version_selected) on every keystroke, so typing in the picker's
 # search box silently changed the selected version and kicked off a
 # prefetch/download, and closing the dialog left the dropdown on a narrowed
-# list. The search now filters its own snapshot (pick_source) only.
+# list. The picker now lives in ui/versions.py and filters its OWN snapshot.
+_versions_src = open(os.path.join(os.path.dirname(app.__file__),
+                                  "ui", "versions.py"), encoding="utf-8").read()
 check("version picker filters its own list, not the live dropdown",
-      'for o in pick_source["value"]' in _src_main
+      "self._entries" in _versions_src
+      and "version_dropdown" not in _versions_src
       and "version_dropdown.options = all_online_options" not in _src_main,
-      "filter must read pick_source and leave version_dropdown.options alone")
+      "the picker must read its own snapshot and never touch version_dropdown")
 
 # --- no ripple/click animations ------------------------------------------------
 # The user hates the Material ink splash on every clickable Container.
@@ -1409,6 +1469,14 @@ try:
     check("the watchdog gives up while a flet client is still alive",
           "_live_flet_clients(" in _gone_src,
           "a minimize must not quit the launcher")
+    # A pending restart outranks that live-client guard: the Restart button's
+    # native close can arrive as a HIDE with the client still alive, and the
+    # guard would then strand the user with a hidden window and no re-exec.
+    check("a pending restart beats the live-client guard in the watchdog",
+          "_relaunching" in _gone_src
+          and _gone_src.index("_relaunching")
+          < _gone_src.index("_live_flet_clients("),
+          "the restart check must come before the live-client early return")
     check("window-close cleanup is bounded, never inline on the event loop",
           "_session_end" in _gone_src and "_ct.join(2.0)" in _gone_src,
           "cleanup runs on a daemon thread with a 2s bail")
@@ -1641,6 +1709,14 @@ check("saved geometry is applied on reveal, not at startup",
       "_apply_real_geometry()" in _reveal_body
       and "page.window.width = _SPLASH_W" in _src_main,
       "geometry must land with the finished UI, not the splash")
+# The swap is instant, so the finished UI is mounted transparent and faded in
+# on reveal - a hard splash -> app cut is what reads as unfinished.
+check("the finished UI fades in on reveal instead of hard-cutting",
+      "_app_root = ft.Container" in _src_main
+      and "opacity=0.0" in _src_main
+      and "animate_opacity" in _src_main
+      and "_app_root.opacity = 1.0" in _reveal_body,
+      "the app root must start at opacity 0 and be faded to 1 in _reveal_window")
 
 # --- Privacy/crash reporting is gone -------------------------------------------
 # User request: "remove the privacy option completely from settings and backend."
@@ -1833,6 +1909,23 @@ check("switching back to Vanilla disarms the pending install",
       _scope["state"].get("pending_loader_install") is None
       and _scope["state"]["mod_loader"] == "vanilla",
       str(_scope["state"]))
+
+# Regression (2026-10-15): with NOTHING installed the dropdown value is None and
+# state["running_version"] is None, so a bare == in on_version_selected matched
+# None == None and painted QUIT GAME out of nowhere - the user saw it appear the
+# instant they changed the mod loader, which re-runs this exact selection path
+# (on_loader_toggle_change). The comparison must be guarded by version_id.
+_ovs_src = _main_src[_main_src.index("def on_version_selected"):
+                     _main_src.index("def refresh_version_list")]
+check("the running check guards against no version (no phantom QUIT GAME)",
+      'if version_id and state.get("running_version") == version_id:'
+      in _ovs_src
+      and 'if state.get("running_version") == version_id:' not in _ovs_src,
+      "None == None (nothing installed) painted QUIT GAME with no game live")
+check("an empty launcher keeps neutral PLAY, not a phantom DOWNLOAD",
+      "if version_id:\n                set_button_mode(\"download\")" in _ovs_src
+      and "set_button_mode(\"play\")" in _ovs_src,
+      "with no instance there is nothing to download - keep the neutral PLAY")
 
 print(f"\n{passed} passed, {failed} failed")
 print("Smoke test complete: " + ("FAIL" if failed else "PASS"))
