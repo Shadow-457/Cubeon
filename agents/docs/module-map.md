@@ -3484,3 +3484,22 @@ Cubeon cape resolves.
   once a Play click was followed by a delete). Guarded by test_version_ui
   section 6. Still open: `_rescan_installed` touches ft controls off the event
   loop instead of going through `cubeon/thread_safe_ui`.
+
+- **A release `--clobber` upload DELETES the asset before uploading the new one
+  (2026-10-17) - INVARIANT-ish.** An upload that is interrupted in between
+  therefore leaves the release with NO file under that name, not with the old
+  one: a 600 s tool timeout during `gh release upload v1.1.2 ... --clobber`
+  removed both `Cubeon-x86_64.AppImage` and `cubeon_1.1.2_amd64.deb` from the
+  release while the local `dist/` copies were untouched. Run these uploads as a
+  BACKGROUND process (`tools/` has no script for it; `logs/upload_linux_assets.sh`
+  was the stopgap - three parallel uploads, per-asset log + exit status), and
+  ALWAYS read the release back afterwards
+  (`gh api repos/Shadow-457/Cubeon/releases/tags/v1.1.2 --jq '.assets[]|
+  "\(.name) \(.size) \(.digest)"'`) - comparing `sha256sum` of the local files
+  proves nothing about what is on the release.
+- **A main push never touches the Linux assets.** CI's `build-linux-appimage`
+  job (and its three release-upload steps) is gated on
+  `startsWith(github.ref, 'refs/tags/v') || workflow_dispatch`, so a branch push
+  rebuilds ONLY the Windows ZIP/Setup.exe and the macOS zip on the latest
+  release and leaves the manually built AppImage/deb/Setup.sh alone. That is why
+  a local AppImage rebuild + clobber can be pushed in any order.
