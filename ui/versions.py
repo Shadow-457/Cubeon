@@ -91,12 +91,14 @@ class VersionPicker:
     implementation had.
     """
 
-    def __init__(self, page, *, get_selected, label_for, on_pick, on_browse_online):
+    def __init__(self, page, *, get_selected, label_for, on_pick, on_browse_online,
+                 on_manage=None):
         self.page = page
         self.get_selected = get_selected
         self.label_for = label_for or (lambda _v: None)
         self.on_pick = on_pick
         self.on_browse_online = on_browse_online
+        self.on_manage = on_manage
 
         self._entries: list = []
         self._online = False
@@ -164,6 +166,21 @@ class VersionPicker:
             ink=False,
         )
 
+        # "Manage installed versions" lives here, not in the Jump back in
+        # header: the Play tab's Jump back in is a row of cards, and the
+        # manager belongs next to the other version controls (2026-10-16).
+        self.manage_link = ft.Container(
+            content=ft.Row(
+                [ft.Icon(ft.Icons.TUNE_ROUNDED, color=TEXT_DIM, size=14),
+                 ft.Text("Manage installed versions", size=12, color=TEXT_DIM,
+                         weight=ft.FontWeight.W_600)],
+                spacing=8,
+            ),
+            on_click=lambda e: self._manage(),
+            ink=False,
+            tooltip="Manage installed versions",
+        )
+
         self.list = ft.Column([], spacing=2, scroll=ft.ScrollMode.AUTO, height=320)
 
         self.dialog = ft.AlertDialog(
@@ -179,7 +196,8 @@ class VersionPicker:
                         ft.Container(height=6),
                         ft.Row(
                             [self.latest_chip, self.offline_notice,
-                             ft.Container(expand=True), self.browse_link],
+                             ft.Container(expand=True), self.manage_link,
+                             self.browse_link],
                             spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                     ],
@@ -231,6 +249,16 @@ class VersionPicker:
         if self.on_browse_online:
             self.on_browse_online()
         self.rebuild()
+
+    def _manage(self):
+        """Open the Instances manager. Closes this picker first so the two
+        dialogs never stack (the manager is opened from main via on_manage)."""
+        cubeon_dialogs.close_dialog(self.page, self.dialog)
+        if self.on_manage:
+            try:
+                self.on_manage()
+            except Exception:
+                pass
 
     def _pick(self, key):
         if not key:
@@ -477,6 +505,10 @@ class InstancesManager:
     """A dialog listing every installed instance with its loader, mod count,
     on-disk size and last-played time, plus per-row Play / Rename / Delete.
 
+    Opened from the version picker's "Manage installed versions" link (it used
+    to hang off a "Manage" button in the Play tab's Jump back in header; that
+    was removed 2026-10-16).
+
     The size walk is the one expensive thing here, so it runs on a worker
     thread and fills its labels in afterwards - the dialog opens instantly.
     """
@@ -489,20 +521,6 @@ class InstancesManager:
         self.on_play = on_play
         self.on_rename = on_rename
         self.on_delete = on_delete
-
-        self.button = ft.Container(
-            content=ft.Row(
-                [ft.Icon(ft.Icons.TUNE_ROUNDED, size=14, color=TEXT_DIM),
-                 ft.Text("Manage", size=12, color=TEXT_DIM,
-                         weight=ft.FontWeight.W_600)],
-                spacing=6,
-            ),
-            on_click=lambda e: self.open(),
-            ink=False,
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-            tooltip="Manage installed versions",
-        )
 
     def _row(self, inst, selected):
         vid = inst["id"]

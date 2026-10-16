@@ -2466,6 +2466,10 @@ async def main(page: ft.Page):
         label_for=_dropdown_label,
         on_pick=_pick_version,
         on_browse_online=lambda: refresh_version_list(online=True),
+        # Bound lazily: instances_manager is built further down, and this only
+        # runs on a click. "Manage installed versions" lives in the picker now,
+        # not in the Jump back in header.
+        on_manage=lambda: instances_manager.open(),
     )
     version_dropdown_button = picker.button
 
@@ -4571,14 +4575,10 @@ async def main(page: ft.Page):
 
             # JUMP BACK IN - one art-headed card per installed version, so
             # the page has real content under the hero instead of ending a
-            # third of the way down. Clicking a card selects that instance;
-            # "Manage" opens the full instances dialog.
-            ft.Row(
-                [theme.section_label("Jump back in"),
-                 ft.Container(expand=True),
-                 instances_manager.button],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
+            # third of the way down. Clicking a card selects that instance.
+            # (The old "Manage" button that sat here is gone - the instances
+            # manager now opens from the version picker's manage link.)
+            theme.section_label("Jump back in"),
             ft.Container(height=10),
             instance_cards_row,
             instance_cards_empty,
