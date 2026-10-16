@@ -1786,8 +1786,23 @@ python3 tools/test_production.py        # 51: watchdog
 python3 tools/build_mod_jars.py         # rebuild mod jars -> cache + assets/jars
 ```
 
-Harnesses are hermetic (sandboxed HOME via CUBEON_GAME_DIR etc.). After ANY
-mod source change run `build_mod_jars.py` — stale deployed jars in
+Harnesses are mostly hermetic (sandboxed HOME via CUBEON_GAME_DIR etc.), with
+two exceptions worth knowing before you trust a red line:
+
+- `test_mod_store.py` reads the ambient store, so it is only clean on a fresh
+  `HOME` **and** `CUBEON_GAME_DIR` (24/3 on a warm sandbox is the artifact, not
+  a regression).
+- `CUBEON_GAME_DIR` **wins over HOME** in `cubeon/paths.py`, so a test that sets
+  its own `HOME` must pop it too or it writes into the shared real game dir.
+  `tools/test_csl.py` does exactly that.
+
+The Workers' own tests are Node and **are not run by CI** — `node
+worker/test-*.mjs`. They cover the security properties (`test-downloads.mjs`
+asserts 100 downloads cost one GitHub API call), so run them by hand whenever
+you touch `worker/`; `tools/test_web_download_count.py` is the Python half that
+CI does run.
+
+After ANY mod source change run `build_mod_jars.py` — stale deployed jars in
 `~/.cubeon_launcher/cache/` are the classic "I fixed it but nothing changed"
 trap (the mod now warns about it in chat, but don't rely on that).
 
@@ -3295,3 +3310,64 @@ Cubeon cape resolves.
   each with a warm loom cache) then `tools/test_mod_matrix.py` +
   `tools/test_mod_compile.py`. No test compiles the `hud-*` sources: only the 24
   real Gradle builds do, so a green test run does NOT mean the HUD compiles.
+
+## Worker abuse protection (2026-10-17)
+- **A fork cannot reach the owner's Cloudflare account — but it never needed
+  to.** Every Worker URL is hardcoded in the shipped launcher
+  (`cubeon/csl.py`, `cubeon/friends.py`, `cubeon/invites.py`) and in
+  `web/vercel.json`, so those URLs are public to *everyone*, not just forkers.
+  The protections therefore have to live **in the Workers**, not in the repo's
+  visibility. All five are live and answer their own `/health` text (checked
+  2026-10-17; a `workers.dev` subdomain with nothing deployed answers 404).
+- **The real bug was `cubeon-downloads.js`, the only Worker holding a
+  credential.** It spent one GitHub API call per press against a 5000/hour
+  token with `Cache-Control: no-store`, so ~1.4 req/s sustained by anyone with
+  the URL took the download buttons down for every user. Now the release lookup
+  is served from `caches.default` for `RELEASE_CACHE_SECONDS` (300), so a flood
+  costs **zero** API calls, plus an optional per-IP `RATE_LIMITER` gate.
+  - **`edgeCache()` returns null off-Workers** (`typeof caches !== "undefined"`),
+    which is exactly what makes `worker/test-downloads.mjs` possible: it stubs
+    `globalThis.caches` + `globalThis.fetch` and asserts 100 downloads cost ONE
+    API call. **The cache is the fix; the rate limiter is the optional part.**
+  - Dropping `no-store` is deliberate: the installer now carries the same
+    5-minute max-age as the metadata, so browser/Vercel-edge repeat presses cost
+    nothing and a fresh asset URL can never be paired with a stale body.
+  - A **failed** lookup is never cached (`if (cache && assets.length)`), and both
+    gates degrade rather than error (`edgeCache()` → null; `.catch(() => null)`
+    on the limiter). Keep that property — a protection that becomes an outage
+    when it misbehaves is worse than no protection.
+  - Only `name`/`url`/`size` cross into the cache; the rest of the private
+    release JSON is dropped at the `.map()`.
+- **`cubeon-waitlist.js` gates POSTs above the route dispatch** (above
+  `handleJoin` / `handleUnsubscribe`). It is the only Worker whose writes carry
+  no identity and its tally shares a KV namespace, so a script posting fake
+  addresses used to be able to spend the free tier's account-wide ~1k writes/day
+  and take every *real* signup down with it. **The gate must stay inside the POST
+  branch above the dispatch** — moved below it still compiles and protects
+  nothing.
+- **The `RATE_LIMITER` opt-in is a commented `[[unsafe.bindings]]` block** in
+  `wrangler-downloads.toml` / `wrangler-waitlist.toml`. Both Workers behave
+  exactly as before when it is absent.
+- **CI runs Python, not the Node Worker tests**, so the security properties are
+  pinned twice: behaviour in `worker/test-downloads.mjs`
+  (`node worker/test-downloads.mjs`) and source pins in
+  `tools/test_web_download_count.py` §4b. **Order is asserted with the
+  `_before()` / `_post_branch()` helpers, not `x in source`** — a `x in source`
+  version of the waitlist-gate check passed with the gate moved below the
+  dispatch, i.e. a real mutation survived it.
+- `CUBEON_SKIN_API` now overrides the skins Worker base (parity with
+  `CUBEON_FRIENDS_API` / `CUBEON_INVITE_API`) so a fork can point at its own
+  deployment. `cubeon/skins.py` and `cubeon/faces.py` bind the constant at
+  import time, so changing it needs a restart rather than a reload.
+- **`tools/test_csl.py` was defeated by an ambient `CUBEON_GAME_DIR`**, because
+  that variable *wins over HOME* in `cubeon/paths.py` and CI sets it for the
+  whole job: the test wrote and CONSUMED ExtraList files in the shared real game
+  dir instead of its own temp HOME. It now pops `CUBEON_GAME_DIR` before
+  importing. Symptom if that regresses: "nothing registered before first run" /
+  "only the api file is on disk" failing, then a `FileNotFoundError` on
+  `cubeon-api.json`.
+- **`worker/test-friends-metadata.mjs` still expected 12-digit UIDs** long after
+  `c28b8f0` ("shorten Cubeon IDs") made them 8 (`UID_WIDTH = 8` in both
+  `cubeon-friends.js` and `cubeon/friends.py`). Nothing in CI runs the `.mjs`
+  tests, so it rotted silently. Changing a UID width means grepping the `.mjs`
+  tests for the literal width too.
