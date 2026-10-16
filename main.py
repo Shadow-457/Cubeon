@@ -29,6 +29,10 @@ import flet as ft  # Flet UI framework - provides widgets and app scaffolding
 # Local module imports - our own helper functions for Minecraft-related logic
 import launcher_core as core
 
+# Opt-in startup timing (CUBEON_STARTUP_PROFILE=1). Imported this early so the
+# first mark also covers most of main.py's own import cost.
+from cubeon.startup_profile import mark as _startup_mark
+
 # End-of-session cleanup slot. Flet 0.86 delivers no window events to
 # Python on the real X button, so quit-time cleanup (Discord presence
 # clear, friends stop, geometry save) is executed by the
@@ -551,14 +555,20 @@ def _capture_flet_client_exit(slot: dict) -> None:
     flet_desktop.open_flet_view_async = _wrapped
 
 
-def main(page: ft.Page):
+async def main(page: ft.Page):
     """
     This is the main function that Flet calls when the app starts.
     It receives a `page` object representing the application window.
     We set up the page properties, load configuration, build all UI components,
     and define the app's behavior (callbacks, background threads, etc.).
-    """
 
+    It is a COROUTINE (Flet awaits it - see flet/app.py). That matters: the
+    window starts hidden and the splash below is only painted once we hand the
+    event loop back, so the build MUST happen after an ``await``. A synchronous
+    main() blocked the loop for the whole build, so the splash never reached the
+    client and the window stayed hidden until everything was done - the "slow
+    startup / process running with no window" report.
+    """
     # Make page.update() safe to call from the background threads this file
     # starts. Without this, Flet 0.80+ silently loses those updates until some
     # unrelated input wakes its event loop - which is what made the Play button
@@ -584,6 +594,7 @@ def main(page: ft.Page):
     # any uncaught exception (any thread) is written there with a traceback.
     from cubeon.logging_setup import setup_logging
     setup_logging()
+    _startup_mark("main() entered (flet client already spawned/connected)")
     # --- Basic window configuration ---
     page.title = "Cubeon"
     # Glass mode (Settings toggle, default on) is applied in
@@ -753,14 +764,28 @@ def main(page: ft.Page):
         page.window.left = max(0, (_scr[0] - _SPLASH_W) // 2)
         page.window.top = max(0, (_scr[1] - _SPLASH_H) // 2)
 
+    # The "Shadow mark": the Cubeon logo sits on a rounded tile that casts a
+    # soft accent shadow, so the splash reads as a branded card rather than a
+    # bare icon on a flat panel. The progress ring is drawn client-side, so it
+    # keeps spinning smoothly even while the synchronous build below blocks
+    # Python's event loop - the splash never freezes or flickers.
     _splash = ft.Container(
         expand=True,
         bgcolor=BG,
         alignment=ft.Alignment.CENTER,
         content=ft.Column(
             [
-                ft.Image(src=os.path.join(resolve_assets_dir(), "icon_256.png"),
-                         width=64, height=64, fit=ft.BoxFit.CONTAIN),
+                ft.Container(
+                    content=ft.Image(
+                        src=os.path.join(resolve_assets_dir(), "icon_256.png"),
+                        width=72, height=72, fit=ft.BoxFit.CONTAIN),
+                    border_radius=20,
+                    shadow=ft.BoxShadow(
+                        blur_radius=30, spread_radius=1,
+                        color=ft.Colors.with_opacity(0.45, ACCENT),
+                        offset=ft.Offset(0, 7),
+                    ),
+                ),
                 ft.Text("Cubeon", size=22, color=TEXT, font_family=FONT_DISPLAY),
                 ft.Text("Loading…", size=12, color=TEXT_DIM),
                 ft.ProgressRing(width=18, height=18, stroke_width=2,
@@ -882,15 +907,30 @@ def main(page: ft.Page):
         _nudge_window_to_front()
         _backstop_window_visible()
 
+    # AWAIT the reveal instead of scheduling it. This is the whole fix: awaiting
+    # hands control back to Flet's event loop, which flushes the queued splash
+    # patches (page.add(_splash), the window settings above, the visible=True
+    # patch) to the desktop client BEFORE the heavy synchronous control-tree
+    # build further down. Previously this was scheduled with run_task - a task
+    # that only ran once main() had already returned, i.e. AFTER the build - so
+    # the splash was never painted and the window stayed hidden.
     try:
-        page.run_task(_reveal_splash)
+        await _reveal_splash()
     except Exception:
-        # No event loop to schedule on (headless/test harness): show
-        # synchronously so automated checks still see the window.
+        # Belt-and-braces for an odd runtime: still try the synchronous show.
         _show_window()
+    # Give the client a beat to paint the first splash frame while we still hold
+    # the loop. Bounded and best-effort: a client that never answers must not
+    # delay the build, and a fast client is only held for this long.
+    try:
+        await asyncio.sleep(0.12)
+    except Exception:
+        pass
+    _startup_mark("splash revealed and flushed to the client")
 
     # --- Load configuration (saved settings) from disk ---
     cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
+    _startup_mark("config loaded")
 
     # Now that cfg exists, evaluate the inspector gate (env var or
     # cfg["dev_inspector"]). Set here so the sidebar (built far below)
@@ -6081,6 +6121,7 @@ def main(page: ft.Page):
 
     # Finally, populate the version dropdown for the first time (offline mode)
     refresh_version_list()
+    _startup_mark("UI built and control tree mounted")
 
     # Marks the initial synchronous mount as done. Must come after
     # refresh_version_list() (which is itself synchronous and may start
@@ -6184,12 +6225,15 @@ def main(page: ft.Page):
             page.window.update()
         except Exception:
             page.update()
+        _startup_mark("finished UI revealed")
 
+    # AWAIT the finish reveal (same rationale as the splash above). Awaiting
+    # yields to the loop, which flushes the swap patch queued at page.update()
+    # just above, applies the real geometry and fades the finished UI in.
     try:
-        page.run_task(_reveal_window)
+        await _reveal_window()
     except Exception:
-        # No event loop to schedule on (headless/test harness): show
-        # synchronously so automated checks still see the window.
+        # Belt-and-braces: never leave the app mounted but invisible.
         _apply_real_geometry()
         _show_window()
         try:
@@ -6677,6 +6721,17 @@ def main(page: ft.Page):
         page.on_keyboard_event = _on_key
     except Exception:
         pass
+
+
+def run_sync(page) -> None:
+    """Build the launcher against `page` on a private event loop.
+
+    A convenience for the test/tool harnesses: Flet awaits main() on its own
+    loop, but they build the UI from a plain synchronous script, so they need
+    the coroutine driven to completion here. Never used by a real launch - do
+    not call it from inside a running loop.
+    """
+    asyncio.run(main(page))
 
 
 # This is the standard Python entry point - when the script is run directly, start the Flet app.

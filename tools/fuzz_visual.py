@@ -606,7 +606,7 @@ def build_hud(ctx, n_bots):
 def visual_main(page, n_bots, pace, seed):
     import flet as ft
     app = fz.install_safe_stubs().app
-    app.main(page)                                  # build the REAL Cubeon UI
+    app.run_sync(page)                                  # build the REAL Cubeon UI
 
     ctx = Ctx(page, ft, dry=False, rng=random.Random(seed))
     build_hud(ctx, n_bots)
@@ -633,7 +633,7 @@ def run_dry(n_bots, steps, seed):
     print("0. building the real UI under the shared safe stubs (FakePage)")
     app = fz.install_safe_stubs(verbose=False).app
     page = FakePage()
-    app.main(page)
+    app.run_sync(page)
 
     ctx = Ctx(page, ft, dry=True, rng=random.Random(seed))
     build_hud(ctx, n_bots)      # exercises the HUD-build path too (no display)
@@ -647,7 +647,7 @@ def run_dry(n_bots, steps, seed):
     print("   so re-using one page would let launch block the delete flow)")
     for kind in DIRECTED_KINDS:
         fresh = FakePage()
-        app.main(fresh)
+        app.run_sync(fresh)
         ctx.page = fresh
         do_directed(ctx, 0, kind)
 

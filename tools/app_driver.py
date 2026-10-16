@@ -113,7 +113,7 @@ def build_headless():
     _sandbox_home.isolate()
     stubs = fz.install_safe_stubs()
     page = DriverPage()
-    stubs.app.main(page)
+    stubs.app.run_sync(page)
     return Driver(stubs.app, stubs.core, page, stubs)
 
 

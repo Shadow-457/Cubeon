@@ -86,7 +86,7 @@ build_defects = []
 with warnings.catch_warnings(record=True) as caught:
     warnings.simplefilter("always")
     try:
-        app.main(page)
+        app.run_sync(page)
         gc.collect()
         built, build_err = True, ""
     except Exception:
@@ -188,7 +188,7 @@ def goto(pg, tab_label):
 
 def fresh_build():
     pg = FakePage()
-    app.main(pg)
+    app.run_sync(pg)
     return pg
 
 

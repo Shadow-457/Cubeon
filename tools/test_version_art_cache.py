@@ -152,7 +152,7 @@ stubs.core.get_installed_versions = lambda *a, **k: [
     {"id": "1.20.1", "type": "release", "name": "1.20.1"},
 ]
 page = app_driver.DriverPage()
-stubs.app.main(page)
+stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")   # the row lives on the Play tab
 

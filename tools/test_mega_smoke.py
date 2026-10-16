@@ -499,6 +499,7 @@ def section_runtime():
 SUITES = [
     "test_friends_service.py", "test_friends.py", "test_mod_bridge.py",
     "test_capes.py", "test_ui_smoke.py", "test_winwindow.py",
+    "test_startup.py",
     "test_invites.py",
     "test_modpacks.py", "test_mod_store.py", "test_net.py",
     "test_fuzz.py", "test_production.py", "test_content_instance.py",

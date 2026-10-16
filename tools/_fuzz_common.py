@@ -132,6 +132,21 @@ class FakePage:
             _classify(ex, ASYNC_DEFECTS, OBSERVATIONS)
             return None
         if inspect.isawaitable(coro):
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            if running is not None:
+                # We're already inside a running loop - e.g. an async main()
+                # awaiting its own reveal, driven here by asyncio.run(). We
+                # cannot nest run_until_complete; schedule the coroutine on the
+                # running loop instead (it runs at the next await point, or is
+                # cancelled cleanly when the loop closes).
+                try:
+                    running.create_task(coro)
+                except Exception as ex:
+                    _classify(ex, ASYNC_DEFECTS, OBSERVATIONS)
+                return None
             loop = asyncio.new_event_loop()
             try:
                 # Timeout so a coroutine that (unexpectedly) awaits real IO

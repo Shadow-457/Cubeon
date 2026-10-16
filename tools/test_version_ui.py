@@ -77,7 +77,7 @@ for name in ("sodium.jar", "lithium.jar"):
 instance_info.mark_played(FABRIC_ID, when=time.time() - 3600)
 
 page = app_driver.DriverPage()
-stubs.app.main(page)
+stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")
 

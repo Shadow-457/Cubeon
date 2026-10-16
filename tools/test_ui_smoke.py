@@ -189,7 +189,7 @@ import main as app
 
 page = FakePage()
 try:
-    app.main(page)
+    app.run_sync(page)
     built = True
     err = ""
 except Exception as ex:
@@ -819,7 +819,7 @@ print("\n6. rebuilding is idempotent (catches leaked module-level state)")
 # build, not the first - so build twice and assert it still works.
 page2 = FakePage()
 try:
-    app.main(page2)
+    app.run_sync(page2)
     again = True
     err2 = ""
 except Exception as ex:

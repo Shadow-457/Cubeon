@@ -140,7 +140,7 @@ import main as app  # noqa: E402
 
 def build():
     page = FakePage()
-    app.main(page)
+    app.run_sync(page)
     return page
 
 

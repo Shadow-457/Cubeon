@@ -53,6 +53,7 @@ _OFFICIAL_HEADERS = {"User-Agent": user_agent("version artwork fetch")}
 _mem: dict[str, "str | None"] = {}
 _mem_lock = threading.Lock()
 _feed_mem: dict = {"value": None}
+_feed_refreshing: dict = {"on": False}
 _feed_lock = threading.Lock()
 
 # ENCODED-ART CACHE. src() is called from the render path - on every Play-tab
@@ -106,9 +107,63 @@ def meta(version: "str | None") -> dict:
     return _official_map().get(version, {})
 
 
-def _official_map() -> dict:
+def _fetch_feed() -> dict:
+    """Fetch Mojang's patch-notes feed over the network, write it to the disk
+    cache and return the parsed {version_id: {...}} map ({} on any failure).
+
+    BLOCKING: call only from a worker thread (see _schedule_feed_refresh, and
+    _fetch which runs inside fetch_async's daemon thread)."""
+    try:
+        resp = get_with_retry(_OFFICIAL_FEED,
+                              headers=_OFFICIAL_HEADERS, timeout=20)
+        try:
+            raw = resp.content
+        finally:
+            resp.close()
+        mapping = _parse_feed(json.loads(raw.decode("utf-8", "replace")))
+        try:
+            tmp = _FEED_CACHE + ".tmp"
+            with open(tmp, "wb") as fh:
+                fh.write(raw)
+            os.replace(tmp, _FEED_CACHE)
+        except OSError:
+            pass
+        return mapping
+    except Exception:
+        return {}
+
+
+def _schedule_feed_refresh() -> None:
+    """Warm the feed from the network on a daemon thread, at most once per
+    process. Used by the disk-only path when the cache is missing or stale so
+    the official art still lands later this session - without ever making the
+    UI thread wait on Mojang's host."""
+    if _feed_refreshing["on"] or _feed_mem["value"]:
+        return
+    _feed_refreshing["on"] = True
+
+    def _work():
+        try:
+            mapping = _fetch_feed()
+            if mapping:
+                _feed_mem["value"] = mapping
+        finally:
+            _feed_refreshing["on"] = False
+
+    threading.Thread(target=_work, daemon=True,
+                     name="cubeon-feed-refresh").start()
+
+
+def _official_map(allow_fetch: bool = False) -> dict:
     """version id -> official image url, from a disk-cached copy of Mojang's
-    feed (refreshed once a day). Never raises; {} when offline with no cache."""
+    feed (refreshed once a day).
+
+    DISK-ONLY by default: it never touches the network, so it is safe on the
+    UI thread - which is exactly what meta() promises. When the cache is
+    missing or stale it returns {} and kicks a one-shot background refresh, so
+    a cold start shows the fallback art and the official art fills in once the
+    worker lands it. Pass allow_fetch=True from a worker thread when the
+    caller genuinely needs the freshly fetched map (the image downloader)."""
     if _feed_mem["value"] is not None:
         return _feed_mem["value"]
     with _feed_lock:
@@ -121,24 +176,14 @@ def _official_map() -> dict:
                     mapping = _parse_feed(json.load(fh))
         except (OSError, ValueError):
             mapping = {}
-        if not mapping:
-            try:
-                resp = get_with_retry(_OFFICIAL_FEED,
-                                      headers=_OFFICIAL_HEADERS, timeout=20)
-                try:
-                    raw = resp.content
-                finally:
-                    resp.close()
-                mapping = _parse_feed(json.loads(raw.decode("utf-8", "replace")))
-                try:
-                    tmp = _FEED_CACHE + ".tmp"
-                    with open(tmp, "wb") as fh:
-                        fh.write(raw)
-                    os.replace(tmp, _FEED_CACHE)
-                except OSError:
-                    pass
-            except Exception:
-                mapping = {}
+        if mapping:
+            _feed_mem["value"] = mapping
+            return mapping
+        if not allow_fetch:
+            # UI thread: never block on the feed; refresh it in the background.
+            _schedule_feed_refresh()
+            return {}
+        mapping = _fetch_feed()
         _feed_mem["value"] = mapping
         return mapping
 
@@ -247,7 +292,7 @@ def _fetch(version: str) -> "str | None":
     already = _official_cached(version)
     if already:
         return already
-    image_url = (_official_map().get(version) or {}).get("image")
+    image_url = (_official_map(allow_fetch=True).get(version) or {}).get("image")
     if image_url:
         try:
             resp = get_with_retry(_OFFICIAL_BASE + image_url,

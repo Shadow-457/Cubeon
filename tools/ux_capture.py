@@ -847,7 +847,7 @@ def capture_main(page, outdir, pixel_ratio, empty, only=None):
         if seeded:
             print(f"   seeded tour fixtures: {', '.join(seeded)}")
     app = stubs.app
-    app.main(page)
+    app.run_sync(page)
     baseline_ids = {id(c) for c in getattr(page, "overlay", [])}
     nav = discover_nav(page)
     plan = build_plan(nav, empty)
@@ -957,7 +957,7 @@ def _dry_run(outdir, empty, only):
     if empty:
         force_empty(stubs.core)
     page = FakePage()
-    stubs.app.main(page)
+    stubs.app.run_sync(page)
     baseline = {id(c) for c in getattr(page, "overlay", [])}
     nav = discover_nav(page)
     plan = build_plan(nav, empty)
@@ -1014,7 +1014,7 @@ def main():
     if args.list:
         stubs = fz.install_safe_stubs()
         page = FakePage()
-        stubs.app.main(page)
+        stubs.app.run_sync(page)
         nav = discover_nav(page)
         for i, (name, cat, note, _r) in enumerate(build_plan(nav, args.empty), 1):
             print(f"{i:02d}  {cat:<14} {name:<32} {note}")
