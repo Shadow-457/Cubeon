@@ -1694,6 +1694,16 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
     system gradle here sits on 21. `tools/build_mod_jars.py` finds a 25+ JDK and
     sets `JAVA_HOME` for the build; running `gradlew` by hand needs
     `JAVA_HOME=/usr/lib/jvm/java-26-openjdk` or it dies during configuration.
+  - **26.3 moved MC's input backend GLFW → SDL, so mouse button numbers change.**
+    GLFW numbers buttons from 0 (left=0); SDL from 1 (`SDL_BUTTON_LEFT`=1,
+    middle=2, right=3). `MouseHandler` still calls
+    `Screen.mouseClicked(MouseButtonEvent, ...)`, so the API looks identical —
+    but the 26.3 HUD's drag editor must grab on `event.button() == 1` while the
+    GLFW overlays (1.20–1.21.9, 26.1, 26.2) keep `== 0`. Vanilla's own
+    `ContainerEventHandler` moved its drag check to `event.button() == 1` for
+    the same reason. The wrong number fails SILENTLY (the click never starts a
+    drag, nothing can be moved) — the "can't move the widgets in 26.3" report.
+    Guarded by `test_mod_matrix.py::test_mouse_buttons`.
   - The mod still compiles against a stub API subset (`tools/test_mod_compile.py`)
     — but the stub is written in **Mojang** names, so that test covers the
     `api-mojang` overlay only. The real per-version check is

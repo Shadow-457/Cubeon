@@ -87,7 +87,12 @@ public final class MoveOverlayScreen extends Screen {
 			return true;
 		}
 
-		if (event.button() == 0 && this.minecraft != null && isOverWidget(event.x(), event.y())) {
+		// 26.3 moved input from GLFW to SDL, and SDL numbers the mouse buttons
+		// from 1 (SDL_BUTTON_LEFT = 1, middle = 2, right = 3) where GLFW started
+		// at 0. Vanilla's own ContainerEventHandler now drags on button() == 1;
+		// the old "== 0" never matched here, so nothing could ever be grabbed -
+		// "can't move the widgets" on 26.3 only. 26.1/26.2 are still GLFW (== 0).
+		if (event.button() == 1 && this.minecraft != null && isOverWidget(event.x(), event.y())) {
 			KeyHudConfig config = KeyHudConfig.get();
 			this.grabX = event.x() - KeyHudHud.posX(overlay, config, this.minecraft, this.width);
 			this.grabY = event.y() - KeyHudHud.posY(overlay, config, this.minecraft, this.height);

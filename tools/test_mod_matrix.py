@@ -381,6 +381,37 @@ def test_resources(matrix):
        "and ships the folder holding it only for the brackets that need it")
 
 
+def test_mouse_buttons():
+    section("per-bracket mouse-button convention")
+    # 26.3 moved MC's input backend from GLFW to SDL. GLFW numbers the mouse
+    # buttons from 0 (left=0) but SDL from 1 (SDL_BUTTON_LEFT=1). The drag
+    # editor grabs on the LEFT button, so the 26.3 copy must check 1 while the
+    # GLFW copies keep 0. Getting this wrong fails SILENTLY - the click never
+    # starts a drag and nothing can be moved - which is exactly the reported
+    # "can't move the widgets in Cubeon Client 26.3". Vanilla's own
+    # ContainerEventHandler now drags on button() == 1, corroborating SDL.
+    root = os.path.join(MOD, "src", "main")
+
+    def grab_button(overlay):
+        path = os.path.join(root, overlay, "dev", "keyhud", "client", "screen",
+                            "MoveOverlayScreen.java")
+        if not os.path.isfile(path):
+            return None
+        with open(path, encoding="utf-8") as fh:
+            # old brackets name the param plainly (`button == 0`); 1.21.9+ call
+            # the event's accessor (`click/event.button() == 0`).
+            m = re.search(r"(?:\.button\(\)|\bbutton)\s*==\s*(\d+)", fh.read())
+        return m.group(1) if m else None
+
+    ok(grab_button("java-overlay-hud-26.3") == "1",
+       "the 26.3 (SDL) drag editor grabs on mouse button 1")
+    for glfw in ("java-overlay-hud-26.1", "java-overlay-hud-26.2",
+                 "java-overlay-hud-1.21.9", "java-overlay-hud-1.20",
+                 "java-overlay-hud-1.20.1", "java-overlay-hud-1.20.2"):
+        ok(grab_button(glfw) == "0",
+           f"the {glfw} (GLFW) drag editor still grabs on mouse button 0")
+
+
 def test_fabric_api_install():
     section("ensure_fabric_api")
     from cubeon import mods as mods_module
@@ -468,6 +499,7 @@ def main():
     test_install()
     test_fabric_api_install()
     test_resources(matrix)
+    test_mouse_buttons()
     print()
     print(f"{passed} passed, {failed} failed")
     return 1 if failed else 0
