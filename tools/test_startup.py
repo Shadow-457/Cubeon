@@ -17,6 +17,15 @@ launcher shipped with:
     0.6s -> 6.9s on a blocked link - before anything painted. version_art is
     disk-only on the UI thread now and refreshes the feed on a worker.
 
+  * The saved window geometry is restored at startup, so a size the user
+    dragged LARGER than the desktop (or than the window manager's work area,
+    i.e. the screen minus panels) made the flet client wait forever for an
+    OpenGL frame at a size that could never arrive - "Timed out waiting for
+    OpenGL frame of size 1900x1170 (have 1872x1170)" - and die. That is the
+    "if I size it too much it won't open on the second launch" report. The
+    geometry is now fitted to the work area (and applied to the still-HIDDEN
+    window, so a visible resize never happens either).
+
 The runtime checks here block outbound sockets and assert the build still
 finishes quickly AND that NO socket was opened from the main thread.
 
@@ -75,6 +84,17 @@ check("the reveal of the splash is AWAITED, not a run_task",
       "page.run_task(_reveal_splash)" not in _main_src
       and _i_splash_await != -1,
       "a run_task only runs after main() returns - i.e. after the build")
+# 2026-10-16: the launcher "flashed and closed" on the second launch. The
+# saved window size is only restored now, so a window the user dragged large
+# was resized WHILE VISIBLE on the next start; the desktop client then waits
+# for an OpenGL frame at the new size and - on some Mesa/GTK setups - times
+# out and dies before the finished UI paints. The geometry must land on the
+# window while it is still hidden, i.e. before the splash is revealed.
+_i_geometry_call = _main_src.find("\n    _apply_real_geometry()\n")
+check("the saved geometry lands on the window BEFORE it is ever shown",
+      _i_geometry_call != -1 and 0 <= _i_geometry_call < _i_splash_await,
+      f"geometry at {_i_geometry_call}, splash await at {_i_splash_await} - "
+      "resizing a visible flet window is the OpenGL-frame timeout")
 check("that await precedes the first control-tree swap/mount",
       0 <= _i_splash_await < _i_swap,
       f"await at {_i_splash_await}, swap at {_i_swap}")
@@ -199,6 +219,46 @@ check("NO socket was opened from the main thread during startup",
 # failing if a blocking fetch-creep comes back.
 check("the offline build finishes well under the old blocking-network cost",
       _build_ms < 15000, f"build took {_build_ms:.0f} ms")
+
+
+# ------------------------------------ 5. the window fits the work area -------
+print("\n5. a saved window too big for the desktop is fitted to the WORK AREA")
+
+# 2026-10-16, user report: "when i size it too much it doesnt open on second
+# launch, it needs to be a specific size to launch". A window manager clamps a
+# window to _NET_WORKAREA (the screen MINUS its panels/docks): asking for
+# 1900x1170 on this 1920x1200 KDE desktop yields a 1872-wide window, and the
+# flet client then waits forever for an OpenGL frame at 1900x1170 - "Timed out
+# waiting for OpenGL frame of size 1900x1170 (have 1872x1170)" - and dies
+# before the UI paints. The saved size is only restored on the NEXT start,
+# which is why the failure is a *second launch* failure.
+_fit = getattr(app, "fit_geometry_to_area", None)
+check("main exposes a pure geometry fitter (testable off an X server)",
+      callable(_fit), "fit_geometry_to_area() missing from main")
+check("_apply_real_geometry() actually fits the saved geometry to the area",
+      "_fit_geometry_to_work_area()" in _main_src
+      and "def _work_area()" in _main_src,
+      "the clamp must be wired into the geometry path, not just defined")
+if callable(_fit):
+    _kde = (0, 0, 1872, 1200)  # KDE keeps 48px on this 1920x1200 screen
+    check("a saved width bigger than the work area is shrunk",
+          _fit(1900, 1170, 10, 10, _kde) == (1872, 1170, 0, 10),
+          f"got {_fit(1900, 1170, 10, 10, _kde)}")
+    check("a saved height bigger than the work area is shrunk",
+          _fit(800, 5000, 0, 0, _kde) == (800, 1200, 0, 0),
+          f"got {_fit(800, 5000, 0, 0, _kde)}")
+    check("a geometry that already fits is returned untouched",
+          _fit(1360, 808, 193, 154, _kde) == (1360, 808, 193, 154),
+          f"got {_fit(1360, 808, 193, 154, _kde)}")
+    check("an off-screen saved position is pulled back inside the area",
+          _fit(400, 300, 9000, 9000, _kde) == (400, 300, 1472, 900),
+          f"got {_fit(400, 300, 9000, 9000, _kde)}")
+    check("a centered window (no saved position) only gets its size fitted",
+          _fit(1900, 1170, None, None, _kde) == (1872, 1170, None, None),
+          f"got {_fit(1900, 1170, None, None, _kde)}")
+    check("with no work area to probe (no xprop) the geometry is left alone",
+          _fit(1900, 1170, 10, 10, None) == (1900, 1170, 10, 10),
+          f"got {_fit(1900, 1170, 10, 10, None)}")
 
 print(f"\n{passed} passed, {failed} failed")
 if failed:

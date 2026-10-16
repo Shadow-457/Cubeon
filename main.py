@@ -602,6 +602,35 @@ def _capture_flet_client_exit(slot: dict) -> None:
     flet_desktop.open_flet_view_async = _wrapped
 
 
+def fit_geometry_to_area(width, height, left, top, area):
+    """Fits a saved window rect inside a usable-desktop rect.
+
+    Pure on purpose, so it can be unit-tested without an X server (see
+    tools/test_startup.py). ``area`` is ``(x, y, w, h)`` or None when the
+    desktop cannot be probed; with no area the geometry comes back untouched.
+
+    Both axes are clamped to the work area, and a saved position is pulled
+    back inside it. A window manager clamps every window to the WORK AREA
+    (the screen minus panels/docks), and a client that asked for MORE waits
+    forever for an OpenGL frame at the size it requested, then dies before
+    the finished UI paints:
+
+        Timed out waiting for OpenGL frame of size 1900x1170 (have 1872x1170)
+
+    That is the "if I size it too much it won't open on the second launch"
+    report (2026-10-16): the saved size is only restored on the NEXT start,
+    so the window the user dragged large is the one that never appears.
+    """
+    if not area:
+        return width, height, left, top
+    ax, ay, aw, ah = (int(v) for v in area)
+    w, h = min(int(width), aw), min(int(height), ah)
+    if left is not None and top is not None:
+        left = max(ax, min(int(left), ax + aw - w))
+        top = max(ay, min(int(top), ay + ah - h))
+    return w, h, left, top
+
+
 async def main(page: ft.Page):
     """
     This is the main function that Flet calls when the app starts.
@@ -644,10 +673,12 @@ async def main(page: ft.Page):
     _startup_mark("main() entered (flet client already spawned/connected)")
     # --- Basic window configuration ---
     page.title = "Cubeon"
-    # Glass mode (Settings toggle, default on) is applied in
-    # _apply_real_geometry(), where the config has been loaded - the early
-    # window here only gets the opaque default so the pre-config splash is
-    # always readable on any compositor.
+    # The window gets the opaque default here; the saved geometry and glass
+    # mode are applied by _apply_real_geometry() the moment the config is
+    # loaded - still on a HIDDEN window (see that function's docstring). The
+    # splash card paints an opaque layer over the whole window, so a
+    # translucent window background can never make the loading screen hard
+    # to read.
     page.window.bgcolor = BG
     page.bgcolor = BG
     page.padding = 0
@@ -720,29 +751,110 @@ async def main(page: ft.Page):
             pass  # no xrandr / not X11: the WM picks a position - fine
         return None
 
-    def _apply_real_geometry():
-        """Applies the user's saved window size/position.
+    def _work_area():
+        """Usable desktop rect (x, y, w, h), or None when unknowable.
 
-        Deliberately NOT done at startup any more: the window opens as the
-        small loading splash first, and the real geometry must only land on
-        the fully-built UI (see _reveal_window). Same rationale as before for
-        using plain left/top numbers instead of window.center() - center()
-        fires an async GTK resize that crashed the Mesa/gallium driver mid
-        first-frame (SIGSEGV coredumps, 2026-09-06).
+        This is the screen MINUS the panels/docks - exactly the rectangle a
+        window manager clamps its windows to. On Windows it is the same rect
+        the shell reports as the work area. See _fit_geometry_to_work_area
+        for why a window has to fit inside it.
         """
+        if sys.platform == "win32":
+            try:
+                import ctypes
+
+                class _RECT(ctypes.Structure):
+                    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+                r = _RECT()
+                # SPI_GETWORKAREA = 0x0030
+                if ctypes.windll.user32.SystemParametersInfoW(
+                        0x0030, 0, ctypes.byref(r), 0):
+                    w, h = r.right - r.left, r.bottom - r.top
+                    if w > 0 and h > 0:
+                        return r.left, r.top, w, h
+            except Exception:
+                pass
+            return None
+        try:
+            out = subprocess.run(
+                ["xprop", "-root", "-notype", "_NET_WORKAREA"],
+                capture_output=True, text=True, timeout=3).stdout
+            m = re.search(r"=\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)", out)
+            if m:
+                x, y, w, h = (int(g) for g in m.groups())
+                if w > 0 and h > 0:
+                    return x, y, w, h
+        except Exception:
+            pass  # no xprop / not X11: fall back to the raw screen size
+        return None
+
+    def _fit_geometry_to_work_area():
+        """Shrinks/relocates a saved geometry the window manager cannot grant.
+
+        A window manager clamps every window to the WORK AREA (screen minus
+        panels/docks), and a client that asked for MORE waits forever for an
+        OpenGL frame at the size it requested, then dies before the finished
+        UI paints:
+
+            Timed out waiting for OpenGL frame of size 1900x1170 (have 1872x1170)
+
+        (KDE reserves 48 px on this 1920-wide screen, so the window came back
+        1872 wide and the client waited on a size that could never arrive.)
+        That is the "if I size it too much it won't open on the second launch"
+        report (2026-10-16): the saved size is only restored on the NEXT start,
+        so the very window the user dragged large is the one that never
+        appears. Fitting it to the work area keeps the request grantable, and
+        the corrected size is what gets saved back on the next write.
+        """
+        nonlocal _gw, _gh, _gl, _gt
+        _gw, _gh, _gl, _gt = fit_geometry_to_area(
+            _gw, _gh, _gl, _gt, _work_area())
+
+    def _apply_real_geometry():
+        """Applies the user's saved window size/position to the HIDDEN window.
+
+        Called right before the splash is revealed, and again on the finished
+        UI where every value is already correct (an unchanged size is a no-op
+        for the client, so nothing resizes). It must never be the first thing
+        a VISIBLE window hears: resizing a visible flet window makes the
+        desktop client wait for an OpenGL frame at the new size, and on some
+        Mesa/GTK setups that wait times out - "Timed out waiting for OpenGL
+        frame of size WxH (have WxH)" - and the client dies before the
+        finished UI paints, so the launcher flashes and closes. It showed up
+        most reliably on the SECOND launch, because by then the saved geometry
+        is whatever (larger) size the user dragged the window to (user report
+        2026-10-16).
+
+        Same rationale as before for using plain left/top numbers instead of
+        window.center() - center() fires an async GTK resize that crashed the
+        Mesa/gallium driver mid first-frame (SIGSEGV coredumps, 2026-09-06).
+        """
+        _fit_geometry_to_work_area()
         page.window.width = _gw
         page.window.height = _gh
-        page.window.min_width = 980
-        page.window.min_height = 640
+        # Never demand a minimum bigger than the size we are about to ask
+        # for: the WM would then force the larger one and the client would
+        # wait on a frame size that never arrives (see
+        # _fit_geometry_to_work_area).
+        page.window.min_width = min(980, int(_gw))
+        page.window.min_height = min(640, int(_gh))
         page.window.resizable = True
         if not _needs_center:
             page.window.left = _gl
             page.window.top = _gt
         else:
-            size = _screen_size()
-            if size:
-                page.window.left = max(0, (size[0] - int(_gw)) // 2)
-                page.window.top = max(0, (size[1] - int(_gh)) // 2)
+            area = _work_area()
+            if area:
+                _ax, _ay, _aw, _ah = area
+                page.window.left = max(0, _ax + (_aw - int(_gw)) // 2)
+                page.window.top = max(0, _ay + (_ah - int(_gh)) // 2)
+            else:
+                size = _screen_size()
+                if size:
+                    page.window.left = max(0, (size[0] - int(_gw)) // 2)
+                    page.window.top = max(0, (size[1] - int(_gh)) // 2)
             # When screen probing fails, _reveal_window() awaits the native
             # async center method after mapping. This function is synchronous
             # and must not call Window.center() without awaiting it.
@@ -794,22 +906,20 @@ async def main(page: ft.Page):
     # The window process is created hidden (FLET_APP_HIDDEN at ft.run) and
     # this function used to build the entire control tree before revealing
     # anything, so a cold start was seconds of a desktop icon that looked
-    # like it had done nothing. Instead the window now opens small and
-    # centered right away with a "Loading Cubeon" card, and the real
-    # geometry + UI replace it in one shot at the end of main(). Small,
-    # non-resizable, and only ever seen during the build. Built after the
-    # fonts/theme are applied so it uses the real design tokens.
-    _SPLASH_W, _SPLASH_H = 360, 200
-    page.window.width = _SPLASH_W
-    page.window.height = _SPLASH_H
-    page.window.min_width = 0
-    page.window.min_height = 0
-    page.window.resizable = False
-    page.window.maximized = False
-    _scr = _screen_size()
-    if _scr:
-        page.window.left = max(0, (_scr[0] - _SPLASH_W) // 2)
-        page.window.top = max(0, (_scr[1] - _SPLASH_H) // 2)
+    # like it had done nothing. Instead the window now opens right away with
+    # a "Loading Cubeon" card and the finished UI replaces it in one shot at
+    # the end of main(). Built after the fonts/theme are applied so it uses
+    # the real design tokens.
+    #
+    # Load the config first: it is a plain disk read (~1 ms) and it is what
+    # lets the saved geometry + glass mode land on the still-hidden window
+    # below. The splash is NOT a small window that grows - it is a card in
+    # the window the app will keep, so nothing is ever resized while visible
+    # (see _apply_real_geometry's docstring: that resize is what killed the
+    # client on the second launch).
+    cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
+    _startup_mark("config loaded")
+    _apply_real_geometry()
 
     # The "Shadow mark": the Cubeon logo sits on a rounded tile that casts a
     # soft accent shadow, so the splash reads as a branded card rather than a
@@ -975,9 +1085,8 @@ async def main(page: ft.Page):
         pass
     _startup_mark("splash revealed and flushed to the client")
 
-    # --- Load configuration (saved settings) from disk ---
-    cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
-    _startup_mark("config loaded")
+    # cfg was loaded above, before the saved geometry was applied to the
+    # window.
 
     # Now that cfg exists, evaluate the inspector gate (env var or
     # cfg["dev_inspector"]). Set here so the sidebar (built far below)

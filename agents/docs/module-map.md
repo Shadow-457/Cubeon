@@ -1001,15 +1001,37 @@ facts belong HERE, not in diary notes.
   "Quit leaves the window open, spinning Working…". Killing the client first
   means the window is gone no matter how the cleanup goes. Guard:
   `tools/test_ui_smoke.py` asserts the call order.
-- **Startup splash (2026-09-20)**: `main()` mounts a small centered
-  "Loading Cubeon" `_splash` container right after the theme is applied
-  (window 360x200, `resizable=False`) and reveals it immediately, then swaps
-  it for `_app_root` (`page.controls.clear()` + append + `page.update()`) once
-  the full tree is built. The saved geometry (`_apply_real_geometry()`) is
-  applied ONLY in `_reveal_window`, i.e. with the finished UI — never at
-  startup, so the splash doesn't open full-size. The seasonal ambience uses
-  the saved `_gw`, not `page.window.width` (which is the splash width during
-  the build). Do NOT move the geometry assignment back before the splash.
+- **Startup splash + window geometry (rewritten 2026-10-16)**: `main()` mounts
+  the "Loading Cubeon" `_splash` card right after the theme is applied and
+  reveals it immediately, then swaps it for `_app_root`
+  (`page.controls.clear()` + append + `page.update()`) once the full tree is
+  built. `_apply_real_geometry()` (saved size/position + glass mode) runs
+  BEFORE `await _reveal_splash()`, i.e. on the still-HIDDEN window, and
+  `cfg = core.load_config()` moved up with it (it is a plain disk read). There
+  is no small-splash-then-grow any more: the splash is a card in the window
+  the app keeps.
+  **Do NOT move the geometry back to only-`_reveal_window`, and never resize a
+  VISIBLE flet window.** Resizing a visible window makes the desktop client
+  wait for an OpenGL frame at the new size; on some Mesa/GTK setups that wait
+  times out — `Timed out waiting for OpenGL frame of size 1900x1170 (have
+  1872x1170)` — and the client dies before the finished UI paints, so the
+  launcher flashed and closed. It hit hardest on the SECOND launch, because
+  the saved geometry is only restored then (user report 2026-10-16: "when i
+  size it too much it doesnt open on second launch"). Guarded by
+  `tools/test_startup.py` ("the saved geometry lands on the window BEFORE it
+  is ever shown") and `tools/test_ui_smoke.py`.
+- **Window geometry must fit the WORK AREA, not the screen (2026-10-16)**:
+  `_work_area()` reads `_NET_WORKAREA` (`xprop -root -notype _NET_WORKAREA`;
+  KDE reserves 48 px on this 1920 screen, so the area is 1872x1200) and
+  `SystemParametersInfoW(SPI_GETWORKAREA)` on Windows. The module-level, pure
+  `fit_geometry_to_area()` (unit-tested in `tools/test_startup.py` §5) clamps
+  the saved width/height to it and pulls a saved position back inside. A
+  window bigger than the work area can never be granted, so the client waits
+  forever for a frame at the size it asked for and dies with the SAME timeout
+  as above — that is the "size it too much" half of the bug. `min_width`/
+  `min_height` are additionally capped at the size actually requested (the WM
+  would otherwise force the larger one). The corrected size is saved back, so
+  a wedged install self-heals on the next start.
 - **Showing the window needs a REAL change (2026-10-15)**: the app is started
   hidden (`ft.run(..., view=FLET_APP_HIDDEN)`) and revealed via `_show_window()`
   in `main()`, which writes `page.window.visible = False` and then `= True`.

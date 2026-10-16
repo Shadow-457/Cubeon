@@ -1731,10 +1731,15 @@ check("the reclaimed signal handler raises nothing of its own",
       "cubeon.fatal CRITICAL")
 
 # --- startup splash ------------------------------------------------------------
-# User request: the launcher "takes time to start", so show a small loading
-# window instead of nothing. The window must open as a splash immediately,
-# swap to the real UI, and only then apply the saved geometry (so the splash
-# doesn't open at full size, and the real UI doesn't reappear at 360x200).
+# User request: the launcher "takes time to start", so show a loading card
+# instead of nothing. The window must reach its FINAL geometry while it is
+# still hidden and only then open on the splash: resizing a VISIBLE flet
+# window makes the desktop client wait for an OpenGL frame at the new size
+# and, on some Mesa/GTK setups, time out and die before the finished UI
+# paints. That flashed-and-closed the launcher on the SECOND launch, when the
+# saved geometry is the (larger) size the user dragged the window to
+# (2026-10-16). The splash is a card in the window the app keeps, not a small
+# window that grows.
 check("main() mounts a startup splash before building the UI",
       "_splash = ft.Container" in _src_main and "page.add(_splash)" in _src_main,
       "no splash mounted")
@@ -1742,10 +1747,18 @@ check("main() swaps the splash for the real UI",
       "page.controls.clear()" in _src_main and "_app_root" in _src_main,
       "the built UI must replace the splash, not stack on it")
 _reveal_body = _fn_src(_src_main, "_reveal_window")
-check("saved geometry is applied on reveal, not at startup",
-      "_apply_real_geometry()" in _reveal_body
-      and "page.window.width = _SPLASH_W" in _src_main,
-      "geometry must land with the finished UI, not the splash")
+_i_geometry_call = _src_main.find("\n    _apply_real_geometry()\n")
+_i_splash_await = _src_main.find("await _reveal_splash()")
+check("the saved geometry lands on the HIDDEN window, before any reveal",
+      _i_geometry_call != -1 and _i_splash_await != -1
+      and _i_geometry_call < _i_splash_await
+      and "page.window.width = _SPLASH_W" not in _src_main,
+      "the window must already be at its saved size when it first shows - "
+      "resizing a visible flet window is the OpenGL-frame timeout that "
+      "killed the client on the second launch")
+check("the reveal keeps the (idempotent) geometry call as belt-and-braces",
+      "_apply_real_geometry()" in _reveal_body,
+      "_reveal_window must still be able to apply the geometry")
 # The swap is instant, so the finished UI is mounted transparent and faded in
 # on reveal - a hard splash -> app cut is what reads as unfinished.
 check("the finished UI fades in on reveal instead of hard-cutting",
