@@ -2081,6 +2081,26 @@ check("an empty launcher keeps neutral PLAY, not a phantom DOWNLOAD",
       and "set_button_mode(\"play\")" in _ovs_src,
       "with no instance there is nothing to download - keep the neutral PLAY")
 
+# --- seasonal backdrop: the image must follow the live palette ---------------
+# tools/make_background.py generates glass.jpg (green) plus glass_<season>.jpg;
+# main.background_image_name() is the picker the Play root uses.
+_bg_dir = os.path.join(app.resolve_assets_dir(), "bg")
+check("the seasonal backdrop picker resolves each season",
+      all(app.background_image_name(s, _bg_dir) == f"glass_{s}.jpg"
+          for s in ("spring", "summer", "autumn", "winter")),
+      "every seasonal palette has a matching backdrop file")
+check("the backdrop falls back to green for non-seasonal palettes",
+      app.background_image_name("green", _bg_dir) == "glass.jpg"
+      and app.background_image_name("obsidian", _bg_dir) == "glass.jpg"
+      and app.background_image_name(None, _bg_dir) == "glass.jpg")
+check("a missing seasonal file falls back to green, never a broken src",
+      app.background_image_name("spring", os.path.join(_bg_dir, "nope"))
+      == "glass.jpg",
+      "a seasonal palette with no art must still render glass.jpg")
+check("the Play root builds its background through the picker",
+      "background_image_name(getattr(theme, \"ACTIVE_TEMPLATE\", None)"
+      in _main_src)
+
 print(f"\n{passed} passed, {failed} failed")
 print("Smoke test complete: " + ("FAIL" if failed else "PASS"))
 sys.exit(1 if failed else 0)

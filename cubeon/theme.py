@@ -102,6 +102,13 @@ ON_DANGER = "#050505"    # dark text on a DANGER fill (higher contrast than whit
 # Semantic alias: success shares the hero green (positive == on-brand here).
 SUCCESS = ACCENT
 
+# Which color template is live, set by cubeon.color_templates.apply_template()
+# while the package is imported. None until then (and for a plain green boot
+# with no template at all). UI that should follow the palette - e.g. main.py
+# choosing the seasonal backdrop - reads this rather than re-deriving the
+# season, so an explicit --color is honoured too.
+ACTIVE_TEMPLATE = None
+
 # --- Categorical palette ---------------------------------------------------
 # Used to colour per-user avatars/identicons on the Friends tabs. A categorical
 # set follows different rules than the semantic palette: hues are spread evenly

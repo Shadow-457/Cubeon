@@ -271,6 +271,10 @@ check("apply_template patched the live theme accent",
 check("apply_template derived the translucent tokens",
       bool(getattr(theme, "ACCENT_TINT", None))
       and bool(getattr(theme, "CARD_FILL", None)))
+check("apply_template records the live template name on the theme",
+      getattr(theme, "ACTIVE_TEMPLATE", None) == "autumn",
+      "main.py picks the seasonal backdrop from theme.ACTIVE_TEMPLATE; "
+      "without this it can never match a pinned --color correctly")
 ct.apply_template("green")   # restore the default for anything after us
 
 # -------------------------------------------------------------------- pins ----
@@ -478,6 +482,33 @@ for _py in ("main.py", "ui/settings_tab.py", "ui/modpacks_tab.py",
 _main_src = open(_os.path.join(_ROOT, "main.py")).read()
 check("season_dropdown is wired via .on_select",
       "season_dropdown.on_select = _on_season_change" in _main_src)
+
+# ------------------------------------------------- seasonal background art ---
+# Each seasonal palette gets a matching backdrop: main.py picks glass_<season>.jpg
+# and only falls back to glass.jpg (the green default). tools/make_background.py
+# generates all five; this guards that the committed assets exist and are real
+# 1920x1080 JPEGs, and that the picker keys off theme.ACTIVE_TEMPLATE.
+try:
+    from PIL import Image as _Image
+    _bg_dir = os.path.join(_ROOT, "assets", "bg")
+    for _suffix in ("", "_spring", "_summer", "_autumn", "_winter"):
+        _name = f"glass{_suffix}.jpg"
+        _p = os.path.join(_bg_dir, _name)
+        _ok = os.path.isfile(_p)
+        if _ok:
+            with _Image.open(_p) as _im:
+                _ok = _im.size == (1920, 1080) and _im.format == "JPEG"
+        check(f"backdrop assets/bg/{_name} is a 1920x1080 JPEG", _ok)
+except ImportError:  # pragma: no cover
+    check("Pillow present to validate backdrop assets", False,
+          "pip install pillow")
+
+check("main.py follows theme.ACTIVE_TEMPLATE for the backdrop",
+      "def background_image_name(" in _main_src
+      and 'background_image_name(getattr(theme, "ACTIVE_TEMPLATE", None)'
+      in _main_src,
+      "the seasonal backdrop must be chosen from the live palette, with "
+      "glass.jpg as the explicit fallback")
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

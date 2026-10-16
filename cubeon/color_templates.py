@@ -162,6 +162,11 @@ def apply_template(name: str) -> str:
     if avatars:
         _theme.AVATAR_COLORS[:] = list(avatars)
 
+    # 4) Record which template is live. UI that needs to follow the palette
+    #    (e.g. main.py picking the seasonal backdrop) reads this instead of
+    #    re-deriving the season, so a pinned --color is honoured too.
+    _theme.ACTIVE_TEMPLATE = key
+
     return key
 
 
