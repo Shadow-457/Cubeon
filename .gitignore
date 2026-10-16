@@ -47,3 +47,9 @@ mod/.gradle/
 # any more. Kept on the machine (732 MB of Gradle projects and downloaded
 # Minecraft jars) only as the reference the merge was transcribed from.
 KeyHud/
+
+# --- Owner notification token (python notify) ---
+# The publisher token for the /notify route of the cubeon-downloads Worker. It
+# is a Cloudflare secret; the local copy must never be committed. Point the
+# publisher at it with $CUBEON_NOTIFY_TOKEN instead if you prefer.
+.notify_token
