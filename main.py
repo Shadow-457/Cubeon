@@ -773,6 +773,11 @@ def main(page: ft.Page):
     )
     page.add(_splash)
 
+    # One OS-level backstop per window session (both reveals call it). main()
+    # is re-invoked per session, so a retry after a pre-paint crash gets a
+    # fresh one.
+    _window_backstop = {"armed": False}
+
     def _show_window():
         """Tell the desktop client to show its window.
 
@@ -803,6 +808,63 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    async def _reveal_to_front():
+        """The one reveal the client cannot skip.
+
+        ``page.window.visible = True`` is a PROPERTY patch, and the desktop
+        client only calls windowManager.show() when the value differs from its
+        OWN cached window state - so on a build whose client already holds
+        ``visible: true`` the patch is a no-op and the native window stays
+        hidden (the reported "running with no window" on a current Windows
+        build, 2026-10-16). ``to_front()`` is a METHOD call, and the client's
+        implementation of it calls show() unconditionally, with no
+        isVisible() guard. Bounded: a wedged client never answers.
+        """
+        try:
+            await asyncio.wait_for(page.window.to_front(), timeout=5)
+        except Exception:
+            pass  # non-desktop, an old client, or one that never answers
+
+    def _nudge_window_to_front():
+        """Orders `_reveal_to_front` without waiting on it (see above)."""
+        try:
+            page.run_task(_reveal_to_front)
+        except Exception:
+            pass  # headless/test harness: nothing to schedule on
+
+    def _backstop_window_visible():
+        """Windows: make sure our own client window is really on screen.
+
+        Every flet-level reveal above is a MESSAGE to the desktop client, and
+        that client is started hidden (FLET_HIDE_WINDOW_ON_START, from
+        ``view=FLET_APP_HIDDEN`` at ft.run). If a message is dropped, races the
+        client's startup, or the client's UI thread never gets to it, the
+        launcher lives on INVISIBLE - Cubeon.exe in Task Manager with no
+        window anywhere, and nothing in cubeon.log, because a launcher that
+        never shows a window cannot report anything. That is the user report
+        this is here for (2026-10-15, and again on the shipped 1.1.2 build on
+        2026-10-16).
+
+        So ask the OS instead of the client: cubeon/winwindow.py finds OUR flet
+        client's top-level window and ShowWindow()s it, then logs the outcome
+        either way. On a daemon thread - it polls for up to 10s and must never
+        sit on flet's event loop. A no-op off Windows.
+        """
+        if sys.platform != "win32" or _window_backstop["armed"]:
+            return
+        _window_backstop["armed"] = True
+
+        def _work():
+            try:
+                from cubeon import winwindow
+                winwindow.ensure_client_window_visible(resolve_assets_dir())
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "window-visibility backstop failed", exc_info=True)
+
+        threading.Thread(target=_work, name="cubeon-window-visible",
+                         daemon=True).start()
+
     async def _reveal_splash():
         # Bounded: this is a handshake with the desktop client, and a client
         # that never answers (or a platform where it never resolves) must not
@@ -814,6 +876,11 @@ def main(page: ft.Page):
         except Exception:
             pass  # non-desktop, an odd runtime, or a slow client: visible still applies
         _show_window()
+        # Belt: the property patch above. Braces: the method call that cannot
+        # be skipped, and (on Windows) the OS-level ShowWindow. See each
+        # helper's docstring - the window must never be left to one message.
+        _nudge_window_to_front()
+        _backstop_window_visible()
 
     try:
         page.run_task(_reveal_splash)
@@ -2304,14 +2371,51 @@ def main(page: ft.Page):
     # -----------------------------------------------------------------
 
     def _dropdown_label(val):
-        """The text the dropdown currently shows for `val`, or None."""
+        """The friendly text for `val` - the option's own label when it has
+        one, otherwise a readable name built from the id (never None while a
+        value is set).
+
+        An installed loader row ("fabric-loader-0.19.5-26.1.2") is a real
+        instance the user can select from "Jump back in", but it is not always
+        in the dropdown's option list - the online list is Mojang's, and a
+        version installed after that list was built is missing from it too.
+        Neither Flet nor the picker's label has a label to render then, so both
+        fell back to the raw launch id: that is the "technical stuff like
+        fabric loader 0.x" the user saw (2026-10-16).
+        """
         for o in version_dropdown.options or []:
             if o.key == val:
                 return (o.text or o.key).strip() or val
-        return None
+        if not val:
+            return None
+        # "fabric-loader-0.19.5-26.1.2" -> "26.1.2 (Fabric)"; already-friendly
+        # ids ("1.20.1") come back unchanged.
+        return core.suggest_friendly_name(str(val), str(val))
+
+    def _ensure_version_option(version_id):
+        """Make sure `version_id` is an option of its own dropdown.
+
+        Flet renders a Dropdown whose value matches no option with the raw
+        value as its text, so selecting a just-installed instance from "Jump
+        back in" could show its technical launch id until some later refresh
+        rebuilt the list. Adding the missing option keeps .value inside
+        .options, which is the invariant the label and picker code assume.
+        """
+        if not version_id:
+            return
+        if any(o.key == version_id for o in (version_dropdown.options or [])):
+            return
+        meta = (state.get("installed_meta") or {}).get(version_id) or {}
+        name = meta.get("display_name") or core.suggest_friendly_name(
+            str(version_id), str(version_id))
+        mark = "⚠" if meta.get("incomplete") else "●"
+        version_dropdown.options = list(version_dropdown.options or []) + [
+            ft.dropdown.Option(key=version_id, text=f"{name}  {mark}")]
+        thread_safe_ui.refresh(version_dropdown)
 
     def _pick_version(key):
         """A click on a row in the picker dialog: select it and apply it."""
+        _ensure_version_option(key)
         version_dropdown.value = key
         picker.sync_label()
         on_version_selected()
@@ -2425,6 +2529,15 @@ def main(page: ft.Page):
 
     # --- Helper functions for the Play tab ---
 
+    def _fixing_selected():
+        """Is Cubeon's background mod repair working on the selected profile?
+
+        The claim is the version id the doctor was started for, so a repair
+        running for ANOTHER instance never freezes this button.
+        """
+        claim = state.get("fixing_mods")
+        return bool(claim) and claim == version_dropdown.value
+
     def set_button_mode(mode):
         """
         Changes the play button's appearance based on the current state.
@@ -2436,6 +2549,9 @@ def main(page: ft.Page):
             waits (disabled, hourglass)
           - 'running': the game process is currently open - the button IS
             Quit Game (red, active)
+          - 'working': a live game session and an install in flight outrank
+            play/download; 'working' is the post-install doctor/mod repair
+            (nothing to cancel, so it is disabled rather than a stop button)
           - 'incomplete': installed but broken (disabled, error icon)
 
         Foreground colour is set per-mode alongside the fill, not just once at
@@ -2450,6 +2566,22 @@ def main(page: ft.Page):
             play_button.bgcolor = bg
             play_button_icon.color = fg
             play_button_text.color = fg
+
+        # Two claims outrank "ready to play", and they are enforced HERE rather
+        # than at every caller, because a stray paint is exactly how the user
+        # ended up staring at PLAY while the game was running (2026-10-16) and
+        # while Cubeon was still installing mods / running the doctor. Any
+        # selection refresh, a prefetch finishing, or an exit-path reset for a
+        # version nobody is looking at could repaint "play" over a live claim.
+        # Clicking that button QUITS the running game - the click routes on
+        # running_version - so the lie is expensive, not cosmetic.
+        if mode in ("play", "download", "install_loader"):
+            if state.get("running_version"):
+                mode = "running"
+            elif state.get("installing_version"):
+                mode = "busy"
+            elif _fixing_selected():
+                mode = "working"
 
         if mode == "play":
             paint(ACCENT, ON_ACCENT)
@@ -2502,12 +2634,25 @@ def main(page: ft.Page):
             play_button.disabled = False
             play_button.tooltip = ("Close Minecraft now. Unsaved progress "
                                    "since the game's last autosave is lost.")
+        elif mode == "working":
+            # Cubeon is still busy with this profile (the post-install doctor /
+            # mod repair, cubeon/doctor.py). Nothing to cancel here - unlike an
+            # install - but the button must not claim PLAY until the work is
+            # done: that is the "PLAY came very early, while it was installing
+            # mods and fixing with the doctor" report (2026-10-16). Disabled,
+            # with the reason in the tooltip.
+            paint(SURFACE_HI, TEXT_DIM)
+            play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
+            play_button_text.value = "FIXING MODS..."
+            play_button.disabled = True
+            play_button.tooltip = ("Cubeon is checking and fixing this "
+                                   "profile's mods - one moment.")
         else:  # incomplete
             paint(SURFACE_HI, DANGER)
             play_button_icon.name = ft.Icons.ERROR_OUTLINE_ROUNDED
             play_button_text.value = "INCOMPLETE INSTALL"
             play_button.disabled = True
-        if mode != "running":
+        if mode not in ("running", "working"):
             play_button.tooltip = None
         # Scoped repaint: every icon/text/fill mutated above lives inside
         # play_button, so diffing just its subtree (~3 controls) paints the
@@ -2516,6 +2661,41 @@ def main(page: ft.Page):
         # Same visibility guarantee: refresh() routes through the loop like
         # the patched page.update() does, from any thread.
         thread_safe_ui.refresh(play_button)  # Refresh UI to show changes
+
+    def _sync_play_button():
+        """Repaint the big button from the live state - one authority.
+
+        The callers that used to hand-pick a mode ("play" if installed, else
+        "download") could paint a mode the state did not support, which is how
+        a finishing prefetch or an exit-path reset repainted PLAY over a live
+        claim - a running game, an install in flight, or the post-install
+        doctor still fixing mods (both reported 2026-10-16). This recomputes
+        from the same state those claims live in, and set_button_mode()
+        re-checks the claims anyway, so the two can only agree.
+        """
+        vid = version_dropdown.value
+        if state.get("running_version"):
+            set_button_mode("running")
+            return
+        if state.get("installing_version"):
+            set_button_mode("busy")
+            return
+        if _fixing_selected():
+            set_button_mode("working")
+            return
+        meta = (state.get("installed_meta") or {}).get(vid) if vid else None
+        if meta and meta.get("incomplete"):
+            set_button_mode("incomplete")
+        elif vid and vid in state["installed"]:
+            pending = state.get("pending_loader_install") or {}
+            if pending.get("version_id") == vid and pending.get("loader"):
+                set_button_mode("install_loader")
+            else:
+                set_button_mode("play")
+        elif vid:
+            set_button_mode("download")
+        else:
+            set_button_mode("play")
 
     def _refresh_pack_index():
         """Rebuild the (mc_version, loader) -> modpack-name lookup from disk.
@@ -2530,6 +2710,39 @@ def main(page: ft.Page):
             (p.get("mc_version"), p.get("loader")): p.get("name")
             for p in packs if p.get("mc_version")
         }
+
+    def _rescan_installed():
+        """Re-read what is on disk into the shared state and repaint the
+        surfaces that render it.
+
+        The install worker adds each stage to ``state["installed"]`` as it
+        lands, but "Jump back in", the Instances manager and the hero's meta
+        chips render ``state["installed_meta"]`` - a different mapping that
+        only a full refresh_version_list() rebuilt. So a version that was just
+        installed did not show up as an instance card until something
+        unrelated refreshed the list (reported 2026-10-16: "after install the
+        instance doesn't come inside jump back in"). Deliberately NOT
+        refresh_version_list(): that also re-runs the selection, the mods /
+        server refreshes and the doctor, which would fight the install worker
+        mid-flight. This is one directory listing plus a restyle of the
+        existing cards (InstanceCards.rebuild builds only what is new).
+        """
+        try:
+            versions = core.get_installed_versions()
+        except Exception:
+            # Leave state as the worker left it - a failed scan must not be
+            # able to un-install something in the UI.
+            logging.getLogger(__name__).warning("installed scan failed",
+                                               exc_info=True)
+            return
+        state["installed"] = {v["id"] for v in versions}
+        state["installed_meta"] = {v["id"]: v for v in versions}
+        _refresh_pack_index()
+        try:
+            update_hero()   # rebuilds the "Jump back in" cards (new ones included)
+        except Exception:
+            logging.getLogger(__name__).warning("instance repaint failed",
+                                               exc_info=True)
 
     def update_pack_badge():
         """Show the pack name badge iff the current version+loader is a modpack
@@ -2636,6 +2849,7 @@ def main(page: ft.Page):
                         cancel_event=cancel,
                     )
                     state["installed"].add(version_id)
+                    _rescan_installed()  # the new instance must show up in the row
                     try:
                         # The version is on disk now, so the hero button must
                         # stop saying DOWNLOAD. page.update() alone repaints
@@ -2645,7 +2859,7 @@ def main(page: ft.Page):
                         # installing_version, so a PLAY paint here would lie).
                         if (version_dropdown.value == version_id
                                 and not state.get("installing_version")):
-                            set_button_mode("play")
+                            _sync_play_button()
                         page.update()
                     except Exception:
                         pass
@@ -3161,15 +3375,12 @@ def main(page: ft.Page):
         unchanged: the simple recompute; changed: the full selection refresh
         (which also re-arms prefetch for the newly-selected version)."""
         if version_dropdown.value == version_id:
-            set_button_mode("play" if version_id in state["installed"]
-                            else "download")
+            _sync_play_button()
         else:
             try:
                 on_version_selected()
             except Exception:
-                set_button_mode("play"
-                                if version_dropdown.value in state["installed"]
-                                else "download")
+                _sync_play_button()
 
     def do_install_and_launch(version_id, username, ensure_java_major=None):
         """
@@ -3309,6 +3520,10 @@ def main(page: ft.Page):
                         core.install_version(version_id, progress_cb, status_cb,
                                              max_cb, cancel_event=cancel)
                         state["installed"].add(version_id)
+                        # Publish it immediately: a fresh install is a new
+                        # instance, and "Jump back in" is keyed on the full
+                        # metadata map, not on state["installed"].
+                        _rescan_installed()
                 finally:
                     lock.release()
 
@@ -3343,6 +3558,10 @@ def main(page: ft.Page):
                         status_cb(f"Installing {loader_label} loader")
                         target_version = core.install_mod_loader(loader_id, base_version, progress_cb, status_cb, max_cb)
                         state["installed"].add(target_version)
+                        # The loader install is its own launchable instance row
+                        # (e.g. "fabric-loader-0.19.5-26.1.2") - without this it
+                        # only appeared after some later full list refresh.
+                        _rescan_installed()
                 else:
                     status_cb(f"{loader_label} unsupported for this version, using vanilla")
 
@@ -3427,8 +3646,7 @@ def main(page: ft.Page):
                         with _launch_state_lock:
                             state["running_version"] = None
                         if version_dropdown.value == version_id:
-                            set_button_mode("play" if version_id in state["installed"]
-                                            else "download")
+                            _sync_play_button()
                         page.update()
                     except Exception:
                         pass  # window gone or repaint machinery dead - nothing left
@@ -3466,8 +3684,7 @@ def main(page: ft.Page):
                     # the user is still looking at this launch's version
                     # (otherwise the selection handler owns the button).
                     if version_dropdown.value == version_id:
-                        set_button_mode("play" if version_id in state["installed"]
-                                        else "download")
+                        _sync_play_button()
                     page.update()
                 except Exception:
                     # Never let a repaint/presence hiccup strand the "running"
@@ -3523,6 +3740,15 @@ def main(page: ft.Page):
                         try:
                             from cubeon import watchdog as _watchdog
                             if _watchdog.stale_session() is not None:
+                                # Still alive - keep the claim visible. This
+                                # loop is the only watcher while the game runs,
+                                # so it is also the last line of defence against
+                                # a stray repaint leaving PLAY on screen (the
+                                # 2026-10-16 "game is running but it shows the
+                                # play button" report): clicking that button
+                                # QUITS the live game, not starts one.
+                                if play_button_text.value != "QUIT GAME":
+                                    set_button_mode("running")
                                 continue  # still alive
                         except Exception:
                             return  # watchdog unavailable: on_exit stays the owner
@@ -4077,6 +4303,7 @@ def main(page: ft.Page):
     def _select_instance(version_id):
         if version_id not in state["installed"]:
             return
+        _ensure_version_option(version_id)
         version_dropdown.value = version_id
         on_version_selected()
 
@@ -4103,6 +4330,7 @@ def main(page: ft.Page):
         if state.get("running_version"):
             set_status("A game is already running")
             return
+        _ensure_version_option(version_id)
         version_dropdown.value = version_id
         on_version_selected()
         on_play_click()
@@ -4378,6 +4606,11 @@ def main(page: ft.Page):
     # Once per profile per session; silent unless it actually changed
     # something. Never blocks or raises into the UI.
     _repair_state = {"done": set(), "lock": threading.Lock()}
+    # Hard ceiling on how long the repair claim (see _fixing_selected) may keep
+    # the Play button in "FIXING MODS...". The doctor's own calls are all
+    # timeout-bounded, so this only ever fires if something truly wedges - and
+    # then the button must come back rather than stay disabled forever.
+    _REPAIR_CLAIM_MAX = 120.0
 
     def _proactive_mod_repair(version_id):
         if not version_id or state["mod_loader"] == "vanilla":
@@ -4393,6 +4626,26 @@ def main(page: ft.Page):
             _repair_state["done"].add(key)
 
         def worker():
+            # Publish a busy claim for this profile while the doctor runs. The
+            # big button reads it (see _fixing_selected / set_button_mode's
+            # "working" mode) so it cannot claim PLAY while Cubeon is still
+            # repairing mods - the user reported PLAY showing up during exactly
+            # that phase (2026-10-16). Released by the finally, and by a timer,
+            # so a wedged doctor can never leave the button stuck disabled.
+            def _release_claim():
+                try:
+                    if state.get("fixing_mods") == version_id:
+                        state["fixing_mods"] = None
+                    _sync_play_button()
+                except Exception:
+                    logging.getLogger(__name__).warning("background worker error",
+                                                        exc_info=True)
+
+            state["fixing_mods"] = version_id
+            _sync_play_button()
+            guard = threading.Timer(_REPAIR_CLAIM_MAX, _release_claim)
+            guard.daemon = True
+            guard.start()
             try:
                 # The full doctor: mods + resource packs + shaders + modpacks +
                 # server plugins (cubeon/doctor.py). This runs after an install,
@@ -4402,6 +4655,9 @@ def main(page: ft.Page):
                                          check_online=True)
             except Exception:
                 return
+            finally:
+                guard.cancel()
+                _release_claim()
             if not (report.get("fixed") or []):
                 return
             fixed = len(report["fixed"])
@@ -5573,8 +5829,14 @@ def main(page: ft.Page):
             # own correct mode from on_version_selected.)
             state["running_version"] = None
             if version_dropdown.value == vid:
-                sel = vid
-                set_button_mode("play" if sel in state["installed"] else "download")
+                _sync_play_button()
+        elif version_dropdown.value == vid:
+            # Claimed AND alive: re-assert it. This runs on every Play-tab
+            # entry and from the liveness watcher, so a stray repaint (a
+            # selection refresh, a finishing prefetch) cannot leave PLAY
+            # showing while the game is live - and clicking PLAY then quits
+            # the game instead of starting one (reported 2026-10-16).
+            set_button_mode("running")
 
     def switch_tab(key):
         """
@@ -5845,6 +6107,8 @@ def main(page: ft.Page):
         except Exception:
             pass  # non-desktop or an odd runtime: fall through, visible still applies
         _show_window()
+        _nudge_window_to_front()
+        _backstop_window_visible()
         # Fade the finished UI in. It was mounted at opacity 0 (see _app_root
         # in main), so this single property change turns the splash -> app hand
         # off into one smooth fade instead of a hard cut. One control-level

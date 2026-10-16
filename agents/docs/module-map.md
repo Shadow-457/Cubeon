@@ -1,5 +1,52 @@
 # Cubeon module map — read this before reading any source
 
+## Windows: the window is shown by the OS, not just by flet (2026-10-16) — INVARIANT
+- User report, AGAIN, on the shipped 1.1.2 build: "Cubeon.exe is in Task
+  Manager but no window ever appears." The reveal is a MESSAGE to the desktop
+  client, which is started hidden (`view=FLET_APP_HIDDEN` -> flet_desktop sets
+  `FLET_HIDE_WINDOW_ON_START=true` for the client process). Flet only calls
+  `windowManager.show()` when `visible` DIFFERS from the client's OWN cached
+  window state, so a `visible: true` patch can be skipped even though the
+  native window is hidden; if the client never processes the message at all
+  (wedged UI thread), the launcher lives on invisibly and writes nothing to
+  cubeon.log - a launcher with no window can't report anything.
+- Every reveal path therefore sends THREE things, and none of them may be
+  dropped:
+  1. `_show_window()` - `page.window.visible = False` then `= True` (a bare
+     `= True` is dropped by flet before it is ever sent: `Prop.__set__`
+     ignores a write equal to the declared default, and `visible` defaults to
+     True).
+  2. `_reveal_to_front()` -> `page.window.to_front()`, bounded by
+     `asyncio.wait_for(..., 5)`. This is a METHOD call, and the client's
+     implementation calls `windowManager.show()` with NO isVisible() guard -
+     the one reveal flet cannot skip. Scheduled with `page.run_task`, never
+     awaited inline (a wedged client never answers).
+  3. `_backstop_window_visible()` - Windows only, daemon thread ->
+     `cubeon/winwindow.py::ensure_client_window_visible()`, which finds OUR
+     flet client's top-level window (psutil, two-factor: name ~ "flet" AND
+     (our child OR our assets dir in its cmdline) - never another instance's
+     window, never Minecraft's java) and `ShowWindow()`s it, then logs the
+     outcome at INFO/WARNING. It POLLS for up to 10s, so it must never run on
+     flet's event loop; it is a no-op off Windows and never raises. This is
+     the only reveal that survives a client that processes nothing, and its
+     log line is the evidence the next bug report needs.
+- Guard: `tools/test_ui_smoke.py` pins all three (source order + a recording
+  window asserting `visible=False -> True -> window.update -> to_front`, plus
+  that the backstop arms exactly ONE thread per session and is inert off
+  Windows) and `tools/test_winwindow.py` covers the winwindow policy loop with
+  an injected user32 stand-in (28 checks; registered in
+  `tools/test_mega_smoke.py` SUITES, and picked up by CI's `tools/test_*.py`
+  loop). Do not "simplify" any of the three away - each covers a failure the
+  others cannot.
+- What is NOT verified from this box (Linux, and Wine doesn't honour the
+  hidden start): that user32 `ShowWindow` really un-hides the client window on
+  real Windows. The module logs its outcome precisely because of that.
+- Known upstream context (researched 2026-10-16): flet's Windows runner only
+  started honouring `FLET_HIDE_WINDOW_ON_START` in **0.85.3** (flet-dev/flet
+  #6526 / PR #6527; before that the window flashed on first frame). Cubeon
+  ships flet 0.86.5, so the hidden start IS honoured on Windows - which is why
+  every reveal had to become load-bearing there.
+
 ## Version management lives in ui/versions.py + cubeon/instances.py (2026-10-15)
 - The Play tab's "manage my versions" surface was extracted out of `main()`'s
   4,000-line closure into two modules:

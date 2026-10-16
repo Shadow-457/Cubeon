@@ -16,6 +16,8 @@ builds.
 
 Run: python3 tools/test_ui_smoke.py
 """
+import asyncio
+import logging
 import os
 import sys
 import time
@@ -1370,8 +1372,12 @@ from unittest.mock import patch
 
 
 def _ui_functions(source, names, scope, prelude=""):
+    # AsyncFunctionDef too: several of the functions probed this way (the
+    # window reveals) are coroutines, and matching only ast.FunctionDef made
+    # them look like they did not exist.
     nodes = {n.name: n for n in ast.walk(ast.parse(source))
-             if isinstance(n, ast.FunctionDef) and n.name in names}
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and n.name in names}
     body = prelude + "\n" + "\n".join(ast.unparse(nodes[name]) for name in names)
     body += "\nreturn locals()"
     exec("def _build_probe():\n" + textwrap.indent(body, "    "), scope)
@@ -1735,6 +1741,105 @@ check("the window is shown with a REAL visible change, not a no-op True",
       "_show_window() must set visible False then True (Flet drops a write "
       "equal to the default, so a lone True is never sent) and _reveal_window "
       "must call it")
+# 2026-10-16, reported again on the SHIPPED 1.1.2 build: "Cubeon.exe is in
+# Task Manager but no window ever appears." A property patch is not enough on
+# real Windows - the desktop client only calls windowManager.show() when the
+# value differs from its OWN cached window state, so a client that already
+# holds visible=true ignores it and stays hidden. `to_front()` is a method
+# call whose client implementation calls show() UNCONDITIONALLY, and on
+# Windows the OS-level backstop (cubeon/winwindow.py) is the last resort for
+# "the message never got processed at all". All three must fire from BOTH
+# reveals - the window must never be left to one message.
+_reveal_front_body = _fn_src(_src_main, "_reveal_to_front")
+_splash_reveal_body = _fn_src(_src_main, "_reveal_splash")
+check("the reveal also issues to_front(), the one show the client skips never",
+      "await asyncio.wait_for(page.window.to_front(), timeout=5)" in _reveal_front_body
+      and "except Exception" in _reveal_front_body,
+      "_reveal_to_front must await page.window.to_front() (bounded: a wedged "
+      "client never answers)")
+check("both reveals call the to_front nudge and the Windows backstop",
+      _reveal_body.count("_nudge_window_to_front()") == 1
+      and _reveal_body.count("_backstop_window_visible()") == 1
+      and _splash_reveal_body.count("_nudge_window_to_front()") == 1
+      and _splash_reveal_body.count("_backstop_window_visible()") == 1,
+      "every reveal path needs all of _show_window + nudge + backstop")
+_backstop_body = _fn_src(_src_main, "_backstop_window_visible")
+check("the OS-level backstop is Windows-only, once per session, and off-thread",
+      'sys.platform != "win32"' in _backstop_body
+      and '_window_backstop["armed"]' in _backstop_body
+      and "winwindow.ensure_client_window_visible" in _backstop_body
+      and "daemon=True" in _backstop_body
+      and "threading.Thread" in _backstop_body,
+      "it polls for up to 10s, so it must never run on flet's event loop")
+
+# ... and behave that way, against a recording window: the wire order is the
+# whole point (a lone visible=True is dropped by flet BEFORE it is sent).
+_front_calls = []
+
+
+class _RecordingWindow:
+    def __init__(self):
+        self._visible = None
+
+    @property
+    def visible(self):
+        return self._visible
+
+    @visible.setter
+    def visible(self, value):
+        self._visible = value
+        _front_calls.append(f"visible={value}")
+
+    def update(self):
+        _front_calls.append("window.update")
+
+    async def to_front(self):
+        _front_calls.append("to_front")
+
+
+_show_probe = _ui_functions(
+    _src_main, ["_show_window", "_reveal_to_front"],
+    {"page": types.SimpleNamespace(window=_RecordingWindow()),
+     "asyncio": asyncio})
+_show_probe["_show_window"]()
+asyncio.run(_show_probe["_reveal_to_front"]())
+check("a reveal sends visible False -> True -> update -> to_front, in order",
+      _front_calls == ["visible=False", "visible=True", "window.update",
+                       "to_front"],
+      str(_front_calls))
+
+_backstop_threads = []
+
+
+def _fake_thread(**kwargs):
+    _backstop_threads.append(kwargs)
+    return types.SimpleNamespace(start=lambda: None)
+
+
+_backstop_scope = {
+    "sys": sys, "threading": types.SimpleNamespace(Thread=_fake_thread),
+    "logging": logging, "resolve_assets_dir": lambda: "/tmp/cubeon-assets",
+    "_window_backstop": {"armed": False}}
+_backstop_probe = _ui_functions(
+    _src_main, ["_backstop_window_visible"], _backstop_scope)
+_backstop_probe["_backstop_window_visible"]()
+check("the backstop is inert off Windows (and does not arm itself)",
+      _backstop_threads == []
+      and _backstop_scope["_window_backstop"]["armed"] is False,
+      str(_backstop_threads))
+_win_scope = {"sys": types.SimpleNamespace(platform="win32"),
+              "threading": types.SimpleNamespace(Thread=_fake_thread),
+              "logging": logging,
+              "resolve_assets_dir": lambda: "/tmp/cubeon-assets",
+              "_window_backstop": {"armed": False}}
+_win_probe = _ui_functions(_src_main, ["_backstop_window_visible"], _win_scope)
+_win_probe["_backstop_window_visible"]()
+_win_probe["_backstop_window_visible"]()   # second reveal, same session
+check("on Windows it arms exactly one window-visible thread per session",
+      len(_backstop_threads) == 1
+      and _backstop_threads[0].get("daemon") is True
+      and _backstop_threads[0].get("name") == "cubeon-window-visible",
+      str(_backstop_threads))
 
 # --- Privacy/crash reporting is gone -------------------------------------------
 # User request: "remove the privacy option completely from settings and backend."
