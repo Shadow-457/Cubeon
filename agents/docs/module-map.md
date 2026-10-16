@@ -3319,7 +3319,7 @@ Cubeon cape resolves.
   The protections therefore have to live **in the Workers**, not in the repo's
   visibility. All five are live and answer their own `/health` text (checked
   2026-10-17; a `workers.dev` subdomain with nothing deployed answers 404).
-- **The real bug was `cubeon-downloads.js`, the only Worker holding a
+- **`cubeon-downloads.js` was one hole — the only Worker holding a
   credential.** It spent one GitHub API call per press against a 5000/hour
   token with `Cache-Control: no-store`, so ~1.4 req/s sustained by anyone with
   the URL took the download buttons down for every user. Now the release lookup
@@ -3338,6 +3338,44 @@ Cubeon cape resolves.
     when it misbehaves is worse than no protection.
   - Only `name`/`url`/`size` cross into the cache; the rest of the private
     release JSON is dropped at the `.map()`.
+- **`cubeon-skins.js` had TWO holes, and neither needed a fork, a token, or an
+  authenticated write.** Both were found by probe (not by reading) and both are
+  pinned in `tools/test_skins_net.py` §4 as well as `worker/test-worker.mjs`,
+  because **CI runs Python and not the `.mjs` tests**:
+  1. **Write amplification.** The identity model is trust-on-first-use, so
+     first contact is *deliberately* unauthenticated (`ownsUuid` writes
+     `owner:<uuid>` on the first request from anyone). A random uuid and a
+     random secret are both well-formed, so validation cannot help; each POST
+     cost **2 KV writes** against a 1k/day account-wide budget. 500 anonymous
+     POSTs emptied it. Fixed with `throttle()` — `WRITE_RATE = {max: 60,
+     windowMs: 60_000}` per IP on all four write routes, running **before** the
+     handlers (asserted — see below), using the `RATE_LIMITER` binding when
+     bound and an in-isolate fallback map otherwise.
+  2. **Name displacement (the worse one).** `pointer:<name>` is last-writer-wins
+     by design, and the only guard was a cooldown keyed to the **identity** —
+     which an attacker mints for free. Four successive attempts with a fresh
+     uuid each all returned 200: the victim's name flipped to an identity with
+     no `skin:` record, so every friend saw **cape-only** (their skin gone), and
+     the victim's own rename back was cooldown-throttled for an hour. Fixed by
+     also stamping the **NAME**: `namemove:<name>` = `"<sec>:<previousHolder>"`,
+     written on **every** pointer write *including a first claim of a free name*
+     (that closes the free displacement window right after someone picks a
+     name). `nameMoveBlocked()` refuses a displacement while the stamp is
+     younger than `POINTER_MOVE_COOLDOWN_S` — **except when the previous holder
+     is the mover**, which is what lets a victim reclaim their own name
+     instantly.
+  - **Deliberate consequence:** renaming ONTO a name that was taken from someone
+    else within the last hour now 429s (`name_move_cooldown`) instead of
+    succeeding with a `name_contested` warning. The old pinned test
+    ("other identity takes the name -> 200 but contested") was rewritten to
+    assert the 429. Do not "restore" it.
+  - The per-identity `lastmove` cooldown is still there and still useful; the
+    name stamp is a second key, not a replacement.
+  - `worker/test-worker.mjs` now gives every helper request its **own**
+    `CF-Connecting-IP` (via `freshIp()`), or ~70 checks share one bucket and the
+    suite 429s itself. Throttle checks pin an IP explicitly to share a bucket on
+    purpose. **Any new test here must use `get`/`post` (or pass an IP) rather
+    than a bare `worker.fetch`.**
 - **`cubeon-waitlist.js` gates POSTs above the route dispatch** (above
   `handleJoin` / `handleUnsubscribe`). It is the only Worker whose writes carry
   no identity and its tally shares a KV namespace, so a script posting fake
@@ -3346,15 +3384,22 @@ Cubeon cape resolves.
   branch above the dispatch** — moved below it still compiles and protects
   nothing.
 - **The `RATE_LIMITER` opt-in is a commented `[[unsafe.bindings]]` block** in
-  `wrangler-downloads.toml` / `wrangler-waitlist.toml`. Both Workers behave
-  exactly as before when it is absent.
-- **CI runs Python, not the Node Worker tests**, so the security properties are
-  pinned twice: behaviour in `worker/test-downloads.mjs`
-  (`node worker/test-downloads.mjs`) and source pins in
-  `tools/test_web_download_count.py` §4b. **Order is asserted with the
-  `_before()` / `_post_branch()` helpers, not `x in source`** — a `x in source`
-  version of the waitlist-gate check passed with the gate moved below the
-  dispatch, i.e. a real mutation survived it.
+  `wrangler-downloads.toml`, `wrangler-waitlist.toml` and `wrangler-skins.toml`.
+  Every Worker behaves as before when it is absent (skins falls back to the
+  in-isolate limiter, which is always on).
+- **"Already sound" is a claim that must be probed, not read.** `skins`,
+  `invites` and `friends` all look fine on the authenticated paths — bearer
+  secrets, constant-time compare, budgets. The skins holes were entirely on the
+  *unauthenticated first-contact* path, which reading the auth code does not
+  exercise. Write a probe.
+- **Why `cubeon-friends.js` needs no name stamp (verified, not assumed).** Its
+  names are OWNED: `httpClaim` compares the stored `secret_hash` and answers
+  **409 `name_taken`** when a different secret claims an existing name (both on
+  the normal path and in the concurrent-insert catch). So there is no
+  displacement to guard — unlike skins, where `pointer:<name>` is an unowned
+  last-writer-wins label by design and the secret only protects the *uuid*.
+  That difference is the whole reason the two need different fixes; do not copy
+  the skins `namemove` stamp into friends.
 - `CUBEON_SKIN_API` now overrides the skins Worker base (parity with
   `CUBEON_FRIENDS_API` / `CUBEON_INVITE_API`) so a fork can point at its own
   deployment. `cubeon/skins.py` and `cubeon/faces.py` bind the constant at

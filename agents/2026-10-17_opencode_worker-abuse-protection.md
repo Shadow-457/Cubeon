@@ -21,14 +21,18 @@ threat model, because it decides where the fix belongs:
 - I confirmed all five are live (`/health` returns each Worker's own text, not
   a workers.dev 404): skins, invites, friends, downloads, waitlist.
 
-Already sound, so left alone: `cubeon-skins.js`, `cubeon-invites.js`,
-`cubeon-friends.js`. All three prove ownership with a **per-machine secret**
+Already sound on their **authenticated** paths, so left alone — but note that
+reading the auth code is not the same as probing it, and the skins Worker's
+holes were entirely on the *unauthenticated* path that reading does not
+exercise (see the correction below): `cubeon-invites.js` and
+`cubeon-friends.js`. Both prove ownership with a **per-machine secret**
 (SHA-256 at rest, constant-time compare) and carry write budgets; the friends
 Worker adds a sliding-window limiter (per IP pre-auth, and per action) and sends
 the secret in the first WebSocket frame rather than the URL, so it never lands
-in a request log. Note the IP limiter lives in `cubeon-friends.js` - the skins
-Worker only *mirrors* its constant-time compare, so do not assume the skins
-Worker is throttled.
+in a request log. `cubeon-skins.js` uses the same secret scheme and
+constant-time compare, and I initially cleared it on that basis — wrongly. It
+has no per-IP limiter of its own (the limiter lives in `cubeon-friends.js`), and
+its trust-on-first-use first contact needed two separate fixes; see below.
 
 ### The bug: `cubeon-downloads.js` could be knocked over for everyone
 
@@ -76,6 +80,57 @@ spend the free tier's account-wide ~1k writes/day and take every *real* signup
 down with it. Added the same optional `RATE_LIMITER`, gated **inside the POST
 branch above the dispatch**.
 
+### The skins Worker had two holes — my "already sound" was wrong
+
+The user pushed back: *"but bro what abt the skin worker liek someone can forq
+and abuse it"*. I had cleared `cubeon-skins.js` by reading its auth code — bearer
+secret, SHA-256 at rest, constant-time compare, write budget — and all of that is
+genuinely good. **The holes were on the path that code does not guard.** I wrote
+a probe (`/tmp/opencode/probe2.mjs`, stub KV, no network) and both showed up
+immediately:
+
+**1. Write amplification (a flood, needs no cleverness).** The identity model is
+trust-on-first-use, so the first request from *anyone* writes `owner:<uuid>` —
+that is the design, not an oversight. A random uuid and a random secret are both
+perfectly well-formed, so signature validation cannot help, and each POST cost
+**2 KV writes** against the account-wide 1k/day budget. Probe result: **500
+anonymous POSTs → 1000 writes → budget gone**, after which every real user's
+upload fails until the day rolls over.
+
+**2. Name displacement (much worse, and needs no flood at all).** The pointer
+table is last-writer-wins by design, and the only guard was a cooldown keyed to
+the **identity** — which the attacker mints for free. Probe result: after the
+victim claimed a name, **four successive fresh-uuid attempts all returned 200**.
+The victim's name now pointed at an identity with no `skin:` record, so
+`serveProfile` served `{cape}` only — **their skin was gone from every friend's
+view** — and their own rename back was cooldown-throttled for an hour. The
+`name_contested` warning *did* fire, but only *after* the skin had already
+vanished, which is precisely the wrong time.
+
+Fixes:
+
+- **`throttle()`** — `WRITE_RATE = {max: 60, windowMs: 60_000}` per IP on all
+  four write routes, called **before** the handlers (pinned), using the
+  `RATE_LIMITER` binding when bound and an in-isolate fallback map otherwise.
+  Re-probed: 500 POSTs → **60 succeeded, 120 writes**.
+- **`nameMoveBlocked()`** — the cooldown is now keyed to the **name**
+  (`namemove:<name>` = `"<sec>:<previousHolder>"`), written on every pointer
+  write **including the first claim of a free name**. A displacement is refused
+  while the stamp is younger than the hour — **unless the previous holder is the
+  mover**, which is the exemption that lets a victim reclaim their own name
+  instantly. Re-probed: **429, 429, 429, 429**, pointer stays with the victim,
+  victim's reclaim still 200.
+
+**Deliberate behaviour change:** renaming *onto* a name taken from someone else
+within the hour now 429s instead of succeeding with a warning. The old pinned
+test asserted the old behaviour ("other identity takes the name -> 200 but
+contested") and was rewritten to assert the 429 — that is a contract change, not
+a test being bent to pass.
+
+**The lesson, which is now in the module map:** "already sound" is a claim to
+*probe*, not to read. Every hole here was on the unauthenticated first-contact
+path, and reading the auth code exercises none of it.
+
 ### Two things I found that were not asked for
 
 Reported, not silently swallowed:
@@ -114,14 +169,42 @@ Reported, not silently swallowed:
 - Full gate: `tools/test_mega_smoke.py --suites` → **44 passed, 1 failed**, the
   same known non-hermetic `test_mod_store.py` (24/3) as the baseline.
 
+### The skins round (after the user pushed back)
+
+- `worker/test-worker.mjs` — the suite's helper requests now each carry their own
+  `CF-Connecting-IP`; without that every check shares one throttle bucket and the
+  suite 429s itself. New checks: a flooded IP gets `rate_limited`, the cap is
+  **60 then 429** (140 of 200 throttled), a different IP is unaffected, a
+  refusing binding → 429, a throwing binding → falls back rather than 500. The
+  old displacement test was rewritten to assert the **429**.
+- `node worker/test-worker.mjs` → all pass. All seven `.mjs` suites pass.
+- `tools/test_skins_net.py` — **11 new source pins** (§4) so CI covers what it
+  cannot run. All pass.
+- **Negative controls for the skins pins too** — four mutations, each caught: the
+  gate moved below all write handlers (caught by both order pins), the stamp
+  re-keyed to the identity, the reclaim exemption deleted, and the first-claim
+  stamp removed. The first attempt at the "moved gate" mutation was *not* a real
+  mutation (the gate stayed above every handler) and correctly survived; redone
+  properly below the handlers, it failed as intended.
+
 ## Honest caveats
 
-- **No live deploy was tested.** The edge cache and the rate limiter only do
-  anything in the Workers runtime; I proved them with stubs, and the pins prove
-  the source, but nothing has hit the real cache.
-- The rate limiter must be **uncommented and re-deployed** to take effect. Until
-  then the cache alone is doing the work — which is the intended order of
-  importance, since the cache is what makes the quota unbunable.
+- **No live deploy was tested.** The edge cache, both rate limiters and the name
+  stamp only do anything in the Workers runtime; I proved them with stub KV /
+  stub cache probes, and the pins prove the source, but nothing has hit the real
+  KV or cache.
+- **The name-displacement fix changes observable behaviour**, and that is
+  intended: taking a name off someone within the hour now 429s. The launcher
+  already treats a non-200 as "cool off and retry" (600s cooldown), so it does
+  not spin, but a legitimate user renaming onto a *contested* name will wait.
+  A victim reclaiming their own name is exempt and stays instant.
+- `RATE_LIMITER` must be **uncommented and re-deployed** to bind it. Unlike the
+  downloads Worker, the skins Worker's protection does **not** depend on that:
+  the in-isolate fallback is always on, and the name stamp is unconditional.
+- The in-isolate fallback is per-isolate, so a distributed attack spreads across
+  isolates and gets a higher effective rate. It bounds a single attacker, not a
+  botnet; the binding is the real answer. This is why the *cache* (downloads) and
+  the *name stamp* (skins) are the load-bearing fixes rather than the limiters.
 - A fork's launcher still points at the upstream URLs unless it sets
   `CUBEON_SKIN_API` / `CUBEON_FRIENDS_API` / `CUBEON_INVITE_API`. I added the
   missing `CUBEON_SKIN_API` for parity, and documented the rest in
