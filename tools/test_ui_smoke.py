@@ -57,10 +57,11 @@ class FakeWindow:
 
     async def close(self):
         # Flet 0.86's Window.close is a coroutine; the seasonal Restart
-        # button schedules it with page.run_task(page.window.close). Missing
-        # here, that AttributeError hit the button's fallback branch, which
-        # CLEARS the relaunch request - so the harness made a working button
-        # look broken.
+        # button schedules it with page.run_task(page.window.close). This was
+        # once missing here, so the AttributeError hit the button's fallback
+        # branch - which then CLEARED the relaunch request and made a working
+        # button look broken. The button no longer discards the request when a
+        # close fails (see _on_restart_click), but keep close() real anyway.
         pass
 
 
@@ -427,6 +428,36 @@ check("the restart branch reaches execv with nothing blocking it first",
       "_relaunch_fresh_process()" in _restart_src
       and "_stop_tray_best_effort" not in _restart_src,
       "the click must go straight to execv - no native teardown in the way")
+
+# "Restart closes but never reopens" (packaged Windows build), three guards:
+#  * a frozen relaunch must be an INDEPENDENT instance. Since PyInstaller 6.9 a
+#    process spawned via sys.executable is assumed to be a reusable WORKER, so
+#    the replacement re-uses files this process is about to delete and never
+#    comes up. RESET_ENVIRONMENT=1 is the documented fix;
+#  * after a detached relaunch the old process must NOT sweep "our" flet
+#    clients, or it kills the one the replacement just started;
+#  * a close that RAISES (the client tears the session down mid-invoke) must
+#    never clear the armed relaunch request.
+_relaunch_src = _main_src[
+    _main_src.index("def _relaunch_fresh_process"):
+    _main_src.index("from launcher_core import run_file_picker")]
+check("a frozen relaunch resets the PyInstaller environment",
+      "PYINSTALLER_RESET_ENVIRONMENT" in _relaunch_src,
+      "PyInstaller >= 6.9 needs RESET_ENVIRONMENT=1 to start an independent "
+      "instance (docs: 'Implementing application restart')")
+check("the relaunch env is handed to execv AND the detached spawn",
+      "os.execve(" in _relaunch_src and "env=env," in _relaunch_src,
+      "execve must carry the reset env; the detached Popen must too")
+check("the old process's client sweep is skipped after a relaunch",
+      "_relaunched = _relaunch_fresh_process()" in _main_src
+      and "if not _relaunched:" in _main_src,
+      "sweeping every flet client after a detached relaunch kills the new one")
+_restart_click_src = _main_src[
+    _main_src.index("def _on_restart_click"):
+    _main_src.index("seasonal_restart_btn = ft.Container")]
+check("a close that raises never clears the relaunch request",
+      '_relaunch["request"].clear()' not in _restart_click_src,
+      "clearing it turns a successful close into 'never reopens'")
 
 print("\n4d. Ctrl+C after the session ends can never raise flet's dead-loop error")
 # The 2026-09-24 crash: ^C right after the session ended interrupted

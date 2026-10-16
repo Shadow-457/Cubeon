@@ -141,30 +141,48 @@ def _relaunch_fresh_process() -> bool:
     """Replace this launcher with a fresh process, with a safe fallback.
 
     Flet is effectively once-per-process, so Settings > Restart and GPU-crash
-    recovery must start a new interpreter.  ``execv`` is preferred because it
-    avoids a second launcher, but it can fail for a deleted/replaced executable
-    or a transient resource error.  In that case start the same command
-    detached; callers then leave the old process through the normal hard-exit
-    path.
+    recovery must start a new interpreter.  On POSIX ``execv`` is preferred
+    because it replaces this process outright (no second launcher, no race);
+    on Windows - and whenever execv fails - the same command is started
+    detached and the caller leaves through the normal hard-exit path.
     """
     if getattr(sys, "frozen", False):
         argv = [sys.executable] + sys.argv[1:]
     else:
         argv = [sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
+
+    env = os.environ.copy()
     # Tells the replacement image this is a deliberate relaunch, not a cold
     # start: it must not greet the user with an "orphaned session" prompt
     # about a game that is perfectly well looked after (see the watchdog
     # block in main()).
-    os.environ["CUBEON_RELAUNCH"] = "1"
+    env["CUBEON_RELAUNCH"] = "1"
+    # PyInstaller >= 6.9 assumes a process spawned through sys.executable is a
+    # WORKER that re-uses its parent's already-unpacked files. A restart is the
+    # opposite: an INDEPENDENT instance that must outlive this process (which
+    # deletes its extraction dir on exit in a onefile build). Without this flag
+    # the replacement never comes up - the packaged Windows build's "restart
+    # closes but never reopens". It is the documented way to implement
+    # application restart; see PyInstaller's "Common Issues and Pitfalls" ->
+    # "Implementing application restart".
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+
+    # POSIX: execv replaces this image in place. On Windows execv just goes
+    # through CreateProcess with no advantage over a detached spawn, and the
+    # frozen bootloader prefers the spawn path, so go straight there.
+    if os.name != "nt":
+        try:
+            os.execve(sys.executable, argv, env)
+        except OSError:
+            pass  # a deleted/replaced executable (or a transient error): fall back
+
+    # The parent must not keep running after handing off: it may still own
+    # native Flet/GLib state and would race the replacement process.
+    from cubeon.winproc import hidden
     try:
-        os.execv(sys.executable, argv)
-    except OSError:
-        # The parent must not keep running after handing off: it may still
-        # own native Flet/GLib state and would race the replacement process.
-        from cubeon.winproc import hidden
         subprocess.Popen(
             argv,
-            env=os.environ.copy(),
+            env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -173,6 +191,11 @@ def _relaunch_fresh_process() -> bool:
             **hidden(),
         )
         return True
+    except Exception:
+        # Both execv and the detached spawn failed: the caller is out of
+        # in-process options (ft.run is once-per-process) and will exit, but
+        # it does so knowing the relaunch did NOT happen.
+        return False
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
@@ -499,17 +522,23 @@ def _window_gone_finish(reason: str) -> None:
     # "Restart to apply" (Settings > Seasonal) outranks a plain close here,
     # exactly as it does in _session_loop: the user asked for a re-exec, and
     # leaving the process instead would make the Restart button look broken.
+    _relaunched = False
     if _relaunching:
         print("cubeon: restart requested - relaunching to apply seasonal "
               "settings")
         try:
-            _relaunch_fresh_process()
+            _relaunched = _relaunch_fresh_process()
         except Exception as ex:
             print(f"cubeon: relaunch via re-exec failed ({ex})")
-    try:
-        _terminate_flet_clients(resolve_assets_dir())
-    except Exception:
-        pass
+    if not _relaunched:
+        # Only sweep clients when no replacement is coming: the detached spawn
+        # may already be bringing up ITS client, and killing every process that
+        # matches our assets dir would take that one down too ("restart closes
+        # but never reopens", again).
+        try:
+            _terminate_flet_clients(resolve_assets_dir())
+        except Exception:
+            pass
     os._exit(0)
 
 
@@ -5574,6 +5603,26 @@ async def main(page: ft.Page):
     )
     page.overlay.append(restart_overlay)
 
+    # Tracks whether a native close is currently in flight, so a re-click can
+    # retry after a failure but two rapid clicks cannot double-fire.
+    _restart_state = {"closing": False}
+
+    def _restore_restart_ui():
+        """Undo the 'Restarting…' cover WITHOUT touching the relaunch request.
+
+        The request is the user's intent, not the UI's: it stays armed so the
+        __main__ loop (or the window-gone watchdog) still re-execs. Only the
+        cosmetics are undone.
+        """
+        _restart_state["closing"] = False
+        seasonal_restart_btn.disabled = False
+        seasonal_restart_note.value = "Close and reopen Cubeon to apply."
+        restart_overlay.opacity = 0
+        restart_overlay.visible = False
+        for _c in (seasonal_restart_btn, seasonal_restart_note,
+                   restart_overlay):
+            thread_safe_ui.refresh(_c)
+
     def _on_restart_click(e=None):
         """Ask the __main__ loop to relaunch Cubeon after this session ends.
 
@@ -5593,9 +5642,13 @@ async def main(page: ft.Page):
             _show_snack("Close Cubeon and open it again to apply the seasonal "
                         "colors.", duration=6000)
             return
-        if _relaunch["request"].is_set():
-            return  # already restarting: a double-click must not double-fire
+        # Idempotent: arming is the click's real effect. A click after a close
+        # that raised must be able to try again, so this is NOT guarded by
+        # is_set() - only a close already in flight short-circuits below.
         _relaunch["request"].set()
+        if _restart_state["closing"]:
+            return  # a close is already underway: don't double-schedule it
+        _restart_state["closing"] = True
         seasonal_restart_btn.disabled = True
         seasonal_restart_note.value = "Restarting…"
         restart_overlay.visible = True
@@ -5609,39 +5662,35 @@ async def main(page: ft.Page):
             # reads as an intentional restart instead of the UI blinking out.
             # The request stays armed for the __main__ loop either way; this
             # only paces the native close.
-            try:
-                await asyncio.sleep(0.4)
-            except Exception:
-                pass
-            try:
-                await page.window.close()
-            except Exception:
-                # The window would not take the close request: un-arm so the
-                # button isn't left looking stuck, and tell the truth.
-                _relaunch["request"].clear()
-                seasonal_restart_btn.disabled = False
-                seasonal_restart_note.value = "Close and reopen Cubeon to apply."
-                restart_overlay.opacity = 0
-                restart_overlay.visible = False
-                for _c in (seasonal_restart_btn, seasonal_restart_note,
-                           restart_overlay):
-                    thread_safe_ui.refresh(_c)
+            #
+            # Two attempts: a raise here does NOT mean the close failed - the
+            # desktop client can tear the session down while the invoke is
+            # still awaiting its reply (on Windows a programmatic close
+            # delivers a "close" event, which runs _kill_flet_client
+            # MID-AWAIT), and the window is usually already gone. The old code
+            # cleared _relaunch["request"] on a raise, which turned a
+            # successful close into "closes but never reopens". Retrying
+            # covers the other case - the window really did stay up - without
+            # ever discarding the user's restart request.
+            for _attempt in range(2):
+                try:
+                    await asyncio.sleep(0.4 if _attempt == 0 else 0.6)
+                    await page.window.close()
+                    _restart_state["closing"] = False
+                    return
+                except Exception:
+                    continue
+            _restore_restart_ui()
 
         try:
             page.run_task(_restart_close_after_beat)
         except Exception:
             # No event loop to schedule on: fall back to the immediate close.
+            _restart_state["closing"] = False
             try:
                 page.run_task(page.window.close)
             except Exception:
-                _relaunch["request"].clear()
-                seasonal_restart_btn.disabled = False
-                seasonal_restart_note.value = "Close and reopen Cubeon to apply."
-                restart_overlay.visible = False
-                restart_overlay.opacity = 0
-                for _c in (seasonal_restart_btn, seasonal_restart_note,
-                           restart_overlay):
-                    thread_safe_ui.refresh(_c)
+                _restore_restart_ui()
 
     seasonal_restart_btn = ft.Container(
         content=ft.Row(
