@@ -33,7 +33,7 @@ assert.equal(hub.nameRow("player_12345678").minecraft_username, "BlueFox");
 const hello = ws.frames.find((frame) => frame.t === "hello_ok");
 assert.equal(hello.minecraft_username, "BlueFox");
 assert.equal(hello.name, "Player_12345678");
-assert.equal(hello.uid, "000000000001");
+assert.equal(hello.uid, "00000001");
 console.log("HELLO metadata persists and returns stable identity");
 
 hub.onMetadata("player_12345678", { minecraft_username: "RedFox" });
@@ -57,7 +57,7 @@ assert.equal(hub.nameRow("player_12345678").minecraft_username, "BlueFox");
 const metadataFrame = ws.frames.find((frame) => frame.t === "metadata");
 assert.ok(metadataFrame);
 assert.equal(metadataFrame.minecraft_username, "BlueFox");
-assert.equal(metadataFrame.uid, "000000000001");
+assert.equal(metadataFrame.uid, "00000001");
 assert.equal(metadataFrame.name, "Player_12345678");
 console.log("METADATA change persists and echoes full identity");
 
@@ -82,12 +82,12 @@ await hub.webSocketMessage(peer, JSON.stringify({
   t: "hello", name: "Ruby_87654321", secret: "ruby-secret-123456789012345",
 }));
 peer.frames.length = 0;
-hub.onAdd("player_12345678", "Player_12345678", { uid: "000000000002" });
-assert.ok(peer.frames.some((frame) => frame.t === "request" && frame.from_uid === "000000000001"));
+hub.onAdd("player_12345678", "Player_12345678", { uid: "00000002" });
+assert.ok(peer.frames.some((frame) => frame.t === "request" && frame.from_uid === "00000001"));
 ws.frames.length = 0;
 hub.onMetadata("player_12345678", { minecraft_username: "NewName" });
 assert.ok(peer.frames.some((frame) => frame.t === "metadata"
-  && frame.minecraft_username === "NewName" && frame.uid === "000000000001"),
+  && frame.minecraft_username === "NewName" && frame.uid === "00000001"),
   "pending-request counterpart is notified of label change");
 console.log("pending-request counterpart notified on metadata change");
 

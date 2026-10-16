@@ -100,7 +100,13 @@ from .mods import list_mods, get_mod_download, download_mod
 #                        entry. The trailing slash is load-bearing: CSL builds
 #                        lookups as bare `root + username + ".json"`, so
 #                        ".../skins/" + "Alex" + ".json" -> /skins/Alex.json.
-CUBEON_API_BASE = "https://cubeon-skins.hamza-457-shahbaz.workers.dev"
+# Overridable via CUBEON_SKIN_API so it can point at `wrangler dev` without
+# editing shipped code - and so a fork can keep its own users off the upstream
+# Worker. The deployed URL is public (it is in this file, in friends.py and in
+# invites.py, and it has to be: a client-side launcher has nowhere to hide it),
+# so the Workers themselves carry the abuse protection. See worker/README.md.
+CUBEON_API_BASE = (os.environ.get("CUBEON_SKIN_API")
+                   or "https://cubeon-skins.hamza-457-shahbaz.workers.dev").rstrip("/")
 CUBEON_SKIN_API_ROOT = CUBEON_API_BASE + "/skins/"
 
 CSL_MODRINTH_SLUG = "customskinloader"

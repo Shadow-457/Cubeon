@@ -25,6 +25,14 @@ import types
 _tmp = tempfile.mkdtemp(prefix="cubeon-csl-test-")
 os.environ["HOME"] = _tmp
 os.environ["USERPROFILE"] = _tmp  # Windows equivalent, for Path.home()
+# CUBEON_GAME_DIR *wins over HOME* in cubeon/paths.py (that is its whole
+# purpose), so leaving an ambient one set defeats the sandbox above: this test
+# would then write and CONSUME ExtraList files inside the real game dir - which
+# is the directory CI sets for the whole job - instead of inside _tmp. That is
+# not hypothetical: the first failures here ("nothing registered before first
+# run", "only the api file is on disk") are exactly what a warm game dir looks
+# like, i.e. the test silently stops testing what it says it tests.
+os.environ.pop("CUBEON_GAME_DIR", None)
 
 _fake_mc = os.path.join(_tmp, ".minecraft")
 _mll = types.ModuleType("minecraft_launcher_lib")
@@ -341,6 +349,30 @@ for error in (net.DownloadError("offline"), RuntimeError("wrapped download failu
         check(f"CSL lookup tolerates {type(error).__name__}", "couldn't reach" in csl.install("1.20.1", "fabric"))
     with patch.object(csl, "get_mod_download", return_value=info), patch.object(csl, "download_mod", side_effect=error):
         check(f"CSL download tolerates {type(error).__name__}", "download failed" in csl.install("1.20.1", "fabric"))
+
+# --- the Worker base URL is overridable ------------------------------------
+# The deployed URL is public (it is in the shipped launcher and therefore in
+# the repo), so a fork can keep its users off the upstream Worker by pointing
+# Cubeon at its own deployment - and `wrangler dev` needs the same lever. The
+# constants are read at import time, so this is checked the honest way: reload
+# the module under a patched environment and read what it produced. csl.py has
+# no import-time side effects beyond constant definitions, which is what makes
+# reloading it safe here.
+import importlib
+
+with patch.dict(os.environ, {"CUBEON_SKIN_API": "https://example.test/base/"}):
+    csl = importlib.reload(csl)
+    check("CUBEON_SKIN_API overrides the Worker base",
+          csl.CUBEON_API_BASE == "https://example.test/base", csl.CUBEON_API_BASE)
+    check("...and the CSL root keeps its trailing slash on the override",
+          csl.CUBEON_SKIN_API_ROOT == "https://example.test/base/skins/",
+          csl.CUBEON_SKIN_API_ROOT)
+
+os.environ.pop("CUBEON_SKIN_API", None)
+csl = importlib.reload(csl)
+check("...and with no override the deployed Worker is used",
+      csl.CUBEON_API_BASE == "https://cubeon-skins.hamza-457-shahbaz.workers.dev",
+      csl.CUBEON_API_BASE)
 
 print(f"\n{failures} CHECK(S) FAILED" if failures else "\nALL CSL CHECKS PASSED")
 sys.exit(1 if failures else 0)
