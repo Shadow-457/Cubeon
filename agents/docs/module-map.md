@@ -301,10 +301,45 @@
 - **Linux ships the PINNED flet 0.86.x** (`requirements.txt` pins
   `flet>=0.86,<0.87`); the system python3.14 has drifted to flet 1.0.3 — never
   build with it. Build with
-  `PATH=$HOME/cubeon-venv/bin:$PATH bash packaging/build_appimage.sh` then
-  `… python packaging/build_linux_installers.py`. ORDER: `build_appimage.sh`
-  does `mv dist/Cubeon/*` (clobbers the Windows onedir), so build the Windows
-  installer FIRST.
+  `PATH=$PWD/.venv-build/bin:$PATH bash packaging/build_appimage.sh` then
+  `… python packaging/build_linux_installers.py` (the venv lives at
+  `.venv-build` in this checkout; the older notes say `$HOME/cubeon-venv`,
+  which is simply not present any more — check, don't trust the path). ORDER:
+  `build_appimage.sh` does `mv dist/Cubeon/*` (clobbers the Windows onedir), so
+  build the Windows installer FIRST.
+- **Verifying a Linux build without a GPU, and without trusting the source
+  tree: `bash tools/verify_linux_artifacts.sh`** (run it BEFORE uploading). It
+  checks the artifacts themselves — jar counts, no stale keyhud jars, the
+  bundled flet client, the deb control's version, and the frozen bytecode
+  marker — and exits non-zero on failure. The marker constant inside it must be
+  **bumped every release** to a string that landed in *that* cycle, or the
+  staleness check silently stops meaning anything (a negative control with a
+  bogus marker is the way to confirm it still fails).
+  `xvfb-run -a -s "-screen 0 1280x800x24" ./dist/Cubeon-x86_64.AppImage`
+  then gets the app as far as creating `~/.cubeon_launcher`, its identity and
+  `cubeon.log`, before it dies on `Timed out waiting for OpenGL frame … (have
+  1x1)` — that is the headless box having no GPU, **not** a packaging fault, and
+  it is the same reason CI skips `test_wedge_watchdog.py`. `LIBGL_ALWAYS_SOFTWARE=1`
+  + `GALLIUM_DRIVER=llvmpipe` does NOT rescue it. The useful signal is the log
+  line `cubeon.updater: update check: up to date (vX.Y.Z)`, which proves the
+  FROZEN `APP_VERSION`; do not read "no window" as "bad build".
+- **The app's own modules are inside the executable's archive**, not files on
+  disk: `find … -name 'osnotify*'` finds NOTHING in a correct onedir build, while
+  `grep -a osnotify dist/AppDir/usr/bin/Cubeon` finds it (the module name is in
+  the CArchive TOC). Check data like `assets/jars/*` on disk, code by grepping
+  the executable.
+- **To read the frozen CODE (the only proof the build is not stale)**: the PYZ
+  member is `PYZ.pyz` (NOT `PYZ-00.pyz` — opening that name errors out), so
+  `printf 'O PYZ.pyz\nx cubeon.csl\nout\nQ\n' | pyi-archive_viewer
+  dist/AppDir/usr/bin/Cubeon` then `marshal.loads(open("out","rb").read())` and
+  walk `co_consts`. Data files prove the ASSETS are current; this proves the
+  CODE is. A stale build ships old code silently.
+- **A clean substitute for reading the frozen version**: `ar p <deb>
+  control.tar.gz | tar -xzO control` (member is `control`, NOT `./control`;
+  `dpkg-deb` is often absent — the build script avoids it on purpose so Arch
+  works). Expect `Version:` = `cubeon/updater.py`'s `APP_VERSION`. Once the deb
+  is rebuilt its sha256 CHANGES even though its size barely moves, so re-hash
+  after every build before uploading.
 - **Release v1.0.0 was clobbered 2026-10-06 with builds containing all of the
   above**: `Cubeon-Windows-x64-Setup.exe`, `Cubeon-x86_64.AppImage`,
   `Cubeon-Linux-x86_64-Setup.sh`, and `cubeon_1.0.0_amd64.deb` (built as
@@ -3416,3 +3451,36 @@ Cubeon cape resolves.
   `cubeon-friends.js` and `cubeon/friends.py`). Nothing in CI runs the `.mjs`
   tests, so it rotted silently. Changing a UID width means grepping the `.mjs`
   tests for the literal width too.
+
+## Deleting the LAST instance repaints the whole Play area (2026-10-17) — INVARIANT-ish
+- `refresh_version_list()`'s **"nothing installed" branch** is only reachable by
+  deleting the last instance. It moves, not just re-renders, so anything that
+  draws the selection must be reset there BY HAND: it calls `picker.sync_label()`
+  (the compact Game-version button mirrors the dropdown and is NOT re-labelled
+  otherwise), `_sync_instance_actions(None)` (the hero rename/delete pair),
+  `version_issue_text.visible = False`, `update_pack_badge()`, then
+  `refresh_mods_list()` / `refresh_browse_for_new_profile()` / `update_hero()`
+  (the last one rebuilds the Jump back in row + hero title, so card/empty
+  visibility and the banner come from there).
+- `_sync_instance_actions(version_id)` (main.py, next to the two IconButtons) is
+  the ONE owner of that pair's enabled/dimmed state - `on_version_selected` and
+  the empty branch both call it. It is late-bound (defined after
+  `on_version_selected`), safe because the first call is `refresh_version_list()`
+  at the end of the build.
+- `InstancesManager` (ui/versions.py) keeps ONE dialog + body and re-draws rows
+  with `refresh()`, which `on_delete_instance` / `on_rename_instance` call after
+  a successful action - a delete from a row leaves the dialog mounted, so
+  without it the deleted row stays on screen until reopen. `open()` must not
+  re-show a mounted dialog (Flet's `show_dialog()` raises) and tests membership
+  in `page._dialogs.controls`: a barrier dismissal removes the dialog from that
+  stack WITHOUT clearing `.open`, so the flag alone would make the Manage link
+  stop working. `_close()` drops the reference so the next open builds a fresh
+  dialog. Guarded by tools/test_version_ui.py sections 4-5.
+- `InstanceCards.rebuild()` (ui/versions.py) is called from TWO threads - the UI
+  selection path and the install/launch workers via
+  `_rescan_installed -> update_hero`. It now serializes on a lock (body in
+  `_rebuild()`); without it the pop-then-assemble order raised
+  `KeyError: '<version id>'` on interleaving (1-in-5 flake in test_version_ui
+  once a Play click was followed by a delete). Guarded by test_version_ui
+  section 6. Still open: `_rescan_installed` touches ft controls off the event
+  loop instead of going through `cubeon/thread_safe_ui`.

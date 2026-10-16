@@ -370,6 +370,11 @@ class InstanceCards:
         self._names: dict = {}      # version_id -> the name the card was drawn with
         self._order = None          # the installed set/order the row holds
         self._selected_styled = None
+        # rebuild() is reachable from MORE than one thread: the Play tab's own
+        # selection path runs it on the UI thread, while the install/launch
+        # workers repaint through update_hero -> _rescan_installed. Two of
+        # those interleaving is what this lock prevents - see rebuild().
+        self._lock = threading.Lock()
 
     def _chip_specs(self, info):
         specs = []
@@ -457,6 +462,19 @@ class InstanceCards:
         card.border = ft.border.Border.all(1, ACCENT if selected else CARD_BORDER)
 
     def rebuild(self):
+        """Sync the row with the installed set.
+
+        Serialized on this object: dropped ids are popped from the dicts
+        BEFORE the row is assembled from them, so an interleaved pair of calls
+        (a background install/launch rescan racing the UI thread's own repaint
+        - both are real, see the _lock comment in __init__) used to raise
+        KeyError on the id the other call had just popped, taking the whole
+        repaint - and the exception handler that ran it - down with it.
+        """
+        with self._lock:
+            self._rebuild()
+
+    def _rebuild(self):
         metas = self.get_metas() or {}
         labels = self.get_labels() or {}
         touched = False
@@ -521,6 +539,11 @@ class InstancesManager:
         self.on_play = on_play
         self.on_rename = on_rename
         self.on_delete = on_delete
+        # One dialog, reused: its rows are re-drawn on every open AND after an
+        # action taken from a row, so a deleted instance can't linger in a
+        # dialog that is still on screen. See refresh().
+        self._body: ft.Column | None = None
+        self._dialog: ft.AlertDialog | None = None
 
     def _row(self, inst, selected):
         vid = inst["id"]
@@ -597,7 +620,9 @@ class InstancesManager:
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
         ), size_text, inst
 
-    def open(self):
+    def _render(self):
+        """Re-draw the row list from the LIVE instance listing (and kick off
+        the off-thread size walk for the rows just built)."""
         try:
             listing = self.get_instances() or []
         except Exception:
@@ -612,21 +637,78 @@ class InstancesManager:
             rows = [ft.Container(
                 content=ft.Text("No versions installed yet.", size=12, color=TEXT_DIM),
                 padding=ft.padding.Padding.symmetric(horizontal=4, vertical=16))]
-
-        body = ft.Container(
-            width=560,
-            content=ft.Column(rows, spacing=8, scroll=ft.ScrollMode.AUTO, height=420),
-        )
-        dialog = ft.AlertDialog(
-            modal=False, bgcolor=SURFACE,
-            title=ft.Text("Instances", color=TEXT, weight=ft.FontWeight.W_800),
-            content=body,
-            actions=[ft.TextButton("Close", on_click=lambda e: cubeon_dialogs.close_dialog(self.page, dialog))],
-        )
-        cubeon_dialogs.open_dialog(self.page, dialog)
+        if self._body is None:
+            self._body = ft.Column([], spacing=8, scroll=ft.ScrollMode.AUTO,
+                                   height=420)
+        self._body.controls = rows
         if size_slots:
             threading.Thread(target=self._fill_sizes, args=(size_slots,),
                              daemon=True).start()
+
+    def _close(self):
+        """The Close button: dismiss the dialog AND forget our reference to it.
+
+        Flet keeps a closed-but-not-yet-dismissed dialog in its dialog stack
+        and ``show_dialog()`` RAISES for one that is still mounted, so the next
+        open() builds a fresh object instead of racing that teardown. The body
+        (and the size text controls inside it) is dropped with it - _render()
+        always redraws from the live listing.
+        """
+        if self._dialog is not None:
+            cubeon_dialogs.close_dialog(self.page, self._dialog)
+        self._dialog = None
+        self._body = None
+
+    def _is_mounted(self) -> bool:
+        """Is our dialog currently in the page's dialog stack?
+
+        ``show_dialog()`` RAISES for a dialog that is already mounted, so
+        open() must not re-show one. Membership is the accurate test: Flet
+        removes a barrier-dismissed dialog from its stack WITHOUT clearing
+        ``.open``, so the flag alone would report a dismissed dialog as still
+        on screen and the Manager would stop reopening (older Flet versions
+        have no stack to ask, so the flag is the fallback there).
+        """
+        stack = getattr(getattr(self.page, "_dialogs", None), "controls", None)
+        if stack is None:
+            return bool(getattr(self._dialog, "open", False))
+        return self._dialog in list(stack)
+
+    def open(self):
+        if self._dialog is None:
+            self._body = ft.Column([], spacing=8, scroll=ft.ScrollMode.AUTO,
+                                   height=420)
+            self._dialog = ft.AlertDialog(
+                modal=False, bgcolor=SURFACE,
+                title=ft.Text("Instances", color=TEXT, weight=ft.FontWeight.W_800),
+                content=ft.Container(width=560, content=self._body),
+                actions=[ft.TextButton("Close", on_click=lambda e: self._close())],
+            )
+        self._render()
+        if self._is_mounted():
+            # Already on screen (a second Manage click): the rows were just
+            # redrawn from the live listing, so all that's left is to flush.
+            self.page.update()
+        else:
+            cubeon_dialogs.open_dialog(self.page, self._dialog)
+
+    def refresh(self):
+        """Re-draw the rows of the manager dialog that is on screen.
+
+        Called after an action taken from one of those rows (Delete in
+        particular): the dialog stays mounted across the action, so without
+        this it kept showing the instance that had just been removed - its row
+        only went away when the dialog was closed and reopened. A no-op when
+        the dialog isn't open (open() always renders from the live listing,
+        and _close() drops the reference).
+        """
+        if self._dialog is None or not getattr(self._dialog, "open", False):
+            return
+        try:
+            self._render()
+        except Exception:
+            pass
+        self.page.update()
 
     @staticmethod
     def _fill_sizes(slots):

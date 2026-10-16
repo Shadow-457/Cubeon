@@ -29,6 +29,7 @@ _sandbox_home.isolate()
 
 import _fuzz_common as fz                                     # noqa: E402
 from _fuzz_common import every_control, subtree_text, walk    # noqa: E402
+from _fuzz_common import ctrl_text                            # noqa: E402
 import app_driver                                             # noqa: E402
 
 passed = 0
@@ -189,6 +190,222 @@ if inst_dialog is not None:
             driver._fire_named(c, "on_click", f"manager:{c.tooltip}")
     check("manager actions raise nothing", not driver.errors,
           str(driver.errors[:3]))
+
+print("\n4. deleting the LAST instance leaves nothing of it in the Play area")
+
+# Regression (2026-10-17, user report): "when there's only 1 version and I
+# delete it, it does delete but the UI doesn't correctly disappear". The delete
+# itself worked; the page didn't. refresh_version_list()'s "no installed
+# versions" branch (only reachable by deleting the last one) re-drew the mods /
+# hero parts but NOT the compact Game-version button (which mirrors the
+# dropdown) or the rename/delete pair - so the button still advertised the
+# version that had just been deleted and the destructive pair stayed lit. A
+# delete performed from a row of the OPEN Instances manager was the other half:
+# the dialog stays mounted across the action, so it kept listing the instance
+# that was gone.
+#
+# This section drives the real path: a shrinking installed set (one instance),
+# the manager's row Delete + its confirmation, then the empty-state resets.
+_remaining = [dict(INSTALLED[1])]
+stubs.core.get_installed_versions = lambda *a, **k: list(_remaining)
+
+
+def _shrinking_delete(vid):
+    _remaining[:] = [v for v in _remaining if v["id"] != vid]
+
+
+stubs.core.delete_version = _shrinking_delete
+# Drop the dialogs section 3 left stacked (the fake page keeps them in
+# page.opened) so this section starts from a clean surface.
+for _d in list(page.opened):
+    _d.open = False
+page.opened.clear()
+page._dialogs.controls.clear()  # type: ignore[attr-defined]
+
+# Re-sync the app against the new installed set through a real entry point:
+# "Browse all versions" is refresh_version_list(online=True).
+# (Each fire needs its own action label: the driver de-dupes identical
+# (control, handler, action) triples so a pass never double-clicks.)
+driver._fire_named(picker_btn[0], "on_click", "open version picker (empty state)")
+browse = [c for c in fz.clickable_with_subtext(page, "browse all versions")
+          if callable(getattr(c, "on_click", None))]
+if browse:
+    driver._fire_named(browse[-1], "on_click", "browse all versions (empty state)")
+
+# The manager (opened from the picker) now lists that single instance.
+manage = fz.clickable_with_subtext(page, "manage installed versions")
+if manage:
+    driver._fire_named(manage[0], "on_click", "open instances manager (empty state)")
+
+inst_dialog = dialog_titled("Instances")
+check("the manager lists the single remaining instance",
+      inst_dialog is not None and "26.1.2" in subtree_text(inst_dialog),
+      subtree_text(inst_dialog)[:200] if inst_dialog is not None else "no dialog")
+
+row_deletes = [c for c in (walk(inst_dialog) if inst_dialog is not None else [])
+               if getattr(c, "tooltip", "") == "Delete"]
+check("that row offers Delete", len(row_deletes) == 1, f"{len(row_deletes)} delete buttons")
+if row_deletes:
+    driver._fire_named(row_deletes[0], "on_click", "manager:delete")
+
+confirm = None
+if page.opened:
+    for c in walk(page.opened[-1]):
+        if type(c).__name__ == "TextButton" and "delete" == (ctrl_text(c) or "").lower():
+            confirm = c
+check("Deleting from a row asks for confirmation", confirm is not None)
+if confirm is not None:
+    driver._fire_named(confirm, "on_click", "confirm delete")
+
+check("the delete really removed the instance", not _remaining, str(_remaining))
+check("...without raising", not driver.errors, str(driver.errors[:3]))
+
+# -- the manager must not keep showing a row that no longer exists --------
+check("the open manager stops listing the deleted instance",
+      inst_dialog is not None and "26.1.2" not in subtree_text(inst_dialog),
+      subtree_text(inst_dialog)[:200] if inst_dialog is not None else "no dialog")
+
+# -- and the Play tab must go back to its empty state ---------------------
+picker_text = subtree_text(picker_btn[0]) if picker_btn else ""
+check("the Game-version button stops advertising the deleted version",
+      "1.21.11" not in picker_text and "26.1.2" not in picker_text,
+      picker_text[:160])
+check("the Game-version button says nothing is installed",
+      "no versions installed yet" in picker_text.lower(), picker_text[:160])
+
+tips = {}
+for c in every_control(page):
+    tip = getattr(c, "tooltip", "") or ""
+    if tip in ("Delete instance", "Rename instance"):
+        tips[tip] = c
+check("the hero still exposes rename/delete",
+      set(tips) == {"Delete instance", "Rename instance"}, str(sorted(tips)))
+check("rename/delete are disabled with nothing installed",
+      all(getattr(c, "disabled", None) for c in tips.values()),
+      str({k: getattr(c, "disabled", None) for k, c in tips.items()}))
+check("rename/delete are dimmed with nothing installed",
+      all(getattr(c, "opacity", None) == 0.4 for c in tips.values()),
+      str({k: getattr(c, "opacity", None) for k, c in tips.items()}))
+
+check("the Jump back in cards are gone", not find_cards(), str(sorted(find_cards())))
+empties = [c for c in every_control(page)
+           if type(c).__name__ == "Text"
+           and (c.value or "").lower().startswith("no versions installed yet -")
+           and getattr(c, "visible", None)]
+check("the empty 'Jump back in' notice shows instead", bool(empties),
+      str([c.value for c in every_control(page) if type(c).__name__ == "Text"][:20]))
+
+print("\n5. the hero's own Delete on the LAST instance does the same")
+
+# The reported path exactly: one instance installed, selected, rename/delete
+# lit - delete it and the whole Play area must go back to its empty state.
+_remaining[:] = [dict(INSTALLED[1])]
+driver._fire_named(picker_btn[0], "on_click", "open version picker (hero flow)")
+browse = [c for c in fz.clickable_with_subtext(page, "browse all versions")
+          if callable(getattr(c, "on_click", None))]
+if browse:
+    driver._fire_named(browse[-1], "on_click", "browse all versions (hero flow)")
+
+cards = find_cards()
+check("the remaining instance has a Jump back in card",
+      set(cards) == {FABRIC_ID}, str(sorted(cards)))
+if FABRIC_ID in cards:
+    driver._fire_named(cards[FABRIC_ID], "on_click", "select the remaining instance")
+
+
+def hero_btn(tip):
+    for c in every_control(page):
+        if (getattr(c, "tooltip", "") or "") == tip:
+            return c
+    return None
+
+
+del_btn = hero_btn("Delete instance")
+check("the hero Delete is live for an installed selection",
+      del_btn is not None and not getattr(del_btn, "disabled", True)
+      and getattr(del_btn, "opacity", None) == 1,
+      f"disabled={getattr(del_btn, 'disabled', None)} "
+      f"opacity={getattr(del_btn, 'opacity', None)}")
+
+driver._fire_named(del_btn, "on_click", "hero:delete last instance")
+confirm = None
+if page.opened:
+    for c in walk(page.opened[-1]):
+        if type(c).__name__ == "TextButton" and "delete" == (ctrl_text(c) or "").lower():
+            confirm = c
+check("the hero Delete asks for confirmation", confirm is not None)
+if confirm is not None:
+    driver._fire_named(confirm, "on_click", "confirm hero delete")
+
+check("the hero delete really removed it", not _remaining, str(_remaining))
+check("the hero delete raised nothing", not driver.errors, str(driver.errors[:3]))
+
+picker_text = subtree_text(picker_btn[0]) if picker_btn else ""
+check("the Game-version button goes back to 'nothing installed'",
+      "no versions installed yet" in picker_text.lower()
+      and "26.1.2" not in picker_text, picker_text[:160])
+ren = hero_btn("Rename instance")
+check("rename/delete dim out after the last instance is deleted",
+      all(getattr(c, "disabled", None)
+          for c in (del_btn, ren) if c is not None)
+      and all(getattr(c, "opacity", None) == 0.4
+              for c in (del_btn, ren) if c is not None),
+      f"delete={getattr(del_btn, 'disabled', None)}/{getattr(del_btn, 'opacity', None)} "
+      f"rename={getattr(ren, 'disabled', None)}/{getattr(ren, 'opacity', None)}")
+check("the Jump back in row is gone after the hero delete", not find_cards(),
+      str(sorted(find_cards())))
+
+print("\n6. the 'Jump back in' row survives a concurrent repaint")
+
+# The install / launch workers repaint off the UI thread (_rescan_installed ->
+# update_hero -> InstanceCards.rebuild), while the Play tab's own selection path
+# calls the same rebuild on the UI thread. Both pop dropped ids BEFORE
+# assembling the row from them, so an interleaved pair raised KeyError on the
+# id the other call had just popped - the repaint and its whole handler died
+# with it (found as a flaky crash in the delete/Play flow above). The row is a
+# pure view object, so the interleaving is reproduced directly here.
+from ui.versions import InstanceCards                          # noqa: E402
+import threading                                               # noqa: E402
+
+META_ONE = {"a": {"id": "a", "display_name": "Alpha"},
+            "b": {"id": "b", "display_name": "Beta"}}
+_tls = threading.local()
+race_cards = InstanceCards(
+    page,
+    get_metas=lambda: getattr(_tls, "metas", {}),
+    get_labels=lambda: {},
+    get_selected=lambda: None,
+    on_select=lambda _vid: None,
+    art_src=lambda _base: None,
+    request_art=lambda _base, _apply: None,
+)
+race_errors = []
+
+
+def _repaint(metas, rounds):
+    _tls.metas = metas
+    try:
+        for _ in range(rounds):
+            race_cards.rebuild()
+    except Exception as ex:                    # noqa: BLE001 - reported below
+        race_errors.append(ex)
+
+
+threads = [threading.Thread(target=_repaint, args=(m, 150))
+           for m in (META_ONE, {}, META_ONE, {}) for _ in range(3)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+check("concurrent rebuilds never raise", not race_errors, str(race_errors[:2]))
+
+_tls.metas = META_ONE
+race_cards.rebuild()
+check("the row is consistent once the race is over",
+      len(race_cards.row.controls) == 2 and race_cards.row.visible
+      and not race_cards.empty.visible,
+      f"{len(race_cards.row.controls)} cards, row.visible="
+      f"{race_cards.row.visible}, empty.visible={race_cards.empty.visible}")
 
 print(f"\n{passed} passed, {failed} failed")
 print("Version-management UI test: " + ("FAIL" if failed else "PASS"))

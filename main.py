@@ -3302,11 +3302,7 @@ async def main(page: ft.Page):
         state["selected_mc_version"] = core.extract_mc_version(version_id) if version_id else None
         # Rename/Delete only apply to a version that's actually installed
         # (an online-only entry has nothing on disk to manage yet).
-        _installed_sel = bool(version_id and version_id in state["installed"])
-        rename_instance_btn.disabled = not _installed_sel
-        delete_instance_btn.disabled = not _installed_sel
-        rename_instance_btn.opacity = 1 if _installed_sel else 0.4
-        delete_instance_btn.opacity = 1 if _installed_sel else 0.4
+        _sync_instance_actions(version_id)
         refresh_mods_list()
         refresh_browse_for_new_profile()
         refresh_loader_support(version_id)
@@ -3428,6 +3424,18 @@ async def main(page: ft.Page):
                 # actually selected.
                 state["selected_version"] = None
                 state["selected_mc_version"] = None
+                # Everything that drew the version that just went away has to be
+                # reset too - this branch is reached when the LAST installed
+                # instance is deleted, and it used to only redraw the mods /
+                # hero parts. The compact Game-version button kept reading
+                # "1.21.11  ●" after that version was gone (it mirrors the
+                # dropdown, and nothing re-labelled it here), the rename/delete
+                # pair stayed lit and clickable, and a pack badge / issue note
+                # belonging to the deleted install could stay on screen.
+                picker.sync_label()
+                _sync_instance_actions(None)
+                version_issue_text.visible = False
+                update_pack_badge()
                 refresh_mods_list()
                 refresh_browse_for_new_profile()
                 update_hero()
@@ -4461,6 +4469,9 @@ async def main(page: ft.Page):
             core.save_config(cfg)
             _close_dialog(dlg)
             refresh_version_list()
+            # The rename may have come from a row of the open Instances
+            # manager - re-draw its rows so the new name shows there too.
+            instances_manager.refresh()
             set_status("Instance renamed")
 
         name_field.on_submit = save
@@ -4527,6 +4538,10 @@ async def main(page: ft.Page):
                 state["selected_version"] = None
             core.save_config(cfg)
             refresh_version_list()
+            # A delete performed from a row of the open Instances manager: the
+            # dialog stays mounted across the action, so re-draw its rows or it
+            # keeps listing the instance that was just deleted.
+            instances_manager.refresh()
             set_status(f"Deleted {label}")
 
         dlg = ft.AlertDialog(
@@ -4567,6 +4582,21 @@ async def main(page: ft.Page):
         # reads red without the row looking alarming at rest.
         style=ft.ButtonStyle(color={ft.ControlState.HOVERED: DANGER}),
     )
+
+    def _sync_instance_actions(version_id):
+        """Rename/Delete only apply to a version that's actually installed.
+
+        ONE owner for the pair's enabled/dimmed state, because both the
+        selection path (on_version_selected) and the "nothing is installed
+        anymore" path (refresh_version_list's empty branch) have to paint it -
+        and the empty path is exactly the DELETE-last-instance case, where the
+        buttons used to stay lit after their target was gone.
+        """
+        installed_sel = bool(version_id and version_id in state["installed"])
+        rename_instance_btn.disabled = not installed_sel
+        delete_instance_btn.disabled = not installed_sel
+        rename_instance_btn.opacity = 1 if installed_sel else 0.4
+        delete_instance_btn.opacity = 1 if installed_sel else 0.4
 
     # -----------------------------------------------------------------
     # PLAY TAB LAYOUT
