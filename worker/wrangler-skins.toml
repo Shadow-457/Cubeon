@@ -6,6 +6,23 @@
 # The KV namespace SKINS is shared with nothing else. Writes are metered
 # (1k/day account-wide on the free tier) - see cubeon-skins.js for the
 # write-frugality contract every route follows.
+#
+# ABUSE (see the "abuse" block of cubeon-skins.js): the write routes
+# (/api/heartbeat, /api/skin, /api/unlocks POST, /report) are throttled per IP.
+# The identity model is trust-on-first-use, so first contact is deliberately
+# unauthenticated - a random uuid plus a random secret are both well-formed -
+# and each POST costs 2 KV writes, so without a gate a single script can spend
+# the account's whole daily budget and break skins for every user.
+#
+# The in-isolate fallback (60/min/IP) always runs. Bind Cloudflare's Rate
+# Limiting binding as RATE_LIMITER to enforce it per-POP, surviving isolate
+# recycling:
+#
+#   [[unsafe.bindings]]
+#   name = "RATE_LIMITER"
+#   type = "ratelimit"
+#   namespace_id = "1001"
+#   simple = { limit = 60, period = 60 }
 
 name = "cubeon-skins"
 main = "cubeon-skins.js"

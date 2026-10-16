@@ -475,5 +475,63 @@ check("429 name_move_cooldown records a retry cooldown",
 check("429 name_move_cooldown does NOT save the identity half",
       st.get("username") != "TestUser" or st.get("uuid") != skins.stable_uuid())
 
+# ---------------------------------------------------------------------------
+# 4. The Worker's write-path guards (source pins)
+#
+# CI runs Python, NOT the Node worker tests, so the security properties of
+# worker/cubeon-skins.js are pinned here as well as in worker/test-worker.mjs.
+# Two holes were found and closed on 2026-10-17, and both are exactly the kind
+# of thing a later "simplification" would undo:
+#
+#   1. kv_write_budget_exhausted - the FIRST-CONTACT path is unauthenticated by
+#      design (trust-on-first-use: there is no account to check), and every
+#      POST costs 2 KV writes against a 1k/day account-wide budget. A random
+#      uuid and a random secret are both well-formed, so nothing but a throttle
+#      can stop a script from emptying the budget and breaking skins for
+#      everyone.
+#   2. name_move_cooldown - the cooldown was keyed only to the IDENTITY, and a
+#      fresh uuid is free, so an attacker could take any name at will and the
+#      victim's skin vanished from every friend's view (their name resolved to
+#      the attacker's uuid, which has no skin record). The cooldown is now
+#      keyed to the NAME too.
+# ---------------------------------------------------------------------------
+WORKER_SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "worker", "cubeon-skins.js")
+with open(WORKER_SRC, encoding="utf-8") as handle:
+    worker_source = handle.read()
+
+
+def before(first, second):
+    """`first` appears in the Worker source strictly before `second`."""
+    a, b = worker_source.find(first), worker_source.find(second)
+    return a != -1 and b != -1 and a < b
+
+
+check("the write routes are throttled per IP",
+      "async function throttle(request, env" in worker_source
+      and "env.RATE_LIMITER" in worker_source)
+check("the throttle runs BEFORE the write handlers (else it protects nothing)",
+      before("await throttle(request, env, WRITE_RATE)", 'path === "/api/heartbeat"'))
+check("...and before the /report handler, which is the cheapest to spam",
+      before("await throttle(request, env, WRITE_RATE)", 'path === "/report"'))
+check("the write cap is generous enough for an honest first install (~4 POSTs)",
+      "max: 60" in worker_source)
+check("a refused throttle is a clean 429, not a 500",
+      '"rate_limited"' in worker_source and "function tooMany" in worker_source)
+check("a throttling failure degrades to the fallback, never to an error",
+      ".catch(() => null)" in worker_source and "fallbackAllow(fallbackRL" in worker_source)
+check("the name-displacement guard is keyed to the NAME, not just the identity",
+      "namemove:${nameKey}" in worker_source and "nameMoveBlocked" in worker_source)
+check("...and it is consulted on the heartbeat's move path",
+      before("await nameMoveBlocked(current, uuidLower, nameKey, env)",
+             "await putIfChanged(env, nameKey, uuidLower)"))
+check("...exempting the previous holder, so a victim reclaims instantly",
+      'prevHolder === uuidLower' in worker_source)
+check("the name stamp is written on the first claim too (no free displacement window)",
+      '${current === null ? "none" : current}' in worker_source)
+check("the RATE_LIMITER opt-in is documented in the Worker's own config",
+      "RATE_LIMITER" in open(os.path.join(os.path.dirname(WORKER_SRC),
+                                          "wrangler-skins.toml"), encoding="utf-8").read())
+
 print(f"\n{failures} CHECK(S) FAILED" if failures else "\nALL SKIN-NET CHECKS PASSED")
 sys.exit(1 if failures else 0)

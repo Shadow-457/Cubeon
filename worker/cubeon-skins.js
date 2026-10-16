@@ -128,6 +128,19 @@ export default {
     const path = safePathname(url);
 
     // Write routes first, so the read-only guard below can't swallow them.
+    //
+    // Every one of them is throttled per IP first. KV writes are the scarce
+    // resource (1k/day, account-wide) and the FIRST-CONTACT path is
+    // deliberately unauthenticated - trust-on-first-use is the whole identity
+    // model, so there is no account to rate-limit against. That leaves an
+    // attacker with an unbounded supply of (random uuid, random secret) pairs
+    // able to spend 2 writes per POST and take the whole account's budget down
+    // by lunchtime, which would break skins for everyone. The signature
+    // checks below cannot help: a random uuid and a random secret are both
+    // perfectly well-formed.
+    const gate = await throttle(request, env, WRITE_RATE);
+    if (gate) return gate;
+
     if (path === "/api/heartbeat") {
       if (request.method !== "POST") return methodNotAllowed("POST");
       return handleHeartbeat(request, env);
@@ -187,6 +200,130 @@ export default {
     return notFound();
   },
 };
+
+// ------------------------------------------------------------------ abuse ---
+
+// Requests per window, per IP, for the write routes. Sized from the honest
+// client's actual behaviour, not from a guess: a launcher syncs its identity
+// ONCE per launch and only re-uploads when the sheet actually changed, and
+// putIfChanged makes the steady state zero writes. Even a first-ever install
+// (claim + rename + upload + face) is 3-4 POSTs. The old report route is the
+// chatty one, but it is already deduped server-side and only reachable for a
+// name that resolves.
+//
+// 60/minute leaves a large margin over any honest burst (a reinstall, a
+// retry storm after an outage) while making the write budget unreachable:
+// burning 1000 writes needs 500 POSTs, and 500 POSTs from one IP now takes
+// over 8 minutes instead of one second. With the optional RATE_LIMITER
+// binding bound, the edge enforces it; without it, the per-isolate fallback
+// below still bounds a single attacker's rate.
+const WRITE_RATE = { max: 60, windowMs: 60_000 };
+
+// Fallback limiter state. Module scope, so it lives as long as the isolate -
+// which is the worst case for an attacker (isolates are recycled, so this
+// resets on a cold start, and a distributed attack spans many isolates).
+// That is exactly why the binding is the real answer and this is only a
+// backstop, but an unbound-by-default Worker must not be wide open.
+const fallbackRL = new Map();
+
+/**
+ * Sliding-window limiter over {max} requests per {windowMs} for one key.
+ * Mirrors cubeon-friends.js limiterAllow (same window semantics), kept local
+ * because this Worker is deployed from the dashboard and cannot import.
+ */
+function fallbackAllow(map, key, max, windowMs, now) {
+  const hits = (map.get(key) || []).filter((t) => now - t < windowMs);
+  hits.push(now);
+  map.set(key, hits);
+  return hits.length <= max;
+}
+
+/**
+ * The abuse gate for the write routes. Returns a 429 Response when the caller
+ * should be turned away, or null to proceed.
+ *
+ * Cloudflare's Rate Limiting binding as RATE_LIMITER is used when bound
+ * (per-POP, survives isolate recycling); otherwise the in-isolate fallback
+ * runs. A binding that throws degrades to the fallback, never to an error -
+ * the same contract cubeon-invites.js and cubeon-downloads.js document. The
+ * key is the client IP; "unknown" buckets anything without a CF header, which
+ * is the safe direction (a shared bucket throttles more, not less).
+ */
+async function throttle(request, env, { max, windowMs }) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (env.RATE_LIMITER) {
+    const rl = await env.RATE_LIMITER.limit({ key: ip }).catch(() => null);
+    if (rl && rl.success === false) return tooMany();
+    if (rl) return null; // the edge answered: trust it
+  }
+  if (!fallbackAllow(fallbackRL, ip, max, windowMs, Date.now())) {
+    return tooMany();
+  }
+  return null;
+}
+
+function tooMany() {
+  return problem(429, "rate_limited");
+}
+
+// The second hole in the write path, and the one that needs no flood: NAME
+// DISPLACEMENT.
+//
+// The pointer table is last-writer-wins (names are unowned labels - that is
+// the design), and two guards exist for it: a per-IDENTITY move cooldown and a
+// per-VICTIM "contested" warning. Both are defeated by the same trick, and the
+// trick is free: an attacker who wants @SomeName just presents a FRESH uuid
+// (and a fresh secret) on each attempt. A fresh identity has no lastmove stamp,
+// so the cooldown never fires, and the victim gets warned AFTER the fact while
+// their skin is already gone - serveProfile resolves the name to the attacker's
+// uuid, which has no skin record, so the victim's friends see a cape-only
+// profile. Renaming back is itself a move, costing the victim up to an hour.
+//
+// The fix keys the cooldown to the NAME, which is what the attacker actually
+// wants, instead of only to the identity, which they can mint for free. A
+// contested name locks for POINTER_MOVE_COOLDOWN_S after it is taken from
+// someone.
+//
+// The exemption is what keeps honest users fast, and it is precise: a
+// displacement is allowed when the previous holder is YOU. So a victim
+// reclaiming their own name is never throttled (the stamp names the victim as
+// the previous holder), while an attacker's second incarnation is a different
+// identity and waits.
+//
+// Deliberate consequence, documented rather than accidental: renaming ONTO a
+// name that was taken from someone else within the last hour now 429s. That is
+// the price of making contested names cost something, and it is strictly
+// better than the victim silently losing their skin.
+//
+// The window is POINTER_MOVE_COOLDOWN_S (declared further down, in the
+// per-identity guard) on purpose: one cooldown, two keys. It is referenced
+// from inside the async function below rather than aliased into a module
+// constant here, because a top-level initializer at this point would read that
+// const before its own declaration and throw at import.
+
+/**
+ * Whether this heartbeat may displace the current holder of {nameKey}.
+ *
+ * `current` is the PRE-move holder (what the caller already read). Returns a
+ * 429 Response to refuse, or null to allow. Pure reads, no writes.
+ */
+async function nameMoveBlocked(current, uuidLower, nameKey, env) {
+  if (current === null || current === uuidLower) return null; // claim, not a displacement
+  const stamp = await env.SKINS.get(`namemove:${nameKey}`);
+  // No stamp but someone holds it: a name claimed BEFORE this guard shipped.
+  // Allowing one displacement is the migration path - the stamp is written on
+  // every pointer write from now on, including a first claim of a free name, so
+  // this branch is legacy-only and each name passes through it at most once.
+  if (stamp === null) return null;
+  const [at, prevHolder] = String(stamp).split(":");
+  const elapsed = nowSeconds() - parseInt(at, 10);
+  if (Number.isNaN(elapsed) || elapsed >= POINTER_MOVE_COOLDOWN_S) return null;
+  // The previous holder may always take their own name back - that is the
+  // legitimately-punished party getting a fast path, and the only identity
+  // that can exploit it is the one already named in the stamp.
+  if (prevHolder === uuidLower) return null;
+  return problem(429, "name_move_cooldown");
+}
 
 // ------------------------------------------------------------------- writes
 
@@ -361,6 +498,13 @@ async function handleHeartbeat(request, env) {
     }
   }
 
+  // …and every move that takes a name OFF someone else is additionally checked
+  // against the NAME's own cooldown, because the per-identity stamp above is
+  // free to sidestep with a brand-new uuid (see nameMoveBlocked). Runs for
+  // first-contact claims too: "no name yet, taking yours" IS a displacement.
+  const blocked = await nameMoveBlocked(current, uuidLower, nameKey, env);
+  if (blocked) return blocked;
+
   // Compare-then-write: a repeat heartbeat under the same name (every
   // launcher start) must cost ZERO writes - only a real rename PUTs.
   const put = await putIfChanged(env, nameKey, uuidLower);
@@ -374,6 +518,25 @@ async function handleHeartbeat(request, env) {
     // un-throttled extra move, not a correctness break.
     try {
       await env.SKINS.put(`lastmove:${uuidLower}`, String(nowSeconds()));
+    } catch (e) {
+      if (!String(e && e.message).includes("limit exceeded")) throw e;
+    }
+  }
+  if (put) {
+    // Stamp the NAME whenever its pointer changes, INCLUDING the very first
+    // claim of an unclaimed name (prevHolder = "none"). That is what makes a
+    // fresh-uuid attacker unable to walk in an hour-free window right after
+    // someone picks a name: the stamp exists from the claim, so the first
+    // displacement is already refused. It also means two new players racing for
+    // the same free name resolve to first-writer-wins instead of flip-flopping.
+    //
+    // `current` is the previous holder - null on a first claim - and it is what
+    // earns that identity the reclaim fast path in nameMoveBlocked. A quota
+    // failure here is not fatal: it leaves the name unguarded for one window,
+    // which is the pre-fix behaviour, not a new bug.
+    try {
+      await env.SKINS.put(`namemove:${nameKey}`,
+        `${nowSeconds()}:${current === null ? "none" : current}`);
     } catch (e) {
       if (!String(e && e.message).includes("limit exceeded")) throw e;
     }

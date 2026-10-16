@@ -655,10 +655,13 @@ def _publish_skin(cfg: dict) -> None:
             if resp.status_code != 200:
                 # 403 = UUID owned by another secret: retrying can't help
                 # either, so it gets the same cooldown. 429/5xx = transient
-                # server trouble (429 name_move_cooldown = this identity
-                # moved names too recently - honest renames are >1h apart,
-                # so spamming or a hijacker gets throttled). Record nothing
-                # BUT the cooldown so the next sync (post-cooldown) retries.
+                # server trouble (429 name_move_cooldown = either this identity
+                # moved names too recently, or the name being moved TO was
+                # taken off someone else within the last hour - honest renames
+                # are >1h apart, and a victim reclaiming their OWN name is
+                # exempt server-side, so this never throttles that). Record
+                # nothing BUT the cooldown so the next sync (post-cooldown)
+                # retries.
                 _record_publish_failure(state)
                 return
             # The Worker flags when a DIFFERENT identity held this name

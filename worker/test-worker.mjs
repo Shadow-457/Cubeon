@@ -40,12 +40,24 @@ const env = {
 const capeBytes = readFileSync(CAPE_PNG);
 const capeSha = createHash("sha256").update(capeBytes).digest("hex");
 
-const get = (path) => worker.fetch(new Request("https://test.invalid" + path), env);
-const post = (path, obj, token = null) =>
+// Every helper request carries its OWN CF-Connecting-IP by default, so the
+// write-route throttle sees each check below as a fresh client. Without that,
+// all ~70 requests share one bucket and the suite 429s itself, which would make
+// the throttle untestable rather than tested. The throttle's own checks pin an
+// IP explicitly so they can share one bucket on purpose.
+let ipCounter = 0;
+const freshIp = () => `10.0.0.${++ipCounter}`;
+
+const get = (path, ip = freshIp()) =>
+  worker.fetch(new Request("https://test.invalid" + path, {
+    headers: { "CF-Connecting-IP": ip },
+  }), env);
+const post = (path, obj, token = null, ip = freshIp()) =>
   worker.fetch(new Request("https://test.invalid" + path, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "CF-Connecting-IP": ip,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(obj),
@@ -276,22 +288,41 @@ res = await post("/api/heartbeat", { username: "RenamedUploader", uuid: UUID_U }
 check("repeat heartbeat same name -> 200 (steady state)",
   res.status === 200 && (await res.json()).status === "ok");
 
-// A DIFFERENT identity taking a name that identity U moved recently gets
-// flagged: name_contested tells the new launcher the label is fought over.
+// A DIFFERENT identity taking a name that identity U holds within the cooldown
+// is now REFUSED rather than allowed-with-a-warning. This is the name-
+// displacement fix: the per-identity cooldown (lastmove:U above) never fired
+// for an attacker, because a fresh uuid has no stamp - so the cooldown is now
+// keyed to the NAME as well (see nameMoveBlocked in the Worker).
+//
+// The old behaviour here was 200 + name_contested, and the victim then had to
+// find out their skin was gone. A 429 costs the honest client nothing: honest
+// renames do not race onto a name someone else just moved to.
 const UUID_V = randomUUID();
 res = await post("/api/heartbeat", { username: "RenamedUploader", uuid: UUID_V }, SECRET_B);
-check("other identity takes the name -> 200 but contested",
-  res.status === 200 && (await res.json()).name_contested === true);
-check("the takeover DID move the pointer (last writer wins)",
-  store.get("pointer:renameduploader") === UUID_V.toLowerCase());
+check("another identity taking a contested name -> 429",
+  res.status === 429 && (await res.json()).error === "name_move_cooldown");
+check("the refused takeover did NOT move the pointer",
+  store.get("pointer:renameduploader") === UUID_U.toLowerCase());
 
-// Back-date only U's stamp (V's stays recent - V moved onto this name
-// seconds ago), so U's re-take isn't cooldown-throttled; U reclaiming
-// must see the contest flag (both sides get warned).
-store.set(`lastmove:${UUID_U.toLowerCase()}`, String(Math.floor(Date.now() / 1000) - 7200));
+// A fresh uuid on every attempt is the attacker's free-identity trick - the
+// per-identity cooldown can't see it. The name-keyed stamp must still refuse,
+// and the pointer must stay with the victim no matter how many identities try.
+const attackers = [];
+for (let i = 0; i < 4; i++) {
+  const r = await post("/api/heartbeat",
+    { username: "RenamedUploader", uuid: randomUUID() }, SECRET_B);
+  attackers.push(r.status);
+}
+check("four MORE fresh-uuid identities -> all 429 (the stamp is keyed to the name)",
+  attackers.every((s) => s === 429), attackers.join(","));
+check("...and the victim still holds the pointer",
+  store.get("pointer:renameduploader") === UUID_U.toLowerCase());
+
+// The victim, by contrast, always gets their own name back instantly: the
+// stamp records them as the previous holder, which is the reclaim fast path.
 res = await post("/api/heartbeat", { username: "RenamedUploader", uuid: UUID_U }, SECRET_A);
-check("victim reclaims name -> 200 but contested",
-  res.status === 200 && (await res.json()).name_contested === true);
+check("the victim reclaims instantly (never throttled by their own name)",
+  res.status === 200, String(res.status));
 
 // With no recent other-identity holder, a plain heartbeat reports clean.
 const UUID_W = randomUUID();
@@ -479,6 +510,56 @@ check("limiter refuses past max", limiterAllow(rl, "k", 3, 60_000, t) === false)
 check("limiter is per-key", limiterAllow(rl, "other", 3, 60_000, t) === true);
 t += 61_000;
 check("limiter window slides", limiterAllow(rl, "k", 3, 60_000, t) === true);
+
+// --- write-route throttle -------------------------------------------------
+// The identity model is trust-on-first-use, so the FIRST-CONTACT path carries
+// no account to rate-limit against: a random uuid + a random secret are both
+// well-formed, and each POST costs 2 KV writes. Unbounded, that spends the
+// free tier's whole 1k/day budget and breaks skins for every user, which is
+// why the write routes are throttled per IP. Same shape as the downloads and
+// waitlist gates, and the same contract: no binding -> in-isolate fallback,
+// broken binding -> fallback, never an error.
+const THROTTLE_IP = "203.0.113.7";
+let throttled = 0;
+let allowed = 0;
+for (let i = 0; i < 200; i++) {
+  const r = await worker.fetch(new Request("https://test.invalid/api/heartbeat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "CF-Connecting-IP": THROTTLE_IP },
+    body: JSON.stringify({ username: `Flood${i}`, uuid: randomUUID() }),
+  }), env);
+  if (r.status === 429 && (await r.json()).error === "rate_limited") throttled++;
+  else allowed++;  // the gate let it through; a later 401 is fine
+}
+check("a single IP flooding heartbeats gets rate_limited 429s",
+  throttled > 0, `throttled=${throttled}`);
+// "Allowed" means the GATE let it through. These heartbeats carry no token, so
+// what happens after the gate is a 401 - the point is that it is not a 429.
+check("...but a normal burst is NOT throttled (the cap is generous)",
+  allowed >= 4 && allowed <= 70, `allowed=${allowed} of 200`);
+
+// A DIFFERENT IP must be unaffected by the flooded bucket - the limiter is
+// per-IP, not global, or one attacker would take the API down for everyone.
+// (401 rather than 200 only because this request carries no token; a 429 would
+// mean the flood leaked across buckets, which is the failure being checked.)
+const other = await worker.fetch(new Request("https://test.invalid/api/unlocks", {
+  method: "GET", headers: { "CF-Connecting-IP": "203.0.113.8" },
+}), env);
+check("a different IP is unaffected by the flooded bucket", other.status !== 429,
+  String(other.status));
+
+// The Cloudflare binding, when present, is authoritative: refusing means 429,
+// accepting means straight through (no double-counting against the fallback).
+env.RATE_LIMITER = { limit: async () => ({ success: false }) };
+res = await post("/api/heartbeat", { username: "BoundRefuse", uuid: randomUUID() }, null, "198.51.100.1");
+check("a refusing RATE_LIMITER -> 429 rate_limited",
+  res.status === 429 && (await res.json()).error === "rate_limited");
+
+env.RATE_LIMITER = { limit: async () => { throw new Error("binding died"); } };
+res = await post("/api/heartbeat", { username: "BoundBroken", uuid: randomUUID() }, null, "198.51.100.2");
+check("a throwing RATE_LIMITER degrades to the fallback, not a 500",
+  res.status !== 500, String(res.status));
+delete env.RATE_LIMITER;
 
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : "\nALL WORKER CHECKS PASSED");
 process.exit(failures ? 1 : 0);
