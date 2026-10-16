@@ -53,7 +53,7 @@ from test_mod_bridge import find_jdk, _java_version  # noqa: E402
 # PlayerTabOverlay#getNameForDisplay), so compiling it against a Mojang stub
 # would prove nothing. The real Gradle builds in mod/ are what validate it.
 #
-# The HUD (dev/keyhud/**) is deliberately absent: it is ~800 lines per era of
+# The HUD (com/cubeon/client/hud/**) is deliberately absent: it is ~800 lines per era of
 # genuine Minecraft rendering, it needs Fabric API, and stubbing all of that
 # would be a second implementation to keep in sync rather than a check. Its
 # cross-version discipline is enforced by the 24 real builds - see brackets.json.

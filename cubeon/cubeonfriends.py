@@ -19,7 +19,7 @@ a Fabric mod's compiled references live in Yarn names that loom remaps to
 intermediary; 26.x ships unobfuscated and its references are plain names. Fabric
 remaps nothing at runtime, so no single jar can hold both.
 
-The other is the HUD. Merging KeyHUD in brought per-era rendering code that
+The other is the HUD. Merging the Cubeon Client HUD in brought per-era rendering code that
 tracks Minecraft's own GUI classes closely - closer than the Cubeon button ever
 did - so a jar per exact version is what can actually be tested. The ranges stay
 consecutive and the newest stays open-ended, so a Minecraft released after this

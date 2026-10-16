@@ -50,27 +50,27 @@ ASSETS_JARS = os.path.join(ROOT, "assets", "jars")
 
 # What a healthy jar must contain. The two resources are the whole reason the mod
 # loads at all, the mixins are the one thing most likely to be missing if a
-# compile half-failed, and the KeyHUD classes prove the HUD overlay was layered in
+# compile half-failed, and the Cubeon Client classes prove the HUD overlay was layered in
 # (a bracket whose overlays list is wrong still builds - it just builds without
-# the HUD, and a missing dev/keyhud class is the only cheap way to see that).
+# the HUD, and a missing com/cubeon/client/hud class is the only cheap way to see that).
 REQUIRED_ENTRIES = ("fabric.mod.json",
                     "cubeon-client.mixins.json",
-                    "assets/keyhud/icon.png",
+                    "assets/cubeon-client/icon.png",
                     "com/cubeon/client/CubeonClient.class",
                     "com/cubeon/client/WorldPlayers.class",
                     "com/cubeon/client/TabListTag.class",
                     "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class",
-                    "dev/keyhud/client/KeyHudClient.class",
-                    "dev/keyhud/client/KeyHudConfig.class",
-                    "dev/keyhud/client/KeyHudHud.class")
+                    "com/cubeon/client/hud/CubeonHudClient.class",
+                    "com/cubeon/client/hud/CubeonHudConfig.class",
+                    "com/cubeon/client/hud/CubeonHud.class")
 
 # The 26.x brackets only. The HUD there measures ping through a mixin of its own,
 # and a mixin that is compiled but not registered by a config silently does
 # nothing - the HUD still draws, its ping is just wrong, which is exactly the
 # kind of failure nobody notices. So the class and its config are required.
-REQUIRED_ENTRIES_26X = ("keyhud.client.mixins.json",
-                        "dev/keyhud/client/mixin/ClientPacketListenerMixin.class")
+REQUIRED_ENTRIES_26X = ("cubeon-client-hud.mixins.json",
+                        "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class")
 
 # Loom 1.18 (all 24 brackets) refuses to start on an older JVM, and the system
 # gradle here runs on 21, so the build needs an explicit JAVA_HOME.

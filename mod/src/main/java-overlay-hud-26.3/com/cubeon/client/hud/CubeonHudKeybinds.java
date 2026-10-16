@@ -1,0 +1,52 @@
+package com.cubeon.client.hud;
+
+import com.mojang.blaze3d.platform.InputConstants;
+import com.cubeon.client.hud.screen.CubeonHudMenuScreen;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.resources.Identifier;
+
+/**
+ * The single "open the Cubeon Client menu" key. Registered in its own category so it can be
+ * rebound from Settings -> Controls -> Key Binds -> Cubeon Client like any vanilla key.
+ */
+public final class CubeonHudKeybinds {
+	public static final KeyMapping.Category CATEGORY =
+			KeyMapping.Category.register(Identifier.fromNamespaceAndPath(CubeonHudClient.MOD_ID, "main"));
+
+	// Raw keyboard scan code for K, the same values vanilla uses for its own default
+	// bindings (75 = K). Vanilla 26.3 leaves this key completely unbound; users can
+	// rebind it in Settings -> Controls -> Key Binds -> Cubeon Client.
+	private static final int KEY_OPEN_MENU = 75;
+
+	private static KeyMapping openMenu;
+
+	private CubeonHudKeybinds() {
+	}
+
+	public static void register() {
+		openMenu = new KeyMapping(
+				"key." + CubeonHudClient.MOD_ID + ".open_menu",
+				// 26.3 renamed 26.1/26.2's KEYSYM to KEYBOARD (and dropped
+				// SCANCODE). This overlay exists only for that spelling.
+				InputConstants.Type.KEYBOARD,
+				KEY_OPEN_MENU,
+				CATEGORY);
+		KeyMappingHelper.registerKeyMapping(openMenu);
+	}
+
+	/** Called once per client tick; opens the menu when the key was newly pressed. */
+	public static void tick() {
+		Minecraft client = Minecraft.getInstance();
+
+		// Vanilla only presses key mappings while no screen is open, so this cannot fight a GUI.
+		if (client.player == null || client.level == null || client.gui.screen() != null) {
+			return;
+		}
+
+		if (openMenu.consumeClick()) {
+			client.gui.setScreen(new CubeonHudMenuScreen());
+		}
+	}
+}

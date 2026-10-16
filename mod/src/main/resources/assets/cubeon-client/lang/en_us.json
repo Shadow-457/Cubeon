@@ -1,0 +1,23 @@
+{
+	"key.category.cubeon-client.main": "Cubeon Client",
+
+	"key.cubeon-client.open_menu": "Open Cubeon Client Menu",
+
+	"cubeonclient.menu.title": "Cubeon Client Settings",
+	"cubeonclient.menu.show_fps": "Show FPS: %s",
+	"cubeonclient.menu.show_keys": "Show Keystrokes: %s",
+	"cubeonclient.state.on": "ON",
+	"cubeonclient.state.off": "OFF",
+	"cubeonclient.menu.show_armor": "Show Armour: %s",
+	"cubeonclient.menu.show_ping": "Show Ping: %s",
+	"cubeonclient.menu.show_cps": "Show CPS: %s",
+	"cubeonclient.menu.move": "Move",
+	"cubeonclient.menu.reset_positions": "Reset Positions",
+
+	"cubeonclient.editor.fps": "Move the FPS display",
+	"cubeonclient.editor.keys": "Move the keystrokes display",
+	"cubeonclient.editor.armor": "Move the armour display",
+	"cubeonclient.editor.ping": "Move the ping display",
+	"cubeonclient.editor.cps": "Move the CPS display",
+	"cubeonclient.editor.hint": "Drag with the left mouse button, then press Done"
+}

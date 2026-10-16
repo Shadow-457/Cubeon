@@ -126,7 +126,7 @@ def test_table():
     # (its classes are major 65) and 26.x to Java 25. A bracket that reads 1.20.5
     # on a 17 toolchain fails with "class file has wrong version 65.0, should be
     # 61.0" - exactly how 1.20.5 and 1.20.6 failed the first time all 24 were
-    # built, because those two were the only brackets KeyHUD never got round to
+    # built, because those two were the only brackets Cubeon Client never got round to
     # building on this machine. The *bytecode* stays Java 17 either way.
     for b in brackets:
         mc = parse(b["compile_against"])
@@ -361,21 +361,21 @@ def test_resources(matrix):
     # The 26.x half ships a second mixin config of its own (the HUD's ping
     # probe). It has to exist, be fail-soft like the other one, and be listed
     # only for the brackets that actually carry the class it names.
-    keyhud_cfg_path = os.path.join(MOD, "src", "main", "resources-26x",
-                                   "keyhud.client.mixins.json")
-    ok(os.path.isfile(keyhud_cfg_path), "the 26.x HUD's own mixin config is shipped")
-    if os.path.isfile(keyhud_cfg_path):
-        keyhud_cfg = load(keyhud_cfg_path)
-        ok(keyhud_cfg.get("package") == "dev.keyhud.client.mixin",
+    hud_cfg_path = os.path.join(MOD, "src", "main", "resources-26x",
+                                   "cubeon-client-hud.mixins.json")
+    ok(os.path.isfile(hud_cfg_path), "the 26.x HUD's own mixin config is shipped")
+    if os.path.isfile(hud_cfg_path):
+        hud_cfg = load(hud_cfg_path)
+        ok(hud_cfg.get("package") == "com.cubeon.client.hud.mixin",
            "it names the HUD's mixin package")
-        ok(keyhud_cfg.get("required") is False
-           and keyhud_cfg.get("injectors", {}).get("defaultRequire") == 0,
+        ok(hud_cfg.get("required") is False
+           and hud_cfg.get("injectors", {}).get("defaultRequire") == 0,
            "and it is fail-soft too: a moved packet hook costs the ping, not the game")
         ok(release is not None
-           and int(keyhud_cfg.get("compatibilityLevel", "JAVA_0").split("_")[1])
+           and int(hud_cfg.get("compatibilityLevel", "JAVA_0").split("_")[1])
            >= int(release.group(1)),
            "its compatibilityLevel is not below the jar's own bytecode")
-    ok("mixins_extra" in gradle and "keyhud.client.mixins.json" in gradle,
+    ok("mixins_extra" in gradle and "cubeon-client-hud.mixins.json" in gradle,
        "the build lists that config only via the templated mixins array")
     ok("resources-26x" in gradle,
        "and ships the folder holding it only for the brackets that need it")
@@ -393,7 +393,7 @@ def test_mouse_buttons():
     root = os.path.join(MOD, "src", "main")
 
     def grab_button(overlay):
-        path = os.path.join(root, overlay, "dev", "keyhud", "client", "screen",
+        path = os.path.join(root, overlay, "com", "cubeon", "client", "hud", "screen",
                             "MoveOverlayScreen.java")
         if not os.path.isfile(path):
             return None

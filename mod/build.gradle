@@ -65,8 +65,9 @@ repositories {
 dependencies {
     minecraft "com.mojang:minecraft:${bracket.compile_against}"
     if (obfuscated) {
-        // Yarn, not Mojang's mappings: the HUD half of this mod came from KeyHUD
-        // and is written in Yarn names (MinecraftClient, DrawContext, Text...),
+        // Yarn, not Mojang's mappings: the HUD half of this mod was absorbed from
+        // the standalone HUD mod and is written in Yarn names (MinecraftClient,
+        // DrawContext, Text...),
         // and loom remaps those to intermediary so the jar runs on the real game.
         mappings "net.fabricmc:yarn:${bracket.yarn}:v2"
         modImplementation "net.fabricmc:fabric-loader:${matrix.loader_version}"
@@ -92,8 +93,8 @@ dependencies {
 // against, and that matters more now than it used to. The mixin config declares
 // compatibilityLevel JAVA_17, and Mixin refuses to apply a mixin whose class
 // file is newer than the declared level - so emitting Java 21 bytecode for the
-// 1.21.x jars (as KeyHUD did) or Java 25 for 26.x would need a per-bracket mixin
-// config. The mod uses no language or library feature newer than 17, so one
+// 1.21.x jars (as the absorbed HUD mod did) or Java 25 for 26.x would need a
+// per-bracket mixin config. The mod uses no language or library feature newer than 17, so one
 // level covers all 24. javac reads the newer class files of its classpath quite
 // happily while emitting older bytecode; only the JDK doing the reading has to be
 // new enough, which is what the toolchain below is for.
@@ -110,14 +111,14 @@ java {
 //   api-yarn / api-mojang  the four Cubeon sources that touch Minecraft, written
 //                          once per namespace (see brackets.json's note). Exactly
 //                          one of them applies to any bracket.
-//   hud-<variant>          the KeyHUD HUD, one copy per HUD era. Seven of them
+//   hud-<variant>          the Cubeon Client HUD, one copy per HUD era. Seven of them
 //                          cover 24 Minecraft versions because the HUD's
 //                          Minecraft-facing API only moved five times (26.3
 //                          also renamed one keybind constant, which is why it
 //                          has its own copy of a 26.2-era HUD).
 //
 // A bracket with no overlay still builds from src/main/java alone, which is now
-// entirely Minecraft-free (Json, Bridge, BadgeNames, KeyHudConfig and the
+// entirely Minecraft-free (Json, Bridge, BadgeNames, CubeonHudConfig and the
 // Yggdrasil mixin).
 bracket.overlays.each { overlay ->
     def dir = "src/main/java-overlay-${overlay}"
@@ -129,7 +130,7 @@ bracket.overlays.each { overlay ->
 }
 
 // The 26.x HUD brings a mixin of its own - a ClientPacketListener hook that feeds
-// pong responses into KeyHUD's latency probe so the HUD ping updates every second
+// pong responses into the HUD's latency probe so the HUD ping updates every second
 // instead of waiting for the next tab-list refresh. Its mixin config therefore
 // only exists for the unobfuscated brackets, and fabric.mod.json only lists it
 // there (see mixins_extra below): a config naming a class that is not in the jar
@@ -160,7 +161,7 @@ processResources {
             loader_range   : matrix.loader_min,
             java_range     : bracket.java,
             mixins_extra   : obfuscated ? '' :
-                    ',\n    {\n      "config": "keyhud.client.mixins.json",\n' +
+                    ',\n    {\n      "config": "cubeon-client-hud.mixins.json",\n' +
                             '      "environment": "client"\n    }',
     ]
     inputs.properties replacements

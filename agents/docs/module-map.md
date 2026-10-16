@@ -1664,7 +1664,7 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `launcher_core.py` | Re-export shim over the `cubeon` package (legacy import surface). |
 | `cubeon/` | All launcher logic (see table below). |
 | `ui/` | Flet tab builders: `server_tab.py` (biggest), `mods_tab.py`, `modpacks_tab.py`, `skin_tab.py`, `stats_tab.py`, `chat_tab.py`. Pure builders — they receive `cfg`/`state` by reference and helpers (`section_label`, `pixel_divider`, theme) from main.py. |
-| `mod/` | The in-game Fabric mod. **2026-10-15: KeyHUD merged in — one jar per Minecraft version, 24 of them, 1.20 → 26.3.** Shared tree `src/main/java/` is now Minecraft-FREE: `Bridge.java` (localhost HTTP client: roster/chat/players/events only - `/dm` via sendChat is the mod's only POST), `Json.java`, `BadgeNames.java`, `mixin/YggdrasilSessionServiceMixin.java`, `dev/keyhud/client/KeyHudConfig.java`. Everything that touches Minecraft lives in a per-bracket overlay: `java-overlay-api-yarn/` (1.20–1.21.11, Yarn names - `CubeonClient.java` entrypoint/chat notices, `TabListTag.java`, `WorldPlayers.java`, `mixin/PlayerTabOverlayMixin.java`) and `java-overlay-api-mojang/` (26.x, the same four files in plain names). The HUD is seven `java-overlay-hud-*/` copies (its Minecraft-facing API only moved 5 times across the 24 versions; 26.3 also renamed `InputConstants.Type.KEYSYM` to `KEYBOARD`, so it has its own copy of the 26.2-era HUD); 26.x also adds `resources-26x/keyhud.client.mixins.json` + `dev/keyhud/client/PingProbe.java`. `brackets.json` = **single source of truth** for the matrix (read by build.gradle AND cubeonfriends.py). |
+| `mod/` | The in-game Fabric mod. **2026-10-15: the standalone HUD mod merged in — one jar per Minecraft version, 24 of them, 1.20 → 26.3. 2026-10-17: renamed throughout to the Cubeon Client.** Shared tree `src/main/java/` is Minecraft-FREE: `Bridge.java` (localhost HTTP client: roster/chat/players/events only - `/dm` via sendChat is the mod's only POST), `Json.java`, `BadgeNames.java`, `mixin/YggdrasilSessionServiceMixin.java`, `com/cubeon/client/hud/CubeonHudConfig.java`. Everything that touches Minecraft lives in a per-bracket overlay: `java-overlay-api-yarn/` (1.20–1.21.11, Yarn names - `CubeonClient.java` entrypoint/chat notices, `TabListTag.java`, `WorldPlayers.java`, `mixin/PlayerTabOverlayMixin.java`) and `java-overlay-api-mojang/` (26.x, the same four files in plain names). The HUD is seven `java-overlay-hud-*/` copies of **`com.cubeon.client.hud`** (`CubeonHudClient`/`CubeonHud`/`CubeonHudKeybinds`/`CubeonHudMenuScreen`/`MoveOverlayScreen`, plus `PingProbe` and a `mixin/` for 26.x); its Minecraft-facing API only moved 5 times across the 24 versions (26.3 also renamed `InputConstants.Type.KEYSYM` to `KEYBOARD`, so it has its own copy of the 26.2-era HUD). 26.x also adds `resources-26x/cubeon-client-hud.mixins.json`. `brackets.json` = **single source of truth** for the matrix (read by build.gradle AND cubeonfriends.py). |
 | `worker/` | Cloudflare Worker + Durable Object relay (`cubeon-friends.js`, `cubeon-invites.js`). Protocol constants must stay in parity with `cubeon/friends.py` (asserted by `tools/test_friends.py`). |
 | `assets/jars/` | Shippable jars: both Friends mod jars + `connect-spigot.jar` (Minekube Connect). |
 | `tools/` | Test harnesses (plain scripts printing `N passed, M failed`). |
@@ -3253,3 +3253,35 @@ Cubeon cape resolves.
 - Test: `tools/test_osnotify.py` (in `SUITES`) — fully offline: no toast, no
   subprocess, no socket. Section 9 source-pins that the module imports no network
   client and no flet.
+
+## The mod's package layout (2026-10-17 — the rename)
+- **`com.cubeon.client` is the shared namespace; `com.cubeon.client.hud` is the
+  HUD.** The HUD classes could NOT be moved into `com.cubeon.client` itself
+  because the api overlays already define **`com.cubeon.client.CubeonClient`**
+  (the mod entrypoint), and a HUD class called `CubeonClient` in the same package
+  would be a duplicate class. Hence the `hud` subpackage, and the class names
+  `CubeonHudClient` / `CubeonHud` / `CubeonHudKeybinds` / `CubeonHudMenuScreen` /
+  `CubeonHudConfig` (so the two `Cubeon*Client` classes never collide). Anything
+  that adds a HUD class should keep that split.
+- **`MOD_ID` is `"cubeon-client"`** (`com.cubeon.client.hud.CubeonHudClient`), and
+  it drives the translation keys rather than a hand-written string: the keybind
+  category resolves to **`key.category.cubeon-client.main`** and the key to
+  **`key.cubeon-client.open_menu`**. The other HUD strings are `cubeonclient.*`
+  (`cubeonclient.menu.*`, `.state.*`, `.editor.*`) referenced literally from
+  `CubeonHudMenuScreen` / `MoveOverlayScreen`, and they must match
+  `assets/cubeon-client/lang/en_us.json` exactly. The asset namespace is
+  `assets/cubeon-client/` (also the mod id) - `icon.png`, `lang/`, plus the
+  Cubeon Client font the other half of the mod uses.
+- **The 26.x HUD mixin config is `resources-26x/cubeon-client-hud.mixins.json`**
+  with `"package": "com.cubeon.client.hud.mixin"`; `mod/build.gradle`'s
+  `mixins_extra` fragment, `tools/build_mod_jars.py` (`REQUIRED_ENTRIES_26X`) and
+  `tools/test_mod_matrix.py` all name it, so renaming it means touching three
+  non-Java files.
+- The HUD's config file is **`config/cubeon-client-hud.json`** (was
+  `keyhud.json`). `CubeonHudConfig.load()` deliberately still falls back to the
+  old file name so an upgrading player keeps their overlay positions.
+- **After any rename here, all 24 jars must be rebuilt** — the jar is the only
+  thing the launcher consumes. `python3 tools/build_mod_jars.py` (all 24, ~25s
+  each with a warm loom cache) then `tools/test_mod_matrix.py` +
+  `tools/test_mod_compile.py`. No test compiles the `hud-*` sources: only the 24
+  real Gradle builds do, so a green test run does NOT mean the HUD compiles.

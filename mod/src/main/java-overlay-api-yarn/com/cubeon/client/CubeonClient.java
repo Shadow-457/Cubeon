@@ -14,7 +14,7 @@ import net.minecraft.util.Formatting;
  *
  * <p>Yarn-mapped twin of the {@code java-overlay-api-mojang} copy: Minecraft up
  * to 1.21.x ships obfuscated and this mod builds against <b>Yarn</b> there (the
- * same mappings KeyHUD's HUD code is written in, which is why the merged mod
+ * same mappings Cubeon Client's HUD code is written in, which is why the merged mod
  * picks Yarn for the obfuscated brackets). 26.x ships unobfuscated, so its copy
  * is written in Mojang's own names and needs no mappings at all. The two copies
  * are otherwise line-for-line the same file; only the Minecraft names differ.
