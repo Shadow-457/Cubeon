@@ -87,6 +87,26 @@ export default {
     }
 
     if (request.method === "POST") {
+      // ABUSE GATE (2026-10-17). This is the only Worker with NO identity on its
+      // writes - it has to be, it is a public signup form - so the scarce
+      // resource is the free tier's ~1k KV writes/day, ACCOUNT-WIDE, and the
+      // running count lives in the same namespace. A script posting made-up
+      // addresses used to be able to burn that budget and take the counter (and
+      // every real signup) down with it, since an exhausted budget answers 429
+      // for the rest of the day.
+      //
+      // Cloudflare's Rate Limiting binding as RATE_LIMITER caps it per IP.
+      // Absent or broken, this degrades to the old behaviour (works, unthrottled)
+      // rather than to errors - same contract cubeon-invites.js documents, and
+      // wrangler-waitlist.toml carries the two-line opt-in.
+      if (env.RATE_LIMITER) {
+        const key = request.headers.get("CF-Connecting-IP") || "unknown";
+        const rl = await env.RATE_LIMITER.limit({ key }).catch(() => null);
+        if (rl && rl.success === false) {
+          return json({ error: "too many requests - try again in a minute" }, 429);
+        }
+      }
+
       // Two POST shapes, one body cap: the signup (default) and the deletion /
       // unsubscribe request a mailing link points at.
       if (url.pathname === "/unsubscribe") {

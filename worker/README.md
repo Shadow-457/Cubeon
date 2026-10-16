@@ -1,20 +1,70 @@
 # Cubeon Workers
 
-Three Cloudflare Workers, all on the free tier, no VPS, no card:
+Five Cloudflare Workers, all on the free tier, no VPS, no card. (All five
+answer their own `/health` text as of 2026-10-17, which is how the table below
+was checked - a `workers.dev` subdomain with nothing deployed answers 404
+instead.)
 
 | Worker | Job | Status |
 |---|---|---|
 | `cubeon-skins.js` | identity + skins: UUID-anchored skins, username pointers, the Cubeon cape | **live** |
-| `cubeon-invites.js` | short invite codes → a host's tunnel address | **deployed** (wrangler-invites.toml) |
-| `cubeon-friends.js` | Friends tab: presence, chat, groups, voice signalling | **not deployed yet** |
+| `cubeon-invites.js` | short invite codes → a host's tunnel address | **live** (wrangler-invites.toml) |
+| `cubeon-friends.js` | Friends tab: presence, chat, groups, voice signalling | **live** |
+| `cubeon-downloads.js` | holds the read-only GitHub token and streams the installers | **live** (wrangler-downloads.toml) |
+| `cubeon-waitlist.js` | the site's email waitlist (count only, never the addresses) | **live** |
 
 The skins Worker is fully live - the read path (the `/skins/<name>.json`
 CustomSkinAPI lookup) *and* the write routes (`POST /api/heartbeat`,
 `POST /api/skin`, `POST /report`). Its write surface stays narrow on purpose:
 all three are POST-only (405 otherwise) and matched before any read route.
-They're three separate Workers because the friends one needs a **Durable Object**
-for its live WebSocket hub, so unlike the other two it is deployed with
+They're separate Workers because the friends one needs a **Durable Object**
+for its live WebSocket hub, so unlike the KV-only ones it is deployed with
 `wrangler`, not the dashboard editor (see its section below).
+
+---
+
+# Abuse protection (what a fork can and cannot do)
+
+**A fork cannot touch your Cloudflare account.** Forking gives nobody your
+secrets, your token, or the ability to deploy to your account - a forker who
+runs `wrangler deploy` deploys to *their own* account, on their own
+`*.workers.dev` subdomain.
+
+**But a fork does not need to.** Every Worker URL is hardcoded in the launcher
+(`cubeon/csl.py`, `cubeon/friends.py`, `cubeon/invites.py`) and in the site
+(`web/vercel.json`), because a client-side launcher has nowhere to hide them.
+So the real question is not "can a forker reach my Workers" - **anyone on the
+internet can, by design** - but "what can someone holding the URL cost me".
+That is what the Workers themselves have to answer:
+
+| Worker | Who can write | The scarce resource | Protection |
+|---|---|---|---|
+| `cubeon-skins.js` | only the holder of a per-machine secret | KV writes | SHA-256 secret at rest, constant-time compare, write budget |
+| `cubeon-invites.js` | only a host holding the code's secret | KV writes | hashed bearer secret, constant-time compare, optional `RATE_LIMITER`, write budget |
+| `cubeon-friends.js` | only the holder of a name's secret | WebSocket + DO time | SHA-256 secret at rest, constant-time compare, secret sent in the first frame (never the URL, so never a request log), sliding-window limiter per IP and per action, reserved names |
+| `cubeon-downloads.js` | nobody - it is read-only | **the GitHub token's API budget** | edge-cached release lookup, optional `RATE_LIMITER` |
+| `cubeon-waitlist.js` | anyone (it *is* a public signup form) | KV writes, shared with the tally | optional `RATE_LIMITER` |
+
+The one that was actually broken was **`cubeon-downloads.js`**, because it is
+the only Worker holding a credential. It used to spend one GitHub API call on
+*every* press: 5000/hour on a token, so ~1.4 requests/second sustained from
+anyone with the URL took the download buttons down for every user - and
+`Cache-Control: no-store` meant a repeat press counted again. The release
+lookup is now served from the edge cache for 5 minutes, so a flood costs
+**zero** API calls, with an optional per-IP `RATE_LIMITER` as the second gate.
+The reasoning lives in the header of `cubeon-downloads.js`; the tests are
+`worker/test-downloads.mjs` (behaviour, with a stub cache) and
+`tools/test_web_download_count.py` (source pins, since CI runs Python and not
+the Node Worker tests).
+
+**If you fork this:** point the launcher at your own deployments.
+`CUBEON_SKIN_API`, `CUBEON_FRIENDS_API` and `CUBEON_INVITE_API` override the
+baked-in URLs, so your users' traffic and quota stay yours. Otherwise their
+requests land on the upstream Workers - throttled, but not yours.
+
+Both gates degrade instead of failing: no binding means "not throttled", and a
+broken or absent cache means "one API call per request", never a 500. A
+protection that turns into an outage when it misbehaves is worse than none.
 
 ---
 

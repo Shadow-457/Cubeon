@@ -305,6 +305,93 @@ check("the Worker's config names it and has no KV to maintain",
       'name = "cubeon-downloads"' in toml_source and "kv_namespaces" not in toml_source)
 
 # ---------------------------------------------------------------------------
+# 4b. abuse protection for the Worker that holds a credential
+#
+# The URL is public - the site and the launcher both hand it out, and it is in
+# this repo - so "who can call it" is everyone, fork or not. The scarce resource
+# is the GitHub token's 5000/hour API budget, and before this the Worker spent
+# one call on every single press: ~1.4 requests/second for an hour took the
+# download buttons down for every user. The edge cache is the fix that matters
+# (a flood then costs ZERO API calls); the optional RATE_LIMITER is the second
+# gate. Pinned here because CI runs Python and NOT the Node worker tests, and
+# because "just fetch the release each time" is exactly the simplification a
+# later edit would make.
+# ---------------------------------------------------------------------------
+check("the release lookup is edge-cached, not refetched per request",
+      "caches.default" in worker_source and "cache.match(" in worker_source
+      and "cache.put(" in worker_source)
+check("a failed lookup is NOT cached (an outage must not be pinned for 5 minutes)",
+      "if (cache && assets.length)" in worker_source)
+check("only name/url/size reach the cache (no private release fields)",
+      ".map((a) => ({ name: a.name, url: a.url, size: a.size }))" in worker_source)
+ttl = re.search(r"const RELEASE_CACHE_SECONDS = (\d+)", worker_source)
+check("the cached release carries a TTL",
+      bool(ttl) and f"max-age=${{RELEASE_CACHE_SECONDS}}" in worker_source)
+check("...measured in minutes (seconds re-costs, hours hides a release)",
+      bool(ttl) and 60 <= int(ttl.group(1)) <= 3600, ttl.group(1) if ttl else "no constant")
+check("the streamed installer is cacheable, not no-store",
+      '"no-store"' not in worker_source)
+check("an optional RATE_LIMITER gate is honoured, with a 429",
+      "env.RATE_LIMITER" in worker_source and "429" in worker_source)
+check("...and a broken/unbound limiter degrades to serving, never to an error",
+      ".catch(() => null)" in worker_source)
+check("a missing cache degrades to the old one-call-per-request path",
+      "function edgeCache()" in worker_source and "return null;" in worker_source)
+check("the rate-limit opt-in is documented in the Worker's own config",
+      "RATE_LIMITER" in toml_source)
+
+
+def _before(source, first, second):
+    """True when `first` appears in `source` and strictly before `second`.
+
+    A plain `first in source` check is not enough for an ORDER property: the
+    throttle can sit anywhere in the file and still be found. Indexing is what
+    makes the assertion mean "this gate runs first".
+    """
+    a, b = source.find(first), source.find(second)
+    return a != -1 and b != -1 and a < b
+
+
+def _post_branch(source):
+    """The slice of fetch() that handles a POST, up to the first dispatch.
+
+    Returns "" when either anchor is missing, so a check built on it fails
+    rather than raising. The end anchor is the POST-branch unsubscribe handler,
+    NOT the pathname test - the GET branch tests the same path, and a
+    `find` for it would land above the start anchor.
+    """
+    start = source.find('if (request.method === "POST")')
+    end = source.find("return handleUnsubscribe(request, env)")
+    if start == -1 or end == -1 or start > end:
+        return ""
+    return source[start:end]
+
+
+# Order, not mere presence: the whole point of the throttle is that it costs
+# nothing, so it has to run before the token is read or GitHub is called.
+check("the throttle runs before the token check and before GitHub",
+      _before(worker_source, "await throttle(request, env)", "if (!env.GITHUB_TOKEN)")
+      and _before(worker_source, "await throttle(request, env)", "await latestRelease(env)"))
+
+with open(os.path.join(REPO, "worker", "cubeon-waitlist.js"), encoding="utf-8") as handle:
+    waitlist_source = handle.read()
+with open(os.path.join(REPO, "worker", "wrangler-waitlist.toml"), encoding="utf-8") as handle:
+    waitlist_toml = handle.read()
+# The waitlist is the only Worker whose writes carry no identity - it is a
+# public signup form - and it shares its namespace with the tally, so a script
+# posting made-up addresses used to be able to spend the free tier's
+# account-wide ~1k writes/day and take every REAL signup down with it.
+#
+# The gate must sit INSIDE the POST branch and above the dispatch, which is why
+# this slices the source between those two anchors instead of searching the
+# whole file: "env.RATE_LIMITER" placed after the handlers would still be found
+# by a naive check while protecting nothing.
+check("the waitlist throttles POSTs before dispatching to any handler",
+      "env.RATE_LIMITER" in _post_branch(waitlist_source))
+check("...and the opt-in is documented in its config",
+      "RATE_LIMITER" in waitlist_toml)
+
+# ---------------------------------------------------------------------------
 # 5. every page wires the shared file (index.html once shipped without it)
 # ---------------------------------------------------------------------------
 web_pages = sorted(name for name in os.listdir(WEB) if name.endswith(".html"))

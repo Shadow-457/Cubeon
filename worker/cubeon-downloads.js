@@ -19,10 +19,28 @@
  *   npx wrangler deploy -c wrangler-downloads.toml
  *   echo "<token>" | npx wrangler secret put GITHUB_TOKEN -c wrangler-downloads.toml
  *
- * Quota: every request costs ONE GitHub API call to resolve the latest
+ * Quota: every request WOULD cost one GitHub API call to resolve the latest
  * release (5000/hour on a token) - the asset bytes themselves come off
  * GitHub's CDN and never pass through the API. The vercel.json routes point
  * at this Worker, so the token never reaches a browser.
+ *
+ * ABUSE PROTECTION (2026-10-17). This Worker is public by design - the website
+ * and the launcher both hand its URL out, and the URL is in this repo - so
+ * "who can call it" is everyone, fork or not. The scarce resource an attacker
+ * could burn was the TOKEN'S hourly API budget: about 1.4 requests/second for
+ * an hour used to take the download buttons down for every user. Two
+ * independent gates now stand in front of it:
+ *
+ *   1. The release lookup is served from the edge cache for
+ *      RELEASE_CACHE_SECONDS, so a flood costs ZERO GitHub API calls. This is
+ *      the one that matters - it makes the quota unbunable.
+ *   2. An optional RATE_LIMITER binding (Cloudflare's Rate Limiting) throttles
+ *      per IP. Absent, the Worker still works; it just is not throttled. See
+ *      wrangler-downloads.toml for the opt-in.
+ *
+ * A missing or broken edge cache degrades to the old behaviour (one API call
+ * per request), never to an error: a cache is an optimisation, and a download
+ * must not fail because the cache had a bad day.
  */
 
 const REPOSITORY = "Shadow-457/Cubeon";
@@ -85,6 +103,104 @@ function pickLatestPrefixed(assets, { prefix, suffix }) {
   return matches[matches.length - 1].asset;
 }
 
+// ------------------------------------------------------------- abuse gates ---
+
+// How long a resolved release is served from the edge cache. Five minutes is a
+// deliberate compromise: long enough that a flood cannot reach GitHub at all,
+// short enough that a release published during a download surge shows up
+// promptly. It also bounds the token's spend to at most 12 API calls an hour,
+// whatever the traffic.
+//
+// The streamed installer carries the same max-age deliberately: metadata and
+// bytes going stale on the same clock means a browser can never pair a fresh
+// asset URL with a stale body.
+const RELEASE_CACHE_SECONDS = 300;
+
+// A synthetic cache key. This is an internal object, not a client URL, so it
+// must not be able to collide with a real request.
+const RELEASE_CACHE_KEY = "https://cubeon-downloads.internal/latest-release.json";
+
+/** The Workers edge cache, or null where there isn't one (Node, tests). */
+function edgeCache() {
+  try {
+    return typeof caches !== "undefined" && caches.default ? caches.default : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The latest release's assets - edge cache first, GitHub second.
+ *
+ * Only the three fields a route needs are kept (`name`, `url`, `size`), so the
+ * cached object is a few kB and carries nothing about the private repo beyond
+ * the asset names this file already lists by hand.
+ *
+ * Returns null when GitHub can't be reached or answers without assets. A
+ * FAILURE is deliberately not cached, so the next request retries instead of
+ * pinning an outage for five minutes.
+ */
+export async function latestRelease(env) {
+  const cache = edgeCache();
+  const key = new Request(RELEASE_CACHE_KEY);
+
+  if (cache) {
+    try {
+      const hit = await cache.match(key);
+      if (hit) {
+        const cached = await hit.json();
+        if (cached && Array.isArray(cached.assets)) return cached;
+      }
+    } catch {
+      // A misbehaving cache costs one API call, never a failed download.
+    }
+  }
+
+  const release = await fetch(
+    `https://api.github.com/repos/${REPOSITORY}/releases/latest`,
+    { headers: { ...jsonHeaders, Authorization: `Bearer ${env.GITHUB_TOKEN}` } }
+  );
+  if (!release.ok) return null;
+
+  const data = await release.json();
+  const assets = (Array.isArray(data.assets) ? data.assets : [])
+    .filter((a) => a && typeof a.name === "string")
+    .map((a) => ({ name: a.name, url: a.url, size: a.size }));
+
+  const payload = { assets };
+  if (cache && assets.length) {
+    try {
+      await cache.put(key, new Response(JSON.stringify(payload), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": `max-age=${RELEASE_CACHE_SECONDS}`,
+        },
+      }));
+    } catch {
+      // Not cached: still a correct answer, just a costlier one.
+    }
+  }
+  return payload;
+}
+
+/**
+ * The per-IP throttle, when the optional RATE_LIMITER binding is present.
+ * Absent or broken degrades to "not throttled", never to an error - the same
+ * contract cubeon-invites.js documents.
+ */
+async function throttle(request, env) {
+  if (!env.RATE_LIMITER) return null;
+  const key = request.headers.get("CF-Connecting-IP") || "unknown";
+  const rl = await env.RATE_LIMITER.limit({ key }).catch(() => null);
+  if (rl && rl.success === false) {
+    return new Response("too many requests", {
+      status: 429,
+      headers: { "Retry-After": "60" },
+    });
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -97,23 +213,24 @@ export default {
     if (!spec || request.method !== "GET") {
       return new Response("not found", { status: 404 });
     }
+
+    // Throttle before the token is even looked at, so a flood costs the
+    // cheapest possible rejection.
+    const limited = await throttle(request, env);
+    if (limited) return limited;
+
     if (!env.GITHUB_TOKEN) {
       return new Response("server misconfigured: no GITHUB_TOKEN", { status: 500 });
     }
 
-    // The asset lookup is the only metered call (5000/hour); bytes stream
-    // from the CDN afterwards.
-    const release = await fetch(
-      `https://api.github.com/repos/${REPOSITORY}/releases/latest`,
-      { headers: { ...jsonHeaders, Authorization: `Bearer ${env.GITHUB_TOKEN}` } }
-    );
-    if (!release.ok) {
+    // One edge-cached lookup, however many people are pressing Download.
+    const release = await latestRelease(env);
+    if (!release) {
       return new Response("release unavailable", { status: 502 });
     }
-    const data = await release.json();
-    const assets = Array.isArray(data.assets) ? data.assets : [];
+    const assets = release.assets;
     const asset = typeof spec === "string"
-      ? assets.find((a) => a && a.name === spec)
+      ? assets.find((a) => a.name === spec)
       : pickLatestPrefixed(assets, spec);
     if (!asset) {
       return new Response(`no matching asset for ${url.pathname} in the latest release`, { status: 404 });
@@ -138,7 +255,7 @@ export default {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${asset.name}"`,
         "Content-Length": String(asset.size),
-        "Cache-Control": "no-store",
+        "Cache-Control": `public, max-age=${RELEASE_CACHE_SECONDS}`,
       },
     });
   },

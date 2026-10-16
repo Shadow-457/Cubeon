@@ -150,5 +150,36 @@ check("deleting the last record -> count 0, never negative", data.count === 0);
 check("a deletion costs two writes (record + tally), like a signup",
   writes === before + 2);
 
+// --- the abuse gate (optional RATE_LIMITER binding) ------------------------
+// This Worker is the only one whose writes carry no identity, so the throttle
+// is what protects the account-wide free-tier write budget (and with it the
+// tally, which shares the namespace). It must reject BEFORE any write.
+before = writes;
+env.RATE_LIMITER = { limit: async () => ({ success: false }) };
+res = await post("/", { email: "flood@example.com" });
+check("a throttled signup -> 429", res.status === 429);
+check("...and it costs ZERO KV writes", writes === before);
+check("...and the address was never stored",
+  !store.has(keyFor("flood@example.com")));
+
+env.RATE_LIMITER = { limit: async () => { throw new Error("binding died"); } };
+before = writes;
+res = await post("/", { email: "resilient@example.com" });
+check("a broken limiter degrades to accepting, not to 500",
+  res.status === 200 && writes === before + 2);
+
+env.RATE_LIMITER = { limit: async () => ({ success: true }) };
+before = writes;
+res = await post("/", { email: "allowed@example.com" });
+check("a passing limiter lets the signup through",
+  res.status === 200 && writes === before + 2);
+delete env.RATE_LIMITER;
+
+// Without the binding the Worker must behave exactly as it always has.
+before = writes;
+res = await post("/", { email: "unthrottled@example.com" });
+check("with no limiter bound the Worker is unchanged (works, unthrottled)",
+  res.status === 200 && writes === before + 2);
+
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : "\nALL WAITLIST CHECKS PASSED");
 process.exit(failures ? 1 : 0);

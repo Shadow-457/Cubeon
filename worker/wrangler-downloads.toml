@@ -12,6 +12,18 @@
 #   echo "<read-only token>" | npx wrangler secret put GITHUB_TOKEN -c wrangler-downloads.toml
 #
 # web/vercel.json points the /<os>download routes at the URL this prints.
+#
+# ABUSE (see the header of cubeon-downloads.js): the release lookup is
+# edge-cached for 5 minutes, which is what stops a flood from spending the
+# token's API budget. The per-IP throttle below is the optional second gate -
+# uncomment it to add one, and re-deploy. Without it the Worker is unthrottled
+# but still cannot burn the quota, because the cache absorbs the traffic.
+#
+#   [[unsafe.bindings]]
+#   name = "RATE_LIMITER"
+#   type = "ratelimit"
+#   namespace_id = "1001"
+#   simple = { limit = 30, period = 60 }
 
 name = "cubeon-downloads"
 main = "cubeon-downloads.js"
