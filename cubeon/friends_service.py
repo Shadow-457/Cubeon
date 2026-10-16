@@ -3145,16 +3145,41 @@ class FriendsService:
     def _on_presence(self, p) -> None:
         self._remember_event(p)
         canon = friends.canonical_name(p.get("name") or "")
+        came_online = False
         if canon:
             for friend in ((self.client.roster or {}).get("friends") or []):
                 if not isinstance(friend, dict):
                     continue
                 if friends.canonical_name(friend.get("name") or "") != canon:
                     continue
+                # A transition TO online, not a status/version change while
+                # already online, and not the first roster sync (where the
+                # friend was never known to be offline).
+                if bool(p.get("online")) and friend.get("online") is False:
+                    came_online = True
                 for field in ("online", "version", "status"):
                     if field in p and friend.get(field) != p[field]:
                         friend[field] = p[field]
         self._remember_roster(self.client.roster)
+        if came_online:
+            self._notify_friend_online(p.get("name") or canon)
+
+    def _notify_friend_online(self, name) -> None:
+        """A local OS toast when a friend comes online - and ONLY for the one
+        this player talks to most (see cubeon/osnotify.friend_came_online).
+
+        The signal is the per-conversation message history this service already
+        keeps, so no new bookkeeping is introduced and nothing is sent
+        anywhere. Best-effort: a toast must never disturb the event loop.
+        """
+        try:
+            from cubeon import osnotify
+            with self._chat_lock:
+                counts = {conv: len((room or {}).get("msgs") or [])
+                          for conv, room in self._chat.items()}
+            osnotify.friend_came_online(name, counts)
+        except Exception:
+            log.debug("friend-online notification failed", exc_info=True)
 
     def _on_request(self, p) -> None:
         self._remember_roster(self.client.roster)

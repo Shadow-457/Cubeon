@@ -3249,6 +3249,16 @@ async def main(page: ft.Page):
                     )
                     state["installed"].add(version_id)
                     _rescan_installed()  # the new instance must show up in the row
+                    # Phase 7: an OS toast, because this install is INVISIBLE -
+                    # it runs in the background while the user browses, and
+                    # without this the only evidence it ever happened is the
+                    # hero button quietly changing from DOWNLOAD to PLAY.
+                    # Best-effort by construction (see cubeon/osnotify.py).
+                    try:
+                        from cubeon import osnotify
+                        osnotify.install_finished("instance", version_id, cfg=cfg)
+                    except Exception:
+                        pass
                     try:
                         # The version is on disk now, so the hero button must
                         # stop saying DOWNLOAD. page.update() alone repaints
@@ -6971,6 +6981,35 @@ async def main(page: ft.Page):
             _open_dialog(greet_dlg)
     except Exception:
         pass  # a missed seasonal hello must not break startup
+
+    # -----------------------------------------------------------------
+    # CUBEON UPDATE CHECK (Phase 7)
+    # cubeon/updater.check_in_background already exists and is safe: it runs on
+    # its own daemon thread, swallows every network error, and calls back ONLY
+    # on a positive result. Nothing consumed it before, so a newer release went
+    # unnoticed until the user happened to look.
+    #
+    # Announced once per version, not once per start: the marker lives in the
+    # config, so restarting the launcher does not re-toast the same release.
+    # -----------------------------------------------------------------
+    def _on_cubeon_update(info):
+        try:
+            version = str((info or {}).get("version") or "").strip()
+            if not version or cfg.get("osnotify_last_update") == version:
+                return
+            from cubeon import osnotify
+            if osnotify.update_available(version, cfg=cfg):
+                cfg["osnotify_last_update"] = version
+                core.save_config(cfg)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "cubeon update notification failed", exc_info=True)
+
+    try:
+        from cubeon import updater as cubeon_updater
+        cubeon_updater.check_in_background(_on_cubeon_update)
+    except Exception:
+        pass  # an update check must never break startup
 
     # --- Clear the Discord activity when the launcher window closes ---
     # Without this, the "Playing / in the launcher" presence can linger on the

@@ -2269,18 +2269,24 @@ Still-true invariants from the pre-local era:
   app "reload" on each panel toggle. General rule for animation-y overlay
   choreography: always per-control refreshes. ui_smoke §10 asserts no raw
   `page.update()` line inside the two handlers.
-- **Tab switching keeps its scoped diff, but is no longer an instant cut**
-  (2026-10-16, user ask "animate the top tab switcher"; supersedes the
-  2026-09-09 "snappier" decision below): the `AnimatedSwitcher` fade is now
-  `TAB_FADE_MS = 170`, and the active affordance animates in three parts at
-  once — the green underline GROWS (its `width` changes 0↔24 under
-  `animate_size`; a colour-only swap reads as a blink), the icon lifts
-  (`animate_scale`, 0.92↔1.0), and the tint fades (the button's `animate`).
-  All three share `NAV_ANIM = ft.Animation(190, EASE_OUT_CUBIC)` so the switch
-  reads as one gesture. `switch_tab`'s tail is STILL a scoped diff —
+- **Tab switching stays an INSTANT content cut; only the top bar's affordance
+  animates** (2026-10-16, user ask "animate the top tab switcher"). `TAB_FADE_MS
+  = 0` — the cross-fade has now been tried TWICE and rejected twice: 220ms in the
+  2026-09-09 pass ("sloppy rendering") and 170ms in this one ("stucky buggy and
+  not smooth"). Do not bring it back a third time; two live tab trees animating
+  at once is what the user is seeing, and `switch_tab` is a whole-tree diff.
+  The active affordance animates in three parts at once, all sharing
+  `NAV_ANIM = ft.Animation(150, EASE_OUT_CUBIC)` so the switch reads as one
+  gesture:
+    * the green underline GROWS as a **paint-only `scale_x` 0↔1, centred**
+      (`ft.Scale(scale_x=…, alignment=ft.Alignment.CENTER)`), with `width`
+      pinned at 24. Animating the real `width` (the first cut) reflowed the
+      centred nav row 1–2px per frame — that WAS the stutter.
+    * the icon lifts (`animate_scale`, 0.94↔1.0).
+    * the tint fades (the button's `animate`).
+  `switch_tab`'s tail is STILL a scoped diff —
   `thread_safe_ui.refresh(tab_switcher)` + `refresh(subnav_bar)` + per-nav-button
-  refreshes, never `page.update()`. Keep it that way: it was the whole-tree
-  diff, not the switcher's duration, that caused the original hitch.
+  refreshes, never `page.update()`. Keep it that way.
   Measured in the FakePage harness: steady-state switch = 0 page.update calls.
 - **Download progress is throttled at the SOURCE** (2026-09-09 efficiency
   pass): `net.stream_to_file` fires progress_cb per 64 KiB chunk — hundreds
@@ -3169,16 +3175,23 @@ Cubeon cape resolves.
 
 ## UI animation choreography (2026-10-16) — Phase 4
 - Curves/durations live next to the thing they animate, as named constants:
-  `NAV_ANIM` + `TAB_FADE_MS` in main.py's TOP NAVIGATION block, `RAIL_ANIM` +
-  `PANE_ANIM` in `ui/settings_tab.py`.
-- **Two-update rule (the gotcha, and it applies to every Flet animation
-  here): a property written in the SAME frame animates from the value the
-  client already holds.** So "dip then settle" animations need the dipped
-  value refreshed FIRST and the target value written ~20–30ms later on a
-  `threading.Timer` (which is why they must go through `thread_safe_ui`).
-  This drives the Account panel's paper-unroll (`scale_y` 0.04→1 anchored at
-  `Alignment.TOP_RIGHT`) and the Settings pane fade+slide
-  (`pane_host.opacity` 0→1 with a `ft.Offset(-0.012, 0)`→0 lift).
+  `NAV_ANIM` + `TAB_FADE_MS` + `ACCOUNT_ANIM_MS`/`ACCOUNT_PANEL_SQUASH` in
+  main.py's TOP NAVIGATION / Account blocks, `RAIL_ANIM` in
+  `ui/settings_tab.py`. There is deliberately NO `PANE_ANIM`: the Settings
+  content pane does not animate at all (see the one-flush rule below).
+- **ONE FLUSH PER GESTURE (the rule that replaced the "two-update" trick).** A
+  property written in the same frame animates from the value the client already
+  holds — so "dip then settle" needs two flushes, and the second one has to come
+  from a `threading.Timer` through `thread_safe_ui`. The user read every such
+  gesture as "stucky": click → full repaint → 30ms gap → second repaint. The fix
+  is to make the RESTING value part of the BUILD and animate with a single write:
+    * Account panel: mounted already squashed (`scale_y=ACCOUNT_PANEL_SQUASH`,
+      i.e. 0.04), so ONE write to `scale_y=1` unfurls it and closing re-squashes
+      it for next time. Equal 260ms in both directions, `BoxShadow.blur_radius`
+      kept small (16) so the blur isn't what you're watching.
+    * Settings rail: only the RAIL tint/icon animates; the pane's fade+slide was
+      deleted because selecting a section re-syncs all 7 panes and the fade
+      forced two flushes of that. `_select_section` is now a plain diff.
 - **Animations need a control the client already knows about.** Rebuilding a
   control per interaction (the old `_rebuild_rail` cleared and re-appended
   every row) can only ever render the end state — the animation has nothing to
@@ -3194,3 +3207,49 @@ Cubeon cape resolves.
   PNG composites run on a daemon thread (`ux-wearing-preview`) and land as
   base64 `src` — `ft.Image.src` cannot load a relative path that lives under
   `~/.cubeon_launcher`. Same rule as `ui/skin_tab.py`.
+
+## Local OS notifications (2026-10-16) — Phase 7
+- **One module, `cubeon/osnotify.py`; nothing server-side and nothing remote.**
+  Desktop toasts only: Windows via `winotify` when importable, else a
+  PowerShell `ToastNotification` (both spawned through `winproc.hidden` — a
+  console flash is the exact thing winproc exists to prevent), Linux via
+  `notify-send`, macOS via `osascript`. No notifier installed / any other
+  platform → a quiet no-op.
+- **Seven kinds, one Settings switch each**: `instance, mod, modpack,
+  resourcepack, texturepack, friend, update`. `KINDS` in `cubeon/osnotify.py` is
+  the single source of truth — `ui/settings_tab.py` builds the switch rows
+  straight from it, so a switch can never drift from a kind that exists. Config
+  keys are `notify_<kind>`, all defaulting ON.
+  NOTE: a "texture pack" IS a resource pack in modern Minecraft, so the
+  launcher's real third content type (`shader`, see `cubeon/content.py`) rides on
+  the `texturepack` switch — `osnotify.content_kind()` is that mapping, and it
+  never invents a kind that has no switch.
+- **Invariants** (each one is a reportable bug):
+    * `notify()` NEVER blocks and NEVER raises. The real `_send` runs on a
+      daemon thread named `osnotify`: `notify-send` and PowerShell both take
+      100–300ms to start, and several call sites are UI handlers or the friends
+      event loop.
+    * The toggle is checked BEFORE anything else, from the LIVE `cfg` when the
+      caller has one, so flipping a switch takes effect without a restart.
+    * Identical `(kind, title)` inside `_MIN_GAP` (1.5s) collapses to one — a
+      pack install fires several success callbacks and presence flaps.
+    * `CUBEON_OSNOTIFY_OFF=1` disables the whole module (tests, CI).
+    * `force=True` bypasses the toggle; ONLY the Settings "send a test
+      notification" button uses it, because a switched-off kind would make that
+      button look broken exactly when you are trying to debug it.
+- **Hook sites**: `main.py::prefetch_version` (version installs are INVISIBLE —
+  they run in the background while you browse), `ui/mods_tab.py` (local
+  mod/content install), `ui/modpacks_tab.py::_end_install_ok` (the longest
+  install the launcher does), `cubeon/friends_service.py::_on_presence` (only on
+  a False→True transition, and only for the most-talked-to friend), and `main.py`
+  startup through the previously-unconsumed `cubeon/updater.check_in_background`
+  (marker `osnotify_last_update` in config so a restart does not re-announce the
+  same release).
+- **"Most-talked-to"** is `osnotify.top_friend({name: message_count})`, fed from
+  the per-conversation history `FriendsService` already keeps
+  (`self._chat[conv]["msgs"]`) — no new bookkeeping. Ties break on the
+  case-folded name, and no history at all means STAY QUIET (the ask was one
+  friend, not the whole roster).
+- Test: `tools/test_osnotify.py` (in `SUITES`) — fully offline: no toast, no
+  subprocess, no socket. Section 9 source-pins that the module imports no network
+  client and no flet.

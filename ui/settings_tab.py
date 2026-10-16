@@ -20,6 +20,7 @@ save callbacks, so nothing is duplicated or rewired.
 """
 import flet as ft
 
+from cubeon import osnotify
 from cubeon.theme import (
     RADIUS, attach_hover, text_tab, ROW_HOVER, ACCENT_TINT,
     TEXT_FAINT, CARD_BORDER, CARD_FILL, ACCENT_DIM, ACCENT_HI, ON_ACCENT,
@@ -33,6 +34,7 @@ SECTIONS = [
     ("display", ft.Icons.MONITOR_ROUNDED, "Display"),
     ("java", ft.Icons.COFFEE_ROUNDED, "Java"),
     ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
+    ("notifications", ft.Icons.NOTIFICATIONS_ROUNDED, "Notifications"),
     ("backups", ft.Icons.BACKUP_ROUNDED, "Backups"),
 ]
 
@@ -309,6 +311,90 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         spacing=8, visible=False,
     )
 
+    # --- Notifications (Phase 7) -------------------------------------------
+    # One switch per kind, straight out of cubeon/osnotify.KINDS. That list is
+    # the single source of truth for the kinds, so a new kind gets a switch for
+    # free and a switch can never drift from a kind that no longer exists.
+    def _save_notify_setting(_e=None):
+        """Persist now, like every other control in this tab."""
+        try:
+            from cubeon import config as _config
+            _config.save_config(cfg)
+        except Exception:
+            set_status("Couldn't save the notification setting")
+
+    def _notify_switch(key):
+        sw = ft.Switch(value=bool(cfg.get(key, True)), active_color=ACCENT,
+                       scale=0.85)
+
+        def _on_change(_e, k=key, s=sw):
+            cfg[k] = bool(s.value)
+            _save_notify_setting()
+
+        sw.on_change = _on_change
+        return sw
+
+    def _send_test_notification(_e=None):
+        """force=True on purpose: the point of the button is to check whether
+        this desktop actually shows them, and a switched-off kind would make it
+        look broken exactly when you're trying to debug it."""
+        shown = osnotify.notify(
+            "mod", "Cubeon notifications are on",
+            "This is what an install-finished alert looks like.",
+            cfg=cfg, force=True)
+        if shown:
+            set_status("Test notification sent")
+        elif not osnotify.available():
+            set_status("This system has no desktop notifier installed")
+        else:
+            set_status("Couldn't show a test notification")
+
+    notify_backend = osnotify.backend_name()
+    notify_test_btn = ft.Container(
+        content=ft.Text("Send a test notification", color=TEXT,
+                        weight=ft.FontWeight.W_600, size=14),
+        bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER),
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=11),
+        alignment=ft.Alignment.CENTER, ink=False,
+        on_click=_send_test_notification,
+    )
+
+    notifications_pane = ft.Column(
+        [
+            section_label("Notifications"),
+            ft.Container(height=2),
+            ft.Text(
+                "Desktop alerts from Cubeon: an install finishing, your "
+                "most-talked-to friend coming online, a new Cubeon version. "
+                "They are raised by this computer - nothing is sent anywhere, "
+                "and Cubeon neither reads nor clears your notifications.",
+                size=12, color=TEXT_DIM,
+            ),
+            ft.Container(height=12),
+            ft.Container(
+                content=ft.Column(
+                    [
+                        _setting_row(label, sub, _notify_switch(key),
+                                     TEXT=TEXT, TEXT_FAINT=TEXT_FAINT)
+                        for kind, key, label, sub in osnotify.KINDS
+                    ],
+                    spacing=12,
+                ),
+                bgcolor=SURFACE_HI, border_radius=RADIUS, padding=14,
+            ),
+            ft.Container(height=12),
+            ft.Row([notify_test_btn], spacing=12),
+            ft.Text(
+                (f"Using {notify_backend}." if notify_backend
+                 else "No desktop notifier was found, so these switches will "
+                      "have no effect."),
+                size=11, color=TEXT_FAINT, font_family=FONT_MONO,
+            ),
+        ],
+        spacing=8, visible=False,
+    )
+
     backups_pane = ft.Column(
         [
             section_label("Backups"),
@@ -359,6 +445,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "versions": versions_pane, "import": import_pane,
         "memory": memory_pane, "display": display_pane,
         "java": java_pane, "seasonal": seasonal_pane,
+        "notifications": notifications_pane,
         "backups": backups_pane,
     }
 

@@ -26,3 +26,8 @@ cryptography>=42.0.0
 # usual source of "pip install failed" reports). Calls ring, connect, and chat
 # without it; to add sound: pip install sounddevice numpy   (see cubeon/voice.py)
 psutil>=5.9.0
+# Desktop toasts on Windows (cubeon/osnotify.py, Phase 7). OPTIONAL and lazy:
+# without it the module falls back to a PowerShell WinRT toast, so this is only
+# here so a Windows dev install gets the nicer path. Linux (notify-send) and
+# macOS (osascript) need no package at all.
+winotify>=1.1.0; sys_platform == "win32"

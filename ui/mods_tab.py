@@ -697,6 +697,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         version_dropdown.value, loader_for_content())
                 local_install_status.value = f"Installed '{picked.name}'."
                 refresh_mods_list()
+                # Phase 7: a local OS toast so a slow install can finish while
+                # the launcher is behind another window. Best-effort by
+                # construction (see cubeon/osnotify.py) - and it never names a
+                # kind with no Settings switch (content_kind maps shaders onto
+                # the texture-pack one).
+                try:
+                    from cubeon import osnotify
+                    osnotify.install_finished(osnotify.content_kind(_ct()),
+                                              picked.name)
+                except Exception:
+                    pass
                 if _is_mod():
                     # A just-added file is the classic moment for a duplicate
                     # or a missing dependency to bite - check and fix quietly.

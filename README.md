@@ -36,6 +36,10 @@ Built with Python + Flet. No Mojang account hehe, no paywall.
   smooth frame times.
 - **Seasonal look** - the launcher picks a palette from your timezone, with a
   little season companion; change or disable it in Settings.
+- **Desktop notifications** - a local OS toast when an install finishes, when
+  the friend you talk to most comes online, and when a new Cubeon version is
+  out. Raised by your own computer (Windows toast / `notify-send` / `osascript`)
+  - nothing is sent anywhere. One switch per type in Settings.
 
 ## Project Layout
 
@@ -127,6 +131,7 @@ python tools/test_mega_smoke.py --static
 python tools/test_friends_service.py
 python tools/test_ui_smoke.py
 python tools/test_mod_compile.py
+python tools/test_osnotify.py
 
 # Worker tests
 cd worker && node test-worker.mjs

@@ -507,7 +507,7 @@ SUITES = [
     "test_instances.py", "test_version_art_cache.py", "test_version_ui.py",
     "test_install_cancel.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",
-    "test_faces.py", "test_chat_optimistic.py",
+    "test_faces.py", "test_chat_optimistic.py", "test_osnotify.py",
 ]
 
 

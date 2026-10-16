@@ -184,6 +184,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         install_status.color = ACCENT
         install_bar.value = 1
         page.update()
+        # Phase 7: a local OS toast. A modpack install is the longest thing the
+        # launcher does, so this is the one people actually walk away from.
+        # Best-effort by construction (see cubeon/osnotify.py).
+        try:
+            from cubeon import osnotify
+            osnotify.install_finished("modpack", meta.get("name", "modpack"))
+        except Exception:
+            pass
         refresh_installed_packs()
         _render_page()  # so its Install button flips to "Installed"
         # Hand off to the Play tab so the pack is immediately playable.
