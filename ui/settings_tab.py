@@ -18,8 +18,6 @@ legacy-version widgets, backup switches, FilePickers) - this module only
 arranges them. `build_settings_tab()` takes the prebuilt controls and the
 save callbacks, so nothing is duplicated or rewired.
 """
-import threading
-
 import flet as ft
 
 from cubeon.theme import (
@@ -39,11 +37,10 @@ SECTIONS = [
 ]
 
 
-# The section-swap choreography (2026-10-16). ONE curve/duration for the rail
-# tint fading, the rail icon lifting, and the pane fading+sliding in, so
-# choosing a section reads as a single motion rather than three snaps.
-RAIL_ANIM = ft.Animation(180, ft.AnimationCurve.EASE_OUT_CUBIC)
-PANE_ANIM = ft.Animation(190, ft.AnimationCurve.EASE_OUT_CUBIC)
+# The rail's motion (2026-10-16): the section tint fades and its icon lifts one
+# step. Deliberately the ONLY animation in this tab - a pane fade was tried and
+# stuttered (see _select_section).
+RAIL_ANIM = ft.Animation(150, ft.AnimationCurve.EASE_OUT_CUBIC)
 
 
 def _apply_rail_state(item, active, *, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM):
@@ -122,7 +119,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        backup_enabled_switch, frequency_dropdown,
                        include_saves_switch, keep_last_field,
                        backup_status_text, backup_now_btn, open_folder_btn,
-                       restore_btn, minekube_badge,
+                       restore_btn, minekube_badge, cubeon_web_link,
                        seasonal_switch, season_dropdown, seasonal_status_icon,
                        seasonal_status_text, seasonal_source_text,
                        seasonal_restart_btn, seasonal_restart_note,
@@ -378,25 +375,13 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         thread_safe_ui.refresh(rail)
         for pane in panes.values():
             thread_safe_ui.refresh(pane)
-        # Fade + slide the content pane in. Two updates on purpose: a property
-        # written in the same frame animates from the value the client already
-        # holds, so the "dipped" state has to be painted before the settle.
-        # The offset is in FRACTIONS of the control's own size (Flet's Offset),
-        # so -0.012 is a hair of travel whatever the window width is.
-        pane_host.opacity = 0
-        pane_host.offset = ft.Offset(-0.012, 0)
-        thread_safe_ui.refresh(pane_host)
-
-        def _settle():
-            # Guard: a second click inside the 20ms gap must win, or this
-            # would fade in a pane that is no longer selected.
-            if active_section["value"] != key:
-                return
-            pane_host.opacity = 1
-            pane_host.offset = ft.Offset(0, 0)
-            thread_safe_ui.refresh(pane_host)
-
-        threading.Timer(0.02, _settle).start()
+        # NO fade on the pane itself. A dip-to-0-opacity-then-settle was tried
+        # here (2026-10-16) and it stuttered: it needs two flushes ~20ms apart,
+        # and each flush re-syncs the whole pane host (all seven sections). The
+        # motion the sidebar asked for is the RAIL's - the tint fading and the
+        # icon lifting (see _apply_rail_state) - which is one flush and cheap.
+        # The same verdict killed the tab content cross-fade; see main.py's
+        # TAB_FADE_MS.
 
     def _rebuild_rail():
         # Built ONCE, then mutated. The old version cleared and rebuilt every
@@ -420,15 +405,15 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     _rebuild_rail()
 
-    # Active section, one topic at a time. A named variable (not inline) so
-    # _select_section can fade/slide it - see the comment there.
+    # Active section, one topic at a time. A named variable because the smoke
+    # tests and readers both want a handle on it, not because it animates -
+    # see _select_section for why the pane itself does NOT fade.
     pane_host = ft.Container(
         content=ft.Column(
             [panes[k] for k, _, _ in SECTIONS],
             spacing=8, expand=True,
         ),
         expand=True, padding=ft.padding.Padding.only(left=24),
-        animate_opacity=PANE_ANIM, animate_offset=PANE_ANIM,
     )
 
     # --- root -----------------------------------------------------------------
@@ -443,6 +428,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                         ft.Container(height=6),
                         rail,
                         ft.Container(expand=True),
+                        cubeon_web_link,
                         minekube_badge,
                     ],
                     spacing=4,

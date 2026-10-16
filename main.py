@@ -1231,13 +1231,16 @@ async def main(page: ft.Page):
     # a single gesture rather than three separate jumps. See
     # build_top_nav_button (the resting values) and _style_nav_button (the
     # active ones).
-    NAV_ANIM = ft.Animation(190, ft.AnimationCurve.EASE_OUT_CUBIC)
-    # The tab CONTENT fade. This used to be duration=0 (an instant cut, chosen
-    # for snappiness in the 2026-09-09 pass) - the user asked for the switcher
-    # itself to animate, and a fade plus the moving indicator is what makes the
-    # switch feel like one motion. Kept short, and still a scoped diff
-    # (thread_safe_ui.refresh(tab_switcher), never page.update()).
-    TAB_FADE_MS = 170
+    NAV_ANIM = ft.Animation(150, ft.AnimationCurve.EASE_OUT_CUBIC)
+    # The CONTENT swap stays INSTANT. A 170ms cross-fade was tried here
+    # (2026-10-16) and the verdict was immediate - "stucky buggy and not
+    # smooth" - which is the SECOND time a faded cross-fade has been rejected
+    # (see switch_tab's own note about a 220ms fade reading as "sloppy
+    # rendering"). Two full tab trees animate at once and a live tab (Play's
+    # ambient particles, the console) keeps repainting underneath it. What
+    # people actually asked for is the top bar's motion, and that is where it
+    # lives.
+    TAB_FADE_MS = 0
 
     # The main content area on the right - it will be replaced when switching tabs.
     # tab_switcher (a single AnimatedSwitcher created once) is now a plain
@@ -1273,10 +1276,14 @@ async def main(page: ft.Page):
             icon_ctrl = btn.content.controls[0]
             underline = btn.content.controls[1]
             icon_ctrl.color = ACCENT if is_active else TEXT_DIM
-            icon_ctrl.scale = 1.0 if is_active else 0.92
+            icon_ctrl.scale = 1.0 if is_active else 0.94
             underline.bgcolor = ACCENT if is_active else "transparent"
-            underline.width = 24 if is_active else 0
-            underline.opacity = 1 if is_active else 0
+            # Grow/shrink from the middle. The width stays 24 (see
+            # build_top_nav_button): a scale is a transform, so nothing
+            # reflows and the nav row never shifts under the cursor.
+            underline.scale = ft.Scale(scale_x=1 if is_active else 0,
+                                       scale_y=1,
+                                       alignment=ft.Alignment.CENTER)
             return
         # The active state is a *quiet* one: a faint green wash and a small
         # accent bar on the left edge - not a solid green slab.
@@ -1317,17 +1324,21 @@ async def main(page: ft.Page):
             content=ft.Column(
                 [
                     ft.Icon(icon, size=21, color=ACCENT if is_active else TEXT_DIM,
-                            scale=1.0 if is_active else 0.92,
+                            scale=1.0 if is_active else 0.94,
                             animate_scale=NAV_ANIM),
-                    # The underline: green and 24px when active, absent when
-                    # not. It is the WIDTH that animates - a colour-only swap
-                    # reads as a blink.
-                    ft.Container(width=24 if is_active else 0, height=3,
-                                 border_radius=RADIUS,
+                    # The underline. ITS WIDTH IS ALWAYS 24: the bar grows via
+                    # `scale_x` (0 -> 1, anchored at the icon's centre), which
+                    # is a paint-only transform. Animating the real width was
+                    # the first attempt and it was visibly janky - the column
+                    # sizes to max(icon, underline), so a width that changes
+                    # 0<->24 resized every button and shifted the whole centred
+                    # nav row by a pixel or two every frame.
+                    ft.Container(width=24, height=3, border_radius=RADIUS,
                                  bgcolor=ACCENT if is_active else "transparent",
-                                 opacity=1 if is_active else 0,
-                                 animate_size=NAV_ANIM,
-                                 animate_opacity=NAV_ANIM),
+                                 scale=ft.Scale(scale_x=1 if is_active else 0,
+                                                scale_y=1,
+                                                alignment=ft.Alignment.CENTER),
+                                 animate_scale=NAV_ANIM),
                 ],
                 spacing=5,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2005,9 +2016,23 @@ async def main(page: ft.Page):
     # thread_safe_ui because it fires on a timer thread.
     # -----------------------------------------------------------------
     ACCOUNT_PANEL_W = 390
+    # The open/close choreography. ONE duration for the slide and the stretch:
+    # two different durations end at visibly different times, which reads as
+    # two things happening instead of one sheet being pulled out.
+    ACCOUNT_ANIM_MS = 260
+    # The resting squash. The panel is MOUNTED at this scale (see
+    # account_panel's `scale=`), not squashed when it opens: Flet animates from
+    # the value the client already holds, so setting the start value at open
+    # time needs a second flush on a timer - the first attempt did exactly
+    # that, and the extra frame was part of the "stucky" complaint.
+    ACCOUNT_PANEL_SQUASH = 0.04
 
     def _close_account_panel(e=None):
         account_panel.right = -ACCOUNT_PANEL_W
+        # Rolls back up on the way out, mirroring the open, and leaves the
+        # panel in the exact state it is mounted in so the next open animates.
+        account_panel.scale = ft.Scale(scale_x=1, scale_y=ACCOUNT_PANEL_SQUASH,
+                                       alignment=ft.Alignment.TOP_RIGHT)
         account_scrim.opacity = 0
 
         def _retire_scrim():
@@ -2053,20 +2078,25 @@ async def main(page: ft.Page):
         top=0,
         bottom=0,
         right=-ACCOUNT_PANEL_W,
-        animate_position=ft.Animation(280, "easeOutCubic"),
-        # The "sheet of paper" half of the open animation (2026-10-16 user
-        # ask: "opens like a stretched sheet of paper"): a scale_y that starts
-        # nearly flat and eases to 1. `_open_account_panel` drives it.
-        animate_scale=ft.Animation(300, ft.AnimationCurve.EASE_OUT_CUBIC),
+        animate_position=ft.Animation(ACCOUNT_ANIM_MS, ft.AnimationCurve.EASE_OUT_CUBIC),
+        # The "sheet of paper" half of the animation (2026-10-16 user ask:
+        # "opens like a stretched sheet of paper"). Mounted SQUASHED - see
+        # ACCOUNT_PANEL_SQUASH - so a single write inside _open_account_panel
+        # both slides and unfurls it.
+        animate_scale=ft.Animation(ACCOUNT_ANIM_MS, ft.AnimationCurve.EASE_OUT_CUBIC),
+        scale=ft.Scale(scale_x=1, scale_y=ACCOUNT_PANEL_SQUASH,
+                       alignment=ft.Alignment.TOP_RIGHT),
         # It is docked to the right edge, so only the free (left) edge is
         # rounded, and one soft shadow lifts it off the scrim - a sheet
-        # resting on the window rather than a slab cut into it.
+        # resting on the window rather than a slab cut into it. The blur is
+        # deliberately small: a wide blur is re-rasterised on every frame of
+        # the unfurl.
         border_radius=ft.BorderRadius(top_left=RADIUS, top_right=0,
                                       bottom_left=RADIUS, bottom_right=0),
         shadow=ft.BoxShadow(
-            blur_radius=30,
-            color=ft.Colors.with_opacity(0.5, "#000000"),
-            offset=ft.Offset(-10, 0),
+            blur_radius=16,
+            color=ft.Colors.with_opacity(0.45, "#000000"),
+            offset=ft.Offset(-8, 0),
         ),
         padding=ft.padding.Padding.only(left=24, right=24, top=28, bottom=24),
         content=ft.Column(
@@ -2132,36 +2162,22 @@ async def main(page: ft.Page):
 
     def _open_account_panel(e=None):
         # "Opens like a stretched sheet of paper" (user ask, 2026-10-16): the
-        # slide is the panel's `right`; the STRETCH is `scale_y`, starting
-        # nearly flat and easing to 1, anchored to the top-right corner so the
-        # sheet unfurls downward from where it enters rather than bulging from
-        # its middle.
+        # panel is MOUNTED squashed, so this ONE write unfurls it - `right`
+        # slides it in and `scale_y` stretches it down from the top-right
+        # corner, on one shared duration. No timers, one flush.
         #
-        # Two updates, deliberately: a property set in the SAME frame animates
-        # from the value the client already has, so the squashed start has to
-        # land first. The 30ms timers is that gap - far below perception, and
-        # it goes through thread_safe_ui because it fires on a timer thread.
-        account_panel.scale = ft.Scale(
-            scale_x=1, scale_y=0.04, alignment=ft.Alignment.TOP_RIGHT)
+        # refresh_wearing() runs first so its caption changes ride the same
+        # refresh (its image composites are a worker thread and land later).
+        refresh_wearing()
         account_scrim.visible = True
         account_scrim.opacity = 1
         account_panel.right = 0
+        account_panel.scale = ft.Scale(scale_x=1, scale_y=1,
+                                       alignment=ft.Alignment.TOP_RIGHT)
         # Per-control diff (see _close_account_panel): a page.update() here
         # was the "whole app reloads" jank - it re-synced every mounted tab.
         thread_safe_ui.refresh(account_scrim)
         thread_safe_ui.refresh(account_panel)
-        refresh_wearing()
-
-        def _unroll():
-            # Guard: a close inside the gap must win, or the panel is left
-            # open-at-zero-scale with no way back.
-            if account_panel.right != 0:
-                return
-            account_panel.scale = ft.Scale(
-                scale_x=1, scale_y=1, alignment=ft.Alignment.TOP_RIGHT)
-            thread_safe_ui.refresh(account_panel)
-
-        threading.Timer(0.03, _unroll).start()
 
     def refresh_profile_tab():
         """Called whenever the Profile tab becomes active, so its fields
@@ -5799,6 +5815,44 @@ async def main(page: ft.Page):
         )
         _open_dialog(dlg)
 
+    # --- Cubeon Web (user ask, 2026-10-16: a Settings link to the site) -----
+    # The public site is the static site in web/, deployed on Vercel. It lives
+    # in the Settings rail next to the Minekube credit - the two outbound links
+    # in one place. CUBEON_WEB_URL can be overridden for a fork or a staging
+    # deploy without touching this file.
+    CUBEON_WEB_URL = (os.environ.get("CUBEON_WEB_URL")
+                      or "https://cubeon.vercel.app")
+
+    def _open_cubeon_web(e=None):
+        """Opens the site, with the same browser-open fallback as every other
+        external link in the app: if no browser can be opened, show the URL in
+        a snackbar instead of failing silently."""
+        import webbrowser
+        try:
+            if webbrowser.open(CUBEON_WEB_URL):
+                return
+        except Exception:
+            logging.getLogger(__name__).warning("background worker error", exc_info=True)
+        _show_snack(f"Cubeon Web: {CUBEON_WEB_URL}", duration=8000)
+
+    cubeon_web_link = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.PUBLIC_ROUNDED, size=16, color=TEXT_DIM),
+                ft.Text("Cubeon Web", size=13, color=TEXT_DIM,
+                        weight=ft.FontWeight.W_500),
+            ],
+            spacing=10, tight=True,
+        ),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
+        border_radius=RADIUS,
+        ink=False,
+        tooltip=CUBEON_WEB_URL,
+        on_click=_open_cubeon_web,
+        # Matches the rail rows: the hover wash fades rather than snapping.
+        animate=ft.Animation(150, ft.AnimationCurve.EASE_OUT_CUBIC),
+    )
+
     minekube_badge = ft.IconButton(
         ft.Icons.DNS_ROUNDED,
         icon_size=16, icon_color=TEXT_DIM,
@@ -6170,6 +6224,7 @@ async def main(page: ft.Page):
         backup_status_text=backup_status_text,
         backup_now_btn=backup_now_btn, open_folder_btn=open_folder_btn,
         restore_btn=restore_btn, minekube_badge=minekube_badge,
+        cubeon_web_link=cubeon_web_link,
         seasonal_switch=seasonal_switch, season_dropdown=season_dropdown,
         seasonal_status_icon=seasonal_status_icon,
         seasonal_status_text=seasonal_status_text,
