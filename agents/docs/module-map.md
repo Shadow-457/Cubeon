@@ -1829,6 +1829,16 @@ trap (the mod now warns about it in chat, but don't rely on that).
   gate is actually used (the old serial loop made it decorative);
   `global_mod_cache` index writes + store-name choice are lock-guarded for
   that concurrency.
+- **Gotcha: `tools/test_mod_store.py` is NOT hermetic - it uses the ambient game
+  dir instead of one of its own.** Three of its checks assert the store holds
+  *exactly one file*, so on a REUSED sandbox (a `CUBEON_GAME_DIR` other suites
+  have already installed into - the HUD jar alone is enough) they fail with a
+  listing of every leftover jar. `24 passed, 3 failed` on a warm sandbox is
+  therefore expected and is **not** a regression; `27 passed, 0 failed` on a
+  fresh `HOME` + `CUBEON_GAME_DIR` is the real result. That is why
+  `test_mega_smoke.py --suites` goes red on that one suite after a few runs
+  while CI (a virgin sandbox per job) stays green. Fix = point the test at its
+  own store dir. Reported, not changed.
 - `cubeon/logging_setup.py`: rotating file log at
   `~/.cubeon_launcher/cubeon.log` (5MB x3), sys/threading excepthooks, and
   `diagnostics_text()` for bug reports. setup_logging() is idempotent; call
