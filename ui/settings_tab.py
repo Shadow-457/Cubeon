@@ -18,6 +18,8 @@ legacy-version widgets, backup switches, FilePickers) - this module only
 arranges them. `build_settings_tab()` takes the prebuilt controls and the
 save callbacks, so nothing is duplicated or rewired.
 """
+import threading
+
 import flet as ft
 
 from cubeon.theme import (
@@ -35,6 +37,29 @@ SECTIONS = [
     ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
     ("backups", ft.Icons.BACKUP_ROUNDED, "Backups"),
 ]
+
+
+# The section-swap choreography (2026-10-16). ONE curve/duration for the rail
+# tint fading, the rail icon lifting, and the pane fading+sliding in, so
+# choosing a section reads as a single motion rather than three snaps.
+RAIL_ANIM = ft.Animation(180, ft.AnimationCurve.EASE_OUT_CUBIC)
+PANE_ANIM = ft.Animation(190, ft.AnimationCurve.EASE_OUT_CUBIC)
+
+
+def _apply_rail_state(item, active, *, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM):
+    """Paint one rail row for its active/inactive state, IN PLACE.
+
+    Mutating (rather than rebuilding) is what lets the tint fade and the icon
+    scale: `animate`/`animate_scale` only mean anything on a control the
+    client already knows about - a freshly built row can only ever render
+    already-active.
+    """
+    item.bgcolor = ACCENT_TINT if active else None
+    icon, label = item.content.controls[0], item.content.controls[1]
+    icon.color = ACCENT if active else TEXT_DIM
+    icon.scale = 1.0 if active else 0.94
+    label.color = TEXT if active else TEXT_DIM
+    label.weight = ft.FontWeight.W_600 if active else ft.FontWeight.W_500
 
 
 def _setting_row(title, subtitle, control, *, TEXT, TEXT_FAINT):
@@ -63,7 +88,9 @@ def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
             content=ft.Row(
                 [
                     ft.Icon(icon, size=17,
-                            color=ACCENT if active else TEXT_DIM),
+                            color=ACCENT if active else TEXT_DIM,
+                            scale=1.0 if active else 0.94,
+                            animate_scale=RAIL_ANIM),
                     ft.Text(label, size=13,
                             color=TEXT if active else TEXT_DIM,
                             weight=ft.FontWeight.W_600 if active else ft.FontWeight.W_500),
@@ -75,6 +102,10 @@ def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
             ink=False,
             on_click=on_click,
+            # The rail is built ONCE and mutated in place (see _rebuild_rail),
+            # so this tint can actually fade between sections instead of
+            # appearing already-active on a freshly built control.
+            animate=RAIL_ANIM,
         ),
         ACCENT_TINT if active else None,
         ROW_HOVER,
@@ -336,6 +367,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     # --- left rail ------------------------------------------------------------
     rail = ft.Column(spacing=2)
+    rail_items = {}   # key -> the row Container, built once (see _rebuild_rail)
 
     def _select_section(key):
         active_section["value"] = key
@@ -346,18 +378,58 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         thread_safe_ui.refresh(rail)
         for pane in panes.values():
             thread_safe_ui.refresh(pane)
+        # Fade + slide the content pane in. Two updates on purpose: a property
+        # written in the same frame animates from the value the client already
+        # holds, so the "dipped" state has to be painted before the settle.
+        # The offset is in FRACTIONS of the control's own size (Flet's Offset),
+        # so -0.012 is a hair of travel whatever the window width is.
+        pane_host.opacity = 0
+        pane_host.offset = ft.Offset(-0.012, 0)
+        thread_safe_ui.refresh(pane_host)
+
+        def _settle():
+            # Guard: a second click inside the 20ms gap must win, or this
+            # would fade in a pane that is no longer selected.
+            if active_section["value"] != key:
+                return
+            pane_host.opacity = 1
+            pane_host.offset = ft.Offset(0, 0)
+            thread_safe_ui.refresh(pane_host)
+
+        threading.Timer(0.02, _settle).start()
 
     def _rebuild_rail():
-        rail.controls.clear()
-        for key, icon, label in SECTIONS:
-            rail.controls.append(
-                _rail_item(key, icon, label,
-                           active=(key == active_section["value"]),
-                           on_click=lambda e, k=key: _select_section(k),
-                           ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
-                           ROW_HOVER=ROW_HOVER, TEXT=TEXT, TEXT_DIM=TEXT_DIM))
+        # Built ONCE, then mutated. The old version cleared and rebuilt every
+        # row on each select, which meant the tint/icon could only ever appear
+        # already-active - the animation had nothing to move from. (It was
+        # also doing 7 fresh control trees per click for no reason.)
+        if not rail_items:
+            for key, icon, label in SECTIONS:
+                item = _rail_item(
+                    key, icon, label,
+                    active=(key == active_section["value"]),
+                    on_click=lambda e, k=key: _select_section(k),
+                    ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
+                    ROW_HOVER=ROW_HOVER, TEXT=TEXT, TEXT_DIM=TEXT_DIM)
+                rail_items[key] = item
+                rail.controls.append(item)
+        for key, item in rail_items.items():
+            _apply_rail_state(item, key == active_section["value"],
+                              ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
+                              TEXT=TEXT, TEXT_DIM=TEXT_DIM)
 
     _rebuild_rail()
+
+    # Active section, one topic at a time. A named variable (not inline) so
+    # _select_section can fade/slide it - see the comment there.
+    pane_host = ft.Container(
+        content=ft.Column(
+            [panes[k] for k, _, _ in SECTIONS],
+            spacing=8, expand=True,
+        ),
+        expand=True, padding=ft.padding.Padding.only(left=24),
+        animate_opacity=PANE_ANIM, animate_offset=PANE_ANIM,
+    )
 
     # --- root -----------------------------------------------------------------
     settings_tab = ft.Row(
@@ -379,14 +451,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             ),
             # Vertical rule between rail and content.
             ft.Container(width=1, bgcolor=CARD_BORDER, expand=False),
-            # Active section, one topic at a time.
-            ft.Container(
-                content=ft.Column(
-                    [panes[k] for k, _, _ in SECTIONS],
-                    spacing=8, expand=True,
-                ),
-                expand=True, padding=ft.padding.Padding.only(left=24),
-            ),
+            pane_host,
         ],
         spacing=0,
         vertical_alignment=ft.CrossAxisAlignment.START,

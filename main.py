@@ -14,6 +14,7 @@ The code uses Flet for UI and relies on launcher_core.py for backend logic
 # Standard library imports
 import logging
 
+import base64    # The Account panel's skin/cape previews are inlined as base64 (no file: src)
 import os          # For file path/mtime handling (used for avatar cache-busting)
 import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
 import subprocess  # Detached launcher fallback when execv cannot replace us
@@ -202,7 +203,7 @@ from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
 from cubeon import status_text as cubeon_status  # strips "<... at 0x...>" from labels
 from cubeon import version_art  # Per-version wiki banners for the Play tab
 from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
-from ui.skin_tab import build_skin_section  # Imports the skin section builder, now embedded in the Profile dialog
+from ui.skin_tab import build_skin_section, DEFAULT_CAPE_PREVIEW_SRC  # Imports the skin section builder, now embedded in the Profile dialog
 from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
 from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab builder function
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
@@ -1225,6 +1226,19 @@ async def main(page: ft.Page):
     active_tab = {"value": "play"}  # We use a dict so we can mutate it inside nested functions
     nav_buttons = {}  # Will hold references to each navigation button container
 
+    # The tab-switch choreography (2026-10-16): ONE curve and duration for the
+    # underline growth, the icon lift and the tint fade, so the switch reads as
+    # a single gesture rather than three separate jumps. See
+    # build_top_nav_button (the resting values) and _style_nav_button (the
+    # active ones).
+    NAV_ANIM = ft.Animation(190, ft.AnimationCurve.EASE_OUT_CUBIC)
+    # The tab CONTENT fade. This used to be duration=0 (an instant cut, chosen
+    # for snappiness in the 2026-09-09 pass) - the user asked for the switcher
+    # itself to animate, and a fade plus the moving indicator is what makes the
+    # switch feel like one motion. Kept short, and still a scoped diff
+    # (thread_safe_ui.refresh(tab_switcher), never page.update()).
+    TAB_FADE_MS = 170
+
     # The main content area on the right - it will be replaced when switching tabs.
     # tab_switcher (a single AnimatedSwitcher created once) is now a plain
     # pass-through: duration=0 makes the swap instant. It is kept as a
@@ -1233,8 +1247,8 @@ async def main(page: ft.Page):
     tab_switcher = ft.AnimatedSwitcher(
         content=ft.Container(expand=True),
         transition=ft.AnimatedSwitcherTransition.FADE,
-        duration=0,
-        reverse_duration=0,
+        duration=TAB_FADE_MS,
+        reverse_duration=TAB_FADE_MS,
     )
     content_area = ft.Container(content=tab_switcher, expand=True)
 
@@ -1250,10 +1264,19 @@ async def main(page: ft.Page):
         if getattr(btn, "cubeon_top_icon", False):
             btn.data = is_active
             # A faint green wash behind the icon plus the underline - the
-            # active tab reads at a glance without a bright slab.
+            # active tab reads at a glance without a bright slab. The width
+            # (not just the colour) changes, which is what lets the bar GROW
+            # out from under the icon instead of blinking: animate_size on the
+            # underline, animate_scale on the icon, and the tint fades through
+            # the button's own `animate`.
             btn.bgcolor = ACCENT_TINT if is_active else "transparent"
-            btn.content.controls[0].color = ACCENT if is_active else TEXT_DIM
-            btn.content.controls[1].bgcolor = ACCENT if is_active else "transparent"
+            icon_ctrl = btn.content.controls[0]
+            underline = btn.content.controls[1]
+            icon_ctrl.color = ACCENT if is_active else TEXT_DIM
+            icon_ctrl.scale = 1.0 if is_active else 0.92
+            underline.bgcolor = ACCENT if is_active else "transparent"
+            underline.width = 24 if is_active else 0
+            underline.opacity = 1 if is_active else 0
             return
         # The active state is a *quiet* one: a faint green wash and a small
         # accent bar on the left edge - not a solid green slab.
@@ -1281,15 +1304,30 @@ async def main(page: ft.Page):
     def build_top_nav_button(key, icon, label):
         """An icon-only top-bar button: the icon, and the small green
         underline that marks the active tab (the mockup's active affordance -
-        a bar under the icon, not a filled slab)."""
+        a bar under the icon, not a filled slab).
+
+        ALL THREE parts of the affordance animate rather than snapping
+        (2026-10-16): the underline GROWS out from under the icon (its width
+        changes, so `animate_size` has something to interpolate), the icon
+        itself lifts a hair (`animate_scale`), and the tint behind the button
+        fades (`animate`). One curve and one duration for all three, so the
+        switch reads as a single gesture instead of three separate jumps."""
         is_active = key == active_tab["value"]
         btn = ft.Container(
             content=ft.Column(
                 [
-                    ft.Icon(icon, size=21, color=ACCENT if is_active else TEXT_DIM),
-                    # The underline: green only when active.
-                    ft.Container(width=24, height=3, border_radius=RADIUS,
-                                 bgcolor=ACCENT if is_active else "transparent"),
+                    ft.Icon(icon, size=21, color=ACCENT if is_active else TEXT_DIM,
+                            scale=1.0 if is_active else 0.92,
+                            animate_scale=NAV_ANIM),
+                    # The underline: green and 24px when active, absent when
+                    # not. It is the WIDTH that animates - a colour-only swap
+                    # reads as a blink.
+                    ft.Container(width=24 if is_active else 0, height=3,
+                                 border_radius=RADIUS,
+                                 bgcolor=ACCENT if is_active else "transparent",
+                                 opacity=1 if is_active else 0,
+                                 animate_size=NAV_ANIM,
+                                 animate_opacity=NAV_ANIM),
                 ],
                 spacing=5,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1301,7 +1339,7 @@ async def main(page: ft.Page):
             data=is_active,
             on_click=lambda e, k=key: switch_tab(k),
             on_hover=_on_nav_hover,
-            animate=150,
+            animate=NAV_ANIM,
             tooltip=label,
         )
         btn.cubeon_top_icon = True
@@ -1868,6 +1906,88 @@ async def main(page: ft.Page):
     )
 
     # -----------------------------------------------------------------
+    # WEARING (2026-10-16 user ask: "show skin and cape" in the profile
+    # sidebar). The Cosmetics tab is where you CHANGE them; this is the "what
+    # am I wearing right now" answer inside the Account panel, which covers
+    # the whole launcher and is therefore where people actually look.
+    #
+    # Same core renderers the Cosmetics tab uses, and the same rule: the PIL
+    # work NEVER runs on the UI thread (it is a full body composite). The
+    # previews are only re-rendered when the panel opens, which is exactly
+    # when they can have gone stale.
+    # -----------------------------------------------------------------
+    wear_skin_img = ft.Image(src="icon.svg", width=62, height=100,
+                             fit=ft.BoxFit.CONTAIN, opacity=0.35)
+    wear_skin_name = ft.Text("Default skin", size=12.5, color=TEXT,
+                             weight=ft.FontWeight.W_600)
+    wear_skin_meta = ft.Text("Not wearing a custom skin", size=10,
+                             color=TEXT_DIM)
+    wear_cape_img = ft.Image(src=DEFAULT_CAPE_PREVIEW_SRC, width=62, height=100,
+                             fit=ft.BoxFit.CONTAIN)
+    wear_cape_name = ft.Text("Cubeon Cape", size=12.5, color=TEXT,
+                             weight=ft.FontWeight.W_600)
+    wear_cape_meta = ft.Text("Shared with other players", size=10,
+                             color=TEXT_DIM)
+
+    def _wearing_png(kind, filename):
+        """Renders one preview and returns it as base64 - WORKER THREAD ONLY.
+
+        Deliberately mirrors ui/skin_tab.py: src must be base64 bytes, because
+        ft.Image.src resolves a relative string against assets_dir and these
+        files live under ~/.cubeon_launcher, nowhere near the app's assets.
+        """
+        if kind == "skin":
+            out_path = os.path.join(core.SKINS_DIR, "_account_panel_skin.png")
+            core.render_local_skin_preview(filename, out_path, scale=6)
+        else:
+            out_path = os.path.join(core.CAPES_DIR, "_account_panel_cape.png")
+            core.render_cape_preview(filename, out_path, scale=6)
+        with open(out_path, "rb") as fh:
+            return base64.b64encode(fh.read()).decode("ascii")
+
+    def refresh_wearing():
+        """Repaint the two previews from the CURRENT config. Called when the
+        Account panel opens, so a change made on the Cosmetics tab is already
+        there by the time the panel finishes sliding in."""
+        skin_fn = cfg.get("active_skin")
+        cape_fn = cfg.get("active_cape")
+
+        # Captions and the no-custom-fallbacks are decided synchronously (no
+        # PIL), so the panel is never briefly wrong - only the images are late.
+        wear_skin_name.value = "Custom skin" if skin_fn else "Default skin"
+        wear_skin_meta.value = ("In use in-game" if skin_fn
+                                else "Not wearing a custom skin")
+        if not skin_fn:
+            wear_skin_img.src = "icon.svg"
+            wear_skin_img.opacity = 0.35
+        wear_cape_name.value = "Custom cape" if cape_fn else "Cubeon Cape"
+        wear_cape_meta.value = ("In use in-game" if cape_fn
+                                else "Shared with other players")
+        if not cape_fn:
+            wear_cape_img.src = DEFAULT_CAPE_PREVIEW_SRC
+
+        def _work():
+            try:
+                updates = []
+                if skin_fn and os.path.exists(core.get_custom_skin_path(skin_fn)):
+                    updates.append((wear_skin_img, _wearing_png("skin", skin_fn), 1))
+                if cape_fn and os.path.exists(core.get_custom_cape_path(cape_fn)):
+                    updates.append((wear_cape_img, _wearing_png("cape", cape_fn), None))
+                for control, src, opacity in updates:
+                    control.src = src
+                    if opacity is not None:
+                        control.opacity = opacity
+                    thread_safe_ui.refresh(control)
+            except Exception:
+                # A missing/corrupt skin file must leave the placeholder,
+                # never take the Account panel (or startup) down.
+                logging.getLogger(__name__).debug(
+                    "account panel wearing preview failed", exc_info=True)
+
+        threading.Thread(target=_work, daemon=True,
+                         name="ux-wearing-preview").start()
+
+    # -----------------------------------------------------------------
     # ACCOUNT PANEL — slides in from the right edge over a dimmed scrim.
     #
     # Flet 0.86 has no Drawer control, so it is two overlay Containers:
@@ -1934,6 +2054,20 @@ async def main(page: ft.Page):
         bottom=0,
         right=-ACCOUNT_PANEL_W,
         animate_position=ft.Animation(280, "easeOutCubic"),
+        # The "sheet of paper" half of the open animation (2026-10-16 user
+        # ask: "opens like a stretched sheet of paper"): a scale_y that starts
+        # nearly flat and eases to 1. `_open_account_panel` drives it.
+        animate_scale=ft.Animation(300, ft.AnimationCurve.EASE_OUT_CUBIC),
+        # It is docked to the right edge, so only the free (left) edge is
+        # rounded, and one soft shadow lifts it off the scrim - a sheet
+        # resting on the window rather than a slab cut into it.
+        border_radius=ft.BorderRadius(top_left=RADIUS, top_right=0,
+                                      bottom_left=RADIUS, bottom_right=0),
+        shadow=ft.BoxShadow(
+            blur_radius=30,
+            color=ft.Colors.with_opacity(0.5, "#000000"),
+            offset=ft.Offset(-10, 0),
+        ),
         padding=ft.padding.Padding.only(left=24, right=24, top=28, bottom=24),
         content=ft.Column(
             [
@@ -1963,6 +2097,31 @@ async def main(page: ft.Page):
                 ft.Row([profile_pfp_upload_btn, profile_pfp_remove_btn], spacing=10),
                 ft.Container(height=6),
                 profile_pfp_status,
+                ft.Container(height=18),
+                pixel_divider(),
+                ft.Container(height=10),
+                section_label("Wearing"),
+                ft.Container(height=12),
+                # Skin beside cape, the way they sit on the player in-game.
+                ft.Row(
+                    [
+                        ft.Column(
+                            [wear_skin_img, wear_skin_name, wear_skin_meta],
+                            spacing=4, tight=True,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Column(
+                            [wear_cape_img, wear_cape_name, wear_cape_meta],
+                            spacing=4, tight=True,
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=24,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                ft.Container(height=8),
+                ft.Text("Change them on the Cosmetics tab.", size=10.5,
+                        color=TEXT_DIM),
             ],
             spacing=2,
             scroll=ft.ScrollMode.AUTO,
@@ -1972,6 +2131,18 @@ async def main(page: ft.Page):
     page.overlay.extend([account_scrim, account_panel])
 
     def _open_account_panel(e=None):
+        # "Opens like a stretched sheet of paper" (user ask, 2026-10-16): the
+        # slide is the panel's `right`; the STRETCH is `scale_y`, starting
+        # nearly flat and easing to 1, anchored to the top-right corner so the
+        # sheet unfurls downward from where it enters rather than bulging from
+        # its middle.
+        #
+        # Two updates, deliberately: a property set in the SAME frame animates
+        # from the value the client already has, so the squashed start has to
+        # land first. The 30ms timers is that gap - far below perception, and
+        # it goes through thread_safe_ui because it fires on a timer thread.
+        account_panel.scale = ft.Scale(
+            scale_x=1, scale_y=0.04, alignment=ft.Alignment.TOP_RIGHT)
         account_scrim.visible = True
         account_scrim.opacity = 1
         account_panel.right = 0
@@ -1979,6 +2150,18 @@ async def main(page: ft.Page):
         # was the "whole app reloads" jank - it re-synced every mounted tab.
         thread_safe_ui.refresh(account_scrim)
         thread_safe_ui.refresh(account_panel)
+        refresh_wearing()
+
+        def _unroll():
+            # Guard: a close inside the gap must win, or the panel is left
+            # open-at-zero-scale with no way back.
+            if account_panel.right != 0:
+                return
+            account_panel.scale = ft.Scale(
+                scale_x=1, scale_y=1, alignment=ft.Alignment.TOP_RIGHT)
+            thread_safe_ui.refresh(account_panel)
+
+        threading.Timer(0.03, _unroll).start()
 
     def refresh_profile_tab():
         """Called whenever the Profile tab becomes active, so its fields

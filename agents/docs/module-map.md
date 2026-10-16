@@ -2269,18 +2269,19 @@ Still-true invariants from the pre-local era:
   app "reload" on each panel toggle. General rule for animation-y overlay
   choreography: always per-control refreshes. ui_smoke §10 asserts no raw
   `page.update()` line inside the two handlers.
-- **Tab switching is a hard cut with a scoped diff** (2026-09-09, "snappier"
-  pass): `switch_tab` ends with `thread_safe_ui.refresh(tab_switcher)` +
-  `refresh(subnav_bar)` + per-nav-button refreshes — NOT `page.update()` (a
-  whole-tree diff hitched the frame exactly at the switch). The
-  AnimatedSwitcher's fade is `duration=0, reverse_duration=0` (kept as a
-  switcher only so `.content` assignment code is unchanged).
-  `refresh_installed_packs` (ui/modpacks_tab.py) likewise diffs
-  `installed_view`/`installed_count` instead of the page. Measured in the
-  FakePage harness: steady-state switch = 0 page.update calls, ~3ms wall;
-  first visit to a lazy tab builds it (~87ms once). Remaining `page.update()`
-  calls live in one-shot action handlers (install buttons, filter toggles) —
-  fine. The one at switch_tab's tail was the "sloppy rendering" complaint.
+- **Tab switching keeps its scoped diff, but is no longer an instant cut**
+  (2026-10-16, user ask "animate the top tab switcher"; supersedes the
+  2026-09-09 "snappier" decision below): the `AnimatedSwitcher` fade is now
+  `TAB_FADE_MS = 170`, and the active affordance animates in three parts at
+  once — the green underline GROWS (its `width` changes 0↔24 under
+  `animate_size`; a colour-only swap reads as a blink), the icon lifts
+  (`animate_scale`, 0.92↔1.0), and the tint fades (the button's `animate`).
+  All three share `NAV_ANIM = ft.Animation(190, EASE_OUT_CUBIC)` so the switch
+  reads as one gesture. `switch_tab`'s tail is STILL a scoped diff —
+  `thread_safe_ui.refresh(tab_switcher)` + `refresh(subnav_bar)` + per-nav-button
+  refreshes, never `page.update()`. Keep it that way: it was the whole-tree
+  diff, not the switcher's duration, that caused the original hitch.
+  Measured in the FakePage harness: steady-state switch = 0 page.update calls.
 - **Download progress is throttled at the SOURCE** (2026-09-09 efficiency
   pass): `net.stream_to_file` fires progress_cb per 64 KiB chunk — hundreds
   of UI repaints/sec on fast links. It now emits at most every 33ms OR every
@@ -3185,3 +3186,31 @@ Cubeon cape resolves.
 - **DO NOT run the publisher** unless the user asks — it is a real broadcast to
   every user, not a test. `tools/test_notify.py` + `node worker/test-notify.mjs`
   cover the whole path offline (`tools/test_notify.py` is in `SUITES`).
+
+## UI animation choreography (2026-10-16) — Phase 4
+- Curves/durations live next to the thing they animate, as named constants:
+  `NAV_ANIM` + `TAB_FADE_MS` in main.py's TOP NAVIGATION block, `RAIL_ANIM` +
+  `PANE_ANIM` in `ui/settings_tab.py`.
+- **Two-update rule (the gotcha, and it applies to every Flet animation
+  here): a property written in the SAME frame animates from the value the
+  client already holds.** So "dip then settle" animations need the dipped
+  value refreshed FIRST and the target value written ~20–30ms later on a
+  `threading.Timer` (which is why they must go through `thread_safe_ui`).
+  This drives the Account panel's paper-unroll (`scale_y` 0.04→1 anchored at
+  `Alignment.TOP_RIGHT`) and the Settings pane fade+slide
+  (`pane_host.opacity` 0→1 with a `ft.Offset(-0.012, 0)`→0 lift).
+- **Animations need a control the client already knows about.** Rebuilding a
+  control per interaction (the old `_rebuild_rail` cleared and re-appended
+  every row) can only ever render the end state — the animation has nothing to
+  move from. `ui/settings_tab.py` now builds the rail ONCE and mutates the rows
+  in place via `_apply_rail_state`.
+- **The Account panel is a "sheet of paper"**: docked edge square, free (left)
+  edge rounded, one soft `ft.BoxShadow` offset left, and a `scale_y` unfurl on
+  open. It still repaints ONLY its two overlays via `thread_safe_ui.refresh`
+  (never `page.update()` — ui_smoke §10 pins that) and still slides via
+  `animate_position` on `right`.
+- **Wearing block**: the Account panel shows the current skin and cape
+  (`refresh_wearing()`, called on open). Captions are set synchronously; the
+  PNG composites run on a daemon thread (`ux-wearing-preview`) and land as
+  base64 `src` — `ft.Image.src` cannot load a relative path that lives under
+  `~/.cubeon_launcher`. Same rule as `ui/skin_tab.py`.
