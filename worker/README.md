@@ -39,23 +39,48 @@ That is what the Workers themselves have to answer:
 
 | Worker | Who can write | The scarce resource | Protection |
 |---|---|---|---|
-| `cubeon-skins.js` | only the holder of a per-machine secret | KV writes | SHA-256 secret at rest, constant-time compare, write budget |
+| `cubeon-skins.js` | only the holder of a per-machine secret — **after** first contact | KV writes (1k/day) | SHA-256 secret at rest, constant-time compare, write budget, **per-IP throttle on all write routes, name-keyed displacement cooldown** |
 | `cubeon-invites.js` | only a host holding the code's secret | KV writes | hashed bearer secret, constant-time compare, optional `RATE_LIMITER`, write budget |
 | `cubeon-friends.js` | only the holder of a name's secret | WebSocket + DO time | SHA-256 secret at rest, constant-time compare, secret sent in the first frame (never the URL, so never a request log), sliding-window limiter per IP and per action, reserved names |
 | `cubeon-downloads.js` | nobody - it is read-only | **the GitHub token's API budget** | edge-cached release lookup, optional `RATE_LIMITER` |
 | `cubeon-waitlist.js` | anyone (it *is* a public signup form) | KV writes, shared with the tally | optional `RATE_LIMITER` |
 
-The one that was actually broken was **`cubeon-downloads.js`**, because it is
-the only Worker holding a credential. It used to spend one GitHub API call on
-*every* press: 5000/hour on a token, so ~1.4 requests/second sustained from
-anyone with the URL took the download buttons down for every user - and
-`Cache-Control: no-store` meant a repeat press counted again. The release
-lookup is now served from the edge cache for 5 minutes, so a flood costs
-**zero** API calls, with an optional per-IP `RATE_LIMITER` as the second gate.
-The reasoning lives in the header of `cubeon-downloads.js`; the tests are
-`worker/test-downloads.mjs` (behaviour, with a stub cache) and
-`tools/test_web_download_count.py` (source pins, since CI runs Python and not
-the Node Worker tests).
+Two Workers were genuinely exploitable, and **neither needed a fork, a stolen
+secret, or an authenticated write**:
+
+**`cubeon-skins.js`** (the identity/skin backend) had two holes on its
+*first-contact* path, which is unauthenticated by design — the identity model is
+trust-on-first-use, so the first request from anyone claims a UUID.
+
+1. **Write amplification** — a random uuid and a random secret are both
+   well-formed, so validation cannot help, and each POST cost **2 KV writes**
+   against the account-wide 1k/day budget. 500 anonymous POSTs emptied it, after
+   which *every* user's skin upload fails until the day rolls over. Now: a
+   per-IP throttle (`60/min`) on all four write routes, running before any
+   handler. The `RATE_LIMITER` binding is used when bound; an in-isolate
+   fallback is always on.
+2. **Name displacement** (the worse one, because it needs no flood at all) — the
+   name pointer is last-writer-wins by design, and the only guard was a cooldown
+   keyed to the **identity**. An attacker mints identities for free, so four
+   successive attempts with a fresh uuid each all succeeded: the victim's name
+   flipped to an identity with no skin record, so **every friend saw them as
+   cape-only — their skin gone** — and the victim's rename back was itself
+   cooldown-throttled for an hour. Now the cooldown is keyed to the **name**
+   too, and the previous holder is exempt, so a victim reclaims instantly while
+   an attacker's next identity waits an hour. Deliberate consequence: renaming
+   *onto* a name taken from someone else within the last hour now 429s.
+
+**`cubeon-downloads.js`** was the third — the only Worker holding a credential.
+It spent one GitHub API call on *every* press against a 5000/hour token, with
+`Cache-Control: no-store`, so ~1.4 requests/second sustained from anyone with the
+URL took the download buttons down for every user. The release lookup is now
+edge-cached for 5 minutes, so a flood costs **zero** API calls, with an optional
+per-IP `RATE_LIMITER` as the second gate.
+
+Every reasoning trail lives in the header/comments of the Worker itself; the
+tests are `worker/test-worker.mjs` + `worker/test-downloads.mjs` (behaviour) and
+`tools/test_skins_net.py` §4 + `tools/test_web_download_count.py` §4b (source
+pins, because **CI runs Python and not the Node Worker tests**).
 
 **If you fork this:** point the launcher at your own deployments.
 `CUBEON_SKIN_API`, `CUBEON_FRIENDS_API` and `CUBEON_INVITE_API` override the
