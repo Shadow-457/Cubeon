@@ -134,28 +134,6 @@ cd worker && node test-worker.mjs
 
 See [Testing Guide](docs/development/testing.md) for all test suites.
 
-## Owner notifications
-
-`python notify --headline "..." --content "..."` publishes a one-off popup that
-every running Cubeon shows **once**, in the same style as the seasonal greeting.
-It goes through the existing `cubeon-downloads` Cloudflare Worker
-(`worker/cubeon-downloads.js`, `GET`/`POST /notify`), so there is no new service:
-
-- `POST /notify` needs `Authorization: Bearer <NOTIFY_TOKEN>`, where the token
-  is a **Worker secret** (`npx wrangler secret put NOTIFY_TOKEN`). It is never in
-  this repository and cannot be read back out of the Worker; the publisher reads
-  it from `$CUBEON_NOTIFY_TOKEN` or a `.gitignore`d `.notify_token` file.
-  Unauthenticated requests get `401` before anything is stored.
-- `GET /notify` is public and returns the latest entry (or `204` when none was
-  ever published); launchers poll it at startup, off the UI thread.
-- Storage is a KV namespace bound as `CUBEON_NOTIFY`; without it the routes
-  answer `204`/`501` and the download routes are unaffected. Set it up once
-  following `worker/wrangler-downloads.toml`.
-
-**This broadcasts to real users.** Use `--dry-run`, or `tools/test_notify.py` /
-`worker/test-notify.mjs` (both offline), unless the user explicitly asked for a
-real announcement.
-
 ## Backend Infrastructure
 
 Three Cloudflare Workers on the free tier:

@@ -13,22 +13,6 @@
 #
 # web/vercel.json points the /<os>download routes at the URL this prints.
 
-# Owner notifications (Phase 6, 2026-10-16) need ONE extra binding - a KV
-# namespace - plus one secret. Both are OPTIONAL: without them the /notify
-# routes answer 204 (GET, "nothing to show") and 501 (POST, "misconfigured")
-# and the download routes are completely unaffected.
-#
-#   npx wrangler kv namespace create CUBEON_NOTIFY -c wrangler-downloads.toml
-#   # paste the printed id into the binding below (uncomment it), then:
-#   echo "<long-random-token>" | npx wrangler secret put NOTIFY_TOKEN -c wrangler-downloads.toml
-#
-# NOTIFY_TOKEN never enters the repository; the launcher-side copy lives in the
-# CUBEON_NOTIFY_TOKEN env var or a .gitignore'd .notify_token file (see notify/).
-#
-# [[kv_namespaces]]
-# binding = "CUBEON_NOTIFY"
-# id = "<kv namespace id>"
-
 name = "cubeon-downloads"
 main = "cubeon-downloads.js"
 compatibility_date = "2025-04-01"

@@ -22,12 +22,5 @@ You're an AI agent working in the Cubeon repo. Quick orientation before you dive
   instead of burying it in your diary note. Notes are history; the map is the
   living truth.
 
-## Never do this without being asked
-- **Do not run `python notify ...`.** It publishes a real popup to every Cubeon
-  user on the planet; it is not a local test. Use `--dry-run`, or run
-  `tools/test_notify.py` / `node worker/test-notify.mjs`, which are offline.
-  The publish token lives outside the repo (`$CUBEON_NOTIFY_TOKEN` or a
-  `.gitignore`d `.notify_token`) and the Worker rejects anything unauthenticated.
-
 Everything else — ideas for how to structure an entry, the Q&A baton, tips on
 names — lives in `agents/README.md`. Treat it as friendly suggestions, not law.

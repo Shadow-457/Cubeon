@@ -3167,26 +3167,6 @@ Cubeon cape resolves.
 - Gotcha: test_ui_smoke source-pins read raw source; avoid the literal
   "page.update()" in comments inside pinned functions (it trips the pins).
 
-## Owner notifications (2026-10-16) — Phase 6
-- **Publisher**: `python notify --headline ... --content ...` (`notify/__main__.py`);
-  **launcher side**: `cubeon/notify.py`; **transport**: the EXISTING
-  `worker/cubeon-downloads.js` (`GET`/`POST /notify`), storage in a KV namespace
-  bound as `CUBEON_NOTIFY`.
-- **Invariants**: `POST /notify` requires `Authorization: Bearer <NOTIFY_TOKEN>`
-  (a Worker *secret*) and answers `401` BEFORE reading or writing anything;
-  `GET /notify` is public, `204` when nothing was ever published, `501` when the
-  KV binding is absent (the download routes are unaffected either way). The
-  launcher only ever reads, only fetches OFF the UI thread (a daemon thread
-  named `cubeon-notify`), and every failure mode is "show nothing".
-- **Shown once**: the marker is the entry's `ts`, stored in config under
-  `notify_seen_ts`, written the moment the popup reaches the screen (NOT on
-  dismiss — quitting without pressing "Got it" must not re-greet you).
-- **Secret handling**: the token is `$CUBEON_NOTIFY_TOKEN` or a `.gitignore`d
-  `.notify_token` (repo root) or `~/.cubeon_notify_token`; never in git.
-- **DO NOT run the publisher** unless the user asks — it is a real broadcast to
-  every user, not a test. `tools/test_notify.py` + `node worker/test-notify.mjs`
-  cover the whole path offline (`tools/test_notify.py` is in `SUITES`).
-
 ## UI animation choreography (2026-10-16) — Phase 4
 - Curves/durations live next to the thing they animate, as named constants:
   `NAV_ANIM` + `TAB_FADE_MS` in main.py's TOP NAVIGATION block, `RAIL_ANIM` +

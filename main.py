@@ -6972,21 +6972,6 @@ async def main(page: ft.Page):
     except Exception:
         pass  # a missed seasonal hello must not break startup
 
-    # -----------------------------------------------------------------
-    # OWNER NOTIFICATION (Phase 6)
-    # A one-off broadcast published with `python notify` and shown ONCE, in the
-    # same non-modal style as the seasonal greeting above. The fetch runs on a
-    # daemon thread - startup must never wait on it, and test_startup.py
-    # asserts the main thread opens no socket. Every failure mode (offline, no
-    # KV binding, nothing published) is "show nothing".
-    # -----------------------------------------------------------------
-    try:
-        from cubeon import notify as cubeon_notify
-
-        cubeon_notify.poll_async(page, cfg, save_config=core.save_config)
-    except Exception:
-        pass  # a missed announcement must not break startup
-
     # --- Clear the Discord activity when the launcher window closes ---
     # Without this, the "Playing / in the launcher" presence can linger on the
     # player's profile after they quit Cubeon. Best-effort and version-tolerant:

@@ -85,102 +85,12 @@ function pickLatestPrefixed(assets, { prefix, suffix }) {
   return matches[matches.length - 1].asset;
 }
 
-// --- Owner notifications (2026-10-16) --------------------------------------
-// A short one-off broadcast from the owner to every running launcher. The
-// launcher polls GET /notify at startup and shows the entry ONCE (it keeps the
-// `ts` it last displayed in config), styled like the seasonal greeting.
-//
-//   POST /notify   Authorization: Bearer <NOTIFY_TOKEN>
-//                  {"headline": "...", "content": "...", "url": "https://..."}
-//   GET  /notify   -> {"headline","content","url","ts"}  |  204 when unset
-//
-// Storage is the KV namespace bound as CUBEON_NOTIFY - the same pattern the
-// cubeon-skins Worker uses for its SKINS namespace. NOTIFY_TOKEN is a Worker
-// SECRET: it lives only inside Cloudflare, is never in this repo, and cannot
-// be read back out of the Worker:
-//
-//   echo "<long-random-token>" | npx wrangler secret put NOTIFY_TOKEN -c wrangler-downloads.toml
-//
-// An unauthenticated POST is rejected with 401 BEFORE anything is read or
-// written, and the published bytes are capped, because GET /notify is public.
-const NOTIFY_KEY = "latest";
-const NOTIFY_MAX = 4000;
-
-async function handleNotify(request, env) {
-  const kv = env.CUBEON_NOTIFY;
-
-  if (request.method === "GET") {
-    // 204 (not 404) when nothing was ever published: the launcher treats any
-    // non-200 as "nothing to show" and moves on.
-    if (!kv) return new Response(null, { status: 204 });
-    const raw = await kv.get(NOTIFY_KEY);
-    if (!raw) return new Response(null, { status: 204 });
-    return new Response(raw, {
-      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-    });
-  }
-
-  if (request.method !== "POST") {
-    return new Response("method not allowed", {
-      status: 405,
-      headers: { Allow: "GET, POST" },
-    });
-  }
-
-  // Owner only. The expected token is a Worker secret; `got` comes from the
-  // Authorization header so the token never lands in a URL, a log or a referer.
-  const expected = env.NOTIFY_TOKEN;
-  const got = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!expected || !got || got !== expected) {
-    return new Response("unauthorized", { status: 401 });
-  }
-  if (!kv) {
-    return new Response("server misconfigured: no CUBEON_NOTIFY binding", {
-      status: 501,
-    });
-  }
-
-  let body;
-  try {
-    body = await request.json();
-  } catch {
-    return new Response("bad json", { status: 400 });
-  }
-  const headline = String(body?.headline ?? "").trim();
-  const content = String(body?.content ?? "").trim();
-  if (!headline || !content) {
-    return new Response("headline and content are required", { status: 400 });
-  }
-  if (headline.length > NOTIFY_MAX || content.length > NOTIFY_MAX) {
-    return new Response("too long", { status: 413 });
-  }
-  const entry = {
-    headline,
-    content,
-    // Only an absolute http(s) url survives, so a stored entry can never feed
-    // the launcher a file:// or javascript: link.
-    url:
-      typeof body?.url === "string" && /^https?:\/\//i.test(body.url)
-        ? body.url
-        : null,
-    ts: Date.now(),
-  };
-  await kv.put(NOTIFY_KEY, JSON.stringify(entry));
-  return new Response(JSON.stringify({ ok: true, ts: entry.ts }), {
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
       return new Response("cubeon-downloads ok");
-    }
-
-    if (url.pathname === "/notify") {
-      return handleNotify(request, env);
     }
 
     const spec = FILES[url.pathname];
