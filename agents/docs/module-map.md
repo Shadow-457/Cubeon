@@ -189,6 +189,88 @@
   this job before assuming a user's "launcher crashes on Windows" report is
   unreproducible.
 
+## Flet client crash forensics: cubeon/incident.py (2026-10-18) — INVARIANT
+- **What a user's "crash" actually is on Linux.** The 2026-10-18 report arrived
+  as a KDE screenshot: `~/.flet/client/flet-desktop-light-0.86.5/flet/flet has
+  encountered a fatal error and was closed`, TWICE. That binary is the FLET
+  CLIENT dying to a signal; two dialogs = attempt 1 (hardware GL) and the
+  software-GL retry both died, after which the ladder gives up and the
+  launcher vanishes silently. The ladder in `main.py __main__` is deliberate -
+  pre-paint death → in-process retry with `use_software_gl` (safe: the engine
+  never initialized), mid-session death → re-exec, `CUBEON_GPU_RESTARTS` caps
+  both (see the Mesa/GPU-recovery sections above).
+- **Root cause CONFIRMED (2026-10-18): Mesa 26.1.x — not Cubeon.** The crash
+  is not exotic: the maintainer's own box (Arch, `mesa 1:26.1.6-1`, AMD
+  Polaris/Ellesmere: RX 470/480/570/580/590) has a pile of flet-client core
+  dumps, and `coredumpctl info` on the run whose `cubeon.log` simply stops
+  reads:
+  ```
+  #0      libc.so.6                              (SEGV_ACCERR)
+  #1-#7   libgallium-26.1.6-arch1.1.so
+  #8-#9   libflutter_linux_gtk.so
+  #10-#18 libgtk-3.so.0 → g_signal_emit → gtk_container_propagate_draw
+  ```
+  A Mesa driver fault during a GTK/Flutter paint — three layers below any
+  Python. The 26.1 series is a known radeonsi/gallivm SIGSEGV regression
+  train ("[radeonsi] SIGSEGV in gallivm during software fallback", 26.1.4
+  relnotes; 26.1.8 closed the series and 26.2 carries the fixes), and
+  `mesa 1:26.2.4-1` was already in `extra` on the crashing box: **the real
+  fix is the Mesa update.** The crash record now prints `gallium=<lib>`, so
+  `gallium=libgallium-26.1.6-…` answers "is this the known Mesa bug?" in one
+  grep of a user's log.
+- **The retry ladder therefore uses TWO rasterizers.** The crash is in the
+  LLVM JIT path that llvmpipe SHARES with radeonsi, which is why the
+  software-GL retry could never be expected to save the session (it never
+  did — that is where the old "both hw AND llvmpipe" observation came from,
+  recorded here long before anyone had a backtrace for it).
+  `incident.driver_for_attempt()`: retry 1 → `GALLIUM_DRIVER=llvmpipe`,
+  retry 2 (the last one) → `softpipe`, Mesa's reference C rasterizer with NO
+  JIT — a genuinely different code path. softpipe is slow, hence final
+  attempt only, and it is safe from the wedge watchdog by design: that
+  detector requires its GL-frame-timeout lines in a BURST (< 4 s apart)
+  precisely so a merely SLOW client is never killed.
+- **Never hardcode the retry driver in main.py.** The attempt count is
+  `max(_retries, CUBEON_GPU_RESTARTS)` — a re-exec'd mid-session restart is a
+  FRESH process (`_retries == 0`) and must still escalate to softpipe on its
+  second try. Regression: `tools/test_incident.py`.
+- **The gap that made it undiagnosable, now closed:**
+    * EVERY crash message was a `print()` to stdout. A user launching Cubeon
+      from a desktop menu has no console, so there was nothing to send us.
+    * `setup_logging()` was reached ONLY from `main()` - the flet SESSION
+      callback. A PRE-PAINT crash means `main()` never runs, so logging was
+      never configured and `cubeon.log` stayed EMPTY. `__main__` now calls it
+      before `_session_loop()` (idempotent; `main()`'s later call is a no-op).
+    * `_session_loop` calls `incident.record_session_end(kind, exit_code,
+      ui_painted, tail)` for EVERY session end - INFO for a clean close (so
+      "the log just stops here" is distinguishable from "the user closed it"),
+      WARNING for a crash - and `incident.record_giving_up(...)` at ERROR in
+      both exhausted branches. Support greps `flet session ended:` and
+      `giving up after`.
+    * `ClientOutputTail` keeps the last 25 non-ATK lines of the client's own
+      stdout+stderr (the filter loop in `__main__` already streams it): that is
+      where a Mesa/GTK/wayland library name or an engine assertion shows up.
+      Consecutive repeats collapse to one line so an OpenGL-frame-timeout storm
+      cannot push the earlier context out.
+    * `client_binary()` names WHICH client bundle is being spawned, its stub
+      size and whether the Flutter engine library is present. A PARTIAL unpack
+      of `~/.flet/client/flet-desktop-*` (flet unpacks once, then trusts it
+      forever) dies on every launch and looks identical to a driver crash in a
+      report; it is also the one client-side fault that is ours to fix, so it
+      has to be distinguishable by evidence rather than by a size guess.
+- **`incident.wayland_x11_fallback(env)` is applied ONLY on a retry**, i.e.
+  after the first attempt already crashed. The GTK/Wayland path is the other
+  documented way the client dies, and "run it under XWayland" is the standard
+  workaround. It returns `{}` unless the session is Wayland, `DISPLAY` exists
+  (without XWayland, forcing x11 would fail the start outright), and the user
+  has NOT set `GDK_BACKEND` themselves. Never apply it to a first attempt -
+  native Wayland stays native for everyone it currently works for.
+- **These helpers must be TOTAL** - never raise, and never report a signal
+  death as clean: they run on the one path where the launcher is already
+  dying, and they are the only evidence a crash report can contain.
+  `describe_exit(None)` is "unobserved" and must never read as `clean`.
+  Regression: `tools/test_incident.py` (74 checks, including the main.py
+  wiring).
+
 ## Version management lives in ui/versions.py + cubeon/instances.py (2026-10-15)
 - The Play tab's "manage my versions" surface was extracted out of `main()`'s
   4,000-line closure into two modules:
@@ -1764,6 +1846,13 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
 - The flet client may SIGSEGV in libgallium (Mesa 26.1/AMD Polaris; both hw
   and llvmpipe; ~50% flaky). main.py's `__main__` retry loop handles it:
   pre-paint death → `use_software_gl` marker + relaunch (2 retries).
+  CONFIRMED 2026-10-18 with a real core dump (`libgallium-26.1.6` ←
+  `libflutter_linux_gtk` ← `gtk_container_propagate_draw`): it is a Mesa
+  26.1.x radeonsi/gallivm regression, so the retry ladder escalates
+  llvmpipe → softpipe (no LLVM, therefore a different code path) and the fix
+  for a user is the Mesa update (26.2+). Diagnosable from cubeon.log since
+  2026-10-18 — see the crash-forensics section (`cubeon/incident.py`) for what
+  a user "crash" report must contain.
 - The flet client prints one `Atk-CRITICAL **: atk_socket_embed: assertion
   'plug_id != NULL'` line to inherited stderr on every launch (KDE/X11;
   GTK a11y socket with no atk-bridge). Harmless. `NO_AT_BRIDGE=1` does
@@ -2055,6 +2144,7 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `gate.py` | Server join password (PBKDF2, escalating lockouts). |
 | `eta.py` | Measured "time left" for downloads (`EtaEstimator`). There is no size to divide by (mll reports file COUNTS per phase, mod installs file units, content downloads bytes), so it samples how fast the fraction actually moves. Silent until ~2s and ≥1% of movement, recalculates from the last 30s, drops its history on a BACKWARDS jump (a new phase — libraries→assets, or the next file of a batch), stops promising after 15s of no progress, and never reports past 6h. Used by main.py's install label, the mods Download button, the modpack install line and the server plugin row. |
 | `shortcuts.py` | The keyboard-shortcut decision table (pure, Flet-free): `resolve(key, ctrl=, alt=, shift=, meta=) -> action id`, `tab_action/tab_index`, and `CATALOGUE` (what main.py's F1 dialog renders). main.py's `_on_key` only dispatches — see the "Keyboard shortcuts + F11 fullscreen" invariant section. |
+| `incident.py` | Crash forensics for the flet desktop client: `describe_exit(code)`, `crash_record(...)`/`record_session_end(...)`, `record_giving_up(...)`, `ClientOutputTail`, `wayland_x11_fallback(env)`. Pure/total — it only DESCRIBES a session end, main.py still owns recovery. See the "Flet client crash forensics" invariant section. |
 | `status_text.py` | `human(text)` — strips Python object reprs (`<... at 0x7f...>`) out of anything user-facing. `str(requests.ConnectionError)` genuinely contains `<urllib3.connection.HTTPSConnection object at 0x7f3c8a1b2d90>: Failed to establish a new connection...`, which is what painted a memory address into the UI when a download failed. Applied in `net.py` when it builds `DownloadError`, and at the UI status/error setters. Only reprs are removed — hashes stay (they are diagnostic in an integrity error); the one meaningless bare hash, an asset's sha1 as a "file name", is fixed at the source by `versions.py:_FriendlyStatus` (→ "Downloading game assets (412/2586)"). |
 
 ## Facts that bite if you don't know them
@@ -2151,6 +2241,7 @@ python3 tools/test_invites.py           # 127: Minekube/tunnel flows
 python3 tools/test_modpacks.py          # 66: pack installs
 python3 tools/test_pack_install_guard.py # 28: a pack install claims its instance (no PLAY mid-install)
 python3 tools/test_keyboard_shortcuts.py # 50: shortcut table + F11 fullscreen wiring
+python3 tools/test_incident.py          # 74: crash forensics record + retry env ladder
 python3 tools/test_update_notice.py     # 20: one update notice per version, one check
 python3 tools/test_mod_store.py         # 27: global mod store
 python3 tools/test_net.py               # 54: download retry/resume/cap + updater

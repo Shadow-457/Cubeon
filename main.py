@@ -7830,6 +7830,17 @@ def run_sync(page) -> None:
 # This is the standard Python entry point - when the script is run directly, start the Flet app.
 if __name__ == "__main__":
 
+    # Crash forensics start HERE, not in main(). setup_logging() used to be
+    # reached only from main() - the flet SESSION callback - so a client that
+    # died BEFORE the window ever painted left NOTHING in cubeon.log. That is
+    # exactly the crash reported on 2026-10-18 (KDE's crash reporter showed
+    # "flet ... encountered a fatal error and was closed"): the whole event
+    # was invisible to us, and the only evidence in existence was a
+    # screenshot. Idempotent, so main()'s later call becomes a no-op.
+    from cubeon.logging_setup import setup_logging as _setup_logging
+    _setup_logging()
+    from cubeon import incident as _incident
+
     # Silence GTK's accessibility bridge on the flet client. It fails to
     # plug into AT-SPI on KDE/X11 and prints
     #   (flet:N): Atk-CRITICAL **: atk_socket_embed: assertion 'plug_id != NULL' failed
@@ -8009,6 +8020,11 @@ if __name__ == "__main__":
         target=_wedge_watchdog, daemon=True, name="cubeon-wedge-watchdog")
     _wedge_thread.start()
 
+    # The tail of the CURRENT client's own output, kept for the crash record
+    # (cubeon/incident.py). main.py's filter below is the only place that text
+    # passes through, and stdout is not somewhere a user can send us from.
+    _client_tail = _incident.ClientOutputTail()
+
     async def _filtered_open_flet_view_async(page_url, assets_dir, hidden):
         args, flet_env, pid_file = \
             _flet_desktop.__locate_and_unpack_flet_view(
@@ -8050,6 +8066,10 @@ if __name__ == "__main__":
                     line = raw.decode("utf-8", "replace")
                     if _ATK_NOISE.search(line):
                         continue
+                    # Keep the tail for the crash record before anything else
+                    # looks at the line: the client's own last words are the
+                    # only place a Mesa/GTK/wayland library name shows up.
+                    _client_tail.add(line)
                     if _GL_FRAME_TIMEOUT.search(line):
                         # The client announces every OpenGL frame it failed
                         # to produce. A burst of these with no painted
@@ -8303,17 +8323,41 @@ if __name__ == "__main__":
             _retries = 0
             while True:
                 if os.path.exists(_gl_fallback_marker):
-                    os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
-                    os.environ["GALLIUM_DRIVER"] = "llvmpipe"
+                    # How many client attempts have already died. The
+                    # in-process pre-paint retries know their own count; a
+                    # re-exec'd mid-session restart carries it forward in
+                    # CUBEON_GPU_RESTARTS (the fresh process starts at
+                    # _retries == 0). The DRIVER depends on it - llvmpipe
+                    # first, then softpipe - because the 2026-10-18 crash is
+                    # in the LLVM rasterizer llvmpipe shares with radeonsi:
+                    # see incident.driver_for_attempt.
+                    try:
+                        _failed_attempts = max(
+                            _retries, int(os.environ.get(
+                                "CUBEON_GPU_RESTARTS", "0") or "0"))
+                    except ValueError:
+                        _failed_attempts = _retries
+                    # retry_environment also carries a dice roll on the OTHER
+                    # way the flet client dies on Linux (the GTK/Wayland path)
+                    # - only here, after a crash, and only when it can help:
+                    # incident.wayland_x11_fallback keeps a working Wayland
+                    # session native.
+                    for _fk, _fv in _incident.retry_environment(
+                            _failed_attempts).items():
+                        if os.environ.get(_fk) != _fv:
+                            os.environ[_fk] = _fv
+                            print(f"cubeon: retrying with {_fk}={_fv}")
 
-                # Each attempt needs a clean per-run marker state, and a fresh
-                # slot for the client's exit status.
+                # Each attempt needs a clean per-run marker state, a fresh slot
+                # for the client's exit status, and an empty output tail (the
+                # client about to start writes its own).
                 try:
                     if os.path.exists(_ui_up_marker):
                         os.remove(_ui_up_marker)
                 except OSError:
                     pass
                 _last_client_exit["code"] = None
+                _client_tail.clear()
 
                 # A fresh session is also the natural place to reap the
                 # ghosts of dead launchers (frozen client windows whose
@@ -8436,6 +8480,16 @@ if __name__ == "__main__":
                     _session_end_kind, _window_gone.get("dismissed_at"),
                     time.monotonic())
 
+                # Record WHY this session ended, in cubeon.log, for every
+                # kind - including the clean close, so support can tell "the
+                # user closed it" from "cubeon.log just stops here". This is
+                # the line the 2026-10-18 crash report could not contain:
+                # before it, a client signal death was a print() to stdout
+                # that nobody launching from a menu could see or send us.
+                _incident.record_session_end(
+                    _session_end_kind, _last_client_exit["code"], ui_painted,
+                    _client_tail.lines())
+
                 if _session_end_kind == "clean_close":
                     # Real user close: clear any crash-fallback flag so the
                     # next session retries hardware GL (driver may be fixed),
@@ -8484,6 +8538,8 @@ if __name__ == "__main__":
                             print(f"cubeon: mid-session restart via re-exec "
                                   f"failed ({ex})")
                         return  # execv, detached handoff, or nothing left
+                    _incident.record_giving_up(
+                        _MAX_MIDSESSION_RESTARTS, "mid_session_crash")
                     return  # restart budget exhausted: exit
 
                 if _session_end_kind == "pre_paint_crash":
@@ -8501,6 +8557,7 @@ if __name__ == "__main__":
                     else:
                         print("cubeon: client keeps dying before the window "
                               "shows - giving up")
+                        _incident.record_giving_up(_retries, "pre_paint_crash")
                         return
 
     _session_loop()

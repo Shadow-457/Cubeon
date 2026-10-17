@@ -490,6 +490,82 @@ is where a Windows-only startup crash will finally be visible.
 
 ---
 
+## High: the launcher's crashes left no evidence anywhere — FIXED (2026-10-18)
+
+**File:** `main.py` (`__main__`), `cubeon/incident.py` (new)
+
+Report: *"it got crashes on user and me too"*, delivered as a KDE screenshot —
+KDE's Crash Reporting System showing **two** dialogs for
+`~/.flet/client/flet-desktop-light-0.86.5/flet/flet has encountered a fatal
+error and was closed.` That binary is the **flet desktop client** (the
+Flutter/GTK window process) dying to a signal; two dialogs mean attempt 1
+(hardware GL) and the software-OpenGL retry both died, after which the recovery
+ladder gives up and the launcher disappears without a word.
+
+The recovery itself was already correct and deliberate (pre-paint death →
+in-process retry with `use_software_gl`; mid-session death → re-exec bounded by
+`CUBEON_GPU_RESTARTS`). What was broken was that **no crash could ever be
+diagnosed**, for two reasons:
+
+1. every crash message was a `print()` to **stdout** — a user launching Cubeon
+   from a desktop menu has no console, so there was nothing they could send;
+2. `setup_logging()` was only reached from `main()`, the flet **session**
+   callback. A pre-paint crash means `main()` never runs, so logging was never
+   configured and `~/.cubeon_launcher/cubeon.log` stayed **completely empty**.
+   The only evidence in existence was the screenshot.
+
+**Fix (2026-10-18):** `__main__` configures logging before the session loop, and
+every session end is now recorded through `cubeon/incident.py` — INFO for a
+clean close (so "the log stops here" is distinguishable from "the user closed
+it"), WARNING for a crash with `describe_exit(-11)` → `SIGSEGV`, whether the UI
+painted, whether the software-GL fallback was in effect, the session/desktop/
+flet versions, and the **tail of the client's own output** (`ClientOutputTail`
+keeps the last 25 non-noise lines, collapsing repeats so a frame-timeout storm
+cannot bury the earlier context). Both exhausted ladder branches log
+`record_giving_up` at ERROR. `incident.client_binary()` additionally names
+WHICH client bundle is being spawned, its stub size and whether the Flutter
+engine library is present — a PARTIAL unpack of `~/.flet/client/flet-desktop-*`
+(flet unpacks once, then trusts it forever) dies on every launch and looks
+identical to a driver crash, but is the one client-side fault that is ours to
+fix. The module is deliberately **total** (never
+raises, never reports a signal death as clean) because it runs where the
+launcher is already dying.
+
+Also a second retry dice roll for the OTHER documented flet-client crash class
+on Linux, the GTK/Wayland path: `incident.wayland_x11_fallback()` sets
+`GDK_BACKEND=x11` **only** on a retry, only on a Wayland session, only when
+`DISPLAY` exists (no XWayland → forcing x11 would fail the start outright), and
+never when the user chose a backend themselves. Native Wayland stays native for
+everyone it works for today. Regression: `tools/test_incident.py`.
+
+**Root cause confirmed the same day, from the maintainer's own core dumps**
+(same report — the KDE screenshot came from a friend's machine, the maintainer's
+box turned out to have the crash too): Arch, `mesa 1:26.1.6-1`, AMD Polaris
+(Ellesmere, RX 470–590). `coredumpctl info` on a run whose `cubeon.log` simply
+stops gives
+
+```
+#0      libc.so.6                (SEGV_ACCERR)
+#1-#7   libgallium-26.1.6-arch1.1.so
+#8-#9   libflutter_linux_gtk.so
+#10-#18 libgtk-3.so.0 → g_signal_emit → gtk_container_propagate_draw
+```
+
+— a Mesa driver fault during a GTK/Flutter paint, three layers below any Python,
+in the 26.1.x series that the Mesa release notes and bug reports describe as a
+radeonsi/gallivm SIGSEGV regression train (26.1.8 closed the series; 26.2 carries
+the fixes, and `mesa 1:26.2.4-1` was already available on the crashing box). So
+the honest fix for an affected user is **the Mesa update**, and Cubeon's part is
+to (a) name the library in the log — the record now prints `gallium=<lib>`, so
+`gallium=libgallium-26.1.6-…` identifies the known bug in one grep — and
+(b) survive it: because llvmpipe shares the failing LLVM JIT path with radeonsi,
+the retry ladder now escalates `GALLIUM_DRIVER=llvmpipe` → `softpipe` (Mesa's
+reference C rasterizer, no JIT at all) on its final attempt, with the attempt
+count taken as `max(_retries, CUBEON_GPU_RESTARTS)` so a re-exec'd mid-session
+restart escalates too.
+
+---
+
 ## Summary Table
 
 | # | Severity | Issue | File(s) |
@@ -529,3 +605,4 @@ is where a Windows-only startup crash will finally be visible.
 | 33 | ✅ Fixed 2026-10-18 | **Play appeared while a modpack install was still writing the instance.** A pack installs the base version + loader first and its mods last, so a disk scan called it installed for the whole mod-download phase and the button offered PLAY — pressing it launched a half-written profile. The claim was `state["installing_version"]`, which only the Play-tab installer ever set. Now `cubeon/modpacks.py` keeps a refcounted in-flight registry (keyed by mc_version) raised before the first write and released on success/failure/cancel; the button shows a disabled `INSTALLING…` (never a lying Cancel), and the click path, prefetch, Instances manager and mod doctor all stand down while it holds | `cubeon/modpacks.py`, `main.py`, `launcher_core.py` |
 | 34 | ✅ Fixed 2026-10-18 | **"A new Cubeon is available" nagged on every launch** ("spamming … coming up again and again"). The snackbar had NO memory at all, so an available update was announced on every start until the user updated; the only once-per-version marker belonged to the OS toast and failed open when toasts were off. A SECOND background check ran without the update token purely for that toast — two GETs per start and two answers about the same release. Now one check, one `_announce_update` callback, gated by the total function `updater.should_announce(cfg, version)`, which marks the version in the config before either notice goes out | `main.py`, `cubeon/updater.py` |
 | 35 | ✅ Fixed 2026-10-18 | **The Windows startup job was red on every run, so CI had never built the UI on Windows.** `test_startup.py` banned every connect to prove "no network on the UI thread", but Windows `socket.socketpair()` is a real 127.0.0.1 TCP pair and `ProactorEventLoop`'s self-pipe uses it, so `asyncio.run()` died before `main()` (`controls=0`). `test_winwindow.py` §1 asserted the off-Windows no-op ("returns immediately") while running on windows-latest, where the module is real. Loopback is allowed and real hosts are still recorded+refused (plus `socket.create_connection`, the call urllib3 makes); the timing check is branched on `os.name` | `tools/test_startup.py`, `tools/test_winwindow.py` |
+| 36 | ✅ Fixed 2026-10-18 | **A launcher "crash" left no evidence anywhere.** The report was a KDE crash-reporter screenshot: the flet desktop client (`~/.flet/client/flet-desktop-light-0.86.5/flet/flet`) dying to a signal, twice — attempt 1 and the software-GL retry — after which the ladder gives up silently. Recovery was already right; the diagnosis was impossible: every message was a `print()` to a stdout no desktop-launch user sees, and `setup_logging()` was only reached from `main()`, so a PRE-PAINT crash left cubeon.log completely EMPTY. `__main__` now configures logging before the session loop, `cubeon/incident.py` records every session end (kind, signal via `describe_exit`, ui_painted, software-GL state, session/desktop/flet versions, and the client's own last 25 output lines), both give-up branches log at ERROR, and a retry-only `GDK_BACKEND=x11` dice roll covers the GTK/Wayland crash class. Root cause confirmed the same day from the maintainer's own core dumps: SIGSEGV in `libgallium-26.1.6` ← `libflutter_linux_gtk` ← `gtk_container_propagate_draw`, i.e. a **Mesa 26.1.x radeonsi/gallivm regression** (26.2 fixes it) — so the record now prints `gallium=<lib>` and the ladder escalates `llvmpipe` → `softpipe` (no LLVM JIT) on its last attempt | `main.py`, `cubeon/incident.py` |
