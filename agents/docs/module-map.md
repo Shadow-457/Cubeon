@@ -935,6 +935,14 @@ facts belong HERE, not in diary notes.
   `contents: read`. Tag builds FAIL if the release upload fails — intentional.
 
 ## Auto-release per push (2026-10-17) — supersedes "publish-on-push" (2026-10-15)
+- **Before announcing a Windows build publicly, run
+  `docs/WINDOWS_SMOKE_TEST.md`.** CI proves the installer BUILDS and nothing
+  more: the `Startup tests (Windows)` job is red in the test harness itself (it
+  bans every socket and reads `_ssock`, which a Windows `ProactorEventLoop` does
+  not have, and flet's own local client needs a socket), so no green run there
+  will mean the real app works. Step 3 of that doc is the update-nag check, and
+  step 4 is the opt-in custom frame, which is default-OFF precisely because it
+  has never been verified on real Windows.
 - **One release per push to main/master**, with its own version: a push no
   longer refreshes the latest release in place. `tools/release_version.py` owns
   the policy — read its docstring before touching the version scheme. Per push:

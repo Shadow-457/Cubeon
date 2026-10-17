@@ -121,6 +121,11 @@ Cubeon currently uses a safe, manual update process:
 Cubeon does **not** secretly replace itself yet. This prevents an update from
 breaking the app while it is running.
 
+Before telling a lot of people about a Windows build, walk through
+`docs/WINDOWS_SMOKE_TEST.md` once on a real Windows machine - CI builds the
+installer but has never run the real Windows app, so that pass is the only
+proof it works on someone else's PC.
+
 ### Publishing a release
 
 **Pushing is the release.** You do not tag anything, and you do not upload
