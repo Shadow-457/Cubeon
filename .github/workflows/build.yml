@@ -581,4 +581,9 @@ jobs:
             echo "$TAG is not ahead of the public $highest; publishing without --latest"
             gh release edit "$TAG" --draft=false --latest=false
           fi
-          gh release view "$TAG" --json tagName,isDraft,isLatest,url
+          gh release view "$TAG" --json tagName,isDraft,isPrerelease,url
+          # Closing summary. `gh release view` has no isLatest field, so ask the
+          # API instead - and this is the very endpoint the updater and the
+          # download worker read, so the line states what users are actually
+          # being offered right now.
+          echo "public /releases/latest is $(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"

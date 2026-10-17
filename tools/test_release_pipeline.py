@@ -140,12 +140,33 @@ case "$cmd" in
     # releases only - a draft 404s. Getting this wrong once cost a real run
     # (the re-run path concluded "no release yet" and re-created it), so the
     # stub is deliberately faithful rather than permissive.
-    tag="${1##*/}"
-    if [ -f "$RELSTATE/releases/$tag" ] && [ -f "$RELSTATE/published/$tag" ]; then
-      echo "{\"tag_name\":\"$tag\"}"
-    else
-      echo "gh: Not Found (HTTP 404)" >&2; exit 1
-    fi;;
+    path="$1"
+    case "$path" in
+      */releases/latest)
+        # What /releases/latest means: the release marked latest, else (as
+        # GitHub does for a repo with releases) the highest published version.
+        latest=""
+        for f in "$RELSTATE"/latest/*; do
+          [ -f "$f" ] && latest="$(basename "$f")"
+        done
+        if [ -z "$latest" ]; then
+          for f in "$RELSTATE"/releases/*; do
+            [ -f "$f" ] || continue
+            t="$(basename "$f")"
+            [ -f "$RELSTATE/published/$t" ] || continue
+            latest="v$(printf '%s\n%s\n' "${latest#v}" "${t#v}" | sort -V | tail -1)"
+          done
+        fi
+        [ -n "$latest" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+        echo "{\"tag_name\":\"$latest\"}";;
+      *)
+        tag="${path##*/}"
+        if [ -f "$RELSTATE/releases/$tag" ] && [ -f "$RELSTATE/published/$tag" ]; then
+          echo "{\"tag_name\":\"$tag\"}"
+        else
+          echo "gh: Not Found (HTTP 404)" >&2; exit 1
+        fi;;
+    esac;;
   release)
     sub="$1"; shift || true
     case "$sub" in
@@ -163,10 +184,38 @@ case "$cmd" in
       view)
         tag="$1"; shift || true
         [ -f "$RELSTATE/releases/$tag" ] || { echo "gh: not found" >&2; exit 1; }
-        case " $* " in *" --json assets "*) cat "$RELSTATE/assets/$tag" 2>/dev/null || true;;
+        json=""
+        while [ $# -gt 0 ]; do [ "$1" = "--json" ] && { json="$2"; shift; }; shift; done
+        if [ -n "$json" ]; then
+          # Real gh rejects fields it does not know; a permissive stub hid an
+          # `--json ...,isLatest` in the closing summary, which failed the live
+          # publish job AFTER it had already published. Same lesson as the
+          # draft-404 above: model the tool, not the happy path.
+          for f in ${json//,/ }; do
+            case "$f" in
+              assets) ;;
+              tagName|isDraft|isPrerelease|isImmutable|name|url|apiUrl|id|databaseId|\
+author|body|createdAt|publishedAt|tarballUrl|zipballUrl|targetCommitish|uploadUrl) ;;
+              *) echo "Unknown JSON field: \"$f\"" >&2
+                 echo "  (the real gh lists the fields it accepts)" >&2
+                 exit 1;;
+            esac
+          done
+        fi
+        case "$json" in *assets*) cat "$RELSTATE/assets/$tag" 2>/dev/null || true;;
           *) echo "{\"tagName\":\"$tag\"}";; esac;;
       list)
         # Mirrors `--json tagName,isDraft --jq 'select(.isDraft == false)'`.
+        json=""
+        while [ $# -gt 0 ]; do [ "$1" = "--json" ] && { json="$2"; shift; }; shift; done
+        if [ -n "$json" ]; then
+          for f in ${json//,/ }; do
+            case "$f" in
+              tagName|isDraft|isLatest|isPrerelease|isImmutable|name|createdAt|publishedAt) ;;
+              *) echo "Unknown JSON field: \"$f\"" >&2; exit 1;;
+            esac
+          done
+        fi
         for f in "$RELSTATE"/releases/*; do
           [ -f "$f" ] || continue
           t="$(basename "$f")"
@@ -426,8 +475,13 @@ try:
                                                  encoding="utf-8")
     step = sim.dir / "step.sh"
     step.write_text(PUBLISH_STEP, encoding="utf-8")
-    subprocess.run(["bash", str(step)], cwd=sim.work, env=env,
-                   capture_output=True, text=True)
+    # The exit code matters: the live run PUBLISHED the release and then failed
+    # the job on its last line (a gh --json field that does not exist), so a
+    # step that publishes and then errors must not pass here either.
+    rc = subprocess.run(["bash", str(step)], cwd=sim.work, env=env,
+                        capture_output=True, text=True)
+    check("the publish step exits 0", rc.returncode == 0,
+          detail=rc.stderr.strip() or rc.stdout.strip())
     check("an older release is published, but not as Latest",
           sim.has("published", "v1.1.3") and not sim.has("latest", "v1.1.3"))
     check("the public release kept `latest`",
@@ -435,8 +489,10 @@ try:
     (sim.state / "assets" / "v1.5.0").write_text(
         "\n".join(COMPLETE[:-1]) + "\ncubeon_1.5.0_amd64.deb\n", encoding="utf-8")
     env["TAG"] = "v1.5.0"
-    subprocess.run(["bash", str(step)], cwd=sim.work, env=env,
-                   capture_output=True, text=True)
+    rc = subprocess.run(["bash", str(step)], cwd=sim.work, env=env,
+                        capture_output=True, text=True)
+    check("the publish step exits 0 when it publishes as Latest",
+          rc.returncode == 0, detail=rc.stderr.strip() or rc.stdout.strip())
     check("a version ahead of the public one does become Latest",
           sim.has("published", "v1.5.0") and sim.has("latest", "v1.5.0"))
 finally:

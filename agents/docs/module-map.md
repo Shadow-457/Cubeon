@@ -999,6 +999,14 @@ facts belong HERE, not in diary notes.
   that has none, which failed the whole suite before a single assertion ran.
   Every git call now passes the sandbox env (`HOME` + `GIT_AUTHOR_*`/
   `GIT_COMMITTER_*`); any future test that inits a repo must do the same.
+- **`gh` needs to know the repo; a job without a checkout must be told**
+  (2026-10-17, first real run): `gh` finds the repository from the nearest git
+  remote, so in a job with no `actions/checkout` every call dies with
+  `failed to run git: fatal: not a git repository` — which is exactly how the
+  `publish` job failed *after* verifying all six assets, leaving a complete but
+  unpublished draft (the safe failure: `/releases/latest` still pointed at the
+  previous version). The workflow now pins `GH_REPO: ${{ github.repository }}`
+  once at the top level, so no job depends on a checkout to know where it is.
 - **Do not write the skip-ci token in a commit message** (2026-10-17,
   self-inflicted): GitHub skips the workflow when the message contains it
   *anywhere*, so the commit that merely DESCRIBED the release job's skip-ci
