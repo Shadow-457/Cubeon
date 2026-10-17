@@ -133,8 +133,12 @@ set -euo pipefail
 cmd="${1:-}"; shift || true
 case "$cmd" in
   api)
+    # Mirrors GitHub: the releases/tags/<tag> endpoint returns PUBLISHED
+    # releases only - a draft 404s. Getting this wrong once cost a real run
+    # (the re-run path concluded "no release yet" and re-created it), so the
+    # stub is deliberately faithful rather than permissive.
     tag="${1##*/}"
-    if [ -f "$RELSTATE/releases/$tag" ]; then
+    if [ -f "$RELSTATE/releases/$tag" ] && [ -f "$RELSTATE/published/$tag" ]; then
       echo "{\"tag_name\":\"$tag\"}"
     else
       echo "gh: Not Found (HTTP 404)" >&2; exit 1
@@ -223,12 +227,19 @@ class Sim:
         self.git("push", "-q", "origin", "HEAD:refs/heads/main", "--tags", cwd=self.work)
 
     def git(self, *args, cwd=None) -> str:
+        # env= on purpose: the sandbox HOME keeps a developer's global git
+        # config (identity, hooks, commit signing) out of this, and the
+        # GIT_AUTHOR/GIT_COMMITTER pair below is what lets the very first
+        # `git commit` work on a fresh CI runner, which has NO identity
+        # configured at all (that is exactly how this test first failed there).
         return subprocess.run(["git", "-C", str(cwd or self.work), *args],
-                              capture_output=True, text=True, check=True).stdout.strip()
+                              capture_output=True, text=True, check=True,
+                              env=self.env()).stdout.strip()
 
     def git_ok(self, *args, cwd=None) -> bool:
         return subprocess.run(["git", "-C", str(cwd or self.work), *args],
-                              capture_output=True, text=True).returncode == 0
+                              capture_output=True, text=True,
+                              env=self.env()).returncode == 0
 
     def env(self) -> dict:
         env = dict(os.environ)
@@ -288,6 +299,20 @@ class Sim:
 RELEASE_STEP = extract_run("Decide the version, stamp it, tag it, open the draft")
 VERIFY_STEP = extract_run("Verify every asset landed")
 PUBLISH_STEP = extract_run("Publish")
+
+section("the release job looks drafts up the way that actually works")
+def _code(step: str) -> str:
+    """The step's shell, comments stripped - a comment ABOUT the trap must not
+    count as the trap."""
+    return "\n".join(l for l in step.splitlines() if not l.lstrip().startswith("#"))
+
+
+check("`gh release view`, never the tags API "
+      "(releases/tags/<tag> 404s for a draft - that broke the first real run)",
+      "releases/tags/" not in _code(RELEASE_STEP)
+      and _code(RELEASE_STEP).count("gh release view") >= 2)
+check("and the uploads it hands off to can see a draft too (same lookup)",
+      "releases/tags/" not in _code(VERIFY_STEP))
 
 sim = Sim()
 try:

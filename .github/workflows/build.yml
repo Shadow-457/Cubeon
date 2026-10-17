@@ -262,7 +262,13 @@ jobs:
           # Draft first: /releases/latest ignores drafts, so the updater and the
           # download worker keep pointing at the previous release until every
           # asset is up and `publish` has verified them.
-          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
+          #
+          # NB: look the release up with `gh release view`, NOT the
+          # `releases/tags/<tag>` API endpoint: that endpoint returns 404 for a
+          # DRAFT (learned the hard way on the first real run - it made the
+          # re-run path try to re-create the release and die on "already
+          # exists"). gh's own commands list-and-match, so they see drafts.
+          if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
             echo "release $TAG already exists (re-run) - reusing it"
             # ...and put it BACK into draft for the re-upload: --clobber deletes
             # an asset before re-uploading it, so re-running a published release
@@ -277,11 +283,11 @@ jobs:
               --generate-notes
           fi
 
-          # Fail fast. Everything downstream rides on a contents:write token
-          # being able to SEE its own draft release; if that ever stops being
-          # true, say so now instead of after three platforms have built and
-          # every `gh release upload` fails.
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null
+          # Fail fast. Everything downstream rides on the token being able to
+          # SEE its own draft release; if that ever stops being true, say so now
+          # instead of after three platforms have built and every
+          # `gh release upload` fails.
+          gh release view "$TAG" --json tagName >/dev/null
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
