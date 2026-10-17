@@ -120,6 +120,9 @@ check("publish waits for every builder",
           for b in ("build-linux-appimage", "build-windows-exe", "build-macos")))
 check("publish un-drafts (that is the whole point of the draft)",
       "--draft=false" in pub)
+check("the workflow pins GH_REPO at the top level (the publish job has no "
+      "checkout, and gh without a repo dies with 'not a git repository')",
+      re.search(r"(?m)^env:\n(?:[ \t].*\n)*?[ \t]+GH_REPO:", wf) is not None)
 check("the version job is the only writer of the version",
       wf.count("APP_VERSION = ") == 0 and "release_version.py stamp" in wf)
 check("a human tag push still bypasses the auto-bump",

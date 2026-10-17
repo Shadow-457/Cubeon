@@ -984,6 +984,25 @@ facts belong HERE, not in diary notes.
   complete auto-releases); `actions/upload-artifact` steps stay TAG-ONLY (quota,
   section above) — that `if:` keys off `github.ref`, the TRIGGERING ref, so
   checking out the tag does not accidentally enable them on branch runs.
+- **Drafts and the API (2026-10-17, first real run):** `GET
+  /repos/{o}/{r}/releases/tags/{tag}` returns **404 for a DRAFT** — only
+  published releases come back. gh's own subcommands (`release view/edit/upload`)
+  list-and-match instead, so they DO see drafts; look a release up with
+  `gh release view <tag>`, never that endpoint (doing it the other way killed the
+  first run: the re-run path decided "no release yet" and tried to re-create it).
+  `gh release list --json tagName,isDraft` also includes drafts, which is what the
+  publish step filters on; `/releases/latest` (what the updater and the download
+  worker read) excludes them, which is the whole reason the flow is draft-first.
+- **Hermetic git tests need an identity (2026-10-17, first real run):**
+  `tools/test_release_pipeline.py` ran its first `git commit` in the inherited
+  environment — fine on a dev machine (global git config), exit 128 on a runner
+  that has none, which failed the whole suite before a single assertion ran.
+  Every git call now passes the sandbox env (`HOME` + `GIT_AUTHOR_*`/
+  `GIT_COMMITTER_*`); any future test that inits a repo must do the same.
+- **Do not write the skip-ci token in a commit message** (2026-10-17,
+  self-inflicted): GitHub skips the workflow when the message contains it
+  *anywhere*, so the commit that merely DESCRIBED the release job's skip-ci
+  trailer skipped its own run. Describe it as a "skip-ci trailer" instead.
 - Regression: `tools/test_release_pipeline.py` extracts these `run:` scripts
   from the workflow and exercises them offline against a throwaway repo + a `gh`
   stub (tag reservation, re-run reuse, re-draft, incomplete-asset refusal,

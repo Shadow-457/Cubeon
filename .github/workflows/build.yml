@@ -37,6 +37,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # gh figures out which repo it is talking to from the nearest git remote, and
+  # the `publish` job deliberately has no checkout (it needs nothing but the
+  # API) - which made every gh call in it die with "fatal: not a git repository".
+  # Pin it once, for every job.
+  GH_REPO: ${{ github.repository }}
+
 concurrency:
   # Two pushes a few seconds apart would otherwise both compute the same "next
   # version" (the first run has not created its tag yet) and race for it.
