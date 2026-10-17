@@ -226,6 +226,20 @@ DEFAULT_CONFIG = {
     # the folders exactly as they are; the Settings > Game versions "Tidy up
     # files" action still works on demand.
     "auto_organize_files": True,
+
+    # --- Unfinished installs (see cubeon/versions.py) ---------------------
+    # Delete version folders whose download never finished - a client .jar
+    # that never arrived, is truncated, or is not a Minecraft file at all -
+    # once, at startup, so they never show up in the Play list. Our installer
+    # removes its own partial files when an install FAILS, so what this sweeps
+    # is what a hard kill (crash, power cut, full disk) stranded. It is
+    # deliberately narrow: a jar that is merely unreadable (locked by a running
+    # game, permissions), a folder with broken metadata, or a loader profile
+    # missing its base version are all LEFT ALONE - see versions.py for the
+    # full list and the mtime grace period protecting a download in flight.
+    # Turning it off keeps them for inspection; "Tidy up files" never deletes
+    # versions either way.
+    "auto_delete_incomplete": True,
 }
 
 

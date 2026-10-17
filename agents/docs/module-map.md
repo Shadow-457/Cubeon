@@ -1655,6 +1655,26 @@ facts belong HERE, not in diary notes.
   with cycle/depth guards. Jar selection uses folder/metadata ID, never an
   arbitrary jar. Failed-install cleanup preserves unchanged preexisting jars;
   size-only snapshots cannot distinguish same-size concurrent rewrites.
+- AUTO-DELETE OF UNFINISHED INSTALLS (2026-10-18, `auto_delete_incomplete`,
+  ON by default, Settings > Game versions): the startup pass
+  `versions.cleanup_unfinished_installs()` removes version folders whose
+  download never completed. DELETING IS NOT THE SAME DECISION AS DISPLAYING —
+  the bar is deliberately HIGHER than `get_installed_versions`'s
+  "incomplete", which must keep SHOWING broken installs. Only three states
+  are ever deleted: the client jar is missing, truncated (size != manifest),
+  or not a zip (bad magic). NEVER deleted: a jar that is merely unreadable
+  (`OSError` — permissions, or held open by a RUNNING game, routine on
+  Windows), broken/missing metadata (hand-made or foreign folder), a loader
+  profile (`inheritsFrom` — its base is a separate install), and anything a
+  sha1 mismatch alone would catch (too slow at startup). A jar written within
+  `_CLEANUP_GRACE_SECONDS` (600) is skipped: a download may be in flight
+  right now (a second Cubeon instance, a manual copy); `skip=` ids are the
+  caller's own in-use escape hatch. `install_version` already removes its own
+  partial files on failure, so what this sweeps is what a HARD kill (crash,
+  power cut, full disk) stranded. Runs BEFORE the first version scan in
+  main.py so a stranded install never appears in the Play list. Regression
+  guard: tools/test_auto_cleanup.py (incl. the "predicate stays a subset of
+  the scan's incomplete" property).
 - PRECEDENCE GOTCHA: `CUBEON_SEASON` env outranks `season_override` config
   BY DESIGN. A user with the var set sees their picker pick ignored. The UI
   surfaces this via `seasonal.env_pin()` (red note in the Seasonal pane +

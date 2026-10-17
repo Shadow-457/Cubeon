@@ -196,6 +196,44 @@ class, so a repeat tells us which dialog double-opens.
 real double-mount raise, and fails if any shipped module calls
 `page.show_dialog()` directly (only `cubeon/dialogs.py` may).
 
+## 8. Auto-delete of unfinished installs (asked right after §7)
+
+Request: *"add another thing which auto deletes incomplete installs and like we
+can turn this off and on in settings on by default."*
+
+`cubeon/versions.py` gains `unfinished_install_reason()` /
+`find_unfinished_installs()` / `cleanup_unfinished_installs()`, main.py runs
+the cleanup **once, before the first version scan**, gated on the new
+`auto_delete_incomplete` config key (default **True**), and Settings > Game
+versions carries the switch.
+
+The whole point is the bar, not the deletion. `get_installed_versions()` calls
+a version "incomplete" for anything from a truncated jar to unreadable
+metadata and MUST keep **showing** those — hiding a broken install is what
+caused the original "shows installed but isn't" bug (§ the version-integrity
+work). Deleting is irreversible, so the predicate is deliberately **narrower**
+and only ever touches the states that mean the bytes never arrived: the client
+jar is missing, is truncated (size != manifest), or is not a zip. Left alone,
+each for a stated reason: a jar that is merely unreadable (`OSError` — a
+permissions problem, or held open by a *running game*, which is routine on
+Windows), broken metadata (hand-made or foreign folder), a loader profile
+(`inheritsFrom` — the base is a separate install the user may still want), and
+sha1-only corruption (hashing every jar at startup is far too slow).
+
+Two safety nets beyond the predicate: a jar written within
+`_CLEANUP_GRACE_SECONDS` (600) is skipped — a download may be in flight right
+now, in a second Cubeon instance or a manual copy — and `skip=` lets a caller
+protect an id it knows is in use. Note that `install_version()` already removes
+its own partial files when an install FAILS, so the leftovers this sweeps are
+what a **hard kill** (crash, power cut, full disk) stranded — which matters
+because the crash in §5/§6 is exactly the kind of hard kill that used to strand
+a half-downloaded version.
+
+`tools/test_auto_cleanup.py` (33 checks) covers the deleted states, every
+excluded state, the grace period, `skip`, `dry_run`, a refusing delete not
+aborting the pass, and — the property worth keeping — that everything the
+predicate flags the Play-list scan ALSO calls incomplete.
+
 ## Verified
 Full CI-equivalent suite (`tools/test_*.py`, minus the manual `test_visual_*`
 and `test_wedge_watchdog.py`): **SUITE_DONE failed=0** (three separate runs —
@@ -204,7 +242,8 @@ exists). Focused: `test_update_notice.py` 20/0, `test_keyboard_shortcuts.py`
 50/0, `test_pack_install_guard.py` 28/0, `test_incident.py` 74/0,
 `test_startup.py` 25/0,
 `test_winwindow.py` 28/0, `test_osnotify.py` 69/0, `test_modpacks.py` 70/0,
-`test_ui_smoke.py` 246/0. The crash record was also driven end-to-end against a
+`test_ui_smoke.py` 246/0, `test_auto_cleanup.py` 33/0,
+`test_dialogs.py` 21/0. The crash record was also driven end-to-end against a
 throwaway `HOME`: a clean close logs at INFO with no tail, a `-11` crash logs at
 WARNING with the client's own output, and the give-up logs at ERROR — all three
 lines landing in that `cubeon.log`. Windows paths could not be executed here

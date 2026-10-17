@@ -3,11 +3,14 @@ Minecraft version listing (installed + available) and vanilla install.
 Mod-loader-specific installs live in mod_loaders.py.
 """
 import json
+import logging
 import os
 import re
 import shutil
 import threading
 import time
+
+log = logging.getLogger(__name__)
 
 # minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
 # nothing here needs it until the user actually installs/launches, so it
@@ -347,6 +350,171 @@ def delete_version(version_id: str) -> None:
         shutil.rmtree(target)
     except OSError as ex:
         raise ValueError(f"Couldn't delete this version: {ex}") from ex
+
+
+# --- Unfinished-install cleanup --------------------------------------------
+#
+# install_version() ALREADY CLEANS UP AFTER ITSELF: when an install fails or is
+# cancelled it removes the partial jar and the folder that attempt created, so
+# a plain failed install never shows up here (that is what
+# tools/test_version_integrity.py's "failed install removes only what THAT
+# attempt created" case pins). What is left over is what a HARD kill stranded -
+# a crash, a power cut, a full disk, a killed process - plus whatever a foreign
+# launcher left half-copied into versions/. Those folders can never launch and
+# would otherwise sit in the Play list forever wearing "(incomplete)", so
+# Cubeon sweeps them once at startup (opt-out: `auto_delete_incomplete`,
+# Settings > Game versions, ON by default).
+#
+# DELETING IS NOT THE SAME DECISION AS DISPLAYING, and this bar is deliberately
+# higher. get_installed_versions() flags a version incomplete for anything from
+# a truncated jar to an unreadable metadata file and MUST keep showing those
+# (hiding a broken install is what caused the "shows installed but isn't"
+# confusion). Cleanup only ever touches the states that mean "the bytes never
+# arrived":
+#
+#   * the client jar is missing entirely, or
+#   * it is truncated (its size disagrees with the manifest), or
+#   * it is not a zip at all (an HTML error page saved as .jar, etc.).
+#
+# Excluded, and why:
+#   * "Client jar is unreadable: <OSError>" - a permissions problem or a file
+#     held open by a RUNNING game (routine on Windows). The install is fine.
+#   * metadata problems (missing/unreadable/invalid json) - a hand-made or
+#     foreign-launcher folder, not a download Cubeon interrupted.
+#   * loader-chain problems ("needs Minecraft X, which is missing") - the base
+#     version is a separate install the user may well still want.
+#   * sha1 mismatches - hashing every jar at startup is far too slow for a
+#     maintenance pass, and an interrupted download is caught by the size check
+#     long before the bytes happen to line up.
+#
+# A jar written within _CLEANUP_GRACE_SECONDS is left alone: it may be a
+# download in flight right now (a second Cubeon instance, a manual copy).
+
+_CLEANUP_GRACE_SECONDS = 600
+
+
+def unfinished_install_reason(folder: str) -> "str | None":
+    """Why `versions/<folder>` is an unfinished download, or None.
+
+    Mirrors the download-completion half of _client_jar_problem() - see the
+    block comment above for exactly which states qualify and why the rest are
+    deliberately excluded. Never raises: anything it cannot read is left
+    alone rather than guessed at.
+    """
+    if not _plain_filename(folder):
+        return None
+    folder_path = os.path.join(MINECRAFT_DIR, "versions", folder)
+    if not os.path.isdir(folder_path):
+        return None
+
+    try:
+        jsons = sorted(f for f in os.listdir(folder_path)
+                       if f.endswith(".json"))
+    except OSError:
+        return None
+    if not jsons:
+        return None  # not a version folder at all, nothing to go on
+    canonical = folder + ".json"
+    data = _load_version_json(
+        folder_path, canonical if canonical in jsons else jsons[0])
+    if data is None:
+        return None  # metadata problem: not a download we interrupted
+    if isinstance(data.get("inheritsFrom"), str):
+        return None  # a loader profile - its chain is a separate install
+
+    jar_path = _client_jar_path(folder_path, data)
+    if jar_path is None:
+        return "the client .jar was never downloaded"
+    try:
+        actual_size = os.path.getsize(jar_path)
+        age = time.time() - os.path.getmtime(jar_path)
+    except OSError:
+        return None  # unreadable (permissions / held open): leave it alone
+    if age < _CLEANUP_GRACE_SECONDS:
+        return None  # written moments ago - a download may be in flight
+
+    downloads = data.get("downloads")
+    client = downloads.get("client") if isinstance(downloads, dict) else None
+    exp_size = client.get("size") if isinstance(client, dict) else None
+    if isinstance(exp_size, int) and not isinstance(exp_size, bool) \
+            and exp_size > 0 and actual_size != exp_size:
+        return (f"the client .jar is truncated ({actual_size // 1024} of "
+                f"{exp_size // 1024} KB)")
+    # Zip magic: a truncated-then-NULL-padded jar or an HTML error page saved
+    # as .jar both fail this, and it costs 2 bytes of reading.
+    try:
+        with open(jar_path, "rb") as fh:
+            if fh.read(2) != b"PK":
+                return "the client .jar is not a Minecraft file"
+    except OSError:
+        return None
+    return None
+
+
+def find_unfinished_installs() -> list[dict]:
+    """Every version folder that is an unfinished download.
+
+    Returns [{"id", "folder", "reason"}] - id/folder are the folder name (the
+    launch id mll needs), reason is the short phrase from
+    unfinished_install_reason(). Sorted for a stable log/status line.
+    """
+    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    if not os.path.isdir(versions_dir):
+        return []
+    try:
+        names = sorted(os.listdir(versions_dir))
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        try:
+            reason = unfinished_install_reason(name)
+        except Exception:  # one odd folder must never break the whole pass
+            log.debug("cleanup: could not inspect %s", name, exc_info=True)
+            continue
+        if reason:
+            out.append({"id": name, "folder": name, "reason": reason})
+    return out
+
+
+def cleanup_unfinished_installs(*, skip=(), dry_run: bool = False) -> list[dict]:
+    """Deletes version folders whose download never finished.
+
+    The startup half of the feature (Settings > Game versions, ON by default):
+    main.py calls this once before the first version scan, so a stranded
+    half-install never appears in the list at all.
+
+    `skip` names ids to leave alone - an install running in THIS process, or
+    the version the user has selected - because a folder being written right
+    now is not (only) a leftover. unfinished_install_reason() applies the same
+    protection by mtime to installs this process cannot see.
+
+    `dry_run` reports without deleting anything (the test path).
+
+    Never raises, and only ever removes the one folder named: delete_version()
+    re-validates the path and leaves shared stores (mod profiles, libraries,
+    assets) untouched. Returns what was removed (or would be), each
+    {"id", "folder", "reason"}.
+    """
+    skip = {s for s in skip if s}
+    removed = []
+    for item in find_unfinished_installs():
+        if item["folder"] in skip:
+            log.info("cleanup: keeping %s (in use)", item["folder"])
+            continue
+        if dry_run:
+            removed.append(item)
+            continue
+        try:
+            delete_version(item["folder"])
+        except Exception as ex:  # ValueError, or anything the OS threw
+            log.warning("cleanup: could not delete %s: %s",
+                        item["folder"], ex)
+            continue
+        log.info("cleanup: removed unfinished install %s (%s)",
+                 item["folder"], item["reason"])
+        removed.append(item)
+    return removed
 
 
 def _inherited_base_version(version_id: str) -> "str | None":

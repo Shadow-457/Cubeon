@@ -38,7 +38,7 @@ from cubeon import backup as backup_module
 from cubeon.versions import (
     get_installed_versions, suggest_friendly_name, extract_mc_version,
     get_available_versions, get_latest_release, install_version,
-    delete_version,
+    delete_version, find_unfinished_installs, cleanup_unfinished_installs,
 )
 
 # --- mod loaders ---

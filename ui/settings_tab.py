@@ -147,6 +147,31 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     active_section = {"value": "versions"}
 
+    # --- "Delete unfinished installs" (see cubeon/versions.py) --------------
+    # Built here rather than passed in from main.py like most controls: it
+    # reads and writes exactly one config key, and the notification switches
+    # further down set the same precedent. cfg is main.py's live config dict,
+    # so the switched value is what the next startup pass reads.
+    auto_cleanup_switch = ft.Switch(
+        value=bool(cfg.get("auto_delete_incomplete", True)),
+        active_color=ACCENT, scale=0.85,
+    )
+
+    def _on_auto_cleanup_change(_e, sw=auto_cleanup_switch):
+        """Persist now, like every other control in this tab."""
+        cfg["auto_delete_incomplete"] = bool(sw.value)
+        try:
+            from cubeon import config as _config
+            _config.save_config(cfg)
+        except Exception:
+            set_status("Couldn't save the install-cleanup setting")
+            return
+        set_status("Unfinished installs will be removed on the next start"
+                   if sw.value else
+                   "Unfinished installs will be kept")
+
+    auto_cleanup_switch.on_change = _on_auto_cleanup_change
+
     # --- section panes ------------------------------------------------------
     versions_pane = ft.Column(
         [
@@ -183,6 +208,14 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 "Restart to apply.",
                 custom_chrome_cb, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
             )] if custom_chrome_cb is not None else []),
+            ft.Container(height=4),
+            _setting_row(
+                "Delete unfinished installs",
+                "Removes versions left half-downloaded - a missing, truncated "
+                "or corrupt client file that could never launch. Runs at "
+                "startup; nothing else is touched.",
+                auto_cleanup_switch, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+            ),
             ft.Container(height=4),
             tidy_btn,
             ft.Text(

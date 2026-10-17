@@ -1182,6 +1182,27 @@ async def main(page: ft.Page):
     # cosmetics, or your friends list. Idempotent - a no-op once the key exists.
     core.ensure_auth_key()
 
+    # --- Remove installs that never finished downloading (opt-out) ---------
+    # A half-downloaded version cannot launch, and would otherwise sit in the
+    # Play list forever wearing "(incomplete)". install_version() deletes its
+    # own partial files when an install FAILS, so what is left is what a hard
+    # kill (crash, power cut, full disk) stranded. Runs BEFORE the scan below
+    # so the user never sees it, and only touches the narrow states that mean
+    # "the bytes never arrived" - see cubeon/versions.py for the exclusions
+    # and the mtime grace period that protects a download in flight. Turn it
+    # off in Settings > Game versions (auto_delete_incomplete).
+    if bool(cfg.get("auto_delete_incomplete", True)):
+        try:
+            _cleaned_up = core.cleanup_unfinished_installs()
+            if _cleaned_up:
+                logging.getLogger(__name__).info(
+                    "startup: removed %d unfinished install(s): %s",
+                    len(_cleaned_up),
+                    ", ".join(c["id"] for c in _cleaned_up))
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "startup: unfinished-install cleanup failed", exc_info=True)
+
     # --- Get the list of already installed Minecraft versions ---
     _initial_versions = core.get_installed_versions()  # List of version info dicts
 
