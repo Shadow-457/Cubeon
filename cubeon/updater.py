@@ -39,6 +39,17 @@ DEFAULT_FEED = "https://api.github.com/repos/Shadow-457/Cubeon/releases/latest"
 # file for the visitor's OS. Override with CUBEON_DOWNLOAD_URL for staging.
 DOWNLOAD_URL = "https://cubeon.ylet.online/download"
 
+# Where the "we already told the user about version X" marker lives, in the
+# launcher's config. Read it through should_announce() rather than by hand.
+#
+# WHY IT EXISTS (2026-10-18 report: "the notification of new cubeon release is
+# just spamming ... coming up again and again"): the in-app snackbar had NO
+# memory at all, so an available update was announced on every single start of
+# the launcher, forever, until the user updated. One announcement per version,
+# whatever the channel: the marker is written when the notice is handed to the
+# UI, not when it is seen.
+NOTICE_SEEN_KEY = "update_notice_seen"
+
 _TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -52,6 +63,40 @@ def is_newer(remote_tag: str, local: str = APP_VERSION) -> bool:
     (rc suffixes, hashes) compare as 'not newer' - never nag on ambiguity."""
     remote, local_v = _parse(remote_tag), _parse(local)
     return bool(remote and local_v and remote > local_v)
+
+
+def should_announce(cfg: dict, version: str) -> bool:
+    """True the FIRST time this version is announced to this config - and the
+    call MARKS it announced, so the caller must actually go on to announce it.
+
+    The marker has to live in the config (not in memory): the whole complaint
+    is about the message coming back on the NEXT start. `cfg[NOTICE_SEEN_KEY]`
+    is set in place and the caller saves it (main.py already owns the config
+    writer); a caller that forgets to save just gets one extra notice, never a
+    crash and never a silent loss of this one.
+
+    Total function by construction - a notice must not be able to raise:
+      * a blank/absent version is "nothing to announce" (and marks nothing);
+      * an unreadable config (not a dict, odd .get) still returns True, because
+        a missed notice is worse than a repeated one and the alternative is an
+        exception on the startup path.
+    """
+    v = str(version or "").strip()
+    # The feed hands us `tag.lstrip("v")` already; normalising here too means a
+    # caller that passes the raw tag ("v1.2.7") still matches a stored "1.2.7"
+    # instead of re-announcing the same release.
+    if v[:1] in ("v", "V"):
+        v = v[1:].strip()
+    if not v:
+        return False
+    try:
+        if str(cfg.get(NOTICE_SEEN_KEY) or "") == v:
+            return False
+        cfg[NOTICE_SEEN_KEY] = v
+        return True
+    except Exception:
+        log.debug("could not record the announced update", exc_info=True)
+        return True
 
 
 def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
