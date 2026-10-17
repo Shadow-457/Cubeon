@@ -1007,6 +1007,12 @@ facts belong HERE, not in diary notes.
   unpublished draft (the safe failure: `/releases/latest` still pointed at the
   previous version). The workflow now pins `GH_REPO: ${{ github.repository }}`
   once at the top level, so no job depends on a checkout to know where it is.
+- **`gh release view` has no `isLatest` field** (2026-10-17, second real run):
+  it is a `release list` field. Asking for it makes gh reject the whole call, so
+  the publish step published `v1.2.1` and *then* failed the job on its closing
+  summary line. For "what is Latest now", read
+  `gh api repos/{o}/{r}/releases/latest --jq .tag_name` — the same endpoint the
+  updater and the download worker use.
 - **Do not write the skip-ci token in a commit message** (2026-10-17,
   self-inflicted): GitHub skips the workflow when the message contains it
   *anywhere*, so the commit that merely DESCRIBED the release job's skip-ci
@@ -1015,6 +1021,11 @@ facts belong HERE, not in diary notes.
   from the workflow and exercises them offline against a throwaway repo + a `gh`
   stub (tag reservation, re-run reuse, re-draft, incomplete-asset refusal,
   latest-only-forwards). `tools/test_release_version.py` pins the policy.
+  **The stub models gh's failure modes on purpose** (drafts 404 on
+  `releases/tags/`, unknown `--json` fields are rejected, and the publish
+  scenario asserts the step's exit code) — a permissive stub let two real
+  failures through on 2026-10-17. Keep it that way: when a stub is easier to
+  satisfy than the tool, the test stops being a test.
 - **Windows installer gotcha:** `choco install nsis` does NOT refresh PATH
   inside the running job, so `build_windows_installer.py`'s
   `shutil.which("makensis")` failed every build ("NSIS not found") and the job
