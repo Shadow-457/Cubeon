@@ -111,7 +111,10 @@ Cubeon currently uses a safe, manual update process:
 1. A new release is uploaded to GitHub.
 2. The launcher checks GitHub in the background.
 3. If a newer version exists, Cubeon shows **Get it**.
-4. Clicking **Get it** opens the download page in your browser.
+4. Clicking **Get it** opens **cubeon.ylet.online/download** in your browser -
+   your own site, not the GitHub release page. That page only works for people
+   you have given access to (the repo is private), so the buttons on the site
+   are the ones to hand out.
 5. You download the new app.
 6. You close Cubeon and replace the old app with the new one.
 

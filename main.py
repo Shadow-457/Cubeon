@@ -7074,20 +7074,23 @@ async def main(page: ft.Page):
     # UPDATE CHECK
     # One quiet background GET at startup; if a newer release exists, a
     # non-blocking snackbar offers the download page. Never a modal, never
-    # an error dialog - a launcher that can't reach GitHub must launch
+    # an error dialog - a launcher that can't reach the feed must launch
     # normally. See cubeon/updater.py.
     # -----------------------------------------------------------------
     def _offer_update(info: dict):
         import webbrowser
 
-        def _open_release(e=None):
+        def _open_download(e=None):
+            # info["url"] is our own download page, not the GitHub release:
+            # that repo is private, so the release page is an auth wall for
+            # anyone who isn't us (cubeon/updater.DOWNLOAD_URL).
             try:
                 webbrowser.open(info["url"])
             except Exception:
                 logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
         _show_snack(f"Cubeon {info['version']} is available",
-                    duration=10000, action=_open_release, action_label="Get it")
+                    duration=10000, action=_open_download, action_label="Get it")
 
     try:
         from cubeon import updater

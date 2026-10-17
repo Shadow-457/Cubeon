@@ -2016,6 +2016,8 @@ trap (the mod now warns about it in chat, but don't rely on that).
 - `cubeon/updater.py`: APP_VERSION constant (bump per release!), release-feed
   check via `CUBEON_UPDATE_FEED` override, `check_in_background()`; main.py
   shows a non-blocking snackbar with a "Get it" button on a newer release.
+  **"Get it" opens `updater.DOWNLOAD_URL` (cubeon.ylet.online/download), never
+  the release's own `html_url`** - see the private-repo note below.
 - CI: `.github/workflows/build.yml` now has a `test` job running every
   tools/test_*.py (Java 21 for test_mod_compile) before builds.
 
@@ -3169,6 +3171,16 @@ sanitize at launch (below). The four still-retired mods
   CUBEON_UPDATE_TOKEN env, or cfg["update_token"]) sent as Bearer. Private
   releases need it; WARNING: the token ships inside any built launcher, so
   it must be a fine-grained READ-ONLY token and only for personal builds.
+- **Never send users to the release page of a private repo (2026-10-17)**: the
+  update snackbar used to open the feed's `html_url`, i.e.
+  github.com/Shadow-457/Cubeon/releases/tag/vX.Y.Z - which is an auth wall (or
+  a 404) for anyone without repo access, so the offer was a dead end for every
+  real user. `check_for_updates` now returns
+  `updater.DOWNLOAD_URL = https://cubeon.ylet.online/download`
+  (param/env `CUBEON_DOWNLOAD_URL` to override) regardless of what the feed
+  advertises. The site is the public front door: its buttons go through the
+  downloads worker, which is where the token stays server-side. Pinned by
+  `tools/test_net.py` ("NOT at the release's html_url").
 - **packaging/ now exists** (was missing - CI jobs referenced it):
   build_appimage.sh (PyInstaller onedir -> AppDir -> appimagetool, tar.gz
   fallback), build_windows.py (onedir + zip), build_macos.sh (onedir + tar.gz).

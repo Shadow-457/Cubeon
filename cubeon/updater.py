@@ -31,6 +31,14 @@ APP_VERSION = "1.2.3"
 # user - this is a hint service, not a dependency.
 DEFAULT_FEED = "https://api.github.com/repos/Shadow-457/Cubeon/releases/latest"
 
+# Where "there is a newer version" SENDS people. Our own download page, never
+# the release's own html_url: this repo is private, so a visitor without an
+# account (or without access) gets an auth wall or a 404 from
+# github.com/<repo>/releases/tag/... The site is the public front door, it is
+# what the site text and the download worker agree on, and it picks the right
+# file for the visitor's OS. Override with CUBEON_DOWNLOAD_URL for staging.
+DOWNLOAD_URL = "https://cubeon.ylet.online/download"
+
 _TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -47,10 +55,15 @@ def is_newer(remote_tag: str, local: str = APP_VERSION) -> bool:
 
 
 def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
-                      token: str | None = None) -> dict | None:
+                      token: str | None = None,
+                      download_url: str | None = None) -> dict | None:
     """{'version', 'url', 'notes'} when a newer release exists, else None.
     Network errors raise - callers running in the UI should use the
     background wrapper below instead.
+
+    `url` is always our public download page (DOWNLOAD_URL) and never the
+    release's own `html_url`: release pages on this private repo are an auth
+    wall for everyone without access, so sending users there is a dead end.
 
     PRIVATE repos: the releases API needs a token. Pass one (fine-grained,
     'Contents: read-only' is enough) via the token arg, the
@@ -59,6 +72,7 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
     read the private repo - fine for personal builds, not for wide
     distribution."""
     feed = feed_url or os.environ.get("CUBEON_UPDATE_FEED") or DEFAULT_FEED
+    page = download_url or os.environ.get("CUBEON_DOWNLOAD_URL") or DOWNLOAD_URL
     tok = token or os.environ.get("CUBEON_UPDATE_TOKEN")
     headers = {"Accept": "application/vnd.github+json"}
     if tok:
@@ -66,22 +80,24 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
     resp = requests.get(feed, timeout=timeout, headers=headers)
     resp.raise_for_status()
     data = resp.json()
-    tag, url = data.get("tag_name") or "", data.get("html_url") or feed
+    tag = data.get("tag_name") or ""
     if is_newer(tag):
         return {"version": tag.lstrip("v"),
-                "url": url,
+                "url": page,
                 "notes": (data.get("body") or "")[:400]}
     return None
 
 
 def check_in_background(on_update, feed_url: str | None = None,
-                        token: str | None = None) -> threading.Thread:
+                        token: str | None = None,
+                        download_url: str | None = None) -> threading.Thread:
     """Run the check off the UI thread; on_update(dict) fires only on a
     POSITIVE result. Everything else - no update, no network, bad feed -
     stays in the log where it belongs."""
     def run():
         try:
-            info = check_for_updates(feed_url=feed_url, token=token)
+            info = check_for_updates(feed_url=feed_url, token=token,
+                                     download_url=download_url)
             if info:
                 on_update(info)
             else:

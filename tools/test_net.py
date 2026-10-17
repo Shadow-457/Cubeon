@@ -109,8 +109,23 @@ def _updater_feed():
         [], json_body={"tag_name": "v9.9.9", "html_url": "https://x/release",
                        "body": "notes here"})
     info = updater.check_for_updates(feed_url="https://feed")
-    check(info == {"version": "9.9.9", "url": "https://x/release",
+    check(info == {"version": "9.9.9", "url": updater.DOWNLOAD_URL,
                    "notes": "notes here"}, "newer release is reported")
+    check(info["url"] == "https://cubeon.ylet.online/download",
+          "and the offer points at the site's download page")
+    check("github.com" not in info["url"] and info["url"] != "https://x/release",
+          "NOT at the release's html_url - this repo is private and the "
+          "release page is an auth wall for everyone without access")
+    check(updater.check_for_updates(feed_url="https://feed",
+                                    download_url="https://staging/d").get("url")
+          == "https://staging/d", "download page is overridable (staging)")
+
+    os.environ["CUBEON_DOWNLOAD_URL"] = "https://env/d"
+    try:
+        check(updater.check_for_updates(feed_url="https://feed").get("url")
+              == "https://env/d", "CUBEON_DOWNLOAD_URL overrides it too")
+    finally:
+        del os.environ["CUBEON_DOWNLOAD_URL"]
 
     net.requests.get = lambda *a, **k: FakeResp(
         [], json_body={"tag_name": "v1.0.0"})
