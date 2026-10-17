@@ -149,6 +149,89 @@ class ModpackError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# In-flight registry: a pack install is NOT a single write
+# ---------------------------------------------------------------------------
+# The install starts by putting the base Minecraft version and its loader on
+# disk, THEN downloads the pack's mods into the shared (mc_version, loader)
+# profile, and only writes _modpack.json at the very end. For that whole
+# window the version folders already look complete to any disk scan, so the
+# Play tab (whose button is derived from exactly such a scan) used to offer
+# PLAY - and a click then launched the game against a profile that was still
+# being written: the 2026-10-18 report "it's not fully installed, still it
+# says the Play button while it's installing mods, and that breaks stuff".
+#
+# This registry is the honest signal instead of a UI flag, because it must be
+# true no matter WHICH surface started the install (Modpacks tab, Settings >
+# Import, tests/CLI) and because several UI paths read it (button paint, click
+# guard, prefetch, doctor). Keyed by mc_version: the base version's folder is
+# being (re)written for every loader, so every instance on that version is
+# unsafe to launch. Process-local - the UI and the installers share it.
+_ACTIVE_INSTALLS: dict[str, dict] = {}   # mc_version -> {"name", "count"}
+_ACTIVE_INSTALLS_LOCK = threading.Lock()
+_INSTALL_LISTENERS: list = []            # no-arg callbacks, fired on change
+
+
+def active_pack_installs() -> dict[str, str]:
+    """mc_version -> pack name for every pack install writing disk right now.
+
+    Cheap, in-memory, never raises. The UI reads this to keep a half-installed
+    instance from being offered as playable.
+    """
+    with _ACTIVE_INSTALLS_LOCK:
+        return {mc: rec.get("name") or "modpack"
+                for mc, rec in _ACTIVE_INSTALLS.items() if rec.get("count")}
+
+
+def pack_install_for(mc_version: str) -> "str | None":
+    """The pack currently installing `mc_version`, or None."""
+    if not mc_version:
+        return None
+    with _ACTIVE_INSTALLS_LOCK:
+        rec = _ACTIVE_INSTALLS.get(str(mc_version))
+        return (rec.get("name") or "modpack") if rec and rec.get("count") else None
+
+
+def add_pack_install_listener(callback) -> None:
+    """Register a no-arg callback fired when a pack install starts or ends.
+
+    The Play button uses it to repaint the instant the claim changes - without
+    it a disabled "installing" button could outlive a cancelled install (or a
+    freshly finished one would keep saying it until some unrelated repaint).
+    Callbacks run on the installing thread; the UI's repaint helper is
+    thread-safe by design.
+    """
+    if callback and callback not in _INSTALL_LISTENERS:
+        _INSTALL_LISTENERS.append(callback)
+
+
+def _mark_pack_install(mc_version: str, name: str) -> None:
+    with _ACTIVE_INSTALLS_LOCK:
+        rec = _ACTIVE_INSTALLS.setdefault(str(mc_version), {"name": "", "count": 0})
+        rec["count"] += 1
+        rec["name"] = name or rec["name"] or "modpack"
+    _notify_install_listeners()
+
+
+def _unmark_pack_install(mc_version: str) -> None:
+    with _ACTIVE_INSTALLS_LOCK:
+        rec = _ACTIVE_INSTALLS.get(str(mc_version))
+        if rec is None:
+            return
+        rec["count"] -= 1
+        if rec["count"] <= 0:
+            _ACTIVE_INSTALLS.pop(str(mc_version), None)
+    _notify_install_listeners()
+
+
+def _notify_install_listeners() -> None:
+    for callback in list(_INSTALL_LISTENERS):
+        try:
+            callback()
+        except Exception:
+            log.debug("pack install listener failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Manifest parsing
 # ---------------------------------------------------------------------------
 
@@ -452,8 +535,8 @@ def _modrinth_project_id(urls) -> "str | None":
     return None
 
 
-def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
-                      icon_url: str | None = None) -> dict:
+def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
+                           icon_url: str | None = None) -> dict:
     progress_cb = progress_cb or _noop
     status_cb = status_cb or _noop
     max_cb = max_cb or _noop
@@ -649,6 +732,48 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
 
         status_cb(f"Installed {info['name']}")
         return meta
+
+
+def _peek_pack_identity(zip_path: str) -> tuple[str, str]:
+    """(mc_version, name) from a pack archive, or ("", "") if unreadable.
+
+    Reads only modrinth.index.json - the same file the install reads first -
+    so the in-flight claim can be raised BEFORE any byte lands in the game
+    folder. A malformed archive yields ("", "") and the install body raises
+    its own readable ModpackError instead of a claim leak.
+    """
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            info = summarize(_read_index(zf))
+        return (str(info.get("mc_version") or ""),
+                str(info.get("name") or ""))
+    except Exception:
+        return "", ""
+
+
+def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
+                      icon_url: str | None = None) -> dict:
+    """`_install_from_zip_body` with the in-flight claim around it.
+
+    The claim must cover the WHOLE body (base version, loader, every mod) and
+    must never survive an exception or a cancel - otherwise the instance would
+    stay unplayable for the rest of the session. That is why it lives here as
+    a wrapper instead of a try/finally indenting the long install body.
+    """
+    mc_version, name = _peek_pack_identity(zip_path)
+    if not mc_version:
+        # Unreadable archive: let the body raise its own user-facing error.
+        return _install_from_zip_body(zip_path, progress_cb=progress_cb,
+                                      status_cb=status_cb, max_cb=max_cb,
+                                      icon_url=icon_url)
+
+    _mark_pack_install(mc_version, name)
+    try:
+        return _install_from_zip_body(zip_path, progress_cb=progress_cb,
+                                      status_cb=status_cb, max_cb=max_cb,
+                                      icon_url=icon_url)
+    finally:
+        _unmark_pack_install(mc_version)
 
 
 def install_modpack_from_file(path: str, *, progress_cb=None, status_cb=None, max_cb=None) -> dict:

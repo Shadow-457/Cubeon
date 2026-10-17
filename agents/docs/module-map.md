@@ -86,6 +86,109 @@
   resize border on real Windows (hence the hot-zones), and whether the hidden-start
   reveal still works under a frameless window. That is exactly what the flag is for.
 
+## Keyboard shortcuts + F11 fullscreen (2026-10-18) — INVARIANTS
+- **The decision table lives in `cubeon/shortcuts.py` (pure, Flet-free) and
+  `main.py` only dispatches.** `resolve(key, ctrl=, alt=, shift=, meta=)`
+  returns an action id or `None`; `main.py::_on_key` (the single
+  `page.on_keyboard_event` handler, installed at the very end of `main()`)
+  maps ids to actions. Do NOT re-implement key matching in main.py — the table
+  is what `tools/test_keyboard_shortcuts.py` drives, and `CATALOGUE` is what
+  the F1 dialog renders (`_show_shortcuts`), so the on-screen help and the
+  real behaviour cannot drift.
+- Bindings: **F1** help · **F11** fullscreen · **Esc** close topmost (help
+  dialog → fullscreen → Account panel) · **Ctrl/Cmd+1…9** jump to the Nth
+  top-bar tab (indexed off the LIVE `top_nav_items`, so a build without the
+  Chat tab numbers correctly) · **Ctrl+,** Settings · **Ctrl+Enter** the big
+  button (Play/Cancel/Quit) · **Ctrl+Q** quit. F12 (inspector, CUBEON_INSPECT
+  gate) stays in main.py, deliberately not in the user-facing table.
+- Modifier payloads have been spelled both `ctrl` and `control` across flet
+  releases, and the key label is `key` (0.86+) with `data` as the older
+  fallback — `_on_key` reads both. **Ctrl or Cmd both count as the command
+  modifier** (Cmd+Q works on the macOS build), and **Alt combos are never
+  claimed** (Alt belongs to menus/the OS).
+- **Ctrl+Enter must check `play_button.disabled` before firing
+  `_main_action_click()`** — the mouse path is blocked by `disabled`, and a
+  keyboard shortcut must never be a way around a disabled Play (incomplete
+  install, "launching...", a live game).
+- **Fullscreen goes through `_force_window_bool("full_screen", ...)`, never a
+  bare write.** `full_screen=False` is flet's declared default and
+  `Prop.__set__` drops a write equal to the stored/default value, so a bare
+  `page.window.full_screen = False` would leave the window STUCK fullscreen
+  (§"the custom window frame" has the full rule).
+- Fullscreen is a SEPARATE claim from maximized (`_fullscreen["active"]` vs
+  `_chrome_state["maximized"]`) but they share two consequences:
+  `_sync_resize_edges()` hides the hot-zones for either (nothing to resize),
+  and `_save_geometry_now()` treats fullscreen as maximized so the
+  screen-sized rect is never persisted as the window's restored geometry.
+  Native `enter-full-screen` / `leave-full-screen` window events are ADOPTED
+  (`_adopt_fullscreen_state`, no write-back — that would ping-pong) because
+  the WM or a client-side Escape can change fullscreen without us.
+- Discovery: **F1** (the list rendered from `CATALOGUE`). Do NOT append shortcut
+  hints to tooltips. An icon-only top-nav button has no visible Text, so
+  `tools/_fuzz_common.py::ctrl_text` returns its TOOLTIP as the button's label
+  and `goto()` matches it EXACTLY — a `"Modpacks  ·  Ctrl+3"` tooltip silently
+  broke the directed fuzz scenarios (`test_fuzz.py` reported "never reached:
+  export_mrpack"). The Settings icon's tooltip is pinned to exactly `"Settings"`
+  by tools/test_ui_smoke.py + tools/ux_capture.py for the same reason.
+  Regression: `tools/test_keyboard_shortcuts.py` (50 checks).
+
+## A pack install claims its instance while it writes (2026-10-18) — INVARIANT
+- **`cubeon/modpacks.py` keeps a process-local in-flight registry**
+  (`_ACTIVE_INSTALLS`, refcounted per mc_version) raised by
+  `_install_from_zip` (the wrapper around `_install_from_zip_body`) BEFORE the
+  first byte lands and released in its `finally`. Read via
+  `active_pack_installs()` / `pack_install_for(mc_version)`;
+  `add_pack_install_listener(cb)` fires on both edges (main.py wires
+  `_sync_play_button`).
+- Why: a pack install writes the base Minecraft version + loader FIRST, then
+  downloads the mods into the `(mc_version, loader)` profile, and only writes
+  `_modpack.json` at the end. For that whole window any disk scan calls the
+  instance complete, so the 2026-10-18 report was "it isn't fully installed,
+  still it says the Play button while it's installing mods — that breaks
+  stuff". The claim is keyed by **mc_version** (the base version's folder is
+  being (re)written for every loader, so every instance on that version is
+  unsafe to launch).
+- Guards that read it, and must keep doing so: `set_button_mode`'s claim
+  block (`mode = "installing"` — a DISABLED `INSTALLING...`, never a lying
+  CANCEL: the Modpacks/Import bar owns that install and its cancel),
+  `_sync_play_button`, `on_play_click`, `_begin_install_and_launch` (the Java
+  dialog calls it directly), `_play_instance` (Instances manager),
+  `prefetch_version._work` (two mll installers on one version folder race on
+  the same jars), and `_proactive_mod_repair` (the doctor would race the
+  downloads and can prune jars whose files are still in flight; it skips
+  WITHOUT marking the profile done so the repair runs after).
+- Any NEW installer path that writes an instance's version folder or its
+  profile must raise this claim too — a UI flag set only by the Modpacks tab
+  was exactly the bug (Import reached the same installer).
+  Regression: `tools/test_pack_install_guard.py` (28 checks).
+
+## The Windows startup job: runs the suites, ON Windows (2026-10-18)
+- `Startup tests (Windows)` runs `tools/test_startup.py` + `tools/test_winwindow.py`
+  on `windows-latest`. Both were written on Linux and had a Linux-shaped
+  assumption baked in, so the job was RED on every run and proved nothing:
+    * **`test_startup.py` must allow LOOPBACK connects.** It refuses outbound
+      connections to prove "no blocking NETWORK call on the UI thread", but on
+      Windows `socket.socketpair()` is a real 127.0.0.1 TCP pair (CPython's
+      fallback implementation: bind to `_LOCALHOST`, `csock.connect((addr,
+      port))`) and asyncio's `ProactorEventLoop._make_self_pipe` builds its
+      self-pipe with it. Patching `socket.socket.connect` unconditionally killed
+      `asyncio.run()` itself → "OSError: network disabled ..." before `main()`
+      ran → `controls=0`, every single run. `_is_loopback()` now lets 127.0.0.0/8
+      and ::1 through (`_real_connect` passthrough) and still RECORDS +
+      REFUSES any real host — plus `socket.create_connection`, which is the call
+      urllib3 actually makes, so the invariant is stronger than before, not
+      weaker.
+    * **`test_winwindow.py` §1 describes the OFF-Windows branch** ("returns
+      immediately, it does not poll out its timeout") but the file ALSO runs on
+      Windows, where `ensure_client_window_visible` is the real thing: with no
+      flet client it polls to the timeout and answers False (4.44s on CI).
+      The timing assertion is now branched on `os.name`; on Windows it asserts
+      it really probed.
+- Consequence: the Windows job now genuinely builds the UI on Windows for the
+  first time. If `main()` crashes on Windows, THIS is where it shows up — check
+  this job before assuming a user's "launcher crashes on Windows" report is
+  unreproducible.
+
 ## Version management lives in ui/versions.py + cubeon/instances.py (2026-10-15)
 - The Play tab's "manage my versions" surface was extracted out of `main()`'s
   4,000-line closure into two modules:
@@ -936,13 +1039,14 @@ facts belong HERE, not in diary notes.
 
 ## Auto-release per push (2026-10-17) — supersedes "publish-on-push" (2026-10-15)
 - **Before announcing a Windows build publicly, run
-  `docs/WINDOWS_SMOKE_TEST.md`.** CI proves the installer BUILDS and nothing
-  more: the `Startup tests (Windows)` job is red in the test harness itself (it
-  bans every socket and reads `_ssock`, which a Windows `ProactorEventLoop` does
-  not have, and flet's own local client needs a socket), so no green run there
-  will mean the real app works. Step 3 of that doc is the update-nag check, and
-  step 4 is the opt-in custom frame, which is default-OFF precisely because it
-  has never been verified on real Windows.
+  `docs/WINDOWS_SMOKE_TEST.md`.** CI proves the installer BUILDS and runs the
+  two offline startup harnesses, NOT the real app: the `Startup tests (Windows)`
+  job has no flet client, no user32 window and no socket access beyond what the
+  suites allow. (It was ALSO red for a pure harness reason until 2026-10-18 —
+  see "The Windows startup job" below — so before that fix the job had never
+  actually built the UI on Windows at all.) Step 3 of that doc is the
+  update-nag check, and step 4 is the opt-in custom frame, which is default-OFF
+  precisely because it has never been verified on real Windows.
 - **One release per push to main/master**, with its own version: a push no
   longer refreshes the latest release in place. `tools/release_version.py` owns
   the policy — read its docstring before touching the version scheme. Per push:
@@ -1950,6 +2054,7 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `config.py` | cfg schema, username validation, auth key (public_uuid/secret_token). |
 | `gate.py` | Server join password (PBKDF2, escalating lockouts). |
 | `eta.py` | Measured "time left" for downloads (`EtaEstimator`). There is no size to divide by (mll reports file COUNTS per phase, mod installs file units, content downloads bytes), so it samples how fast the fraction actually moves. Silent until ~2s and ≥1% of movement, recalculates from the last 30s, drops its history on a BACKWARDS jump (a new phase — libraries→assets, or the next file of a batch), stops promising after 15s of no progress, and never reports past 6h. Used by main.py's install label, the mods Download button, the modpack install line and the server plugin row. |
+| `shortcuts.py` | The keyboard-shortcut decision table (pure, Flet-free): `resolve(key, ctrl=, alt=, shift=, meta=) -> action id`, `tab_action/tab_index`, and `CATALOGUE` (what main.py's F1 dialog renders). main.py's `_on_key` only dispatches — see the "Keyboard shortcuts + F11 fullscreen" invariant section. |
 | `status_text.py` | `human(text)` — strips Python object reprs (`<... at 0x7f...>`) out of anything user-facing. `str(requests.ConnectionError)` genuinely contains `<urllib3.connection.HTTPSConnection object at 0x7f3c8a1b2d90>: Failed to establish a new connection...`, which is what painted a memory address into the UI when a download failed. Applied in `net.py` when it builds `DownloadError`, and at the UI status/error setters. Only reprs are removed — hashes stay (they are diagnostic in an integrity error); the one meaningless bare hash, an asset's sha1 as a "file name", is fixed at the source by `versions.py:_FriendlyStatus` (→ "Downloading game assets (412/2586)"). |
 
 ## Facts that bite if you don't know them
@@ -2044,6 +2149,9 @@ python3 tools/test_capes.py             # 14: flexible capes + CSL sync
 python3 tools/test_ui_smoke.py          # 148: tab builders build, invariants hold
 python3 tools/test_invites.py           # 127: Minekube/tunnel flows
 python3 tools/test_modpacks.py          # 66: pack installs
+python3 tools/test_pack_install_guard.py # 28: a pack install claims its instance (no PLAY mid-install)
+python3 tools/test_keyboard_shortcuts.py # 50: shortcut table + F11 fullscreen wiring
+python3 tools/test_update_notice.py     # 20: one update notice per version, one check
 python3 tools/test_mod_store.py         # 27: global mod store
 python3 tools/test_net.py               # 54: download retry/resume/cap + updater
 python3 tools/test_production.py        # 51: watchdog
@@ -3579,9 +3687,25 @@ Cubeon cape resolves.
   mod/content install), `ui/modpacks_tab.py::_end_install_ok` (the longest
   install the launcher does), `cubeon/friends_service.py::_on_presence` (only on
   a False→True transition, and only for the most-talked-to friend), and `main.py`
-  startup through the previously-unconsumed `cubeon/updater.check_in_background`
-  (marker `osnotify_last_update` in config so a restart does not re-announce the
+  startup through `cubeon/updater.check_in_background` (marker
+  `update_notice_seen` in config, written by
+  `cubeon/updater.should_announce()`, so a restart does not re-announce the
   same release).
+- **The update notice is announced ONCE PER VERSION, by ONE check**
+  (2026-10-18 report: "the notification of new cubeon release is just spamming
+  and not stopping ... coming up again and again"). Two invariants, both
+  regression-tested by `tools/test_update_notice.py`:
+    * `updater.should_announce(cfg, version)` is the gate. It is a total
+      function (a non-dict or hostile config still answers True — a missed
+      notice is worse than a repeated one) and it MARKS the version in the
+      config in place; the caller saves it. The old snackbar had no memory at
+      all, so any available update nagged on every single start.
+    * main.py starts **exactly one** `updater.check_in_background(...)`, with
+      the update token. There used to be a second, token-less check whose only
+      job was the OS toast: two GETs per start, and on a private repo two
+      different answers about the same release. Both channels now ride on the
+      one gated callback (`main.py::_announce_update`); the snackbar is
+      reachable only through it.
 - **"Most-talked-to"** is `osnotify.top_friend({name: message_count})`, fed from
   the per-conversation history `FriendsService` already keeps
   (`self._chat[conv]["msgs"]`) — no new bookkeeping. Ties break on the

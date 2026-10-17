@@ -83,6 +83,9 @@ from cubeon.modpacks import (
     # first, CurseForge merged in when its slower fetch lands)
     search_modpacks_modrinth, search_modpacks_curseforge, merge_modpack_hits,
     list_installed_modpacks, export_mrpack, forget_modpack_for_version,
+    # in-flight pack installs: the Play button must not offer PLAY for an
+    # instance a pack installer is still writing (see modpacks' registry)
+    active_pack_installs, pack_install_for, add_pack_install_listener,
 )
 
 # --- resource packs & shaders (PER INSTANCE: store + profile links, staged

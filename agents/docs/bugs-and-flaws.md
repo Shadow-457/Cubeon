@@ -391,6 +391,105 @@ they still open no socket.
 
 ---
 
+## High: Play appeared mid-install, and pressing it broke the instance — FIXED (2026-10-18)
+
+**File:** `cubeon/modpacks.py` (in-flight registry), `main.py` (`set_button_mode`,
+`_sync_play_button`, `on_play_click`, `_begin_install_and_launch`, `prefetch_version`,
+`_proactive_mod_repair`)
+
+A modpack install writes the **base Minecraft version and its loader first**, then
+downloads the pack's mods into the `(mc_version, loader)` profile, and only writes
+`_modpack.json` at the very end. The Play tab's button is derived from a **disk
+scan**, and after step 1 that scan already calls the instance installed — so for
+the whole mod-download phase the button offered **PLAY on a half-written profile**
+(the report: "it isn't fully installed, still it says the Play button while it's
+installing mods… that will result in broken stuff"). The install ran entirely in
+the Modpacks tab and never touched `state["installing_version"]`, the one claim
+the button knew about, and Import reached the same installer by another route — so
+a UI flag set only by the Modpacks tab could not have fixed it either.
+
+**Fix (2026-10-18):** `cubeon/modpacks.py` keeps a process-local, refcounted
+in-flight registry keyed by **mc_version**, raised in `_install_from_zip` *before*
+the first byte lands and released in a `finally` (success, failure and cancel all
+clear it; a malformed archive claims nothing). The Play button maps that claim to
+a disabled `INSTALLING…` mode — deliberately **not** a Cancel, because the
+Modpacks tab owns that install's progress and its cancel. The same claim is
+honoured by `on_play_click` and `_begin_install_and_launch` (the Java dialog calls
+the latter directly), by the Instances manager's row Play, by the invisible
+prefetch (two mll installers on one version folder race on the same jars) and by
+the background mod doctor (which would otherwise prune jars still downloading).
+A listener (`add_pack_install_listener`) repaints the button the moment the claim
+changes, so it can neither outlive a cancel nor linger after success. Regression:
+`tools/test_pack_install_guard.py`.
+
+---
+
+## High: "A new Cubeon is available" nagged on every launch — FIXED (2026-10-18)
+
+**File:** `main.py` (startup update check), `cubeon/updater.py` (`should_announce`)
+
+Report: *"the notification of new cubeon release is just spamming and not
+stopping like it's just coming up again and again."* Two independent defects,
+both about the same message:
+
+1. **The in-app snackbar had no memory whatsoever.** `_offer_update` ran from
+   the background check and showed `"Cubeon 1.2.6 is available — Get it"` on
+   **every single start** for as long as the user was behind, with no marker
+   anywhere. The only "once per version" gate in the tree belonged to the OS
+   toast (`osnotify_last_update`), and it also *failed open*: `update_available`
+   returns False whenever the toast kind is switched off or no notifier exists,
+   so its marker was never written on those machines.
+2. **The check ran TWICE per start.** One call passed `cfg["update_token"]`
+   (snackbar), the second passed nothing and existed only to fire the OS toast.
+   Two GETs against the releases API on every start — and on a private repo the
+   token-less one 404s, so the same release could be "up to date" to one handler
+   and "newer" to the other.
+
+**Fix (2026-10-18):** one check, one announcement, two channels.
+`updater.should_announce(cfg, version)` is the gate: it is a **total function**
+(a blank version announces nothing; a non-dict or hostile config still answers
+True, because a missed notice is worse than a repeated one) and it **marks the
+version in the config in place**, which the caller saves. The call happens
+*before* either notice goes out, so a muted notifier or a closed window costs
+one message, never a nag on the next start. `main.py::_announce_update` is the
+single callback — it saves the marker, fires the optional OS toast, then the
+snackbar — and the second check is gone. Regression:
+`tools/test_update_notice.py`.
+
+---
+
+## High: the Windows startup job never actually ran the app — FIXED (2026-10-18)
+
+**File:** `tools/test_startup.py`, `tools/test_winwindow.py`
+
+The `Startup tests (Windows)` job was red on **every run since it was added**,
+so CI had never once built the launcher's UI on Windows — a green-looking
+pipeline with a permanently red gate, and no signal at all on the platform most
+users are on. Two Linux-shaped assumptions:
+
+* `test_startup.py` refused **every** outbound connect, to prove the UI thread
+  never blocks on the network. But on Windows `socket.socketpair()` is a real
+  TCP pair on 127.0.0.1 (CPython's fallback: bind to `_LOCALHOST`, then
+  `csock.connect((addr, port))`) and `ProactorEventLoop` builds its self-pipe
+  with it — so the patch killed `asyncio.run()` itself. The suite died with
+  `OSError: network disabled by tools/test_startup.py` **before `main()`** and
+  reported `controls=0` (the UI was never mounted) plus one bogus
+  main-thread connect: asyncio's own self-pipe.
+* `test_winwindow.py` §1 asserted "returns immediately" for
+  `ensure_client_window_visible`, which describes the **off-Windows** no-op
+  branch — but the file runs on `windows-latest`, where the module is the real
+  thing: with no flet client window it probes until the timeout and answers
+  False (4.44 s).
+
+**Fix (2026-10-18):** loopback is now allowed through the connect blocker
+(`127.0.0.0/8`, `::1`), while any real host is still recorded **and refused** —
+and `socket.create_connection` (the call urllib3 actually makes) is now patched
+too, so the invariant is stronger than before. The winwindow timing assertion
+is branched on `os.name`. The job now genuinely builds the UI on Windows, which
+is where a Windows-only startup crash will finally be visible.
+
+---
+
 ## Summary Table
 
 | # | Severity | Issue | File(s) |
@@ -427,3 +526,6 @@ they still open no socket.
 | 30 | ✅ Fixed 2026-10-17 | **Installs "completed" with holes.** mll 8.0's downloader has no timeout, no retry, no resume and no checksum, and reports a bad status by *returning* `False` — which every caller ignores, so a 429 from the asset CDN or a dropped connection mid-jar was silently skipped and the version list called it installed. Cubeon's patch also ran only for a *cancellable* install. Now every install uses the resilient downloader (timeouts, 3 retries honouring `Retry-After`, `Range` resume, sha1 verify, a hard error naming the file), plus a shared 32-connection pool instead of mll's per-phase 10 | `cubeon/versions.py` |
 | 31 | ✅ Fixed 2026-10-17 | A loader install walked the base version **two or three times** — `ModLoader.install` installs the base, then the loader profile whose json `inheritsFrom`s it (and mll's inheritsFrom branch re-installs the base *inside* that call); each pass re-hashed ~1 GB for an answer already known. Now `install_minecraft_version` is memoised per install and a per-process size+mtime cache makes repeat passes `stat()`-only; mll's unused second JDK is skipped when the launch passes its own `executablePath` | `cubeon/versions.py`, `cubeon/config.py`, `cubeon/mod_loaders.py`, `cubeon/modpacks.py`, `main.py` |
 | 32 | ✅ Fixed 2026-10-17 | **"Not connected to Cubeon" on a good connection.** Startup connected only when an identity *predated* the launch, so a first-run player who never opened the launcher's Chat tab (in-game chat does not trigger it) stayed offline for their whole first session; a reconnect after a connection that was up also kept the 30 s backoff. Now it connects as soon as an identity exists and resets the ladder after any round that reached the server | `main.py`, `cubeon/friends.py` |
+| 33 | ✅ Fixed 2026-10-18 | **Play appeared while a modpack install was still writing the instance.** A pack installs the base version + loader first and its mods last, so a disk scan called it installed for the whole mod-download phase and the button offered PLAY — pressing it launched a half-written profile. The claim was `state["installing_version"]`, which only the Play-tab installer ever set. Now `cubeon/modpacks.py` keeps a refcounted in-flight registry (keyed by mc_version) raised before the first write and released on success/failure/cancel; the button shows a disabled `INSTALLING…` (never a lying Cancel), and the click path, prefetch, Instances manager and mod doctor all stand down while it holds | `cubeon/modpacks.py`, `main.py`, `launcher_core.py` |
+| 34 | ✅ Fixed 2026-10-18 | **"A new Cubeon is available" nagged on every launch** ("spamming … coming up again and again"). The snackbar had NO memory at all, so an available update was announced on every start until the user updated; the only once-per-version marker belonged to the OS toast and failed open when toasts were off. A SECOND background check ran without the update token purely for that toast — two GETs per start and two answers about the same release. Now one check, one `_announce_update` callback, gated by the total function `updater.should_announce(cfg, version)`, which marks the version in the config before either notice goes out | `main.py`, `cubeon/updater.py` |
+| 35 | ✅ Fixed 2026-10-18 | **The Windows startup job was red on every run, so CI had never built the UI on Windows.** `test_startup.py` banned every connect to prove "no network on the UI thread", but Windows `socket.socketpair()` is a real 127.0.0.1 TCP pair and `ProactorEventLoop`'s self-pipe uses it, so `asyncio.run()` died before `main()` (`controls=0`). `test_winwindow.py` §1 asserted the off-Windows no-op ("returns immediately") while running on windows-latest, where the module is real. Loopback is allowed and real hosts are still recorded+refused (plus `socket.create_connection`, the call urllib3 makes); the timing check is branched on `os.name` | `tools/test_startup.py`, `tools/test_winwindow.py` |

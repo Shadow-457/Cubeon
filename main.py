@@ -232,6 +232,7 @@ from ui.window_chrome import (  # Windows-only custom frame widgets (policy: cub
 )
 from cubeon import winchrome  # Whether the frameless custom frame is used at all
 from cubeon import instances as instance_info  # instance descriptors: loader / mods / size / last-played
+from cubeon import shortcuts as cubeon_shortcuts  # keyboard shortcut table (F11 fullscreen, Ctrl+1..9, ...)
 from cubeon.discord_rpc import DiscordPresence  # Optional Discord Rich Presence (no-op unless configured)
 from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driving (no-op without a pad)
 
@@ -1384,6 +1385,10 @@ async def main(page: ft.Page):
             on_click=lambda e, k=key: switch_tab(k),
             on_hover=_on_nav_hover,
             animate=NAV_ANIM,
+            # EXACTLY the label, no "· Ctrl+3" suffix: an icon-only nav button
+            # has no visible Text, so every test/tool that navigates by name
+            # reads THIS string as the button's label (tools/_fuzz_common.py
+            # ctrl_text + goto, tools/ux_capture.py). Hints live in F1's list.
             tooltip=label,
         )
         btn.cubeon_top_icon = True
@@ -1472,6 +1477,12 @@ async def main(page: ft.Page):
     # inspect them without a window (this branch never runs on the Linux dev box
     # or in CI).
     _chrome_state = {"maximized": False}
+    # Fullscreen (F11) is a SEPARATE claim from maximized: fullscreen hides the
+    # taskbar/panels and the frame, maximize keeps the frame. Both are tracked
+    # because the resize hot-zones and the geometry save must treat them alike
+    # (a fullscreen window has nothing to resize, and its screen-sized rect must
+    # never be saved as the window's restored geometry).
+    _fullscreen = {"active": False}
 
     def _force_window_bool(name, value):
         """Write a window bool so the value ALWAYS reaches the client.
@@ -1523,6 +1534,63 @@ async def main(page: ft.Page):
         except Exception:
             pass
 
+    def _sync_resize_edges():
+        """Show the resize hot-zones only while there is something to resize.
+
+        A maximized OR fullscreen window cannot be resized, and a hot-zone left
+        enabled along every edge swallows clicks meant for the UI underneath.
+        One place derives that from both claims so a fullscreen toggle can never
+        leave the handles on screen.
+        """
+        set_resize_edges_visible(
+            _resize_edges,
+            not (_chrome_state["maximized"] or _fullscreen["active"]))
+        for _e in _resize_edges:
+            thread_safe_ui.refresh(_e)
+
+    def _set_fullscreen(active):
+        """Enter/leave native fullscreen (F11, Escape, or the WM).
+
+        Two flet facts shape this, both already load-bearing elsewhere:
+
+        * The write goes through `_force_window_bool`, NOT a bare assignment:
+          `full_screen=False` is the declared default, and flet's Prop drops any
+          write equal to the default - so a bare `... = False` would leave the
+          window STUCK in fullscreen (same trap as `visible`/`maximized`, see
+          _force_window_bool).
+        * The resize hot-zones are parked while fullscreen, and geometry saving
+          is suspended (see _save_geometry_now) - otherwise leaving fullscreen
+          would restore a window whose "remembered" size is the whole screen.
+
+        Best-effort by construction: a window-less harness or a client that
+        ignores the flag must not raise out of a key handler.
+        """
+        active = bool(active)
+        if _fullscreen["active"] == active:
+            return
+        try:
+            _force_window_bool("full_screen", active)
+        except Exception:
+            return  # no window to toggle: leave our flag untouched
+        _adopt_fullscreen_state(active)
+
+    def _toggle_fullscreen():
+        _set_fullscreen(not _fullscreen["active"])
+
+    def _adopt_fullscreen_state(active):
+        """Record a fullscreen state and re-sync what depends on it.
+
+        Called both after our own write and from the native
+        enter-full-screen / leave-full-screen events, so a change we did not
+        make (the window manager, or a client-side Escape) can't leave the
+        resize handles and the geometry save believing the wrong thing.
+        """
+        _fullscreen["active"] = bool(active)
+        try:
+            _sync_resize_edges()
+        except Exception:
+            pass
+
     def _set_chrome_maximized(maximized):
         """Swap the maximize glyph and park the resize hot-zones.
 
@@ -1538,9 +1606,7 @@ async def main(page: ft.Page):
         except Exception:
             pass
         try:
-            set_resize_edges_visible(_resize_edges, not maximized)
-            for _e in _resize_edges:
-                thread_safe_ui.refresh(_e)
+            _sync_resize_edges()
         except Exception:
             pass
 
@@ -1598,7 +1664,8 @@ async def main(page: ft.Page):
         target is filled in later, once the card is built, via the
         _account_open holder defined just below."""
         nav_row = ft.Row(
-            [build_top_nav_button(key, icon, label) for key, icon, label in top_nav_items],
+            [build_top_nav_button(key, icon, label)
+             for key, icon, label in top_nav_items],
             spacing=6,
         )
         account_btn = ft.IconButton(
@@ -3103,6 +3170,23 @@ async def main(page: ft.Page):
         claim = state.get("fixing_mods")
         return bool(claim) and claim == version_dropdown.value
 
+    def _pack_installing_selected():
+        """Is a modpack install writing the selected version right now?
+
+        The claim comes from cubeon.modpacks' in-flight registry, not a UI
+        flag, so it is true whichever surface started the install (Modpacks
+        tab, Settings > Import). Keyed by the BASE Minecraft version: a pack
+        install rewrites versions/<mc> and its (mc, loader) profile, so every
+        instance on that version is unsafe to launch until it finishes. Never
+        raises - a transient backend hiccup must not wedge the button.
+        """
+        try:
+            vid = version_dropdown.value
+            return bool(vid and core.pack_install_for(
+                core.extract_mc_version(vid)))
+        except Exception:
+            return False
+
     def set_button_mode(mode):
         """
         Changes the play button's appearance based on the current state.
@@ -3117,6 +3201,9 @@ async def main(page: ft.Page):
           - 'working': a live game session and an install in flight outrank
             play/download; 'working' is the post-install doctor/mod repair
             (nothing to cancel, so it is disabled rather than a stop button)
+          - 'installing': a modpack install (Modpacks tab or Settings >
+            Import) is still writing THIS instance. Disabled, not a Cancel -
+            that install owns its own progress bar and cancel button.
           - 'incomplete': installed but broken (disabled, error icon)
 
         Foreground colour is set per-mode alongside the fill, not just once at
@@ -3145,6 +3232,8 @@ async def main(page: ft.Page):
                 mode = "running"
             elif state.get("installing_version"):
                 mode = "busy"
+            elif _pack_installing_selected():
+                mode = "installing"
             elif _fixing_selected():
                 mode = "working"
 
@@ -3212,12 +3301,24 @@ async def main(page: ft.Page):
             play_button.disabled = True
             play_button.tooltip = ("Cubeon is checking and fixing this "
                                    "profile's mods - one moment.")
+        elif mode == "installing":
+            # A pack install is still writing this instance (base version,
+            # loader, then every mod into its profile). It is NOT cancellable
+            # from here - the Modpacks tab / Import owns that progress and its
+            # Cancel - so this is a disabled wait, never a lying CANCEL. Play
+            # returns the moment the installer's listener clears the claim.
+            paint(SURFACE_HI, TEXT_DIM)
+            play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
+            play_button_text.value = "INSTALLING..."
+            play_button.disabled = True
+            play_button.tooltip = ("Cubeon is still installing this instance - "
+                                   "Play unlocks when it finishes.")
         else:  # incomplete
             paint(SURFACE_HI, DANGER)
             play_button_icon.name = ft.Icons.ERROR_OUTLINE_ROUNDED
             play_button_text.value = "INCOMPLETE INSTALL"
             play_button.disabled = True
-        if mode not in ("running", "working"):
+        if mode not in ("running", "working", "installing"):
             play_button.tooltip = None
         # Scoped repaint: every icon/text/fill mutated above lives inside
         # play_button, so diffing just its subtree (~3 controls) paints the
@@ -3244,6 +3345,12 @@ async def main(page: ft.Page):
             return
         if state.get("installing_version"):
             set_button_mode("busy")
+            return
+        if _pack_installing_selected():
+            # A pack install owns this instance's disk. The guard inside
+            # set_button_mode enforces it for every paint; this early return
+            # just keeps the intent visible here too.
+            set_button_mode("installing")
             return
         if _fixing_selected():
             set_button_mode("working")
@@ -3381,12 +3488,23 @@ async def main(page: ft.Page):
                     if version_id in state["installed"]:
                         return  # someone beat us to it
 
+                    # A pack install is writing this same version folder (it
+                    # installs the base version itself). Two mll installers on
+                    # one folder race on the same jars, so stand down - the
+                    # pack install leaves the version ready anyway, so there is
+                    # nothing left for the prefetch to do.
+                    _prefetch_mc = core.extract_mc_version(version_id)
+                    if core.pack_install_for(_prefetch_mc):
+                        return
+
                     def _guard(*_a):
                         # A prefetch is invisible, but a Play click can block on
                         # access to the install lock while it runs - so the
                         # prefetch has to honor the same cancel flag or a
-                        # cancelled click would just hang behind it.
-                        if cancel.is_set():
+                        # cancelled click would just hang behind it. It also
+                        # stands down the moment a pack install claims this
+                        # version mid-flight (its per-file callbacks land here).
+                        if cancel.is_set() or core.pack_install_for(_prefetch_mc):
                             raise _InstallCancelled()
 
                     # Publish progress into the shared view as well as honoring
@@ -3776,6 +3894,21 @@ async def main(page: ft.Page):
             if state.get("installing_version") == version_id:
                 _show_snack("That version is already installing", duration=4000)
                 return
+            # A pack install (Modpacks tab / Import) is writing this version
+            # right now. This is the second way in - on_play_click checks it
+            # too, but the Java prompt calls this function directly, so the
+            # guard has to live here as well (and under the same lock as the
+            # claim, so the two can't interleave).
+            _pack_name = None
+            try:
+                _pack_name = core.pack_install_for(
+                    core.extract_mc_version(version_id))
+            except Exception:
+                pass
+            if _pack_name:
+                _show_snack(f"{_pack_name} is still installing - wait for it "
+                            "to finish, then press Play", duration=5000)
+                return
             state["installing_version"] = version_id
 
         # Update UI to "busy" state. progress_label is reset explicitly: it may
@@ -3885,6 +4018,25 @@ async def main(page: ft.Page):
 
         version_id = version_dropdown.value
         if not version_id:
+            return
+
+        # A pack install (Modpacks tab / Settings > Import) is writing this
+        # version's folder and its (mc, loader) profile right now. Its disk
+        # state only LOOKS complete - the base version and loader land first,
+        # the mods come after - so launching here is the reported "it said
+        # installed while it was still installing mods, and that broke
+        # everything". Refuse, and repaint the button to say so rather than
+        # leaving a PLAY that silently does nothing.
+        _installing_pack = None
+        try:
+            _installing_pack = core.pack_install_for(
+                core.extract_mc_version(version_id))
+        except Exception:
+            pass
+        if _installing_pack:
+            _sync_play_button()
+            _show_snack(f"{_installing_pack} is still installing - wait for "
+                        "it to finish, then press Play", duration=5000)
             return
 
         # Bulletproof double-launch guard. The button's "running" paint can in
@@ -4953,6 +5105,12 @@ async def main(page: ft.Page):
         if state.get("installing_version"):
             set_status("Wait for the current install to finish")
             return
+        if core.pack_install_for(core.extract_mc_version(version_id)):
+            # A pack install is still writing this very instance (base
+            # version + its profile). Launching now is the half-installed
+            # "everything broke" path - refuse until it finishes.
+            set_status("Wait for this instance to finish installing")
+            return
         if state.get("running_version"):
             set_status("A game is already running")
             return
@@ -4960,6 +5118,17 @@ async def main(page: ft.Page):
         version_dropdown.value = version_id
         on_version_selected()
         on_play_click()
+
+    # Repaint the big button the moment a pack install claims or releases an
+    # instance (Modpacks tab / Import). Without this a disabled "INSTALLING..."
+    # could outlive a cancelled install, or a finished one would keep saying it
+    # until some unrelated repaint. The handler is thread-safe (see
+    # thread_safe_ui) and reads live state, so it is correct from any caller.
+    try:
+        core.add_pack_install_listener(_sync_play_button)
+    except Exception:
+        logging.getLogger(__name__).warning("pack install listener not wired",
+                                            exc_info=True)
 
     # Instances manager - one dialog to see and manage every install (see
     # ui/versions.py). It re-reads the live installed set on each open.
@@ -5242,6 +5411,13 @@ async def main(page: ft.Page):
         if not mc or loader not in core.MOD_CAPABLE_LOADERS:
             return
         key = (mc, loader)
+        if core.pack_install_for(mc):
+            # A pack install owns this profile right now and is still writing
+            # mods into it. Running the doctor here would race those downloads
+            # (auto_fix can prune jars it can't verify yet). Skip WITHOUT
+            # marking the profile done, so the repair still happens on the
+            # next selection/launch after the install has finished.
+            return
         with _repair_state["lock"]:
             if key in _repair_state["done"]:
                 return
@@ -6597,6 +6773,11 @@ async def main(page: ft.Page):
         elif key == "play":
             refresh_server_status_panel()
             _reconcile_running_button()
+            # Also re-derive the big button on every entry: a pack install
+            # elsewhere (Modpacks tab) can have claimed or released this
+            # instance while the Play tab was hidden, and the button must
+            # never be the stale one.
+            _sync_play_button()
         # Scoped repaint, NOT page.update(): a whole-page diff re-sends every
         # control of every mounted tab over the websocket (~hundreds) - a
         # visible frame hitch exactly at the moment of the switch. Diffing
@@ -7118,10 +7299,18 @@ async def main(page: ft.Page):
 
     # -----------------------------------------------------------------
     # UPDATE CHECK
-    # One quiet background GET at startup; if a newer release exists, a
-    # non-blocking snackbar offers the download page. Never a modal, never
-    # an error dialog - a launcher that can't reach the feed must launch
-    # normally. See cubeon/updater.py.
+    # ONE quiet background GET at startup (cubeon/updater.py). A newer
+    # release is announced ONCE PER VERSION and never by a modal: the
+    # in-app snackbar offers our own download page, and the optional OS
+    # toast rides along if the user kept that switch on.
+    #
+    # The once-per-version marker (updater.NOTICE_SEEN_KEY) is the fix for
+    # the 2026-10-18 report "the notification of new cubeon release is just
+    # spamming ... coming up again and again": the snackbar used to be shown
+    # on EVERY start with no memory whatsoever. There was also a SECOND check
+    # below (without the update token) whose only job was that toast - two
+    # GETs per start, and on a private repo two different answers for the same
+    # release. One check, one announcement, both channels.
     # -----------------------------------------------------------------
     def _offer_update(info: dict):
         import webbrowser
@@ -7138,9 +7327,33 @@ async def main(page: ft.Page):
         _show_snack(f"Cubeon {info['version']} is available",
                     duration=10000, action=_open_download, action_label="Get it")
 
+    def _announce_update(info: dict):
+        """Announce a newer release - once, then never again for that version."""
+        try:
+            version = str((info or {}).get("version") or "").strip()
+            if not version or not updater.should_announce(cfg, version):
+                return
+            # Marked (above, in place) BEFORE either notice goes out: the OS
+            # toast is switched off for plenty of people and a closed window
+            # swallows the snackbar, and a lost notice must never turn into a
+            # nag on the next start. Its write is best-effort for the same
+            # reason - a full disk costs one repeated message, not the notice.
+            try:
+                core.save_config(cfg)
+            except Exception:
+                pass
+            try:
+                from cubeon import osnotify
+                osnotify.update_available(version, cfg=cfg)
+            except Exception:
+                pass  # the toast is optional; the snackbar is the real notice
+            _offer_update(info)
+        except Exception:
+            logging.getLogger(__name__).debug("update notice failed", exc_info=True)
+
     try:
         from cubeon import updater
-        updater.check_in_background(_offer_update, token=cfg.get("update_token"))
+        updater.check_in_background(_announce_update, token=cfg.get("update_token"))
     except Exception:
         logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
@@ -7281,32 +7494,13 @@ async def main(page: ft.Page):
 
     # -----------------------------------------------------------------
     # CUBEON UPDATE CHECK (Phase 7)
-    # cubeon/updater.check_in_background already exists and is safe: it runs on
-    # its own daemon thread, swallows every network error, and calls back ONLY
-    # on a positive result. Nothing consumed it before, so a newer release went
-    # unnoticed until the user happened to look.
-    #
-    # Announced once per version, not once per start: the marker lives in the
-    # config, so restarting the launcher does not re-toast the same release.
+    # The check itself ran once, early on (see UPDATE CHECK above): the toast
+    # and the snackbar are two channels of ONE announcement, so there is
+    # deliberately nothing here. A second check here was the "spam" half of
+    # the 2026-10-18 report - it re-fetched the feed (without the update
+    # token) purely to fire the OS toast, on top of the snackbar, on every
+    # single start. The per-version marker now gates both.
     # -----------------------------------------------------------------
-    def _on_cubeon_update(info):
-        try:
-            version = str((info or {}).get("version") or "").strip()
-            if not version or cfg.get("osnotify_last_update") == version:
-                return
-            from cubeon import osnotify
-            if osnotify.update_available(version, cfg=cfg):
-                cfg["osnotify_last_update"] = version
-                core.save_config(cfg)
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "cubeon update notification failed", exc_info=True)
-
-    try:
-        from cubeon import updater as cubeon_updater
-        cubeon_updater.check_in_background(_on_cubeon_update)
-    except Exception:
-        pass  # an update check must never break startup
 
     # --- Clear the Discord activity when the launcher window closes ---
     # Without this, the "Playing / in the launcher" presence can linger on the
@@ -7323,7 +7517,10 @@ async def main(page: ft.Page):
             return
         try:
             w = page.window
-            maximized = bool(w.maximized)
+            # Fullscreen counts as maximized here: its rect is the whole
+            # screen, and saving that would make the next fresh launch open
+            # screen-sized-but-not-fullscreen.
+            maximized = bool(w.maximized) or bool(_fullscreen["active"])
             if maximized:
                 # Keep the last RESTORED geometry: the window manager's
                 # un-maximize returns to its own remembered size, and saving
@@ -7374,6 +7571,15 @@ async def main(page: ft.Page):
                 # that no flet client is left before it touches anything.
                 _arm_window_gone_exit(f"window {ev}",
                                       delay=2.0 if ev == "hide" else 1.0)
+            elif ev.replace("_", "-") in ("enter-full-screen",
+                                           "leave-full-screen"):
+                # A fullscreen change we did NOT make (the WM, a client-side
+                # Escape, a macOS zoom) must not leave our flag - and with it
+                # the resize handles and the geometry save - stale until the
+                # next F11. Adopt the native state; never write it back (that
+                # would ping-pong with the event that just arrived).
+                _adopt_fullscreen_state(
+                    ev.replace("_", "-") == "enter-full-screen")
             elif ev in ("resized", "resize", "move", "moved",
                         "maximize", "unmaximize", "rescale"):
                 if ev in ("maximize", "unmaximize"):
@@ -7467,23 +7673,147 @@ async def main(page: ft.Page):
     if _relaunch["request"] is None:
         _relaunch["request"] = threading.Event()
 
-    # Escape closes the Account panel (an overlay panel has no dialog-managed
-    # Escape handling of its own), F12 toggles the inspector (same
-    # CUBEON_INSPECT gate). Best-effort: if the keyboard event API moved
-    # between Flet versions, the ✕ button still works.
+    # --- Keyboard shortcuts ------------------------------------------------
+    # One dispatcher for the whole app (table + policy: cubeon/shortcuts.py).
+    # It runs on flet's event loop and every action also has a mouse path (the
+    # preview ✕, the nav icons, the Settings button, the big button), so the
+    # whole handler is best-effort: a bad payload or a missing control must
+    # never be able to take the UI down. F12 (inspector) stays here rather
+    # than in the table - it is a dev tool behind the CUBEON_INSPECT gate.
+    _shortcuts_dlg = {"dlg": None}
+
+    def _dialog_mounted(dlg):
+        """Is `dlg` currently in the page's dialog stack?
+
+        Membership, not `.open`: flet removes a barrier-dismissed dialog from
+        its stack WITHOUT clearing the flag, and show_dialog() RAISES for one
+        that is still mounted (see InstancesManager._is_mounted, ui/versions.py).
+        """
+        if dlg is None:
+            return False
+        stack = getattr(getattr(page, "_dialogs", None), "controls", None)
+        if stack is None:
+            return bool(getattr(dlg, "open", False))
+        return dlg in list(stack)
+
+    def _shortcut_row(combo, what):
+        return ft.Row(
+            [
+                ft.Container(
+                    content=ft.Text(combo, size=11.5, color=ACCENT,
+                                    font_family=FONT_MONO,
+                                    weight=ft.FontWeight.W_600),
+                    bgcolor=ACCENT_TINT, border_radius=RADIUS,
+                    padding=ft.padding.Padding.symmetric(horizontal=8,
+                                                         vertical=4),
+                    width=132,
+                ),
+                ft.Text(what, size=12.5, color=TEXT_DIM, expand=True),
+            ],
+            spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+    def _show_shortcuts(e=None):
+        """F1: the shortcut list. Toggles, so the same key dismisses it.
+
+        Built once and reused - the list is static, and rebuilding per press
+        would just stack dialog objects. Opened through cubeon_dialogs so it
+        mounts exactly like every other dialog in the app.
+        """
+        try:
+            dlg = _shortcuts_dlg["dlg"]
+            if dlg is None:
+                dlg = ft.AlertDialog(
+                    modal=False, bgcolor=SURFACE,
+                    title=ft.Text("Keyboard shortcuts", color=TEXT,
+                                  weight=ft.FontWeight.W_800),
+                    content=ft.Container(
+                        width=440,
+                        content=ft.Column(
+                            [_shortcut_row(combo, what)
+                             for combo, what in cubeon_shortcuts.CATALOGUE],
+                            spacing=10, tight=True),
+                    ),
+                    actions=[ft.TextButton(
+                        "Close",
+                        on_click=lambda _e, d=dlg: cubeon_dialogs.close_dialog(page, d))],
+                )
+                _shortcuts_dlg["dlg"] = dlg
+            if _dialog_mounted(dlg):
+                cubeon_dialogs.close_dialog(page, dlg)
+            else:
+                cubeon_dialogs.open_dialog(page, dlg)
+        except Exception:
+            pass
+
+    def _jump_to_tab(index):
+        """Ctrl+N: switch to the Nth top-bar tab (1-based).
+
+        Indexed off `top_nav_items` instead of a hardcoded table, so the
+        numbering always matches what the user actually sees - the Chat tab
+        only exists in Friend-enabled builds.
+        """
+        try:
+            n = int(index)
+        except (TypeError, ValueError):
+            return
+        if 1 <= n <= len(top_nav_items):
+            switch_tab(top_nav_items[n - 1][0])
+
     def _on_key(e):
         try:
-            key = str(getattr(e, "key", ""))
-            if key.lower() == "escape" and account_panel.right == 0:
-                _close_account_panel()
-            elif key == "F12" and _inspector_enabled:
-                _open_inspector()
+            # flet 0.86+ spells the payload `key`; keeps `data` as a fallback
+            # for older builds. The modifier attributes have been spelled both
+            # `ctrl` and `control` across releases, so read both.
+            key = getattr(e, "key", "") or getattr(e, "data", "")
+            action = cubeon_shortcuts.resolve(
+                key,
+                ctrl=bool(getattr(e, "ctrl", False)
+                          or getattr(e, "control", False)),
+                alt=bool(getattr(e, "alt", False)),
+                shift=bool(getattr(e, "shift", False)),
+                meta=bool(getattr(e, "meta", False)),
+            )
+            if action is None:
+                if str(key) == "F12" and _inspector_enabled:
+                    _open_inspector()
+                return
+            if action == cubeon_shortcuts.ESCAPE:
+                # Close the topmost thing, the way Escape is expected to
+                # behave: the help dialog, then fullscreen, then the panel.
+                if _dialog_mounted(_shortcuts_dlg["dlg"]):
+                    cubeon_dialogs.close_dialog(page, _shortcuts_dlg["dlg"])
+                elif _fullscreen["active"]:
+                    _set_fullscreen(False)
+                elif account_panel.right == 0:
+                    _close_account_panel()
+            elif action == cubeon_shortcuts.FULLSCREEN:
+                _toggle_fullscreen()
+            elif action == cubeon_shortcuts.HELP:
+                _show_shortcuts()
+            elif action == cubeon_shortcuts.SETTINGS:
+                switch_tab("settings")
+            elif action == cubeon_shortcuts.MAIN_ACTION:
+                # Only when the big button is actually actionable: the mouse
+                # path is blocked by `disabled`, and the keyboard must not be
+                # a way around a disabled Play (incomplete install, launching,
+                # a running game...). Whatever is live is handled by
+                # _main_action_click's own state routing.
+                if not play_button.disabled:
+                    _main_action_click()
+            elif action == cubeon_shortcuts.QUIT:
+                _chrome_close()
+            else:
+                tab = cubeon_shortcuts.tab_index(action)
+                if tab:
+                    _jump_to_tab(tab)
         except Exception:
             pass
     try:
         page.on_keyboard_event = _on_key
     except Exception:
         pass
+
 
 
 def run_sync(page) -> None:
