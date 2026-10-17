@@ -927,24 +927,67 @@ facts belong HERE, not in diary notes.
   **tag-only** (`if: startsWith(github.ref, 'refs/tags/v')`),
   `retention-days: 7`, and `continue-on-error: true` (publishing must never
   mark a good build red). This rule is about `upload-artifact` only — see the
-  2026-10-15 section below for *release assets*.
+  2026-10-17 section below for *release assets*.
 - The REAL publishing channel is GitHub release ASSETS: release assets are
   exempt from the Actions storage quota (which stayed exhausted even 23h after
   purging 19 GB of artifacts), so binaries ship as release assets. The build
   jobs carry `permissions: contents: write`; the workflow root is
   `contents: read`. Tag builds FAIL if the release upload fails — intentional.
 
-## Publish-on-push (2026-10-15) — supersedes "branch pushes don't publish"
-- A push to **main/master** now rebuilds ONLY Windows (EXE + installer + ZIP)
-  and macOS, then refreshes the repo's **LATEST** release in place
-  (`gh release upload … --clobber`). Tag pushes still create/update their own
-  tag release. The target tag is resolved dynamically with
-  `gh release view --json tagName --jq .tagName` (i.e. whatever GitHub marks
-  Latest, currently v1.1.2), NOT hardcoded — it follows future releases.
-- The Linux **AppImage is no longer built on branch pushes** (the maintainer
-  builds it locally); `if:` on `build-linux-appimage` keeps it for tags +
-  `workflow_dispatch`. Don't re-add it to every push without asking.
-- `actions/upload-artifact` steps stay TAG-ONLY (quota, section above).
+## Auto-release per push (2026-10-17) — supersedes "publish-on-push" (2026-10-15)
+- **One release per push to main/master**, with its own version: a push no
+  longer refreshes the latest release in place. `tools/release_version.py` owns
+  the policy — read its docstring before touching the version scheme. Per push:
+  the `release` job decides the version, `stamp`s it into the tree, commits the
+  bump back (`release: vX.Y.Z [skip ci]`, so the tag's source matches the tag),
+  pushes the tag as the version lock, and opens a **DRAFT** release with
+  `--generate-notes`. The three build jobs (`needs: release`) check out
+  `ref: ${{ needs.release.outputs.tag }}`, re-stamp, build, and
+  `gh release upload --clobber` to the draft. `publish` (needs all three)
+  asserts every asset is present, then `gh release edit --draft=false`
+  (`--latest` only when it is ahead of the already-public releases, so
+  re-publishing an older build can't drag `/releases/latest` backwards).
+- **Why the tag must equal APP_VERSION (shake this and every user is nagged
+  forever):** `cubeon/updater.py` only accepts a `vX.Y.Z` tag newer than the
+  APP_VERSION compiled into the running build, so a release tagged ahead of its
+  own binary offers "update available" that never clears. Same literal feeds
+  `packaging/build_deb.py` (deb version) and `build_windows_installer.py`
+  (exe Properties), both by regex on the SOURCE. `stamp` is therefore the only
+  supported way to set the version, it rewrites the site's display text too
+  (`web/index.html` `vX.Y.Z`, `web/download.html` `Version X.Y.Z` — the site's
+  *links* are version-agnostic, the worker resolves assets by name), and it
+  RAISES if the literal can't be found: a silent no-op ships exactly that
+  nag-forever build.
+- **Version maths:** `next` = APP_VERSION if its tag doesn't exist yet (that is
+  how a new series is declared — APP_VERSION was seeded to 1.2.0 for this),
+  else patch+1 of the highest of (APP_VERSION, all `v*` tags), compared
+  NUMERICALLY per segment (1.2.10 > 1.2.9). A source version BEHIND the newest
+  tag steps forwards, never back. A human `v*` tag push skips the maths: the tag
+  IS the version.
+- **Never publish a half-built release:** `/releases/latest` feeds the in-app
+  updater AND `worker/cubeon-downloads.js`, so a release must be invisible until
+  all six assets are up (`publish` verifies their names first, including
+  `cubeon_*_amd64.deb` by shape, since its name carries the version).
+  `gh release upload --clobber` DELETES before it re-uploads, so a re-run of an
+  already-published release is put back into draft first.
+- **Re-run idempotency:** a re-run has the same `GITHUB_SHA` but the tag points
+  at the bump commit, so the job looks for a tag pointing at our commit OR at a
+  child whose subject is `release: vX.Y.Z [skip ci]` — and reuses it instead of
+  minting the next version. `concurrency: release-${{ github.ref }}`
+  (`cancel-in-progress: false`) serialises runs; the tag push is the atomic lock
+  that makes two concurrent runs pick different versions rather than clash.
+- **Deliberately NOT gated on `test`/`test-windows`:** `test_fuzz.py` and
+  `test_install_cancel.py` are load-flaky on CI, and a flaky red test silently
+  dropping a release is worse than shipping one (the run is red either way). Add
+  `needs: [test, test-windows]` to `release` if that trade ever flips.
+- The Linux AppImage IS built on every push now (the maintainer asked for
+  complete auto-releases); `actions/upload-artifact` steps stay TAG-ONLY (quota,
+  section above) — that `if:` keys off `github.ref`, the TRIGGERING ref, so
+  checking out the tag does not accidentally enable them on branch runs.
+- Regression: `tools/test_release_pipeline.py` extracts these `run:` scripts
+  from the workflow and exercises them offline against a throwaway repo + a `gh`
+  stub (tag reservation, re-run reuse, re-draft, incomplete-asset refusal,
+  latest-only-forwards). `tools/test_release_version.py` pins the policy.
 - **Windows installer gotcha:** `choco install nsis` does NOT refresh PATH
   inside the running job, so `build_windows_installer.py`'s
   `shutil.which("makensis")` failed every build ("NSIS not found") and the job

@@ -541,6 +541,10 @@ SUITES = [
     "test_install_cancel.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",
     "test_faces.py", "test_chat_optimistic.py", "test_osnotify.py",
+    # The release pipeline (workflow plumbing + the version policy). Both are
+    # offline/hermetic; the pipeline one extracts the real `run:` scripts out
+    # of .github/workflows/build.yml, so a broken release is caught here.
+    "test_release_version.py", "test_release_pipeline.py",
 ]
 
 

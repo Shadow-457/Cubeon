@@ -12,7 +12,10 @@
 - [ ] Type hints on all new public APIs
 
 ### Version & Changelog
-- [ ] Bump `APP_VERSION` in `cubeon/updater.py`
+- [ ] Nothing to do for the version — CI stamps it per push
+      (`tools/release_version.py stamp`). Only edit `APP_VERSION` (then
+      `python3 tools/release_version.py stamp <version>`) when you want to start
+      a new minor series; the tag, the app and the website text must all agree.
 - [ ] Update `CHANGELOG.md` (or create if missing)
 - [ ] Verify `mod/brackets.json` matches supported Minecraft versions
 
@@ -82,17 +85,21 @@
 
 ## Release
 
-### GitHub Release
-- [ ] Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
-- [ ] Create GitHub Release with tag
-- [ ] Upload all 4 artifacts (Linux, Windows folder, Windows ZIP, macOS)
-- [ ] Release notes from CHANGELOG
+### GitHub Release — `git push` is the whole job
+- [ ] Push to `main`: CI picks the version, tags it, builds Linux + Windows +
+      macOS and publishes the release (draft → verify all 6 assets → un-draft).
+- [ ] Watch the Actions run; `publish` is the job that makes it public.
+- [ ] Only if you must release a number CI would not pick:
+      `git tag vX.Y.Z && git push origin vX.Y.Z` (released verbatim).
+- [ ] Notes come from `--generate-notes`; the in-app updater shows the first
+      ~400 characters of them, so keep the commit subjects user-readable.
 
 ### Worker Deployment (if not done earlier)
 - [ ] Deploy any worker changes
 - [ ] Update `CUBEON_FRIENDS_API` etc. env vars if needed
 
 ### Post-Release
+- [ ] Verify the release carries all six assets (the `publish` job asserts this)
 - [ ] Verify update check works: `cubeon/updater.py` finds new version
 - [ ] Monitor `cubeon.log` for crash reports (if crash endpoint deployed)
 - [ ] Update `docs/SIMPLE_OWNER_GUIDE.md` if user-facing changes
@@ -100,10 +107,17 @@
 ## Rollback Plan
 
 If critical issue found post-release:
-1. **Revert tag**: `git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`
-2. **Re-build** previous version tag
-3. **Re-deploy** workers if they were updated
-4. **Communicate** to users via Discord/GitHub
+1. **Re-run the failed job** rather than deleting anything — a re-run of the
+   same push reuses its tag and version (it does not mint a new one) and
+   re-drafts the release while assets are replaced.
+2. **Bury it**: the in-app updater only offers releases NEWER than the running
+   one, so pushing a fixed `APP_VERSION` (or just the next commit) is usually
+   enough. Only make an old release "latest" again if downloads must move back —
+   `gh release edit vX.Y.Z --latest` (CI never moves `latest` backwards).
+3. **Delete a bad tag** only if it never shipped:
+   `git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`.
+4. **Re-deploy** workers if they were updated.
+5. **Communicate** to users via Discord/GitHub
 
 ## Version Numbering
 

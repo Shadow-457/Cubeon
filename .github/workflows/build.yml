@@ -6,17 +6,45 @@ on:
     tags: [ "v*" ]
   workflow_dispatch:
 
-# Builds run read-only by default; only the build jobs that attach binaries
-# to a GitHub release get contents:write (tag builds and main/master pushes).
+# One release per push to main/master (2026-10-17).
 #
-# Publishing rules (2026-10-15):
-#   * a TAG push (v*) creates/updates that tag's own release, as before;
-#   * a push to main/master rebuilds ONLY Windows + macOS and refreshes the
-#     repo's LATEST release in place (assets replaced, --clobber);
-#   * the Linux AppImage is no longer built on branch pushes (the maintainer
-#     builds it locally) - tags and manual runs still produce it.
+#   * the `release` job decides the version, stamps it into the tree, tags the
+#     commit and opens a DRAFT release. tools/release_version.py owns the
+#     policy - read its docstring before touching the version scheme;
+#   * every build job stamps the same version into its own checkout and uploads
+#     its assets to that draft (`gh release upload`, drafts are writable);
+#   * `publish` verifies ALL assets landed, then un-drafts the release (marking
+#     it Latest only if it is ahead of what is already public, so re-publishing
+#     an older build can't move /releases/latest backwards). Nothing is
+#     user-visible until then, which is the whole point: /releases/latest feeds
+#     both the in-app updater and worker/cubeon-downloads.js, so a half-uploaded
+#     release would offer a download that 404s.
+#   * a human-made TAG push (v*) skips the version maths entirely: the tag IS
+#     the version, and it gets the same draft -> verify -> publish treatment.
+#
+# Why the tag has to equal the compiled-in APP_VERSION: cubeon/updater.py
+# compares the feed's tag against the APP_VERSION baked into the user's build
+# (`_TAG_RE`, strict vX.Y.Z). A tag ahead of the binary's own version means
+# every user is told an update is available forever. That is what `stamp` -
+# run by every job before its build - exists to prevent, and why the release
+# job commits the stamp back to main ([skip ci], so it can't recurse).
+#
+# The release job deliberately does NOT wait on `test`/`test-windows`: two
+# suites (test_fuzz.py, test_install_cancel.py) are load-flaky on CI, and a
+# flaky red test silently dropping a release is worse than shipping it (the
+# run is still red either way). Flip that by adding `needs: [test,
+# test-windows]` to `release` if the trade ever changes.
 permissions:
   contents: read
+
+concurrency:
+  # Two pushes a few seconds apart would otherwise both compute the same "next
+  # version" (the first run has not created its tag yet) and race for it.
+  # Serialising per ref makes the second run see the first one's tag - and the
+  # tag push in the `release` job is an atomic lock anyway, so the worst case
+  # is a bumped version, never two releases sharing a tag.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -119,18 +147,164 @@ jobs:
           }
           if ($failed -ne 0) { exit 1 }
 
-  build-linux-appimage:
-    name: Build Linux AppImage
-    # Branch pushes only rebuild Windows + macOS. The maintainer builds the
-    # AppImage locally, so don't spend ~5 CI minutes on it per push; tags and
-    # manual runs still build it (and still attach it to the release below).
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+  release:
+    name: Decide the version + open the draft release
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Tags ARE the version history this job reads, and --generate-notes
+          # diffs against the previous release, so it needs the commits too.
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Decide the version, stamp it, tag it, open the draft
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force --quiet
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # A human cut this tag on purpose: it is the version, no maths.
+            VERSION="${GITHUB_REF_NAME#v}"
+            TAG="$GITHUB_REF_NAME"
+            python3 tools/release_version.py stamp "$VERSION"
+            echo "tag push -> releasing $TAG as-is"
+          else
+            # A RE-RUN of a push that already released must reuse its version,
+            # not mint a second one. Two shapes count as "already released":
+            #   * a tag pointing straight at our commit;
+            #   * a tag pointing at the version-bump commit WE made, i.e. a
+            #     child of our commit whose subject is "release: vX.Y.Z" (that
+            #     is what the commit-back below produces; GITHUB_SHA stays the
+            #     pushed commit on a re-run, hence the parent check).
+            VERSION=""
+            EXISTING_TAG=""
+            for t in $(git tag -l 'v*'); do
+              case "$t" in v[0-9]*.[0-9]*.[0-9]*) ;; *) continue;; esac
+              c="$(git rev-parse -q --verify "$t^{commit}")" || continue
+              if [ "$c" = "$GITHUB_SHA" ] \
+                 || { [ "$(git rev-parse -q --verify "$c^" || true)" = "$GITHUB_SHA" ] \
+                      && [ "$(git log -1 --format=%s "$c")" = "release: v${t#v} [skip ci]" ]; }; then
+                VERSION="${t#v}"
+                EXISTING_TAG="$t"
+                echo "re-run: $t already covers $GITHUB_SHA"
+                break
+              fi
+            done
+            [ -n "$VERSION" ] || VERSION="$(python3 tools/release_version.py next)"
+
+            # Stamp the tree so the tag's own source matches the tag, and commit
+            # it back ([skip ci] -> no recursive run). The push rides on the
+            # token actions/checkout persisted (its default); best effort on the
+            # push anyway: a protected branch may refuse it, and every build job
+            # stamps its own checkout regardless, so the artifacts stay correct
+            # either way.
+            python3 tools/release_version.py stamp "$VERSION"
+            SHA="$GITHUB_SHA"
+            if ! git diff --quiet; then
+              git commit -q -a -m "release: v$VERSION [skip ci]"
+              if git push -q origin "HEAD:${GITHUB_REF_NAME}"; then
+                SHA="$(git rev-parse HEAD)"
+              else
+                echo "::warning::could not push the v$VERSION bump to ${GITHUB_REF_NAME}; tagging $SHA without it"
+                git reset -q --hard "$GITHUB_SHA"
+              fi
+            fi
+
+            if [ -n "$EXISTING_TAG" ]; then
+              # Our version is already out (a re-run). Do NOT reserve again: the
+              # tag points at this push's bump commit, not at $SHA, so the lock
+              # below would read it as a collision and skip a version for free.
+              TAG="$EXISTING_TAG"
+            else
+              # Reserve the tag. Creating a ref is atomic server-side, so this is
+              # the lock that makes concurrent runs pick different versions: the
+              # loser's push is rejected and it bumps past the winner.
+              attempts=0
+              while true; do
+                attempts=$((attempts + 1))
+                if [ "$attempts" -gt 10 ]; then
+                  echo "::error::could not reserve a tag for v$VERSION"
+                  exit 1
+                fi
+                TAG="v$VERSION"
+                if git push origin "$SHA:refs/tags/$TAG" >/tmp/tagpush.log 2>&1; then
+                  echo "tagged $SHA as $TAG"
+                  break
+                fi
+                if ! grep -qi "already exists" /tmp/tagpush.log; then
+                  cat /tmp/tagpush.log >&2
+                  echo "::error::could not create the tag $TAG"
+                  exit 1
+                fi
+                echo "::warning::$TAG was taken meanwhile; trying the next version"
+                VERSION="$(python3 tools/release_version.py bump "$VERSION")"
+              done
+            fi
+          fi
+
+          # Draft first: /releases/latest ignores drafts, so the updater and the
+          # download worker keep pointing at the previous release until every
+          # asset is up and `publish` has verified them.
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists (re-run) - reusing it"
+            # ...and put it BACK into draft for the re-upload: --clobber deletes
+            # an asset before re-uploading it, so re-running a published release
+            # would otherwise leave a window where /releases/latest points at a
+            # release whose binary is missing. `publish` re-publishes at the end.
+            gh release edit "$TAG" --draft=true
+          else
+            gh release create "$TAG" \
+              --title "Cubeon $TAG" \
+              --draft \
+              --verify-tag \
+              --generate-notes
+          fi
+
+          # Fail fast. Everything downstream rides on a contents:write token
+          # being able to SEE its own draft release; if that ever stops being
+          # true, say so now instead of after three platforms have built and
+          # every `gh release upload` fails.
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build-linux-appimage:
+    name: Build Linux AppImage
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      # Shared by every publish step below; the release job owns the value.
+      RELEASE_TAG: ${{ needs.release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # The tagged commit, not the pushed one: the release job committed the
+          # version bump and tagged THAT, so this is where the tree, the tag and
+          # the built binaries all agree. (GITHUB_REF is untouched, so the
+          # tag-only artifact steps below stay tag-only.)
+          ref: ${{ needs.release.outputs.tag }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -148,6 +322,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
+      - name: Stamp the release version
+        # Before the build, always: the AppImage's updater and the .deb's
+        # control file both read APP_VERSION out of the tree they are built
+        # from, and a mismatch with RELEASE_TAG nags every user forever.
+        run: python3 tools/release_version.py stamp "$RELEASE_VERSION"
+
       - name: Build Linux AppImage
         run: |
           chmod +x packaging/build_appimage.sh
@@ -161,7 +341,7 @@ jobs:
         # every main push filled it up (19 GB of stale builds) and then made
         # every upload fail with "Artifact storage quota has been hit".
         # Branch runs still BUILD (so the build itself stays verified); only
-        # releases keep the binaries.
+        # releases keep the binaries. Release ASSETS are exempt - see below.
         if: startsWith(github.ref, 'refs/tags/v')
         continue-on-error: true
         uses: actions/upload-artifact@v4
@@ -173,20 +353,13 @@ jobs:
       - name: Attach Linux AppImage to the GitHub release
         # Release ASSETS do not count against the Actions artifact storage
         # quota (artifacts do, and the free quota is smaller than one run's
-        # builds). On a tag build, publish the binary straight to the release.
-        if: startsWith(github.ref, 'refs/tags/v')
+        # builds). The draft release already exists - the `release` job made it.
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "Cubeon $GITHUB_REF_NAME" \
-            --notes "Automated build of $GITHUB_REF_NAME." \
-            --verify-tag || true
-          gh release upload "$GITHUB_REF_NAME" dist/Cubeon-x86_64.AppImage --clobber
+        run: gh release upload "$RELEASE_TAG" dist/Cubeon-x86_64.AppImage --clobber
 
       - name: Attach Debian package to the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -202,23 +375,28 @@ jobs:
             echo "no dist/cubeon_*_amd64.deb to upload" >&2
             exit 1
           fi
-          gh release upload "$GITHUB_REF_NAME" "${debs[@]}" --clobber
+          gh release upload "$RELEASE_TAG" "${debs[@]}" --clobber
 
       - name: Attach Linux setup script to the GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/Cubeon-Linux-x86_64-Setup.sh --clobber
+        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Linux-x86_64-Setup.sh --clobber
 
   build-windows-exe:
     name: Build Windows EXE & ZIP
+    needs: release
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.release.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -251,26 +429,13 @@ jobs:
           Write-Host "makensis: $(Join-Path $dir 'makensis.exe')"
           $dir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Resolve the release tag
-        # Tag push  -> that tag's own release (created if missing).
-        # main push -> the repo's LATEST release, refreshed in place below.
-        # Exported through GITHUB_ENV so every publish step shares it.
+      - name: Stamp the release version
+        # Before the build: the frozen updater reports this string, and
+        # build_windows_installer.py reads the same literal for the exe's
+        # version resource. `python`, not `python3` - the Windows runner has
+        # no python3.exe (this job's other steps use `python` too).
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAG="$GITHUB_REF_NAME"
-            gh release create "$TAG" \
-              --title "Cubeon $TAG" \
-              --notes "Automated build of $TAG." \
-              --verify-tag || true
-          else
-            TAG="$(gh release view --json tagName --jq .tagName)"
-            echo "branch build -> refreshing latest release: $TAG"
-          fi
-          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+        run: python tools/release_version.py stamp "$RELEASE_VERSION"
 
       - name: Build Windows onedir + portable ZIP
         run: python packaging/build_windows.py
@@ -303,12 +468,18 @@ jobs:
 
   build-macos:
     name: Build macOS app
+    needs: release
     runs-on: macos-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.release.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.release.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -320,30 +491,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
+      - name: Stamp the release version
+        shell: bash
+        run: python tools/release_version.py stamp "$RELEASE_VERSION"
+
       - name: Build macOS app bundle
         run: |
           chmod +x packaging/build_macos.sh
           ./packaging/build_macos.sh
-
-      - name: Resolve the release tag
-        # Tag push  -> that tag's own release (created if missing).
-        # main push -> the repo's LATEST release, refreshed in place below.
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAG="$GITHUB_REF_NAME"
-            gh release create "$TAG" \
-              --title "Cubeon $TAG" \
-              --notes "Automated build of $TAG." \
-              --verify-tag || true
-          else
-            TAG="$(gh release view --json tagName --jq .tagName)"
-            echo "branch build -> refreshing latest release: $TAG"
-          fi
-          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
 
       - name: Publish macOS app to the release
         shell: bash
@@ -353,3 +508,64 @@ jobs:
           set -euo pipefail
           ditto -c -k --sequesterRsrc --keepParent dist/Cubeon Cubeon-macOS.zip
           gh release upload "$RELEASE_TAG" Cubeon-macOS.zip --clobber
+
+  publish:
+    name: Verify assets + publish the release
+    needs: [ release, build-linux-appimage, build-windows-exe, build-macos ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Verify every asset landed
+        # A release that goes public missing a binary is worse than a late
+        # release: /releases/latest feeds the in-app updater AND
+        # worker/cubeon-downloads.js, so the offer would 404 for every user on
+        # the new version. Assert instead of hoping.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          have="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          missing=0
+          for want in Cubeon-Windows-x64-Setup.exe Cubeon-Windows-x64.zip \
+                      Cubeon-macOS.zip Cubeon-x86_64.AppImage \
+                      Cubeon-Linux-x86_64-Setup.sh; do
+            if ! grep -qxF "$want" <<<"$have"; then
+              echo "::error::$TAG is missing $want"
+              missing=1
+            fi
+          done
+          # The .deb's name carries the version, so it is matched by shape.
+          if ! grep -qE '^cubeon_[0-9.]+_amd64\.deb$' <<<"$have"; then
+            echo "::error::$TAG is missing the Debian package"
+            missing=1
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+          echo "$TAG has all its assets:"
+          echo "$have"
+
+      - name: Publish
+        # Un-draft last. --latest only when this version is ahead of what is
+        # already PUBLIC: re-publishing an older release (a re-run after a
+        # failed build) must not move /releases/latest backwards, or the
+        # download links would silently offer the older build. Our own release
+        # is still a draft here, so it is not in this list.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          highest="$(gh release list --limit 300 --json tagName,isDraft \
+                     --jq '.[] | select(.isDraft == false) | .tagName' \
+                     | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          newest="$(printf '%s\n%s\n' "${highest#v}" "${TAG#v}" | sort -V | tail -1)"
+          if [ -z "$highest" ] || [ "$newest" = "${TAG#v}" ]; then
+            gh release edit "$TAG" --draft=false --latest
+          else
+            echo "$TAG is not ahead of the public $highest; publishing without --latest"
+            gh release edit "$TAG" --draft=false --latest=false
+          fi
+          gh release view "$TAG" --json tagName,isDraft,isLatest,url

@@ -120,7 +120,8 @@ breaking the app while it is running.
 
 ### Publishing a release
 
-Run these commands from the Cubeon folder after making a change:
+**Pushing is the release.** You do not tag anything, and you do not upload
+anything. From the Cubeon folder:
 
 ```bash
 cd /home/fuckarch/Downloads/Cubeon
@@ -129,19 +130,33 @@ git commit -m "describe the change"
 git push
 ```
 
-Before making a release, change the version in `cubeon/updater.py`:
+GitHub then builds all three platforms and publishes a new version by itself:
+
+1. it works out the next version number and puts it into the app;
+2. it builds Linux, Windows and macOS;
+3. only when every file is uploaded does the release become public.
+
+So after a push, watch the **Actions** tab. Green at the end = the version is
+live on the Releases page. (It takes roughly 15–20 minutes.)
+
+#### Which number comes next
+
+Normally the last number goes up on its own: `1.2.0` → `1.2.1` → `1.2.2` …
+If you want to start a new series, edit `cubeon/updater.py` before pushing:
 
 ```python
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.3.0"
 ```
 
-Then create a tag and release:
+The next push then releases `v1.3.0`, and later pushes continue from there.
+Never edit the tag or the release by hand — the number in the app and the number
+on the release must match, or every user is told an update exists that never
+goes away. If you must change a version by hand, use
+`python3 tools/release_version.py stamp 1.2.3` so both change together.
 
-```bash
-git tag v1.0.2
-git push origin v1.0.2
-gh release create v1.0.2 --generate-notes
-```
+(You can still make a tag yourself, `git tag v1.2.3 && git push origin v1.2.3`,
+and it will be released exactly as typed — that is the escape hatch, not the
+normal path.)
 
 The GitHub repository is private:
 

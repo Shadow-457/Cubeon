@@ -130,28 +130,61 @@ The build scripts copy `assets/jars/` into the frozen app.
 
 ## Version Bumping
 
-Update `cubeon/updater.py`:
-```python
-APP_VERSION = "1.2.3"  # Bump per release!
+`cubeon/updater.py` holds the one version string (`APP_VERSION`); the release
+pipeline, `packaging/build_deb.py` and `packaging/build_windows_installer.py`
+all read that literal out of the source.
+
+**You normally don't touch it.** CI stamps it on every release
+(`tools/release_version.py stamp <version>`), commits the bump back to main as
+`release: vX.Y.Z [skip ci]`, tags that commit and builds from the tag. The site
+text in `web/index.html` / `web/download.html` is stamped in the same pass.
+
+Setting `APP_VERSION` yourself declares a release: if `vAPP_VERSION` isn't a tag
+yet, the next push releases exactly that (this is how you start a new minor
+series, e.g. `APP_VERSION = "1.3.0"`). Otherwise each push bumps the patch of
+the highest tag. To change a version by hand always use the tool, never a text
+edit, so the tag, the app and the site can't drift apart:
+
+```bash
+python3 tools/release_version.py next          # what the next push will release
+python3 tools/release_version.py stamp 1.2.3    # rewrite APP_VERSION + the site
 ```
 
 ## Release Artifacts
 
-| Platform | Artifact | Upload Name |
-|----------|----------|-------------|
-| Linux | `dist/Cubeon-x86_64.AppImage` | `Cubeon-Linux-x86_64-AppImage` |
-| Windows | `dist/Cubeon/` | `Cubeon-Windows-x64-Folder` |
-| Windows | `dist/Cubeon-Windows-x64.zip` | `Cubeon-Windows-x64-ZIP` |
-| macOS | `dist/Cubeon/` | `Cubeon-macOS` |
+| Platform | Built file | Release asset name |
+|----------|-----------|--------------------|
+| Linux | `dist/Cubeon-x86_64.AppImage` | `Cubeon-x86_64.AppImage` |
+| Linux | `dist/cubeon_<APP_VERSION>_amd64.deb` | `cubeon_<APP_VERSION>_amd64.deb` |
+| Linux | `dist/Cubeon-Linux-x86_64-Setup.sh` | `Cubeon-Linux-x86_64-Setup.sh` |
+| Windows | `dist/Cubeon-Windows-x64-Setup.exe` | `Cubeon-Windows-x64-Setup.exe` |
+| Windows | `dist/Cubeon-Windows-x64.zip` | `Cubeon-Windows-x64.zip` |
+| macOS | `dist/Cubeon.app` (zipped) | `Cubeon-macOS.zip` |
+
+`worker/cubeon-downloads.js` resolves these by name (the `.deb` by
+prefix+suffix, since its name carries the version), so the names are a contract.
 
 ## CI Build
 
-`.github/workflows/build.yml` runs on push to main/master and tags `v*`:
-1. **Test suite** - runs all `tools/test_*.py` with fresh game dirs
-2. **Build Linux AppImage** - Ubuntu latest
-3. **Build Windows EXE** - Windows latest
-4. **Build macOS** - macOS latest
-5. **Upload artifacts** - named by platform
+`.github/workflows/build.yml` runs on every push to main/master, on `v*` tags
+and on manual dispatch:
+
+1. **release** — decides the version (`tools/release_version.py`), stamps it,
+   commits the bump back (`[skip ci]`), pushes the tag (the version lock) and
+   opens a **draft** release;
+2. **build-linux-appimage / build-windows-exe / build-macos** — each checks out
+   that tag, re-stamps, builds and uploads its assets to the draft;
+3. **publish** — verifies all six assets exist, then un-drafts the release as
+   the latest one.
+
+Nothing is user-visible until step 3: `/releases/latest` feeds both the in-app
+updater and the download worker, so a half-uploaded release would offer a 404.
+The `test` / `test-windows` jobs run in parallel and do **not** gate the
+release (the two load-flaky suites would drop releases at random).
+
+`tools/test_release_pipeline.py` runs this whole sequence offline against a
+throwaway repo + a `gh` stub, so a mistake in the plumbing fails locally rather
+than in a release.
 
 ## Verifying a Build
 
