@@ -96,9 +96,20 @@ def with_log(fn):
 print("\n1. off Windows it is a no-op, and never raises")
 started = time.monotonic()
 res, cap = with_log(lambda: winwindow.ensure_client_window_visible(timeout=3.0))
-check("returns False without user32 (os.name != nt)", res is False)
-check("returns immediately, it does not poll out its timeout",
-      time.monotonic() - started < 1.0, f"{time.monotonic() - started:.2f}s")
+_elapsed = time.monotonic() - started
+check("returns False without a usable client window", res is False)
+if os.name == "nt":
+    # THIS FILE ALSO RUNS ON windows-latest, where the module is the real
+    # thing: with no flet client process there is nothing to show, so the
+    # expected behaviour is to poll until the timeout and then answer False.
+    # Asserting "returned instantly" here is what made the Windows startup job
+    # red on every run ("4.44s") - the check only describes the OFF-Windows
+    # branch, so it is asserted there.
+    check("on Windows it really probes before answering False",
+          _elapsed >= 1.0, f"{_elapsed:.2f}s")
+else:
+    check("returns immediately, it does not poll out its timeout",
+          _elapsed < 1.0, f"{_elapsed:.2f}s")
 
 print("\n2. a window that is already visible is left alone")
 api = FakeApi({4321: [0x10]}, become_visible_after=0)

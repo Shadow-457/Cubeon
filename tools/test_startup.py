@@ -163,20 +163,62 @@ versions.get_latest_release = lambda: "1.21.11"
 csl.ensure_ready = lambda *a, **kw: None
 
 # Refuse every outbound connection, recording any made FROM THE MAIN THREAD.
+#
+# LOOPBACK IS ALLOWED, and that exception is load-bearing ON WINDOWS - this
+# section runs on windows-latest too. There, `socket.socketpair()` is a REAL
+# loopback TCP pair, and asyncio's ProactorEventLoop builds its self-pipe with
+# it, so patching connect unconditionally killed `asyncio.run()` itself: the
+# whole build failed with "OSError: network disabled by tools/test_startup.py"
+# BEFORE the launcher started ("controls=0" on CI, every run). The invariant
+# this file guards is "no blocking NETWORK call on the UI thread", and
+# 127.0.0.1/::1 is not the network - a real hostname or a remote address is
+# still recorded and refused, which is what the check below asserts.
 _main_connects = []
 _main_thread = threading.main_thread()
 
+_real_connect = socket.socket.connect
+_real_connect_ex = socket.socket.connect_ex
+_real_create_connection = socket.create_connection
+
+
+def _is_loopback(dest) -> bool:
+    """True for 127.0.0.0/8 and ::1 - a host string or an (ip, port) tuple."""
+    host = dest[0] if isinstance(dest, (tuple, list)) and dest else dest
+    host = str(host or "")
+    return host in ("localhost", "::1") or host.startswith("127.")
+
 
 def _refuse_connect(self, *a, **kw):
+    dest = a[0] if a else ()
+    if _is_loopback(dest):
+        return _real_connect(self, *a, **kw)
     if threading.current_thread() is _main_thread:
-        _main_connects.append(a[:1])
+        _main_connects.append(dest)
+    raise OSError("network disabled by tools/test_startup.py")
+
+
+def _refuse_connect_ex(self, *a, **kw):
+    dest = a[0] if a else ()
+    if _is_loopback(dest):
+        return _real_connect_ex(self, *a, **kw)
+    if threading.current_thread() is _main_thread:
+        _main_connects.append(dest)
+    return 11  # ECONNREFUSED-ish: the old "1" behaviour, without the loopback lie
+
+
+def _refuse_create_connection(address, *a, **kw):
+    # The path a real request takes (urllib3 -> socket.create_connection), so
+    # this is where "the UI thread must never fetch" is really enforced.
+    if _is_loopback(address):
+        return _real_create_connection(address, *a, **kw)
+    if threading.current_thread() is _main_thread:
+        _main_connects.append(address)
     raise OSError("network disabled by tools/test_startup.py")
 
 
 socket.socket.connect = _refuse_connect
-socket.socket.connect_ex = lambda self, *a, **kw: 1
-socket.create_connection = lambda *a, **kw: (_ for _ in ()).throw(
-    OSError("network disabled by tools/test_startup.py"))
+socket.socket.connect_ex = _refuse_connect_ex
+socket.create_connection = _refuse_create_connection
 
 # disk-only meta(): with no feed cache and the network refused this must return
 # instantly ({}) instead of blocking on the 20s-timeout fetch.
