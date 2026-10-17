@@ -168,7 +168,9 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     with a before/after diff, since the exact resulting id format varies per
     loader."""
     if loader_id == "vanilla" or loader_id not in SUPPORTED_LOADERS:
-        install_version(mc_version, progress_cb, status_cb, max_cb)
+        from .config import launch_java_path
+        install_version(mc_version, progress_cb, status_cb, max_cb,
+                        explicit_java=bool(launch_java_path()))
         return mc_version
 
     before = {v["id"] for v in get_installed_versions()}

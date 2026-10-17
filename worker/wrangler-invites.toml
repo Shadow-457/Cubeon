@@ -6,6 +6,16 @@ compatibility_date = "2025-04-01"
 binding = "INVITES"
 id = "837c3f4a586047d69eba373fc6f9f602"
 
-# Optional: bind Cloudflare's Rate Limiting binding as RATE_LIMITER to enable
-# the write-budget gate in cubeon-invites.js (it degrades to no-limit if
-# absent). Add when the beta invite volume justifies it.
+# Rate limiting: cubeon-invites.js gates the one write route (PUT) per IP, and
+# it does so in-isolate whether or not this binding is present - so a flood is
+# damped from the first deploy instead of only after someone notices. The
+# binding makes that limit per-POP and durable across isolate recycling
+# (Cloudflare's Rate Limiting, GA - wrangler >= 4.36.0). `namespace_id` is
+# unique per binding across the account.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1002"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60

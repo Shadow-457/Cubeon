@@ -21,19 +21,29 @@
 # ABUSE (see the POST branch of cubeon-waitlist.js): this is the only Worker
 # whose writes carry no identity, so a script can post made-up addresses until
 # the free tier's account-wide ~1k writes/day runs out - which answers 429 for
-# every REAL signup too, and for the count, since they share the namespace. The
-# per-IP throttle below is the mitigation; uncomment and re-deploy to enable it.
-# Without it the Worker behaves exactly as it always has (works, unthrottled).
+# every REAL signup too, and for the count and the skins Worker, which draw on
+# the same account-wide budget. Two gates, both live:
 #
-#   [[unsafe.bindings]]
-#   name = "RATE_LIMITER"
-#   type = "ratelimit"
-#   namespace_id = "1001"
-#   simple = { limit = 5, period = 60 }
+#   * cubeon-waitlist.js runs an in-isolate 5/min/IP limiter whether or not the
+#     binding is present, so one host cannot drain the day's writes in a burst.
+#   * The RATE_LIMITER binding below makes that limit per-POP and durable
+#     across isolate recycling. Re-deploy with this file to pick it up.
 
 name = "cubeon-waitlist"
 main = "cubeon-waitlist.js"
 compatibility_date = "2025-04-01"
+
+# Cloudflare's Rate Limiting (GA; needs wrangler >= 4.36.0). Per-POP, and it
+# survives isolate recycling - which the in-code fallback cannot do.
+# `namespace_id` must be unique per binding across the account, or an unrelated
+# Worker's counters are shared with these.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 5
+  period = 60
 
 # Signups + the running tally. Replace id with the one `wrangler kv namespace
 # create WAITLIST` prints. (For a separate preview environment, also set

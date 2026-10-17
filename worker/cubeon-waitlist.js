@@ -39,6 +39,10 @@
  * bumped counter); a duplicate or a bad email costs zero. A GET costs one
  * read. That keeps a launch-day traffic spike from blowing the daily quota.
  *
+ * The write budget is ACCOUNT-WIDE, so it is also the budget the skins Worker
+ * draws on: burning it here breaks skins too. POST is therefore gated per IP
+ * (see `throttle` below) - never on the honest path, always against a script.
+ *
  * The counter is a plain KV string, so two truly-simultaneous signups can race
  * and lose one increment. For a vanity waitlist tally that is fine - it drifts
  * by a handful at most under load and never blocks a signup. If it ever needs
@@ -90,22 +94,18 @@ export default {
       // ABUSE GATE (2026-10-17). This is the only Worker with NO identity on its
       // writes - it has to be, it is a public signup form - so the scarce
       // resource is the free tier's ~1k KV writes/day, ACCOUNT-WIDE, and the
-      // running count lives in the same namespace. A script posting made-up
-      // addresses used to be able to burn that budget and take the counter (and
-      // every real signup) down with it, since an exhausted budget answers 429
-      // for the rest of the day.
+      // running count shares that budget (so does the skins Worker). A script
+      // posting made-up addresses could burn it and take the counter, every
+      // real signup, and skins down with it, since an exhausted budget answers
+      // 429 for the rest of the day.
       //
-      // Cloudflare's Rate Limiting binding as RATE_LIMITER caps it per IP.
-      // Absent or broken, this degrades to the old behaviour (works, unthrottled)
-      // rather than to errors - same contract cubeon-invites.js documents, and
-      // wrangler-waitlist.toml carries the two-line opt-in.
-      if (env.RATE_LIMITER) {
-        const key = request.headers.get("CF-Connecting-IP") || "unknown";
-        const rl = await env.RATE_LIMITER.limit({ key }).catch(() => null);
-        if (rl && rl.success === false) {
-          return json({ error: "too many requests - try again in a minute" }, 429);
-        }
-      }
+      // `throttle` below runs the in-isolate limiter ALWAYS, and the
+      // RATE_LIMITER binding when one is bound. A missing or broken binding
+      // degrades to the softer in-isolate limit, never to an error. (This used
+      // to be `if (env.RATE_LIMITER)` alone, which - with the binding commented
+      // out in wrangler-waitlist.toml - meant there was no limit at all.)
+      const limited = await throttle(request, env);
+      if (limited) return limited;
 
       // Two POST shapes, one body cap: the signup (default) and the deletion /
       // unsubscribe request a mailing link points at.
@@ -118,6 +118,83 @@ export default {
     return json({ error: "method not allowed" }, 405);
   },
 };
+
+// ------------------------------------------------------------------ abuse ---
+
+// Requests per window, per IP, for POST (both the signup and the unsubscribe,
+// which each cost up to two KV writes). Sized from the honest client: a person
+// signs up once, and a shared connection - a school, an office, a carrier NAT -
+// might add a handful in a minute. Five a minute is invisible to real users.
+//
+// Be honest about what this is: a speed bump for the *budget*, not a wall. At
+// 5/min one IP can still spend ~10 writes a minute, so the account's 1000/day
+// is reachable in about a hundred minutes instead of in seconds. The real walls
+// are the RATE_LIMITER binding (per-POP, and it can be tightened without a
+// redeploy of this file) and the fact that the budget refills at 00:00 UTC. The
+// actual fix for an unauthenticated write endpoint is a bot gate (Turnstile) on
+// the site's form; a rate limit only raises the price of abuse.
+const WRITE_RATE = { max: 5, windowMs: 60_000 };
+
+// Fallback limiter state. Module scope, so it lives as long as the isolate -
+// the worst case for an attacker, and exactly why the binding is the real
+// answer while this is only a backstop. An unbound-by-default Worker must not
+// be wide open.
+const fallbackRL = new Map();
+
+/**
+ * Sliding-window limiter over {max} requests per {windowMs} for one key.
+ * Mirrors cubeon-skins.js fallbackAllow (same window semantics), kept local
+ * because each Worker is deployed on its own.
+ */
+function fallbackAllow(map, key, max, windowMs, now) {
+  const hits = (map.get(key) || []).filter((t) => now - t < windowMs);
+  hits.push(now);
+  map.set(key, hits);
+  return hits.length <= max;
+}
+
+/**
+ * The abuse gate for POST. Returns a 429 Response when the caller should be
+ * turned away, or null to proceed.
+ *
+ * Two gates, and EITHER may refuse.
+ *
+ * MEASURED, not assumed (2026-10-17, production, one fixed IP): 8 and then 25
+ * rapid POSTs drew ZERO 429s; 120 rapid POSTs drew 95 passes and then 25
+ * refusals. So the binding is the gate doing the work, and it works LATE -
+ * Cloudflare documents it as "permissive, eventually consistent", and here it
+ * converged only after roughly a hundred requests. The practical effect is
+ * still the one that matters: from then on a sustained flood is held to ~5/min
+ * per IP, so the account's 1000 writes/day cannot be emptied in seconds (it
+ * would take hours). The initial exposure is about 190 writes' worth of
+ * signups - real, and worth knowing.
+ *
+ * The in-isolate fallback is best-effort and can be inert live: requests for a
+ * cold Worker need not share an isolate, and the map dies with the isolate. It
+ * is deterministic in `wrangler dev` and in the unit tests, and it fires on a
+ * warm isolate, so it stays as defence in depth - not as the guarantee. If this
+ * endpoint is ever revived as a public form, put Turnstile in front of it: no
+ * per-IP limit stops a burst on an unauthenticated write path.
+ *
+ * The key is the client IP; "unknown" buckets anything without a CF header
+ * (local `wrangler dev`, a non-Cloudflare invoke), which is the safe direction:
+ * a shared bucket throttles more, not less.
+ */
+async function throttle(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (env.RATE_LIMITER) {
+    const rl = await env.RATE_LIMITER.limit({ key: ip }).catch(() => null);
+    if (rl && rl.success === false) return tooMany();
+  }
+  if (!fallbackAllow(fallbackRL, ip, WRITE_RATE.max, WRITE_RATE.windowMs, Date.now())) {
+    return tooMany();
+  }
+  return null;
+}
+
+function tooMany() {
+  return json({ error: "too many requests - try again in a minute" }, 429);
+}
 
 // The only field is one email; anything bigger is not a real client. Checked
 // against the declared Content-Length AND the decoded length (the header is a

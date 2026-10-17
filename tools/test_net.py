@@ -180,8 +180,44 @@ def _no_retry_on_404():
     try:
         net.download_to(dest, "https://cdn/x", attempts=3)
         check(False, "404 must raise")
-    except net.DownloadError:
+    except net.DownloadError as ex:
         check(len(fake.calls) == 1, "404 is NOT retried (it can never succeed)")
+        check(getattr(ex, "status_code", None) == 404,
+              "the 404 rides along with the error so callers can name the real "
+              "cause instead of guessing")
+        check("Couldn't reach" not in str(ex),
+              "a 404 reads as a status, not as 'couldn't reach' - the network "
+              "was fine, the server said no")
+
+
+_no_retry_on_404()
+
+
+@with_monkeypatched_get
+def _retry_on_429_never_on_403():
+    # 429 means "slow down" and is explicitly retryable; 403 means the server
+    # will never change its mind, so it must not burn the backoff budget.
+    net.requests.get = fake_get_factory([FakeResp([], status=429),
+                                         FakeResp([b"ok"])])
+    net.BACKOFF_BASE = 0.01
+    try:
+        got = net.download_to(os.path.join(tmpdir(), "f"), "https://cdn/x",
+                              attempts=3)
+    finally:
+        net.BACKOFF_BASE = 1.5
+    check(got == 2, "429 (rate limited) is still retried and succeeds")
+
+    fake = fake_get_factory([FakeResp([], status=403), FakeResp([b"ok"])])
+    net.requests.get = fake
+    try:
+        net.download_to(os.path.join(tmpdir(), "f"), "https://cdn/x", attempts=3)
+        check(False, "403 must raise")
+    except net.DownloadError as ex:
+        check(len(fake.calls) == 1 and getattr(ex, "status_code", None) == 403,
+              "403 fails through immediately (waiting cannot change it)")
+
+
+_retry_on_429_never_on_403()
 
 
 @with_monkeypatched_get
@@ -274,12 +310,25 @@ _get_json_retries_then_succeeds()
 
 @with_monkeypatched_get
 def _get_json_failure_is_clean():
-    net.requests.get = lambda *a, **k: FakeResp([], status=404)
+    # This is the exact shape of the bug that made "Install server" fail with
+    # "Couldn't reach .../builds after 3 tries: 404": a second, healthy
+    # response is waiting behind the 404, so if the 404 were retried the call
+    # would quietly "succeed" and the 404 would never surface at all.
+    fake = fake_get_factory([FakeResp([], status=404),
+                             FakeResp([], json_body={"ok": True})])
+    net.requests.get = fake
     try:
         net.get_json("https://api.modrinth.com/v2/missing", attempts=3)
         check(False, "a 404 metadata fetch must raise")
-    except net.DownloadError:
+    except net.DownloadError as ex:
         check(True, "get_json surfaces a clean DownloadError, not a raw HTTPError")
+        check(len(fake.calls) == 1,
+              "a 404 metadata fetch is NOT retried (it cannot succeed, and "
+              "retrying it costs two backoffs before a misleading error)")
+        check(getattr(ex, "status_code", None) == 404,
+              "the status code is on the error, for callers that can act on it")
+        check("api.modrinth.com" in str(ex),
+              "and the message names the URL that answered")
 
 
 _get_json_failure_is_clean()

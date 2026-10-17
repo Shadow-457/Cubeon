@@ -294,7 +294,11 @@ leak = subprocess.run(
      "--exclude-dir=dist", "--exclude-dir=build", "--exclude-dir=node_modules",
      "--exclude-dir=__pycache__", "--exclude-dir=.wrangler",
      "--exclude=test_web_download_count.py",  # this file quotes the patterns
-     "github_pat_\\|ghp_[A-Za-z0-9]\\{20,\\}", REPO],
+     # Both alternatives require a token BODY. `github_pat_` on its own used to
+     # match, so any file that merely NAMED the pattern (an audit note listing
+     # what it searched for) tripped the scanner - a false positive that proves
+     # nothing about a committed secret.
+     "github_pat_[A-Za-z0-9_]\\{20,\\}\\|ghp_[A-Za-z0-9]\\{20,\\}", REPO],
     capture_output=True, text=True)
 check("no GitHub token is committed anywhere", leak.stdout.strip() == "",
       leak.stdout.strip())

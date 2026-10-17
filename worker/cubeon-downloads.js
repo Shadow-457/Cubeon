@@ -33,10 +33,15 @@
  *
  *   1. The release lookup is served from the edge cache for
  *      RELEASE_CACHE_SECONDS, so a flood costs ZERO GitHub API calls. This is
- *      the one that matters - it makes the quota unbunable.
- *   2. An optional RATE_LIMITER binding (Cloudflare's Rate Limiting) throttles
- *      per IP. Absent, the Worker still works; it just is not throttled. See
- *      wrangler-downloads.toml for the opt-in.
+ *      the one that matters - it makes the token's quota unbunable.
+ *   2. A per-IP throttle: an in-isolate limiter that always runs, plus the
+ *      RATE_LIMITER binding (Cloudflare's Rate Limiting) when bound, which
+ *      makes it per-POP. See wrangler-downloads.toml.
+ *
+ * The cache protects the TOKEN, not this Worker's request budget: a flood still
+ * costs one request each from the account-wide 100k/day that all five Workers
+ * share, so gate 2 is what keeps a flood from taking friend requests, skins and
+ * signups down with it for the rest of the UTC day.
  *
  * A missing or broken edge cache degrades to the old behaviour (one API call
  * per request), never to an error: a cache is an optimisation, and a download
@@ -183,22 +188,54 @@ export async function latestRelease(env) {
   return payload;
 }
 
+// Requests per window, per IP, for the download routes. Far above honest use:
+// a person grabs one or two installers, and a re-download or a browser retry is
+// rare. There is no write and no token cost per request here, so the only thing
+// this protects is the account's shared 100k/day Worker request budget - which
+// the other four Workers draw on too (see wrangler-downloads.toml).
+const DOWNLOAD_RATE = { max: 30, windowMs: 60_000 };
+
+// Fallback limiter state. Module scope, so it lives as long as the isolate.
+const fallbackRL = new Map();
+
 /**
- * The per-IP throttle, when the optional RATE_LIMITER binding is present.
- * Absent or broken degrades to "not throttled", never to an error - the same
- * contract cubeon-invites.js documents.
+ * Sliding-window limiter over {max} requests per {windowMs} for one key.
+ * Mirrors cubeon-skins.js fallbackAllow (same window semantics), kept local
+ * because each Worker is deployed on its own.
+ */
+function fallbackAllow(map, key, max, windowMs, now) {
+  const hits = (map.get(key) || []).filter((t) => now - t < windowMs);
+  hits.push(now);
+  map.set(key, hits);
+  return hits.length <= max;
+}
+
+/**
+ * The per-IP throttle. Two gates, and EITHER may refuse: the RATE_LIMITER
+ * binding, which is the one that reliably caps sustained abuse (it converges
+ * late - roughly a hundred requests before the first refusal, measured on the
+ * waitlist Worker 2026-10-17), and the in-isolate fallback, which is
+ * best-effort and may be inert live because requests for a cold Worker need not
+ * share an isolate. A binding that throws degrades to the fallback, never to an
+ * error.
  */
 async function throttle(request, env) {
-  if (!env.RATE_LIMITER) return null;
-  const key = request.headers.get("CF-Connecting-IP") || "unknown";
-  const rl = await env.RATE_LIMITER.limit({ key }).catch(() => null);
-  if (rl && rl.success === false) {
-    return new Response("too many requests", {
-      status: 429,
-      headers: { "Retry-After": "60" },
-    });
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (env.RATE_LIMITER) {
+    const rl = await env.RATE_LIMITER.limit({ key: ip }).catch(() => null);
+    if (rl && rl.success === false) return throttled();
+  }
+  if (!fallbackAllow(fallbackRL, ip, DOWNLOAD_RATE.max, DOWNLOAD_RATE.windowMs, Date.now())) {
+    return throttled();
   }
   return null;
+}
+
+function throttled() {
+  return new Response("too many requests", {
+    status: 429,
+    headers: { "Retry-After": "60" },
+  });
 }
 
 export default {

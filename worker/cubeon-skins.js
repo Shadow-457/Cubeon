@@ -211,13 +211,16 @@ export default {
 // chatty one, but it is already deduped server-side and only reachable for a
 // name that resolves.
 //
-// 60/minute leaves a large margin over any honest burst (a reinstall, a
-// retry storm after an outage) while making the write budget unreachable:
-// burning 1000 writes needs 500 POSTs, and 500 POSTs from one IP now takes
-// over 8 minutes instead of one second. With the optional RATE_LIMITER
-// binding bound, the edge enforces it; without it, the per-isolate fallback
-// below still bounds a single attacker's rate.
-const WRITE_RATE = { max: 60, windowMs: 60_000 };
+// 20/minute still clears any honest burst (a first-ever install is 3-4 POSTs;
+// a reinstall or a retry storm is a handful) and makes draining the account
+// budget take real time: burning 1000 writes needs 500 POSTs, and 500 POSTs
+// from one IP now takes over 25 minutes instead of one second. Be honest that
+// this is a speed bump, not a wall - 20/min is still 40 writes/min, so one IP
+// reaches the day's budget in about 25 minutes. The binding (per-POP) and the
+// 00:00 UTC refill are the real walls; wrangler-skins.toml names the dashboard
+// binding. With the binding bound the edge enforces it; without it the
+// per-isolate fallback below still bounds a single attacker's rate.
+const WRITE_RATE = { max: 20, windowMs: 60_000 };
 
 // Fallback limiter state. Module scope, so it lives as long as the isolate -
 // which is the worst case for an attacker (isolates are recycled, so this
@@ -242,19 +245,20 @@ function fallbackAllow(map, key, max, windowMs, now) {
  * The abuse gate for the write routes. Returns a 429 Response when the caller
  * should be turned away, or null to proceed.
  *
- * Cloudflare's Rate Limiting binding as RATE_LIMITER is used when bound
- * (per-POP, survives isolate recycling); otherwise the in-isolate fallback
- * runs. A binding that throws degrades to the fallback, never to an error -
- * the same contract cubeon-invites.js and cubeon-downloads.js document. The
- * key is the client IP; "unknown" buckets anything without a CF header, which
- * is the safe direction (a shared bucket throttles more, not less).
+ * Two gates, and EITHER may refuse - a bound Worker still runs the local one.
+ * The binding is the one that reliably caps sustained abuse; it converges late
+ * (measured 2026-10-17: about a hundred rapid requests before the first
+ * refusal), so the local gate is kept as best-effort defence in depth. It may
+ * be inert live, because requests for a cold Worker need not share an isolate.
+ *
+ * The key is the client IP; "unknown" buckets anything without a CF header,
+ * which is the safe direction (a shared bucket throttles more, not less).
  */
 async function throttle(request, env, { max, windowMs }) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   if (env.RATE_LIMITER) {
     const rl = await env.RATE_LIMITER.limit({ key: ip }).catch(() => null);
     if (rl && rl.success === false) return tooMany();
-    if (rl) return null; // the edge answered: trust it
   }
   if (!fallbackAllow(fallbackRL, ip, max, windowMs, Date.now())) {
     return tooMany();

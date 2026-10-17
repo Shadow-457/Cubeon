@@ -493,7 +493,9 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
 
         # 1) Minecraft version
         status_cb(f"Installing Minecraft {mc_version}")
-        install_version(mc_version, progress_cb, status_cb, max_cb)
+        from .config import launch_java_path
+        install_version(mc_version, progress_cb, status_cb, max_cb,
+                        explicit_java=bool(launch_java_path()))
 
         # 2) Mod loader (returns the launchable version id, e.g.
         #    fabric-loader-0.15.x-1.20.1). Vanilla packs skip straight through.

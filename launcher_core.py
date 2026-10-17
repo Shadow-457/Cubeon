@@ -178,6 +178,9 @@ from cubeon.server import (
     list_plugins, toggle_plugin, delete_plugin, install_local_plugin,
     get_recommended_plugins, get_low_ping_plugins, search_plugins,
     get_plugin_download, download_plugin,
+    # the Minecraft version behind a launch id - what Paper and Modrinth
+    # both need instead of the loader-tagged profile id
+    minecraft_version,
     # Smooth mode auto-installs the curated low-ping stack
     ensure_smooth_mode_plugins,
     # managed defaults (AuthMe login security) - auto-installed at start,

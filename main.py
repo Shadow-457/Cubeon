@@ -3412,6 +3412,7 @@ async def main(page: ft.Page):
                         status_cb=_note_status,
                         max_cb=_note_max,
                         cancel_event=cancel,
+                        explicit_java=bool(cfg.get("java_path")),
                     )
                     state["installed"].add(version_id)
                     _rescan_installed()  # the new instance must show up in the row
@@ -3999,8 +4000,20 @@ async def main(page: ft.Page):
             # background thread. Progress repaints are control-level:
             # install progress arrives once per FILE (a version is ~4000
             # files), so each repaint diffs just the progress row instead
-            # of the full mounted tree.
-            def _paint_progress():
+            # of the full mounted tree. They are rate-limited as well: 4000
+            # marshalled repaints is enough queued work to keep the window
+            # from answering input for the whole download (the "it freezes"
+            # report), and a progress bar cannot be read at 4000 fps anyway.
+            # Anything that ends a phase paints with force=True, so the last
+            # state is never the one that got coalesced away.
+            _REPAINT_INTERVAL = 0.1  # seconds; 10 fps
+            _repaint_at = {"t": 0.0}
+
+            def _paint_progress(force=False):
+                now = time.monotonic()
+                if not force and now - _repaint_at["t"] < _REPAINT_INTERVAL:
+                    return
+                _repaint_at["t"] = now
                 thread_safe_ui.refresh(progress_row)
                 thread_safe_ui.refresh(progress_bar)
 
@@ -4101,12 +4114,19 @@ async def main(page: ft.Page):
                     _check_cancel()
                     if version_id not in state["installed"]:
                         core.install_version(version_id, progress_cb, status_cb,
-                                             max_cb, cancel_event=cancel)
+                                             max_cb, cancel_event=cancel,
+                                             # The launch passes cfg's java path
+                                             # as executablePath, so mll's own
+                                             # runtime copy is dead weight -
+                                             # see versions.install_version.
+                                             explicit_java=bool(
+                                                 cfg.get("java_path")))
                         state["installed"].add(version_id)
                         # Publish it immediately: a fresh install is a new
                         # instance, and "Jump back in" is keyed on the full
                         # metadata map, not on state["installed"].
                         _rescan_installed()
+                        _paint_progress(force=True)  # never coalesce the end
                 finally:
                     lock.release()
 
@@ -4145,6 +4165,7 @@ async def main(page: ft.Page):
                         # (e.g. "fabric-loader-0.19.5-26.1.2") - without this it
                         # only appeared after some later full list refresh.
                         _rescan_installed()
+                        _paint_progress(force=True)  # never coalesce the end
                 else:
                     status_cb(f"{loader_label} unsupported for this version, using vanilla")
 
@@ -6922,19 +6943,44 @@ async def main(page: ft.Page):
 
     # The Cubeon name is automatic now: ensure_identity() mints the
     # secret-derived handle (no claim prompt) and the server binds it on the
-    # WebSocket hello. Connect at startup only when an identity predates this
-    # launch - a brand-new one connects when the Chat tab first opens. That
-    # still gives every existing user instant presence, while keeping headless
-    # test harnesses that build the UI from opening a real websocket to the
-    # friends server with a throwaway identity.
+    # WebSocket hello. Connect as soon as there IS one - whether it predates
+    # this launch or was just minted. Connecting only for a pre-existing
+    # identity meant a first-run player who never opened the launcher's Chat
+    # tab (in-game chat is the other way in) stayed "not connected to Cubeon"
+    # for their whole first session with a perfectly good connection - the
+    # 2026-10-17 report. connect() is safe to call again from the Chat tab: it
+    # stops a running loop before starting another. Headless harnesses are not
+    # affected - they stub FriendsClient.connect before building the UI (see
+    # tools/_fuzz_common.py).
     if friends_client is not None and friends_client.is_available:
-        had_identity = friends.load_identity() is not None
         try:
             friends.ensure_identity()
         except Exception:
             traceback.print_exc()
-        if had_identity:
-            friends_client.connect()
+        friends_client.connect()
+
+    # Java resolution is ~1.5s the first time on a cold machine: mll probes
+    # every JVM it can find by running `java -version` on each. on_play_click
+    # runs that on the UI THREAD, before it can so much as paint "Preparing",
+    # so the first click on Play froze the window for a second or more. Do the
+    # first, expensive probe here instead, off the UI thread, and the click's
+    # own call is the cheap warm one. Strictly best-effort: a failure here
+    # leaves the click paying exactly what it always paid.
+    def _warm_java_check():
+        try:
+            selected = version_dropdown.value or state.get("selected_version")
+            if not selected:
+                return
+            core.jre.java_status(core.extract_mc_version(selected),
+                                 cfg.get("java_path"))
+        except Exception:
+            pass
+
+    try:
+        threading.Thread(target=_warm_java_check, daemon=True,
+                         name="cubeon-java-warm").start()
+    except Exception:
+        pass
 
     # -----------------------------------------------------------------
     # GAMEPAD SUPPORT

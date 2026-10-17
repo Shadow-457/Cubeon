@@ -262,6 +262,23 @@ def load_config() -> dict:
     return cfg
 
 
+def launch_java_path() -> "str | None":
+    """The Java the launcher will launch with, or None when it lets mll choose.
+
+    launch.build_launch_command hands this to minecraft_launcher_lib as
+    executablePath, so when it is set the copy of Java mll installs into the
+    game directory can never be the JVM that runs the game - which is what
+    lets a version install skip downloading it (see versions.install_version's
+    explicit_java). None means do NOT skip: without it mll's own command
+    builder falls back to exactly that runtime, and on a machine with no Java
+    of its own it is the only Java there is.
+    """
+    try:
+        return (load_config() or {}).get("java_path") or None
+    except Exception:
+        return None
+
+
 def save_config(cfg: dict) -> None:
     # Atomic (temp + os.replace): a crash mid-write used to leave a truncated
     # config.json behind, and load_config() then silently reset every setting

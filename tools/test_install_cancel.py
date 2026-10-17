@@ -13,7 +13,8 @@ Locked-in behaviors (versions.install_version with cancel_event):
      callers decide "cancelled vs failed" from the event, never the type)
   3. mll's download_file module global is RESTORED after the install -
      an unpatched mll would poison every later install in the process
-  4. without cancel_event, the install path is untouched (bridge is None)
+  4. the resilient downloader (timeouts, retries, resume, checksum) is
+     installed with or without a cancel_event - not a cancel-only feature
 """
 import os
 import sys
@@ -41,10 +42,53 @@ def check(label, ok, extra=""):
     print(f"  {'ok  ' if ok else 'FAIL'} {label}{(' - ' + extra) if extra and not ok else ''}")
 
 
-# A fake mll whose download_file sleeps in small chunks - the shape of a big
-# body copy. It must resolve download_file through the MODULE GLOBAL (like
-# the real minecraft_launcher_lib.install does via `from ._helper import
-# download_file`), or the probe would bypass the patch and prove nothing.
+# A fake transport: response-shaped objects whose bodies arrive slowly, in
+# chunks, streamed by the patched downloader exactly like a real socket - so
+# what aborts the install is the downloader's own per-chunk cancel check. (It
+# used to point the installer at "http://x" and rely on the connection failing
+# within milliseconds, which proved nothing about cancelling - and, since the
+# retry work made a dropped connection retry instead of abort, would now just
+# sleep through the backoff.)
+class _SlowBody:
+    status_code = 200
+    headers = {}
+
+    def __init__(self, chunks=100, delay=0.05):
+        self._left = chunks
+        self._delay = delay
+        self.raw = types.SimpleNamespace(decode_content=False, read=self._read)
+        self.closed = False
+
+    def _read(self, n):
+        if self._left <= 0:
+            return b""
+        self._left -= 1
+        time.sleep(self._delay)  # 5s if a cancel never lands
+        return b"x" * n
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeTransport:
+    """Stands in for versions._install_session() - no socket, no DNS."""
+
+    def __init__(self, chunks=100):
+        self.requests = 0
+        self.responses = []
+        self._chunks = chunks
+
+    def get(self, url, stream=True, timeout=None, headers=None):
+        self.requests += 1
+        body = _SlowBody(chunks=self._chunks)
+        self.responses.append(body)
+        return body
+
+
+# A fake mll whose install resolves download_file through the MODULE GLOBAL
+# (like the real minecraft_launcher_lib.install does via
+# `from ._helper import download_file`), or the probe would bypass the patch
+# and prove nothing.
 def _fake_download_file(url, path, callback=None, **k):
     if callback is None:
         callback = {}
@@ -53,16 +97,18 @@ def _fake_download_file(url, path, callback=None, **k):
         callback.get("setStatus", lambda *_: None)("x")
 
 
+_fake_target = {"name": "a.jar"}
 _fake_install_mod = types.SimpleNamespace(download_file=_fake_download_file)
 
 
 def _fake_install(version, mcdir, callback=None):
-    _fake_install_mod.download_file("http://x", os.path.join(mcdir, "a.jar"),
-                                    callback or {})
+    _fake_install_mod.download_file(
+        "http://x", os.path.join(mcdir, _fake_target["name"]), callback or {})
 
 
 _fake_install_mod.install_minecraft_version = _fake_install
 _real_mll = V.mll
+_real_session = V._install_session
 V.mll = types.SimpleNamespace(install=_fake_install_mod)
 # install_version now seeds versions/<id>/<id>.json from Cubeon's cached
 # manifest before mll runs (see test_install_prepare.py) - that lookup is a
@@ -72,6 +118,8 @@ _real_manifest = V._manifest
 V._manifest = lambda: {"versions": []}
 
 try:
+    transport = _FakeTransport()
+    V._install_session = lambda: transport
     ev = threading.Event()
     threading.Timer(0.6, ev.set).start()
     t0 = time.time()
@@ -86,9 +134,30 @@ try:
           raised is not None and dt < 1.6, f"dt={dt:.2f}s raised={raised!r}")
     check("mll's download_file is restored after the install",
           _fake_install_mod.download_file is _fake_download_file)
+    check("a cancelled install leaves no half-written jar in the version",
+          not os.path.isfile(os.path.join(V.MINECRAFT_DIR, "versions",
+                                          "1.20.1", "a.jar")))
+
+    # The same downloader must be in place WITHOUT a cancel_event: the
+    # timeouts, retries and resume are what make downloads work on a flaky
+    # network, and they used to be installed only for a cancellable install.
+    _fake_target["name"] = "b.jar"
+    transport2 = _FakeTransport(chunks=3)
+    V._install_session = lambda: transport2
+    raised_missing = None
+    try:
+        V.install_version("1.20.1", lambda v: None, lambda s: None,
+                          lambda m: None)
+    except RuntimeError as ex:
+        raised_missing = ex
+    check("the resilient downloader runs without a cancel_event too",
+          transport2.requests == 1, f"requests={transport2.requests}")
+    check("and that install still ends instead of hanging",
+          raised_missing is not None, f"raised={raised_missing!r}")
 finally:
     V.mll = _real_mll
     V._manifest = _real_manifest
+    V._install_session = _real_session
 
 # ---------------------------------------------------------------------------
 print("\n2. a cancel during the version-json seed aborts just as fast")

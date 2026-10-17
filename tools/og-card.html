@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Cubeon - Open Graph card</title>
+<style>
+  /* The site's own faces and palette (web/assets/site.css), so the card cannot
+     drift away from the brand. Paths are absolute file:// URLs on purpose: this
+     document is loaded straight off disk, and a relative url() would resolve
+     against the card's own folder. */
+  @font-face{font-family:'Minecraftia';src:url('/home/fuckarch/Downloads/Cubeon/web/assets/fonts/Minecraftia-Regular.ttf') format('truetype')}
+  @font-face{font-family:'Inter';src:url('/home/fuckarch/Downloads/Cubeon/web/assets/fonts/Inter.ttf') format('truetype')}
+
+  :root{
+    --paper:#050505; --card:#0B0D0A;
+    --ink:#DDF6D5; --text-soft:#9DB394; --hint:#68755F;
+    --grass:#46BA34; --grass-dark:#5FD24B; --grass-soft:#052400; --grass-line:#39422F;
+    --dirt:#7A4A24; --line:#242B1E;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1200px;height:630px;overflow:hidden}
+  /* Every background layer lives on the body - the first attempt used
+     absolutely-positioned divs whose radial had already faded out by the time
+     it reached the bottom edge, which left a flat dead band across the card. */
+  body{
+    background-color:var(--paper);
+    background-image:
+      repeating-linear-gradient(0deg,rgba(36,43,30,.5) 0 1px,transparent 1px 60px),
+      repeating-linear-gradient(90deg,rgba(36,43,30,.5) 0 1px,transparent 1px 60px),
+      radial-gradient(1000px 700px at 78% 14%,rgba(70,186,52,.20),rgba(70,186,52,0) 72%),
+      radial-gradient(900px 640px at -6% 108%,rgba(5,36,0,.9),rgba(5,36,0,0) 70%),
+      linear-gradient(180deg,#070C06,#050505 68%);
+    font-family:'Inter',system-ui,sans-serif;
+    color:var(--text-soft);
+    display:flex;
+    flex-direction:column;
+  }
+
+  .card{flex:1;min-height:0;padding:0 56px;display:flex;align-items:center;gap:62px}
+  .col-text{width:500px;flex:none}
+
+  .brand{display:flex;align-items:center;gap:14px}
+  .brand img{width:40px;height:40px}
+  .brand span{font-family:'Minecraftia';font-size:30px;color:var(--ink);line-height:1}
+  .rule{width:104px;height:7px;background:var(--grass-dark);margin:18px 0 0 54px}
+
+  h1{
+    margin-top:24px;
+    font-family:'Minecraftia';
+    font-weight:400;
+    font-size:37px;
+    line-height:1.17;
+    letter-spacing:.005em;
+    text-transform:uppercase;
+    color:var(--ink);
+    max-width:500px;
+  }
+  .lede{margin-top:18px;font-size:17.5px;line-height:1.45;color:var(--text-soft);font-weight:500;max-width:470px}
+
+  .chips{display:flex;gap:10px;margin-top:26px}
+  .chip{font-family:'Minecraftia';font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding:8px 12px;border:2px solid var(--grass-line);color:var(--ink);background:rgba(11,13,10,.6)}
+  .chip.on{background:var(--grass);border-color:var(--grass);color:#04120A}
+
+  .foot{margin-top:26px;display:flex;align-items:center;gap:10px;font-family:'Minecraftia';font-size:13px;letter-spacing:.03em;color:var(--hint);text-transform:uppercase}
+  .foot i{width:10px;height:10px;background:var(--grass-dark);display:block}
+
+  /* the launcher window gets the hero shot's treatment: 3px ink border, hard
+     8px grass shadow, zero radius */
+  .shot{width:526px;flex:none;border:3px solid var(--ink);box-shadow:8px 8px 0 var(--grass);background:var(--card);overflow:hidden}
+  .shot img{display:block;width:100%;height:auto}
+  .bar{flex:none;height:6px;background:var(--dirt)}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="col-text">
+      <div class="brand">
+        <img src="file:///home/fuckarch/Downloads/Cubeon/assets/icon_512.png" alt="" />
+        <span>Cubeon</span>
+      </div>
+      <div class="rule"></div>
+
+      <h1>Minecraft is better with friends.</h1>
+      <p class="lede">A free desktop launcher for Windows and Linux: play offline under any name, and keep mods, skins and versions in one window. No account, no adverts.</p>
+
+      <div class="chips">
+        <span class="chip on">Free</span>
+        <span class="chip">Windows + Linux</span>
+        <span class="chip">No account</span>
+      </div>
+
+      <div class="foot"><i></i> cubeon.ylet.online</div>
+    </div>
+
+    <div class="shot">
+      <img src="file:///home/fuckarch/Downloads/Cubeon/web/assets/cubeon-play.png" alt="" />
+    </div>
+  </div>
+  <div class="bar"></div>
+</body>
+</html>

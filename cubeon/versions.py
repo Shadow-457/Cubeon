@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import threading
+import time
 
 # minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
 # nothing here needs it until the user actually installs/launches, so it
@@ -590,16 +591,146 @@ _MIRROR_TIMEOUT = (15, 60)  # (connect, read-between-bytes) - a stalled
 # connection must never hang the install forever, but a slow one that keeps
 # moving is legitimate and only bounded by the chunk-level cancel check.
 
+#: Retries per file. mll's own downloader has no timeout, no retry, no resume
+#: and no integrity check on a body that stopped early, so one dropped
+#: connection mid-asset-phase either failed the whole install or - worse - left
+#: a file the version list then reported as installed (the 2026-09-17 report).
+_DOWNLOAD_ATTEMPTS = 3
+_DOWNLOAD_BACKOFF = 1.5  # seconds, doubled per retry: 1.5s, 3s
+_DOWNLOAD_RETRY_AFTER_CAP = 30.0  # a CDN's Retry-After, capped
 
-def _make_cancel_aware_download_file():
-    """Builds a mirror of mll 8.0's _helper.download_file with a request
-    timeout and per-chunk cancellation. Built lazily: only a cancelled-capable
-    install pays for importing mll's helpers."""
+#: mll fans a vanilla install out over thousands of asset objects across
+#: ThreadPoolExecutor(max_workers=None) - up to 32 threads on a normal CPU -
+#: while handing them a session with requests' default pool of 10. Every thread
+#: past the tenth then builds (and discards) its own TCP+TLS connection per
+#: file. One process-wide session this wide lets all of them reuse a warm
+#: connection; with ~4000 small files the handshakes were a real slice of the
+#: "install is so slow" wall clock. Built lazily so importing cubeon.versions
+#: never drags `requests` in ahead of an actual install.
+_MLL_POOL_SIZE = 32
+_mll_session = None
+_mll_session_lock = threading.Lock()
+
+
+def _install_session():
+    """The shared, wide connection pool every mll file fetch goes through."""
+    global _mll_session
+    with _mll_session_lock:
+        if _mll_session is None:
+            import requests
+            from requests.adapters import HTTPAdapter
+            session = requests.Session()
+            adapter = HTTPAdapter(pool_connections=_MLL_POOL_SIZE,
+                                  pool_maxsize=_MLL_POOL_SIZE,
+                                  max_retries=0)  # our own retries, with resume
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            _mll_session = session
+    return _mll_session
+
+
+#: path -> (size, mtime_ns) for files this process has already hashed and found
+#: correct. A loader install runs install_minecraft_version more than once (the
+#: base version, then the loader profile whose json inheritsFrom it) and every
+#: pass re-hashes every library and asset - thousands of files, hundreds of MB,
+#: for an answer we already have. Size+mtime is the same evidence the instance
+#: list trusts between launches, and rewriting a file changes its mtime, so a
+#: stale entry can never vouch for new bytes.
+_VERIFIED_FILES: "dict[str, tuple[int, int]]" = {}
+_verified_lock = threading.Lock()
+
+
+class _MllDownloadError(RuntimeError):
+    """A file the install needs could not be fetched - with a message written
+    for the user. install_version shows this text instead of a class name."""
+
+
+def _mll_modules() -> list:
+    """Every mll module that carries a download/install name of its own.
+
+    mll imports these into several modules (`from .install import
+    install_minecraft_version` is repeated in fabric, forge, quilt and mrpack),
+    so patching minecraft_launcher_lib.install alone would leave a loader
+    install calling the original. Enumerated dynamically and duck-typed rather
+    than hardcoded, so the SimpleNamespace stand-ins a test builds for mll are
+    patched exactly like the real thing.
+    """
+    mods = []
+    for name in dir(mll):
+        try:
+            mod = getattr(mll, name)
+        except Exception:
+            continue
+        if (hasattr(mod, "download_file")
+                or hasattr(mod, "install_minecraft_version")):
+            mods.append(mod)
+    return mods
+
+
+def _make_resilient_download_file():
+    """Builds a drop-in replacement for mll 8.0's _helper.download_file.
+
+    Why a replacement at all (the 2026-10-17 report: "download on instances
+    isn't working on some users"): mll's downloader reports a bad status by
+    returning False, and every one of its callers ignores that return value.
+    So a CDN answering 429 to a burst of asset requests, or a proxy dropping a
+    connection mid-jar, produced an install that "completed" with holes in it,
+    with nothing in the UI to say which file was missing. This one:
+      * bounds connect (15s) and read (60s);
+      * retries 3x with backoff on network errors, timeouts, 5xx and 429
+        (honouring a Retry-After header), resuming from the bytes already on
+        disk with a Range request instead of starting the file over;
+      * verifies sha1 and takes the whole file again on a mismatch;
+      * raises with the file and the status on a permanent failure, so the
+        error names what is missing instead of failing silently.
+
+    The signature mirrors mll's exactly, including `session`, which is ignored
+    in favour of Cubeon's own wide pool (mll builds one session per phase and
+    never closes it). Used for EVERY install, cancellable or not: the
+    resilience is the point, not the cancel.
+    """
     import lzma
-    import requests
     from minecraft_launcher_lib._helper import (
         check_path_inside_minecraft_directory, get_sha1_hash, get_user_agent)
     from minecraft_launcher_lib.exceptions import InvalidChecksum
+
+    def _stopped() -> bool:
+        for bridge in tuple(_live_cancel_bridges):
+            if bridge.should_stop():
+                return True
+        return False
+
+    def _remember(path) -> None:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            return
+        with _verified_lock:
+            _VERIFIED_FILES[str(path)] = (stat.st_size, stat.st_mtime_ns)
+
+    def _verified(path) -> bool:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            return False
+        with _verified_lock:
+            return _VERIFIED_FILES.get(str(path)) == (stat.st_size,
+                                                      stat.st_mtime_ns)
+
+    def _wait(attempt, retry_after=None) -> None:
+        """Backoff between attempts. Retry-After wins when the server sends one
+        (a CDN rate limiter asking us to slow down), capped so a hostile value
+        cannot park the install."""
+        if attempt >= _DOWNLOAD_ATTEMPTS - 1:
+            return
+        delay = _DOWNLOAD_BACKOFF * (2 ** attempt)
+        try:
+            if retry_after:
+                delay = max(delay,
+                            min(float(retry_after), _DOWNLOAD_RETRY_AFTER_CAP))
+        except (TypeError, ValueError):
+            pass
+        time.sleep(delay)
 
     def download_file(url, path, callback=None, sha1=None, lzma_compressed=False,
                       session=None, minecraft_directory=None, overwrite=False):
@@ -610,7 +741,8 @@ def _make_cancel_aware_download_file():
         if os.path.isfile(path) and not overwrite:
             if sha1 is None:
                 return False
-            elif get_sha1_hash(path) == sha1:
+            if _verified(path) or get_sha1_hash(path) == sha1:
+                _remember(path)
                 return False
         try:
             os.makedirs(os.path.dirname(path))
@@ -618,68 +750,181 @@ def _make_cancel_aware_download_file():
             pass
         callback.get("setStatus", lambda *_: None)(
             "Download " + os.path.basename(path))
-        for bridge in tuple(_live_cancel_bridges):
-            if bridge.should_stop():
-                raise _DownloadCancelled()
         headers = {"user-agent": get_user_agent()}
-        if session is None:
-            r = requests.get(url, stream=True, timeout=_MIRROR_TIMEOUT,
-                             headers=headers)
-        else:
-            r = session.get(url, stream=True, timeout=_MIRROR_TIMEOUT,
-                            headers=headers)
-        if r.status_code != 200:
-            return False
-        with open(path, "wb") as f:
-            r.raw.decode_content = True
-            if lzma_compressed:
-                f.write(lzma.decompress(r.content))
-            else:
-                while True:
-                    for bridge in tuple(_live_cancel_bridges):
-                        if bridge.should_stop():
-                            r.close()
-                            raise _DownloadCancelled()
-                    chunk = r.raw.read(65536)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-        if sha1 is not None:
-            checksum = get_sha1_hash(path)
-            if checksum != sha1:
-                raise InvalidChecksum(url, path, sha1, checksum)
-        return True
+        http = _install_session()
+        clean = os.path.basename(path)
+        last_err = None
+        for attempt in range(_DOWNLOAD_ATTEMPTS):
+            if _stopped():
+                raise _DownloadCancelled()
+            # Resume: bytes already in the target are a prefix of the body, so
+            # ask for the rest. An lzma body is decompressed whole in memory,
+            # and an overwrite means the caller wants a fresh copy.
+            offset = 0
+            if not lzma_compressed and not overwrite:
+                try:
+                    if os.path.isfile(path):
+                        offset = os.path.getsize(path)
+                except OSError:
+                    offset = 0
+            req_headers = dict(headers)
+            if offset:
+                req_headers["Range"] = f"bytes={offset}-"
+            try:
+                resp = http.get(url, stream=True, timeout=_MIRROR_TIMEOUT,
+                                headers=req_headers)
+            except Exception as ex:
+                last_err = ex
+                _wait(attempt)
+                continue
+            try:
+                status = resp.status_code
+                if 500 <= status < 600 or status == 429:
+                    last_err = _MllDownloadError(
+                        f"{clean} is temporarily unavailable (HTTP {status})")
+                    _wait(attempt, resp.headers.get("Retry-After"))
+                    continue
+                if status == 416 and offset:
+                    # Our resume offset is stale - the file on disk is longer
+                    # than this body, or is not part of it at all. Drop it and
+                    # take the file whole instead of failing the install over a
+                    # bad guess. Deleting means the retry sends no Range, so
+                    # this can only ever happen once per download.
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                    last_err = _MllDownloadError(
+                        f"{clean} restarted from scratch (stale partial file)")
+                    _wait(attempt)
+                    continue
+                if status not in (200, 206):
+                    # A 4xx is an answer, not a blip: retrying cannot help, and
+                    # mll's silent `return False` here is the hole this whole
+                    # function exists to close.
+                    raise _MllDownloadError(
+                        f"{clean} is not on the server (HTTP {status})")
+                if status == 206 and not offset:
+                    status = 200  # a range we never asked for: take it whole
+                with open(path, "ab" if status == 206 else "wb") as fh:
+                    if lzma_compressed:
+                        fh.write(lzma.decompress(resp.content))
+                    else:
+                        resp.raw.decode_content = True
+                        while True:
+                            if _stopped():
+                                raise _DownloadCancelled()
+                            chunk = resp.raw.read(65536)
+                            if not chunk:
+                                break
+                            fh.write(chunk)
+            except _DownloadCancelled:
+                raise
+            except _MllDownloadError:
+                raise
+            except Exception as ex:
+                last_err = ex
+                _wait(attempt)
+                continue
+            finally:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+            if sha1 is not None:
+                checksum = get_sha1_hash(path)
+                if checksum != sha1:
+                    # A resumed file that still does not match is not a prefix
+                    # of this body: throw it away and take the whole file.
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                    last_err = InvalidChecksum(url, path, sha1, checksum)
+                    _wait(attempt)
+                    continue
+            _remember(path)
+            return True
+        if isinstance(last_err, _MllDownloadError):
+            raise last_err
+        raise _MllDownloadError(
+            f"{clean} could not be downloaded after {_DOWNLOAD_ATTEMPTS} tries"
+            f" ({last_err.__class__.__name__ if last_err else 'no response'})")
 
     return download_file
 
 
 class _PatchedMllDownloads:
-    """Context manager: swaps mll's download_file for the cancel-aware mirror
-    while one install runs, then restores exactly what was there. Tolerant of
-    a fake mll (tests): only modules that actually expose download_file are
-    touched."""
+    """Context manager: holds Cubeon's mll patches for the length of one install.
 
-    def __init__(self, bridge: _InstallCancelBridge):
+    Beyond the resilient downloader above, two install-wide shortcuts:
+
+      * install_minecraft_version() is memoised per version id. A loader
+        install calls it for the base version, then again for the loader
+        profile whose json inheritsFrom the base - and mll's inheritsFrom branch
+        re-installs the base inside THAT call, so the base pass runs two or
+        three times for one Fabric/Forge install, re-walking every library and
+        asset each time. The loader profile's own libraries are real work and
+        still happen; the repeat of a version already finished in THIS install
+        is skipped, which is the difference between one full pass and two.
+      * install_jvm_runtime() is skipped when the caller passes explicit_java:
+        mll then downloads a whole second JDK - tens of MB, hundreds of files -
+        into the game directory that the launch never uses, because
+        build_launch_command passes executablePath. It is kept by default
+        because without an explicit path mll's own command builder falls back
+        to exactly that runtime (minecraft_launcher_lib/command.py), and on a
+        machine with no Java of its own it is the only Java there is.
+
+    Tolerant of a fake mll (tests): only modules that actually expose the names
+    are touched, and __exit__ puts back exactly what was there.
+    """
+
+    def __init__(self, bridge: "_InstallCancelBridge | None" = None,
+                 explicit_java: bool = False):
         self._bridge = bridge
-        self._saved: "list[tuple[object, object]]" = []
+        self._explicit_java = explicit_java
+        self._saved: "list[tuple[object, str, object]]" = []
+        #: Version ids install_minecraft_version has already finished in this
+        #: install - the memo that kills the repeated base pass.
+        self._done: "set[str]" = set()
+
+    def _swap(self, mod, name, replacement) -> None:
+        if mod is not None and hasattr(mod, name):
+            self._saved.append((mod, name, getattr(mod, name)))
+            setattr(mod, name, replacement)
 
     def __enter__(self):
         with _bridges_lock:
-            _live_cancel_bridges.append(self._bridge)
-            patched = _make_cancel_aware_download_file()
-            for mod in (getattr(mll, "install", None),
-                        getattr(mll, "runtime", None)):
-                if mod is not None and hasattr(mod, "download_file"):
-                    self._saved.append((mod, mod.download_file))
-                    mod.download_file = patched
+            if self._bridge is not None:
+                _live_cancel_bridges.append(self._bridge)
+            downloader = _make_resilient_download_file()
+            install_mod = getattr(mll, "install", None)
+
+            def _memoised(original):
+                def call(version, *args, **kwargs):
+                    if version in self._done:
+                        return None
+                    original(version, *args, **kwargs)
+                    self._done.add(version)
+                return call
+
+            for mod in _mll_modules():
+                self._swap(mod, "download_file", downloader)
+                if hasattr(mod, "install_minecraft_version"):
+                    self._swap(mod, "install_minecraft_version",
+                               _memoised(getattr(mod,
+                                                 "install_minecraft_version")))
+                if mod is install_mod and self._explicit_java:
+                    self._swap(mod, "install_jvm_runtime", lambda *a, **k: None)
+        return self
 
     def __exit__(self, *exc):
         with _bridges_lock:
-            if self._bridge in _live_cancel_bridges:
+            if self._bridge is not None and self._bridge in _live_cancel_bridges:
                 _live_cancel_bridges.remove(self._bridge)
-            for mod, orig in self._saved:
+            for mod, name, original in self._saved:
                 try:
-                    mod.download_file = orig
+                    setattr(mod, name, original)
                 except Exception:
                     pass  # a fake mll that rejects rebinding - nothing to undo
         return False
@@ -817,14 +1062,23 @@ def _seed_version_json(version_id: str, folder: str, json_path: str,
 
 
 def install_version(version_id: str, progress_cb, status_cb, max_cb,
-                    cancel_event: "threading.Event | None" = None) -> None:
+                    cancel_event: "threading.Event | None" = None,
+                    explicit_java: bool = False) -> None:
     """progress_cb(int), status_cb(str), max_cb(int) - mirrors mll's callback dict.
 
     cancel_event (optional): a threading.Event; when given, the download mll
     performs is made cancellable PER CHUNK and gets a read timeout - without
     it a cancel was only honored at the next file boundary, and a stalled
     connection could hang the install for minutes with no callback firing.
-    See the _PatchedMllDownloads comment above for how the mapping works.
+    See the _PatchedMllDownloads comment above for how the mapping works. The
+    resilient downloader (timeouts, retries, resume, checksum) is installed
+    with or without a cancel_event - only the abort depends on it.
+
+    explicit_java: True when the caller launches this version with a Java path
+    of its own (Cubeon passes cfg["java_path"]), so the copy of Java mll would
+    install into the game directory is never the JVM the game runs on and is
+    skipped - a whole second JDK, tens of MB. Leave it False otherwise: see
+    _PatchedMllDownloads for why that runtime is load-bearing.
 
     Guarded: mll's own downloader has no resume and no integrity check, so a
     network death mid-install used to leave a truncated jar that the version
@@ -916,18 +1170,29 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
 
     try:
         try:
-            if bridge is not None:
-                with _PatchedMllDownloads(bridge):
-                    mll.install.install_minecraft_version(
-                        version_id, MINECRAFT_DIR, callback=callback)
-            else:
+            # Always patched - a cancellable install is not the only one that
+            # needs timeouts, retries, resume and a checksum, and the repeated
+            # base pass of a loader install is skipped for every caller.
+            with _PatchedMllDownloads(bridge,
+                                      explicit_java=explicit_java):
                 mll.install.install_minecraft_version(
                     version_id, MINECRAFT_DIR, callback=callback)
         finally:
             if bridge is not None:
                 bridge.release()
+    except _DownloadCancelled as ex:
+        # Same cleanup as any other failure: a half-written client jar left in
+        # the version folder is a version the list would call installed and the
+        # launcher would then try to run (the 2026-09-17 report). Assets and
+        # libraries are NOT dropped - those resume from where they stopped.
+        _drop_attempt_jars()
+        raise RuntimeError("The download was cancelled.") from ex
     except Exception as ex:
         _drop_attempt_jars()
+        if isinstance(ex, _MllDownloadError):
+            # Our downloader writes for the user ("client.jar is not on the
+            # server (HTTP 404)"); that text is the whole point of it.
+            raise RuntimeError(f"The download failed: {ex}.") from ex
         raise RuntimeError(
             f"The download was interrupted ({ex.__class__.__name__}). "
             "Your files were cleaned up - reconnect and install again.") from ex

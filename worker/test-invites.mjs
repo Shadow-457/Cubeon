@@ -52,8 +52,17 @@ const CODE = "CUBE-7F4K-9QMN";
 const SECRET = "s".repeat(43); // shaped like secrets.token_urlsafe(32)
 const OTHER_SECRET = "x".repeat(43);
 
-const call = (path, init) =>
-  worker.fetch(new Request("https://test.invalid" + path, init), env);
+// Every request carries its OWN CF-Connecting-IP by default, so each case below
+// is a fresh client to the per-IP write gate; the gate's own checks pin an IP
+// in 203.0.113.0/24 so they can share a bucket on purpose. Same idiom as
+// worker/test-worker.mjs.
+let ipCounter = 0;
+const freshIp = () => `10.0.0.${++ipCounter}`;
+const call = (path, init, ip) => {
+  const headers = { ...((init && init.headers) || {}) };
+  if (!headers["CF-Connecting-IP"]) headers["CF-Connecting-IP"] = ip || freshIp();
+  return worker.fetch(new Request("https://test.invalid" + path, { ...init, headers }), env);
+};
 
 const put = (code, body, secret = SECRET) =>
   call(`/i/${code}`, {
@@ -238,6 +247,92 @@ check("resolve is cached only briefly (hosts change ports)",
 check("writes are never cached",
   (await put(CODE, { address: "bluefox-1234.gl.joinmc.link:52341" }))
     .headers.get("Cache-Control") === "no-store");
+
+console.log("\n7. the write gate (per IP, always on, binding or not)");
+
+// No RATE_LIMITER is bound in this section at first, so this exercises the
+// in-isolate fallback - the gate that was missing entirely: the old code only
+// consulted the binding, and the binding was commented out of
+// wrangler-invites.toml, so a PUT flood was unlimited. Keying on the IP and not
+// the code is the other half: a code is attacker-chosen, so the old key filed
+// every request in its own fresh bucket and limited nothing.
+const FLOOD_IP = "203.0.113.9";
+const floodPut = (code) => call(`/i/${code}`, {
+  method: "PUT",
+  headers: {
+    Authorization: `Bearer ${SECRET}`,
+    "Content-Type": "application/json",
+    "CF-Connecting-IP": FLOOD_IP,
+  },
+  body: JSON.stringify({ address: "203.0.113.9:25565" }),
+});
+
+let firstBlocked = 0;
+for (let i = 1; i <= 25; i++) {
+  const r = await floodPut("CUBE-6666-7777");
+  if (r.status === 429) { firstBlocked = i; break; }
+}
+check("a PUT flood from ONE IP is turned away without a binding",
+  firstBlocked === 21, `first 429 on request ${firstBlocked || "(none in 25)"}`);
+check("...and a different IP is untouched",
+  (await call("/i/CUBE-6666-9999", {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${SECRET}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ address: "203.0.113.10:25565" }),
+  })).status === 200);
+
+// The binding, when present, is consulted first and answers for the IP.
+env.RATE_LIMITER = {
+  limit: async ({ key }) => ({ success: key !== "203.0.113.10" }),
+};
+const bindingPut = (ip) => call("/i/CUBE-7777-6666", {
+  method: "PUT",
+  headers: {
+    Authorization: `Bearer ${SECRET}`,
+    "Content-Type": "application/json",
+    "CF-Connecting-IP": ip,
+  },
+  body: JSON.stringify({ address: "203.0.113.11:25565" }),
+});
+check("the RATE_LIMITER binding can reject a specific IP",
+  (await bindingPut("203.0.113.10")).status === 429);
+check("...and passes every other IP",
+  (await bindingPut("203.0.113.11")).status === 200);
+
+// A PASSING binding must not switch the local gate off: probed against
+// production on 2026-10-17, with the binding live but the local gate skipped,
+// seven rapid POSTs drew ZERO 429s - the edge counters are per-POP and
+// "permissive, eventually consistent", and a burst is the case this is for.
+env.RATE_LIMITER = { limit: async () => ({ success: true }) };
+const edgePassPut = () => call("/i/CUBE-3333-6666", {
+  method: "PUT",
+  headers: {
+    Authorization: `Bearer ${SECRET}`,
+    "Content-Type": "application/json",
+    "CF-Connecting-IP": "203.0.113.13",
+  },
+  body: JSON.stringify({ address: "203.0.113.13:25565" }),
+});
+let passBlocked = 0;
+for (let i = 1; i <= 25; i++) {
+  const r = await edgePassPut();
+  if (r.status === 429) { passBlocked = i; break; }
+}
+check("a PASSING binding does not switch the local gate off",
+  passBlocked === 21, `first 429 on request ${passBlocked || "(none in 25)"}`);
+
+env.RATE_LIMITER = { limit: async () => { throw new Error("binding died"); } };
+check("a broken binding degrades to the in-isolate gate, not to a 500",
+  (await call("/i/CUBE-7777-9999", {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${SECRET}`,
+      "Content-Type": "application/json",
+      "CF-Connecting-IP": "203.0.113.12",
+    },
+    body: JSON.stringify({ address: "203.0.113.12:25565" }),
+  })).status === 200);
+delete env.RATE_LIMITER;
 
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : "\nALL INVITE WORKER CHECKS PASSED");
 process.exit(failures ? 1 : 0);

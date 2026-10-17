@@ -42,9 +42,19 @@ const env = {
 
 const keyFor = (email) => "email:" + createHash("sha256").update(email).digest("hex");
 const get = (path) => worker.fetch(new Request("https://test.invalid" + path), env);
-const post = (path, obj) => worker.fetch(new Request("https://test.invalid" + path, {
+
+// Every POST carries its OWN CF-Connecting-IP by default, so each check below
+// is a fresh client to the per-IP gate; without that the whole file shares one
+// bucket and 429s itself. The gate's own checks pin an IP in 203.0.113.0/24 so
+// they can share a bucket on purpose. Same idiom as worker/test-worker.mjs.
+let ipCounter = 0;
+const freshIp = () => `10.0.0.${++ipCounter}`;
+const post = (path, obj, ip = freshIp()) => worker.fetch(new Request("https://test.invalid" + path, {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "CF-Connecting-IP": ip,
+  },
   body: JSON.stringify(obj),
 }), env);
 
@@ -150,10 +160,17 @@ check("deleting the last record -> count 0, never negative", data.count === 0);
 check("a deletion costs two writes (record + tally), like a signup",
   writes === before + 2);
 
-// --- the abuse gate (optional RATE_LIMITER binding) ------------------------
+// --- the abuse gate -------------------------------------------------------
 // This Worker is the only one whose writes carry no identity, so the throttle
-// is what protects the account-wide free-tier write budget (and with it the
-// tally, which shares the namespace). It must reject BEFORE any write.
+// is what protects the account-wide free-tier write budget - and with it the
+// tally, every real signup, and the skins Worker, which draw on the same
+// budget. It must reject BEFORE any write.
+//
+// Two layers: the RATE_LIMITER binding when one is bound, and an in-isolate
+// per-IP fallback that ALWAYS runs. The fallback is the fix that matters here,
+// because the old code was `if (env.RATE_LIMITER)` and the binding was
+// commented out of wrangler-waitlist.toml - so the live Worker had no limit at
+// all, which is exactly what a probe confirmed.
 before = writes;
 env.RATE_LIMITER = { limit: async () => ({ success: false }) };
 res = await post("/", { email: "flood@example.com" });
@@ -165,7 +182,7 @@ check("...and the address was never stored",
 env.RATE_LIMITER = { limit: async () => { throw new Error("binding died"); } };
 before = writes;
 res = await post("/", { email: "resilient@example.com" });
-check("a broken limiter degrades to accepting, not to 500",
+check("a broken limiter degrades to the in-isolate gate, not to a 500",
   res.status === 200 && writes === before + 2);
 
 env.RATE_LIMITER = { limit: async () => ({ success: true }) };
@@ -173,12 +190,36 @@ before = writes;
 res = await post("/", { email: "allowed@example.com" });
 check("a passing limiter lets the signup through",
   res.status === 200 && writes === before + 2);
+
+// The regression this exists for. A PASSING binding must not switch the local
+// gate off: probed against production on 2026-10-17 with the binding live but
+// the local gate skipped, seven rapid POSTs drew ZERO 429s, because the edge
+// counters are per-POP and "permissive, eventually consistent". A burst is
+// exactly what this protects against, so both gates now run.
+const EDGE_PASS_IP = "203.0.113.6";
+let passBlocked = 0;
+for (let i = 1; i <= 8; i++) {
+  const r = await post("/", { email: `edgepass${i}@example.com` }, EDGE_PASS_IP);
+  if (r.status === 429) { passBlocked = i; break; }
+}
+check("a PASSING binding does not switch the local gate off",
+  passBlocked === 6, `first 429 on request ${passBlocked || "(none in 8)"}`);
 delete env.RATE_LIMITER;
 
-// Without the binding the Worker must behave exactly as it always has.
+// With NO binding bound, a single IP must still be turned away - otherwise the
+// documented "degrades to works, unthrottled" is really "ships open".
+const FLOOD_IP = "203.0.113.5";
+let firstBlocked = 0;
+for (let i = 1; i <= 8; i++) {
+  const r = await post("/", { email: `flood${i}@example.com` }, FLOOD_IP);
+  if (r.status === 429) { firstBlocked = i; break; }
+}
+check("with NO limiter bound one IP is still throttled (in-isolate fallback)",
+  firstBlocked === 6, `first 429 on request ${firstBlocked || "(none in 8)"}`);
+
 before = writes;
-res = await post("/", { email: "unthrottled@example.com" });
-check("with no limiter bound the Worker is unchanged (works, unthrottled)",
+res = await post("/", { email: "other-ip@example.com" });
+check("...and a different IP is unaffected",
   res.status === 200 && writes === before + 2);
 
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : "\nALL WAITLIST CHECKS PASSED");

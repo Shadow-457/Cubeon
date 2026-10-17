@@ -27,6 +27,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import types
@@ -514,8 +515,14 @@ check("the throttle runs BEFORE the write handlers (else it protects nothing)",
       before("await throttle(request, env, WRITE_RATE)", 'path === "/api/heartbeat"'))
 check("...and before the /report handler, which is the cheapest to spam",
       before("await throttle(request, env, WRITE_RATE)", 'path === "/report"'))
-check("the write cap is generous enough for an honest first install (~4 POSTs)",
-      "max: 60" in worker_source)
+# Read the cap instead of pinning it. The intent is a range: it must clear an
+# honest first install (~4 POSTs) with room for a reinstall or a retry storm,
+# and stay low enough that the account's 1000 writes/day is not a one-minute
+# job for one IP (each POST costs 2 writes). Pinning the literal meant tuning
+# the Worker turned this test red for no reason.
+write_cap = int(re.search(r"max: (\d+)", worker_source).group(1))
+check("the write cap is generous for an honest first install (~4 POSTs) and still tight",
+      8 <= write_cap <= 30, f"max={write_cap}")
 check("a refused throttle is a clean 429, not a 500",
       '"rate_limited"' in worker_source and "function tooMany" in worker_source)
 check("a throttling failure degrades to the fallback, never to an error",

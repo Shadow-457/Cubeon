@@ -10,7 +10,9 @@
  *   GET    /health     plain-text OK, for debugging by hand
  *
  * Bindings required: KV namespace bound as INVITES.
- * Optional:          Rate Limiting binding as RATE_LIMITER (see WRITE BUDGET).
+ * Recommended:        Rate Limiting binding as RATE_LIMITER (see WRITE BUDGET).
+ *                     The per-IP gate runs without it; the binding is what
+ *                     makes the limit per-POP instead of per-isolate.
  *
  * ------------------------------------------------------------------------
  * WHY A CODE AND NOT JUST THE ADDRESS
@@ -64,11 +66,13 @@
  *     every Cubeon user combined before lunch. Liveness is inferred from the
  *     TTL instead, which is less precise and free.
  *
- * That leaves one exposure worth naming: without rate limiting, anyone who
- * finds this endpoint can burn the day's writes in a minute and stop everyone
- * else from hosting. Bind Cloudflare's Rate Limiting binding as RATE_LIMITER to
- * close it; the code below uses it when present and runs without it when not,
- * so a missing binding degrades to "works, but abusable" rather than "broken".
+ * That leaves one exposure worth naming: a script that finds this endpoint can
+ * burn the day's writes and stop everyone else from hosting. Two gates stand in
+ * front of it (see `throttle`): an in-isolate per-IP limiter that ALWAYS runs,
+ * and Cloudflare's Rate Limiting binding as RATE_LIMITER, which makes that
+ * limit per-POP and durable across isolate recycling. An absent or broken
+ * binding degrades to the softer in-isolate gate - never to "no limit", and
+ * never to an error.
  * ------------------------------------------------------------------------
  */
 
@@ -193,16 +197,16 @@ async function publish(code, request, env) {
   const secret = bearer(request);
   if (!secret) return problem(401, "missing_secret");
 
-  // Abuse gate for the scarce resource (writes). The header comment promises
-  // "uses it when present and runs without it when not" - but the binding was
-  // never actually consulted, so the documented degradation was really "no
-  // limiting at all". Now: with the binding, a PUT flood gets a clean 429
-  // before any KV read/write; without it, behavior is unchanged (works, but
-  // abusable). A misbehaving binding degrades to no limiting, not to 500s.
-  if (env.RATE_LIMITER) {
-    const rl = await env.RATE_LIMITER.limit({ key: code }).catch(() => null);
-    if (rl && rl.success === false) return problem(429, "rate_limited");
-  }
+  // Abuse gate for the scarce resource (writes). Keyed on the client IP, not on
+  // the code: a code is attacker-chosen and the supply is unbounded, so keying
+  // on it filed every request in its own fresh bucket and limited nothing. The
+  // IP is what a caller cannot mint.
+  //
+  // The binding is used when bound; otherwise - or if the binding throws - the
+  // in-isolate fallback runs, so "unbound" now means softer, never open. A
+  // misbehaving binding degrades to the fallback, not to 500s.
+  const limited = await throttle(request, env);
+  if (limited) return limited;
 
   if (await env.INVITES.get(`blocked:${code}`)) return problem(403, "blocked");
 
@@ -369,6 +373,59 @@ function text(body) {
   return new Response(body, {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
+}
+
+// ----------------------------------------------------------------- abuse ---
+
+// Requests per window, per IP, for PUT - the only route that writes. A host
+// publishes when its address changes and an unchanged republish is skipped
+// before the write, so even a restart-happy host is a handful of calls a
+// minute at worst. 20 is invisible to that, and it puts a ceiling on a flood -
+// which is all a rate limit can do against an account-wide budget (see WRITE
+// BUDGET above; the edge binding, and 00:00 UTC refilling the budget, are the
+// real walls).
+const WRITE_RATE = { max: 20, windowMs: 60_000 };
+
+// Fallback limiter state. Module scope, so it lives as long as the isolate.
+const fallbackRL = new Map();
+
+/**
+ * Sliding-window limiter over {max} requests per {windowMs} for one key.
+ * Mirrors cubeon-skins.js fallbackAllow (same window semantics), kept local
+ * because each Worker is deployed on its own.
+ */
+function fallbackAllow(map, key, max, windowMs, now) {
+  const hits = (map.get(key) || []).filter((t) => now - t < windowMs);
+  hits.push(now);
+  map.set(key, hits);
+  return hits.length <= max;
+}
+
+/**
+ * The abuse gate for PUT. Returns a 429 Response when the caller should be
+ * turned away, or null to proceed.
+ *
+ * Two gates, and EITHER may refuse. The binding is the one that reliably caps
+ * sustained abuse, but it converges LATE - measured on the waitlist Worker in
+ * production (2026-10-17, one fixed IP): 25 rapid requests drew zero 429s, 120
+ * drew 95 passes and then 25 refusals. The in-isolate fallback is best-effort:
+ * it may be inert live, because requests for a cold Worker need not share an
+ * isolate and the map dies with the isolate. It is kept as defence in depth,
+ * not as the guarantee. See the same note in cubeon-waitlist.js.
+ *
+ * "unknown" buckets anything without a CF header, which is the safe direction -
+ * a shared bucket throttles more, not less.
+ */
+async function throttle(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (env.RATE_LIMITER) {
+    const rl = await env.RATE_LIMITER.limit({ key: ip }).catch(() => null);
+    if (rl && rl.success === false) return problem(429, "rate_limited");
+  }
+  if (!fallbackAllow(fallbackRL, ip, WRITE_RATE.max, WRITE_RATE.windowMs, Date.now())) {
+    return problem(429, "rate_limited");
+  }
+  return null;
 }
 
 /** A machine-readable error the launcher can map to a human sentence. */

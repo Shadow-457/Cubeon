@@ -715,6 +715,7 @@ class FriendsClient:
         self._send_lock = threading.Lock()
         self._stop = threading.Event()
         self._connected = threading.Event()
+        self._opened_this_round = False
         self._identity = None
         # What we announce on (re)connect, so a reconnect restores the same
         # presence the user last set without the UI having to re-push it.
@@ -806,6 +807,7 @@ class FriendsClient:
         """Connect, run until closed, reconnect with backoff, until stopped."""
         attempt = 0
         while not self._stop.is_set():
+            self._opened_this_round = False
             try:
                 self._ws = websocket.WebSocketApp(
                     _ws_url(self._base_url),
@@ -823,6 +825,13 @@ class FriendsClient:
             self._connected.clear()
             if self._stop.is_set():
                 break
+            # A connection that WAS up and then dropped is a blip, not a
+            # server that will not answer: restart the ladder so the next try
+            # is a second away instead of thirty. The ladder is for a server
+            # that never opened the socket at all (a deploy, a dead network),
+            # which is the case it was written for.
+            if self._opened_this_round:
+                attempt = 0
             delay = _RECONNECT_BACKOFF[min(attempt, len(_RECONNECT_BACKOFF) - 1)]
             attempt += 1
             self._emit("state", {"connected": False, "retry_in": delay})
@@ -833,6 +842,9 @@ class FriendsClient:
     # -- receive ------------------------------------------------------------
 
     def _on_open(self, ws) -> None:
+        # Read by _run_loop to tell "this round reached the server" from
+        # "never got there" - the two want different reconnect backoff.
+        self._opened_this_round = True
         # Authenticate as the very first frame, over the already-encrypted
         # socket - the secret goes here, never in the URL, so it can't leak into
         # Cloudflare's request logs. The server replies hello_ok or error.

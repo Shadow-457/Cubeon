@@ -42,6 +42,7 @@ mll = LazyModule("minecraft_launcher_lib")
 
 from .paths import SERVERS_DIR, APP_NAME, modrinth_headers, user_agent
 from .mod_loaders import SUPPORTED_LOADERS  # noqa: F401 (kept for callers that import it from here)
+from .versions import extract_mc_version
 from .launch import find_java, find_java_for_version, java_major_version, required_java_major
 from .mods import modrinth_search_index, rank_search_hits
 from . import local_cache
@@ -106,7 +107,7 @@ def ensure_default_plugins(version_id: str, status_cb=None) -> dict:
         try:
             if status_cb:
                 status_cb("Installing AuthMe (login security)...")
-            info = get_plugin_download(slug, mc_version=version_id) \
+            info = get_plugin_download(slug, mc_version=minecraft_version(version_id)) \
                 or get_plugin_download(slug)
             if not info:
                 result["failed"].append((slug, "no build found"))
@@ -528,43 +529,68 @@ def switch_server_type(version_id: str, server_type: str) -> bool:
     return True
 
 
-def _get_paper_download_url(version_id: str) -> tuple[str, str]:
-    """Looks up the latest stable Paper build for version_id via papermc.io's
-    Fill v3 API (fill.papermc.io) - the old api.papermc.io/v2 endpoint has
-    been sunset and stopped returning current builds. Returns
-    (download_url, build_number_as_string)."""
+def minecraft_version(version_id: str) -> str:
+    """The bare Minecraft version behind whatever launch id the UI handed us:
+    "fabric-loader-0.19.5-1.21.11" -> "1.21.11".
+
+    Everything on the server side that talks to a per-version service needs
+    this rather than the launch id: Paper publishes per Minecraft release
+    (never per loader id, so a loader id is a guaranteed 404), and Modrinth's
+    versions:/game_versions facet matches real Minecraft versions only (a
+    loader id there silently matches NOTHING, so the Plugins tab would come
+    back empty on exactly the profiles that need plugins most).
+
+    Delegates to versions.extract_mc_version - the same extraction the mods
+    and modpacks paths use before they touch a profile key - and keeps its
+    fall-back to the id itself so a caller never gets an empty string."""
+    return extract_mc_version(version_id) or version_id
+
+
+def _get_paper_download_url(mc_version: str) -> tuple[str, str]:
+    """Looks up the latest stable Paper build for a Minecraft version via
+    papermc.io's Fill v3 API (fill.papermc.io) - the old api.papermc.io/v2
+    endpoint has been sunset and stopped returning current builds. Returns
+    (download_url, build_number_as_string).
+
+    Takes the bare Minecraft version ("1.21.11"), NOT a launch id - see
+    minecraft_version. Passing a loader id here is a guaranteed 404 because
+    no such Paper version exists."""
     headers = {"User-Agent": user_agent("server downloads")}
     try:
         data = net.get_json(
-            f"https://fill.papermc.io/v3/projects/paper/versions/{version_id}/builds",
+            f"https://fill.papermc.io/v3/projects/paper/versions/{mc_version}/builds",
             headers=headers, timeout=15,
         )
-    except requests.HTTPError as ex:
-        if getattr(ex.response, "status_code", None) == 404:
+    except net.HTTPStatusError as ex:
+        # get_json reports a permanent 4xx as HTTPStatusError (it used to
+        # retry the 404 three times and then claim the network was at fault,
+        # so this branch was unreachable and the user got "Couldn't reach
+        # .../builds after 3 tries: 404").
+        if ex.status_code == 404:
             raise RuntimeError(
-                f"Paper doesn't publish builds for {version_id} "
-                "(try a recent release version).") from ex
+                f"Paper doesn't publish a build for Minecraft {mc_version} "
+                "(pick a recent release version for the server).") from ex
         raise
     if isinstance(data, dict) and data.get("ok") is False:
-        raise RuntimeError(data.get("message") or f"Paper has no builds for {version_id}.")
+        raise RuntimeError(data.get("message") or f"Paper has no builds for {mc_version}.")
     builds = data if isinstance(data, list) else data.get("builds", [])
 
     stable = [b for b in builds if b.get("channel") == "STABLE"] or builds
     if not stable:
-        raise RuntimeError(f"No Paper builds found for {version_id}.")
+        raise RuntimeError(f"No Paper builds found for Minecraft {mc_version}.")
     # Builds come back oldest-first from Fill, same as the old v2 API.
     build = stable[-1]
     build_number = build.get("id") or build.get("number") or build.get("build")
     download = (build.get("downloads") or {}).get("server:default") or (build.get("downloads") or {}).get("application")
     if not download:
         raise RuntimeError(
-            f"Paper build {build_number} for {version_id} has no recognizable download entry "
-            f"(downloads keys: {sorted((build.get('downloads') or {}).keys())})."
+            f"Paper build {build_number} for Minecraft {mc_version} has no recognizable "
+            f"download entry (downloads keys: {sorted((build.get('downloads') or {}).keys())})."
         )
     download_url = download.get("url")
     if not download_url:
         raise RuntimeError(
-            f"Paper build {build_number} for {version_id}'s download entry is missing a 'url' "
+            f"Paper build {build_number} for Minecraft {mc_version}'s download entry is missing a 'url' "
             f"(entry keys: {sorted(download.keys())})."
         )
     return download_url, str(build_number)
@@ -647,11 +673,12 @@ def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
     The jar comes from `local_jar_path` when given (or from a jar already
     on disk that find_local_paper_jar() can see) - copied, not downloaded.
     Only if there's no local jar anywhere does this download the latest
-    stable Paper build for version_id via papermc.io's Fill v3 API. A
-    local jar is preferred over a download because it works offline and
-    on networks where papermc.io is blocked; its MC version is whatever
-    the user chose, so they're responsible for picking one matching the
-    selected version.
+    stable Paper build for the Minecraft version behind version_id via
+    papermc.io's Fill v3 API (see minecraft_version - Paper publishes per
+    Minecraft release, never per loader id). A local jar is preferred over
+    a download because it works offline and on networks where papermc.io
+    is blocked; its MC version is whatever the user chose, so they're
+    responsible for picking one matching the selected version.
 
     The install only "counts" once a complete jar is in place - if this
     raises partway, nothing about the app's recorded state changes."""
@@ -684,9 +711,22 @@ def install_server(version_id: str, server_type: str = SERVER_TYPE_PAPER,
                 max_cb(size)
                 progress_cb(size)
         else:
-            url, build = _get_paper_download_url(version_id)
+            # Paper is published per *Minecraft* version, so a launch id has
+            # to be reduced to one first: handing Fill the raw
+            # "fabric-loader-0.19.5-1.21.11" guarantees a 404, because no
+            # such Paper version exists. Same extraction the mods/modpacks
+            # paths do before they touch a profile key.
+            mc_version = minecraft_version(version_id)
+            url, build = _get_paper_download_url(mc_version)
             if status_cb:
-                status_cb(f"Downloading Paper {build} server.jar")
+                # Say which Minecraft version the server is for when it
+                # differs from the name the user picked - Paper runs vanilla
+                # + plugins, so a Fabric profile's mods don't come with it,
+                # and silently installing "1.21.11" under a Fabric label is
+                # how that turns into a second bug report.
+                status_cb(f"Downloading Paper {build} server.jar"
+                          + (f" for Minecraft {mc_version}"
+                             if mc_version != version_id else ""))
             dl_headers = {"User-Agent": user_agent("server downloads")}
             try:
                 probe = requests.head(url, headers=dl_headers, timeout=10,
@@ -1364,7 +1404,7 @@ def ensure_smooth_mode_plugins(version_id: str, progress_cb=None) -> dict:
         title = titles[slug]
         _report({"stage": "start", "slug": slug, "title": title})
         try:
-            info = get_plugin_download(slug, mc_version=version_id)
+            info = get_plugin_download(slug, mc_version=minecraft_version(version_id))
             if not info:
                 # No build tagged with this exact MC version. Paper plugins
                 # are broadly version-tolerant (they compile against the

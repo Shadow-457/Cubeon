@@ -202,6 +202,84 @@ with tempfile.TemporaryDirectory(prefix="cubeon-server-integrity-") as scratch:
                 check("interrupted Paper download preserves installed bytes", final.read_bytes() == paper)
                 check("interrupted Paper download cleans nested partial", not list(final.parent.glob(".server-*")))
 
+        # --- Paper is published per Minecraft version, not per launch id -----
+        # The reported bug: on a Fabric profile the server install asked Fill
+        # for "fabric-loader-0.19.5-1.21.11", which is not a Paper version, so
+        # it 404'd - and the 404 was retried three times and then reported as
+        # "Couldn't reach ... after 3 tries". Both halves are pinned here.
+        loader_version = "fabric-loader-0.19.5-1.21.11"
+        check("a loader id reduces to its Minecraft version",
+              S.minecraft_version(loader_version) == "1.21.11")
+        check("a bare Minecraft version is left alone",
+              S.minecraft_version("1.21.11") == "1.21.11")
+        check("an unparseable id falls back to itself, so an error can name it",
+              S.minecraft_version("mystery-pack") == "mystery-pack")
+
+        asked = []
+        paper_build = {"id": 42, "channel": "STABLE",
+                       "downloads": {"server:default":
+                                     {"url": "https://example.invalid/paper"}}}
+
+        def paper_lookup(url, **kwargs):
+            asked.append(url)
+            return [paper_build]
+
+        def paper_download(dest, url, **kwargs):
+            Path(dest).write_bytes(paper)
+            return len(paper)
+
+        statuses = []
+        with patch.object(net, "get_json", side_effect=paper_lookup), \
+                patch.object(S.requests, "head",
+                             return_value=SimpleNamespace(headers={"content-length": str(len(paper))})), \
+                patch.object(net, "download_to", side_effect=paper_download):
+            S.install_server(loader_version, status_cb=statuses.append)
+            check("a Fabric profile's server install asks Paper for the bare "
+                  "Minecraft version",
+                  asked == ["https://fill.papermc.io/v3/projects/paper/"
+                            "versions/1.21.11/builds"])
+            check("and never for the loader id (the 404 in the report)",
+                  all("fabric-loader" not in url for url in asked))
+            check("the install names the Minecraft version the server is for",
+                  any("Minecraft 1.21.11" in s for s in statuses))
+            check("a Fabric profile's server install completes",
+                  S.is_server_installed(loader_version))
+
+        # A version Paper genuinely has no build for must say so, in terms of
+        # the Minecraft version - once, not after three backoffs.
+        def paper_404(url, **kwargs):
+            raise net.HTTPStatusError("HTTP 404 Not Found for " + url, 404, url)
+
+        with patch.object(net, "get_json", side_effect=paper_404):
+            refused("a version Paper has no build for is refused",
+                    lambda: S._get_paper_download_url("1.99"))
+            try:
+                S._get_paper_download_url("1.99")
+            except RuntimeError as ex:
+                check("the refusal names the Minecraft version",
+                      "Minecraft 1.99" in str(ex))
+                check("and does not pretend the network was at fault",
+                      "Couldn't reach" not in str(ex))
+
+        # The same launch-id-vs-Minecraft-version mistake reached Modrinth,
+        # where a versions:/game_versions facet matches real Minecraft
+        # versions only - a loader id matches NOTHING, which is how the
+        # Plugins tab and the managed AuthMe install came back empty on
+        # exactly the (Fabric) profiles that need them.
+        asked_mc = []
+        with patch.object(S, "list_plugins", return_value=[]), \
+                patch.object(S, "download_plugin"), \
+                patch.object(S, "_tune_authme_config", return_value=[]), \
+                patch.object(S, "get_plugin_download",
+                             side_effect=lambda slug, mc_version=None:
+                             (asked_mc.append(mc_version), None)[1]):
+            S.ensure_default_plugins(loader_version)
+        check("the managed plugin lookup asks Modrinth for the Minecraft "
+              "version",
+              asked_mc and asked_mc[0] == "1.21.11")
+        check("...and never for the loader id",
+              all(mc != loader_version for mc in asked_mc))
+
 host = "live-beru.play.minekube.net"
 for address in (host, host + ":1", host + ":25565", host + ":65535"):
     check(f"public address preserves {address}",

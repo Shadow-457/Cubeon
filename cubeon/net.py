@@ -81,6 +81,20 @@ class DownloadError(RuntimeError):
     """Every retry failed, or the response was unusable. Human-readable."""
 
 
+class HTTPStatusError(DownloadError):
+    """The server answered with a status we don't retry (4xx, minus 429).
+
+    Deliberately distinct from the "never reached the server" case: a 404 is
+    an ANSWER, and the status travels with the error so callers can say
+    something true about it ("Paper has no build for 1.21.11") instead of
+    reporting a network problem that never happened."""
+
+    def __init__(self, message: str, status_code: int, url: str = ""):
+        super().__init__(message)
+        self.status_code = int(status_code)
+        self.url = url
+
+
 def get_with_retry(url: str, *, headers: dict | None = None,
                    params: dict | None = None, timeout: int = 30,
                    attempts: int = DEFAULT_ATTEMPTS) -> requests.Response:
@@ -88,7 +102,9 @@ def get_with_retry(url: str, *, headers: dict | None = None,
     returned fully-connected (stream=True) and the caller must close it.
 
     Only network-level flakiness and 5xx/429 are retried - a 404 will never
-    succeed by waiting, so it fails through immediately."""
+    succeed by waiting, so it fails through immediately as an
+    HTTPStatusError that carries the status code (still a DownloadError, so
+    callers that already catch that keep working)."""
     last_err: Exception | None = None
     for attempt in range(attempts):
         try:
@@ -105,6 +121,19 @@ def get_with_retry(url: str, *, headers: dict | None = None,
                          url, resp.status_code, delay)
                 time.sleep(delay)
                 continue
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                # Permanent: the server has answered, and waiting cannot turn
+                # a 404 into a 200. Retrying it anyway cost the user three
+                # backoffs (1.5s + 3s) and then reported "couldn't reach" -
+                # which is not what happened. The server said no, clearly.
+                try:
+                    resp.close()
+                except Exception:  # a close() failure must not mask the answer
+                    pass
+                reason = getattr(resp, "reason", "") or ""
+                detail = f"HTTP {resp.status_code}" + (f" {reason}" if reason else "")
+                raise HTTPStatusError(human(f"{detail} for {url}"),
+                                      resp.status_code, url)
             resp.raise_for_status()
             return resp
         except requests.RequestException as ex:

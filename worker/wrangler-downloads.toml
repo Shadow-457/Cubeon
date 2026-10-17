@@ -15,16 +15,30 @@
 #
 # ABUSE (see the header of cubeon-downloads.js): the release lookup is
 # edge-cached for 5 minutes, which is what stops a flood from spending the
-# token's API budget. The per-IP throttle below is the optional second gate -
-# uncomment it to add one, and re-deploy. Without it the Worker is unthrottled
-# but still cannot burn the quota, because the cache absorbs the traffic.
+# token's API budget - that quota is genuinely unreachable.
 #
-#   [[unsafe.bindings]]
-#   name = "RATE_LIMITER"
-#   type = "ratelimit"
-#   namespace_id = "1001"
-#   simple = { limit = 30, period = 60 }
+# The Worker *request* budget is a different story: it is 100k/day for the
+# whole account, shared with the other four Workers. A flood here is one
+# request each (the cached lookup does not refund them), so it can take friend
+# requests, skins and signups down with it for the rest of the UTC day. Both
+# gates are therefore live now:
+#
+#   * cubeon-downloads.js runs an in-isolate 30/min/IP limiter whether or not
+#     the binding is present.
+#   * The RATE_LIMITER binding below (Cloudflare's Rate Limiting, GA - wrangler
+#     >= 4.36.0) makes that per-POP and durable across isolate recycling.
+#     `namespace_id` is unique per binding across the account.
 
 name = "cubeon-downloads"
 main = "cubeon-downloads.js"
 compatibility_date = "2025-04-01"
+
+# 30 downloads/min/IP is far above any honest use (a person grabs one or two
+# installers) and puts a ceiling under a flood of the shared request budget.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1004"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60

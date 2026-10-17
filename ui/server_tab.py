@@ -1669,7 +1669,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
             def worker():
                 try:
-                    file_info = core.get_plugin_download(hit["slug"] or hit["project_id"], mc_version=version_id)
+                    file_info = core.get_plugin_download(hit["slug"] or hit["project_id"],
+                                                         mc_version=core.minecraft_version(version_id))
                     if not file_info:
                         plugin_search_status.value = f"No build of {title} found for {version_id}."
                     else:
@@ -1806,7 +1807,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         def worker():
             try:
                 if query.strip():
-                    hits = core.search_plugins(query, mc_version=version_id)
+                    hits = core.search_plugins(query, mc_version=core.minecraft_version(version_id))
                 else:
                     hits = core.get_recommended_plugins()
                 plugin_browse_state["results"] = hits

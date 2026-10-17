@@ -83,8 +83,20 @@ function check(label, ok, extra = "") {
   if (!ok) failures++;
 }
 
-const get = (path, init) =>
-  worker.fetch(new Request("https://cubeon-downloads.test" + path, init), env);
+// Every request carries its OWN CF-Connecting-IP by default, so one case cannot
+// spend another's rate-limit budget; the throttle's own checks pin an IP in
+// 203.0.113.0/24 so they can share a bucket on purpose. Same idiom as
+// worker/test-worker.mjs.
+let ipCounter = 0;
+const freshIp = () => `10.0.0.${++ipCounter}`;
+const get = (path, init = {}, ip = freshIp()) =>
+  worker.fetch(new Request("https://cubeon-downloads.test" + path, {
+    ...init,
+    headers: {
+      "CF-Connecting-IP": ip,
+      ...(init.headers || {}),
+    },
+  }), env);
 
 const fresh = (opts) => {
   const world = installWorld(opts);
@@ -150,6 +162,8 @@ check("the token is presented to GitHub as a Bearer header",
 
 // THIS is the security test. The endpoint is public and holds a token with a
 // 5000/hour budget, so a hundred presses must not cost a hundred API calls.
+// Each press here comes from its own IP, so the per-IP throttle cannot confound
+// the measurement - the cache alone has to carry it.
 world = fresh();
 const before = world.apiCalls;
 for (let i = 0; i < 100; i++) {
@@ -230,7 +244,38 @@ world = fresh();
 res = await get("/windowsdownload");
 check("a passing rate limiter lets the request through",
   res.status === 200, `status ${res.status}`);
+
+// A PASSING binding must not switch the local gate off (the production
+// regression: with the binding live and the local gate skipped, a rapid burst
+// drew zero 429s), so the flood test below keeps the binding in place.
+const EDGE_PASS_IP = "203.0.113.9";
+let passBlocked = 0;
+for (let i = 1; i <= 35; i++) {
+  const r = await get("/windowsdownload", {}, EDGE_PASS_IP);
+  if (r.status === 429) { passBlocked = i; break; }
+}
+check("a PASSING binding does not switch the local gate off",
+  passBlocked === 31, `first 429 on request ${passBlocked || "(none in 35)"}`);
 delete env.RATE_LIMITER;
+
+// With NO binding bound at all the Worker must still be damped, not wide open:
+// a flood here costs the account-wide 100k/day request budget that every other
+// Worker shares, so the in-isolate fallback is what keeps one host from taking
+// friend requests, skins and signups down with it for the rest of the day.
+world = fresh();
+const FLOOD_IP = "203.0.113.7";
+let firstBlocked = 0;
+for (let i = 1; i <= 35; i++) {
+  const r = await get("/windowsdownload", {}, FLOOD_IP);
+  if (r.status === 429) { firstBlocked = i; break; }
+}
+check("with NO binding, one IP is still throttled (the in-isolate fallback)",
+  firstBlocked === 31, `first 429 on request ${firstBlocked || "(none in 35)"}`);
+check("...and the flood still cost ONE cached lookup, not 30 API calls",
+  world.apiCalls === 1, `apiCalls=${world.apiCalls}`);
+res = await get("/windowsdownload", {}, "203.0.113.8");
+check("...while a different IP is untouched", res.status === 200,
+  `status ${res.status}`);
 
 // ------------------------------------------------------------------- done ---
 

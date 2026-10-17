@@ -14,15 +14,21 @@
 # and each POST costs 2 KV writes, so without a gate a single script can spend
 # the account's whole daily budget and break skins for every user.
 #
-# The in-isolate fallback (60/min/IP) always runs. Bind Cloudflare's Rate
-# Limiting binding as RATE_LIMITER to enforce it per-POP, surviving isolate
-# recycling:
-#
-#   [[unsafe.bindings]]
-#   name = "RATE_LIMITER"
-#   type = "ratelimit"
-#   namespace_id = "1001"
-#   simple = { limit = 60, period = 60 }
+# The in-isolate fallback (20/min/IP) always runs, so the Worker is never wide
+# open - but a fallback lives and dies with the isolate and only covers the POP
+# that created it. This Worker is deployed by pasting cubeon-skins.js into the
+# dashboard editor (see README.md), so the *live* binding is the one added
+# there: Workers & Pages -> cubeon-skins -> Settings -> Bindings -> Rate
+# limiting, variable name RATE_LIMITER, 20 per 60 seconds. The block below
+# mirrors it, so a `wrangler deploy -c wrangler-skins.toml` produces the same
+# Worker as the dashboard rather than silently dropping the edge limit.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1003"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60
 
 name = "cubeon-skins"
 main = "cubeon-skins.js"

@@ -40,10 +40,15 @@ That is what the Workers themselves have to answer:
 | Worker | Who can write | The scarce resource | Protection |
 |---|---|---|---|
 | `cubeon-skins.js` | only the holder of a per-machine secret — **after** first contact | KV writes (1k/day) | SHA-256 secret at rest, constant-time compare, write budget, **per-IP throttle on all write routes, name-keyed displacement cooldown** |
-| `cubeon-invites.js` | only a host holding the code's secret | KV writes | hashed bearer secret, constant-time compare, optional `RATE_LIMITER`, write budget |
+| `cubeon-invites.js` | only a host holding the code's secret | KV writes | hashed bearer secret, constant-time compare, per-IP throttle (`RATE_LIMITER` **plus** an always-on in-isolate fallback, keyed to the IP and not the attacker-chosen code), write budget |
 | `cubeon-friends.js` | only the holder of a name's secret | WebSocket + DO time | SHA-256 secret at rest, constant-time compare, secret sent in the first frame (never the URL, so never a request log), sliding-window limiter per IP and per action, reserved names |
-| `cubeon-downloads.js` | nobody - it is read-only | **the GitHub token's API budget** | edge-cached release lookup, optional `RATE_LIMITER` |
-| `cubeon-waitlist.js` | anyone (it *is* a public signup form) | KV writes, shared with the tally | optional `RATE_LIMITER` |
+| `cubeon-downloads.js` | nobody - it is read-only | **the GitHub token's API budget**, and the account's shared 100k/day requests | edge-cached release lookup, per-IP throttle (`RATE_LIMITER` + an always-on in-isolate fallback) |
+| `cubeon-waitlist.js` | anyone (it *is* a public signup form) | KV writes, **shared with the tally and the skins Worker** | per-IP throttle on POST (`RATE_LIMITER` + an always-on in-isolate fallback) |
+
+*How much that throttle is actually worth was measured from one IP on
+2026-10-17: 8 and then 25 rapid POSTs drew zero 429s, 120 drew 95 passes and
+then 25 refusals. The binding is the gate that works, and it works **late**.
+See "The measured cost" below before you trust a number in that table.*
 
 Two Workers were genuinely exploitable, and **neither needed a fork, a stolen
 secret, or an authenticated write**:
@@ -56,9 +61,10 @@ trust-on-first-use, so the first request from anyone claims a UUID.
    well-formed, so validation cannot help, and each POST cost **2 KV writes**
    against the account-wide 1k/day budget. 500 anonymous POSTs emptied it, after
    which *every* user's skin upload fails until the day rolls over. Now: a
-   per-IP throttle (`60/min`) on all four write routes, running before any
-   handler. The `RATE_LIMITER` binding is used when bound; an in-isolate
-   fallback is always on.
+   per-IP throttle (`20/min`) on all four write routes, running before any
+   handler. The `RATE_LIMITER` binding is used when bound, and the in-isolate
+   fallback always runs as well - but it is best-effort, so treat the binding as
+   the protection (see "The measured cost" below).
 2. **Name displacement** (the worse one, because it needs no flood at all) — the
    name pointer is last-writer-wins by design, and the only guard was a cooldown
    keyed to the **identity**. An attacker mints identities for free, so four
@@ -74,8 +80,47 @@ trust-on-first-use, so the first request from anyone claims a UUID.
 It spent one GitHub API call on *every* press against a 5000/hour token, with
 `Cache-Control: no-store`, so ~1.4 requests/second sustained from anyone with the
 URL took the download buttons down for every user. The release lookup is now
-edge-cached for 5 minutes, so a flood costs **zero** API calls, with an optional
-per-IP `RATE_LIMITER` as the second gate.
+edge-cached for 5 minutes, so a flood costs **zero** API calls. That protects
+the *token*; it does not refund the request, so a per-IP throttle
+(`RATE_LIMITER` + an always-on in-isolate fallback) is the second gate - every
+press is otherwise one request against the account-wide 100k/day that all five
+Workers share.
+
+**`cubeon-waitlist.js`** was the fourth, and the only one still open in
+production on 2026-10-17 (probed: nine rapid signups, zero 429s). Its limiter
+was documented as "optional"; the code was a bare `if (env.RATE_LIMITER)` and
+the binding was commented out of `wrangler-waitlist.toml`, so the live Worker
+had no limit at all. Two KV writes per signup against an **account-wide**
+1k/day budget meant 500 POSTs from one machine could empty it in seconds -
+taking the tally, every real signup, and the skins Worker (same budget) with
+it. Both gates are live now. What they are worth was then **measured** from one
+fixed IP - see "The measured cost" below. The residual is honest, not hidden. A
+rate limit only raises the price of abusing an unauthenticated write endpoint;
+the real fix is a bot gate (Turnstile) on the form, and 00:00 UTC refilling the
+budget is the backstop.
+
+### The measured cost of a per-IP throttle (2026-10-17, production, one fixed IP)
+
+| rapid POSTs to `/` | result |
+|---|---|
+| 8 | 8 × 422 — **zero** 429s |
+| 25 | 25 × 422 — **zero** 429s |
+| 120 | **95 × 422, then 25 × 429** |
+
+Two conclusions, both of which cost me a wrong claim before I probed:
+
+- **The binding is the gate that works, and it works *late*.** It converged only
+  after roughly a hundred requests. A burst of 25 slips through untouched - so
+  "5/min" describes the steady state, not the first second.
+- **The in-isolate fallback is best-effort, not a safety net.** Requests for a
+  cold Worker need not share an isolate, so the per-isolate `Map` may never
+  accumulate at all. It is deterministic in `wrangler dev` and in the tests, and
+  it fires on a warm isolate, which is why it stays - but the binding is the
+  thing to reason about.
+
+The practical effect is still the one that matters: a flood gets about **190
+writes' worth** of signups through before the binding holds that IP to ~5/min,
+after which the account-wide 1k writes/day is hours away rather than seconds.
 
 Every reasoning trail lives in the header/comments of the Worker itself; the
 tests are `worker/test-worker.mjs` + `worker/test-downloads.mjs` (behaviour) and
@@ -87,9 +132,13 @@ pins, because **CI runs Python and not the Node Worker tests**).
 baked-in URLs, so your users' traffic and quota stay yours. Otherwise their
 requests land on the upstream Workers - throttled, but not yours.
 
-Both gates degrade instead of failing: no binding means "not throttled", and a
-broken or absent cache means "one API call per request", never a 500. A
-protection that turns into an outage when it misbehaves is worse than none.
+Both gates degrade instead of failing, and neither is a promise. The binding
+survives isolate recycling but converges late; the in-isolate fallback is
+best-effort and may never accumulate live (both measured above). A broken or
+absent cache means "one API call per request" - never a 500, and never a silent
+hole. A protection that turns into an outage when it misbehaves is worse than
+none; one that quietly stops protecting while the comments insist it works is
+worse than both.
 
 ---
 

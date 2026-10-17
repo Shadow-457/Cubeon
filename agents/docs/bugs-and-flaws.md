@@ -304,6 +304,93 @@ The relay-first hybrid handover strategy is partially implemented. The `HybridSe
 
 ---
 
+## High: Installs "completed" with holes, and the launcher said nothing — FIXED (2026-10-17)
+
+**File:** `cubeon/versions.py` (`_make_resilient_download_file`, `_PatchedMllDownloads`)
+
+mll 8.0's `_helper.download_file` is the only thing that fetches the ~4000 files
+a version install needs. It opens the request with **no timeout**, copies the
+body with no checksum, and answers a bad HTTP status with `return False`:
+
+```python
+r = requests.get(url, stream=True, headers=headers)   # no timeout
+if r.status_code != 200:
+    return False                                       # caller ignores this
+```
+
+Every call site ignores that return value. So a CDN answering **429** to a burst
+of asset requests, or a proxy dropping a connection mid-jar, produced an install
+that reported success with **files missing** — the game then failed at launch
+with nothing in the UI to explain it (the 2026-10-17 report: "download on
+instances isn't working on some users"). Cubeon's patched downloader was only
+installed when the user could cancel, so an ordinary install had none of it.
+
+**Fix (2026-10-17):** the patch is now installed for **every** install, and the
+downloader it installs retries (3 attempts, 1.5s/3s backoff, honouring
+`Retry-After` capped at 30s) on network errors, timeouts, 429 and 5xx; **resumes**
+with a `Range` request from the bytes already on disk; verifies sha1 and takes
+the whole file again on a mismatch; and raises `_MllDownloadError` naming the
+file on a permanent 4xx, with `install_version` surfacing that text. Two further
+install-wide shortcuts came with it: `install_minecraft_version` is memoised per
+version within one install (a loader install used to walk the base two or three
+times — see row 31) and a process-wide 32-connection pool replaces mll's
+per-phase session of 10, which had made most of its ~32 asset threads build and
+discard a TCP+TLS connection per file. Regression:
+`tools/test_install_download.py`, `tools/test_install_cancel.py` (rewritten: it
+had been passing by accident, because "http://x" failed fast and *that* was the
+"abort" it measured).
+
+---
+
+## High: A loader install re-installed the whole base version — FIXED (2026-10-17)
+
+**File:** `cubeon/versions.py`; `minecraft_launcher_lib/mod_loader/__init__.py`
+
+`ModLoader.install` calls `install_minecraft_version` for the base version and
+then again for the loader profile — whose json `inheritsFrom`s the base, so
+mll's own inheritsFrom branch calls `install_minecraft_version` on the base a
+**second** time from inside that call. Forge adds another. Three full passes
+over the same ~4000 files, each re-hashing ~1 GB of libraries and assets: the
+"installing an instance takes forever" half of the 2026-10-17 report.
+
+**Fix (2026-10-17):** per-install memoisation of `install_minecraft_version`
+(the loader profile's own libraries still install — that is real work) plus a
+per-process `size+mtime` verified-file cache, so a repeat pass is a `stat()`
+rather than a re-read. `install_jvm_runtime` (a second JDK, tens of MB) is also
+skipped when `config.launch_java_path()` proves the launch passes its own
+`executablePath` — with a comment on why it must NOT be skipped unconditionally.
+
+---
+
+## High: "Not connected to Cubeon" on a perfectly good connection — FIXED (2026-10-17)
+
+**File:** `main.py` (startup friends block), `cubeon/friends.py` (`_run_loop`)
+
+Startup connected to the friends relay only when an identity **predated** the
+launch:
+
+```python
+had_identity = friends.load_identity() is not None
+...
+if had_identity:
+    friends_client.connect()
+```
+
+The theory was that a brand-new identity connects when the Chat tab first opens.
+But the Chat tab is only one way in — in-game chat does not trigger the
+launcher's connect — so a first-run player stayed "not connected" for their
+whole first session while their network was fine. `_on_open` also never reset
+the reconnect ladder, so a connection that had been up and then blipped waited
+the maximum 30 s to come back.
+
+**Fix (2026-10-17):** connect as soon as an identity exists (minted or
+pre-existing); `FriendsClient.connect()` already restarts instead of doubling
+up. `_opened_this_round` (set in `_on_open`) resets the backoff after any round
+that reached the server. Headless harnesses stub `FriendsClient.connect`, so
+they still open no socket.
+
+---
+
 ## Summary Table
 
 | # | Severity | Issue | File(s) |
@@ -332,7 +419,11 @@ The relay-first hybrid handover strategy is partially implemented. The `HybridSe
 | 22 | ✅ Fixed 2026-09-14 (relay) | Chat history backfill served the OLDEST page — `ORDER BY ts ASC LIMIT ?` returns the stale prefix once a conversation outgrows the 50-message window; now a newest-50 subquery re-ordered chronologically (rowid tiebreak, projected as `rid`) | `cubeon-friends.js` |
 | 23 | ✅ Fixed 2026-09-14 (relay) | `decodeURIComponent(pathname)` throws URIError on malformed %-escapes → CF error 1101, in all four workers — `safePathname()` fallback | `cubeon-friends.js`, `cubeon-invites.js`, `cubeon-skins.js` |
 | 24 | ✅ Fixed 2026-09-14 (relay) | Unauthenticated WS hello flood: each attempt cost a SHA-256 and each unknown name burned a permanent claim row — IP captured into the attachment at upgrade, 30/10min per-IP pre-auth gate | `cubeon-friends.js` |
-| 25 | ✅ Fixed 2026-09-14 (relay) | invites `RATE_LIMITER` binding was documented ("uses it when present") but never referenced by the code — now gates PUT, degrades to no-limit if absent/failing | `cubeon-invites.js` |
+| 25 | ✅ Fixed 2026-09-14 (relay); **superseded 2026-10-17 — see 29** | invites `RATE_LIMITER` binding was documented ("uses it when present") but never referenced by the code — now gates PUT. The "degrades to no-limit if absent/failing" part of that fix is gone: it degrades to the always-on in-isolate gate | `cubeon-invites.js` |
 | 26 | ✅ Fixed 2026-09-14 (relay) | waitlist POST parsed an unbounded JSON body (`request.json()`, no cap — the only worker without one) — 1KB Content-Length + decoded-length cap | `cubeon-waitlist.js` |
 | 27 | ✅ Fixed 2026-09-14 (relay) | Blocked accounts were still addable via the in-game mod's name path (the `/name/`+`/uid/` HTTP lookups 404 them) — both `onAdd` paths now treat blocked as nonexistent | `cubeon-friends.js` |
 | 28 | ✅ Fixed 2026-09-14 (relay) | Call invites minted an unbounded `calls` room row per invite — 10/min per-user budget with a visible message | `cubeon-friends.js` |
+| 29 | ✅ Fixed 2026-10-17 | **The waitlist had no effective rate limit.** The code was a bare `if (env.RATE_LIMITER)` and the binding was commented out of `wrangler-waitlist.toml`, so the live Worker was open — probed: 9 rapid signups, zero 429s. Two KV writes per signup against the **account-wide** 1k/day budget meant 500 POSTs could break the tally, every real signup, and the skins Worker (same budget). Now an in-isolate 5/min/IP fallback **always** runs and the binding is enabled. Same audit: invites' gate was re-keyed from the caller-chosen `code` (a fresh bucket per request — it limited nothing) to the IP; downloads gained the always-on fallback for the shared 100k/day **request** budget the edge cache cannot refund; skins' cap tightened 60→20/min | `cubeon-waitlist.js`, `cubeon-invites.js`, `cubeon-downloads.js`, `cubeon-skins.js`, `wrangler-waitlist.toml`, `wrangler-invites.toml`, `wrangler-downloads.toml`, `wrangler-skins.toml` |
+| 30 | ✅ Fixed 2026-10-17 | **Installs "completed" with holes.** mll 8.0's downloader has no timeout, no retry, no resume and no checksum, and reports a bad status by *returning* `False` — which every caller ignores, so a 429 from the asset CDN or a dropped connection mid-jar was silently skipped and the version list called it installed. Cubeon's patch also ran only for a *cancellable* install. Now every install uses the resilient downloader (timeouts, 3 retries honouring `Retry-After`, `Range` resume, sha1 verify, a hard error naming the file), plus a shared 32-connection pool instead of mll's per-phase 10 | `cubeon/versions.py` |
+| 31 | ✅ Fixed 2026-10-17 | A loader install walked the base version **two or three times** — `ModLoader.install` installs the base, then the loader profile whose json `inheritsFrom`s it (and mll's inheritsFrom branch re-installs the base *inside* that call); each pass re-hashed ~1 GB for an answer already known. Now `install_minecraft_version` is memoised per install and a per-process size+mtime cache makes repeat passes `stat()`-only; mll's unused second JDK is skipped when the launch passes its own `executablePath` | `cubeon/versions.py`, `cubeon/config.py`, `cubeon/mod_loaders.py`, `cubeon/modpacks.py`, `main.py` |
+| 32 | ✅ Fixed 2026-10-17 | **"Not connected to Cubeon" on a good connection.** Startup connected only when an identity *predated* the launch, so a first-run player who never opened the launcher's Chat tab (in-game chat does not trigger it) stayed offline for their whole first session; a reconnect after a connection that was up also kept the 30 s backoff. Now it connects as soon as an identity exists and resets the ladder after any round that reached the server | `main.py`, `cubeon/friends.py` |

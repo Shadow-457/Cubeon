@@ -548,8 +548,11 @@ const other = await worker.fetch(new Request("https://test.invalid/api/unlocks",
 check("a different IP is unaffected by the flooded bucket", other.status !== 429,
   String(other.status));
 
-// The Cloudflare binding, when present, is authoritative: refusing means 429,
-// accepting means straight through (no double-counting against the fallback).
+// The Cloudflare binding is consulted first, and its refusal is a 429. But it
+// is NOT the only gate: the local one still runs, because the edge counters are
+// per-POP and "permissive, eventually consistent", and a burst is exactly what
+// these gates exist for (probed against production on 2026-10-17: with the
+// binding live and the local gate skipped, seven rapid POSTs drew zero 429s).
 env.RATE_LIMITER = { limit: async () => ({ success: false }) };
 res = await post("/api/heartbeat", { username: "BoundRefuse", uuid: randomUUID() }, null, "198.51.100.1");
 check("a refusing RATE_LIMITER -> 429 rate_limited",
@@ -559,6 +562,16 @@ env.RATE_LIMITER = { limit: async () => { throw new Error("binding died"); } };
 res = await post("/api/heartbeat", { username: "BoundBroken", uuid: randomUUID() }, null, "198.51.100.2");
 check("a throwing RATE_LIMITER degrades to the fallback, not a 500",
   res.status !== 500, String(res.status));
+
+env.RATE_LIMITER = { limit: async () => ({ success: true }) };
+let passBlocked = 0;
+for (let i = 1; i <= 25; i++) {
+  const r = await post("/api/heartbeat",
+    { username: `EdgePass${i}`, uuid: randomUUID() }, null, "198.51.100.3");
+  if (r.status === 429) { passBlocked = i; break; }
+}
+check("a PASSING binding does not switch the local gate off",
+  passBlocked === 21, `first 429 on request ${passBlocked || "(none in 25)"}`);
 delete env.RATE_LIMITER;
 
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : "\nALL WORKER CHECKS PASSED");

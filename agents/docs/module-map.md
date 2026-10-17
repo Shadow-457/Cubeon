@@ -1148,6 +1148,87 @@ facts belong HERE, not in diary notes.
   to swallow), checked through the install's own `_InstallCancelBridge`.
   Regression: tools/test_install_prepare.py, tools/test_install_cancel.py §2.
 
+## Install downloads: retries, resume, and ONE pass per version (2026-10-17) — INVARIANTS
+- **mll's downloader is ALWAYS replaced for an install**, not only for a
+  cancellable one: every `versions.install_version` call enters
+  `_PatchedMllDownloads`, which swaps `_make_resilient_download_file()` into
+  every mll module that holds a `download_file` of its own (`mll.install`,
+  `mll.runtime`, `mll._helper`, and the loaders that imported it directly —
+  fabric/forge/quilt/mrpack; enumerated by `_mll_modules()`, duck-typed so the
+  SimpleNamespace fakes in tests are patched the same way). Why: mll's own has
+  no timeout, no retry, no resume and no checksum, and reports a bad status by
+  RETURNING False — which every caller ignores, so a 429 from the asset CDN or
+  a proxy dropping a connection mid-jar "completed" the install with a hole in
+  it and nothing in the UI to say which file (the 2026-10-17 "download on
+  instances isn't working" report). The replacement: (15s connect, 60s read)
+  timeouts, 3 attempts with 1.5s/3s backoff honouring `Retry-After` (capped at
+  30s), `Range` resume from the bytes already on disk, sha1 verify with a full
+  re-fetch on mismatch, and a hard `_MllDownloadError` naming the file on a
+  permanent 4xx. Assets and libraries resume; the version folder's own jars are
+  still dropped on failure/cancel by `_drop_attempt_jars` (a truncated client
+  jar must never look launchable). Regression: tools/test_install_download.py,
+  tools/test_install_cancel.py.
+- **One wide pooled session, not mll's per-phase 10.** mll installs assets
+  across ~32 threads while handing them `requests`' default pool of 10, so
+  most threads built and discarded a TCP+TLS connection per file — of ~4000.
+  Our downloader ignores the `session` argument and uses
+  `versions._install_session()` (pool 32). This must never go through
+  `net.DOWNLOAD_GATE` (4) — that would serialise mll's own install.
+- **`install_minecraft_version` is memoised per version id for one install.**
+  A loader install calls it for the base version and then again for the loader
+  profile whose json `inheritsFrom` the base — and mll's inheritsFrom branch
+  re-installs the base INSIDE that call, so the base was walked two or three
+  times per Fabric/Forge install. The loader profile's own libraries still
+  install (that is real work); a repeat of a version already finished in THIS
+  install is skipped. The memo lives on the `_PatchedMllDownloads` instance, so
+  it never leaks across installs.
+- **`versions._VERIFIED_FILES` (path → size+mtime_ns)** skips re-hashing files
+  this process already hashed and found correct. Size+mtime is the same
+  evidence the instance list trusts between launches, and a rewritten file
+  changes its mtime, so a stale entry can never vouch for new bytes. This is
+  what turns the second/third pass of a loader install into `stat()` instead of
+  re-reading ~1 GB of assets.
+- **`explicit_java=True` skips mll's own Java runtime**
+  (`install_jvm_runtime`: a whole second JDK, tens of MB, hundreds of files).
+  Callers pass it only when they know the launch hands mll its own
+  `executablePath` — the signal is `config.launch_java_path()` (i.e.
+  `cfg["java_path"]`), used by main.py's two install sites,
+  `mod_loaders.install_mod_loader` (vanilla branch) and `modpacks`.
+  **Do NOT skip it unconditionally**: `mll.command` falls back to the runtime
+  directory when no `executablePath` is given
+  (`minecraft_launcher_lib/command.py`, `get_executable_path`) and to the
+  literal `"java"` after that, so on a machine with no system Java and no
+  configured path that runtime is the only Java there is. Cubeon's own managed
+  (Adoptium) JRE is NOT one of `launch.find_java_for_version`'s candidates, and
+  `jre.java_status` answering "not ok" only prompts for Adoptium — it does not
+  set `cfg["java_path"]`.
+- **Progress repaints are throttled to 10 fps** in `do_install_and_launch`
+  (`_paint_progress`, control-level `thread_safe_ui.refresh` of the progress
+  row + bar, `force=True` at each phase end). Progress arrives once per FILE
+  (~4000 per install) and that many marshalled repaints is what made the
+  window stop answering input for the whole download; the launch phase's full
+  `page.update()` covers the tail.
+- **Java resolution is warmed off the UI thread at startup**
+  (`_warm_java_check`). `jre.java_status` → `launch.find_java_for_version` →
+  `mll.java_utils` probes every JVM it finds with `java -version` — measured
+  1.46 s cold / 0.23 s warm on 2026-10-17 — and `on_play_click` ran that on the
+  UI thread before it could even paint "Preparing".
+
+## Friends: connect at startup, and reconnect like a blip (2026-10-17) — INVARIANTS
+- The launcher connects at startup as soon as an identity EXISTS, including one
+  `ensure_identity()` has just minted. It used to connect only when an identity
+  predated the launch (`had_identity`), on the theory that a brand-new identity
+  connects when the Chat tab first opens — so a first-run player who only ever
+  plays the game (in-game chat is the other way in) stayed "not connected to
+  Cubeon" for their whole first session with a perfectly good connection (the
+  2026-10-17 report). `FriendsClient.connect()` restarts rather than doubling
+  up (it stops a running loop first), so the Chat tab's own connect is still
+  safe. tools/_fuzz_common.install_safe_stubs stubs `FriendsClient.connect`,
+  so headless harnesses open no socket.
+- A reconnect after a connection that WAS up resets the backoff ladder
+  (`_opened_this_round`, set in `_on_open`), so a blip retries in 1 s instead
+  of 30 s. The ladder is for a server that never opened the socket at all.
+
 ## Tray/session lifecycle (2026-09-18) — INVARIANT
 - `_tray_runtime["controller_page"]` tracks the current session page and is
   cleared by session-end cleanup. `_tray_activate()` records Open requests
@@ -1743,6 +1824,19 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   "21.1" and 26.x-era numbers are both wrong). If `_inherited_base_version`
   can't read the json it returns the raw id as a safe fallback, so mods never
   sync from an empty folder.
+- **Same rule for anything PER-VERSION on the server side (2026-10-17):** a
+  launch id must never reach Paper's Fill API or Modrinth's
+  `versions:`/`game_versions` facet. Paper publishes per Minecraft release, so
+  a loader id is a guaranteed 404 (the "Install server" button failed on
+  Fabric profiles with `Couldn't reach .../versions/fabric-loader-0.19.5-1.21.11/builds
+  after 3 tries: 404 Client Error`), and Modrinth matches ZERO hits for a
+  loader id, so the Plugins tab search AND the managed AuthMe install came back
+  empty on exactly the Fabric profiles that need them. Use
+  `core.minecraft_version(version_id)` (= `extract_mc_version` + id fallback)
+  at `server._get_paper_download_url`, `server.ensure_default_plugins` /
+  `ensure_smooth_mode_plugins`, and the `search_plugins` / `get_plugin_download`
+  callers in `ui/server_tab.py`. Verified live: `1.21.11` → Paper build 67 and
+  27 worldedit hits; the loader id → 404 and 0 hits.
 - Loader checks run in PARALLEL (one thread/loader); results cached in the
   session `loader_check_cache` keyed by raw version id. mll timings:
   fabric 0.6s / quilt ~1s / forge ~1.9s / neoforge ~1s, cached 1 week via
@@ -1860,6 +1954,13 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 
 ## Facts that bite if you don't know them
 
+- **mll's Java runtime is load-bearing (2026-10-17).** `install_jvm_runtime`
+  downloads Mojang's JDK into the game directory and `mll.command` uses it
+  whenever `options["executablePath"]` is absent — which is Cubeon's launch
+  whenever `cfg["java_path"]` is empty. Only skip it via
+  `install_version(..., explicit_java=True)`; see the 2026-10-17 install
+  section for the full trap.
+
 - **24 jars, not two (2026-10-15).** One jar per Minecraft version, 1.20 → 26.3,
   all through Gradle. `fabric-loom` + **Yarn** mappings (remapped to intermediary)
   for the obfuscated 1.20–1.21.11; loom's **no-remap marker plugin**
@@ -1944,7 +2045,7 @@ python3 tools/test_ui_smoke.py          # 148: tab builders build, invariants ho
 python3 tools/test_invites.py           # 127: Minekube/tunnel flows
 python3 tools/test_modpacks.py          # 66: pack installs
 python3 tools/test_mod_store.py         # 27: global mod store
-python3 tools/test_net.py               # 19: download retry/resume/cap + updater
+python3 tools/test_net.py               # 54: download retry/resume/cap + updater
 python3 tools/test_production.py        # 51: watchdog
 python3 tools/build_mod_jars.py         # rebuild mod jars -> cache + assets/jars
 ```
@@ -2000,6 +2101,20 @@ trap (the mod now warns about it in chat, but don't rely on that).
   production = pooled session, tests monkeypatch `net._do_get`. Harnesses that
   fake `requests.get` (test_modpacks) must route `net._do_get` back through it
   or they'll hit the real network.
+  **2026-10-17 — a permanent 4xx now fails FAST:** `get_with_retry` retried
+  everything, 404 included (its own docstring claimed otherwise), so a version
+  that simply doesn't exist cost the user 1.5s+3s of backoff and then read
+  `Couldn't reach <url> after 3 tries: 404 ...` — blaming the network for an
+  answer. A 4xx other than 429 now closes the response and raises
+  `net.HTTPStatusError` (a `DownloadError` subclass carrying `.status_code`) on
+  the FIRST response, naming the status. Anything wrapping `net.get_json` that
+  cares about a 404 must catch `net.HTTPStatusError`, NOT `requests.HTTPError`
+  — that handler is unreachable, which is how the Paper 404 message stayed
+  dead. Pinned by `tools/test_net.py` §_no_retry_on_404 /
+  §_retry_on_429_never_on_403 / §_get_json_failure_is_clean. Note that
+  §_no_retry_on_404 had been defined but never CALLED since it was written, so
+  the regression it guards shipped silently — check new tests are actually
+  invoked.
   **Also now wired:** `content.download_content` (resource packs + shaders —
   was the last bare single-attempt `requests.get`, hence the "network error"
   on install), `server.download_plugin`, `minekube` Connect plugin. Modpack
@@ -3307,6 +3422,28 @@ sanitize at launch (below). The four still-retired mods
   wrangler-friends.toml` (plus -skins/-waitlist as touched) to go live.
 
 - `web/` is the site sharing `web/assets/site.css` + `web/assets/site.js` (no build step): `index.html` (landing), `download.html` (the binaries, clean routes to release assets — see the web bullets above), `help.html` (the manual), plus the error pages `404.html` (void/creeper), `403.html` (locked chest), `429.html` (rate-limit), `500.html` (server exploded), `502.html` (bad gateway), `503.html` (overloaded), and the legal pages. Each error page is a self-contained `noindex` stub reusing the shared navbar/footer + the `.void` layout from `404.html`; keep them in sync if the nav/footer changes. `.btn` must stay `display:inline-block` — it is applied to `<a>` tags too, and inline padding overlaps sibling text. Fonts are Google-hosted Fredoka + local `web/assets/fonts/Minecraftia-Regular.ttf` (@font-face lives in `site.css`, so its url is `fonts/...` — page-relative paths 404 there; Minecraftia ONLY for h1-h3/.brand/.btn/.q-a, line-height ~1.12 — illegible <16px, keep Fredoka for body); images lazy-swap from `/tmp`-independent `web/assets/` paths.
+- **OG card: `web/assets/og.png` (1200×630, added 2026-10-17).** Every content
+  page (`index`, `download`, `benchmarks`, `help`, `terms`, `refunds`,
+  `privacy`, `licenses`, `cookies`) declares `og:image` + `twitter:card
+  =summary_large_image`. The URL must be **absolute**
+  (`https://cubeon.ylet.online/assets/og.png`) — crawlers do not resolve
+  relative `og:image`; the error stubs deliberately stay bare. The file is
+  GENERATED, not hand-drawn: the source card is an HTML file that reuses
+  `web/assets/fonts/*` and the `site.css` palette, so it cannot drift from the
+  brand. Render it through **Playwright with an exact viewport** (`viewport=
+  {width:1200,height:630}`, `device_scale_factor=2`, then halve it — the 2×
+  source keeps Minecraftia's pixel grid on exact pixels instead of blurring it).
+  Do NOT use `google-chrome --headless --screenshot --window-size=1200,630`:
+  the window frame eats ~70px of height, so the page's own background stopped
+  short of the bottom of the frame while the PNG still measured 2400×1260.
+  Regenerate with `python3 tools/make_og_card.py` (repo root): it rewrites the
+  source card `tools/og-card.html` and renders `web/assets/og.png` through
+  Playwright with exactly that viewport + scale. It is the only supported way
+  to produce the card — hand-editing the PNG drifts it from the brand. The
+  source card deliberately lives in `tools/`, NOT `web/`: everything under
+  `web/` is published, and `tools/test_web_download_count.py` asserts that
+  every `web/*.html` wires `assets/site.js` (a stray card source in there fails
+  the suite — 2026-10-17).
 
 - `ui/skin_tab.py` (Profile > Skin/Cape panes) has NO browse/gallery area anymore (removed 2026-09-14): each pane is preview + installed card grid + upload CTA. `cubeon/gallery.py` survives only as core bookkeeping (`forget_file` in delete flows) + its tests; do not re-add library browsing without asking.
 
@@ -3546,11 +3683,14 @@ Cubeon cape resolves.
     assert the 429. Do not "restore" it.
   - The per-identity `lastmove` cooldown is still there and still useful; the
     name stamp is a second key, not a replacement.
-  - `worker/test-worker.mjs` now gives every helper request its **own**
-    `CF-Connecting-IP` (via `freshIp()`), or ~70 checks share one bucket and the
-    suite 429s itself. Throttle checks pin an IP explicitly to share a bucket on
-    purpose. **Any new test here must use `get`/`post` (or pass an IP) rather
-    than a bare `worker.fetch`.**
+  - `worker/test-worker.mjs`, `test-waitlist.mjs`, `test-invites.mjs` and
+    `test-downloads.mjs` give every helper request its **own**
+    `CF-Connecting-IP` (via `freshIp()`, a `10.0.0.x` counter), or the whole
+    file shares one bucket and the suite 429s itself. Throttle checks pin an IP
+    in `203.0.113.0/24` explicitly to share a bucket on purpose. **Any new test
+    here must go through the file's `get`/`post`/`call` helper (or pass an IP)
+    rather than a bare `worker.fetch`** - a bare fetch sends no header, so every
+    request lands in the single `"unknown"` bucket.
 - **`cubeon-waitlist.js` gates POSTs above the route dispatch** (above
   `handleJoin` / `handleUnsubscribe`). It is the only Worker whose writes carry
   no identity and its tally shares a KV namespace, so a script posting fake
@@ -3558,10 +3698,45 @@ Cubeon cape resolves.
   and take every *real* signup down with it. **The gate must stay inside the POST
   branch above the dispatch** — moved below it still compiles and protects
   nothing.
-- **The `RATE_LIMITER` opt-in is a commented `[[unsafe.bindings]]` block** in
-  `wrangler-downloads.toml`, `wrangler-waitlist.toml` and `wrangler-skins.toml`.
-  Every Worker behaves as before when it is absent (skins falls back to the
-  in-isolate limiter, which is always on).
+- **The `RATE_LIMITER` opt-in is now a live `[[ratelimits]]` block** in
+  `wrangler-waitlist.toml`, `wrangler-invites.toml`, `wrangler-downloads.toml`
+  and `wrangler-skins.toml` (Cloudflare's Rate Limiting, GA — needs wrangler
+  >= 4.36.0; the old `[[unsafe.bindings]]` spelling still parses but is not
+  what these files use). Two rules that bite:
+  - **Give each binding a unique `namespace_id`.** Two bindings that share one
+    share their counters account-wide, which is only ever deliberate.
+  - **Put the table after the top-level keys.** A `[[ratelimits]]` block
+    followed by `name = "..."` parses that `name` as part of the binding.
+- **A rate gate must run BOTH gates, and must never trust the binding alone.**
+  `if (env.RATE_LIMITER) { ... }` alone means "no limit at all" whenever the
+  binding is absent — and that is exactly what shipped, because the binding sat
+  commented out in the toml while the code only checked for it. The shape to
+  copy is `throttle(request, env)` in `cubeon-waitlist.js`, `cubeon-invites.js`,
+  `cubeon-downloads.js` and `cubeon-skins.js`: consult the binding, and **always
+  run `fallbackAllow(fallbackRL, ip, ...)` too** — either gate may refuse. An
+  early `return null` on the binding's approval (the first attempt) skips the
+  local bucket exactly when a burst needs it. Key it on the **IP**, not on a
+  caller-supplied value — invites used to key on the invite `code`, which is
+  attacker-chosen, so every request landed in its own fresh bucket and the
+  limiter limited nothing. Per-IP caps: waitlist 5/min, invites 20/min,
+  downloads 30/min, skins 20/min (`WRITE_RATE` in `cubeon-skins.js`, which
+  deploys from the dashboard — the toml block mirrors the dashboard binding so a
+  `wrangler deploy` produces the same Worker).
+- **Measured live 2026-10-17, one fixed IP (the numbers the comments quote):**
+  8 rapid POSTs → zero 429s, 25 → zero, 120 → 95 passed then 25 refusals. The
+  **binding is the gate that works, and it works late** — Cloudflare documents
+  Rate Limiting as "permissive, eventually consistent", and here it converged
+  only after ~100 requests. The in-isolate fallback is best-effort: it can be
+  **inert live**, because requests for a cold Worker need not share an isolate.
+  It is still worth keeping (deterministic in `wrangler dev` and in the tests,
+  and it fires on a warm isolate) — but do not describe it as the guarantee.
+- **The per-IP caps are speed bumps, not walls, and the comments say so.** The
+  scarce resource is the **account-wide** 1k KV writes/day (and the 100k
+  requests/day, also account-wide — the download Worker shares it with the other
+  four). Because the binding converges late, a flood gets ~190 writes' worth of
+  signups through before it is held to ~5/min; after that 1k writes is hours
+  away, not seconds, and the 00:00 UTC refill resets the window. The true fix for
+  an unauthenticated write endpoint is a bot gate (Turnstile), not a per-IP cap.
 - **"Already sound" is a claim that must be probed, not read.** `skins`,
   `invites` and `friends` all look fine on the authenticated paths — bearer
   secrets, constant-time compare, budgets. The skins holes were entirely on the
