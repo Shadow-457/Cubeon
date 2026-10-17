@@ -1821,7 +1821,15 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
 - **Dialog API: `Page.show_dialog(dlg)` / `Page.pop_dialog()` — there is NO
   `Page.open()`/`Page.close()` on 0.86.** Dialogs (AlertDialog AND SnackBar —
   both are DialogControls) live in the managed stack `page._dialogs.controls`,
-  NOT in `page.overlay`. `show_dialog` raises on an already-open dialog;
+  NOT in `page.overlay`. `show_dialog` raises on an already-open dialog —
+  and since 2026-10-18 the shared helper ABSORBS that: `open_dialog` is
+  idempotent (a mounted dialog is refreshed in place, and a lost race is
+  swallowed only for the "already open" message), because the raw
+  RuntimeError escaped the handler it was called from and reached users as
+  "The application encountered an error: Dialog is already opened" from any
+  path that could fire twice — a double click, a poll tick racing a button, a
+  retry. Never call `page.show_dialog()` directly; `tools/test_dialogs.py`
+  fails if anything outside `cubeon/dialogs.py` does.
   `pop_dialog` closes the top one; a buried dialog closes via
   `dlg.open = False; dlg.update()`. ALWAYS go through `cubeon/dialogs.py`
   (`open_dialog`/`close_dialog`/`show_snack`) — the app previously fell back

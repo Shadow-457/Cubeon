@@ -170,6 +170,32 @@ So the two things that follow, both shipped here:
    last-resort only — and it cannot trip the wedge watchdog, whose GL-timeout
    rule requires a BURST (< 4 s apart) exactly to spare a merely slow client.
 
+## 7. "Dialog is already opened" — the random user error
+
+Report: *"The application encountered an error: Dialog is already opened — this
+error just came upon a users, they are so random."*
+
+Flet 0.86's `Page.show_dialog()` raises `RuntimeError("Dialog is already
+opened")` for an instance already in `page._dialogs.controls`, and
+`cubeon/dialogs.open_dialog()` — the single funnel all 25 call sites use —
+passed it straight through. The exception escapes the handler that mounted the
+dialog, so a **no-op** (the user is looking at that dialog already) reached them
+as an application error banner. Hence "random": anything that can fire twice
+does it.
+
+The repo already knew: main.py had `_dialog_mounted` and ui/versions.py
+`InstancesManager._is_mounted` as one-off guards — but the shared helper
+underneath them was still exposed. The helper is now **idempotent**: membership
+in the stack decides (NOT `.open` — flet removes a barrier-dismissed dialog from
+the stack without clearing the flag), a mounted dialog is refreshed in place,
+and a lost race is swallowed *only* for the known `already open` message so
+other RuntimeErrors still surface. Suppression logs at INFO with the dialog
+class, so a repeat tells us which dialog double-opens.
+
+`tools/test_dialogs.py` (21 checks) drives a FakePage that reproduces flet's
+real double-mount raise, and fails if any shipped module calls
+`page.show_dialog()` directly (only `cubeon/dialogs.py` may).
+
 ## Verified
 Full CI-equivalent suite (`tools/test_*.py`, minus the manual `test_visual_*`
 and `test_wedge_watchdog.py`): **SUITE_DONE failed=0** (three separate runs —

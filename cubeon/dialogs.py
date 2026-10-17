@@ -9,22 +9,69 @@ append) that 0.86 silently ignores - dialogs opened but never closed, and
 snackbars never showed at all. One shared implementation, used by main.py
 and every ui/ tab builder, so it can never drift again.
 """
+import logging
+
 import flet as ft
+
+log = logging.getLogger(__name__)
+
+
+def _dialog_stack(page):
+    """The page's managed dialog stack, or None when the field is missing.
+
+    Membership in this list - not the `.open` flag - is what decides whether
+    flet considers a dialog open: flet removes a barrier-dismissed dialog from
+    the stack WITHOUT clearing `.open`.
+    """
+    return getattr(getattr(page, "_dialogs", None), "controls", None)
 
 
 def open_dialog(page: ft.Page, dlg: ft.DialogControl) -> None:
-    """Mount a dialog (AlertDialog / SnackBar / bottom sheet) on the page."""
+    """Mount a dialog (AlertDialog / SnackBar / bottom sheet) on the page.
+
+    IDEMPOTENT on purpose. Flet 0.86's `show_dialog()` raises
+
+        RuntimeError("Dialog is already opened")
+
+    for an instance that is already in the stack, and that exception escapes
+    the event handler it was called from - the user gets an "application
+    encountered an error" banner out of what is a no-op (the dialog they can
+    already see). Any path that can fire twice - a double click, a poll tick
+    that races the button, a retry - hits it. Re-showing an open dialog has
+    no visible effect anyway, so the mounted case refreshes and returns, and a
+    lost race (two events past the check at once) is swallowed by message:
+    only the known double-open is hidden, anything else still surfaces.
+    """
     if hasattr(page, "show_dialog"):
-        page.show_dialog(dlg)
-    elif hasattr(page, "open"):
+        stack = _dialog_stack(page)
+        if stack is not None and dlg in list(stack):
+            log.info("dialog re-open suppressed (%s): already mounted",
+                     type(dlg).__name__)
+            try:
+                dlg.update()
+            except Exception:
+                try:
+                    page.update()
+                except Exception:
+                    pass
+            return
+        try:
+            page.show_dialog(dlg)
+        except RuntimeError as ex:
+            if "already open" not in str(ex):
+                raise
+            log.info("dialog re-open raced (%s): already mounted",
+                     type(dlg).__name__)
+        return
+    if hasattr(page, "open"):
         page.open(dlg)
-    else:
-        # Pre-0.28 flet: no stack, just a property + overlay mount.
-        dlg.open = True
-        page.dialog = dlg
-        if dlg not in page.overlay:
-            page.overlay.append(dlg)
-        page.update()
+        return
+    # Pre-0.28 flet: no stack, just a property + overlay mount.
+    dlg.open = True
+    page.dialog = dlg
+    if dlg not in page.overlay:
+        page.overlay.append(dlg)
+    page.update()
 
 
 def close_dialog(page: ft.Page, dlg: ft.DialogControl) -> None:

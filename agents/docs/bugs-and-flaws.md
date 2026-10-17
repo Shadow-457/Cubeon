@@ -566,6 +566,36 @@ restart escalates too.
 
 ---
 
+## Medium: "Dialog is already opened" error banner — FIXED (2026-10-18)
+
+**File:** `cubeon/dialogs.py`
+
+User report: *"The application encountered an error: Dialog is already opened —
+this error just came upon a users, they are so random."*
+
+Flet 0.86's `Page.show_dialog()` raises `RuntimeError("Dialog is already
+opened")` when the instance is already in `page._dialogs.controls`, and
+`cubeon/dialogs.open_dialog()` passed that straight through. The exception
+escapes whichever event handler mounted the dialog, so a **no-op** — the user is
+looking at that dialog already — surfaced as an application error banner. That
+is the "random": anything that can fire twice hits it (a double click, a poll
+tick racing a button, a retry). The repo had already grown two one-off
+workarounds for exactly this (main.py `_dialog_mounted`, ui/versions.py
+`InstancesManager._is_mounted`) while the 25 call sites going through the shared
+helper stayed exposed.
+
+**Fix (2026-10-18):** `open_dialog` is now idempotent. Membership in the stack
+(not the `.open` flag — flet removes a barrier-dismissed dialog from the stack
+*without* clearing it) is checked first and the mounted case is refreshed in
+place; a lost race between the check and the call is swallowed only when the
+message is the known `already open` one, so any *other* RuntimeError still
+surfaces. The suppression is logged at INFO naming the dialog class, so if it
+repeats we can find which dialog double-opens. Regression:
+`tools/test_dialogs.py`, whose FakePage reproduces flet's real double-mount
+raise — and which fails if any shipped module calls `show_dialog` directly.
+
+---
+
 ## Summary Table
 
 | # | Severity | Issue | File(s) |
@@ -606,3 +636,4 @@ restart escalates too.
 | 34 | ✅ Fixed 2026-10-18 | **"A new Cubeon is available" nagged on every launch** ("spamming … coming up again and again"). The snackbar had NO memory at all, so an available update was announced on every start until the user updated; the only once-per-version marker belonged to the OS toast and failed open when toasts were off. A SECOND background check ran without the update token purely for that toast — two GETs per start and two answers about the same release. Now one check, one `_announce_update` callback, gated by the total function `updater.should_announce(cfg, version)`, which marks the version in the config before either notice goes out | `main.py`, `cubeon/updater.py` |
 | 35 | ✅ Fixed 2026-10-18 | **The Windows startup job was red on every run, so CI had never built the UI on Windows.** `test_startup.py` banned every connect to prove "no network on the UI thread", but Windows `socket.socketpair()` is a real 127.0.0.1 TCP pair and `ProactorEventLoop`'s self-pipe uses it, so `asyncio.run()` died before `main()` (`controls=0`). `test_winwindow.py` §1 asserted the off-Windows no-op ("returns immediately") while running on windows-latest, where the module is real. Loopback is allowed and real hosts are still recorded+refused (plus `socket.create_connection`, the call urllib3 makes); the timing check is branched on `os.name` | `tools/test_startup.py`, `tools/test_winwindow.py` |
 | 36 | ✅ Fixed 2026-10-18 | **A launcher "crash" left no evidence anywhere.** The report was a KDE crash-reporter screenshot: the flet desktop client (`~/.flet/client/flet-desktop-light-0.86.5/flet/flet`) dying to a signal, twice — attempt 1 and the software-GL retry — after which the ladder gives up silently. Recovery was already right; the diagnosis was impossible: every message was a `print()` to a stdout no desktop-launch user sees, and `setup_logging()` was only reached from `main()`, so a PRE-PAINT crash left cubeon.log completely EMPTY. `__main__` now configures logging before the session loop, `cubeon/incident.py` records every session end (kind, signal via `describe_exit`, ui_painted, software-GL state, session/desktop/flet versions, and the client's own last 25 output lines), both give-up branches log at ERROR, and a retry-only `GDK_BACKEND=x11` dice roll covers the GTK/Wayland crash class. Root cause confirmed the same day from the maintainer's own core dumps: SIGSEGV in `libgallium-26.1.6` ← `libflutter_linux_gtk` ← `gtk_container_propagate_draw`, i.e. a **Mesa 26.1.x radeonsi/gallivm regression** (26.2 fixes it) — so the record now prints `gallium=<lib>` and the ladder escalates `llvmpipe` → `softpipe` (no LLVM JIT) on its last attempt | `main.py`, `cubeon/incident.py` |
+| 37 | ✅ Fixed 2026-10-18 | **"Dialog is already opened" reached users as an application error.** Flet 0.86's `show_dialog()` raises for an instance already in `page._dialogs.controls`, and the shared `dialogs.open_dialog()` passed it through — so any path that could fire twice (double click, poll tick racing a button, retry) turned a no-op into a user-visible error banner. The helper is now idempotent: a mounted dialog is refreshed in place, and only the known `already open` RuntimeError is swallowed, logged at INFO with the dialog class | `cubeon/dialogs.py`, `tools/test_dialogs.py` |
