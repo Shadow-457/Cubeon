@@ -492,6 +492,38 @@ def section_runtime():
         import traceback
         check("a second independent build also succeeds", False,
               traceback.format_exc())
+
+    # 5d. the Windows custom window frame, FORCED on. This is the one branch CI
+    # can never reach by platform (it is Windows-only), so the policy hook is
+    # stubbed rather than the platform faked - main() asks the policy module, so
+    # that is enough to build the frameless frame, its buttons and its hot-zones
+    # for real. Without this, an AttributeError down there would only ever
+    # surface on a user's machine.
+    import traceback
+    from cubeon import winchrome
+    _real_policy = winchrome.custom_chrome_enabled
+    winchrome.custom_chrome_enabled = lambda cfg, **kw: True
+    try:
+        d3 = app_driver.build_headless()
+    except Exception:
+        check("the Windows custom frame builds when the policy says yes", False,
+              traceback.format_exc())
+    else:
+        names = [type(c).__name__ for c in app_driver.every_control(d3.page)]
+        tips = [getattr(c, "tooltip", None)
+                for c in app_driver.every_control(d3.page)]
+        check("the Windows custom frame builds when the policy says yes",
+              "WindowDragArea" in names
+              and names.count("GestureDetector") == 8
+              and all(t in tips for t in ("Minimize", "Maximize", "Close")),
+              f"drag-area={names.count('WindowDragArea')} "
+              f"hot-zones={names.count('GestureDetector')} "
+              f"buttons={[t for t in ('Minimize', 'Maximize', 'Close') if t not in tips]}")
+        check("...and the window really went frameless",
+              getattr(d3.page.window, "frameless", None) is True,
+              "the buttons are pointless without the OS frame gone")
+    finally:
+        winchrome.custom_chrome_enabled = _real_policy
     return rep
 
 
@@ -499,6 +531,7 @@ def section_runtime():
 SUITES = [
     "test_friends_service.py", "test_friends.py", "test_mod_bridge.py",
     "test_capes.py", "test_ui_smoke.py", "test_winwindow.py",
+    "test_winchrome.py",
     "test_startup.py",
     "test_invites.py",
     "test_modpacks.py", "test_mod_store.py", "test_net.py",

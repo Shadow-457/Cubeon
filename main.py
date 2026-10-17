@@ -226,6 +226,11 @@ from ui.screenshot_gallery import build_screenshot_gallery_tab
 from ui.versions import (  # Play tab version management: picker, cards, instances manager
     VersionPicker, InstanceCards, InstancesManager,
 )
+from ui.window_chrome import (  # Windows-only custom frame widgets (policy: cubeon/winchrome.py)
+    build_window_controls, set_maximized_glyph,
+    build_resize_edges, set_resize_edges_visible,
+)
+from cubeon import winchrome  # Whether the frameless custom frame is used at all
 from cubeon import instances as instance_info  # instance descriptors: loader / mods / size / last-played
 from cubeon.discord_rpc import DiscordPresence  # Optional Discord Rich Presence (no-op unless configured)
 from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driving (no-op without a pad)
@@ -242,7 +247,7 @@ from cubeon.controller import ControllerWatcher  # Gamepad detection + menu driv
 from cubeon.theme import (  # noqa: E402  (kept with the other token setup)
     BG, BG_GLASS, SURFACE, SURFACE_HI, SURFACE_MAX, BORDER, BORDER_HI,
     ACCENT, ACCENT_HI, ACCENT_DIM, ON_ACCENT,
-    TEXT, TEXT_DIM, TEXT_FAINT, DANGER, INFO, WARNING,
+    TEXT, TEXT_DIM, TEXT_FAINT, DANGER, ON_DANGER, INFO, WARNING,
     FONT_DISPLAY, FONT_BODY, FONT_MONO,
     FONT_URLS, THEME, RADIUS, RADIUS_LG,
     CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT, ACCENT_DEEP,
@@ -920,6 +925,34 @@ async def main(page: ft.Page):
     # client on the second launch).
     cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
     _startup_mark("config loaded")
+
+    # --- Custom window frame (Windows-only prototype) ----------------------
+    # The frameless window: the OS title bar is dropped and the app's OWN top
+    # bar becomes the title bar (see the chrome block before _build_top_bar, the
+    # WindowDragArea wrap where _app_root is assembled, and cubeon/winchrome.py
+    # for the rationale - on Windows the native bar stacked a second,
+    # off-design-system "Cubeon" header above the branded one).
+    #
+    # Set HERE, before _apply_real_geometry() and while the window is still
+    # HIDDEN (view=FLET_APP_HIDDEN at ft.run): a frame toggled later would
+    # re-map the window, and on this flet build every window write is a message
+    # the desktop client has to be alive to process - the failure mode behind
+    # "Cubeon.exe is running but no window ever appears" (see the Windows reveal
+    # invariant in agents/docs/module-map.md). If the write fails the flag is
+    # cleared, so the UI falls back to the native frame instead of drawing
+    # buttons for a window that never went frameless.
+    _custom_chrome = winchrome.custom_chrome_enabled(cfg)
+    if _custom_chrome:
+        try:
+            page.window.frameless = True
+        except Exception:
+            _custom_chrome = False
+    # Title-bar buttons + resize hot-zones: filled in when the top bar is built
+    # and when the app root is assembled; kept here so the window-event handler
+    # can restyle them.
+    _chrome_ctl = {}
+    _resize_edges = []
+
     _apply_real_geometry()
 
     # The "Shadow mark": the Cubeon logo sits on a rounded tile that casts a
@@ -1429,6 +1462,135 @@ async def main(page: ft.Page):
     # seasonal fox in the bar would read as a bug.
     season_perch.visible = bool(cfg.get("season_pet", False)) and season_info.seasonal
 
+    # -----------------------------------------------------------------
+    # CUSTOM WINDOW FRAME (Windows prototype) - the title-bar buttons
+    # -----------------------------------------------------------------
+    # A frameless window has no OS buttons, so the app draws them. They are only
+    # built when the frame is actually custom (Windows + the flag); otherwise
+    # `chrome_row` is an empty placeholder and the native buttons do the job.
+    # The widgets live in ui/window_chrome.py so the smoke test can build and
+    # inspect them without a window (this branch never runs on the Linux dev box
+    # or in CI).
+    _chrome_state = {"maximized": False}
+
+    def _force_window_bool(name, value):
+        """Write a window bool so the value ALWAYS reaches the client.
+
+        Two flet facts make the naive write wrong (both verified in this build's
+        source, not guessed):
+
+        1. `flet/controls/value_types.py::Prop.__set__` DROPS a write that
+           equals the value already stored - so `window.minimized = True` a
+           second time sends nothing and the button goes dead.
+        2. On the patch pass flet emits ONE "replace" per dirty field carrying
+           the field's CURRENT value, so an intermediate write is never on the
+           wire - which is exactly what lets the opposite-first write below
+           double as the "always send" trick: the client only ever sees the
+           target value.
+
+        It is also why a bare `maximized = False` is not enough: `False` is the
+        declared default, so on a window maximized by the drag area's
+        double-click (which never touches the Python property) the write is
+        dropped and Restore would do nothing.
+        """
+        setattr(page.window, name, not bool(value))
+        setattr(page.window, name, bool(value))
+        page.window.update()
+
+    def _chrome_minimize(e=None):
+        try:
+            _force_window_bool("minimized", True)
+        except Exception:
+            pass  # a title-bar button must never take the UI down
+
+    def _chrome_maximize(e=None):
+        target = not bool(_chrome_state["maximized"])
+        try:
+            _force_window_bool("maximized", target)
+        except Exception:
+            pass
+        # Optimistic: the native MAXIMIZE/UNMAXIMIZE event corrects this a
+        # moment later (see _on_window_event), so the glyph never lags a click.
+        _set_chrome_maximized(target)
+
+    def _chrome_close(e=None):
+        # Window.close() is a COROUTINE on this build: schedule it with
+        # page.run_task and never await it here. This handler runs on flet's
+        # event loop, and a wedged client never answers - blocking here is how
+        # the launcher used to end up alive with no window.
+        try:
+            page.run_task(page.window.close)
+        except Exception:
+            pass
+
+    def _set_chrome_maximized(maximized):
+        """Swap the maximize glyph and park the resize hot-zones.
+
+        Both matter: a maximized window cannot be resized, and hot-zones left
+        enabled along every edge would swallow clicks meant for the UI.
+        """
+        _chrome_state["maximized"] = bool(maximized)
+        if not _chrome_ctl:
+            return
+        try:
+            set_maximized_glyph(_chrome_ctl, maximized)
+            thread_safe_ui.refresh(_chrome_ctl["maximize"])
+        except Exception:
+            pass
+        try:
+            set_resize_edges_visible(_resize_edges, not maximized)
+            for _e in _resize_edges:
+                thread_safe_ui.refresh(_e)
+        except Exception:
+            pass
+
+    def _on_resize_edge(edge):
+        """Begin a native resize from a hot-zone, handed to the OS window loop.
+
+        `Window.start_resizing()` is a coroutine on this build, so it is
+        SCHEDULED and never awaited: this runs off a pan-start on flet's event
+        loop and the client owns the mouse for the duration of the drag.
+        """
+        try:
+            page.run_task(page.window.start_resizing, edge)
+        except Exception:
+            pass  # an un-resizable window is better than a broken one
+
+    if _custom_chrome:
+        try:
+            _chrome_ctl = build_window_controls(
+                on_minimize=_chrome_minimize,
+                on_maximize=_chrome_maximize,
+                on_close=_chrome_close,
+                TEXT_DIM=TEXT_DIM, TEXT=TEXT, SURFACE_HI=SURFACE_HI,
+                DANGER=DANGER, ON_DANGER=ON_DANGER,
+            )
+            chrome_row = _chrome_ctl["row"]
+            # The window may ALREADY be maximized from the saved geometry - and
+            # that maximize happens during _apply_real_geometry(), long before
+            # page.window.on_event is wired (see the end of main), so no event
+            # will ever tell us. Adopt the state we know instead of assuming
+            # False: assuming wrong leaves the maximize button DEAD, because
+            # flet drops a write equal to the state the client already has.
+            _chrome_state["maximized"] = bool(
+                getattr(page.window, "maximized", False))
+            if _chrome_state["maximized"]:
+                set_maximized_glyph(_chrome_ctl, True)
+        except Exception:
+            # Building our buttons failed. Hand the OS frame BACK rather than
+            # strand the user in a title-bar-less window with no way to close
+            # it - `frameless = False` is a change, so it does reach the client.
+            _custom_chrome = False
+            try:
+                page.window.frameless = False
+            except Exception:
+                pass
+            chrome_row = ft.Row([], spacing=0)
+    else:
+        # None (not an empty Row): an extra child would eat one of the row's 8px
+        # gaps, so the native frame's layout stays byte-identical to before.
+        chrome_row = None
+
     def _build_top_bar():
         """The bar itself: brand mark on the left, the five nav icons dead
         center, Account and Settings on the right. Account opens the identity
@@ -1466,6 +1628,10 @@ async def main(page: ft.Page):
                             ft.Container(expand=True)], expand=True),
                     account_btn,
                     settings_btn,
+                    # Custom window frame (Windows): our own min/max/close,
+                    # because a frameless window has no OS buttons. Absent
+                    # entirely when the native frame is in charge.
+                    *([chrome_row] if chrome_row is not None else []),
                     ft.Container(width=10),
                 ],
                 spacing=8,
@@ -5523,6 +5689,29 @@ async def main(page: ft.Page):
 
     glass_cb.on_change = on_glass_change
 
+    # Custom window frame (Windows only, prototype). The frame is applied while
+    # the window is still HIDDEN at startup, so this needs a relaunch - the same
+    # contract as the glass background above. Built only on Windows: a toggle
+    # that can never do anything is worse than no toggle. See
+    # cubeon/winchrome.py for why this is opt-in and Windows-only.
+    custom_chrome_cb = None
+    if sys.platform == "win32":
+        custom_chrome_cb = ft.Checkbox(
+            label="",
+            value=bool(cfg.get(winchrome.CONFIG_KEY, False)),
+            active_color=ACCENT,
+        )
+
+        def on_custom_chrome_change(e):
+            cfg[winchrome.CONFIG_KEY] = bool(custom_chrome_cb.value)
+            core.save_config(cfg)
+            set_status("Custom window frame " +
+                       ("on - restart Cubeon to apply"
+                        if custom_chrome_cb.value
+                        else "off - restart Cubeon to apply"))
+
+        custom_chrome_cb.on_change = on_custom_chrome_change
+
     # "Tidy up files": runs cubeon/maintenance.py's organizer on demand. It is
     # idempotent and never touches game content, so the button is always safe
     # to press; it reports what it did in the status line. The same pass also
@@ -6252,6 +6441,7 @@ async def main(page: ft.Page):
         browse_online_row=browse_online_row, legacy_btn=legacy_btn,
         legacy_note=legacy_note, client_mod_cb=client_mod_cb,
         glass_cb=glass_cb, tidy_btn=tidy_btn,
+        custom_chrome_cb=custom_chrome_cb,
         ram_slider=ram_slider, ram_range_row=ram_range_row,
         ram_label=ram_label, ram_warning=ram_warning,
         width_field=width_field, height_field=height_field,
@@ -6562,9 +6752,37 @@ async def main(page: ft.Page):
             src=_bg_path, fit=ft.BoxFit.COVER, opacity=1.0,
             filter_quality=ft.FilterQuality.MEDIUM,
         )
+    # The window's content: the branded top bar over the rest of the shell.
+    # With the custom frame (Windows) two things change here:
+    #   1. the top bar IS the title bar - WindowDragArea gives it the native
+    #      behaviours (drag to move, double-click to maximize/restore, and,
+    #      because a drag is a WM_NCLBUTTONDOWN/HTCAPTION under the hood, Snap
+    #      Layouts, drag-to-restore and Win+arrow). Its pan recognizer does not
+    #      consume taps, so the nav icons and buttons still take their clicks;
+    #   2. the same column is wrapped in a Stack with the eight resize hot-zones,
+    #      which are positioned against the WINDOW's own edges and so must sit at
+    #      the outermost layer.
+    _top_region = top_bar
+    if _custom_chrome:
+        try:
+            _top_region = ft.WindowDragArea(content=top_bar, maximizable=True)
+        except Exception:
+            _top_region = top_bar  # a frame that can't be dragged beats none
+    _root_content = ft.Column([_top_region, subnav_bar, season_band, content_surface],
+                              expand=True, spacing=0)
+    if _custom_chrome:
+        try:
+            _resize_edges = build_resize_edges(_on_resize_edge)
+            # A window that came up maximized has no resizable border to grab.
+            set_resize_edges_visible(_resize_edges,
+                                     not _chrome_state["maximized"])
+            _root_content = ft.Stack([_root_content, *_resize_edges],
+                                     fit=ft.StackFit.EXPAND, expand=True)
+        except Exception:
+            # Resizing is a nicety; the frame itself must survive without it.
+            _resize_edges = []
     _app_root = ft.Container(
-        content=ft.Column([top_bar, subnav_bar, season_band, content_surface],
-                          expand=True, spacing=0),
+        content=_root_content,
         expand=True,
         bgcolor=BG,
         # Start transparent and fade in on reveal (see _reveal_window): the
@@ -7109,6 +7327,12 @@ async def main(page: ft.Page):
                                       delay=2.0 if ev == "hide" else 1.0)
             elif ev in ("resized", "resize", "move", "moved",
                         "maximize", "unmaximize", "rescale"):
+                if ev in ("maximize", "unmaximize"):
+                    # With the custom frame the glyph follows the NATIVE state,
+                    # not our click: the drag area's double-click and Win+arrow
+                    # maximize the window without the button ever being pressed.
+                    _set_chrome_maximized(
+                        winchrome.maximize_state(ev, _chrome_state["maximized"]))
                 # Debounced: dragging the window fires dozens of events, and
                 # each save is a tiny file write. Saving 400ms after the last
                 # event is plenty; a crash mid-drag only loses the last tweak.

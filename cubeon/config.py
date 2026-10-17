@@ -142,6 +142,16 @@ DEFAULT_CONFIG = {
     # colours. The window alpha is set once at startup, so changing this needs
     # a relaunch. See BG_GLASS/SURFACE_GLASS in cubeon/theme.py.
     "glass_mode_enabled": True,
+    # Custom window frame (Windows only, prototype): drop the OS title bar and
+    # let Cubeon's own top bar BE the title bar - the brand mark drags the
+    # window, our own min/max/close buttons replace the system ones, and the
+    # window's edges stay resizable through hot-zones wired to
+    # Window.start_resizing. Off by default: the native frame is the safe path
+    # until this has been verified on a real Windows box. The window frame is
+    # set once at startup, so changing it needs a relaunch (same contract as
+    # glass_mode_enabled). See cubeon/winchrome.py for the policy and why this
+    # is Windows-only, and settings_tab.py for the toggle.
+    "custom_window_chrome": False,
     "server_ram_mb": 2048,  # RAM allocated to the local server started from the Server tab
     # Whether Smooth mode (low-ping optimization) is ON per server version.
     # Stored explicitly rather than inferred from server.properties, because

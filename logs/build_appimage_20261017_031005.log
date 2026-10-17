@@ -1,0 +1,173 @@
++ bundled flet client: /home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/flet_desktop/app/flet-linux-ubuntu24.04-light-amd64.tar.gz
+127 INFO: PyInstaller: 6.22.3, contrib hooks: 2026.8
+128 INFO: Python: 3.14.6
+131 INFO: Platform: Linux-7.1.5-zen1-2-zen-x86_64-with-glibc2.44
+131 INFO: Python environment: /home/fuckarch/Downloads/Cubeon/.venv-build
+131 INFO: wrote /home/fuckarch/Downloads/Cubeon/Cubeon.spec
+134 INFO: Removing temporary files and cleaning cache in /home/fuckarch/.cache/pyinstaller
+92 WARNING: Failed to collect submodules for 'flet.testing' because importing 'flet.testing' raised: ModuleNotFoundError: No module named 'numpy'
+1926 INFO: Module search paths (PYTHONPATH):
+['/home/fuckarch/Downloads/Cubeon',
+ '/usr/lib/python314.zip',
+ '/usr/lib/python3.14',
+ '/usr/lib/python3.14/lib-dynload',
+ '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages',
+ '/home/fuckarch/Downloads/Cubeon']
+2197 INFO: Appending 'datas' from .spec
+2199 INFO: checking Analysis
+2199 INFO: Building Analysis because Analysis-00.toc is non existent
+2199 INFO: Looking for Python shared library...
+2207 INFO: Using Python shared library: /usr/lib/libpython3.14.so.1.0
+2207 INFO: Running Analysis Analysis-00.toc
+2207 INFO: Target bytecode optimization level: 0
+2207 INFO: Initializing module dependency graph...
+2208 INFO: Initializing module graph hook caches...
+2222 INFO: Analyzing modules for base_library.zip ...
+3573 INFO: Processing standard module hook 'hook-math.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+3600 INFO: Processing standard module hook 'hook-heapq.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+5248 INFO: Processing standard module hook 'hook-encodings.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+5802 INFO: Processing standard module hook 'hook-pickle.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+6593 INFO: Processing standard module hook 'hook-difflib.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+13458 INFO: Caching module dependency graph...
+13537 INFO: Analyzing /home/fuckarch/Downloads/Cubeon/main.py
+14557 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+14871 INFO: Processing standard module hook 'hook-xml.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+15853 INFO: Processing standard module hook 'hook-sysconfig.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+15887 INFO: Processing standard module hook 'hook-_ctypes.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+17160 INFO: Processing standard module hook 'hook-platform.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+17231 INFO: Processing standard module hook 'hook-webbrowser.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+17631 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+17634 INFO: SetuptoolsInfo: initializing cached setuptools info...
+21607 INFO: Processing standard module hook 'hook-certifi.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+21944 INFO: Processing standard module hook 'hook-anyio.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+24320 INFO: Processing standard module hook 'hook-pygments.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+26196 INFO: Processing standard module hook 'hook-rich.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+30159 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+30160 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+30173 INFO: Processing standard module hook 'hook-setuptools.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+30198 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+30260 INFO: Processing pre-safe-import-module hook 'hook-jaraco.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+30261 INFO: Setuptools: 'jaraco' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco'!
+30282 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+30283 INFO: Setuptools: 'more_itertools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.more_itertools'!
+30575 INFO: Processing standard module hook 'hook-_osx_support.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+30614 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+31460 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+31461 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+31478 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+31479 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+33769 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+33769 INFO: Setuptools: 'wheel' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.wheel'!
+34141 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/pre_safe_import_module'
+34423 INFO: Processing standard module hook 'hook-PIL.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+34710 INFO: Processing standard module hook 'hook-PIL.Image.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+35202 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+35787 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+37191 INFO: Processing standard module hook 'hook-minecraft_launcher_lib.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+37337 INFO: Processing standard module hook 'hook-urllib3.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+38483 INFO: Processing standard module hook 'hook-charset_normalizer.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+38911 INFO: Processing standard module hook 'hook-cryptography.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+39690 INFO: hook-cryptography: cryptography does not seem to be using dynamically linked OpenSSL.
+41199 INFO: Processing standard module hook 'hook-psutil.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+46046 INFO: Analyzing hidden import 'flet.canvas'
+46107 INFO: Analyzing hidden import 'flet.cli'
+46110 INFO: Analyzing hidden import 'flet.pytest_plugin'
+46242 INFO: Analyzing hidden import 'flet.security'
+46281 INFO: Analyzing hidden import 'flet.utils.griffe_deprecations'
+46309 INFO: Analyzing hidden import 'templates'
+46310 INFO: Analyzing hidden import 'templates.color_amethyst'
+46312 INFO: Analyzing hidden import 'templates.color_autumn'
+46313 INFO: Analyzing hidden import 'templates.color_carbon'
+46315 INFO: Analyzing hidden import 'templates.color_diamond'
+46316 INFO: Analyzing hidden import 'templates.color_green'
+46318 INFO: Analyzing hidden import 'templates.color_lapis'
+46320 INFO: Analyzing hidden import 'templates.color_obsidian'
+46322 INFO: Analyzing hidden import 'templates.color_redstone'
+46324 INFO: Analyzing hidden import 'templates.color_spring'
+46326 INFO: Analyzing hidden import 'templates.color_summer'
+46328 INFO: Analyzing hidden import 'templates.color_winter'
+46329 INFO: Processing module hooks (post-graph stage)...
+48035 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks'
+55637 INFO: Performing binary vs. data reclassification (78 entries)
+55704 INFO: Looking for ctypes DLLs
+56090 INFO: Analyzing run-time hooks ...
+56101 INFO: Including run-time hook 'pyi_rth_inspect.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+56107 INFO: Including run-time hook 'pyi_rth_setuptools.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+56110 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+56114 INFO: Including run-time hook 'pyi_rth_cryptography_openssl.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/_pyinstaller_hooks_contrib/rthooks'
+56116 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from '/home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/hooks/rthooks'
+56164 INFO: Creating base_library.zip...
+56203 INFO: Looking for dynamic libraries
+57099 INFO: Warnings written to /home/fuckarch/Downloads/Cubeon/build/Cubeon/warn-Cubeon.txt
+57257 INFO: Graph cross-reference written to /home/fuckarch/Downloads/Cubeon/build/Cubeon/xref-Cubeon.html
+57347 INFO: checking PYZ
+57347 INFO: Building PYZ because PYZ-00.toc is non existent
+57348 INFO: Building PYZ (ZlibArchive) /home/fuckarch/Downloads/Cubeon/build/Cubeon/PYZ-00.pyz
+58903 INFO: Building PYZ (ZlibArchive) /home/fuckarch/Downloads/Cubeon/build/Cubeon/PYZ-00.pyz completed successfully.
+58972 INFO: checking PKG
+58972 INFO: Building PKG because PKG-00.toc is non existent
+58972 INFO: Building PKG (CArchive) Cubeon.pkg
+59164 INFO: Building PKG (CArchive) Cubeon.pkg completed successfully.
+59165 INFO: Bootloader /home/fuckarch/Downloads/Cubeon/.venv-build/lib/python3.14/site-packages/PyInstaller/bootloader/Linux-64bit-intel/run
+59166 INFO: checking EXE
+59166 INFO: Building EXE because EXE-00.toc is non existent
+59166 INFO: Building EXE from EXE-00.toc
+59166 INFO: Copying bootloader EXE to /home/fuckarch/Downloads/Cubeon/build/Cubeon/Cubeon
+59166 INFO: Appending PKG archive to custom ELF section in EXE
+59305 INFO: Building EXE from EXE-00.toc completed successfully.
+59308 INFO: checking COLLECT
+59308 INFO: Building COLLECT because COLLECT-00.toc is non existent
+59309 INFO: Building COLLECT COLLECT-00.toc
+59360 INFO: Building COLLECT COLLECT-00.toc completed successfully.
+59366 INFO: Build complete! The results are available in: /home/fuckarch/Downloads/Cubeon/dist
+appimagetool, continuous build (git version 8c8c91f), build 295 built on 2025-12-04 17:56:36 UTC
+Using architecture x86_64
+/home/fuckarch/Downloads/Cubeon/dist/AppDir should be packaged as /home/fuckarch/Downloads/Cubeon/dist/Cubeon-x86_64.AppImage
+Deleting pre-existing .DirIcon
+Creating .DirIcon symlink based on information from desktop file
+WARNING: AppStream upstream metadata is missing, please consider creating it
+         in usr/share/metainfo/cubeon.appdata.xml
+         Please see https://www.freedesktop.org/software/appstream/docs/chap-Quickstart.html#sect-Quickstart-DesktopApps
+         for more information or use the generator at
+         https://docs.appimage.org/packaging-guide/optional/appstream.html#using-the-appstream-generator
+Generating squashfs...
+Downloading runtime file from https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+Downloaded runtime binary of size 944632
+Parallel mksquashfs: Using 12 processors
+Creating 4.0 filesystem on /home/fuckarch/Downloads/Cubeon/dist/Cubeon-x86_64.AppImage, block size 131072.
+[=============================================================\] 1308/1308 100%
+
+Exportable Squashfs 4.0 filesystem, zstd compressed, data block size 131072
+	compressed data, compressed metadata, compressed fragments,
+	compressed xattrs, compressed ids
+	duplicates are removed
+Filesystem size 105393.91 Kbytes (102.92 Mbytes)
+	69.32% of uncompressed filesystem size (152038.54 Kbytes)
+Inode table size 5110 bytes (4.99 Kbytes)
+	38.99% of uncompressed inode table size (13107 bytes)
+Directory table size 2983 bytes (2.91 Kbytes)
+	36.77% of uncompressed directory table size (8113 bytes)
+Number of duplicate files found 6
+Number of inodes 244
+Number of files 184
+Number of fragments 45
+Number of symbolic links 19
+Number of device nodes 0
+Number of fifo nodes 0
+Number of socket nodes 0
+Number of directories 41
+Number of hard-links 0
+Number of ids (unique uids + gids) 1
+Number of uids 1
+	root (0)
+Number of gids 1
+	root (0)
+Embedding ELF...
+Marking the AppImage as executable...
+Embedding MD5 digest
+Success
+
+Please consider submitting your AppImage to AppImageHub, the crowd-sourced
+central directory of available AppImages, by opening a pull request
+at https://github.com/AppImage/appimage.github.io
+Built dist/Cubeon-x86_64.AppImage

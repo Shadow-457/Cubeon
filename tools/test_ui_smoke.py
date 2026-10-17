@@ -176,6 +176,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 import cubeon.versions as versions
 import cubeon.csl as csl
+from cubeon import winchrome  # custom-window-frame policy (used by the window probes)
 
 versions.get_available_versions = lambda *a, **kw: [
     {"id": "1.21.11", "type": "release"}, {"id": "1.20.1", "type": "release"}]
@@ -1456,6 +1457,12 @@ try:
         "friends_service": types.SimpleNamespace(stop=lambda: _events.append("stop")),
         "_kill_flet_client": lambda: _events.append("kill"),
         "_arm_window_gone_exit": lambda reason, delay=3.0: _events.append(("arm", reason)),
+        # The custom-window-frame collaborators the maximize branch reaches for.
+        # Stubbed (not exercised) here: this probe is about the GEOMETRY
+        # debounce, and a maximized window must still arm exactly one timer.
+        "_chrome_state": {"maximized": False},
+        "winchrome": winchrome,
+        "_set_chrome_maximized": lambda maximized: None,
     }
     _window_probe = _ui_functions(_main_src, ["_on_window_event"], _window_scope,
                                  "_geometry_timer = None")
@@ -2113,6 +2120,140 @@ check("a missing seasonal file falls back to green, never a broken src",
 check("the Play root builds its background through the picker",
       "background_image_name(getattr(theme, \"ACTIVE_TEMPLATE\", None)"
       in _main_src)
+
+# --- custom window frame (Windows prototype, 2026-10-17) ---------------------
+# User report with a screenshot from the Windows VM: the OS title bar is a
+# second, off-design-system "Cubeon" header stacked above the branded top bar,
+# so the window reads as unfinished. The fix is opt-in (`custom_window_chrome`)
+# and Windows-only: a frameless window whose own top bar becomes the title bar.
+#
+# This block exists because main()'s chrome branch NEVER runs on the Linux dev
+# box or in CI (the flag is Windows-only), so without building the widgets here
+# an AttributeError in them would only ever surface on a user's machine.
+from ui.window_chrome import (  # noqa: E402
+    build_window_controls, build_resize_edges, set_maximized_glyph,
+    set_resize_edges_visible,
+)
+
+print("\n13b. custom window frame (Windows): opt-in, gated, and buildable")
+
+check("the custom frame is opt-in and defaults to the native one",
+      '"custom_window_chrome": False' in
+      open(os.path.join(_app_root, "cubeon", "config.py"), encoding="utf-8").read(),
+      "a prototype must ship OFF")
+check("the frame is enabled by one policy call, not a raw platform test in main",
+      "winchrome.custom_chrome_enabled(cfg)" in _src_main
+      and "_custom_chrome = winchrome.custom_chrome_enabled(cfg)" in _src_main,
+      "main must ask cubeon/winchrome.py, which is what the policy test pins")
+_i_policy = _src_main.find("winchrome.custom_chrome_enabled(cfg)")
+_i_frameless = _src_main.find("page.window.frameless = True")
+_i_geometry = _src_main.find("\n    _apply_real_geometry()\n")
+check("frameless is applied to the HIDDEN window, before the geometry pass",
+      _i_frameless != -1 and _i_policy != -1 and _i_policy < _i_frameless
+      and _i_geometry != -1 and _i_frameless < _i_geometry,
+      "a frame toggled on a MAPPED window re-maps it - the reveal path's whole "
+      "point is that the window keeps its size and frame shape while hidden")
+check("a failed frame write falls back to the native frame",
+      "page.window.frameless = False" in _src_main,
+      "never leave the user in a window with no OS buttons AND no close button")
+check("the top bar becomes the title bar through WindowDragArea",
+      "ft.WindowDragArea(content=top_bar" in _src_main
+      and "_top_region" in _src_main,
+      "move + double-click-maximize are WindowDragArea's job")
+check("the custom buttons are mounted in the top bar, not floating",
+      "chrome_row" in _src_main and "build_window_controls(" in _src_main,
+      "the buttons must sit in the top bar's right cluster")
+check("the title-bar buttons drive the window",
+      '_force_window_bool("minimized", True)' in _src_main
+      and '_force_window_bool("maximized", target)' in _src_main
+      and "page.run_task(page.window.close)" in _src_main,
+      "minimize/maximize/close must go through the window, and close must be "
+      "SCHEDULED (it is a coroutine on this build)")
+check("the resize hot-zones are wired to start_resizing",
+      "build_resize_edges(_on_resize_edge)" in _src_main
+      and "page.run_task(page.window.start_resizing, edge)" in _src_main
+      and "ft.StackFit.EXPAND" in _src_main,
+      "a frameless window can lose the OS resize border, so resizing is ours")
+check("the maximize glyph follows the NATIVE events, not only our clicks",
+      "winchrome.maximize_state(ev" in _src_main
+      and "_set_chrome_maximized(" in _src_main,
+      "the drag area's double-click and Win+arrow maximize without the button")
+check("a window that STARTS maximized still gets the right glyph",
+      'getattr(page.window, "maximized", False)' in _src_main
+      and "set_maximized_glyph(_chrome_ctl, True)" in _src_main,
+      "the startup maximize happens before page.window.on_event is wired, so "
+      "nothing reports it - and a stale False leaves the button dead")
+check("the hot-zones start parked on a window that came up maximized",
+      "set_resize_edges_visible(_resize_edges," in _src_main,
+      "a maximized window has no border to grab")
+
+# Build the widgets FOR REAL. This is the only place they are exercised off
+# Windows, and it is why they live in ui/ instead of inline in main().
+_clicks = []
+_chrome = build_window_controls(
+    on_minimize=lambda e=None: _clicks.append("min"),
+    on_maximize=lambda e=None: _clicks.append("max"),
+    on_close=lambda e=None: _clicks.append("close"),
+    TEXT_DIM="#9DB394", TEXT="#DDF6D5", SURFACE_HI="#131711",
+    DANGER="#DB5A4B", ON_DANGER="#050505",
+)
+_buttons = [c for c in walk(_chrome["row"]) if type(c).__name__ == "IconButton"]
+check("the title-bar row holds exactly min/max/close, in OS order",
+      len(_buttons) == 3
+      and [b.tooltip for b in _buttons] == ["Minimize", "Maximize", "Close"],
+      f"got {[b.tooltip for b in _buttons]}")
+check("every title-bar button is clickable",
+      all(getattr(b, "on_click", None) is not None for b in _buttons),
+      "a button with no handler is dead chrome")
+for _b in _buttons:
+    _b.on_click(None)
+check("the buttons reach their handlers",
+      _clicks == ["min", "max", "close"], str(_clicks))
+set_maximized_glyph(_chrome, True)
+check("the maximize button becomes Restore while maximized",
+      _chrome["maximize"].tooltip == "Restore"
+      and _chrome["maximize"].icon == ft.Icons.FILTER_NONE,
+      "the glyph must reflect the window's state")
+set_maximized_glyph(_chrome, False)
+check("...and goes back to Maximize",
+      _chrome["maximize"].tooltip == "Maximize"
+      and _chrome["maximize"].icon == ft.Icons.CROP_SQUARE)
+
+_edges_resized = []
+_edges = build_resize_edges(lambda edge: _edges_resized.append(edge))
+check("there are eight resize hot-zones, one per edge and corner",
+      len(_edges) == 8
+      and [e.mouse_cursor.name for e in _edges] == [
+          "RESIZE_UP", "RESIZE_DOWN", "RESIZE_LEFT", "RESIZE_RIGHT",
+          "RESIZE_UP_LEFT_DOWN_RIGHT", "RESIZE_UP_RIGHT_DOWN_LEFT",
+          "RESIZE_UP_RIGHT_DOWN_LEFT", "RESIZE_UP_LEFT_DOWN_RIGHT"],
+      f"got {[e.mouse_cursor.name for e in _edges]}")
+check("the hot-zones live ON the window's edges",
+      all(e.left == 0 or e.right == 0 for e in _edges)
+      and all(e.top == 0 or e.bottom == 0 for e in _edges),
+      "a hot-zone away from the border would eat clicks instead of resizing")
+check("the corner zones are LAST, so they win the hit-test over the bands",
+      [s["edge"] for s in winchrome.RESIZE_EDGES][-4:]
+      == ["topLeft", "topRight", "bottomLeft", "bottomRight"],
+      "each band spans the full edge, so the pairs overlap in every corner - "
+      "the corners must be painted on top or a diagonal drag becomes a straight one")
+_edges[0].on_pan_start(None)
+check("a hot-zone hands the right edge to start_resizing",
+      _edges_resized == [ft.WindowResizeEdge.TOP], str(_edges_resized))
+set_resize_edges_visible(_edges, False)
+check("the hot-zones can be parked (a maximized window cannot be resized)",
+      all(e.visible is False for e in _edges))
+
+check("the Settings row exists but is Windows-gated",
+      "custom_chrome_cb" in _src_main and "custom_chrome_cb=custom_chrome_cb" in _src_main
+      and "custom_chrome_cb" in open(
+          os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
+      and "custom_chrome_cb is not None else []" in open(
+          os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read(),
+      "off Windows there is no checkbox and no row")
+check("off Windows the row is absent from the built UI",
+      not any("custom window frame" in t for t in all_text(page.controls[0])),
+      "a toggle that can never do anything is worse than no toggle")
 
 print(f"\n{passed} passed, {failed} failed")
 print("Smoke test complete: " + ("FAIL" if failed else "PASS"))

@@ -47,6 +47,45 @@
   ships flet 0.86.5, so the hidden start IS honoured on Windows - which is why
   every reveal had to become load-bearing there.
 
+## Windows: the custom window frame is opt-in, and the Prop rule is why (2026-10-17)
+- User report with a VM screenshot: on Windows the launcher carried TWO headers -
+  the OS title bar (icon + "Cubeon" + min/max/close) stacked above Cubeon's own
+  branded top bar. Nothing was broken; the native bar is just outside the design
+  system and duplicates the brand. Answer: a FRAMELESS window whose existing top
+  bar BECOMES the title bar.
+- **It is a prototype, not the default.** Flag: config key
+  `custom_window_chrome` (cubeon/config.py) or the env override
+  `CUBEON_CUSTOM_CHROME=1/0` (the env WINS, and works in both directions). It is
+  WINDOWS ONLY by design - the Linux/GTK window path is the fragile one and gains
+  nothing. Policy in `cubeon/winchrome.py` (Flet-free: enablement, the 8 resize
+  hot-zones, the maximize state machine), widgets in `ui/window_chrome.py`, wiring
+  in `main.py` (one `page.window.frameless = True` on the HIDDEN window, before
+  `_apply_real_geometry`; `ft.WindowDragArea(content=top_bar)` for move +
+  double-click-maximize; a `ft.Stack` over the shell carrying the hot-zones).
+- **The flet Prop rule that drives every window write** (verified in this build's
+  source, `flet/controls/value_types.py` + `flet/controls/object_patch.py`):
+  `Prop.__set__` DROPS a write equal to the value already stored, AND the patch
+  pass emits ONE `replace` per dirty field carrying the field's CURRENT value -
+  so an intermediate write never reaches the wire, but a repeated value sends
+  nothing at all. Hence `main.py::_force_window_bool` writes `not value` then
+  `value` for minimize/maximize: the second `minimized = True` would otherwise be
+  dropped and the button would go dead. It is also why `visible=False` then `True`
+  works but a bare `visible=True` does not (see the reveal invariant above).
+- Restore-from-taskbar resets the client's own `_minimized` cache (flet re-reads
+  the native state on every window event), which is what lets the minimize button
+  work more than once. A window that STARTS maximized gets NO event (the maximize
+  happens before `page.window.on_event` is wired), so main.py adopts
+  `page.window.maximized` when it builds the buttons - a stale False would leave
+  Restore dead.
+- Guards: `tools/test_winchrome.py` (31 checks, policy + hot-zone geometry +
+  event->state mapping) and `tools/test_ui_smoke.py` section 13b (source order,
+  plus the widgets built FOR REAL off Windows). `tools/test_mega_smoke.py` layer 5
+  stubs the policy to TRUE and builds the whole frameless UI headlessly - the only
+  place the Windows-only branch is exercised in CI.
+- What is NOT verified from this box: whether `setAsFrameless` keeps a native
+  resize border on real Windows (hence the hot-zones), and whether the hidden-start
+  reveal still works under a frameless window. That is exactly what the flag is for.
+
 ## Version management lives in ui/versions.py + cubeon/instances.py (2026-10-15)
 - The Play tab's "manage my versions" surface was extracted out of `main()`'s
   4,000-line closure into two modules:

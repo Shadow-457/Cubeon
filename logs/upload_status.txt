@@ -1,0 +1,3 @@
+appimage=0
+deb=0
+setup=0

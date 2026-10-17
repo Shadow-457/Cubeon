@@ -115,6 +115,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        set_status, save_width_height_java,
                        browse_online_row, legacy_btn, legacy_note,
                        client_mod_cb, glass_cb, tidy_btn, ram_slider, ram_range_row, ram_label,
+                       custom_chrome_cb,
                        ram_warning, width_field, height_field,
                        java_path_field, custom_jvm_field, detected_java,
                        import_pane,
@@ -138,6 +139,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     this module only arranges them (see the Seasonal pane). They are required
     rather than optional so a caller that forgets one fails the smoke test
     instead of silently rendering a settings page with the feature missing.
+
+    `custom_chrome_cb` is the one that can legitimately be None: the custom
+    window frame is Windows-only, so main.py passes None elsewhere and the row
+    is left out entirely.
     """
 
     active_section = {"value": "versions"}
@@ -168,6 +173,16 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 "faintly. Restart to apply.",
                 glass_cb, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
             ),
+            # Windows only: the custom frame has no meaning elsewhere, so the
+            # row (and the checkbox) only exists on Windows - a toggle that can
+            # never do anything is worse than no toggle.
+            *([_setting_row(
+                "Custom window frame",
+                "Draw the title bar ourselves - Cubeon's own bar drags the "
+                "window and carries the min/max/close buttons. Windows only. "
+                "Restart to apply.",
+                custom_chrome_cb, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
+            )] if custom_chrome_cb is not None else []),
             ft.Container(height=4),
             tidy_btn,
             ft.Text(
