@@ -1101,13 +1101,26 @@ facts belong HERE, not in diary notes.
   ATLauncher = 403; Prism's featured-instances feed = 404. **NEW CurseForge
   packs are therefore only reachable with a key** (free, from
   console.curseforge.com). Don't re-litigate this — it's measured, not assumed.
-- **The key must be settable from the UI**: `modpacks.set_curseforge_api_key()`
-  + `check_curseforge_api_key()` (both re-exported by `launcher_core`) back the
-  "Add free CurseForge key" dialog in `ui/modpacks_tab.py`. Validation runs a
-  REAL one-call search first so a wrong key is reported instead of silently
-  degrading. `search_modpacks_curseforge()`'s cache key MUST keep its `keyed`
-  flag — pasting/removing a key swaps providers, and without it the tab serves
-  the other provider's cached page for up to a day.
+  Users haven't needed their own key since 2026-10-18: every build ships one
+  (see the next bullet).
+- **The key SHIPS with every build (2026-10-18, superseding the old
+  paste-it-in-the-UI design)**: `tools/write_cf_key.py` generates the gitignored
+  `cubeon/_cf_key.py` from the `CURSEFORGE_API_KEY` GitHub Actions secret in
+  all three build.yml jobs, right before PyInstaller. The key never enters this
+  public repository (a committed key is a revoked key; the writer also deletes
+  a stale generated module when the secret is gone). `_curseforge_api_key()`
+  lookup order: env var > `~/.cubeon_launcher/curseforge_api_key` > config.json
+  > the shipped builtin. `set_curseforge_api_key()`/`check_curseforge_api_key()`
+  remain for support/tests only — there is NO UI entry anymore (the button was
+  removed by operator decision; a launcher asking a player for an API key is a
+  bug report). A key CurseForge REFUSES for `/mods/search` falls back to the
+  keyless curated set on page 1 only — never let a refused search empty the tab
+  below the keyless baseline. `search_modpacks_curseforge()`'s cache key MUST
+  keep its `keyed` flag — key presence swaps providers, and without it the tab
+  serves the other provider's cached page for up to a day. Guard:
+  tools/test_modpacks_cf_keyless.py (its writer tests redirect TARGET to a
+  temp dir and its key-module tests run in-memory — they never touch a real
+  `cubeon/_cf_key.py`).
 - **`ft.TextButton` has NO `value` field, in either Flet line (2026-10-18).**
   0.86 called the label `text`, 1.0 calls it `content` (a string or a Control);
   Flet accepts an unknown attribute silently, so `btn.value = "..."` stores a
@@ -3324,8 +3337,8 @@ sanitize at launch (below). The four still-retired mods
     only real levers are fewer chunks (render/simulation distance) or more
     cores.
 - **"Invalid session" on online-mode servers is INHERENT, not a Cubeon bug —
-  INVARIANT (2026-10-12).** Cubeon hands the game `accessToken="0"`
-  (`cubeon/launch.py`). The vanilla client's OWN handshake listener
+  INVARIANT (2026-10-12).** Cubeon hands the game the literal placeholder `0`
+  as its access token (`cubeon/launch.py`). The vanilla client's OWN handshake listener
   (`hie.class` in 1.21.11.jar, implements `ako`) calls
   `MinecraftSessionService.joinServer(uuid, username, serverHash)` on the
   encrypted/online-mode login path only (`hie.a(String, akz, Cipher, Cipher)`
@@ -3345,7 +3358,8 @@ sanitize at launch (below). The four still-retired mods
   treats a failed session verification as "this player is offline" and lets
   cracked players through. The proxy sends an `EncryptionRequest`; the vanilla
   client then calls `MinecraftSessionService.joinServer(uuid, username,
-  serverHash)`, which throws on Cubeon's `accessToken="0"`, and the client
+  serverHash)`, which throws on Cubeon's placeholder-0 access token, and the
+  client
   disconnects with "Invalid session" BEFORE it sends the encryption response —
   so the proxy's cracked-fallback never runs. Premium players and modified
   cracked clients (which send the response anyway) get in; the vanilla cracked
