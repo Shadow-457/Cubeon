@@ -128,12 +128,26 @@ DEFAULT_CONFIG = {
     # Minecraft's own speed-only graphics options (Fast graphics, minimal
     # particles, no entity shadows, trimmed entity distance, biome blend 0,
     # chunk writes off the render thread - see cubeon/game_options.py
-    # MAX_FPS_OPTIONS). Visual choices like render distance are never
-    # touched. OFF actively RESTORES Minecraft's defaults for those same keys
-    # at every launch (restore_vanilla_look), so an install that ran boosted
-    # goes back to fancy/shadowed vanilla looks. Renamed from
-    # max_fps_enabled (2026-10-15); the old key is migrated in load_config.
+    # MAX_FPS_OPTIONS). Since 2026-10-18 it also LOWERS the distance levers
+    # the frame rate actually lives on - renderDistance 6, simulationDistance
+    # 5, mipmapLevels 2, 2D clouds - because a side-by-side run showed the
+    # gap against FastClient was exactly those (it ships the same preset plus
+    # distance 6, Cubeon shipped 8). OFF actively RESTORES Minecraft's
+    # defaults for every one of those keys at every launch
+    # (restore_vanilla_look), render distance included, so an install that ran
+    # boosted goes back to fancy/shadowed vanilla looks and vanilla view
+    # distance. Renamed from max_fps_enabled (2026-10-15); the old key is
+    # migrated in load_config.
     "fps_boost_enabled": True,
+    # How much the launcher animates: "full" (hover lifts, press dips, list
+    # cascades, shimmering loading rows, the breathing bloom behind the Play
+    # button) or "reduced" (colour and opacity fades only - nothing changes
+    # size or position, nothing moves on its own). Read at startup into
+    # cubeon/motion.py, and Settings > Display's Motion switch writes it live:
+    # the level is consulted when an event fires, not when a control is built,
+    # so flipping it takes effect on the rows that are already on screen. The
+    # default is "full".
+    "motion_level": "full",
     # Translucent ("glass") launcher window: the native window AND the page
     # canvas are painted with an alpha channel so the desktop shows through
     # faintly behind the UI. Only the BACKGROUND goes translucent - panels and

@@ -199,6 +199,7 @@ def _relaunch_fresh_process() -> bool:
         return False
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
+from cubeon import motion  # The animation layer (hover/press/cascade/shimmer/ambience)
 from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
 from cubeon import status_text as cubeon_status  # strips "<... at 0x...>" from labels
 from cubeon import version_art  # Per-version wiki banners for the Play tab
@@ -968,6 +969,12 @@ async def main(page: ft.Page):
     # client on the second launch).
     cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
     _startup_mark("config loaded")
+
+    # Motion level (cubeon/motion.py): set before ANY widget exists, because
+    # controls decide at build time whether they own a scale/opacity to animate
+    # from (see motion's rule 2). The live level is re-read at event time too,
+    # so the Settings dropdown can still change it mid-session.
+    motion.set_level(cfg.get("motion_level", motion.DEFAULT_LEVEL))
 
     # --- Custom window frame (Windows-only prototype) ----------------------
     # The frameless window: the OS title bar is dropped and the app's OWN top
@@ -3174,13 +3181,24 @@ async def main(page: ft.Page):
             return
         on_play_click()
 
-    def _on_play_hover(e):
+    def _on_play_hover(hovering: bool):
         """Brighten the hero button on hover so it reads as the obvious next
         step. Only the live fills react; the disabled states (launching,
-        cancelling, ending, incomplete) must not appear clickable."""
+        cancelling, ending, incomplete) must not appear clickable.
+
+        motion.polish (below the button) calls this with the hover flag, and
+        that is also what supplies the lift, the press dip and the glass hover.
+        The FILL stays the button's own business because it depends on what the
+        button means right now (play / cancel / quit / installing), and the
+        sheen's own sweep is fired from here too - it is the one bit of the
+        button's response that is decoration rather than state.
+        """
         if play_button.disabled:
             return
-        hovering = e.data == "true"
+        if hovering:
+            play_sheen.run()
+        else:
+            play_sheen.reset()
         value = play_button_text.value
         if value == "PLAY":
             play_button.bgcolor = ACCENT_HI if hovering else ACCENT
@@ -3188,7 +3206,6 @@ async def main(page: ft.Page):
             play_button.bgcolor = _STOP_BG_HI if hovering else _STOP_BG
         else:  # download / install loader
             play_button.bgcolor = "#63C7D8" if hovering else INFO
-        play_button.update()
 
     play_button = ft.Container(
         content=ft.Row(
@@ -3202,8 +3219,20 @@ async def main(page: ft.Page):
         alignment=ft.Alignment.CENTER,
         ink=False,
         on_click=_main_action_click,  # play / cancel / quit, by state
-        on_hover=_on_play_hover,
     )
+    # The launcher's one primary action gets the full affordance: the fill
+    # callback above, plus motion's hover lift, press dip and glass hover
+    # (Settings > Display > Motion turns the movement down). `active` is what
+    # stops a disabled button - launching, cancelling, incomplete - from lifting
+    # or dipping.
+    motion.polish(play_button, on_hover_fill=_on_play_hover,
+                  active=lambda: not play_button.disabled,
+                  glass=theme.glass_hover())
+    # ... and the specular sheen that sweeps across it every time the pointer
+    # arrives (cubeon/motion.py's Sheen). Built here, placed in the Stack that
+    # wraps the button down in the ACTION FOOTER - the sweep only starts once
+    # that Stack exists, which is the same order the hover can fire in.
+    play_sheen = motion.sheen(radius=RADIUS)
 
     # Text to show any issues with the selected version (e.g., incomplete install)
     version_issue_text = ft.Text("", size=12, color=DANGER, visible=False)
@@ -5235,6 +5264,38 @@ async def main(page: ft.Page):
     #     ACTION FOOTER    (PLAY)
     # The card is compact and top-aligned; it is never stretched to fill the
     # viewport just because there is room below it.
+
+    # The hero panel's ambience (2026-10-18): a soft green aura around the Play
+    # button that breathes. It goes BEHIND the button inside a Stack (see the
+    # ACTION FOOTER) rather than behind the panel: a bloom behind the frosted
+    # panel would be blurred away with everything else, whereas the button's own
+    # opaque fill turns the bloom into a halo bleeding out from the edge of the
+    # thing you are supposed to click. The negative insets are what make the
+    # halo wider than the button; the Stack must let it bleed (ClipBehavior
+    # NONE).
+    #
+    # The bleed stays inside the hero panel's own 20px padding, because the
+    # panel clips now that it carries a backdrop filter (theme.GLASS_BLUR wraps
+    # a blurred Container in a ClipRRect) - so the bloom fades out before it
+    # reaches an edge instead of being sliced off by one.
+    #
+    # Self-moving, so it only runs on the `full` motion level - the Motion
+    # switch in Settings parks it at rest. Two writes per breath, each
+    # interpolated by the control's own animate_opacity - far under one repaint
+    # a second (motion.Ambient explains the arithmetic).
+    hero_glow = ft.Container(
+        left=-18, top=-20, right=-18, bottom=-20,
+        gradient=ft.RadialGradient(
+            colors=[ft.Colors.with_opacity(0.42, ACCENT),
+                    ft.Colors.with_opacity(0.0, ACCENT)],
+            stops=[0.0, 0.8],
+            radius=1.0,
+            center=ft.Alignment.CENTER,
+        ),
+        animate_opacity=ft.Animation(motion.AMBIENT_MS, motion.EASE_SOFT),
+    )
+    hero_ambient = motion.ambient(hero_glow, low=0.45)
+
     play_tab = ft.Column(
         [
             ft.Column(
@@ -5357,11 +5418,26 @@ async def main(page: ft.Page):
 
                         ft.Container(height=18),
 
-                        # ACTION FOOTER: the primary PLAY action on the right.
+                        # ACTION FOOTER: the primary PLAY action on the right,
+                        # with its aura under it (hero_ambient drives the
+                        # bloom's opacity - see the hero_glow comment above) and
+                        # its sheen over it. Stack children paint in order, so
+                        # the glow goes first, the button next, and the sheen
+                        # last: it is a transparent box exactly the size of the
+                        # button (the glow is positioned with negative insets
+                        # and so does not size the Stack) that clips its own
+                        # highlight to the button's rounded shape.
                         ft.Row(
                             [
                                 ft.Container(expand=True),
-                                ft.Container(width=280, content=play_button),
+                                ft.Stack(
+                                    [
+                                        hero_glow,
+                                        ft.Container(width=280, content=play_button),
+                                        play_sheen.control,
+                                    ],
+                                    clip_behavior=ft.ClipBehavior.NONE,
+                                ),
                             ],
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),

@@ -455,12 +455,19 @@ Durable consequences — do not re-derive these:
   `apply_max_fps()` is unchanged (do NOT weaken it; it is the "3x fps" the
   user wants). `cubeon/launch.py` calls restore when the boost is off, so an
   install that ran boosted actually looks vanilla again on the next launch.
-- renderDistance / simulationDistance / mipmap / clouds / leaves / water stay
-  untouched in BOTH directions - those are the player's own choices.
-- Guards: tools/test_perf_mods.py §11 (restore values, idempotence, round
-  trip, no invented keys), tools/test_ui_smoke.py "FPS boost lives in the PLAY
-  menu" block (Settings row gone, switch-before-play_tab ordering, launch.py
-  restore call, config migration).
+- renderDistance / simulationDistance / mipmap / clouds: **changed 2026-10-18**.
+  They are no longer left alone - FPS boost (ON by default) now lowers them
+  (renderDistance 6, simulationDistance 5, mipmapLevels 2, renderClouds
+  "fast") and `restore_vanilla_look()` puts them back (12 / 12 / 4 / "true").
+  Reason: a side-by-side run against FastClient on the same box showed the
+  frame-rate gap WAS those keys - the GPU sat idle (0-76% busy) while both
+  games were Java-bound, and renderDistance 8 meshes ~70% more chunks than 6.
+  FastClient's own options.txt sets the same speed-only keys AND distance 6.
+  Leaves/water quality are still never touched (no measurable cost).
+- Guards: tools/test_perf_mods.py §11 (restore values incl. the distance
+  levers, idempotence, round trip, no invented keys), tools/test_ui_smoke.py
+  "FPS boost lives in the PLAY menu" block (Settings row gone,
+  switch-before-play_tab ordering, launch.py restore call, config migration).
 
 ### Do NOT ship a `sodium-options.json` as "the FPS boost config" (audited 2026-10-18)
 - Sodium's compiled-in defaults **are already the performance choice**: every
@@ -480,10 +487,41 @@ Durable consequences — do not re-derive these:
   tooltip: more threads can hurt frame times). Hardcoding it is wrong in both
   directions — a 12-core box carrying `2` runs a third of the 6 Sodium would
   pick (real user case, 2026-10-18).
-- So the module-map rule: FPS boost keeps writing **`options.txt` only**. If a
-  Sodium-side boost is ever wanted, the levers that actually cost frames are in
-  **Sodium Extra** (`sodium-extra-options.json`: particles, biome/sky colours,
-  block+portal animations, toasts), not in Sodium's own config.
+- So the module-map rule (2026-10-18): FPS boost never ships or creates a
+  `sodium-options.json`. It does REPAIR one that already exists — see the next
+  bullet — and if a Sodium-side toggle is ever wanted beyond that, the levers
+  that actually cost frames are in **Sodium Extra**
+  (`sodium-extra-options.json`: particles, biome/sky colours, block+portal
+  animations, toasts), not in Sodium's own config.
+- **`perf_mods.apply_max_fps_sodium()` rewrites an existing file every boosted
+  launch (2026-10-18, user-requested).** `cubeon/launch.py` calls it directly
+  under the same `fps_boost_enabled` check as the options.txt rewrite. It puts
+  the performance keys that are ALREADY in `<MINECRAFT_DIR>/config/
+  sodium-options.json` back to the defaults listed above
+  (`SODIUM_MAX_FPS_OPTIONS`): hidden_fluid_culling true, improved_fluid_shaping
+  false, chunk_builder_threads **0 (Auto — never a hardcoded thread count, see
+  the rest-of-the-file audit above)**, chunk_build_defer_mode ALWAYS,
+  animate_only_visible_textures / use_entity_culling / use_fog_occlusion /
+  use_block_face_culling / use_no_error_g_l_context true, quad_splitting_mode
+  SAFE, use_advanced_staging_buffers true, cpu_render_ahead_limit 3,
+  terrain_sorting_enabled true, enable_memory_tracing false. Why it exists: a
+  file left behind by an older Cubeon/Sodium, or by an "FPS guide" that told the
+  player to switch fog occlusion off, sat there forever and kept the renderer
+  doing work it did not have to. Deliberately NOT touched, because they are taste
+  rather than frame cost: `pixel_filtering_mode` (NEAREST is the default, LINEAR
+  is a look), `use_closest_point_entity_sort` (correct translucent sorting),
+  `notifications.*`.
+  - Missing file → nothing is created (Sodium's compiled defaults are these very
+    values, so the outcome is identical, and writing a file whose schema we only
+    know for the generations we have audited would be the risky half of the
+    trade). Keys are matched per section, so a 0.4.x (1.20) config only gets the
+    names both generations share — it is never given `chunk_build_defer_mode` or
+    `quad_splitting_mode`. Atomic, idempotent, never raises.
+  - There is no FPS-boost-OFF counterpart: unlike options.txt there is nothing
+    "vanilla" to write back, so OFF simply stops enforcing it.
+  - Guard: `tools/test_perf_mods.py` §12 (drift repair, taste preserved, unknown
+    sections preserved, legacy schema, 0/1-vs-boolean, missing/corrupt file, and
+    the launch-path wiring).
 
 ## The in-game mod is CHAT-ONLY (2026-10-14) — INVARIANT
 - User request: "remove the whole friends stuff from the Cubeon client, the
@@ -597,6 +635,13 @@ Durable consequences — do not re-derive these:
   `close()` must also `self._stop.set()`** or the retry loop keeps its thread
   alive. Guard: `tools/test_ui_smoke.py` "real `DiscordPresence.close()`
   no-deadlock".
+- **Every activity carries the website button (2026-10-18).** `SITE_BUTTONS`
+  (label "Cubeon website", `https://cubeon.ylet.online`) is the DEFAULT of
+  `DiscordPresence.set_activity()`, so all three call sites in main.py get it
+  without passing anything; a caller wanting a bare card passes `buttons=[]`.
+  The URL is the SITE, not `updater.DOWNLOAD_URL`'s `/download` page — the
+  button says "website" and the launcher already contains the download — and
+  `tools/test_ui_smoke.py` pins both to one host so they cannot drift.
 - **Nothing may block the flet event loop from a window/page event.**
   `_on_window_event` only saves geometry, `_kill_flet_client()`, and arms the
   watchdog — RPC clear/close and `friends_service.stop` moved to the bounded
@@ -2255,8 +2300,8 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `minekube.py` | Public address tunnels: finds/installs Connect plugin, endpoint config. |
 | `modpacks.py` / `mods.py` / `global_mod_cache.py` | Modrinth/CF packs; per-profile mods LINK into one global store (`~/.cubeon_minecraft/global_mods`) — never copy jars between profiles. |
 | `cubeonfriends.py` | Which Cubeon Client jar goes into which profile (24 brackets, one per exact MC version), injected at launch. Also `ensure_fabric_api()`: installs **Fabric API** from Modrinth beside the jar, because the merged HUD is built on it — the mod only *recommends* it (and `KeyHudClient` catches `NoClassDefFoundError`), so a missing API costs the HUD, never the game. `mod_stamp()` = jar freshness fingerprint. |
-| `perf_mods.py` | FPS boost: installs **Sodium only** (`PERF_MODS`) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled` (narrowed 2026-10-05 — the 8-mod suite added little and carried crash surface). `_present()` dedupes by slug/name/id/filename; skip-if-present (no auto-update); best-effort, never raises. `prune_retired_perf_mods()` deletes the 8 retired mods from a profile that has them (only Cubeon-installed, by recorded slug/project id). Also `sanitize_entityculling_config()` — strips null/blank whitelist entries that crash the game on tick 1 (called unconditionally on the launch path). |
-| `game_options.py` | Frame-rate unlocker: flips ONLY `enableVsync`→false and `maxFps`→260 in `MINECRAFT_DIR/options.txt` (atomic, idempotent, no unknown keys). Never rewrites any other game option. |
+| `perf_mods.py` | FPS boost: installs **Sodium only** (`PERF_MODS`) into a Fabric/Quilt profile at launch when `client_mod_enabled` AND `perf_mods_enabled` (narrowed 2026-10-05 — the 8-mod suite added little and carried crash surface). `_present()` dedupes by slug/name/id/filename; skip-if-present (no auto-update); best-effort, never raises. `prune_retired_perf_mods()` deletes the 8 retired mods from a profile that have them (only Cubeon-installed, by recorded slug/project id). Also `sanitize_entityculling_config()` — strips null/blank whitelist entries that crash the game on tick 1 (called unconditionally on the launch path) — and `apply_max_fps_sodium()` (2026-10-18), which rewrites the perf keys already in `config/sodium-options.json` back to Sodium's own fast defaults on every boosted launch (never creates the file; see the `sodium-options.json` section). |
+| `game_options.py` | Frame-rate unlocker: flips ONLY `enableVsync`→false and `maxFps`→260 in `MINECRAFT_DIR/options.txt` (atomic, idempotent, no unknown keys). `apply_max_fps()` (FPS boost, ON by default) additionally sets the speed-only graphics keys AND, since 2026-10-18, the distance levers — `renderDistance` 6, `simulationDistance` 5, `mipmapLevels` 2, `renderClouds` "fast". `restore_vanilla_look()` writes every one of them back to 12/12/4/"true" plus fancy/ao-on when the boost is off. |
 | `launch.py` | `launch_game()` — injects CSL + friends jar + **Fabric API** (via `cubeonfriends.ensure_fabric_api`, the HUD's dependency) + perf suite + frame-rate unlock, syncs mods, launches MC. `client_jvm_flags()` (CPU-aware, see below) + matched `-Xms/-Xmx` + RAM-gated `-XX:+AlwaysPreTouch`. Requires mc_version/loader, no silent defaults. |
 | `capes.py` | Custom capes: any image accepted, auto-fitted onto the cape layout, synced into CSL's LocalSkin. Static images only — the animated-cape system was removed 2026-09-07. No Worker/KV involvement at all. |
 | `config.py` | cfg schema, username validation, auth key (public_uuid/secret_token). |
@@ -3214,18 +3259,20 @@ sanitize at launch (below). The four still-retired mods
   UNCONDITIONALLY (even with the perf suite off) because the stale broken
   config lingers. Guard: tools/test_perf_mods.py §8. Do NOT remove the mod's
   crash-causing entry handling without re-reading this.
-- **Max FPS mode (2026-10-14, cubeon/game_options.py `apply_max_fps`) —
-  INVARIANT.** On the launch path (gated on `max_fps_enabled`, default True, a
-  Settings checkbox "Max FPS mode") the launcher ALSO sets the game's own
-  speed-only options: graphicsMode:0, particles:0, entityShadows:false,
-  entityDistanceScaling:0.75, biomeBlendRadius:0, syncChunkWrites:false
+- **Max FPS mode (2026-10-14; distance levers added 2026-10-18,
+  cubeon/game_options.py `apply_max_fps`) — INVARIANT.** On the launch path
+  (gated on `fps_boost_enabled`, default True, the PLAY-menu switch) the
+  launcher ALSO sets the game's own speed-only options: graphicsPreset:"fast",
+  particles:2 (MINIMAL — 0 is ALL), ao:false, entityShadows:false,
+  entityDistanceScaling:0.75, biomeBlendRadius:0, syncChunkWrites:false,
+  renderDistance:6, simulationDistance:5, mipmapLevels:2, renderClouds:"fast"
   (`MAX_FPS_OPTIONS`). unlock_frame_rate() and apply_max_fps() share
   `_set_options()` — the contract is: only keys ALREADY in options.txt are
   touched (no invented unknown keys), values written only when they differ,
-  atomic + idempotent, never raises. **Render distance / simulation distance /
-  mipmap / smooth lighting / clouds / leaves / water are NEVER rewritten** —
-  those are the player's visual choices (the content.py rule). Tests:
-  tools/test_perf_mods.py section 10.
+  atomic + idempotent, never raises. STRING options (graphicsPreset,
+  renderClouds) must be written QUOTED. `restore_vanilla_look()` is the OFF
+  switch and restores all of the above to Minecraft's defaults, distance
+  levers included. Tests: tools/test_perf_mods.py section 10 + 11.
 - **Frame-rate unlock (cubeon/game_options.py)**: adding mods only raises what
   the machine CAN render; Minecraft's own `options.txt` will still read 60 (or
   ~30, Vsync halving) if `enableVsync:true` / a low `maxFps`. This module flips
@@ -3903,6 +3950,52 @@ Cubeon cape resolves.
   PNG composites run on a daemon thread (`ux-wearing-preview`) and land as
   base64 `src` — `ft.Image.src` cannot load a relative path that lives under
   `~/.cubeon_launcher`. Same rule as `ui/skin_tab.py`.
+
+## The motion layer: cubeon/motion.py + liquid glass (2026-10-18) — INVARIANTS
+- **One module owns every animation: `cubeon/motion.py`.** Everything else asks
+  it. TWO levels only, `full` / `reduced` (`motion.LEVELS`; there is no "off" —
+  `coerce()` maps a hand-typed `off`/`false`/`0` to `reduced`, never back up to
+  `full`, and it must test `value is None` rather than `value or ""` or a JSON
+  `false` reads as "empty" and gets promoted). Config key `motion_level`, a
+  Switch labelled "Motion" in Settings > Display (a Switch, NOT a dropdown —
+  `tools/test_seasonal.py` fails any `.on_change=` next to `dropdown` in that
+  file), and `motion.set_level(cfg.get("motion_level", ...))` runs right after
+  `core.load_config()` in main.py. The level is read WHEN AN EVENT FIRES, never
+  at build time, so switching it takes effect on rows already on screen with no
+  restart and no rebuild.
+- `motion.polish(control, base_bg, hover_bg, glass=None, active=..., on_hover_fill=...)`
+  is the hover/press engine and `theme.attach_hover()` is a thin wrapper over it.
+  It snapshots the control's OWN resting `border_radius`/`border`/`shadow` first,
+  then swaps two PREPARED states with ONE write per gesture (the Phase 4
+  one-flush rule): lift (`ft.Scale`), press dip, rim, halo, corner morph. Paint
+  only: it never resizes layout, never rebuilds the control, and never wraps
+  `on_click` (the nav and the version picker identify their controls by
+  `on_click.__defaults__`). A control whose `active()` is False keeps the fill
+  swap (colour = "the row is here") but never the geometry (lift/dip/radius).
+- **Glass = Flet's `Container.blur`, i.e. a real `BackdropFilter`.** It blurs what
+  is painted BEHIND the panel, never the panel's own text, and it wraps the
+  container in a `ClipRRect` — so a blurred panel CLIPS its children/glows
+  (pass `blur=None` where a child has to bloom, as the Play hero panel does).
+  Borders on glass panels must stay UNIFORM: non-uniform border + rounded rect +
+  hover `BoxShadow` is the decoration shape Flutter refuses to paint.
+  `theme.glass_hover()` is the style polish() reads; it is pinned onto the slot
+  `motion.glass_style` at the BOTTOM of theme.py, because theme imports motion and
+  the reverse import has to stay lazy.
+- Siblings: `motion.sheen(radius=...)` (specular sweep — a transparent band slid
+  by `animate_offset`, clipped by an outer shell, parked off-surface at opacity 0
+  so `run()` is a single write), `motion.shimmer()` (loading-placeholder pulse),
+  `motion.stagger()` (list cascade), `motion.ambient()` (the Play hero aura).
+  Corner morph, stagger and the sheen are geometry/motion, so they are gated on
+  `transforms()` (full only); fill, rim, halo and shimmer are colour/light and are
+  allowed on `reduced` too. Do NOT stagger a list that refreshes on every toggle,
+  and do not give a `Container` an `animate` you flip at runtime (Flet swaps the
+  widget type when `animate` is set).
+- Hover/press wiring on app handlers must not call `control.update()` from the
+  headless driver; background-thread repaints go through
+  `cubeon/thread_safe_ui.refresh()`.
+- Guard: `tools/test_motion.py` (96 checks, in `test_mega_smoke.py`'s SUITES);
+  `tools/ux_capture.py` is the visual tour (Flet 1.0 entry via
+  `tools/_fuzz_common.run_app`/`has_async_entry`).
 
 ## Local OS notifications (2026-10-16) — Phase 7
 - **One module, `cubeon/osnotify.py`; nothing server-side and nothing remote.**

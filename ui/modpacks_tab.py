@@ -30,6 +30,7 @@ from cubeon.theme import (  # design system: corner radius, hover helper/tokens/
 )
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
+from cubeon import motion  # entrance cascade + loading shimmer
 from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 
 import launcher_core as core
@@ -707,7 +708,15 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         land - Modrinth is fast and shows up first, CurseForge (keyless
         cfwidget probes especially) folds in when it finishes. Only this page
         is fetched; the rest wait for the pager."""
-        wanted_mc = state.get("selected_mc_version")
+        # Deliberately NOT scoped to the Play tab's selected Minecraft version:
+        # a pack installs its own version and loader (see this module's
+        # docstring - RLCraft is 1.12.2 only), so filtering the browse by
+        # whatever happens to be selected made version-locked classics
+        # unsearchable. Typing "crazy craft" (1.20.1) or "rlcraft" while 1.21
+        # was selected returned "no packs found", which reads as "Cubeon does
+        # not have that pack" rather than "not for your version" - the row's
+        # own advisory hint (see _render_page) is where a version difference
+        # belongs, because it is information, not a filter.
         query = _current_query()
         limit = PAGE_SIZE
         offset = page_num * PAGE_SIZE
@@ -733,7 +742,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         def mr_worker():
             try:
                 hits = core.search_modpacks_modrinth(
-                    query, mc_version=wanted_mc, limit=limit, offset=offset)
+                    query, limit=limit, offset=offset)
             except Exception:
                 if gen != search_gen["v"]:
                     return
@@ -745,7 +754,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         def cf_worker():
             try:
                 hits = core.search_modpacks_curseforge(
-                    query, mc_version=wanted_mc, limit=limit, offset=offset)
+                    query, limit=limit, offset=offset)
             except Exception:
                 return  # CF is optional; Modrinth results already rendered
             publish("curseforge", hits)
@@ -788,13 +797,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         page_num = browse_state["page"]
         if page_num not in browse_state["pages"]:
             # Not fetched yet: show loading and go get just this page.
+            motion.stop_shimmer()
             results_view.controls.clear()
-            results_view.controls.append(
-                ft.Row(
-                    [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                     ft.Text("Loading...", size=13, color=TEXT_DIM)],
-                    spacing=10,
-                ))
+            loading_row = ft.Row(
+                [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                 ft.Text("Loading...", size=13, color=TEXT_DIM)],
+                spacing=10,
+            )
+            results_view.controls.append(loading_row)
+            # Let the placeholder breathe while the providers are probed
+            # (motion.shimmer - one shared daemon thread drives it, and it is
+            # stopped the moment the results land below).
+            motion.shimmer([loading_row])
             pager_row.visible = False
             page.update()
             _load_page(page_num, browse_state.get("gen"))
@@ -808,9 +822,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
         results_view.controls.clear()
         if not results:
+            motion.stop_shimmer()
             results_view.controls.append(
                 ft.Text(browse_state.get("empty_msg", ""), size=13, color=TEXT_DIM))
         else:
+            motion.stop_shimmer()
             installed = installed_pack_tokens()
             for pack in results:
                 title = re.sub(r"[^a-z0-9]+", "", (pack.get("title") or "").lower())
@@ -818,6 +834,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 is_installed = (bool(title) and title in installed) or \
                     (bool(slug) and slug in installed)
                 results_view.controls.append(build_pack_row(pack, is_installed))
+            # The rows are new to the client, so this is their entrance rather
+            # than a gesture: they cascade in instead of appearing all at once
+            # (motion.stagger - opacity 0 is written here, before the repaint
+            # below, and a daemon thread walks them up a few ms apart).
+            motion.stagger(results_view.controls)
 
         browse_status.value = f"{len(results)} packs" if results else ""
         if (results and page_num == 0 and not _current_query()

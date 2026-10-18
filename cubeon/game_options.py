@@ -14,17 +14,29 @@ no gameplay or visual choice:
   enableVsync:false     stop quantising output to the monitor's refresh rate
   maxFps:260            remove the hard frame cap (vanilla's top slider value)
 
-Everything else in options.txt is left byte-for-byte alone. Render distance,
-graphics, resource packs and shaders are the player's choices and the launcher
-does not rewrite them (see content.py's rule) - raising the cap cannot make a
-slow machine fast, it only stops a fast machine being held back.
+Everything else in options.txt is left byte-for-byte alone. Resource packs and
+shaders are the player's choices and the launcher does not rewrite them (see
+content.py's rule) - raising the cap cannot make a slow machine fast, it only
+stops a fast machine being held back.
 
-Max FPS mode (apply_max_fps) goes a step further and also sets the handful of
-options that are pure engine work with no look the player picked - fast
-graphics preset, minimal particles, no ambient occlusion/shadow passes, a
-little less entity update distance, no biome blending, and chunk saves off the
-render thread. It still never touches render distance, resource packs or
-shaders.
+Max FPS mode (apply_max_fps) is the launcher's DEFAULT graphics config
+(fps_boost_enabled defaults to True) and goes a step further. As well as the
+pure engine-work options - fast graphics preset, minimal particles, no ambient
+occlusion/shadow passes, trimmed entity update distance, no biome blending,
+chunk saves off the render thread - it also lowers the four levers that
+dominate frame rate on real hardware: renderDistance (8/12 -> 6),
+simulationDistance (12 -> 5), mipmapLevels (2) and 2D clouds (renderClouds
+"fast").
+
+  2026-10-18: those four used to be deliberately left alone "because they
+  change what the player sees". A side-by-side run against FastClient on the
+  same box settled it the other way: the GPU sat idle (0-76% busy) while both
+  games were Java-bound, and Cubeon at renderDistance 8 was meshing +70% more
+  chunks than FastClient at 6. FastClient's own options.txt sets every
+  speed-only key AND render/simulation distance, so leaving them out meant
+  Cubeon shipped measurably slower than the thing it is compared to. This is
+  still a DEFAULT, not a lock: FPS boost OFF rewrites every one of these keys
+  back to Minecraft's own defaults, render distance included.
 
 restore_vanilla_look() is Max FPS mode's OFF switch (2026-10-15): it rewrites
 the SAME keys back to Minecraft's own defaults, so turning FPS boost off in
@@ -33,8 +45,8 @@ instead of leaving the fast values baked into options.txt (the old Settings
 toggle only stopped FUTURE launches from re-applying them, which is why it
 "did nothing" once installed). It also restores the smooth-lighting key, so
 shadows and textures come back the way vanilla draws them. Like every applier
-here it only touches keys the file already has, and never render distance,
-resource packs or shaders.
+here it only touches keys the file already has, and never resource packs or
+shaders.
 
 Only keys that already exist are touched, so an options.txt from an older
 Minecraft version that has no such key is not given an unknown one. The write
@@ -48,12 +60,10 @@ from .paths import MINECRAFT_DIR
 VSYNC_KEY = "enableVsync"
 MAX_FPS_KEY = "maxFps"
 
-# Max FPS mode (2026-10-14): Minecraft's own options that are pure speed with
-# no gameplay cost. Each entry is (key, value, why). Deliberately absent:
-# renderDistance / simulationDistance / mipmapLevels / clouds / leaves / water -
-# those change what the player SEES, and the launcher does not rewrite a
-# player's visual choices (the content.py rule); these only stop the engine
-# wasting work on frame-rate, not on looks the player chose.
+# Max FPS mode (2026-10-14; distance levers added 2026-10-18). Each entry is
+# (key, value, why). Deliberately absent: resource packs, shaders, leaves and
+# water quality - those have no measurable frame cost on this hardware and are
+# pure taste.
 #
 # Two of these were WRONG until 2026-10-14 (both verified against the real
 # 1.21.11 jar by tools/test_perf_mods.py's companion audit):
@@ -75,17 +85,22 @@ MAX_FPS_OPTIONS = (
     ("entityDistanceScaling", "0.75", "fewer far-away entity updates"),
     ("biomeBlendRadius", "0", "fewer biome blend samples per pixel"),
     ("syncChunkWrites", "false", "chunk saves off the render thread"),
+    # The distance levers (2026-10-18). Chunk meshing is CPU work, so these
+    # cost frames directly: 6 is 169 chunks in view against 289 at 8.
+    ("renderDistance", "6", "fewer chunks meshed and drawn"),
+    ("simulationDistance", "5", "fewer ticked chunks and entities"),
+    ("mipmapLevels", "2", "less texture mip work and VRAM"),
+    # A STRING option too - quoted, like graphicsPreset.
+    ("renderClouds", '"fast"', "2D clouds instead of 3D volumes"),
 )
 
 # The OFF switch for Max FPS mode: the SAME keys, at Minecraft's own defaults
 # (verified against the 1.21.11 jar's options.txt - the same audit that fixed
 # the values above). ao:true is smooth lighting, the "shadows on the ground"
-# look; graphicsPreset fancy is textured, shadowed terrain. Only keys the
-# file already has are touched, so a fresh install that has never written
-# e.g. syncChunkWrites is not given one. DELIBERATELY never here:
-# renderDistance / simulationDistance / mipmapLevels / clouds / leaves /
-# water - turning the boost off restores the ENGINE defaults, it does not
-# un-do the player's own visual choices.
+# look; graphicsPreset fancy is textured, shadowed terrain. renderDistance /
+# simulationDistance go back to the client's own 12, mipmaps to 4 and clouds
+# to "true". Only keys the file already has are touched, so a fresh install
+# that has never written e.g. syncChunkWrites is not given one.
 VANILLA_LOOK_OPTIONS = {
     "graphicsPreset": '"fancy"',
     "particles": "0",
@@ -96,6 +111,10 @@ VANILLA_LOOK_OPTIONS = {
     "syncChunkWrites": "true",
     # Smooth lighting (per-vertex light smoothing; vanilla ON). A bool, like ao.
     "smoothLighting": "true",
+    "renderDistance": "12",
+    "simulationDistance": "12",
+    "mipmapLevels": "4",
+    "renderClouds": '"true"',
 }
 
 # Vanilla's FPS slider tops out at 260 and labels it "Unlimited"; anything
@@ -215,7 +234,8 @@ def restore_vanilla_look(path: str | None = None) -> dict:
     """FPS boost OFF: put Minecraft's speed-only graphics options back to the
     game's own defaults, so an install that ran with the boost on looks
     vanilla again (fancy graphics, smooth lighting, entity shadows, all
-    particles, full biome blend). Never raises; same result shape.
+    particles, full biome blend, full render/simulation distance, 4x mipmaps,
+    3D clouds). Never raises; same result shape.
     """
     return _set_options(path or options_path(), dict(VANILLA_LOOK_OPTIONS),
                         "vanilla look restored")

@@ -16,6 +16,7 @@ behaviour and the options rewrite with no network and no real profile:
   - options.txt: only enableVsync and maxFps are touched, atomically and
     idempotently, and a file without those keys is left alone.
 """
+import json as _json
 import os
 import sys
 import tempfile
@@ -239,7 +240,6 @@ with tempfile.TemporaryDirectory() as tmp:
 print("\n8. the EntityCulling config is repaired of crash-inducing entries")
 with tempfile.TemporaryDirectory() as tmp:
     path = os.path.join(tmp, "entityculling.json")
-    import json as _json
     with open(path, "w", encoding="utf-8") as fh:
         _json.dump({
             "configVersion": 9,
@@ -313,13 +313,18 @@ with tempfile.TemporaryDirectory() as tmp:
             "biomeBlendRadius:2\n"
             "syncChunkWrites:true\n"
             "renderDistance:12\n"
+            "simulationDistance:12\n"
+            "mipmapLevels:4\n"
+            "renderClouds:\"true\"\n"
         )
     original = open(path, encoding="utf-8").read()
     result = go.apply_max_fps(path)
-    check("every speed-only key applied",
+    check("every speed-only key applied, distance levers included",
           sorted(result["changed"]) == sorted(
               ["graphicsPreset", "particles", "ao", "entityShadows",
-               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites"]),
+               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites",
+               "renderDistance", "simulationDistance", "mipmapLevels",
+               "renderClouds"]),
           f"got {result!r}")
     text = open(path, encoding="utf-8").read()
     check("values are the fast ones",
@@ -330,10 +335,16 @@ with tempfile.TemporaryDirectory() as tmp:
     check("particles is MINIMAL (id 2), never ALL (id 0)", "particles:2" in text)
     check("the LIVE fast-graphics key is written, not the dead one",
           "graphicsPreset:" in text and "graphicsMode" not in text, repr(text))
-    check("renderDistance is NEVER touched", "renderDistance:12" in text
-          and "renderDistance" not in result["changed"], repr(text))
-    check("untouched lines byte-identical",
-          "version:4671" in text and "renderDistance:12" in text)
+    # 2026-10-18: the distance levers became part of the default config. A
+    # side-by-side run against FastClient showed the frame-rate gap was almost
+    # entirely these - Cubeon at renderDistance 8 meshes ~70% more chunks than
+    # FastClient at 6, and the GPU was idle while both were Java-bound.
+    check("the distance levers are lowered too",
+          "renderDistance:6" in text and "simulationDistance:5" in text
+          and "mipmapLevels:2" in text and 'renderClouds:"fast"' in text,
+          repr(text))
+    check("no lines added or removed",
+          len(original.splitlines()) == len(text.splitlines()), repr(text))
     again = go.apply_max_fps(path)
     check("idempotent", again["changed"] == [] and "already applied" in again["detail"],
           f"got {again!r}")
@@ -356,13 +367,13 @@ with tempfile.TemporaryDirectory() as tmp:
 with tempfile.TemporaryDirectory() as tmp:
     path = os.path.join(tmp, "fresh.txt")
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write("renderDistance:8\n")
+        fh.write("fov:1.0\n")
     result = go.apply_max_fps(path)
     check("a fresh options.txt is not given unknown keys",
           result["changed"] == [] and "not in options.txt" in result["detail"],
           f"got {result!r}")
     check("its only key survives untouched",
-          open(path, encoding="utf-8").read() == "renderDistance:8\n")
+          open(path, encoding="utf-8").read() == "fov:1.0\n")
 
 print("\n11. FPS boost OFF restores the vanilla look (the same keys, defaults)")
 with tempfile.TemporaryDirectory() as tmp:
@@ -380,13 +391,17 @@ with tempfile.TemporaryDirectory() as tmp:
             "syncChunkWrites:false\n"
             "smoothLighting:true\n"
             "renderDistance:6\n"
-            "mipmapLevels:4\n"
+            "simulationDistance:5\n"
+            "mipmapLevels:2\n"
+            "renderClouds:\"fast\"\n"
         )
     result = go.restore_vanilla_look(path)
-    check("every boost key is restored",
+    check("every boost key is restored, distance levers included",
           sorted(result["changed"]) == sorted(
               ["graphicsPreset", "particles", "ao", "entityShadows",
-               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites"]),
+               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites",
+               "renderDistance", "simulationDistance", "mipmapLevels",
+               "renderClouds"]),
           f"got {result!r}")
     text = open(path, encoding="utf-8").read()
     check("values are Minecraft's own defaults again",
@@ -397,8 +412,12 @@ with tempfile.TemporaryDirectory() as tmp:
     check("smooth lighting stays true (never nerfed, never invented)",
           "smoothLighting:true" in text and "smoothLighting" not in result["changed"],
           repr(text))
-    check("the player's own visual choices are untouched",
-          "renderDistance:6" in text and "mipmapLevels:4" in text,
+    # FPS boost OFF has to hand the view distance back too, or "vanilla look
+    # restored" would leave the player stuck at the boost's renderDistance 6
+    # with no obvious way back.
+    check("the distance levers go back to vanilla too",
+          "renderDistance:12" in text and "simulationDistance:12" in text
+          and "mipmapLevels:4" in text and 'renderClouds:"true"' in text,
           repr(text))
     again = go.restore_vanilla_look(path)
     check("restore is idempotent",
@@ -409,17 +428,179 @@ with tempfile.TemporaryDirectory() as tmp:
     check("boost can be re-applied after a restore",
           sorted(back["changed"]) == sorted(
               ["graphicsPreset", "particles", "ao", "entityShadows",
-               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites"]),
+               "entityDistanceScaling", "biomeBlendRadius", "syncChunkWrites",
+               "renderDistance", "simulationDistance", "mipmapLevels",
+               "renderClouds"]),
           f"got {back!r}")
 
 with tempfile.TemporaryDirectory() as tmp:
     path = os.path.join(tmp, "fresh.txt")
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write("renderDistance:8\n")
+        fh.write("fov:1.0\n")
     result = go.restore_vanilla_look(path)
     check("restore never invents keys in a fresh options.txt",
           result["changed"] == [] and "not in options.txt" in result["detail"],
           f"got {result!r}")
+
+print("\n12. Sodium's own renderer options are repaired on every boosted launch")
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, "sodium-options.json")
+    # A config that has drifted in every way that matters: the shape an older
+    # Cubeon generation leaves behind, plus two of the flips an FPS guide
+    # recommends (fog occlusion off) that cost frames for no visible win.
+    drifted = {
+        "quality": {
+            "hidden_fluid_culling": False,        # wrong
+            "improved_fluid_shaping": True,       # wrong
+            "pixel_filtering_mode": "LINEAR",     # taste -> keep
+            "use_closest_point_entity_sort": True,  # taste -> keep
+        },
+        "performance": {
+            "chunk_builder_threads": 2,           # wrong (0 = all cores)
+            "chunk_build_defer_mode": "ZERO_FRAMES",   # wrong
+            "animate_only_visible_textures": False,    # wrong
+            "use_entity_culling": False,               # wrong
+            "use_fog_occlusion": False,                # wrong
+            "use_block_face_culling": True,            # already fast
+            "use_no_error_g_l_context": True,          # already fast
+            "quad_splitting_mode": "OFF",              # wrong
+        },
+        "advanced": {
+            "use_advanced_staging_buffers": True,      # already fast
+            "cpu_render_ahead_limit": 1,               # wrong
+        },
+        "debug": {"terrain_sorting_enabled": True},
+        # Sodium's own UI state, and a section from a Sodium that does not
+        # exist yet: both must survive untouched.
+        "notifications": {"has_seen_donation_prompt": False},
+        "future_section": {"we_do_not_know": 1},
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        _json.dump(drifted, fh)
+
+    result = perf.apply_max_fps_sodium(path)
+    check("only the options that were actually wrong are reported",
+          sorted(result["changed"]) == sorted([
+              "quality.hidden_fluid_culling", "quality.improved_fluid_shaping",
+              "performance.chunk_builder_threads",
+              "performance.chunk_build_defer_mode",
+              "performance.animate_only_visible_textures",
+              "performance.use_entity_culling",
+              "performance.use_fog_occlusion",
+              "performance.quad_splitting_mode",
+              "advanced.cpu_render_ahead_limit"]),
+          f"got {result!r}")
+    fixed = _json.load(open(path, encoding="utf-8"))
+    check("the renderer switches are back at the fast values",
+          fixed["performance"]["use_fog_occlusion"] is True
+          and fixed["performance"]["use_entity_culling"] is True
+          and fixed["performance"]["animate_only_visible_textures"] is True
+          and fixed["performance"]["chunk_build_defer_mode"] == "ALWAYS"
+          and fixed["performance"]["quad_splitting_mode"] == "SAFE"
+          and fixed["performance"]["chunk_builder_threads"] == 0
+          and fixed["quality"]["hidden_fluid_culling"] is True
+          and fixed["quality"]["improved_fluid_shaping"] is False
+          and fixed["advanced"]["cpu_render_ahead_limit"] == 3,
+          repr(fixed))
+    check("the player's own taste is left alone",
+          fixed["quality"]["pixel_filtering_mode"] == "LINEAR"
+          and fixed["quality"]["use_closest_point_entity_sort"] is True,
+          repr(fixed["quality"]))
+    check("Sodium's own UI state and unknown sections survive",
+          fixed["notifications"] == {"has_seen_donation_prompt": False}
+          and fixed["future_section"] == {"we_do_not_know": 1}, repr(fixed))
+    check("and no section was added or removed",
+          set(fixed) == set(drifted), repr(sorted(fixed)))
+    # The values are the ones Sodium itself compiles in: with the boost on
+    # there is nothing for a later "restore" to write back.
+    check("the fast values ARE Sodium's own defaults",
+          perf.SODIUM_MAX_FPS_OPTIONS["quality"]["hidden_fluid_culling"] is True
+          and perf.SODIUM_MAX_FPS_OPTIONS["performance"]["chunk_build_defer_mode"] == "ALWAYS"
+          and perf.SODIUM_MAX_FPS_OPTIONS["performance"]["quad_splitting_mode"] == "SAFE"
+          and perf.SODIUM_MAX_FPS_OPTIONS["advanced"]["use_advanced_staging_buffers"] is True)
+
+    again = perf.apply_max_fps_sodium(path)
+    check("idempotent: the next launch changes nothing",
+          again["changed"] == [] and "already" in again["detail"], f"got {again!r}")
+
+    # `0` is the number that spells `false` in JSON. Without a bool check the
+    # repair would accept it as already-correct and leave the switch off.
+    with open(path, "w", encoding="utf-8") as fh:
+        _json.dump({"performance": {"use_fog_occlusion": 0,
+                                    "use_block_face_culling": 1,
+                                    "use_entity_culling": True}}, fh)
+    numbers = perf.apply_max_fps_sodium(path)
+    check("a 0/1 that means false/true is corrected, not accepted",
+          numbers["changed"] == ["performance.use_fog_occlusion",
+                                 "performance.use_block_face_culling"],
+          f"got {numbers!r}")
+    number_data = _json.load(open(path, encoding="utf-8"))["performance"]
+    check("and is written as a real JSON boolean, not left as a number",
+          number_data["use_fog_occlusion"] is True
+          and number_data["use_block_face_culling"] is True, repr(number_data))
+    check("a switch that was already a real boolean is not touched",
+          "use_entity_culling" not in perf.apply_max_fps_sodium(path)["changed"])
+
+    # A Sodium 0.4.x file (Minecraft 1.20) has none of the newer options. Only
+    # the names both generations share may be touched - inventing
+    # chunk_build_defer_mode in a 0.4.x file would be an unknown key.
+    legacy_path = os.path.join(tmp, "legacy.json")
+    with open(legacy_path, "w", encoding="utf-8") as fh:
+        _json.dump({
+            "quality": {"weather_quality": True, "leaves_quality": "fancy",
+                        "enable_vignette": True},
+            "performance": {"chunk_builder_threads": 1,
+                            "always_defer_chunk_updates": False,
+                            "use_entity_culling": True,
+                            "use_fog_occlusion": False},
+            "advanced": {"use_persistent_mapping": True},
+            "notifications": {"has_cleared_donation_button": True},
+        }, fh)
+    legacy = perf.apply_max_fps_sodium(legacy_path)
+    check("a legacy config gets the switches both generations share",
+          legacy["changed"] == ["performance.chunk_builder_threads",
+                                "performance.use_fog_occlusion"],
+          f"got {legacy!r}")
+    legacy_data = _json.load(open(legacy_path, encoding="utf-8"))
+    check("and is never given a key its generation does not have",
+          "chunk_build_defer_mode" not in legacy_data["performance"]
+          and "quad_splitting_mode" not in legacy_data["performance"]
+          and "hidden_fluid_culling" not in legacy_data["quality"],
+          repr(legacy_data))
+
+    missing = os.path.join(tmp, "nope", "sodium-options.json")
+    result = perf.apply_max_fps_sodium(missing)
+    check("no config file -> nothing written and nothing invented",
+          result["changed"] == [] and not os.path.exists(missing)
+          and "defaults" in result["detail"], f"got {result!r}")
+
+    broken = os.path.join(tmp, "broken.json")
+    with open(broken, "w", encoding="utf-8") as fh:
+        fh.write("{not json")
+    check("a corrupt config is reported, never raised",
+          perf.apply_max_fps_sodium(broken)["changed"] == [])
+    with open(broken, "w", encoding="utf-8") as fh:
+        fh.write("[1, 2, 3]")
+    check("a non-object config is reported, never raised",
+          perf.apply_max_fps_sodium(broken)["changed"] == [])
+
+    check("the path is Sodium's own file in the game dir",
+          perf.sodium_config_path().endswith(
+              os.path.join("config", "sodium-options.json")))
+
+# The launch path is the only caller that matters: the repair has to sit behind
+# the same FPS boost toggle as the options.txt rewrite, and inside the perf
+# block (a Sodium-only repair with Vsync still on would be half a boost).
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_launch_src = open(os.path.join(_REPO, "cubeon", "launch.py"), encoding="utf-8").read()
+check("the launch path enforces Sodium's options on every boosted launch",
+      'if cfg.get("fps_boost_enabled", True):\n'
+      "                tuned = perf_mods.apply_max_fps_sodium()" in _launch_src,
+      "expected the call directly under the fps_boost_enabled check")
+check("it is not in the FPS-boost-OFF branch",
+      _launch_src.index("tuned = perf_mods.apply_max_fps_sodium()")
+      > _launch_src.index("restored = game_options.restore_vanilla_look()"),
+      "Sodium's defaults are already the fast values - OFF must not rewrite it")
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

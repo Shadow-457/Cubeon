@@ -42,6 +42,18 @@ _OP_FRAME = 1
 
 _HEADER = struct.Struct("<II")  # opcode (uint32 LE) + frame length (uint32 LE)
 
+# The link every activity carries. Discord renders up to two buttons under an
+# activity, and a button is just a label + a URL Discord opens in the browser
+# itself - no app-side handling, nothing to break. It gives anyone who sees
+# "Cubeon" on a friend's profile a way to find it again.
+#
+# It points at the SITE, not the download page (cubeon/updater.py's
+# DOWNLOAD_URL): the button says "website", and the launcher already contains
+# the download. tools/test_ui_smoke.py pins both to the same host so the two
+# cannot silently drift to different domains.
+SITE_URL = "https://cubeon.ylet.online"
+SITE_BUTTONS = ({"label": "Cubeon website", "url": SITE_URL},)
+
 
 def _frame(opcode: int, payload: dict) -> bytes:
     body = json.dumps(payload).encode("utf-8")
@@ -112,10 +124,15 @@ class DiscordPresence:
     def set_activity(self, *, details=None, state=None, start=None, end=None,
                      large_image=None, large_text=None,
                      small_image=None, small_text=None,
-                     buttons=None) -> None:
+                     buttons=SITE_BUTTONS) -> None:
         """Publish a Rich Presence activity. Any field may be omitted (empty
         fields are dropped, as Discord rejects clutter). Thread-safe; a no-op if
-        the feature is off or Discord isn't reachable."""
+        the feature is off or Discord isn't reachable.
+
+        ``buttons`` defaults to the website link (see SITE_BUTTONS) so that
+        every activity - in the launcher, playing Minecraft - carries it without
+        each call site having to remember. Pass ``buttons=[]`` for a bare card.
+        """
         activity = {}
         if details:
             activity["details"] = str(details)[:128]

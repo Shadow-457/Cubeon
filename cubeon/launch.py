@@ -823,6 +823,19 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 restored = game_options.restore_vanilla_look()
                 if restored["changed"] and status_cb:
                     status_cb("Vanilla graphics restored")
+            # Sodium's own renderer options are the half of its settings that
+            # options.txt has no key for - they live in
+            # config/sodium-options.json, and unlike options.txt there is no
+            # "vanilla look" to restore (Sodium's compiled defaults ARE the fast
+            # values), so this only ever runs with the boost ON. Rewritten every
+            # boosted launch, so a config left by an older Sodium/Cubeon, or by
+            # an FPS guide that turned fog occlusion off, cannot keep the
+            # renderer doing work it does not have to.
+            if cfg.get("fps_boost_enabled", True):
+                tuned = perf_mods.apply_max_fps_sodium()
+                if tuned["changed"]:
+                    logging.getLogger(__name__).info(
+                        "sodium options tuned: %s", tuned["detail"])
     except Exception:
         pass
 

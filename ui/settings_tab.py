@@ -20,6 +20,7 @@ save callbacks, so nothing is duplicated or rewired.
 """
 import flet as ft
 
+from cubeon import motion
 from cubeon import osnotify
 from cubeon.theme import (
     RADIUS, attach_hover, text_tab, ROW_HOVER, ACCENT_TINT,
@@ -247,6 +248,32 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         spacing=8, visible=False,
     )
 
+    # --- Motion (2026-10-18) -------------------------------------------------
+    # Built here rather than passed in from main.py, like the switches above: it
+    # reads and writes exactly one config key (motion_level). The level itself
+    # lives in cubeon/motion.py and is consulted WHEN AN EVENT FIRES, not when a
+    # control is built - which is what lets this take effect on the rows already
+    # on screen, with no restart and no rebuilding of the tabs.
+    motion_switch = ft.Switch(
+        value=motion.transforms(), active_color=ACCENT, scale=0.85,
+    )
+
+    def _on_motion_change(_e, sw=motion_switch):
+        """Apply now, persist now - like every other control in this tab."""
+        level = motion.set_level("full" if sw.value else "reduced")
+        sw.value = motion.transforms()      # the truth, not the click
+        cfg["motion_level"] = level
+        try:
+            from cubeon import config as _config
+            _config.save_config(cfg)
+        except Exception:
+            set_status("Couldn't save the motion setting")
+            return
+        set_status("Full motion" if sw.value else
+                   "Motion reduced - fades only, nothing moves on its own")
+
+    motion_switch.on_change = _on_motion_change
+
     display_pane = ft.Column(
         [
             section_label("Display"),
@@ -258,6 +285,14 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             ft.Container(height=10),
             ft.Row(
                 [width_field, height_field], spacing=12,
+            ),
+            ft.Container(height=6),
+            _setting_row(
+                "Motion",
+                "Hover lifts, list cascades and the pulse behind Play. Switch "
+                "it off for fades only - nothing resizes and nothing moves on "
+                "its own.",
+                motion_switch, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT,
             ),
         ],
         spacing=8, visible=False,

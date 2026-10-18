@@ -147,6 +147,141 @@ def sanitize_entityculling_config(path: str | None = None) -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Sodium's own options (2026-10-18)
+# ---------------------------------------------------------------------------
+# Sodium's settings live in two places. The ones that mirror a vanilla option
+# (render distance, graphics, clouds, ao, mipmaps, entity distance, ...) are
+# BOUND to options.txt, and game_options.py already writes them. The
+# renderer-only ones - the ones the vanilla screen has no equivalent for, and
+# the ones that decide whether the renderer actually does the cheap thing - are
+# kept in <game dir>/config/sodium-options.json.
+#
+# Unlike options.txt there is nothing to save for turning the boost off: every
+# default in Sodium 0.8.x IS already the fast value. That was read straight off
+# the option holder (SodiumOptions$*Settings, values verified by decompiling
+# sodium-fabric 0.8.14): hiddenFluidCulling true, chunkBuildDeferMode ALWAYS,
+# quadSplittingMode SAFE, useAdvancedStagingBuffers true, cpuRenderAheadLimit 3.
+# So this is a REPAIR, not a preset - and it exists because nothing stops a
+# profile from holding a config that is not the default: an older Sodium, an
+# older Cubeon, or a "raise your FPS" guide telling the player to switch fog
+# occlusion off. Those files sat there forever and kept the renderer doing work
+# it did not have to, which is exactly the "my FPS did not change" report this
+# closes. The file is rewritten on every boosted launch; FPS boost OFF simply
+# stops enforcing it and hands Sodium's own config back to the player.
+#
+# Keys are matched by name against the section that is already in the file, so
+# a config from a different Sodium generation is never given an unknown key:
+# Sodium 0.4.x (Minecraft 1.20) keeps the same names for the shared performance
+# switches (chunk_builder_threads, use_*_culling, animate_only_visible_textures)
+# and simply has none of the newer ones (chunk_build_defer_mode,
+# quad_splitting_mode, ...), which then no-op.
+#
+# Deliberately NOT touched, because they are taste rather than frame cost:
+#   quality.pixel_filtering_mode          NEAREST (Sodium's default) vs LINEAR
+#                                         texture filtering - a look, not a cost
+#   quality.use_closest_point_entity_sort more correct translucent sorting,
+#                                         off by default
+#   notifications.*                       Sodium's own one-time prompts
+SODIUM_MAX_FPS_OPTIONS = {
+    "quality": {
+        "hidden_fluid_culling": True,        # don't draw hidden fluid faces
+        "improved_fluid_shaping": False,     # the cheap fluid mesher
+    },
+    "performance": {
+        "chunk_builder_threads": 0,          # 0 = a builder thread per core
+        "chunk_build_defer_mode": "ALWAYS",  # defer rebuilds off the frame
+        "animate_only_visible_textures": True,
+        "use_entity_culling": True,
+        "use_fog_occlusion": True,
+        "use_block_face_culling": True,
+        "use_no_error_g_l_context": True,    # skip per-call GL error checks
+        "quad_splitting_mode": "SAFE",
+    },
+    "advanced": {
+        "enable_memory_tracing": False,
+        "use_advanced_staging_buffers": True,  # persistent-mapped uploads
+        "cpu_render_ahead_limit": 3,
+    },
+    "debug": {
+        "terrain_sorting_enabled": True,
+    },
+}
+
+
+def sodium_config_path() -> str:
+    from .paths import MINECRAFT_DIR
+    return os.path.join(MINECRAFT_DIR, "config", "sodium-options.json")
+
+
+def _same(a, b) -> bool:
+    """`a == b`, but a bool is never equal to the number that spells it in
+    JSON: `use_fog_occlusion: 0` would otherwise read as already-correct `false`
+    and be left alone (and vice versa for chunk_builder_threads: false)."""
+    return a == b and isinstance(a, bool) == isinstance(b, bool)
+
+
+def apply_max_fps_sodium(path: str | None = None) -> dict:
+    """Puts Sodium's own renderer options back to the fast values, in place.
+
+    Returns {"changed", "detail", "path"} - the same shape as
+    game_options.py's appliers, and the same contract: only keys the file
+    already has are touched (so a config from another Sodium generation is
+    never given an unknown key), the write is atomic and idempotent, and every
+    failure is reported instead of raised. This runs on the launch path before
+    the JVM starts, so it can never race Sodium's own save-on-exit.
+
+    A missing file is NOT created: without a config, Sodium uses its compiled
+    defaults, which are exactly the values above.
+    """
+    target = path or sodium_config_path()
+    result = {"changed": [], "detail": "", "path": target}
+    try:
+        with open(target, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        result["detail"] = ("no sodium-options.json yet (Sodium's own defaults "
+                            "are already the fast values)")
+        return result
+    except (OSError, ValueError):
+        result["detail"] = "sodium-options.json is not readable"
+        return result
+    if not isinstance(data, dict):
+        result["detail"] = "sodium-options.json is not an object"
+        return result
+
+    for section, wanted in SODIUM_MAX_FPS_OPTIONS.items():
+        current = data.get(section)
+        if not isinstance(current, dict):
+            continue        # not this generation's schema: leave it alone
+        for key, value in wanted.items():
+            if key in current and not _same(current[key], value):
+                current[key] = value
+                result["changed"].append(f"{section}.{key}")
+
+    if not result["changed"]:
+        result["detail"] = "sodium options already at the fast values"
+        return result
+
+    tmp = target + ".cubeon-tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp, target)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        result["changed"] = []
+        result["detail"] = "sodium-options.json is not writable"
+        return result
+
+    result["detail"] = "set " + ", ".join(result["changed"])
+    return result
+
+
 def _present(mc_version: str | None, loader: str | None) -> set:
     """The performance mods already in this profile, by slug.
 

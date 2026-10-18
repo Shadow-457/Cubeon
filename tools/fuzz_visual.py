@@ -695,8 +695,8 @@ def main():
 
     import flet as ft
     assets = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
-    ft.app(target=lambda page: visual_main(page, n_bots, args.pace, args.seed),
-           assets_dir=assets)
+    fz.run_app(lambda page: visual_main(page, n_bots, args.pace, args.seed),
+               assets_dir=assets)
 
 
 if __name__ == "__main__":

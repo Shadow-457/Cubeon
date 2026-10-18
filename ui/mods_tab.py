@@ -30,6 +30,7 @@ import launcher_core as core
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
 from cubeon import status_text  # keeps "<... at 0x...>" out of labels
+from cubeon import motion  # entrance cascade + loading shimmer
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 
@@ -1140,13 +1141,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         """The placeholder shown while a page that isn't cached yet is being
         fetched - it keeps the pager out of the way so a stale page number
         can't be clicked while the real one is in flight."""
+        motion.stop_shimmer()
         browse_results_view.controls.clear()
-        browse_results_view.controls.append(
-            ft.Row(
-                [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                 ft.Text("Loading...", size=13, color=TEXT_DIM)],
-                spacing=10,
-            ))
+        loading_row = ft.Row(
+            [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+             ft.Text("Loading...", size=13, color=TEXT_DIM)],
+            spacing=10,
+        )
+        browse_results_view.controls.append(loading_row)
+        # Breathe while the provider answers (motion.shimmer); _render_browse_page
+        # stops it the moment a real page exists.
+        motion.shimmer([loading_row])
         browse_pager_row.visible = False
         page.update()
 
@@ -1183,6 +1188,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         browse_state["results"] = results
 
+        motion.stop_shimmer()   # the loading placeholder (if any) is done
         browse_results_view.controls.clear()
         if not results:
             browse_results_view.controls.append(
@@ -1215,6 +1221,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     is_installed = (bool(slug) and any(slug in t for t in tokens)) or \
                         (bool(title) and any(title in t for t in tokens))
                 browse_results_view.controls.append(build_browse_row(mod, is_installed))
+
+            # New controls, so this is their entrance: a short cascade rather
+            # than the whole page appearing in one frame (motion.stagger reads
+            # the level at run time, so Settings > Motion applies here too).
+            motion.stagger(browse_results_view.controls)
 
         browse_status_text.value = f"{len(results)} mod(s)" if results else ""
         browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"

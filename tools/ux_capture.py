@@ -837,8 +837,9 @@ def _write_readme(outdir, manifest, empty):
         f.write("\n".join(lines) + "\n")
 
 
-def capture_main(page, outdir, pixel_ratio, empty, only=None):
-    """Flet entry: build the real UI, then run the async tour on the page loop."""
+def _prepare(page, empty):
+    """Install the safety stubs and seed/pour the fixture data, then return the
+    stubs namespace. Shared by both entry points below."""
     stubs = fz.install_safe_stubs()
     if empty:
         force_empty(stubs.core)
@@ -846,8 +847,15 @@ def capture_main(page, outdir, pixel_ratio, empty, only=None):
         seeded = seed_rich()
         if seeded:
             print(f"   seeded tour fixtures: {', '.join(seeded)}")
-    app = stubs.app
-    app.run_sync(page)
+    return stubs
+
+
+def _after_build(page, outdir, pixel_ratio, empty, only):
+    """Everything the tour does once the real UI exists on `page`: size the
+    window, work out the state plan and run it on the page's own loop.
+
+    Called from both entries below - it is the part that never needed the
+    sync-vs-async distinction."""
     baseline_ids = {id(c) for c in getattr(page, "overlay", [])}
     nav = discover_nav(page)
     plan = build_plan(nav, empty)
@@ -926,6 +934,27 @@ def capture_main(page, outdir, pixel_ratio, empty, only=None):
             pass
 
     page.run_task(_tour)
+
+
+def capture_main(page, outdir, pixel_ratio, empty, only=None):
+    """Flet 0.8x entry (sync target): the harness drives the app's coroutine on
+    a private loop via main.run_sync()."""
+    stubs = _prepare(page, empty)
+    stubs.app.run_sync(page)
+    _after_build(page, outdir, pixel_ratio, empty, only)
+
+
+async def capture_main_async(page, outdir, pixel_ratio, empty, only=None):
+    """Flet 1.0 entry (async target): Flet already runs this on its own loop, so
+    the app's coroutine is AWAITED instead of driven with asyncio.run() - which
+    raises inside a running loop ("asyncio.run() cannot be called from a running
+    event loop"), the exact way this tool stopped being able to take a shot
+    after the Flet 1.0 upgrade."""
+    stubs = _prepare(page, empty)
+    await stubs.app.main(page)
+    _after_build(page, outdir, pixel_ratio, empty, only)
+
+
 def _run_windowed(outdir, pixel_ratio, empty, only, software):
     """Launch the real Flet window and run the tour. `software=True` forces
     llvmpipe (the AMD Polaris + Mesa 26.1 first-frame SIGSEGV workaround)."""
@@ -934,9 +963,9 @@ def _run_windowed(outdir, pixel_ratio, empty, only, software):
         # imports the client so the renderer is chosen at window creation.
         os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
         os.environ.setdefault("GALLIUM_DRIVER", "llvmpipe")
+    fz.run_app(capture_main_async if fz.has_async_entry() else capture_main)
     import flet as ft
-    ft.app(target=lambda page: capture_main(page, outdir, pixel_ratio,
-                                           empty, only))
+    fz.run_app(lambda page: capture_main(page, outdir, pixel_ratio, empty, only))
 
 
 def _count_new_pngs(outdir, since):

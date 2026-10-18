@@ -58,6 +58,8 @@ Colour follows a disciplined dark-UI system:
 """
 import flet as ft
 
+from . import motion
+
 # --- Neutral ramp ----------------------------------------------------------
 # True black + green. The canvas is the user's #050505, and every surface above
 # it is black with only the faintest green cast so the UI reads as "black and
@@ -126,30 +128,88 @@ AVATAR_COLORS = [
     "#6E9BE0",  # lapis blue
 ]
 
-# --- Depth / "glass" layer --------------------------------------------------
+# --- Depth / "liquid glass" layer -------------------------------------------
 # Surfaces go translucent over the canvas and borders drop to a fraction of
-# their opacity, so panels read as layered rather than flat slabs - without
-# gradients or glow. Use these through the helpers below (card(), ...) rather
-# than hand-writing opacities at call sites - the exact fractions ARE the
-# look, and having them in one place keeps every screen consistent.
+# their opacity, so panels read as layered rather than flat slabs. Use these
+# through the helpers below (card(), ...) rather than hand-writing opacities at
+# call sites - the exact fractions ARE the look, and having them in one place
+# keeps every screen consistent.
+#
+# 2026-10-18 ("liquid glass"): a panel is no longer merely see-through, it is
+# FROSTED. `GLASS_BLUR` is a real backdrop filter - Flet compiles Container.blur
+# to a BackdropFilter, i.e. it softens what is painted BEHIND the panel (the
+# backdrop artwork; never the panel's own text) - and that is the one ingredient
+# that turns "a slightly transparent rectangle" into glass. The fills also came
+# down (55% -> 42%, and the hero panel is no longer opaque) so there is
+# something for the blur to actually show through.
+#
+# Two consequences of a backdrop filter, worth knowing before you add one:
+#   * it CLIPS. Flet wraps a blurred Container in a ClipRRect (container.dart),
+#     so a panel carrying one can never let a child or a glow bleed past its own
+#     bounds - do not put it on a control that needs to overflow;
+#   * it COSTS. The filter re-runs whenever the pixels behind the panel change,
+#     so it belongs on panels whose backdrop is the static canvas - never on a
+#     row inside a scrolling list.
 
-CARD_FILL = ft.Colors.with_opacity(0.55, SURFACE)     # translucent panel fill
-CARD_FILL_HERO = "#0C0F0B"                            # hero panel: one flat step brighter
+CARD_FILL = ft.Colors.with_opacity(0.42, SURFACE)     # translucent panel fill
+CARD_FILL_HERO = ft.Colors.with_opacity(0.55, "#0C0F0B")  # hero panel: a step brighter, still glass
 CARD_BORDER = ft.Colors.with_opacity(0.55, BORDER)    # low-opacity outline for panels
 ROW_HOVER = ft.Colors.with_opacity(0.65, SURFACE_HI)  # quiet hover lift for borderless rows
 ACCENT_TINT = ft.Colors.with_opacity(0.12, ACCENT)    # selected-state wash (nav/chips/tiles)
 ACCENT_TINT_HI = ft.Colors.with_opacity(0.20, ACCENT) # hovered version of the same wash
 
+# The frosted panel itself. Borders stay UNIFORM on purpose: Flet passes
+# bgcolor/border/radius/shadow to one BoxDecoration, and a non-uniform border
+# combined with a rounded rect (and a hover shadow) is exactly the shape of
+# decoration Flutter refuses to paint - one stray side colour would turn every
+# hovered panel into an error screen. The specular highlight is animated instead
+# (cubeon/motion.py's Sheen), which is where the eye actually reads "glass".
+GLASS_BLUR = ft.Blur(14, 14, ft.BlurTileMode.MIRROR)       # cards, dialogs, panels
+GLASS_BLUR_SOFT = ft.Blur(10, 10, ft.BlurTileMode.MIRROR)  # large, list-bearing surfaces
+GLASS_RIM = ft.Colors.with_opacity(0.12, "#FFFFFF")        # panel outline: a lit rim
+GLASS_RIM_HI = ft.Colors.with_opacity(0.30, "#FFFFFF")     # ... and its hovered state
+GLASS_HALO = ft.Colors.with_opacity(0.30, ACCENT)          # green bloom under a hovered panel
+GLASS_HALO_PX = 20
+GLASS_RADIUS_STEP = 3        # how far a hovered panel's corners open up
 
-def card(*, padding=24, hero=False):
-    """Kwargs for a glassy panel Container: translucent fill, faint border,
-    softly rounded radius. `hero=True` uses the slightly brighter flat fill
-    reserved for the single dominant panel on a screen (the Play tab's launcher)."""
-    return {
+
+def glass_edge():
+    """The outline of a glass panel: a whisper of white over the structural
+    border, so the panel catches light on all four sides the way an edge of
+    frosted glass does. Uniform by necessity (see the note above)."""
+    return ft.border.Border.all(1, GLASS_RIM)
+
+
+def card(*, padding=24, hero=False, blur=GLASS_BLUR):
+    """Kwargs for a liquid-glass panel Container: frosted backdrop, translucent
+    fill, lit rim, softly rounded radius. `hero=True` uses the slightly brighter
+    fill reserved for the single dominant panel on a screen (the Play tab's
+    launcher). Pass `blur=None` for a panel that must stay flat, or that needs a
+    child to bleed outside it (a blurred Container clips)."""
+    kwargs = {
         "bgcolor": CARD_FILL_HERO if hero else CARD_FILL,
-        "border": ft.border.Border.all(1, CARD_BORDER),
+        "border": glass_edge(),
         "border_radius": RADIUS_LG,
         "padding": padding,
+    }
+    if blur is not None:
+        kwargs["blur"] = blur
+    return kwargs
+
+
+def glass_hover():
+    """The hover state of a glass control, as the plain dict cubeon/motion.py's
+    polish() reads: the corners open up, the rim catches the light and a green
+    halo rises underneath. Kept here (not in motion) because it is palette.
+
+    motion.py looks this up through the pinned slot at the bottom of the module
+    rather than importing this module: theme imports motion, so the reverse
+    import has to stay lazy."""
+    return {
+        "radius": GLASS_RADIUS_STEP,
+        "rim": GLASS_RIM_HI,
+        "halo": ft.BoxShadow(blur_radius=GLASS_HALO_PX, spread_radius=0,
+                             color=GLASS_HALO),
     }
 
 
@@ -235,15 +295,17 @@ def attach_hover(container, base_bg, hover_bg):
 
     Custom Container "buttons" (the app builds most of them by hand) get no
     hover feedback for free the way real Flet buttons do - so without this they
-    feel dead under the cursor. This wires an on_hover that swaps the fill and
-    self-updates, the single affordance rule applied consistently. Returns the
-    container so it can be used inline where the Container is created.
+    feel dead under the cursor. This is the single hover mechanism in the app:
+    ~35 call sites across every tab, all of them the same one expression.
+
+    The work itself lives in cubeon/motion.py (2026-10-18). On top of the
+    original fill swap it now fades the fill instead of snapping it, lifts the
+    control a hair while hovered, and dips it while pressed - so every row,
+    card and hand-built button in the launcher responds the same way, and
+    Settings > Display > Motion can calm it (or switch it off) app-wide.
+    Returns the container so it can be used inline where it is created.
     """
-    def _h(e):
-        container.bgcolor = hover_bg if e.data == "true" else base_bg
-        container.update()
-    container.on_hover = _h
-    return container
+    return motion.polish(container, base_bg, hover_bg)
 
 
 def apply_page_theme(page):
@@ -466,3 +528,12 @@ def toggle_wrap(handler, switch, base_scale=1.0):
         _toggle_pop(switch, base_scale)
         return handler(e)
     return _wrapped
+
+
+# --- the one back-reference -------------------------------------------------
+# theme imports motion at module scope (attach_hover delegates to it), so motion
+# can never import theme. Instead it looks the glass hover state up here, at
+# event time, through this slot. Pinned rather than a lazy `from . import theme`
+# inside a hot handler so a rename here fails loudly in tools/test_motion.py
+# instead of silently dropping the glass hover at runtime.
+motion.glass_style = glass_hover

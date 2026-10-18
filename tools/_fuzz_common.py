@@ -255,6 +255,40 @@ OBSERVATIONS = []
 DEFECT_EXC = ("NameError", "UnboundLocalError")
 
 
+# ------------------------------------------------------- running a real window ---
+def run_app(callback, *, assets_dir=None):
+    """Start the real Flet window, calling `callback(page)`, across the Flet
+    versions the launcher supports.
+
+    Flet 1.0 removed `ft.app()` in favour of `ft.run()` (which is what main.py
+    calls), and the visual dev tools in tools/ were still asking for the old
+    name - so `ux_capture.py` and `fuzz_visual.py` died with "module 'flet' has
+    no attribute 'app'" before drawing a frame. Feature-detect here instead of
+    in each tool."""
+    import flet as ft
+    old = getattr(ft, "app", None)                # Flet 0.8x
+    if old is not None:
+        if assets_dir:
+            old(target=callback, assets_dir=assets_dir)
+        else:
+            old(target=callback)
+        return
+    if assets_dir:
+        ft.run(callback, assets_dir=assets_dir)
+    else:
+        ft.run(callback)
+
+
+def has_async_entry() -> bool:
+    """True when the Flet in this environment runs the entry point on its own
+    event loop (1.0+, via ft.run) instead of inside a sync target the tool
+    drives itself (0.8x, ft.app). The visual tools use this to decide between
+    their sync and async entry points: on 1.0 the app's coroutine must be
+    awaited, because main.run_sync()'s asyncio.run() raises inside a loop."""
+    import flet as ft
+    return getattr(ft, "app", None) is None and hasattr(ft, "run")
+
+
 def _thread_hook(args):
     THREAD_ERRORS.append((args.exc_type.__name__, str(args.exc_value)))
 
