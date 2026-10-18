@@ -1,5 +1,37 @@
 # Cubeon module map — read this before reading any source
 
+## This repo moved, and Cubeon is now a Ylet product (2026-10-18) — INVARIANT
+The company folder was reorganised the same day this map was last edited:
+
+    ~/Ylet_Productions/
+      docs/ legal/ brand/ site/      ← the company hub, one level up
+      products/cubeon/               ← THIS repo (was Products/Cubeon)
+      products/icono/ products/spruce/ products/launch-video/
+      tools/spruce-catalog/
+
+Durable consequences — do not re-derive these:
+- **Every absolute path containing `Products/` is dead**, including
+  `/home/fuckarch/Ylet_Productions/Products/Cubeon`. `Products/` no longer
+  exists. Anything pinned to it (IDE workspace, a script, a shell history) must
+  be reopened. `git`, Python imports and the test suite all work fine from the
+  new path.
+- `.venv-build/` was **already broken before the move** — its `pyvenv.cfg`
+  still names `/home/fuckarch/Downloads/Cubeon/.venv-build`. Recreate it; never
+  trust it.
+- **Do not `git init` `~/Ylet_Productions/`.** `products/*` and the company
+  folders are separate repos; a root repo would swallow them.
+- The company hub (brand docs, the `legal/` pack, the living project map) is at
+  `~/Ylet_Productions/` — `docs/PROJECTS.md` is the equivalent of this file for
+  the company as a whole.
+- **Branding:** all 15 `web/*.html` footers now read "A Ylet product" with a
+  link to `www.ylet.online`, and `web/privacy.html` now says *"Cubeon is
+  operated by Ylet"* where it used to say *"run by Hamza … a small fan project
+  rather than a company"*. The formal documents
+  (`legal/TERMS.md`, `legal/PRIVACY.md`, `legal/TRADEMARK.md` and the dated
+  operator notice) are **unsigned and unpublished**. Do not publish them, and
+  deliberately **do not bump the pages' "Policies last updated" date** until
+  they are signed — the date moves with the signature, not ahead of it.
+
 ## Windows: the window is shown by the OS, not just by flet (2026-10-16) — INVARIANT
 - User report, AGAIN, on the shipped 1.1.2 build: "Cubeon.exe is in Task
   Manager but no window ever appears." The reveal is a MESSAGE to the desktop
