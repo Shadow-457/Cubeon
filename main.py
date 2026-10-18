@@ -341,8 +341,42 @@ def _explain_exit(code: int, lines=None) -> str:
         return "Crashed: mods don't match this version. Disable mods on the Mods tab."
     if "org.lwjgl" in low and ("glfw" in low or "no opengl" in low or "failed to create window" in low):
         return "Crashed: graphics driver couldn't start the game window. Update your GPU drivers."
-    if "cannot run program" in low or "no such file or directory" in low and "java" in low:
-        return "Crashed: Java not found. Install Java, or set its path in Settings."
+    # A Java problem may only be claimed from a Java-SPECIFIC line. This used to
+    # read `"cannot run program" in low or "no such file or directory" in low
+    # and "java" in low` - `and` binds tighter, so ANY "Cannot run program" line
+    # in the game's output became "Java not found". And because the launch
+    # command (with the JVM path) is itself part of that output, "java" in low
+    # is true on EVERY launch, so any stray "No such file or directory" - a mod
+    # config, a shader include, a missing native - was reported as missing Java.
+    # That is the 2026-10-18 report verbatim: "minecraft crashes with this error
+    # even if java fine bcz it ran minecraft in first place".
+    #
+    # So: one LINE must name java as the thing that failed. Matching on the line
+    # (not the whole log) is what keeps the JVM path in the launch command from
+    # counting as evidence.
+    def _java_failure(lines):
+        for line in lines or []:
+            low_line = line.lower()
+            if re.search(r'cannot run program\s+"?javaw?"?', low_line):
+                return line
+            if "could not create the java virtual machine" in low_line:
+                return line
+            if "unrecognized option" in low_line and "java" in low_line:
+                return line
+            if "no such file or directory" in low_line and "java" in low_line:
+                return line
+        return None
+
+    java_line = _java_failure(lines)
+    if java_line is not None:
+        # The JVM names the offending option on its own line, then exits with
+        # "Could not create the Java Virtual Machine" - so the option evidence
+        # and the failure evidence are two different lines.
+        if any("unrecognized option" in ln.lower() for ln in lines):
+            return ("Crashed: Java rejected one of the launch options. Reset "
+                    "the JVM arguments in Settings.")
+        return ("Crashed: Java couldn't be started. Install Java, or set its "
+                "path in Settings.")
     # A missing loader entrypoint means the classpath was wrong, so Fabric
     # could not start - the version's files are incomplete or broken. Do NOT
     # claim Cubeon fixed it: the client.json repair (_sanitize_client_json /
@@ -366,7 +400,15 @@ def _explain_exit(code: int, lines=None) -> str:
         if any(marker in line.lower() for marker in
                ("exception", "error", "caused by", "fatal")):
             return f"Crashed (exit {code}): {line.strip()[:140]}"
-    return f"Crashed (exit {code}). Check that Java and your mods match this version."
+    # Still nothing. Do NOT fall back to blaming Java: the game ran far enough
+    # to produce output, and the two Java cases that CAN be proven (wrong
+    # version, JVM wouldn't start) are named above from their own evidence.
+    # Guessing "check that Java matches" sent people off fixing a Java install
+    # that was already working - the game it just launched proves it. Say only
+    # what is true, and name the one action worth trying next.
+    return (f"Crashed (exit {code}) - the game closed without naming a cause. "
+            f"Press Play again; if it keeps happening, run Fix problems on the "
+            f"Mods tab.")
 
 
 def _classify_session_end(ui_painted: bool, client_exit):

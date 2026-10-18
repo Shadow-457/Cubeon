@@ -38,6 +38,11 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
+# The user's own 1920x1080 source image at the repo root. Kept on disk, never
+# committed (it is not an app asset - see the OG/social-card note in agents/),
+# and ignored so it can't ride along in a `git add -A`.
+Ylem.jpg
+
 # Gradle build cache (mod/)
 mod/.gradle/
 

@@ -114,6 +114,44 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     skin_preview_meta = ft.Text("Not wearing a custom skin", size=10,
                                 color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
 
+    # --- Front / back view switch -----------------------------------------
+    # The preview is composited from the sheet's own pixels, so "back" is a
+    # real 180° turn (back-face regions plus the two sides traded) rather than
+    # a cosmetic flip - see core.render_local_skin_preview(view=...). It sits
+    # under the picture because that is the thing it changes, and it stays
+    # hidden until there is a custom skin to turn: with no skin the box shows
+    # the empty state, and a control that changes nothing is worse than none.
+    _view_state = {"value": "front"}
+
+    def _view_segment(label):
+        return ft.Container(
+            content=ft.Text(label, size=11, color=TEXT,
+                            weight=ft.FontWeight.W_600),
+            padding=ft.padding.Padding.symmetric(horizontal=13, vertical=3),
+        )
+
+    view_toggle = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0,   # 0 = front, 1 = back
+        thumb_color=ACCENT_TINT,
+        bgcolor=SURFACE_MAX,
+        padding=2,
+        controls=[_view_segment("Front"), _view_segment("Back")],
+        tooltip="Turn the preview around - the back of the skin, as others "
+                "see it from behind",
+        visible=False,
+    )
+
+    def on_view_change(e):
+        """Re-composite the preview from the other side."""
+        view = "back" if int(getattr(e.control, "selected_index", 0) or 0) == 1 \
+            else "front"
+        if view == _view_state["value"]:
+            return
+        _view_state["value"] = view
+        render_preview_for(cfg.get("active_skin"))
+
+    view_toggle.on_change = on_view_change
+
     upload_status = ft.Text("", size=12, color=TEXT_DIM)
     skin_model = ft.Dropdown(
         label="Arm model",
@@ -160,15 +198,19 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     _preview_state = {"running": False, "queued": None, "generation": 0}
     _preview_lock = threading.RLock()
 
-    def _render_big_preview(filename: str, generation):
+    def _render_big_preview(filename: str, generation, view: str):
         """The actual PIL work - worker-thread only."""
-        out_path = (os.path.join(core.SKINS_DIR, f"_preview_{filename}.png")
+        # One file per (view, skin): a fast Front/Back toggle leaves the other
+        # view's PNG on disk instead of racing this one for the same path.
+        out_path = (os.path.join(core.SKINS_DIR,
+                                 f"_preview_{view}_{filename}.png")
                     if filename else
                     os.path.join(core.SKINS_DIR, "_preview_default.png"))
         try:
             if not filename:
                 return
-            core.render_local_skin_preview(filename, out_path, scale=8)
+            core.render_local_skin_preview(filename, out_path, scale=8,
+                                           view=view)
             # ft.Image.src resolves relative strings against assets_dir and
             # can otherwise only load actual URLs - SKINS_DIR lives under the
             # user's home folder (~/.cubeon_launcher), nowhere near the app's
@@ -212,9 +254,17 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         # Single-flight: at most one render runs; a newer request while one is
         # in flight replaces the queued one (the newest intent wins), and the
         # finally block re-runs it when the current render finishes.
+        #
+        # The view is read from _view_state at RENDER time, not captured when
+        # the request was queued, so a fast Front/Back click lands on the side
+        # the user last chose instead of finishing the abandoned render.
         with _preview_lock:
             _preview_state["generation"] += 1
             generation = _preview_state["generation"]
+            view = _view_state["value"]
+            # A control that changes nothing is worse than none: the view
+            # switch only exists while there is a skin it can turn.
+            _sync_view_toggle(bool(filename))
             if not filename:
                 _preview_state["queued"] = None
                 custom_preview.visible = False
@@ -233,8 +283,16 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 _preview_state["queued"] = filename
                 return
             _preview_state["running"] = True
-            threading.Thread(target=_render_big_preview, args=(filename, generation),
-                             daemon=True, name="ux-skin-preview").start()
+            threading.Thread(
+                target=_render_big_preview,
+                args=(filename, generation, view),
+                daemon=True, name="ux-skin-preview").start()
+
+    def _sync_view_toggle(visible: bool):
+        """Show the Front/Back switch only when it can do something."""
+        if view_toggle.visible != visible:
+            view_toggle.visible = visible
+            thread_safe_ui.refresh(view_toggle)
 
     def set_active(filename: str):
         try:
@@ -856,13 +914,17 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 ),
                 skin_preview_name,
                 skin_preview_meta,
+                ft.Container(height=2),
+                view_toggle,
             ],
             spacing=7,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS, padding=14,
-        width=214, height=354, alignment=ft.Alignment.CENTER,
+        # Tall enough for the Front/Back switch under the labels; the empty
+        # state (no switch) simply has the same box to itself.
+        width=214, height=392, alignment=ft.Alignment.CENTER,
     )
 
     cape_preview_box = ft.Container(

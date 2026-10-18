@@ -1187,6 +1187,61 @@ def version_satisfies(version: str, predicate) -> bool:
     return False
 
 
+def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2) -> dict:
+    """Every mod id a jar PROVIDES, including the ones bundled inside it.
+
+    A Fabric jar may ship other mods as jar-in-jar (`META-INF/jars/*.jar`):
+    Fabric API is 43 modules (`fabric-rendering-fluids-v1`,
+    `fabric-resource-loader-v0`, ...), and c2me bundles 20+ of its own. Those
+    nested mods are REAL - the loader registers them and they satisfy a
+    `depends` entry - but they are not files in the mods folder and have no
+    Modrinth project, so anything that only looks at top-level jars concludes
+    they are missing. That is exactly how "Fix problems" used to DISABLE
+    sodium, modmenu and c2me: their fabric.mod.json depends on Fabric API
+    submodules and on their own bundled modules.
+
+    Returns {id: version} for this jar's own metadata plus every nested one.
+    Never raises; a jar it cannot read contributes nothing.
+    """
+    import io
+    import zipfile
+
+    out: dict = {}
+
+    def _scan(blob: bytes, depth: int) -> None:
+        if depth > max_depth:
+            return
+        try:
+            with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                names = set(z.namelist())
+                meta = None
+                if "fabric.mod.json" in names:
+                    d = json.loads(z.read("fabric.mod.json").decode("utf-8", "replace"))
+                    meta = (d.get("id"), d.get("version"))
+                elif "quilt.mod.json" in names:
+                    d = json.loads(z.read("quilt.mod.json").decode("utf-8", "replace"))
+                    q = d.get("quilt_loader") or {}
+                    meta = (q.get("id"), q.get("version"))
+                if meta and isinstance(meta[0], str) and meta[0]:
+                    out.setdefault(meta[0].lower(),
+                                   str(meta[1] or ""))
+                for name in names:
+                    if name.startswith("META-INF/jars/") and name.endswith(".jar"):
+                        try:
+                            _scan(z.read(name), depth + 1)
+                        except Exception:
+                            continue
+        except Exception:
+            return
+
+    try:
+        with open(jar_path, "rb") as fh:
+            _scan(fh.read(), 1)
+    except Exception:
+        return {}
+    return out
+
+
 def read_mod_metadata(jar_path: str) -> dict | None:
     """A jar's own declared identity: {id, version, name, depends, breaks}.
 
@@ -1522,8 +1577,34 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     # own declared deps are read locally from the SAME metas map the breaks
     # check just built. A dep id present in id_map with a matching version is
     # satisfied; anything else is repaired: the dep is fetched from Modrinth
-    # (matched by fabric mod id), and a dep that cannot be resolved means the
-    # DECLARER is turned off - the same last resort the breaks check uses.
+    # (matched by fabric mod id).
+    #
+    # PROVIDED-BY-A-BUNDLED-JAR IS SATISFIED. A profile provides far more mod
+    # ids than it has jar files: Fabric API ships 43 modules inside its own
+    # jar, c2me bundles 20+. Reading only the top-level jars made sodium
+    # ("fabric-block-getter-api-v2", "fabric-rendering-fluids-v1",
+    # "fabric-resource-loader-v0"), modmenu and c2me (its own "c2me-base")
+    # look like they depended on things that do not exist - and "Fix
+    # problems" silently turned all three off. _nested_mod_metadata() indexes
+    # what the jars actually PROVIDE.
+    provided: dict = {}
+    for m in mods:
+        if m.get("protected") or not m.get("enabled") or not m.get("filename"):
+            continue
+        try:
+            bundled = _nested_mod_metadata(
+                os.path.join(profile_dir, m["filename"]))
+        except Exception:
+            continue
+        for pid, pver in bundled.items():
+            # Keep the HIGHEST bundled version of a module: several jars can
+            # ship the same one (an outdated copy nested in an old mod), and
+            # the loader registers only one. Taking the first would fail a
+            # ">=x" predicate against a stale copy that is not actually used.
+            prev = provided.get(pid)
+            if prev is None or _cmp_versions(pver, prev) > 0:
+                provided[pid] = pver
+
     for m in mods:
         if m.get("protected") or not m.get("enabled") or not m.get("filename"):
             continue
@@ -1537,6 +1618,19 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                            "java", "quilt_loader", "quilted_fabric_loader"):
                 continue
             hit = id_map.get(dep_key)
+            if hit is None:
+                # Not an enabled mod of its own - it may still be a module
+                # bundled inside one. The version comes from the nested jar so
+                # a predicate like ">=2.0.0" is still checked honestly.
+                bundled_version = provided.get(dep_key)
+                if bundled_version is not None:
+                    if version_satisfies(bundled_version or "*", predicate):
+                        continue
+                    _report("missing-dependency", m.get("display_name"),
+                            f"needs {dep_id} {predicate} (bundled copy is "
+                            f"{bundled_version or 'unversioned'})",
+                            False)
+                    continue
             if hit and version_satisfies(hit[1] or "*", predicate):
                 continue
             if hit and not version_satisfies(hit[1] or "*", predicate):
@@ -1571,16 +1665,19 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                         id_map[dep_key] = (m, str(file_info.get("version_number") or ""))
                     except Exception:
                         fixed = False
-            if not fixed and auto_fix:
-                # Unresolvable: the declarer cannot load at all, so the game
-                # would hard-fail. Turn the DECLARER off (reversible).
-                try:
-                    toggle_mod(mc_version, loader, m["filename"])
-                    fixed, fix_label = True, f"turned off {m.get('display_name')}"
-                except Exception:
-                    fixed = False
+            # NEVER turn the declaring mod off here. This used to be the
+            # "resolvable or the game hard-fails" last resort, and it was
+            # wrong in the most destructive way: an id that does not resolve
+            # is NOT proof the dependency is missing. Bundled modules,
+            # CurseForge-only mods, a 404, a momentary API failure and a
+            # differently-named project all land in this branch, and the cost
+            # of guessing wrong was silently disabling a working mod the user
+            # never asked to touch (the "Fix problems disables my sodium"
+            # report). Reporting it lets them decide; the game's own dependency
+            # screen names the missing mod far more precisely than we can.
             _report("missing-dependency", m.get("display_name"),
-                    f"requires {dep_name} ({predicate}), which is missing",
+                    f"requires {dep_name} ({predicate}), which isn't installed "
+                    f"and couldn't be fetched automatically",
                     fixed, fix_label)
 
     seen_pairs: set = set()

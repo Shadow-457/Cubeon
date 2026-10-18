@@ -596,6 +596,99 @@ raise — and which fails if any shipped module calls `show_dialog` directly.
 
 ---
 
+---
+
+## High: "Fix problems" disabled working mods — FIXED (2026-10-18)
+
+**Files:** `cubeon/mods.py`
+
+User report: *"whenever I press fix problems it just disables my sodium and
+some mods."*
+
+Exactly what happened: `mod_doctor`'s `depends` pass resolves every dependency a
+jar declares against Modrinth, and when a lookup came back empty it treated
+that as proof the declaring mod could never load and switched it off
+(`toggle_mod`) as a "the game would hard-fail anyway" last resort. But a
+profile provides far more mod ids than it has jar files, because Fabric mods
+ship other mods **inside** themselves (`META-INF/jars/*.jar`). On the reporting
+player's own profile: Fabric API is 43 bundled modules, and Sodium declares
+`fabric-block-getter-api-v2`, `fabric-rendering-fluids-v1` and
+`fabric-resource-loader-v0`; Modmenu declares four more; c2me declares
+`c2me-base`, which it bundles itself. None of those is a Modrinth project, so
+every lookup 404'd, and **Sodium, Modmenu and c2me were silently disabled every
+single time the button was pressed** - eight "unresolved dependency" hits, three
+working mods turned off, no explanation. The user then had to notice and
+re-enable them.
+
+**Fix (2026-10-18), two rules:**
+
+1. `_nested_mod_metadata(jar)` indexes every mod id a jar **provides**,
+   including jar-in-jar children (depth 2, never raises). A dependency
+   satisfied by a bundled module is satisfied - version predicates included,
+   with the highest bundled copy winning, because that is the one the loader
+   registers. Sodium/Modmenu/c2me now resolve locally with zero network calls.
+2. An id that is still unresolved is **reported, never auto-disabled**. Not
+   resolving is not evidence of anything: bundled modules, CurseForge-only
+   mods, a 404, a rate limit and a renamed project all look identical from
+   here. The declarer stays enabled and the report says the dependency
+   "isn't installed and couldn't be fetched automatically", so the player
+   decides. The game's own dependency screen names a genuinely missing mod far
+   more precisely than the launcher can.
+
+The one auto-disable that remains is the `breaks` conflict last resort, which
+is decided from two installed jars' own metadata rather than from a failed
+lookup.
+
+Regression: `tools/test_doctor_bundled_deps.py` - 19 checks, including the
+reported profile end to end (Fabric API + Sodium + Modmenu + a self-bundling
+mod, with every network call failing: nothing disabled, nothing reported), a
+bundled module that is too old for the predicate (reported, still enabled), a
+genuinely missing dependency (reported, still enabled) and a fetchable one
+(still installed).
+
+---
+
+## High: "Crashed: Java not found" on a launch where Java plainly worked — FIXED (2026-10-18)
+
+**Files:** `main.py` (`_explain_exit`)
+
+User report: *"it says crashed: no java found bla bla…. minecraft crashes with
+this error even if java fine bcz it ran minecraft in first place."*
+
+The user was right on both counts. `_explain_exit` chooses the sentence the
+launcher shows after a game exit, and its Java branch read:
+
+```python
+if "cannot run program" in low or "no such file or directory" in low and "java" in low:
+```
+
+`and` binds tighter than `or`, so this is
+`A or (B and C)` — **any** `Cannot run program` line in the game's output was
+reported as "Java not found". Worse, `B and C` is almost always true: the launch
+command itself, JVM path included (`/usr/lib/jvm/java-21-openjdk/...`), is part
+of the output the launcher reads, so the word "java" is present on *every*
+launch. Any stray `No such file or directory` — a mod's config, a shader
+include, a missing native, a mod shelling out to `xdg-open` — was therefore
+reported as a missing JDK, and the actual error line was thrown away. The user
+was sent to reinstall Java for a game that had just started a JVM.
+
+**Fix (2026-10-18):** the Java branch now needs a Java-SPECIFIC **line** (not a
+substring of the whole log, which is what let the JVM path count as evidence):
+`Cannot run program "java"`/`"javaw"`, `Could not create the Java Virtual
+Machine`, or `No such file or directory` on a line that also names Java. A
+rejected JVM option (`Unrecognized option` + the JVM's own
+`Could not create...` line) gets its own message pointing at the JVM arguments
+rather than at installing Java. Everything else falls through to the real error
+line, and when there is genuinely nothing to go on the message says so and
+points at Fix problems — it no longer guesses "check that Java matches", which
+the game it just launched had already disproved.
+
+Regression: `tools/test_ui_smoke.py` now drives the reported log shape (JVM
+path present + an unrelated missing file) and the genuine cases (`java`,
+`javaw`, bad option, wrong class-file version).
+
+---
+
 ## Summary Table
 
 | # | Severity | Issue | File(s) |
@@ -637,3 +730,5 @@ raise — and which fails if any shipped module calls `show_dialog` directly.
 | 35 | ✅ Fixed 2026-10-18 | **The Windows startup job was red on every run, so CI had never built the UI on Windows.** `test_startup.py` banned every connect to prove "no network on the UI thread", but Windows `socket.socketpair()` is a real 127.0.0.1 TCP pair and `ProactorEventLoop`'s self-pipe uses it, so `asyncio.run()` died before `main()` (`controls=0`). `test_winwindow.py` §1 asserted the off-Windows no-op ("returns immediately") while running on windows-latest, where the module is real. Loopback is allowed and real hosts are still recorded+refused (plus `socket.create_connection`, the call urllib3 makes); the timing check is branched on `os.name` | `tools/test_startup.py`, `tools/test_winwindow.py` |
 | 36 | ✅ Fixed 2026-10-18 | **A launcher "crash" left no evidence anywhere.** The report was a KDE crash-reporter screenshot: the flet desktop client (`~/.flet/client/flet-desktop-light-0.86.5/flet/flet`) dying to a signal, twice — attempt 1 and the software-GL retry — after which the ladder gives up silently. Recovery was already right; the diagnosis was impossible: every message was a `print()` to a stdout no desktop-launch user sees, and `setup_logging()` was only reached from `main()`, so a PRE-PAINT crash left cubeon.log completely EMPTY. `__main__` now configures logging before the session loop, `cubeon/incident.py` records every session end (kind, signal via `describe_exit`, ui_painted, software-GL state, session/desktop/flet versions, and the client's own last 25 output lines), both give-up branches log at ERROR, and a retry-only `GDK_BACKEND=x11` dice roll covers the GTK/Wayland crash class. Root cause confirmed the same day from the maintainer's own core dumps: SIGSEGV in `libgallium-26.1.6` ← `libflutter_linux_gtk` ← `gtk_container_propagate_draw`, i.e. a **Mesa 26.1.x radeonsi/gallivm regression** (26.2 fixes it) — so the record now prints `gallium=<lib>` and the ladder escalates `llvmpipe` → `softpipe` (no LLVM JIT) on its last attempt | `main.py`, `cubeon/incident.py` |
 | 37 | ✅ Fixed 2026-10-18 | **"Dialog is already opened" reached users as an application error.** Flet 0.86's `show_dialog()` raises for an instance already in `page._dialogs.controls`, and the shared `dialogs.open_dialog()` passed it through — so any path that could fire twice (double click, poll tick racing a button, retry) turned a no-op into a user-visible error banner. The helper is now idempotent: a mounted dialog is refreshed in place, and only the known `already open` RuntimeError is swallowed, logged at INFO with the dialog class | `cubeon/dialogs.py`, `tools/test_dialogs.py` |
+| 38 | ✅ Fixed 2026-10-18 | **"Fix problems" disabled working mods.** The doctor's `depends` pass resolved each dependency id against Modrinth and, when the lookup failed, switched the DECLARING mod off. Mods ship other mods inside themselves (Fabric API = 43 bundled modules; c2me bundles `c2me-base`), so Sodium, Modmenu and c2me were disabled on every run - the lookups could never succeed. Bundled modules now satisfy their dependency (`_nested_mod_metadata`, highest version wins) and an unresolved dependency is reported, never auto-disabled | `cubeon/mods.py`, `tools/test_doctor_bundled_deps.py` |
+| 39 | ✅ Fixed 2026-10-18 | **"Crashed: Java not found" when Java was fine.** `_explain_exit`'s Java branch read `"cannot run program" in low or "no such file or directory" in low and "java" in low` - `and` binds tighter, so ANY "Cannot run program" line blamed Java; and since the launch command (JVM path included) is in the log, the word "java" is present on every launch, so any stray "No such file or directory" was reported as a missing JDK and the real error was discarded. Now requires a Java-SPECIFIC line (`Cannot run program "java"`, `Could not create the Java Virtual Machine`, bad JVM option) | `main.py`, `tools/test_ui_smoke.py` |

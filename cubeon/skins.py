@@ -767,7 +767,8 @@ def skin_mod_installed(mc_version: str | None, loader: str | None) -> bool:
 
 
 def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
-                              src_path: str | None = None) -> str:
+                              src_path: str | None = None,
+                              view: str = "front") -> str:
     """Composites a Minecraft-style full body preview from the uploaded skin.
 
     Front view, built from the real pixels: head, torso, arms, and legs at
@@ -778,6 +779,13 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
 
     `src_path` overrides where the sheet is read from (used by the gallery,
     whose skins live outside SKINS_DIR); `filename` is then only a name.
+
+    `view` is "front" (default) or "back". The back view is a real 180° turn,
+    not a cosmetic flip: the sheet's BACK-face regions are composited and the
+    two sides trade places, so an asymmetric skin (one sleeve, a bag over one
+    shoulder) reads the way it does in game. Turning a body half around is
+    exactly what mirrors it, which is why the back render is the front
+    render's mirror. Any other value means front.
     """
     src = src_path or get_custom_skin_path(filename)
     with Image.open(src) as sheet:
@@ -785,9 +793,24 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
         legacy = sheet.size == (64, 32)
         slim = (not legacy) and _detect_slim_model(sheet)
         arm_w = 3 if slim else 4
+        back = str(view).strip().lower() == "back"
+
+        # A part's BACK face is a fixed number of pixels right of its front:
+        # on a 1.8 sheet a box's four vertical faces read
+        # right/front/left/back side by side, so head +16, body +12, limbs +8
+        # (the same layout the front crops below are taken from). The legacy
+        # 64x32 format defines NO back faces at all, so there the crops stay
+        # on the front and the side swap further down carries the turn by
+        # itself - which is also how the game shows those old sheets.
+        def shift(dx):
+            return dx if (back and not legacy) else 0
 
         def region(x, y, w, h):
             return sheet.crop((x, y, x + w, y + h))
+
+        def face(x, y, w, h, dx):
+            """A part's front face - or its back face, for a back view."""
+            return region(x + shift(dx), y, w, h)
 
         def grow(img, factor):
             w, h = img.size
@@ -800,32 +823,32 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
             return out
 
         # --- Base layer regions -------------------------------------------------
-        head = region(8, 8, 8, 8)
-        torso = region(20, 20, 8, 12)
-        r_leg = region(4, 20, 4, 12)
-        r_arm = region(44, 20, arm_w, 12)
+        head = face(8, 8, 8, 8, 16)
+        torso = face(20, 20, 8, 12, 12)
+        r_leg = face(4, 20, 4, 12, 8)
+        r_arm = face(44, 20, arm_w, 12, 8)
         if legacy:
-            l_leg = region(4, 20, 4, 12)
-            l_arm = region(44, 20, arm_w, 12)
+            l_leg = face(4, 20, 4, 12, 8)
+            l_arm = face(44, 20, arm_w, 12, 8)
         else:
-            l_leg = region(20, 52, 4, 12)
+            l_leg = face(20, 52, 4, 12, 8)
             # The slim layout keeps the left-arm origin at x=36; its unused
             # fourth column is on the right, just like the right arm's unused
             # column at x=47. Shifting the crop for slim skins drops the real
             # outer edge and was the source of clipped/misaligned arms in the
             # launcher preview.
-            l_arm = region(36, 52, arm_w, 12)
+            l_arm = face(36, 52, arm_w, 12, 8)
 
         # --- Outer ("hat"/jacket/sleeve/pants) layer regions --------------------
         # On the legacy 64x32 layout there is no second skin layer at all.
-        head_o = region(40, 8, 8, 8)
-        torso_o = region(20, 36, 8, 12) if not legacy else None
-        r_leg_o = region(4, 36, 4, 12) if not legacy else None
-        r_arm_o = region(44, 36, arm_w, 12) if not legacy else None
-        l_leg_o = region(4, 52, 4, 12) if not legacy else None
+        head_o = face(40, 8, 8, 8, 16)
+        torso_o = face(20, 36, 8, 12, 12) if not legacy else None
+        r_leg_o = face(4, 36, 4, 12, 8) if not legacy else None
+        r_arm_o = face(44, 36, arm_w, 12, 8) if not legacy else None
+        l_leg_o = face(4, 52, 4, 12, 8) if not legacy else None
         # Same rule for the left sleeve layer: its origin is x=52 for both
         # classic and slim sheets; slim's spare column is at the right edge.
-        l_arm_o = region(52, 52, arm_w, 12) if not legacy else None
+        l_arm_o = face(52, 52, arm_w, 12, 8) if not legacy else None
 
         # Combine each part with its outer layer before scaling, so the
         # jacket/sleeve/pants pixels aren't lost to nearest-neighbor resize
@@ -841,6 +864,13 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
             r_arm = stack(r_arm, r_arm_o)
         if l_arm_o is not None:
             l_arm = stack(l_arm, l_arm_o)
+
+        # The half turn itself: seen from behind, the character's left arm and
+        # leg are on the VIEWER's left, so the two sides trade places. On a
+        # legacy sheet both arms are the same crop, so this is a no-op there.
+        if back:
+            l_arm, r_arm = r_arm, l_arm
+            l_leg, r_leg = r_leg, l_leg
 
         # --- Scale each part up at a shared pixel-art factor ---------------
         factor = 3

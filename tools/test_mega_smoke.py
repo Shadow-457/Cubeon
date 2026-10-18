@@ -537,7 +537,7 @@ SUITES = [
     "test_modpacks.py", "test_mod_store.py", "test_net.py",
     "test_fuzz.py", "test_production.py", "test_content_instance.py",
     "test_version_integrity.py", "test_local_api_gate.py",
-    "test_auto_cleanup.py",
+    "test_auto_cleanup.py", "test_doctor_bundled_deps.py",
     "test_instances.py", "test_version_art_cache.py", "test_version_ui.py",
     "test_install_cancel.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",

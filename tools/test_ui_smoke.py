@@ -273,6 +273,50 @@ check("unknown crash still names the error",
       "boom" in app._explain_exit(1, ["Exception: boom"]).lower())
 check("no output still returns something useful",
       app._explain_exit(1, []).startswith("Crashed"))
+
+# Java may only be blamed on a Java-SPECIFIC line. The condition used to be
+# `"cannot run program" in low or "no such file..." in low and "java" in low`:
+# `and` binds tighter, so any "Cannot run program" line became "Java not
+# found" - AND the launch command itself (with the JVM path) is part of the
+# game's output, so "java" in low was true on every launch and any stray
+# "No such file or directory" was reported as missing Java. 2026-10-18 report:
+# "minecraft crashes with this error even if java fine bcz it ran minecraft in
+# first place".
+_JVM_LINE = ("java -Xmx4G -cp /usr/lib/jvm/java-21-openjdk/lib/modules "
+             "Thread-1-boot")
+_unrelated_program = app._explain_exit(
+    1, ['Cannot run program "xdg-open": error=2, No such file or directory'])
+check("an unrelated 'Cannot run program' is not blamed on Java",
+      "java" not in _unrelated_program.lower(), f"got {_unrelated_program!r}")
+check("...and it surfaces the real line instead",
+      "xdg-open" in _unrelated_program, f"got {_unrelated_program!r}")
+_reported = app._explain_exit(
+    1, [_JVM_LINE,
+        "[Render thread/ERROR]: config/sodium.json (No such file or directory)"])
+check("the reported case (JVM path in the log + a missing file) is not "
+      "blamed on Java", "java" not in _reported.lower(), f"got {_reported!r}")
+check("...it names the file that was actually missing",
+      "sodium.json" in _reported, f"got {_reported!r}")
+_java_missing = app._explain_exit(
+    1, ['Error: Cannot run program "java": No such file or directory'])
+check("a genuinely missing Java IS still named",
+      "java" in _java_missing.lower(), f"got {_java_missing!r}")
+_javaw = app._explain_exit(1, ['Cannot run program "javaw"'])
+check("a missing javaw is still named", "java" in _javaw.lower(), f"got {_javaw!r}")
+_bad_opt = app._explain_exit(1, [
+    _JVM_LINE,
+    "Unrecognized option: --add-opens=x",
+    "Error: Could not create the Java Virtual Machine.",
+    "Error: A fatal exception has occurred. Program will exit.",
+])
+check("a rejected JVM option is reported as such, not as missing Java",
+      "option" in _bad_opt.lower() and "not found" not in _bad_opt.lower(),
+      f"got {_bad_opt!r}")
+check("the no-cause fallback never blames Java (the game ran its own JVM)",
+      "java" not in app._explain_exit(1, [_JVM_LINE, "slf4j: failed"]).lower(),
+      f"got {app._explain_exit(1, [_JVM_LINE, 'slf4j: failed'])!r}")
+check("the no-cause fallback does not promise a fix",
+      "repaired" not in app._explain_exit(1, []).lower())
 check("explanation stays short enough for the label",
       all(len(app._explain_exit(1, l)) <= 180 for l, _ in cases))
 
@@ -1658,9 +1702,16 @@ try:
             DEFAULT_CAPE_PREVIEW_SRC="capes/cubeon_cape_preview.png",
             thread_safe_ui=types.SimpleNamespace(refresh=_painted.append),
             threading=types.SimpleNamespace(Thread=_QueuedThread, RLock=threading.RLock))
+        # The skin preview also keeps the chosen FRONT/BACK view and syncs
+        # the switch that selects it; both are defined elsewhere in
+        # build_skin_section, so the isolated probe supplies them.
+        _view_preamble = ("" if _cape else
+            '_view_state = {"value": "front"}\n'
+            'def _sync_view_toggle(visible):\n'
+            '    pass\n')
         _preview_probe = _ui_functions(_skin_source,
             [_worker, _request] + (["show_default_cape_preview"] if _cape else []), _preview_scope,
-            f'{_state_name} = {{"running": False, "queued": None, "generation": 0}}\n{_lock_name} = threading.RLock()')
+            f'{_state_name} = {{"running": False, "queued": None, "generation": 0}}\n{_lock_name} = threading.RLock()\n{_view_preamble}')
         _preview_probe[_request]("older.png")
         _preview_probe[_request]("newest.png")
         _QueuedThread.jobs.pop(0).run()
@@ -1668,6 +1719,23 @@ try:
         _QueuedThread.jobs.pop(0).run()
         check(f"{'cape' if _cape else 'skin'} newest preview refreshes exact image", _painted == [_preview]
               and _preview.visible and _preview.src == base64.b64encode(b"preview").decode("ascii"))
+        if not _cape:
+            # The Front/Back switch must reach the RENDERER, not just change a
+            # variable: a flipped toggle that re-previews the same side is the
+            # exact bug this guards.
+            _views = []
+            _preview_probe["_render_big_preview_orig"] = None
+            _orig_render = _preview_scope["core"].render_local_skin_preview
+            _preview_scope["core"].render_local_skin_preview = (
+                lambda *a, **k: _views.append(k.get("view")))
+            _preview_probe["_view_state"]["value"] = "back"
+            _preview_probe[_request]("older.png")
+            _QueuedThread.jobs.pop(0).run()
+            _preview_scope["core"].render_local_skin_preview = _orig_render
+            check("the selected skin view reaches the renderer", _views == ["back"],
+                  str(_views))
+            _preview_probe["_view_state"]["value"] = "front"
+            _painted.clear()
         _preview_probe[_request]("pending.png")
         if _cape:
             _preview_probe["show_default_cape_preview"]()

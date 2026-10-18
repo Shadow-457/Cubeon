@@ -322,6 +322,32 @@
   actually performed and verified one. Repairs that run pre-spawn must not be
   advertised as fixes for a crash that already happened.
 
+## Crash text: a Java blame needs a Java-SPECIFIC line (2026-10-18) — INVARIANT
+- User report: *"it says crashed: no java found bla bla… minecraft crashes with
+  this error even if java fine bcz it ran minecraft in first place."* The game
+  had started a JVM, so "Java not found" was provably false.
+- `main.py::_explain_exit`'s Java branch read
+  `if "cannot run program" in low or "no such file or directory" in low and "java" in low:`
+  — `and` binds tighter than `or`, so it was `A or (B and C)`: **any**
+  `Cannot run program` line blamed Java. And `B and C` is true on essentially
+  every launch, because the launch command itself (JVM path
+  `/usr/lib/jvm/java-21-openjdk/...`) is part of the output the launcher reads —
+  so the word "java" is always present, and any stray
+  `No such file or directory` (mod config, shader include, missing native, a mod
+  shelling out to `xdg-open`) was reported as a missing JDK, discarding the real
+  error line.
+- **Rule:** match Java evidence per **LINE**, never against the whole log. The
+  JVM path in the launch command must not count as evidence. Accepted evidence:
+  `Cannot run program "java"`/`"javaw"`, `Could not create the Java Virtual
+  Machine`, or `No such file or directory` on a line that also names Java.
+- A rejected JVM option (`Unrecognized option` + the JVM's own
+  `Could not create the Java Virtual Machine`) gets its own message pointing at
+  the JVM arguments, not at installing Java.
+- Otherwise fall through to the real error line; when there is genuinely
+  nothing, say so and point at Fix problems — never guess "check that Java
+  matches". Regression: `tools/test_ui_smoke.py` §4 (the JVM-path + unrelated
+  missing-file log shape, plus the genuine java/javaw/bad-option cases).
+
 ## Windows: EVERY child spawn must hide its console (2026-10-15) — INVARIANT
 - User report: "it opens random cmd when starting or closing or doing
   anything - cmd opens and closes." Cubeon.exe is a --windowed app, but every
@@ -2428,6 +2454,22 @@ skins-worker publish (cubeon/skins.py, worker/cubeon-skins.js).
   still exist (launcher_core re-exports) but have no UI.
 - **build_skin_section signature**: `(..., file_picker, cape_file_picker)` -
   NO `start_prefetch`. test_ui_smoke's six call sites were updated.
+- **Front/Back preview switch (2026-10-18)**: the Skin pane's "CURRENT LOOK"
+  box has a Front/Back segmented switch (hidden until a custom skin is
+  active - a control that changes nothing is worse than none). The back view is
+  a REAL 180° turn, not a cosmetic flip: `render_local_skin_preview(..., view=)`
+  composites the sheet's BACK-face regions and swaps the two sides, because
+  that is exactly what turning a body half around does. Back-face origins are a
+  fixed offset right of the front ones on a 64x64 sheet - head +16, torso +12,
+  limbs +8 (the right-then-front-then-left-then-back order of every box) - and a
+  legacy 64x32 sheet defines NO back faces, so there the crops stay on the
+  front and only the side swap happens (never invent pixels). The view is read
+  from `_view_state` at RENDER time (not when queued), so a fast toggle lands
+  on the side the user last chose; the cached PNG per view is
+  `_preview_<view>_<filename>.png` so flipping back and forth cannot race one
+  file. Default stays `front`, so the gallery/thumb callers are unchanged.
+  Regression: `tools/test_skin_preview.py` (geometry + legacy + predicate) and
+  the `test_ui_smoke.py` probe that proves the switch reaches the renderer.
 - **Tests**: test_gallery.py rewritten for the local-library pipeline (25
   checks); test_ui_smoke hat checks replaced with "hat browse is gone" and
   the search/pane-flip checks re-pointed at the local library ("your skin
@@ -3416,6 +3458,31 @@ sanitize at launch (below). The four still-retired mods
   selected - full `check_online=True`, once per profile per session, in a
   background thread, silent unless it changed something. Regression:
   `tools/test_mod_detail.py` (66 checks).
+
+- **NEVER disable a mod because a DEPENDENCY didn't resolve (2026-10-18, user
+  report: "whenever I press fix problems it just disables my sodium and some
+  mods").** The `depends` pass (4b) used to treat "I could not fetch this
+  dependency id from Modrinth" as proof the declarer could never load, and
+  called `toggle_mod` on it. That is the most destructive way to be wrong: a
+  profile provides FAR more mod ids than it has jar files, because Fabric mods
+  ship other mods **inside** themselves (`META-INF/jars/*.jar`) - Fabric API is
+  43 modules (`fabric-rendering-fluids-v1`, `fabric-resource-loader-v0`,
+  `fabric-block-getter-api-v2`, ...) and c2me bundles 20+ of its own
+  (`c2me-base`). None of those ids is a Modrinth project, so every lookup
+  404'd and Sodium, Modmenu and c2me were silently disabled on every single
+  run. Two rules now hold:
+  1. `_nested_mod_metadata(jar)` indexes what each installed jar PROVIDES,
+     including jar-in-jar children (depth 2, never raises). A dependency
+     satisfied by a bundled module is SATISFIED, version predicate included
+     (the **highest** bundled copy wins, matching what the loader registers).
+  2. An id that is still unresolved is REPORTED as unfixed and the declarer is
+     left ENABLED. Not resolving is not evidence of anything (bundled modules,
+     CurseForge-only mods, a 404, a rate limit, a renamed project); the game's
+     own dependency screen names a truly missing mod far more precisely. The
+     only auto-disable left is the `breaks` conflict last resort below, which
+     is decided from two jars' own metadata, not from a failed lookup.
+  Regression: `tools/test_doctor_bundled_deps.py` (19 checks; also pins that a
+  fetchable missing dep is still installed).
 
 - **Version-conflict detection (`breaks`)**: Fabric records "this mod will not
   work with mod X version Y" in the jar's own `fabric.mod.json` `breaks`, and
