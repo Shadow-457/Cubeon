@@ -598,20 +598,46 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # through CurseForge's real API, whose key is free but has to be pasted in.
     # Without a way to paste one, that half of the catalogue was simply
     # unreachable - hence this button.
-    cf_key_btn = ft.TextButton(
-        "", style=ft.ButtonStyle(color=TEXT_DIM, padding=0),
+    # The label lives in a Text inside the button, never in a `.value` or
+    # `.text` written after the fact. Flet 1.0's TextButton takes `content`
+    # (0.86 took `text`) and NEITHER has `value` - and Flet accepts unknown
+    # attributes silently, so the original `cf_key_btn.value = "Add free
+    # CurseForge key"` stored a string nobody rendered. The button was an
+    # invisible clickable gap from 2026-09-24 until the user went looking for
+    # it and found nothing (2026-10-18). An icon is here for the same reason:
+    # a dim, text-only TextButton next to a panel title disappears.
+    cf_key_label = ft.Text("", size=12, color=ACCENT_DIM)
+    _cf_btn_kw = dict(
+        icon=ft.Icons.VPN_KEY_ROUNDED, icon_color=ACCENT_DIM,
+        style=ft.ButtonStyle(color=ACCENT_DIM, padding=0),
         tooltip=("CurseForge's API key is free (console.curseforge.com). "
                  "It unlocks the full, always-current CurseForge catalogue."),
         on_click=lambda e: open_cf_key_dialog(),
     )
+    try:
+        cf_key_btn = ft.TextButton(content=cf_key_label, **_cf_btn_kw)
+    except TypeError:               # Flet 0.86: `text`, and no `content` field
+        cf_key_btn = ft.TextButton(text="", **_cf_btn_kw)
 
     def _refresh_cf_key_btn():
         try:
             keyed = bool(core.curseforge_enabled())
         except Exception:
             keyed = False
-        cf_key_btn.value = ("CurseForge: full catalogue"
-                            if keyed else "Add free CurseForge key")
+        label = ("CurseForge: full catalogue" if keyed
+                 else "Add free CurseForge key")
+        # Unkeyed is the call to action, so it is the brighter of the two;
+        # once a key is stored there is nothing to do and it goes quiet.
+        tint = TEXT_DIM if keyed else ACCENT_DIM
+        cf_key_btn.icon = (ft.Icons.CHECK_CIRCLE_ROUNDED if keyed
+                           else ft.Icons.VPN_KEY_ROUNDED)
+        cf_key_btn.icon_color = tint
+        if getattr(cf_key_btn, "content", None) is cf_key_label:
+            cf_key_label.value = label
+            cf_key_label.color = tint
+            thread_safe_ui.refresh(cf_key_label)
+        else:
+            cf_key_btn.text = label
         thread_safe_ui.refresh(cf_key_btn)
 
     def open_cf_key_dialog(e=None):

@@ -1108,6 +1108,16 @@ facts belong HERE, not in diary notes.
   degrading. `search_modpacks_curseforge()`'s cache key MUST keep its `keyed`
   flag — pasting/removing a key swaps providers, and without it the tab serves
   the other provider's cached page for up to a day.
+- **`ft.TextButton` has NO `value` field, in either Flet line (2026-10-18).**
+  0.86 called the label `text`, 1.0 calls it `content` (a string or a Control);
+  Flet accepts an unknown attribute silently, so `btn.value = "..."` stores a
+  string that is never serialized. That exact line in `ui/modpacks_tab.py` made
+  the CurseForge key button an INVISIBLE clickable gap from 2026-09-24 until the
+  user reported "i dont see it" — the button was there, rendering `""`. The
+  label now lives in an `ft.Text` held as the button's `content` (with a
+  `text=` fallback for 0.86) and is updated through the Text. Anything that
+  changes a button's caption after build must go through `content`/`text`, and
+  a dim text-only button next to a panel title needs an icon to be findable.
 - **cfwidget payload shapes**: `downloads` is `{"monthly":N,"total":N}` (read
   `["total"]` or every row shows 0), art is `thumbnail`, author is
   `members[0].username`, MC versions live in the grouped `versions{...}` map
