@@ -208,6 +208,7 @@ from ui.skin_tab import build_skin_section, DEFAULT_CAPE_PREVIEW_SRC  # Imports 
 from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
 from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab builder function
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
+from ui.server_browse_tab import build_server_browse_tab  # Servers > Browse view
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetics counters
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
 from ui.import_section import build_import_section  # Settings -> Import: scan a folder, import what it finds
@@ -1322,6 +1323,7 @@ async def main(page: ft.Page):
         top_nav_items.insert(3, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED, "Chat"))
     server_group_items = [
         ("server_console", ft.Icons.TERMINAL_ROUNDED, "Console"),
+        ("server_browse", ft.Icons.TRAVEL_EXPLORE_ROUNDED, "Browse"),
         ("server_plugins", ft.Icons.EXTENSION_ROUNDED, "Plugins"),
         ("server_settings", ft.Icons.TUNE_ROUNDED, "Settings"),
     ]
@@ -5508,6 +5510,7 @@ async def main(page: ft.Page):
     mods_tab = ft.Container(expand=True)
     modpacks_tab = ft.Container(expand=True)
     server_console_tab = ft.Container(expand=True)
+    server_browse_tab = ft.Container(expand=True)
     server_plugins_tab = ft.Container(expand=True)
     server_settings_tab = ft.Container(expand=True)
     stats_tab_host = ft.Container(expand=True)
@@ -5725,10 +5728,43 @@ async def main(page: ft.Page):
             section_label=section_label, pixel_divider=pixel_divider,
             **THEME,
         )
+
+        def _join_server(host: str, port: int, name: str):
+            """Browse's JOIN: launch the selected profile straight into a
+            public server. The SAME path the friends flow uses
+            (launch_game's --server/--port). No selected version = an
+            honest snackbar, never a dead click."""
+            version_id = state.get("selected_version")
+            if not version_id:
+                _show_snack("Pick a Minecraft version on the Play tab first - "
+                            "the server decides which one too.")
+                return
+            try:
+                # Through the core facade - NEVER a direct cubeon.launch
+                # import: the facade is what the test harness stubs, so a
+                # fuzzer-fired JOIN stays a recorded no-op instead of
+                # spawning a real Minecraft process.
+                mc_version = core.extract_mc_version(version_id)
+                loader = state.get("mod_loader") or "fabric"
+                username = cfg.get("username") or "Player"
+                core.launch_game(version_id, username,
+                                 cfg.get("ram_mb", 4096),
+                                 cfg.get("width", 1280), cfg.get("height", 720),
+                                 cfg.get("java_path"), on_exit=None,
+                                 mc_version=mc_version, loader=loader, cfg=cfg,
+                                 server_address=host, server_port=port)
+                _show_snack(f"Launching Minecraft into {name} ({host}:{port})…")
+            except Exception as ex:
+                _show_snack(f"Couldn't launch into {name}: {ex}")
+
+        browse_view, browse_refresh = build_server_browse_tab(
+            page, cfg, state, join_game=_join_server, **THEME)
         server_console_tab.content = console
+        server_browse_tab.content = browse_view
         server_settings_tab.content = settings
         server_plugins_tab.content = plugins
-        _tab_cbs["server"] = {"refresh": refresh}
+        _tab_cbs["server"] = {"refresh": refresh,
+                              "browse_refresh": browse_refresh}
 
     _TAB_BUILDERS = {
         "mods": _build_mods_tab,
@@ -6816,13 +6852,14 @@ async def main(page: ft.Page):
         "modpacks": modpacks_tab,
         "profile": profile_tab,
         "server_console": server_console_tab,
+        "server_browse": server_browse_tab,
         "server_plugins": server_plugins_tab,
         "server_settings": server_settings_tab,
         "settings": settings_tab,
         "stats": stats_tab_host,
         "chat": chat_tab_host,
     }
-    SERVER_GROUP_KEYS = {"server_console", "server_plugins", "server_settings"}
+    SERVER_GROUP_KEYS = {"server_console", "server_browse", "server_plugins", "server_settings"}
 
     def _reconcile_running_button():
         """Self-heal the play button against a dead session record.
@@ -6903,6 +6940,8 @@ async def main(page: ft.Page):
         elif key in SERVER_GROUP_KEYS:
             _ensure_tab("server")
             refresh_server_tab()
+            if key == "server_browse":
+                _cb("server", "browse_refresh")()
         elif key == "stats":
             _ensure_tab("stats")
             _cb("stats", "refresh")()

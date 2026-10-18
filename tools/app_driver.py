@@ -51,7 +51,8 @@ from _fuzz_common import (
 
 NAV_KEYS = {
     "play", "mods", "modpacks", "profile", "server", "stats", "chat",
-    "server_console", "server_plugins", "server_settings", "settings",
+    "server_console", "server_browse", "server_plugins", "server_settings",
+    "settings",
 }
 
 HARD_EXC = {

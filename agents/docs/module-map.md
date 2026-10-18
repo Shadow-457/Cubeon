@@ -1139,6 +1139,47 @@ facts belong HERE, not in diary notes.
   slugs get renamed and 404 silently (that rotted the list from 12 to 7 live
   entries). Guard: tools/test_modpacks_cf_keyless.py.
 
+## Server Browse - the Servers tab's live public-server view (2026-10-18) — INVARIANTS
+- **There are FOUR server views now**: Console / Browse / Plugins / Settings,
+  one chip each in `server_group_items` (main.py), one `ft.Container` each,
+  one `tabs[...]` entry, all in `SERVER_GROUP_KEYS`, built lazily by the ONE
+  `build_server_tab()` call. Browse lives in `ui/server_browse_tab.py` (its
+  refresh is `_cb("server", "browse_refresh")`, invoked by `switch_tab` when
+  the Browse chip opens).
+- **The catalogue is CURATED, the player counts are LIVE - there is NO free
+  keyless API that lists public servers** (2026-10-18, measured: the list
+  sites answer Cloudflare 403 to non-browser clients; the one open dataset
+  repo is gone). Data lives in `cubeon/server_browse.CATALOGUE` (host, name,
+  tags, blurb). Status endpoints, fallback order: api.minetools.eu/ping →
+  api.mcstatus.io/v2 → api.mcsrvstat.us/3, faked at `net.get_json` in tests.
+  Sort contract (`sort_by_status`): online by players DESC → answered-offline
+  → unknown/unchecked LAST (never above real data). Statuses are cached in
+  memory (STATUS_TTL) + disk (~/.cubeon_launcher/cache/server_status.json,
+  DISK_TTL) - both store the SAME packed shape `{"t":..., "s":status}`.
+- **Tags are editorial; cracked vs premium is DECLARED, not detected** - the
+  free status endpoints no longer expose a cracked flag, and a ping cannot
+  see a login policy. Servers that block datacenter pings (TheArchon,
+  DatBlock, VeltPvP) are deliberately NOT catalogued - they would show a
+  false "offline"; users reach them via the address-lookup box (Enter in the
+  search field, never per-keystroke).
+- **JOIN goes through `core.launch_game(..., server_address=, server_port=)`
+  - NEVER a direct `cubeon.launch` import.** The facade is what the harness
+  stubs; a direct import makes a fuzzer-fired JOIN spawn a real game. No
+  selected version = snackbar, not a dead click.
+- **Flet 0.86 spelling that bit this feature three times** (the mega suite's
+  forbidden-API scan catches some, the runtime fuzz catches the rest):
+  `ft.padding.Padding.symmetric/all(...)` and `ft.Margin.only(...)` - there is
+  NO `ft.padding.symmetric`/`ft.margin.only` function; `ft.Alignment.CENTER`
+  - no `ft.alignment.center`; `ft.Text` has NO `ellipsis=` - use `max_lines=1`.
+  And every UI handler must default its event (`def h(e=None)`) because
+  app_driver fires handlers as `h(FakeEvent(...))` and, on TypeError, `h()`.
+- **Harness**: `_fuzz_common.install_safe_stubs` cans `server_browse`'s
+  status fetches (offline, deterministic); `app_driver.NAV_KEYS` includes
+  `server_browse`; and test_mega_smoke asserts all four server view titles
+  actually MOUNT on a fresh driver - `_ensure_tab` swallows a crashed lazy
+  builder by design, so "the tab opened" alone proves nothing. Guards:
+  tools/test_server_browse.py (59 checks, fully offline), tools/test_mega_smoke.py.
+
 ## Chat dupes + latency / restart button / Windows packaging (2026-09-23) — INVARIANTS
 - **Chat dupe rule**: a red "Couldn't send" bubble STAYS in `_pending`
   (`failed:True`); a late echo REPLACES it in place instead of appending.

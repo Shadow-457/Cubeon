@@ -475,6 +475,33 @@ def section_runtime():
     rep = app_driver._run_usage(d, hostile=False, mode="explore")
     check("every nav tab opens", all(rep["tabs_opened"].values()),
           f"not opened: {[k for k, v in rep['tabs_opened'].items() if not v]}")
+    # `_ensure_tab` swallows a crashed lazy builder ON PURPOSE (an empty
+    # panel beats a dead sidebar; the traceback still prints) - which means
+    # "the tab opened" is true even when its build threw, and a view that
+    # ISN'T mounted is invisible to a page scan. So: a fresh driver, open
+    # each server screen, and assert its title Text is IN THE TREE right
+    # then (server_tab + server_browse_tab titles).
+    from _fuzz_common import every_control as _ec
+    _views = (("server_console", "Console"),
+              ("server_browse", "Browse servers"),
+              ("server_plugins", "Plugins"),
+              ("server_settings", "Server settings"))
+    try:
+        _d3 = app_driver.build_headless()
+        _missing = []
+        for _key, _title in _views:
+            _d3.open_tab(_key)
+            _texts = " ".join(
+                (getattr(c, "value", "") or "")
+                for c in _ec(_d3.page) if type(c).__name__ == "Text")
+            if _title not in _texts:
+                _missing.append(f"{_key} ({_title})")
+        check("lazy tab builders really built their views", not _missing,
+              f"missing view titles: {_missing}")
+    except Exception:
+        import traceback
+        check("lazy tab builders really built their views", False,
+              traceback.format_exc())
     check("no handler raised on a normal usage pass",
           not rep["errors"], "\n       ".join(
               f"{e['where']} {e['type']}: {e['message']}"
