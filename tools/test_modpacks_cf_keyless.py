@@ -331,15 +331,19 @@ try:
     good = modpacks.check_curseforge_api_key("good-key")
     ok(good["ok"] is True and good["count"] == 3,
        "a working key is confirmed with a real modpack count")
-    ok(modpacks.curseforge_enabled() is False,
+    ok(modpacks.curseforge_enabled() is bool(modpacks._builtin_curseforge_api_key()),
        "validating never stores anything by itself")
 
     ok(modpacks.set_curseforge_api_key("good-key") is True,
        "the key round-trips through config.json")
     ok(modpacks.curseforge_enabled() is True, "a stored key unlocks the provider")
     ok(modpacks.set_curseforge_api_key("") is True, "the key can be removed again")
-    ok(modpacks.curseforge_enabled() is False,
-       "removing it goes back to the classics-only list")
+    # A build can now carry ONE shipped key (cubeon/_cf_key.py), so "removed"
+    # means "back to whatever this build has", not necessarily keyless.
+    _builtin = bool(modpacks._builtin_curseforge_api_key())
+    ok(modpacks.curseforge_enabled() is _builtin,
+       f"removing the override falls back to the build's own key "
+       f"(builtin={_builtin})")
 finally:
     modpacks._cf_request = _orig_request
 
@@ -355,6 +359,177 @@ finally:
     modpacks.local_cache.cached_call = _orig_cached_call
 ok(isinstance(_captured.get("key"), dict) and "keyed" in _captured["key"],
    "the CF search cache key records whether a key is configured")
+
+print()
+print("one shared key ships with the build (no per-user key)",
+      "(offline)")
+# The key is injected at PACKAGE time as cubeon/_cf_key.py (gitignored, written
+# by tools/write_cf_key.py from the CURSEFORGE_API_KEY secret). Precedence is
+# env > local override file > config.json > builtin, so a build can be pointed
+# elsewhere without rebuilding, and a source checkout with no generated module
+# behaves like a build made without the secret.
+import types as _types
+
+FAKE = "$2a$10$builtin-test-key"
+_fake_module = _types.ModuleType("cubeon._cf_key")
+_fake_module.BUILTIN_KEY = FAKE
+import cubeon as _pkg
+_real_module = sys.modules.get("cubeon._cf_key")
+_had_attr = hasattr(_pkg, "_cf_key")
+_attr_was = getattr(_pkg, "_cf_key", None)
+sys.modules["cubeon._cf_key"] = _fake_module
+_pkg._cf_key = _fake_module
+_orig_env = os.environ.pop("CURSEFORGE_API_KEY", None)
+_orig_home = modpacks.CUBEON_HOME if hasattr(modpacks, "CUBEON_HOME") else None
+try:
+    ok(modpacks._builtin_curseforge_api_key() == FAKE,
+       "the packaged key is read from cubeon/_cf_key.py")
+    # No env, no local file, no config -> the builtin one is used.
+    import cubeon.config as _cfgmod
+    _orig_load = _cfgmod.load_config
+    _cfgmod.load_config = lambda *a, **k: {}
+    _orig_join = os.path.join
+    _real_exists = os.path.exists
+
+    def _no_override_file(path):
+        # Hide only the ~/.cubeon_launcher/curseforge_api_key override.
+        if str(path).endswith(os.path.join(".cubeon_launcher",
+                                           "curseforge_api_key")):
+            return False
+        return _real_exists(path)
+    _orig_isfile = os.path.isfile
+    try:
+        os.path.isfile = _no_override_file
+        ok(modpacks._curseforge_api_key() == FAKE,
+           "with nothing configured, the shipped key is the provider's gate")
+        ok(modpacks.curseforge_enabled() is True,
+           "so a stock build has the full catalogue with no user action")
+
+        os.environ["CURSEFORGE_API_KEY"] = "env-wins"
+        ok(modpacks._curseforge_api_key() == "env-wins",
+           "an environment variable still overrides the shipped key")
+    finally:
+        os.environ.pop("CURSEFORGE_API_KEY", None)
+        os.path.isfile = _orig_isfile
+        _cfgmod.load_config = _orig_load
+
+    # Missing generated module (a source checkout, or a build made without the
+    # secret) must degrade, never raise.
+    sys.modules.pop("cubeon._cf_key", None)
+    sys.modules["cubeon._cf_key"] = None      # forces ImportError on `from .` import
+    delattr(_pkg, "_cf_key")
+    ok(modpacks._builtin_curseforge_api_key() == "",
+       "no generated module -> no builtin key, and no exception")
+finally:
+    if _real_module is not None:
+        sys.modules["cubeon._cf_key"] = _real_module
+    else:
+        sys.modules.pop("cubeon._cf_key", None)
+    if _had_attr:
+        _pkg._cf_key = _attr_was
+    elif hasattr(_pkg, "_cf_key"):
+        delattr(_pkg, "_cf_key")
+    if _orig_env is not None:
+        os.environ["CURSEFORGE_API_KEY"] = _orig_env
+
+print()
+print("a key CurseForge REFUSES for /mods/search must not empty the tab")
+# Seen live 2026-10-18 with a valid key: /v1/mods/{id}, /v1/games and
+# /v1/mods/{id}/files all answer 200, but /v1/mods/search answers 403 "API Key
+# missing or invalid". Before this guard the keyed path returned [] there, so
+# adding a key made the CurseForge half of the tab EMPTIER than having none.
+_orig_key = modpacks._curseforge_api_key
+_orig_req = modpacks._cf_request
+_orig_widget = modpacks._cfwidget_search
+_calls = {"widget": 0}
+
+
+def _refusing_request(path, params=None, timeout=10, key=None):
+    raise RuntimeError("403 Forbidden: API Key missing or invalid")
+
+
+def _fake_widget(query, limit):
+    _calls["widget"] += 1
+    return [{"source": "curseforge", "project_id": "285109",
+             "title": "RLCraft", "downloads": 1}]
+
+
+try:
+    modpacks._curseforge_api_key = lambda: "a-valid-but-refused-key"
+    modpacks._cf_request = _refusing_request
+    modpacks._cfwidget_search = _fake_widget
+
+    first = modpacks._curseforge_search("rlcraft", None, 5, 0)
+    ok(len(first) == 1 and first[0]["title"] == "RLCraft"
+       and _calls["widget"] == 1,
+       f"a refused search falls back to the keyless curated hits: {first!r}")
+    later = modpacks._curseforge_search("rlcraft", None, 5, 40)
+    ok(later == [] and _calls["widget"] == 1,
+       f"but only on the first page (cfwidget cannot paginate): {later!r}")
+
+    # And a working key still uses the API, never the fallback.
+    def _working_request(path, params=None, timeout=10, key=None):
+        return {"data": [{"id": 1, "name": "From API", "slug": "from-api",
+                          "summary": "s", "downloadCount": 5}]}
+    modpacks._cf_request = _working_request
+    api_hits = modpacks._curseforge_search("x", None, 5, 0)
+    ok(len(api_hits) == 1 and api_hits[0]["title"] == "From API"
+       and _calls["widget"] == 1,
+       f"a healthy keyed search does not touch cfwidget: {api_hits!r}")
+finally:
+    modpacks._curseforge_api_key = _orig_key
+    modpacks._cf_request = _orig_req
+    modpacks._cfwidget_search = _orig_widget
+
+print()
+print("the build-time key writer (tools/write_cf_key.py)")
+import importlib.util as _ilu
+_writer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "write_cf_key.py")
+_spec = _ilu.spec_from_file_location("write_cf_key", _writer_path)
+_writer = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_writer)
+with tempfile.TemporaryDirectory() as _tmp:
+    target = os.path.join(_tmp, "_cf_key.py")
+    _orig_target = _writer.TARGET
+    _writer.TARGET = __import__("pathlib").Path(target)
+    try:
+        _orig_wenv = os.environ.pop("CURSEFORGE_API_KEY", None)
+        ok(_writer.main() == 0 and not os.path.exists(target),
+           "no secret -> no module, and the build still succeeds")
+        with open(target, "w") as _fh:
+            _fh.write("BUILTIN_KEY = 'stale'\n")
+        _writer.main()
+        ok(not os.path.exists(target),
+           "a stale generated key is removed when the secret is gone")
+        os.environ["CURSEFORGE_API_KEY"] = "  secret-key  "
+        ok(_writer.main() == 0, "with a secret it writes the module")
+        text = open(target).read()
+        ok("BUILTIN_KEY = 'secret-key'" in text,
+           f"the value is written verbatim, whitespace trimmed: {text[-40:]!r}")
+        ok("Do not commit" in text, "and the file says it must not be committed")
+    finally:
+        _writer.TARGET = _orig_target
+        if _orig_wenv is not None:
+            os.environ["CURSEFORGE_API_KEY"] = _orig_wenv
+        else:
+            os.environ.pop("CURSEFORGE_API_KEY", None)
+
+_repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_gi = open(os.path.join(_repo, ".gitignore"), encoding="utf-8").read()
+ok("cubeon/_cf_key.py" in _gi,
+   "the generated key module is gitignored (this repo is public)")
+_wf = open(os.path.join(_repo, ".github", "workflows", "build.yml"),
+           encoding="utf-8").read()
+ok(_wf.count("tools/write_cf_key.py") == 3,
+   f"all three build jobs inject the key before packaging "
+   f"(found {_wf.count('tools/write_cf_key.py')})")
+ok("secrets.CURSEFORGE_API_KEY" in _wf,
+   "from the CURSEFORGE_API_KEY secret, never from the tree")
+_mp_src = open(os.path.join(_repo, "ui", "modpacks_tab.py"),
+               encoding="utf-8").read()
+ok("cf_key_btn" not in _mp_src and "open_cf_key_dialog" not in _mp_src,
+   "the per-user 'paste your key' control is gone by design")
 
 print()
 print(f"{_passed} passed, {_failed} failed")

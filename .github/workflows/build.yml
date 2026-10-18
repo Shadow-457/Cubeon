@@ -341,6 +341,15 @@ jobs:
         # from, and a mismatch with RELEASE_TAG nags every user forever.
         run: python3 tools/release_version.py stamp "$RELEASE_VERSION"
 
+      - name: Inject the CurseForge API key
+        # One key for every user, and never in the repository (it is public).
+        # It is written to cubeon/_cf_key.py, which is gitignored, right before
+        # PyInstaller compiles the tree into the bundle. No secret -> the build
+        # is still valid and ships the curated CurseForge classics.
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+        run: python3 tools/write_cf_key.py
+
       - name: Build Linux AppImage
         run: |
           chmod +x packaging/build_appimage.sh
@@ -450,6 +459,16 @@ jobs:
         shell: bash
         run: python tools/release_version.py stamp "$RELEASE_VERSION"
 
+      - name: Inject the CurseForge API key
+        # One key for every user, and never in the repository (it is public).
+        # It is written to cubeon/_cf_key.py, which is gitignored, right before
+        # PyInstaller compiles the tree into the bundle. No secret -> the build
+        # is still valid and ships the curated CurseForge classics.
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+        shell: bash
+        run: python tools/write_cf_key.py
+
       - name: Build Windows onedir + portable ZIP
         run: python packaging/build_windows.py
 
@@ -507,6 +526,15 @@ jobs:
       - name: Stamp the release version
         shell: bash
         run: python tools/release_version.py stamp "$RELEASE_VERSION"
+
+      - name: Inject the CurseForge API key
+        # One key for every user, and never in the repository (it is public).
+        # It is written to cubeon/_cf_key.py, which is gitignored, right before
+        # PyInstaller compiles the tree into the bundle. No secret -> the build
+        # is still valid and ships the curated CurseForge classics.
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+        run: python3 tools/write_cf_key.py
 
       - name: Build macOS app bundle
         run: |

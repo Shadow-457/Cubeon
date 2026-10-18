@@ -50,3 +50,10 @@ mod/.gradle/
 # Its HUD now lives in mod/src/main/java-overlay-hud-* (package
 # com.cubeon.client.hud) and its per-version build parameters in
 # mod/brackets.json, so nothing here is a source of truth any more.
+
+# --- CurseForge API key (build-time secret, never committed) ----------------
+# The ONE key every Cubeon build ships is written to cubeon/_cf_key.py by
+# .github/workflows/build.yml from the CURSEFORGE_API_KEY secret. This repo is
+# public, so the generated module must never be committed: a committed key is a
+# revoked key. Dev machines may also create it locally; it is gitignored here.
+cubeon/_cf_key.py

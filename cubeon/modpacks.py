@@ -1390,12 +1390,12 @@ def get_popular_modpacks(mc_version: str | None = None, limit: int = 40,
 # CurseForge provider (the other big platform - RLCraft, SkyFactory, DawnCraft
 # and most other classic packs are CurseForge exclusives).
 #
-# Uses CurseForge's official API, which requires a free API key from
-# console.curseforge.com. The key is looked up in this order:
-#   1. the CURSEFORGE_API_KEY environment variable
-#   2. "curseforge_api_key" in ~/.cubeon_launcher/config.json
-#   3. the first line of ~/.cubeon_launcher/curseforge_api_key
-# Without a key the provider is dormant and the tab is Modrinth-only.
+# Uses CurseForge's official API, which requires an API key. **One key ships
+# with Cubeon** (2026-10-18) so every user gets the full catalogue with nothing
+# to configure: see _curseforge_api_key() for the lookup order. The per-user
+# "paste your own key" dialog was REMOVED in the same pass, by the operator's
+# decision - a launcher asking a player for an API key is a bug report, not a
+# feature, and Cubeon is the one that should apply for it.
 #
 # CF packs are NOT `.mrpack` - they're plain zips with a manifest.json of
 # (projectID, fileID) pairs. install_modpack_from_cf() downloads the zip,
@@ -1410,9 +1410,40 @@ CF_CLASS_ID_MODPACK = 4471
 CF_HASH_SHA1 = 1  # hash algo id for SHA-1 in CurseForge's API
 
 
+def _builtin_curseforge_api_key() -> str:
+    """The key Cubeon SHIPS with, or "" when this build carries none.
+
+    `cubeon/_cf_key.py` is generated at build time from the
+    `CURSEFORGE_API_KEY` GitHub secret (see .github/workflows/build.yml) and is
+    gitignored, so the key never enters the repository or its history - which
+    matters, because this repo is public and a committed key is a revoked key.
+    A source checkout without the file simply has no builtin key and falls back
+    to the classic list, exactly like a build made without the secret.
+    """
+    try:
+        from . import _cf_key
+        key = getattr(_cf_key, "BUILTIN_KEY", "") or ""
+        return key.strip() if isinstance(key, str) else ""
+    except Exception:
+        return ""
+
+
 def _curseforge_api_key() -> "str | None":
-    """The configured CurseForge API key, or None. Env first, then config.json,
-    then a dedicated key file."""
+    """The CurseForge API key to use, or None.
+
+    Order, most specific first:
+      1. the CURSEFORGE_API_KEY environment variable (testers, support: point a
+         source checkout at a different key without touching the shipped one)
+      2. the first line of ~/.cubeon_launcher/curseforge_api_key (a local
+         override file, gitignored, no config edit needed)
+      3. "curseforge_api_key" in ~/.cubeon_launcher/config.json (what
+         set_curseforge_api_key writes)
+      4. the key baked into this build at package time (cubeon/_cf_key.py)
+
+    Every step is optional. With none of them the provider is dormant and the
+    tab shows the curated classics instead - a missing key is a smaller
+    catalogue, never an error.
+    """
     key = os.environ.get("CURSEFORGE_API_KEY")
     if key:
         return key.strip()
@@ -1432,7 +1463,7 @@ def _curseforge_api_key() -> "str | None":
             return key.strip()
     except Exception:
         pass
-    return None
+    return _builtin_curseforge_api_key() or None
 
 
 def curseforge_enabled() -> bool:
@@ -1441,12 +1472,14 @@ def curseforge_enabled() -> bool:
 
 
 def set_curseforge_api_key(key: str) -> bool:
-    """Persist (or clear, with an empty key) the CurseForge API key.
+    """Persist (or clear, with an empty key) a LOCAL CurseForge key override.
 
-    The app already READ a key from three places; what was missing was any way
-    to set one without hand-editing config.json, which is why the full
-    catalogue - the only keyless-unreachable half, i.e. NEW packs - could never
-    be turned on. Returns True when the stored config is now readable back.
+    No longer reachable from the UI (2026-10-18): the button that called it was
+    removed, because Cubeon now ships one key for everybody (see
+    _curseforge_api_key() step 4). This stays for support and for the tests -
+    it is the only way to override the shipped key without restarting with an
+    environment variable, and it still resolves ABOVE the builtin one.
+    Returns True when the stored config is now readable back.
     """
     from .config import load_config, save_config
     try:
@@ -1457,7 +1490,11 @@ def set_curseforge_api_key(key: str) -> bool:
         else:
             cfg.pop("curseforge_api_key", None)
         save_config(cfg)
-        return bool(_curseforge_api_key()) == bool(cleaned)
+        # Verify the CONFIG, not the RESOLVED key: a build can carry its own
+        # key (cubeon/_cf_key.py), so clearing a local override must not report
+        # failure just because the shipped key is still there.
+        stored = (load_config() or {}).get("curseforge_api_key") or ""
+        return (stored.strip() if isinstance(stored, str) else "") == cleaned
     except Exception:
         return False
 
@@ -1678,7 +1715,14 @@ def _curseforge_search(query: str, mc_version: "str | None", limit: int,
             "pageSize": str(min(limit, 50)),
         })
     except Exception:
-        return []
+        # A key CurseForge REFUSES for /mods/search must never leave the tab
+        # emptier than having no key at all. Seen live 2026-10-18: a valid key
+        # (single-project lookups return 200) answered 403 "API Key missing or
+        # invalid" on exactly this endpoint, which silently turned the
+        # CurseForge half of the tab into nothing. Fall back to the keyless
+        # curated set - only on the first page, because cfwidget cannot
+        # paginate and repeating the classics on page 2 would look broken.
+        return _cfwidget_search(query, limit) if not offset else []
     data = payload.get("data") if isinstance(payload, dict) else None
     results = []
     for hit in data if isinstance(data, list) else []:
