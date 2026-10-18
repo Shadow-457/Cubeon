@@ -31,6 +31,16 @@ Durable consequences — do not re-derive these:
   operator notice) are **unsigned and unpublished**. Do not publish them, and
   deliberately **do not bump the pages' "Policies last updated" date** until
   they are signed — the date moves with the signature, not ahead of it.
+- **House style: no em dashes.** Every `.md`/`.html` prose file in the company
+  folder was cleaned on 2026-10-18 by
+  `~/Ylet_Productions/tools/strip-em-dashes.py` (489 dashes, 47 files). Cubeon's
+  `docs/` and `AGENTS.md` are included; `agents/` is not, except the
+  byte-identical `agents/docs/bugs-and-flaws.md` that must keep matching
+  `docs/decisions/bugs-and-flaws.md`. Code and `products/spruce/data/` are
+  deliberately untouched. See `docs/BRAND.md` section 5.
+- The legal pack is also rendered to PDF by
+  `~/Ylet_Productions/tools/md2pdf.py` (WeasyPrint). **Edit the Markdown, never
+  the PDF.** The operator named in it is **Hamza Shahbaz**, trading as Ylet.
 
 ## Windows: the window is shown by the OS, not just by flet (2026-10-16) — INVARIANT
 - User report, AGAIN, on the shipped 1.1.2 build: "Cubeon.exe is in Task

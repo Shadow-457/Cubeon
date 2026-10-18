@@ -131,3 +131,41 @@ config" stands.
    was only discovered by accident.)
 4. If Ylet is ever registered, `legal/README.md` has the one list of every
    `[[FILL: …]]`, and the notice has the order of operations.
+
+---
+
+## Follow-up, same day: dashes, PDFs, and the operator's name
+
+1. **The em dashes are gone from the prose.** `tools/strip-em-dashes.py` (new,
+   re-runnable, safe with `--dry-run`) rewrote **489 em dashes across 47
+   `.md`/`.html` files** in `~/Ylet_Productions`. Every rewrite is decided per
+   line and only lines that held a dash are touched, which makes it verifiable:
+   for each dirty file, `transform(git show HEAD:file) == working file`.
+   - Committed and pushed: `site` (`93e7d3a`), `spruce` (`f2977a41`).
+     Committed locally: `brand`, `launch-video`, `spruce-catalog`, and Cubeon's
+     `docs/` + `AGENTS.md`.
+   - **Cubeon's commit is deliberately NOT pushed.** It is docs-only, and a push
+     here mints a public release and an update notice for a punctuation change.
+   - **Four dirty files were left alone** because they carry the owner's own
+     uncommitted WIP: `products/cubeon/web/*` (a `web/` redesign) and
+     `products/icono/{README.md,index.html}` (the glyph-count rewrite from 272
+     to 347,632). The test above caught them; committing would have smuggled
+     that work into a punctuation commit.
+   - Skipped on purpose: code files (a dash in a comment is not prose),
+     `products/spruce/data/` (5,576 dashes copied from Flathub / F-Droid /
+     GitHub descriptions), and `agents/` (history should stay history).
+2. **The legal pack is now a sign-ready PDF set.** `tools/md2pdf.py` renders each
+   `legal/*.md` beside it: letterhead (a YLET eyebrow over the title), justified
+   body text, a running head from page 2 on, a footer reading *"DRAFT, not in
+   force"* next to the operator's name, and `Page X of Y`.
+   **Every document now ends with a ruled Signature block** — that answers the
+   "where is the sign area" question: before this, only the notice had one and it
+   was a monospace code block.
+3. **The operator is named.** `[[FILL: operator legal name]]` is now
+   **Hamza Shahbaz** in all four documents (title *Founder, Ylet*), and the
+   contact address is `hamza.457.shahbaz@gmail.com`, the address the live pages
+   already used. Still genuinely open: `[[FILL: country/state]]` and
+   `[[FILL: effective date]]`.
+4. **House style is written down** in `~/Ylet_Productions/docs/BRAND.md`
+   section 5, so the next agent does not put the dashes back.
+
