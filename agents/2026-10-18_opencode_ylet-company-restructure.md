@@ -45,7 +45,10 @@ company site. Cubeon's own site now says "A Ylet product" on all 15 pages.
 by Ylet"), plus `TERMS.md`, `PRIVACY.md`, `TRADEMARK.md`, and `signatures/`.
 Every blank only the owner can fill is marked `[[FILL: …]]` and listed in one
 place. They are drafts and say so — I am not a lawyer and the pack says that in
-its first paragraph.
+its first paragraph. The owner then asked for PDFs, so each document is **also
+rendered to PDF** (A4, highlighted blanks, a "DRAFT, not in force" running
+footer) by a new re-runnable tool, `tools/md2pdf.py` — WeasyPrint, no LaTeX and
+no browser needed.
 
 **5. Docs.** Root `README.md`, `docs/PROJECTS.md` (the map), `docs/BRAND.md`,
 `docs/OPERATIONS.md`, `brand/README.md`, `tools/spruce-catalog/README.md`.
@@ -103,16 +106,28 @@ config" stands.
 
 ## Baton to the next agent
 
-1. **Pushing is the owner's call and I have not pushed.** Every push to Cubeon's
-   `main` mints a published release (`v*`, 6 artifacts) — a footer change would
-   do that. `site`, `spruce` and the three new repos have no such side effect.
-   The new repos also have **no remote yet**; creating GitHub repos under
-   `ylet-co` needs the owner's say-so.
+1. **Pushed, with the owner's approval** (this section originally said "not
+   pushed"; that changed the same day). What the push turned up:
+   - `site` `5a95711` and `spruce` `b3d8f7a8` → pushed, both deploy to Vercel.
+   - **`spruce` turned out to already live under `ylet-co`** — the push printed
+     `remote: This repository moved`. The local remote and the docs now say
+     `ylet-co/spruce`. Anything still using `Shadow-457/spruce` relies on
+     GitHub's redirect.
+   - **Cubeon's push was rejected first**: origin had the CI's own
+     `release: v1.2.11 [skip ci]` commit (it bumps `cubeon/updater.py` *and* the
+     version strings in `web/index.html` + `web/download.html` — the same file
+     this session edited). Rebased the 3 local commits onto it; the version bump
+     and the new footer both survived; pushed → **v1.2.12**.
+     **Uncommitted work must be stashed before any rebase here** — the stray
+     `web/assets/cubeon-play.png` change blocks it.
+   - The three new repos (`brand`, `launch-video`, `spruce-catalog`) are
+     **local only on purpose** — the owner chose to leave them remote-less.
 2. **Icono and Spruce need domains** before their rows on the company site can
    become links. Then: set the domain in Spruce's HTML (`sed` in
    `docs/OPERATIONS.md`), and un-mark them "In development".
 3. **Do not move Cubeon's GitHub repo** before changing
    `cubeon/updater.py::DEFAULT_FEED` and shipping that. Installed clients poll
-   that hardcoded path.
+   that hardcoded path. (Now proven relevant: `spruce` already got moved, and it
+   was only discovered by accident.)
 4. If Ylet is ever registered, `legal/README.md` has the one list of every
    `[[FILL: …]]`, and the notice has the order of operations.
