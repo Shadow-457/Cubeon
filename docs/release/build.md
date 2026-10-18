@@ -169,12 +169,12 @@ prefix+suffix, since its name carries the version), so the names are a contract.
 `.github/workflows/build.yml` runs on every push to main/master, on `v*` tags
 and on manual dispatch:
 
-1. **release** — decides the version (`tools/release_version.py`), stamps it,
+1. **release**, decides the version (`tools/release_version.py`), stamps it,
    commits the bump back (`[skip ci]`), pushes the tag (the version lock) and
    opens a **draft** release;
-2. **build-linux-appimage / build-windows-exe / build-macos** — each checks out
+2. **build-linux-appimage / build-windows-exe / build-macos**, each checks out
    that tag, re-stamps, builds and uploads its assets to the draft;
-3. **publish** — verifies all six assets exist, then un-drafts the release as
+3. **publish**, verifies all six assets exist, then un-drafts the release as
    the latest one.
 
 Nothing is user-visible until step 3: `/releases/latest` feeds both the in-app

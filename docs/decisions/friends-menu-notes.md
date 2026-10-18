@@ -2,7 +2,7 @@
 
 - **Agent:** opencode (deepseek-v4-flash)
 - **Date:** 2026-09-03
-- **Task:** "everything the friends mod" — read the whole friends stack and leave
+- **Task:** "everything the friends mod", read the whole friends stack and leave
   full summary notes in `agents/` for the user to review and fold in later.
 
 ## TL;DR
@@ -19,12 +19,12 @@ every source.
 
 Verified by source reading + `tools/test_friends_service.py` (136 passed) and
 `tools/test_friends.py` (37 passed). Not verified in a live game (launcher not
-running) — same caveat as prior notes.
+running), same caveat as prior notes.
 
 ## The stack, file by file
 
 ### 1. Identity (launcher-side, `cubeon/`)
-- `cubeon/config.py`: `ensure_auth_key()` — one durable per-machine account
+- `cubeon/config.py`: `ensure_auth_key()`, one durable per-machine account
   (secret_token + public_uuid) minted once. A Cubeon name is a *public handle
   over this one secret*, which is why a rename keeps the same account/uuid.
 - `cubeon/friends.py`:
@@ -34,7 +34,7 @@ running) — same caveat as prior notes.
   (`worker/cubeon-friends.js:64-67`), asserted by `test_friends.py`.
   - `identity.json` (0600) holds `{name, secret, uuid}`; secret = capability.
     Server stores only SHA-256 (so a DB dump leaks nothing replayable).
-  - Claim via HTTP `POST /claim` (`friends.claim()`, idempotent — re-claiming
+  - Claim via HTTP `POST /claim` (`friends.claim()`, idempotent, re-claiming
     your own name is how you re-verify and how **rename** works).
   - `FriendsClient` (`friends.py:409-708`): threaded `websocket-client` app
     (daemon thread `cubeon-friends-ws`), reconnect backoff `[1,2,5,10,20,30]`,
@@ -45,14 +45,14 @@ running) — same caveat as prior notes.
     reads the Worker source and asserts parity.
 
 ### 2. The headless owner (`cubeon/friends_service.py`, 1659 lines)
-`FriendsService(cfg, state, client)` — created once in `main.py:2332-2336`,
+`FriendsService(cfg, state, client)`, created once in `main.py:2332-2336`,
 started at boot, lives for the whole process. `cfg`/`state` are held **by
 reference** so a Play-tab change mid-session is picked up.
 - `start()` idempotent: binds client callbacks, runs one stale-P2P-session sweep
   (`p2p.cleanup_stale_sessions()`), then registers bridge providers and starts
   `local_api` (providers *before* `start()`, so a polling mod never sees 503).
 - Replacements for the dead Flet UI: `_notify()` appends to a bounded 200-event
-  ring (`events_since(since)`, negative cursor = "first sync, no backlog" — a
+  ring (`events_since(since)`, negative cursor = "first sync, no backlog", a
   fresh mod must not replay an hour of old toasts); `_changed()` bumps a
   revision counter the mod's poll can detect.
 - Read models: `roster_payload()` (GET /friends) and `status_payload()`
@@ -84,7 +84,7 @@ reference** so a Play-tab change mid-session is picked up.
   500 `{ok:false,error}` instead of a dead socket.
 
 ### 4. The Cloudflare backend (`worker/cubeon-friends.js`, 729 lines)
-One Worker, one Durable Object `Hub` (`idFromName("global")`) — KV deliberately
+One Worker, one Durable Object `Hub` (`idFromName("global")`): KV deliberately
 unused (free-tier ~1000 writes/day can't hold 30s presence heartbeats; DO SQLite
 storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
 (WebSocket Hibernation API + SQLite `new_sqlite_classes`; state derived from
@@ -97,12 +97,12 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
   carries their name; close handler broadcasts them offline to friends.
 - `calls`/`onCallInvite`/`onSignal` are **feature-agnostic**: `kind` on an
   invite is opaque (currently `p2p` vs legacy voice), `signal` payloads are
-  relayed uninspected — that's the entire hook P2P worlds and voice ride on.
+  relayed uninspected, that's the entire hook P2P worlds and voice ride on.
 
 ### 5. The in-game mod (`mod/src/main/java/com/cubeon/friends/`)
-- `CubeonFriendsClient.java` — `ClientModInitializer`: starts the `Bridge` and
+- `CubeonFriendsClient.java`, `ClientModInitializer`: starts the `Bridge` and
   routes launcher toasts to `Gui.setOverlayMessage` (above-hotbar overlay; the
-  one API stable across versions). No Fabric API modules at all — loader only.
+  one API stable across versions). No Fabric API modules at all, loader only.
 - `Bridge.java` (626 lines, **no Minecraft imports** → plain-Java, unit-testable
   with bare JDK via `mod/tools/SelfTest.java`). One daemon poll thread:
   ACTIVE_POLL 1.2 s while the Friends screen is open, IDLE 6 s otherwise,
@@ -112,7 +112,7 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
   always calls them from a worker thread. This single-threaded-poll + immutable
   snapshot split is the fix for the old "four blocking HTTP round trips on the
   render thread froze the pause menu" bug.
-- `CubeonFriendsScreen.java` (1182 lines) — three tabs (Friends / Requests /
+- `CubeonFriendsScreen.java` (1182 lines), three tabs (Friends / Requests /
   Account) + a session banner. Widget-only by design (see module docstring): it
   never overrides `render`/`mouseClicked`/`mouseScrolled`/`keyPressed` and only
   uses `Screen` lifecycle + `addRenderableWidget` + `Button`/`EditBox`/
@@ -120,15 +120,15 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
   (deliberate): page-buttons not wheel-scroll, no Enter-to-submit. The badge
   button label ("Friends (N online)" / "N invites" / "N pending") is generated
   from the cached, never-blocking snapshot.
-- `mixin/PauseScreenMixin.java` + `mixin/TitleScreenMixin.java` — inject at
+- `mixin/PauseScreenMixin.java` + `mixin/TitleScreenMixin.java`, inject at
   `init()` TAIL, `require=0`, wrapped in a catch-all, button placed by measuring
   `children()` for the lowest real widget (bottom-edge decorations skipped).
   Fail-soft everywhere: a mismatch or exception costs the button, never the
   game. `canInvite` = singleplayer pause menu only; title screen/remote-server
   pause open the screen with Invite greyed out.
-- `Json.java` — tiny hand-rolled JSON reader (Bridge has no JSON lib).
+- `Json.java`, tiny hand-rolled JSON reader (Bridge has no JSON lib).
 - Cross-version story (`mod/brackets.json` + `cubeon/cubeonfriends.py`): two
-  brackets because of the **namespace** split, not an API one — ≤1.21.x ships
+  brackets because of the **namespace** split, not an API one, ≤1.21.x ships
   obfuscated (jar refs in intermediary namespace, needs gradle+loom remap,
   `1.20-1.21` bracket open-ended below 26), 26.x ships unobfuscated (built with
   plain javac, `26` bracket `below:null` open-ended so future versions still get
@@ -145,9 +145,9 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
   `cubeon-friends-*.jar` from the profile (a duplicate/era-mismatched jar is a
   duplicate-mod-id or class-load crash) then copy the matched bracket's jar
   (searched in `~/.cubeon_launcher/cache/` then `mod/build/libs/`). No fallback
-  across brackets — wrong namespace = crash on load, absent is correct.
+  across brackets, wrong namespace = crash on load, absent is correct.
 - `main.py:2960-2966`: on startup, if `websocket-client` is available *and* an
-  identity is claimed, `friends_client.connect()` — the in-game UI has no way to
+  identity is claimed, `friends_client.connect()`, the in-game UI has no way to
   trigger a connect itself. `main.py:1819` pushes `set_version(version_id)`
   after a successful launch and `:1730` `set_version(None)` on exit → presence
   "playing <version>".
@@ -187,14 +187,14 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
 - Read every file named above end-to-end (plus `cubeon/voice.py`, `main.py`
   wiring `:2323-2336`, `:1715-1730`, `:1815-1819`, `:2955-2966`, `:3084`,
   `mod/brackets.json`).
-- Ran the two relevant headless harnesses — both green with zero failures:
+- Ran the two relevant headless harnesses, both green with zero failures:
   - `python3 tools/test_friends_service.py` → **136 passed** (the mod↔bridge
     contract test reads the endpoints out of `Bridge.java` and asserts the
     launcher serves them; plus roster/status/events semantics, host/join/retry
     flows, whitelist, rename, real-HTTP auth checks).
   - `python3 tools/test_friends.py` → **37 passed** (incl. WS-frame ↔
     `worker/cubeon-friends.js` protocol parity).
-- Not verified in a live game (launcher not running / no online friend) — treat
+- Not verified in a live game (launcher not running / no online friend), treat
   the on-disk + harness picture as accurate, the in-world feel as unconfirmed.
 
 ## Notes for the next agent / user
@@ -208,7 +208,7 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
   (`local_api.py` route tables). Adding a name-scoped action = one entry in
   `_NAME_ROUTES` + a `set_*_handler` + a `FriendsService` method.
 - Mod polling means "push" doesn't exist: everything the mod sees flows through
-  `/friends`, `/status`, `/events?since=`. Notifications are fire-and-forget —
+  `/friends`, `/status`, `/events?since=`. Notifications are fire-and-forget,
   a dropped `/events` drain is a lost toast by design (bounded 200-event ring).
 - `kind:"p2p"` on `call_invite` is what lets the receiver distinguish a P2P world
   invite from legacy voice; voice UI was removed with chat, so non-p2p incoming
@@ -219,7 +219,7 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
 
 ## Question for the next agent
 The note-baton asks: the 09-02 friends-account note's live-game wording check is
-still pending. Beyond that — `Bridge.java` polls `/friends`+`/status` then
+still pending. Beyond that, `Bridge.java` polls `/friends`+`/status` then
 `/events` **every cycle**, and the launcher answers three separate HTTP requests
 ~1-6 s apart. If an action's effect lands in the events feed on a different poll
 than the roster, is there any window where the screen shows a stale roster with a

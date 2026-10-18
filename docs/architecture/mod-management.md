@@ -177,8 +177,8 @@ Header ("Mods" / "Resource Packs" / "Shaders")
 - **Category filters:** Collapsed behind a "..." button to save vertical space. Green dot shows when a filter is active.
 - **Content type switching:** The same UI works for Mods, Resource Packs, and Shaders. Mods use per-profile folders; resource packs/shaders go into shared game folders.
 - **Mod icons:** Installed mods only store their Modrinth slug, not the icon URL. A bulk slug→icon lookup fetches real art after the list renders.
-- **Mod detail menu (2026-09-12):** clicking any mod row (browse or installed, except protected/system files) opens `open_mod_detail()` — all screenshots in a scrollable strip, a compact meta line, a one-click **"Install latest"** (or "You're up to date"), the description collapsed behind **"Read more"**, and versions grouped so only ~8 compatible builds show with a **"Show all N versions"** toggle. Uses `cubeon/dialogs.py` + `thread_safe_ui.refresh`.
-- **Automatic repair:** `cubeon/mods.py:mod_doctor()` fixes leftover duplicate copies, missing required dependencies, jars built for the wrong loader/version, and mods that declare a version conflict via Fabric's `breaks` (read from each jar's own `fabric.mod.json` — Modrinth doesn't expose it). A clash with no compatible replacement on either side turns the clashing mod off (reversible) so the game still launches. Runs automatically after installs (browse, detail, install-from-file), at launch (duplicate + conflict repair), and proactively in the background when an (mc_version, loader) profile is selected (`main.py:_proactive_mod_repair`, once per profile per session, full online check); the Installed pane also has a "Fix problems" button. User-facing wording stays "Fix problems" / "Fixed N of M problem(s)" — the word "doctor" never reaches the UI.
+- **Mod detail menu (2026-09-12):** clicking any mod row (browse or installed, except protected/system files) opens `open_mod_detail()`, all screenshots in a scrollable strip, a compact meta line, a one-click **"Install latest"** (or "You're up to date"), the description collapsed behind **"Read more"**, and versions grouped so only ~8 compatible builds show with a **"Show all N versions"** toggle. Uses `cubeon/dialogs.py` + `thread_safe_ui.refresh`.
+- **Automatic repair:** `cubeon/mods.py:mod_doctor()` fixes leftover duplicate copies, missing required dependencies, jars built for the wrong loader/version, and mods that declare a version conflict via Fabric's `breaks` (read from each jar's own `fabric.mod.json`: Modrinth doesn't expose it). A clash with no compatible replacement on either side turns the clashing mod off (reversible) so the game still launches. Runs automatically after installs (browse, detail, install-from-file), at launch (duplicate + conflict repair), and proactively in the background when an (mc_version, loader) profile is selected (`main.py:_proactive_mod_repair`, once per profile per session, full online check); the Installed pane also has a "Fix problems" button. User-facing wording stays "Fix problems" / "Fixed N of M problem(s)", the word "doctor" never reaches the UI.
 
 ---
 
@@ -289,7 +289,7 @@ Cape
 
 ## ui/chat_tab.py
 
-**Purpose:** the launcher-side social screen — friend roster + presence, incoming
+**Purpose:** the launcher-side social screen, friend roster + presence, incoming
 / outgoing requests, and encrypted DMs. It drives the process-scoped
 `FriendsService` **directly** (the same object the in-game mod reaches through
 the localhost bridge), so friends/chat work without launching Minecraft.
@@ -314,7 +314,7 @@ Chat
 - Built lazily; only exists in `features.friends_enabled()` builds. In a public
   build `service is None` and the tab returns a static notice.
 - Polls on its own daemon thread (`_POLL_SECONDS = 1.5`) via
-  `cubeon/thread_safe_ui.py` — never calls Flet from the service's threads.
+  `cubeon/thread_safe_ui.py`, never calls Flet from the service's threads.
 - `refresh()` (the on-open hook) reconciles immediately instead of waiting a tick.
 - The Cubeon name is automatic: `friends.ensure_identity()` mints a deterministic
   `Player_<sha256(secret)[:8]>` handle; there is no claim prompt. See

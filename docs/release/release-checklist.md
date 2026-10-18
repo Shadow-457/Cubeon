@@ -12,7 +12,7 @@
 - [ ] Type hints on all new public APIs
 
 ### Version & Changelog
-- [ ] Nothing to do for the version — CI stamps it per push
+- [ ] Nothing to do for the version: CI stamps it per push
       (`tools/release_version.py stamp`). Only edit `APP_VERSION` (then
       `python3 tools/release_version.py stamp <version>`) when you want to start
       a new minor series; the tag, the app and the website text must all agree.
@@ -85,7 +85,7 @@
 
 ## Release
 
-### GitHub Release — `git push` is the whole job
+### GitHub Release: `git push` is the whole job
 - [ ] Push to `main`: CI picks the version, tags it, builds Linux + Windows +
       macOS and publishes the release (draft → verify all 6 assets → un-draft).
 - [ ] Watch the Actions run; `publish` is the job that makes it public.
@@ -107,12 +107,12 @@
 ## Rollback Plan
 
 If critical issue found post-release:
-1. **Re-run the failed job** rather than deleting anything — a re-run of the
+1. **Re-run the failed job** rather than deleting anything, a re-run of the
    same push reuses its tag and version (it does not mint a new one) and
    re-drafts the release while assets are replaced.
 2. **Bury it**: the in-app updater only offers releases NEWER than the running
    one, so pushing a fixed `APP_VERSION` (or just the next commit) is usually
-   enough. Only make an old release "latest" again if downloads must move back —
+   enough. Only make an old release "latest" again if downloads must move back,
    `gh release edit vX.Y.Z --latest` (CI never moves `latest` backwards).
 3. **Delete a bad tag** only if it never shipped:
    `git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`.

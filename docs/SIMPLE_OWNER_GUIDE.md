@@ -1,4 +1,4 @@
-# Cubeon — simple owner guide
+# Cubeon: simple owner guide
 
 This guide is for using and maintaining Cubeon without needing to understand
 its code. If a command looks scary, you can send it to me and I can help.
@@ -16,8 +16,8 @@ Cubeon is a Minecraft launcher. It can:
 
 There are two parts:
 
-1. **The launcher** — the desktop app you open.
-2. **The online services** — small Cloudflare services that help friends find
+1. **The launcher**, the desktop app you open.
+2. **The online services**, small Cloudflare services that help friends find
    each other and exchange messages. Minecraft itself still runs on your own
    computer.
 
@@ -157,13 +157,13 @@ APP_VERSION = "1.3.0"
 ```
 
 The next push then releases `v1.3.0`, and later pushes continue from there.
-Never edit the tag or the release by hand — the number in the app and the number
+Never edit the tag or the release by hand, the number in the app and the number
 on the release must match, or every user is told an update exists that never
 goes away. If you must change a version by hand, use
 `python3 tools/release_version.py stamp 1.2.3` so both change together.
 
 (You can still make a tag yourself, `git tag v1.2.3 && git push origin v1.2.3`,
-and it will be released exactly as typed — that is the escape hatch, not the
+and it will be released exactly as typed, that is the escape hatch, not the
 normal path.)
 
 The GitHub repository is private:
@@ -180,8 +180,8 @@ giving downloads to many people because download permission is required.
 
 There are two build types:
 
-- `build_appimage.sh` — development build, Friends included;
-- `build_public_appimage.sh` — public build, Friends disabled.
+- `build_appimage.sh`, development build, Friends included;
+- `build_public_appimage.sh`, public build, Friends disabled.
 
 For a public Linux build:
 

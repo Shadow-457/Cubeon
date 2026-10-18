@@ -4,7 +4,7 @@
 
 ---
 
-## Critical: Config Corruption on Crash — FIXED (2026-09-14)
+## Critical: Config Corruption on Crash: FIXED (2026-09-14)
 
 **File:** `cubeon/config.py`, `save_config()`
 
@@ -42,7 +42,7 @@ There is no lock, no synchronization, and no copy-on-write. Two threads writing 
 
 ---
 
-## High: Server Console Deadlock via Full stdin Pipe — FIXED (2026-08-31)
+## High: Server Console Deadlock via Full stdin Pipe: FIXED (2026-08-31)
 
 **File:** `cubeon/server.py`, `send_server_command()` (line ~609)
 
@@ -57,7 +57,7 @@ process.stdin.flush()
 
 ---
 
-## High: User-Agent Strings Contain Profanity — FIXED (2026-09-14)
+## High: User-Agent Strings Contain Profanity: FIXED (2026-09-14)
 
 **Files:** `cubeon/mods.py`, `cubeon/modpacks.py`, `cubeon/icons.py`
 
@@ -73,7 +73,7 @@ client, never derive its UA from the hostname.
 
 ---
 
-## High: No Rate Limiting on Friends WebSocket Messages — STALE (rate limiter exists)
+## High: No Rate Limiting on Friends WebSocket Messages: STALE (rate limiter exists)
 
 **File:** `worker/cubeon-friends.js`, `webSocketMessage()`
 
@@ -95,7 +95,7 @@ A single client can flood the Durable Object with messages, causing:
 
 ---
 
-## Medium: Race Condition in UUID Ownership (TOCTOU) — FIXED 2026-09-07
+## Medium: Race Condition in UUID Ownership (TOCTOU): FIXED 2026-09-07
 
 **File:** `cubeon/skins.py`, `_publish_skin()` and `cubeon-skins.js`, `ownsUuid()`
 
@@ -145,7 +145,7 @@ Non-atomic. A crash here loses the publish state, causing the next launch to re-
 
 ---
 
-## Medium: `install_local_mod()` Doesn't Validate Source Path — FIXED (2026-09-14)
+## Medium: `install_local_mod()` Doesn't Validate Source Path: FIXED (2026-09-14)
 
 **File:** `cubeon/mods.py`, `install_local_mod()`
 
@@ -156,7 +156,7 @@ not its name.
 
 ---
 
-## Medium: `toggle_mod()` / `delete_mod()` Don't Check File Exists — FIXED (2026-09-14)
+## Medium: `toggle_mod()` / `delete_mod()` Don't Check File Exists: FIXED (2026-09-14)
 
 **File:** `cubeon/mods.py`
 
@@ -183,17 +183,17 @@ This sorts by **string** comparison, which means `"alice" > "bob"` is true (lexi
 
 ---
 
-## Medium: Friend Request Auto-Accept Race — VERIFIED NON-ISSUE 2026-09-14
+## Medium: Friend Request Auto-Accept Race: VERIFIED NON-ISSUE 2026-09-14
 
 **File:** `worker/cubeon-friends.js`, `onAdd()`
 
 The claim was: two simultaneous `add` frames both check `requestExists` before either writes, leaving two pending requests instead of a mutual acceptance.
 
-That can't happen. A Durable Object runs one event handler at a time, and `onAdd`/`onAccept` are fully synchronous — `this.sql.exec()` is sync, and there is no `await` between the `requestExists` check and the write. Whichever `add` frame the DO processes second therefore always observes the first's request row and takes the auto-accept path. Interleaving is only possible across an `await` (e.g. `onHello`'s `sha256Hex`, whose claim-on-connect INSERT is separately guarded by the PRIMARY KEY re-read). Lesson for future audits: only await-crossing sections in a DO handler are race candidates.
+That can't happen. A Durable Object runs one event handler at a time, and `onAdd`/`onAccept` are fully synchronous, `this.sql.exec()` is sync, and there is no `await` between the `requestExists` check and the write. Whichever `add` frame the DO processes second therefore always observes the first's request row and takes the auto-accept path. Interleaving is only possible across an `await` (e.g. `onHello`'s `sha256Hex`, whose claim-on-connect INSERT is separately guarded by the PRIMARY KEY re-read). Lesson for future audits: only await-crossing sections in a DO handler are race candidates.
 
 ---
 
-## Medium: Background Thread Exceptions Silently Swallowed — FIXED 2026-09-14 (worker paths)
+## Medium: Background Thread Exceptions Silently Swallowed: FIXED 2026-09-14 (worker paths)
 
 **Files:** `main.py`, `cubeon/skins.py`, `cubeon/launch.py`, `cubeon/p2p.py`
 
@@ -211,7 +211,7 @@ logs its failures now instead of a bare pass.
 
 ---
 
-## Low: `find_java_for_version()` May Return Too-Old Java — FIXED 2026-09-14 (logged)
+## Low: `find_java_for_version()` May Return Too-Old Java: FIXED 2026-09-14 (logged)
 
 **File:** `cubeon/launch.py`, `find_java_for_version()` (line ~88)
 
@@ -236,7 +236,7 @@ A "get" function that creates state as a side effect. Any code that calls `get_p
 
 ---
 
-## Low: Modrinth Cache Never Invalidates — FIXED 2026-09-14 (`local_cache.invalidate()`)
+## Low: Modrinth Cache Never Invalidates: FIXED 2026-09-14 (`local_cache.invalidate()`)
 
 **File:** `cubeon/local_cache.py`, `get()` (line ~12)
 
@@ -257,7 +257,7 @@ There is no manual cache invalidation mechanism and no way for the user to force
 
 ---
 
-## Low: `version_dropdown.value` Used Before Population — FIXED 2026-09-14 (falls back to cfg last_version)
+## Low: `version_dropdown.value` Used Before Population: FIXED 2026-09-14 (falls back to cfg last_version)
 
 **File:** `main.py`, `rebuild_skin_section()` (line ~620)
 
@@ -304,7 +304,7 @@ The relay-first hybrid handover strategy is partially implemented. The `HybridSe
 
 ---
 
-## High: Installs "completed" with holes, and the launcher said nothing — FIXED (2026-10-17)
+## High: Installs "completed" with holes, and the launcher said nothing: FIXED (2026-10-17)
 
 **File:** `cubeon/versions.py` (`_make_resilient_download_file`, `_PatchedMllDownloads`)
 
@@ -320,7 +320,7 @@ if r.status_code != 200:
 
 Every call site ignores that return value. So a CDN answering **429** to a burst
 of asset requests, or a proxy dropping a connection mid-jar, produced an install
-that reported success with **files missing** — the game then failed at launch
+that reported success with **files missing**, the game then failed at launch
 with nothing in the UI to explain it (the 2026-10-17 report: "download on
 instances isn't working on some users"). Cubeon's patched downloader was only
 installed when the user could cancel, so an ordinary install had none of it.
@@ -333,7 +333,7 @@ the whole file again on a mismatch; and raises `_MllDownloadError` naming the
 file on a permanent 4xx, with `install_version` surfacing that text. Two further
 install-wide shortcuts came with it: `install_minecraft_version` is memoised per
 version within one install (a loader install used to walk the base two or three
-times — see row 31) and a process-wide 32-connection pool replaces mll's
+times, see row 31) and a process-wide 32-connection pool replaces mll's
 per-phase session of 10, which had made most of its ~32 asset threads build and
 discard a TCP+TLS connection per file. Regression:
 `tools/test_install_download.py`, `tools/test_install_cancel.py` (rewritten: it
@@ -342,27 +342,27 @@ had been passing by accident, because "http://x" failed fast and *that* was the
 
 ---
 
-## High: A loader install re-installed the whole base version — FIXED (2026-10-17)
+## High: A loader install re-installed the whole base version: FIXED (2026-10-17)
 
 **File:** `cubeon/versions.py`; `minecraft_launcher_lib/mod_loader/__init__.py`
 
 `ModLoader.install` calls `install_minecraft_version` for the base version and
-then again for the loader profile — whose json `inheritsFrom`s the base, so
+then again for the loader profile, whose json `inheritsFrom`s the base, so
 mll's own inheritsFrom branch calls `install_minecraft_version` on the base a
 **second** time from inside that call. Forge adds another. Three full passes
 over the same ~4000 files, each re-hashing ~1 GB of libraries and assets: the
 "installing an instance takes forever" half of the 2026-10-17 report.
 
 **Fix (2026-10-17):** per-install memoisation of `install_minecraft_version`
-(the loader profile's own libraries still install — that is real work) plus a
+(the loader profile's own libraries still install, that is real work) plus a
 per-process `size+mtime` verified-file cache, so a repeat pass is a `stat()`
 rather than a re-read. `install_jvm_runtime` (a second JDK, tens of MB) is also
 skipped when `config.launch_java_path()` proves the launch passes its own
-`executablePath` — with a comment on why it must NOT be skipped unconditionally.
+`executablePath`, with a comment on why it must NOT be skipped unconditionally.
 
 ---
 
-## High: "Not connected to Cubeon" on a perfectly good connection — FIXED (2026-10-17)
+## High: "Not connected to Cubeon" on a perfectly good connection: FIXED (2026-10-17)
 
 **File:** `main.py` (startup friends block), `cubeon/friends.py` (`_run_loop`)
 
@@ -377,8 +377,8 @@ if had_identity:
 ```
 
 The theory was that a brand-new identity connects when the Chat tab first opens.
-But the Chat tab is only one way in — in-game chat does not trigger the
-launcher's connect — so a first-run player stayed "not connected" for their
+But the Chat tab is only one way in, in-game chat does not trigger the
+launcher's connect, so a first-run player stayed "not connected" for their
 whole first session while their network was fine. `_on_open` also never reset
 the reconnect ladder, so a connection that had been up and then blipped waited
 the maximum 30 s to come back.
@@ -391,7 +391,7 @@ they still open no socket.
 
 ---
 
-## High: Play appeared mid-install, and pressing it broke the instance — FIXED (2026-10-18)
+## High: Play appeared mid-install, and pressing it broke the instance: FIXED (2026-10-18)
 
 **File:** `cubeon/modpacks.py` (in-flight registry), `main.py` (`set_button_mode`,
 `_sync_play_button`, `on_play_click`, `_begin_install_and_launch`, `prefetch_version`,
@@ -400,19 +400,19 @@ they still open no socket.
 A modpack install writes the **base Minecraft version and its loader first**, then
 downloads the pack's mods into the `(mc_version, loader)` profile, and only writes
 `_modpack.json` at the very end. The Play tab's button is derived from a **disk
-scan**, and after step 1 that scan already calls the instance installed — so for
+scan**, and after step 1 that scan already calls the instance installed, so for
 the whole mod-download phase the button offered **PLAY on a half-written profile**
 (the report: "it isn't fully installed, still it says the Play button while it's
 installing mods… that will result in broken stuff"). The install ran entirely in
 the Modpacks tab and never touched `state["installing_version"]`, the one claim
-the button knew about, and Import reached the same installer by another route — so
+the button knew about, and Import reached the same installer by another route, so
 a UI flag set only by the Modpacks tab could not have fixed it either.
 
 **Fix (2026-10-18):** `cubeon/modpacks.py` keeps a process-local, refcounted
 in-flight registry keyed by **mc_version**, raised in `_install_from_zip` *before*
 the first byte lands and released in a `finally` (success, failure and cancel all
 clear it; a malformed archive claims nothing). The Play button maps that claim to
-a disabled `INSTALLING…` mode — deliberately **not** a Cancel, because the
+a disabled `INSTALLING…` mode, deliberately **not** a Cancel, because the
 Modpacks tab owns that install's progress and its cancel. The same claim is
 honoured by `on_play_click` and `_begin_install_and_launch` (the Java dialog calls
 the latter directly), by the Instances manager's row Play, by the invisible
@@ -424,7 +424,7 @@ changes, so it can neither outlive a cancel nor linger after success. Regression
 
 ---
 
-## High: "A new Cubeon is available" nagged on every launch — FIXED (2026-10-18)
+## High: "A new Cubeon is available" nagged on every launch: FIXED (2026-10-18)
 
 **File:** `main.py` (startup update check), `cubeon/updater.py` (`should_announce`)
 
@@ -433,7 +433,7 @@ stopping like it's just coming up again and again."* Two independent defects,
 both about the same message:
 
 1. **The in-app snackbar had no memory whatsoever.** `_offer_update` ran from
-   the background check and showed `"Cubeon 1.2.6 is available — Get it"` on
+   the background check and showed `"Cubeon 1.2.6 is available: Get it"` on
    **every single start** for as long as the user was behind, with no marker
    anywhere. The only "once per version" gate in the tree belonged to the OS
    toast (`osnotify_last_update`), and it also *failed open*: `update_available`
@@ -441,7 +441,7 @@ both about the same message:
    so its marker was never written on those machines.
 2. **The check ran TWICE per start.** One call passed `cfg["update_token"]`
    (snackbar), the second passed nothing and existed only to fire the OS toast.
-   Two GETs against the releases API on every start — and on a private repo the
+   Two GETs against the releases API on every start, and on a private repo the
    token-less one 404s, so the same release could be "up to date" to one handler
    and "newer" to the other.
 
@@ -452,18 +452,18 @@ True, because a missed notice is worse than a repeated one) and it **marks the
 version in the config in place**, which the caller saves. The call happens
 *before* either notice goes out, so a muted notifier or a closed window costs
 one message, never a nag on the next start. `main.py::_announce_update` is the
-single callback — it saves the marker, fires the optional OS toast, then the
-snackbar — and the second check is gone. Regression:
+single callback, it saves the marker, fires the optional OS toast, then the
+snackbar, and the second check is gone. Regression:
 `tools/test_update_notice.py`.
 
 ---
 
-## High: the Windows startup job never actually ran the app — FIXED (2026-10-18)
+## High: the Windows startup job never actually ran the app: FIXED (2026-10-18)
 
 **File:** `tools/test_startup.py`, `tools/test_winwindow.py`
 
 The `Startup tests (Windows)` job was red on **every run since it was added**,
-so CI had never once built the launcher's UI on Windows — a green-looking
+so CI had never once built the launcher's UI on Windows, a green-looking
 pipeline with a permanently red gate, and no signal at all on the platform most
 users are on. Two Linux-shaped assumptions:
 
@@ -471,18 +471,18 @@ users are on. Two Linux-shaped assumptions:
   never blocks on the network. But on Windows `socket.socketpair()` is a real
   TCP pair on 127.0.0.1 (CPython's fallback: bind to `_LOCALHOST`, then
   `csock.connect((addr, port))`) and `ProactorEventLoop` builds its self-pipe
-  with it — so the patch killed `asyncio.run()` itself. The suite died with
+  with it, so the patch killed `asyncio.run()` itself. The suite died with
   `OSError: network disabled by tools/test_startup.py` **before `main()`** and
   reported `controls=0` (the UI was never mounted) plus one bogus
   main-thread connect: asyncio's own self-pipe.
 * `test_winwindow.py` §1 asserted "returns immediately" for
   `ensure_client_window_visible`, which describes the **off-Windows** no-op
-  branch — but the file runs on `windows-latest`, where the module is the real
+  branch, but the file runs on `windows-latest`, where the module is the real
   thing: with no flet client window it probes until the timeout and answers
   False (4.44 s).
 
 **Fix (2026-10-18):** loopback is now allowed through the connect blocker
-(`127.0.0.0/8`, `::1`), while any real host is still recorded **and refused** —
+(`127.0.0.0/8`, `::1`), while any real host is still recorded **and refused**,
 and `socket.create_connection` (the call urllib3 actually makes) is now patched
 too, so the invariant is stronger than before. The winwindow timing assertion
 is branched on `os.name`. The job now genuinely builds the UI on Windows, which
@@ -490,11 +490,11 @@ is where a Windows-only startup crash will finally be visible.
 
 ---
 
-## High: the launcher's crashes left no evidence anywhere — FIXED (2026-10-18)
+## High: the launcher's crashes left no evidence anywhere: FIXED (2026-10-18)
 
 **File:** `main.py` (`__main__`), `cubeon/incident.py` (new)
 
-Report: *"it got crashes on user and me too"*, delivered as a KDE screenshot —
+Report: *"it got crashes on user and me too"*, delivered as a KDE screenshot,
 KDE's Crash Reporting System showing **two** dialogs for
 `~/.flet/client/flet-desktop-light-0.86.5/flet/flet has encountered a fatal
 error and was closed.` That binary is the **flet desktop client** (the
@@ -507,7 +507,7 @@ in-process retry with `use_software_gl`; mid-session death → re-exec bounded b
 `CUBEON_GPU_RESTARTS`). What was broken was that **no crash could ever be
 diagnosed**, for two reasons:
 
-1. every crash message was a `print()` to **stdout** — a user launching Cubeon
+1. every crash message was a `print()` to **stdout**, a user launching Cubeon
    from a desktop menu has no console, so there was nothing they could send;
 2. `setup_logging()` was only reached from `main()`, the flet **session**
    callback. A pre-paint crash means `main()` never runs, so logging was never
@@ -515,7 +515,7 @@ diagnosed**, for two reasons:
    The only evidence in existence was the screenshot.
 
 **Fix (2026-10-18):** `__main__` configures logging before the session loop, and
-every session end is now recorded through `cubeon/incident.py` — INFO for a
+every session end is now recorded through `cubeon/incident.py`: INFO for a
 clean close (so "the log stops here" is distinguishable from "the user closed
 it"), WARNING for a crash with `describe_exit(-11)` → `SIGSEGV`, whether the UI
 painted, whether the software-GL fallback was in effect, the session/desktop/
@@ -524,7 +524,7 @@ keeps the last 25 non-noise lines, collapsing repeats so a frame-timeout storm
 cannot bury the earlier context). Both exhausted ladder branches log
 `record_giving_up` at ERROR. `incident.client_binary()` additionally names
 WHICH client bundle is being spawned, its stub size and whether the Flutter
-engine library is present — a PARTIAL unpack of `~/.flet/client/flet-desktop-*`
+engine library is present, a PARTIAL unpack of `~/.flet/client/flet-desktop-*`
 (flet unpacks once, then trusts it forever) dies on every launch and looks
 identical to a driver crash, but is the one client-side fault that is ours to
 fix. The module is deliberately **total** (never
@@ -539,7 +539,7 @@ never when the user chose a backend themselves. Native Wayland stays native for
 everyone it works for today. Regression: `tools/test_incident.py`.
 
 **Root cause confirmed the same day, from the maintainer's own core dumps**
-(same report — the KDE screenshot came from a friend's machine, the maintainer's
+(same report, the KDE screenshot came from a friend's machine, the maintainer's
 box turned out to have the crash too): Arch, `mesa 1:26.1.6-1`, AMD Polaris
 (Ellesmere, RX 470–590). `coredumpctl info` on a run whose `cubeon.log` simply
 stops gives
@@ -551,13 +551,13 @@ stops gives
 #10-#18 libgtk-3.so.0 → g_signal_emit → gtk_container_propagate_draw
 ```
 
-— a Mesa driver fault during a GTK/Flutter paint, three layers below any Python,
+, a Mesa driver fault during a GTK/Flutter paint, three layers below any Python,
 in the 26.1.x series that the Mesa release notes and bug reports describe as a
 radeonsi/gallivm SIGSEGV regression train (26.1.8 closed the series; 26.2 carries
 the fixes, and `mesa 1:26.2.4-1` was already available on the crashing box). So
 the honest fix for an affected user is **the Mesa update**, and Cubeon's part is
-to (a) name the library in the log — the record now prints `gallium=<lib>`, so
-`gallium=libgallium-26.1.6-…` identifies the known bug in one grep — and
+to (a) name the library in the log, the record now prints `gallium=<lib>`, so
+`gallium=libgallium-26.1.6-…` identifies the known bug in one grep, and
 (b) survive it: because llvmpipe shares the failing LLVM JIT path with radeonsi,
 the retry ladder now escalates `GALLIUM_DRIVER=llvmpipe` → `softpipe` (Mesa's
 reference C rasterizer, no JIT at all) on its final attempt, with the attempt
@@ -566,18 +566,18 @@ restart escalates too.
 
 ---
 
-## Medium: "Dialog is already opened" error banner — FIXED (2026-10-18)
+## Medium: "Dialog is already opened" error banner: FIXED (2026-10-18)
 
 **File:** `cubeon/dialogs.py`
 
-User report: *"The application encountered an error: Dialog is already opened —
+User report: *"The application encountered an error: Dialog is already opened,
 this error just came upon a users, they are so random."*
 
 Flet 0.86's `Page.show_dialog()` raises `RuntimeError("Dialog is already
 opened")` when the instance is already in `page._dialogs.controls`, and
 `cubeon/dialogs.open_dialog()` passed that straight through. The exception
-escapes whichever event handler mounted the dialog, so a **no-op** — the user is
-looking at that dialog already — surfaced as an application error banner. That
+escapes whichever event handler mounted the dialog, so a **no-op**, the user is
+looking at that dialog already, surfaced as an application error banner. That
 is the "random": anything that can fire twice hits it (a double click, a poll
 tick racing a button, a retry). The repo had already grown two one-off
 workarounds for exactly this (main.py `_dialog_mounted`, ui/versions.py
@@ -585,20 +585,20 @@ workarounds for exactly this (main.py `_dialog_mounted`, ui/versions.py
 helper stayed exposed.
 
 **Fix (2026-10-18):** `open_dialog` is now idempotent. Membership in the stack
-(not the `.open` flag — flet removes a barrier-dismissed dialog from the stack
+(not the `.open` flag, flet removes a barrier-dismissed dialog from the stack
 *without* clearing it) is checked first and the mounted case is refreshed in
 place; a lost race between the check and the call is swallowed only when the
 message is the known `already open` one, so any *other* RuntimeError still
 surfaces. The suppression is logged at INFO naming the dialog class, so if it
 repeats we can find which dialog double-opens. Regression:
 `tools/test_dialogs.py`, whose FakePage reproduces flet's real double-mount
-raise — and which fails if any shipped module calls `show_dialog` directly.
+raise, and which fails if any shipped module calls `show_dialog` directly.
 
 ---
 
 ---
 
-## High: "Fix problems" disabled working mods — FIXED (2026-10-18)
+## High: "Fix problems" disabled working mods: FIXED (2026-10-18)
 
 **Files:** `cubeon/mods.py`
 
@@ -648,7 +648,7 @@ genuinely missing dependency (reported, still enabled) and a fetchable one
 
 ---
 
-## High: "Crashed: Java not found" on a launch where Java plainly worked — FIXED (2026-10-18)
+## High: "Crashed: Java not found" on a launch where Java plainly worked: FIXED (2026-10-18)
 
 **Files:** `main.py` (`_explain_exit`)
 
@@ -663,12 +663,12 @@ if "cannot run program" in low or "no such file or directory" in low and "java" 
 ```
 
 `and` binds tighter than `or`, so this is
-`A or (B and C)` — **any** `Cannot run program` line in the game's output was
+`A or (B and C)`, **any** `Cannot run program` line in the game's output was
 reported as "Java not found". Worse, `B and C` is almost always true: the launch
 command itself, JVM path included (`/usr/lib/jvm/java-21-openjdk/...`), is part
 of the output the launcher reads, so the word "java" is present on *every*
-launch. Any stray `No such file or directory` — a mod's config, a shader
-include, a missing native, a mod shelling out to `xdg-open` — was therefore
+launch. Any stray `No such file or directory`, a mod's config, a shader
+include, a missing native, a mod shelling out to `xdg-open`, was therefore
 reported as a missing JDK, and the actual error line was thrown away. The user
 was sent to reinstall Java for a game that had just started a JVM.
 
@@ -680,7 +680,7 @@ rejected JVM option (`Unrecognized option` + the JVM's own
 `Could not create...` line) gets its own message pointing at the JVM arguments
 rather than at installing Java. Everything else falls through to the real error
 line, and when there is genuinely nothing to go on the message says so and
-points at Fix problems — it no longer guesses "check that Java matches", which
+points at Fix problems, it no longer guesses "check that Java matches", which
 the game it just launched had already disproved.
 
 Regression: `tools/test_ui_smoke.py` now drives the reported log shape (JVM
@@ -693,42 +693,42 @@ path present + an unrelated missing file) and the genuine cases (`java`,
 
 | # | Severity | Issue | File(s) |
 |---|----------|-------|---------|
-| 1 | ✅ Fixed 2026-09-14 | Config corruption on crash (non-atomic write) — `cubeon/atomicio.write_json` | `config.py` |
+| 1 | ✅ Fixed 2026-09-14 | Config corruption on crash (non-atomic write), `cubeon/atomicio.write_json` | `config.py` |
 | 2 | ⚠️ Known | Config dict shared across threads without locking (mitigated: skins publish uses a snapshot; skin_net.json exists specifically so background threads never write config) | `main.py` |
 | 3 | ✅ Fixed | Server console deadlock via full stdin pipe (2026-08-31) | `server.py` |
 | 4 | ✅ Fixed 2026-09-14 | User-Agent contained profanity | `mods.py`, `modpacks.py`, `icons.py`, `server.py` |
 | 5 | ✅ Already implemented | (stale entry) sliding-window rate limiter exists in the worker | `cubeon-friends.js` |
 | 6 | ✅ Fixed | UUID ownership TOCTOU race (fixed 2026-09-07: re-read after put) | `skins.py`, `cubeon-skins.js` |
-| 7 | ✅ Fixed 2026-09-14 | Non-atomic skins metadata writes — `cubeon/atomicio.write_json` | `skins.py` |
-| 8 | ✅ Fixed 2026-09-14 | Non-atomic publish state writes — `cubeon/atomicio.write_json` | `skins.py` |
-| 9 | ✅ Fixed 2026-09-14 | `install_local_mod()` doesn't sanitize basename — `_safe_jar_filename()` | `mods.py` |
-| 10 | ✅ Fixed 2026-09-14 | `toggle_mod()` / `delete_mod()` no existence check — `lexists` guards | `mods.py` |
-| 11 | ✅ Fixed 2026-09-14 | DM refusal was a silent drop — now `T.ERROR` frames to the sender (parity-tested) | `cubeon-friends.js` |
+| 7 | ✅ Fixed 2026-09-14 | Non-atomic skins metadata writes, `cubeon/atomicio.write_json` | `skins.py` |
+| 8 | ✅ Fixed 2026-09-14 | Non-atomic publish state writes, `cubeon/atomicio.write_json` | `skins.py` |
+| 9 | ✅ Fixed 2026-09-14 | `install_local_mod()` doesn't sanitize basename, `_safe_jar_filename()` | `mods.py` |
+| 10 | ✅ Fixed 2026-09-14 | `toggle_mod()` / `delete_mod()` no existence check, `lexists` guards | `mods.py` |
+| 11 | ✅ Fixed 2026-09-14 | DM refusal was a silent drop, now `T.ERROR` frames to the sender (parity-tested) | `cubeon-friends.js` |
 | 12 | ✅ Verified non-issue 2026-09-14 (stale claim) | Mutual-add "race": a DO runs message handlers one at a time and `onAdd`/`onAccept` are fully synchronous (no awaits), so the second add always sees the first's request row and auto-accepts | `cubeon-friends.js` |
 | 13 | ✅ Fixed 2026-09-14 (worker paths log; UI best-effort left silent by design) | Background thread exceptions silently discarded | Multiple files |
 | 14 | ✅ Fixed 2026-09-14 (fallback now logs required-vs-found to the launcher log) | `find_java_for_version()` fallback may return too-old Java | `launch.py` |
-| 15 | 🟢 Low (kept) | `get_profile_dir()` creates state as side effect — every current caller intends creation; changing the contract buys nothing pre-beta | `mods.py` |
+| 15 | 🟢 Low (kept) | `get_profile_dir()` creates state as side effect, every current caller intends creation; changing the contract buys nothing pre-beta | `mods.py` |
 | 16 | ✅ Fixed 2026-09-14 (`invalidate()` API added; SWR already self-heals) | Modrinth cache never invalidates (24h TTL) | `local_cache.py` |
 | 17 | ✅ Fixed 2026-09-14 (rebuild falls back to cfg last_version) | Version dropdown used before population | `main.py` |
 | 18 | 🟢 Low | Circular import workaround in cosmetics | `cosmetics.py` |
 | 19 | 🟢 Low | P2P hybrid handover incomplete | `p2p.py` |
-| 20 | ✅ Fixed 2026-09-14 (visual) | Chat self-avatar rendered as a blank square — `ft.Image(src=<absolute path>)` never loads in Flet 0.86; now base64 bytes with chip fallback | `chat_tab.py` |
-| 21 | ✅ Fixed 2026-09-14 (visual) | Stray floating hairline across the chat empty-state pane — header divider is now hidden until a conversation is selected | `chat_tab.py` |
-| 22 | ✅ Fixed 2026-09-14 (relay) | Chat history backfill served the OLDEST page — `ORDER BY ts ASC LIMIT ?` returns the stale prefix once a conversation outgrows the 50-message window; now a newest-50 subquery re-ordered chronologically (rowid tiebreak, projected as `rid`) | `cubeon-friends.js` |
-| 23 | ✅ Fixed 2026-09-14 (relay) | `decodeURIComponent(pathname)` throws URIError on malformed %-escapes → CF error 1101, in all four workers — `safePathname()` fallback | `cubeon-friends.js`, `cubeon-invites.js`, `cubeon-skins.js` |
-| 24 | ✅ Fixed 2026-09-14 (relay) | Unauthenticated WS hello flood: each attempt cost a SHA-256 and each unknown name burned a permanent claim row — IP captured into the attachment at upgrade, 30/10min per-IP pre-auth gate | `cubeon-friends.js` |
-| 25 | ✅ Fixed 2026-09-14 (relay); **superseded 2026-10-17 — see 29** | invites `RATE_LIMITER` binding was documented ("uses it when present") but never referenced by the code — now gates PUT. The "degrades to no-limit if absent/failing" part of that fix is gone: it degrades to the always-on in-isolate gate | `cubeon-invites.js` |
-| 26 | ✅ Fixed 2026-09-14 (relay) | waitlist POST parsed an unbounded JSON body (`request.json()`, no cap — the only worker without one) — 1KB Content-Length + decoded-length cap | `cubeon-waitlist.js` |
-| 27 | ✅ Fixed 2026-09-14 (relay) | Blocked accounts were still addable via the in-game mod's name path (the `/name/`+`/uid/` HTTP lookups 404 them) — both `onAdd` paths now treat blocked as nonexistent | `cubeon-friends.js` |
-| 28 | ✅ Fixed 2026-09-14 (relay) | Call invites minted an unbounded `calls` room row per invite — 10/min per-user budget with a visible message | `cubeon-friends.js` |
-| 29 | ✅ Fixed 2026-10-17 | **The waitlist had no effective rate limit.** The code was a bare `if (env.RATE_LIMITER)` and the binding was commented out of `wrangler-waitlist.toml`, so the live Worker was open — probed: 9 rapid signups, zero 429s. Two KV writes per signup against the **account-wide** 1k/day budget meant 500 POSTs could break the tally, every real signup, and the skins Worker (same budget). Now an in-isolate 5/min/IP fallback **always** runs and the binding is enabled. Same audit: invites' gate was re-keyed from the caller-chosen `code` (a fresh bucket per request — it limited nothing) to the IP; downloads gained the always-on fallback for the shared 100k/day **request** budget the edge cache cannot refund; skins' cap tightened 60→20/min | `cubeon-waitlist.js`, `cubeon-invites.js`, `cubeon-downloads.js`, `cubeon-skins.js`, `wrangler-waitlist.toml`, `wrangler-invites.toml`, `wrangler-downloads.toml`, `wrangler-skins.toml` |
-| 30 | ✅ Fixed 2026-10-17 | **Installs "completed" with holes.** mll 8.0's downloader has no timeout, no retry, no resume and no checksum, and reports a bad status by *returning* `False` — which every caller ignores, so a 429 from the asset CDN or a dropped connection mid-jar was silently skipped and the version list called it installed. Cubeon's patch also ran only for a *cancellable* install. Now every install uses the resilient downloader (timeouts, 3 retries honouring `Retry-After`, `Range` resume, sha1 verify, a hard error naming the file), plus a shared 32-connection pool instead of mll's per-phase 10 | `cubeon/versions.py` |
-| 31 | ✅ Fixed 2026-10-17 | A loader install walked the base version **two or three times** — `ModLoader.install` installs the base, then the loader profile whose json `inheritsFrom`s it (and mll's inheritsFrom branch re-installs the base *inside* that call); each pass re-hashed ~1 GB for an answer already known. Now `install_minecraft_version` is memoised per install and a per-process size+mtime cache makes repeat passes `stat()`-only; mll's unused second JDK is skipped when the launch passes its own `executablePath` | `cubeon/versions.py`, `cubeon/config.py`, `cubeon/mod_loaders.py`, `cubeon/modpacks.py`, `main.py` |
+| 20 | ✅ Fixed 2026-09-14 (visual) | Chat self-avatar rendered as a blank square, `ft.Image(src=<absolute path>)` never loads in Flet 0.86; now base64 bytes with chip fallback | `chat_tab.py` |
+| 21 | ✅ Fixed 2026-09-14 (visual) | Stray floating hairline across the chat empty-state pane, header divider is now hidden until a conversation is selected | `chat_tab.py` |
+| 22 | ✅ Fixed 2026-09-14 (relay) | Chat history backfill served the OLDEST page, `ORDER BY ts ASC LIMIT ?` returns the stale prefix once a conversation outgrows the 50-message window; now a newest-50 subquery re-ordered chronologically (rowid tiebreak, projected as `rid`) | `cubeon-friends.js` |
+| 23 | ✅ Fixed 2026-09-14 (relay) | `decodeURIComponent(pathname)` throws URIError on malformed %-escapes → CF error 1101, in all four workers, `safePathname()` fallback | `cubeon-friends.js`, `cubeon-invites.js`, `cubeon-skins.js` |
+| 24 | ✅ Fixed 2026-09-14 (relay) | Unauthenticated WS hello flood: each attempt cost a SHA-256 and each unknown name burned a permanent claim row: IP captured into the attachment at upgrade, 30/10min per-IP pre-auth gate | `cubeon-friends.js` |
+| 25 | ✅ Fixed 2026-09-14 (relay); **superseded 2026-10-17, see 29** | invites `RATE_LIMITER` binding was documented ("uses it when present") but never referenced by the code, now gates PUT. The "degrades to no-limit if absent/failing" part of that fix is gone: it degrades to the always-on in-isolate gate | `cubeon-invites.js` |
+| 26 | ✅ Fixed 2026-09-14 (relay) | waitlist POST parsed an unbounded JSON body (`request.json()`, no cap, the only worker without one), 1KB Content-Length + decoded-length cap | `cubeon-waitlist.js` |
+| 27 | ✅ Fixed 2026-09-14 (relay) | Blocked accounts were still addable via the in-game mod's name path (the `/name/`+`/uid/` HTTP lookups 404 them), both `onAdd` paths now treat blocked as nonexistent | `cubeon-friends.js` |
+| 28 | ✅ Fixed 2026-09-14 (relay) | Call invites minted an unbounded `calls` room row per invite, 10/min per-user budget with a visible message | `cubeon-friends.js` |
+| 29 | ✅ Fixed 2026-10-17 | **The waitlist had no effective rate limit.** The code was a bare `if (env.RATE_LIMITER)` and the binding was commented out of `wrangler-waitlist.toml`, so the live Worker was open, probed: 9 rapid signups, zero 429s. Two KV writes per signup against the **account-wide** 1k/day budget meant 500 POSTs could break the tally, every real signup, and the skins Worker (same budget). Now an in-isolate 5/min/IP fallback **always** runs and the binding is enabled. Same audit: invites' gate was re-keyed from the caller-chosen `code` (a fresh bucket per request, it limited nothing) to the IP; downloads gained the always-on fallback for the shared 100k/day **request** budget the edge cache cannot refund; skins' cap tightened 60→20/min | `cubeon-waitlist.js`, `cubeon-invites.js`, `cubeon-downloads.js`, `cubeon-skins.js`, `wrangler-waitlist.toml`, `wrangler-invites.toml`, `wrangler-downloads.toml`, `wrangler-skins.toml` |
+| 30 | ✅ Fixed 2026-10-17 | **Installs "completed" with holes.** mll 8.0's downloader has no timeout, no retry, no resume and no checksum, and reports a bad status by *returning* `False`, which every caller ignores, so a 429 from the asset CDN or a dropped connection mid-jar was silently skipped and the version list called it installed. Cubeon's patch also ran only for a *cancellable* install. Now every install uses the resilient downloader (timeouts, 3 retries honouring `Retry-After`, `Range` resume, sha1 verify, a hard error naming the file), plus a shared 32-connection pool instead of mll's per-phase 10 | `cubeon/versions.py` |
+| 31 | ✅ Fixed 2026-10-17 | A loader install walked the base version **two or three times**, `ModLoader.install` installs the base, then the loader profile whose json `inheritsFrom`s it (and mll's inheritsFrom branch re-installs the base *inside* that call); each pass re-hashed ~1 GB for an answer already known. Now `install_minecraft_version` is memoised per install and a per-process size+mtime cache makes repeat passes `stat()`-only; mll's unused second JDK is skipped when the launch passes its own `executablePath` | `cubeon/versions.py`, `cubeon/config.py`, `cubeon/mod_loaders.py`, `cubeon/modpacks.py`, `main.py` |
 | 32 | ✅ Fixed 2026-10-17 | **"Not connected to Cubeon" on a good connection.** Startup connected only when an identity *predated* the launch, so a first-run player who never opened the launcher's Chat tab (in-game chat does not trigger it) stayed offline for their whole first session; a reconnect after a connection that was up also kept the 30 s backoff. Now it connects as soon as an identity exists and resets the ladder after any round that reached the server | `main.py`, `cubeon/friends.py` |
-| 33 | ✅ Fixed 2026-10-18 | **Play appeared while a modpack install was still writing the instance.** A pack installs the base version + loader first and its mods last, so a disk scan called it installed for the whole mod-download phase and the button offered PLAY — pressing it launched a half-written profile. The claim was `state["installing_version"]`, which only the Play-tab installer ever set. Now `cubeon/modpacks.py` keeps a refcounted in-flight registry (keyed by mc_version) raised before the first write and released on success/failure/cancel; the button shows a disabled `INSTALLING…` (never a lying Cancel), and the click path, prefetch, Instances manager and mod doctor all stand down while it holds | `cubeon/modpacks.py`, `main.py`, `launcher_core.py` |
-| 34 | ✅ Fixed 2026-10-18 | **"A new Cubeon is available" nagged on every launch** ("spamming … coming up again and again"). The snackbar had NO memory at all, so an available update was announced on every start until the user updated; the only once-per-version marker belonged to the OS toast and failed open when toasts were off. A SECOND background check ran without the update token purely for that toast — two GETs per start and two answers about the same release. Now one check, one `_announce_update` callback, gated by the total function `updater.should_announce(cfg, version)`, which marks the version in the config before either notice goes out | `main.py`, `cubeon/updater.py` |
+| 33 | ✅ Fixed 2026-10-18 | **Play appeared while a modpack install was still writing the instance.** A pack installs the base version + loader first and its mods last, so a disk scan called it installed for the whole mod-download phase and the button offered PLAY, pressing it launched a half-written profile. The claim was `state["installing_version"]`, which only the Play-tab installer ever set. Now `cubeon/modpacks.py` keeps a refcounted in-flight registry (keyed by mc_version) raised before the first write and released on success/failure/cancel; the button shows a disabled `INSTALLING…` (never a lying Cancel), and the click path, prefetch, Instances manager and mod doctor all stand down while it holds | `cubeon/modpacks.py`, `main.py`, `launcher_core.py` |
+| 34 | ✅ Fixed 2026-10-18 | **"A new Cubeon is available" nagged on every launch** ("spamming … coming up again and again"). The snackbar had NO memory at all, so an available update was announced on every start until the user updated; the only once-per-version marker belonged to the OS toast and failed open when toasts were off. A SECOND background check ran without the update token purely for that toast, two GETs per start and two answers about the same release. Now one check, one `_announce_update` callback, gated by the total function `updater.should_announce(cfg, version)`, which marks the version in the config before either notice goes out | `main.py`, `cubeon/updater.py` |
 | 35 | ✅ Fixed 2026-10-18 | **The Windows startup job was red on every run, so CI had never built the UI on Windows.** `test_startup.py` banned every connect to prove "no network on the UI thread", but Windows `socket.socketpair()` is a real 127.0.0.1 TCP pair and `ProactorEventLoop`'s self-pipe uses it, so `asyncio.run()` died before `main()` (`controls=0`). `test_winwindow.py` §1 asserted the off-Windows no-op ("returns immediately") while running on windows-latest, where the module is real. Loopback is allowed and real hosts are still recorded+refused (plus `socket.create_connection`, the call urllib3 makes); the timing check is branched on `os.name` | `tools/test_startup.py`, `tools/test_winwindow.py` |
-| 36 | ✅ Fixed 2026-10-18 | **A launcher "crash" left no evidence anywhere.** The report was a KDE crash-reporter screenshot: the flet desktop client (`~/.flet/client/flet-desktop-light-0.86.5/flet/flet`) dying to a signal, twice — attempt 1 and the software-GL retry — after which the ladder gives up silently. Recovery was already right; the diagnosis was impossible: every message was a `print()` to a stdout no desktop-launch user sees, and `setup_logging()` was only reached from `main()`, so a PRE-PAINT crash left cubeon.log completely EMPTY. `__main__` now configures logging before the session loop, `cubeon/incident.py` records every session end (kind, signal via `describe_exit`, ui_painted, software-GL state, session/desktop/flet versions, and the client's own last 25 output lines), both give-up branches log at ERROR, and a retry-only `GDK_BACKEND=x11` dice roll covers the GTK/Wayland crash class. Root cause confirmed the same day from the maintainer's own core dumps: SIGSEGV in `libgallium-26.1.6` ← `libflutter_linux_gtk` ← `gtk_container_propagate_draw`, i.e. a **Mesa 26.1.x radeonsi/gallivm regression** (26.2 fixes it) — so the record now prints `gallium=<lib>` and the ladder escalates `llvmpipe` → `softpipe` (no LLVM JIT) on its last attempt | `main.py`, `cubeon/incident.py` |
-| 37 | ✅ Fixed 2026-10-18 | **"Dialog is already opened" reached users as an application error.** Flet 0.86's `show_dialog()` raises for an instance already in `page._dialogs.controls`, and the shared `dialogs.open_dialog()` passed it through — so any path that could fire twice (double click, poll tick racing a button, retry) turned a no-op into a user-visible error banner. The helper is now idempotent: a mounted dialog is refreshed in place, and only the known `already open` RuntimeError is swallowed, logged at INFO with the dialog class | `cubeon/dialogs.py`, `tools/test_dialogs.py` |
+| 36 | ✅ Fixed 2026-10-18 | **A launcher "crash" left no evidence anywhere.** The report was a KDE crash-reporter screenshot: the flet desktop client (`~/.flet/client/flet-desktop-light-0.86.5/flet/flet`) dying to a signal, twice, attempt 1 and the software-GL retry, after which the ladder gives up silently. Recovery was already right; the diagnosis was impossible: every message was a `print()` to a stdout no desktop-launch user sees, and `setup_logging()` was only reached from `main()`, so a PRE-PAINT crash left cubeon.log completely EMPTY. `__main__` now configures logging before the session loop, `cubeon/incident.py` records every session end (kind, signal via `describe_exit`, ui_painted, software-GL state, session/desktop/flet versions, and the client's own last 25 output lines), both give-up branches log at ERROR, and a retry-only `GDK_BACKEND=x11` dice roll covers the GTK/Wayland crash class. Root cause confirmed the same day from the maintainer's own core dumps: SIGSEGV in `libgallium-26.1.6` ← `libflutter_linux_gtk` ← `gtk_container_propagate_draw`, i.e. a **Mesa 26.1.x radeonsi/gallivm regression** (26.2 fixes it), so the record now prints `gallium=<lib>` and the ladder escalates `llvmpipe` → `softpipe` (no LLVM JIT) on its last attempt | `main.py`, `cubeon/incident.py` |
+| 37 | ✅ Fixed 2026-10-18 | **"Dialog is already opened" reached users as an application error.** Flet 0.86's `show_dialog()` raises for an instance already in `page._dialogs.controls`, and the shared `dialogs.open_dialog()` passed it through, so any path that could fire twice (double click, poll tick racing a button, retry) turned a no-op into a user-visible error banner. The helper is now idempotent: a mounted dialog is refreshed in place, and only the known `already open` RuntimeError is swallowed, logged at INFO with the dialog class | `cubeon/dialogs.py`, `tools/test_dialogs.py` |
 | 38 | ✅ Fixed 2026-10-18 | **"Fix problems" disabled working mods.** The doctor's `depends` pass resolved each dependency id against Modrinth and, when the lookup failed, switched the DECLARING mod off. Mods ship other mods inside themselves (Fabric API = 43 bundled modules; c2me bundles `c2me-base`), so Sodium, Modmenu and c2me were disabled on every run - the lookups could never succeed. Bundled modules now satisfy their dependency (`_nested_mod_metadata`, highest version wins) and an unresolved dependency is reported, never auto-disabled | `cubeon/mods.py`, `tools/test_doctor_bundled_deps.py` |
 | 39 | ✅ Fixed 2026-10-18 | **"Crashed: Java not found" when Java was fine.** `_explain_exit`'s Java branch read `"cannot run program" in low or "no such file or directory" in low and "java" in low` - `and` binds tighter, so ANY "Cannot run program" line blamed Java; and since the launch command (JVM path included) is in the log, the word "java" is present on every launch, so any stray "No such file or directory" was reported as a missing JDK and the real error was discarded. Now requires a Java-SPECIFIC line (`Cannot run program "java"`, `Could not create the Java Virtual Machine`, bad JVM option) | `main.py`, `tools/test_ui_smoke.py` |

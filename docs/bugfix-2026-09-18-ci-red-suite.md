@@ -5,7 +5,7 @@ fixed. Three of the failures were **real product bugs** (not test bugs); three
 were **flaky tests** (races in the harnesses themselves). Every one reproduced
 locally and now has a deterministic regression check.
 
-## 1. P2P: a peer FIN truncated the tail of the stream — PRODUCT BUG
+## 1. P2P: a peer FIN truncated the tail of the stream: PRODUCT BUG
 
 - **Where:** `cubeon/p2p.py`, `PunchSession._handle_frame` (the `_FIN` branch)
   and `_tcp_delivery_loop`; also `_drain_tcp_outbound`'s FIN send.
@@ -37,7 +37,7 @@ locally and now has a deterministic regression check.
   direct UDP transport. Deliberately left alone in this pass; worth the same
   drain-before-close treatment if a relay-mode truncation is ever reported.
 
-## 2. Half-installed versions could vanish from the version list — PRODUCT BUG
+## 2. Half-installed versions could vanish from the version list: PRODUCT BUG
 
 - **Where:** `cubeon/versions.py`, `get_installed_versions()` pass 2.
 - **Symptom:** CI's `tools/test_version_integrity.py` died with
@@ -56,7 +56,7 @@ locally and now has a deterministic regression check.
   incomplete; it fails on the old code and passes now. `39 -> 40` checks, all
   green over 8 consecutive runs.
 
-## 3. `test_content_doctor.py` — TEST BUG
+## 3. `test_content_doctor.py`: TEST BUG
 
 Two faults in the last block of section 10:
 
@@ -70,14 +70,14 @@ Two faults in the last block of section 10:
 Fixed by overriding `subdir` and passing `mc_version="1.21.11", loader="fabric"`.
 The product behavior was correct; the strict guard did its job.
 
-## 4. `test_milestones.py` — PRODUCT BUG (the test caught a real wart)
+## 4. `test_milestones.py`: PRODUCT BUG (the test caught a real wart)
 
 `end_play_session()` wrote an empty `{"sessions": {}}` husk instead of removing
 `play_session.json`, so "is the record cleared?" read false forever - and the
 watchdog/diagnostics ask exactly that. `_write_play_session()` now deletes the
 file when the sessions map is empty. 22/22.
 
-## 5. `test_launch_fixes.py` — TEST BUG
+## 5. `test_launch_fixes.py`: TEST BUG
 
 Used an `exploding_write` helper that was never defined (`NameError`), and
 compared the post-failure file against a `base` snapshot taken before the
@@ -85,7 +85,7 @@ sanitize section legitimately rewrote it. Now defines the helper (an `OSError`
 raiser, which is what `_write_client_json` documents) and snapshots the file
 immediately before the failure. 58/58.
 
-## 6. `test_ui_smoke.py` 5g — TEST BUG (race)
+## 6. `test_ui_smoke.py` 5g: TEST BUG (race)
 
 The check asserted "the grid builds around a placeholder, then the worker fills
 it in", but the worker could finish *before* the test walked the grid - so on a
@@ -95,7 +95,7 @@ correct behavior. The test now gates `core.render_local_skin_preview` for the
 regression - would still be caught, because the placeholder is then already
 gone), so the assertion is deterministic. 148/148 over repeated runs.
 
-## 7. `test_mod_compile.py` — PRODUCT BUG (Java)
+## 7. `test_mod_compile.py`: PRODUCT BUG (Java)
 
 CI's javac 25 flagged a dangling doc comment in `CubeonClientScreen.java`
 (a `/** ... */` block orphaned by the doc comment after it) under `-Werror`:

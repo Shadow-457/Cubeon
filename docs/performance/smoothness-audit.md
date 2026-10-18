@@ -1,4 +1,4 @@
-# Cubeon smoothness audit — 2026-09-18
+# Cubeon smoothness audit: 2026-09-18
 
 Scope: user-facing responsiveness, launch/close behavior, play-button state
 truth, startup, seasonal decoration cost. Nothing was redesigned; no features
@@ -19,10 +19,10 @@ moving off the critical path was found in Python-side startup.
 
 ## Issues found & disposition
 
-### 1. Play button stuck on "GAME RUNNING..." after the game closes — FIXED (user-reported)
+### 1. Play button stuck on "GAME RUNNING..." after the game closes: FIXED (user-reported)
 - **Location:** `main.py` `on_exit()` (inside `do_install_and_launch`).
 - **Why:** the comment said on_exit is "the only place that should put the
-  button back to play" — but it never called `set_button_mode()`. The button
+  button back to play", but it never called `set_button_mode()`. The button
   stayed disabled on GAME RUNNING... until an unrelated selection/tab switch
   recomputed it.
 - **Severity:** high (daily UX, user-reported).
@@ -32,7 +32,7 @@ moving off the critical path was found in Python-side startup.
 - **Verified:** inferred from the code path + suites green (ui_smoke 148,
   mega_smoke 16).
 
-### 2. Selecting a running version showed PLAY (double-launch trap) — FIXED
+### 2. Selecting a running version showed PLAY (double-launch trap): FIXED
 - **Location:** `main.py` `on_version_selected()`.
 - **Why:** mode computation ignored `state["running_version"]`, so re-selecting
   the live version offered a second launch of the same instance.
@@ -40,7 +40,7 @@ moving off the critical path was found in Python-side startup.
 - **Fix:** one dict read after mode computation → `set_button_mode("running")`.
   No psutil, no disk on the selection path.
 
-### 3. Stale running state survives launcher re-exec — FIXED
+### 3. Stale running state survives launcher re-exec: FIXED
 - **Location:** `main.py` `switch_tab("play")` → new `_reconcile_running_button()`.
 - **Why:** GPU-crash recovery / tray-Open re-exec replaces the process; the
   in-process `on_exit` watcher dies with it, so nothing ever cleared
@@ -50,14 +50,14 @@ moving off the critical path was found in Python-side startup.
   the honest mode. One psutil probe, only when a claim exists.
 - **Effect:** the button can no longer be stuck in "running" permanently.
 
-### 1b. Hardening round (same day, "more bulletproof") — ADDED
+### 1b. Hardening round (same day, "more bulletproof"): ADDED
 Three defenses so the play button/game-running truth no longer depends on any
 single code path firing:
 - **Click-time double-launch guard** (`on_play_click()`): if the selected
   version is claimed as running, the click re-verifies the claim against the
   watchdog before committing. Cannot prove it alive → refuse with a snack
   ("That version is already running"); proven dead → clear the stale claim
-  and proceed. Failure to check counts as "maybe alive" — refusing a launch
+  and proceed. Failure to check counts as "maybe alive", refusing a launch
   is recoverable, a double launch is not.
 - **Liveness self-heal thread** (`running-liveness`, one per process): while a
   launch's claim is live, polls the watchdog every 5 s (one psutil probe, no
@@ -68,44 +68,44 @@ single code path firing:
   wrapped; on any failure a minimal, itself-exception-proof fallback still
   clears `running_version` and resets the button.
 
-### 4. Play button repaints the WHOLE page — FIXED
-- **Location:** `main.py` `set_button_mode()` — ended in `page.update()`.
+### 4. Play button repaints the WHOLE page: FIXED
+- **Location:** `main.py` `set_button_mode()`, ended in `page.update()`.
 - **Why:** page.update() diffs every mounted control (~hundreds) over the
   websocket on every mode change (launch start/end, every version selection).
   The mode only mutates three controls that all live inside `play_button`.
-- **Fix:** `thread_safe_ui.refresh(play_button)` — subtree-scoped diff, same
+- **Fix:** `thread_safe_ui.refresh(play_button)`, subtree-scoped diff, same
   thread-safety/loop routing as the patched page.update().
 - **Measured/inferred:** inferred (payload shrinks page-wide → 3 controls);
   repaint correctness verified by suites.
 
-### 5. Seasonal layer on by default — CHANGED TO OFF (user-requested)
+### 5. Seasonal layer on by default: CHANGED TO OFF (user-requested)
 - **Location:** `cubeon/config.py` defaults (`seasonal_theme`, `season_pet`).
 - **Why:** palette swap at boot + season greeting card + top-bar pet GIF are
   pure decoration; the default experience should be the plain green identity.
   Ambience already shipped off.
 - **Fix:** defaults now `False`; Settings fallbacks (`cfg.get(..., True)`)
-  updated to match. Users who enabled it keep their config — only fresh
+  updated to match. Users who enabled it keep their config, only fresh
   configs are affected. `CUBEON_SEASON=autumn` still pins for screenshots.
 - **Verified:** `test_seasonal.py` 106/106 (it tests resolve(), not the
   default).
 
-### 6. Tray "Open" re-exec'd the launcher even with a window already open — FIXED
+### 6. Tray "Open" re-exec'd the launcher even with a window already open: FIXED
 - **Location:** `main.py` `_tray_activate()`.
 - **Why:** every tray click armed a reopen → the parked loop re-exec'd a
   brand-new launcher, killing the live session (open dialogs, scroll,
   in-flight launch feedback). Made "Open" feel random.
-- **Fix:** if a session is live (`_tray_runtime["controller_page"]` is set —
+- **Fix:** if a session is live (`_tray_runtime["controller_page"]` is set,
   it is cleared the moment session cleanup runs), the click is ignored.
   Reopen-from-parked behavior is unchanged.
 
-## Round 3 — restart / open-quit robustness (2026-09-19)
+## Round 3: restart / open-quit robustness (2026-09-19)
 
 User report: "when i click restart cubeon on seasonal update area in settings
 cubeon does closes but never opens and i am not able to open cubeon with the
 background process", plus client windows that stayed on screen after the
 launcher was gone.
 
-### 7. A wedged flet client makes EVERY recovery path unreachable — FIXED
+### 7. A wedged flet client makes EVERY recovery path unreachable: FIXED
 - **Location:** `main.py` `__main__` session loop + the `ft.run` client spawn.
 - **Why:** the flet desktop client does not only crash; it can WEDGE (window
   mapped, zero OpenGL frames, ~180% CPU) and then `ft.run` **never returns**.
@@ -124,16 +124,16 @@ launcher was gone.
 - **Fix:** a `cubeon-wedge-watchdog` daemon kills a client that has proven it
   cannot render, so `ft.run` returns and the EXISTING ladder recovers. The
   watchdog never tears a session down from a side thread (`ft.run` is
-  once-per-process) — it only kills the child (SIGTERM, SIGKILL after 3 s).
+  once-per-process), it only kills the child (SIGTERM, SIGKILL after 3 s).
 - **Effect:** a permanent freeze becomes an automatic restart.
 
-### 8. The wedge detector was DEAD CODE — FIXED
+### 8. The wedge detector was DEAD CODE: FIXED
 - **Location:** `main.py` `_WEDGE_TIMEOUTS` / `_WEDGE_RECENT`.
 - **Why:** the thresholds assumed a steady stream of GL-frame-timeout lines
   (≥3 lines, newest within 8 s). The measured signature of a REAL wedge is a
   **burst of exactly TWO lines ~0.15 s apart and then silence forever**
   (rt2.log pid 29728; rt.log pid 22385). The ≥3 threshold could therefore never
-  be satisfied — the detector looked armed and never fired.
+  be satisfied, the detector looked armed and never fired.
 - **Severity:** critical (it was the fix for #7 and did nothing).
 - **Fix:** `_WEDGE_TIMEOUTS = 2`, `_WEDGE_RECENT = 25.0` (grace 12 s / window
   60 s unchanged). Tradeoff documented in code: a false positive costs one
@@ -142,7 +142,7 @@ launcher was gone.
   12.2 s / 12.0 s / 12.0 s and the ladder runs to completion:
   `producing no OpenGL frames` → `attempt 1` → `attempt 2` → `giving up`.
 
-### 9. The wedge test was VACUOUS (stream mismatch) — FIXED
+### 9. The wedge test was VACUOUS (stream mismatch): FIXED
 - **Location:** the ad-hoc fake client harness (not in the repo before now).
 - **Why:** the fake logged its GL-timeout lines to **stdout** while
   `_filtered_open_flet_view_async` piped only **stderr**. A live gc-level probe
@@ -159,7 +159,7 @@ launcher was gone.
 - **Effect:** the guard fails if the trigger is retuned out of range or the
   capture goes back to a single fd.
 
-### 10. Orphaned client windows from dead launchers — FIXED
+### 10. Orphaned client windows from dead launchers: FIXED
 - **Location:** `main.py` `_kill_flet_client()` (orphan sweep).
 - **Why:** when a launcher dies before cleanup, its client is reparented to
   systemd with its window still mapped and CPU burning (three observed here).
@@ -169,7 +169,7 @@ launcher was gone.
 - **Verified:** suite green; live scan after the reproduction runs found no
   leftover clients.
 
-### 11. `CUBEON_GPU_RESTARTS` leaked into the game environment — FIXED
+### 11. `CUBEON_GPU_RESTARTS` leaked into the game environment: FIXED
 - **Location:** `cubeon/launch.py` `launch_game()` env strip list.
 - **Why:** it is main.py's launcher re-exec crash budget; a game probing
   namespaced `CUBEON_*` knobs would have seen a stale restart count.
@@ -182,7 +182,7 @@ launcher was gone.
   change and was NOT confirmed by the user, so it was left exactly as it was
   and is flagged as the next candidate.
 - **Residual gap:** a client that wedges WITHOUT emitting any line is not
-  detected (no evidence to judge on). Never observed — every measured wedge
+  detected (no evidence to judge on). Never observed, every measured wedge
   logged its timeouts first.
 
 ## Identified but intentionally NOT changed
@@ -195,10 +195,10 @@ launcher was gone.
   pack index, server panel) on the selection callback. Feels instant today
   because the inputs are small; if profiles grow large, move the mods scan to
   a worker with the existing thread-safe UI updates.
-- **Version picker rebuilds its list per filter change** — list is bounded
+- **Version picker rebuilds its list per filter change**, list is bounded
   (~hundreds of labels); debounce not warranted yet.
 - **Polling cadence**: backup scheduler 30 min; watchdog recovery only while a
-  session is live — both already event-driven enough. No change.
+  session is live, both already event-driven enough. No change.
 - **Network**: update check is one background GET at startup; friends/P2P run
   on their own threads with dedupe (see agents/docs/module-map.md). No
   duplicate-request pattern found that could be fixed safely here.

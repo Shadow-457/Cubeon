@@ -2,7 +2,7 @@ All 6 hunts complete. Here is the consolidated report.
 
 ---
 
-# CUBEON BUG REPORT — 2026-09-17
+# CUBEON BUG REPORT: 2026-09-17
 **6 parallel agents, read-only hunts, every finding verified by an executed probe or exact source-path evidence. Deduplicated count: ~85 bugs. 3 already fixed during collection (marked ✅).**
 
 Severity: **P0** = data loss / unusable feature • **P1** = wrong behavior, security, crash • **P2** = robustness/cosmetic/race.
@@ -15,12 +15,12 @@ Severity: **P0** = data loss / unusable feature • **P1** = wrong behavior, sec
 |---|---|---|---|---|
 | S1 | **P0** | Worker caps E2EE envelopes at 2,000 chars → normal 1,400-char messages become unreadable ciphertext; no error to either side | `worker/cubeon-friends.js:575,1041`, `friends_service.py:1276` | envelope-sized wire limit; reject cleanly |
 | S2 | **P0** | Fast relay echo beats `_out_pending` registration → sent message vanishes from own transcript | `friends_service.py:1280-87` | register pending before send, correlate by ID |
-| S3 | P1 | Service reads roster `metadata` but client persists `peer_metadata` — cached metadata ignored | `friends_service.py:686`, `friends.py:888,923` | consume actual contract, merge |
+| S3 | P1 | Service reads roster `metadata` but client persists `peer_metadata`, cached metadata ignored | `friends_service.py:686`, `friends.py:888,923` | consume actual contract, merge |
 | S4 | P1 | Roster reorder makes a stale row look "new" → resurrects an old username | `friends_service.py:695-703` | freshness by handle, not list index |
 | S5 | P1 | Presence events never update roster online/version until full roster arrives | `friends_service.py:2893-95` | merge presence into roster record |
 | S6 | P1 | Conversation with existing history never backfills offline-received messages | `friends_service.py:1301-16` | reconcile on connect regardless of emptiness |
 | S7 | P1 | Offline seed attempt burned permanently (marked seeded before send success) | `friends_service.py:1312-16` | mark after success, reset on reconnect |
-| S8 | P1 | History dedupe by (sender, plaintext) — two identical "hello again" collapse | `friends_service.py:1184-89` | dedupe by relay message ID |
+| S8 | P1 | History dedupe by (sender, plaintext), two identical "hello again" collapse | `friends_service.py:1184-89` | dedupe by relay message ID |
 | S9 | P1 | Read markers never persisted unless another message arrives → unread again after restart | `friends_service.py:1334-40` | mark store dirty on read advance |
 | S10 | P1 | Cancel relies on remote `call_end` echo; offline cancel leaves session+transport alive (dup of P7-#3) | `friends_service.py:2476` | local idempotent teardown first |
 | S11 | P1 | Worldgate HTTP handlers never registered (`set_worldgate_handler`/`set_joinpassword_handler` don't exist) → 503 | `friends_service.py:224-5,382-5`, `local_api.py:388-402` | add missing setters/bindings |
@@ -105,38 +105,38 @@ Severity: **P0** = data loss / unusable feature • **P1** = wrong behavior, sec
 | P14# | P1 | Interrupted local Connect install = partial file classified "installed" (direct copy) | `minekube.py:337,250` |
 | P15# | P2 | Minekube address parsing drops explicit `:port` | `minekube.py:394,427` |
 | P16# | **P1-SEC** | Legacy fallback path skips worldgate authorization → relay transport created with gate armed but unverified | `friends_service.py:3349,2630` |
-| P17# | **P1-SEC** | Worldgate challenge/proof sent as PLAIN signal dicts — not E2EE as documented | `worldgate.py:19`, `friends_service.py:3027,2181` |
+| P17# | **P1-SEC** | Worldgate challenge/proof sent as PLAIN signal dicts, not E2EE as documented | `worldgate.py:19`, `friends_service.py:3027,2181` |
 | P18# | P2 | Failed proof derivation retains typed password in session memory | `friends_service.py:2172` |
 | P19# | P1-SEC | Sync chunks accepted with no request/room/size bounds (100 unsolicited entries, invalid index) | `friends_service.py:1909,1922` |
 | P20# | P1-SEC | Chunk-list extended to peer-declared count → 200,000-slot allocation from one declaration | `p2p.py:1784` |
 | P21# | P1-SEC | Cache-hit mod install lacks filename containment (path escape) | `p2p.py:1655` |
 | P22# | P1-SEC | Asset receiver ignores extension allowlist; symlink escape accepted | `p2p.py:1920,1953` |
 | P23# | P1-SEC | `p2p_answer` bypasses room/peer/phase checks | `friends_service.py:3345` |
-| P24# | — | Negative controls passed: nonce replay rejected; no password disk persistence; no gate.py escalation defect found | — |
+| P24# | - | Negative controls passed: nonce replay rejected; no password disk persistence; no gate.py escalation defect found | - |
 
 ## E. UI / FRAMEWORK (2 verified)
 
 | # | Sev | Bug | Location |
 |---|---|---|---|
-| U1 ✅ | P1 | Inspector weight Dropdown uses `on_change` → TypeError on use (Flet 0.86 needs `on_select`) — **FIXED & verified** | `inspector.py:301` |
+| U1 ✅ | P1 | Inspector weight Dropdown uses `on_change` → TypeError on use (Flet 0.86 needs `on_select`), **FIXED & verified** | `inspector.py:301` |
 | U2 | P1 | Window events compared lowercase vs enum `RESIZED` → real resize/move never persist geometry | `main.py:4852` |
 
 ## F. INFRA / NET / CONFIG (3 verified)
 
 | # | Sev | Bug | Location |
 |---|---|---|---|
-| F1 ✅ | P1 | Invalid geometry input wiped the saved file (non-atomic write) — **FIXED & verified** | `config.py:232-243` |
-| F2 ✅ | P1 | `load_config` raised TypeError on non-object JSON (`[]`/`null`/`42`) — **FIXED & verified** | `config.py:179-194` |
+| F1 ✅ | P1 | Invalid geometry input wiped the saved file (non-atomic write), **FIXED & verified** | `config.py:232-243` |
+| F2 ✅ | P1 | `load_config` raised TypeError on non-object JSON (`[]`/`null`/`42`), **FIXED & verified** | `config.py:179-194` |
 | F3 | P1 | Two concurrent `save_config` writers: older in-flight save overwrites the newer one (last-finisher wins) | probe-verified against `config.py`/`atomicio.py` |
 
-Also: `tools/test_modpacks.py:214` has one outdated assertion (expects resourcepacks in the shared game dir; model changed to profile+staging) — test bug, not product bug.
+Also: `tools/test_modpacks.py:214` has one outdated assertion (expects resourcepacks in the shared game dir; model changed to profile+staging), test bug, not product bug.
 
 ---
 
 ## Priorities for the fix pass
 
-**Wave 1 — security & data loss:** P16–P23 (worldgate auth + P2P input validation), S1, S2, C1, C10, F3, L6, L7.
-**Wave 2 — broken features:** S11, P1#/P2#, P6#/P7#, C2, C4, C5, L5, L11, L14, U2, S3–S9.
-**Wave 3 — robustness/races/cosmetics:** everything else, L24–26 only after Windows verification.
+**Wave 1, security & data loss:** P16–P23 (worldgate auth + P2P input validation), S1, S2, C1, C10, F3, L6, L7.
+**Wave 2, broken features:** S11, P1#/P2#, P6#/P7#, C2, C4, C5, L5, L11, L14, U2, S3–S9.
+**Wave 3, robustness/races/cosmetics:** everything else, L24–26 only after Windows verification.
 
-The report is complete and delivered. Say the word (or just "fix") and I'll start Wave 1 — fixes will each come with a regression probe and the relevant suites re-run, same discipline as the three fixes already landed (all currently green: ui_smoke 124/0, production 50/0, mega-static 12/0).
+The report is complete and delivered. Say the word (or just "fix") and I'll start Wave 1, fixes will each come with a regression probe and the relevant suites re-run, same discipline as the three fixes already landed (all currently green: ui_smoke 124/0, production 50/0, mega-static 12/0).

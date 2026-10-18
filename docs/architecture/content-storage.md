@@ -120,7 +120,7 @@ global_mod_cache for each mod → link into profile
 
 - `content.py` drops search results whose file list has no build for the selected MC version **before** they render
 - `get_content_download()` re-checks at download time (defense in depth)
-- Installed-but-incompatible items still show — with a badge + one-click doctor fix
+- Installed-but-incompatible items still show, with a badge + one-click doctor fix
 - Launch pre-repair: `launch.py` calls `run_doctor(..., include=("mods", "resourcepacks", "shaders"), check_online=False)`
 
 ## Folder Packs Are First-Class

@@ -1,4 +1,4 @@
-# Performance notes — 2026-09-18 smoothness pass
+# Performance notes: 2026-09-18 smoothness pass
 
 Companion to `docs/performance/smoothness-audit.md` (the issue-by-issue
 audit). This file records what changed, what didn't, and the test results.
@@ -17,30 +17,30 @@ audit). This file records what changed, what didn't, and the test results.
 
 ## 2. What was changed (2 files, all small)
 
-1. `main.py` — `on_exit()` now resets the play button when the game closes
+1. `main.py`, `on_exit()` now resets the play button when the game closes
    (was: stuck on GAME RUNNING... forever; the user-reported bug).
-2. `main.py` — `on_version_selected()` shows GAME RUNNING... for the version
+2. `main.py`, `on_version_selected()` shows GAME RUNNING... for the version
    that is actually live (was: offered a double launch).
-3. `main.py` — new `_reconcile_running_button()`, called on Play-tab entry:
+3. `main.py`, new `_reconcile_running_button()`, called on Play-tab entry:
    clears a stale running claim the watchdog proves dead (covers launcher
    re-exec paths that lose the in-process on_exit watcher).
-4. `main.py` — `set_button_mode()` repaints only the play button
+4. `main.py`, `set_button_mode()` repaints only the play button
    (`thread_safe_ui.refresh(play_button)`) instead of the whole page.
-5. `main.py` — `_tray_activate()` ignores tray clicks while a window session
+5. `main.py`, `_tray_activate()` ignores tray clicks while a window session
    is live (was: re-exec'd a whole new launcher under the open window).
-6. `cubeon/config.py` — `seasonal_theme` / `season_pet` defaults → False
+6. `cubeon/config.py`, `seasonal_theme` / `season_pet` defaults → False
    (seasonal layer off by default, per user request). Settings fallbacks in
    `main.py` updated to match; users' existing saved configs are untouched.
 
 ## 3. What was intentionally NOT changed
 
 - The tab modules' full-page `page.update()` calls (server 43, modpacks 26,
-  mods 9) — real win, but each needs per-site subtree analysis; too much risk
+  mods 9), real win, but each needs per-site subtree analysis; too much risk
   for a "no regressions" pass. See audit.
 - Launch/close machinery (session loop, GL-fallback retries, watchdog
-  records, os._exit hard-quit) — already hardened in prior passes; the only
+  records, os._exit hard-quit), already hardened in prior passes; the only
   change is the tray-click guard.
-- All friends/P2P/encryption/integrity behavior — untouched.
+- All friends/P2P/encryption/integrity behavior, untouched.
 - No caching of security-sensitive state; no new polling; no threads added
   except none (the reconcile is inline and conditional).
 
@@ -86,30 +86,30 @@ left by a re-exec, AND a user clicking Play anyway.
 
 Verification re-run after the hardening: mega_smoke 16/16, ui_smoke 148/148
 (5 consecutive clean runs; one transient 146/2 timing flake was seen once and
-could not be reproduced — the animator ticker tests sleep on real time),
+could not be reproduced, the animator ticker tests sleep on real time),
 seasonal 106/106, friends_service 370/370, friends 95/95, p2p_session PASS,
 version_integrity 39/39.
 
-## 7. Round 3 — restart / open-quit robustness (2026-09-19)
+## 7. Round 3: restart / open-quit robustness (2026-09-19)
 
 Report: Settings > Seasonal > "Restart to apply" closed Cubeon but never
 reopened it, and afterwards the launcher could not be opened from the
 background process either. Root cause and full evidence: smoothness-audit.md
 §7-§11. In one line: the flet client can WEDGE (no frames, `ft.run` never
-returns), which made every recovery path — tray Open/Quit, the retry ladder,
-the restart request — unreachable at once.
+returns), which made every recovery path, tray Open/Quit, the retry ladder,
+the restart request, unreachable at once.
 
 ### What was changed
-- **`main.py` — wedge watchdog (new daemon):** turns the measured wedge
+- **`main.py`, wedge watchdog (new daemon):** turns the measured wedge
   signature into a client kill, so `ft.run` returns and the EXISTING ladder
   recovers. Never tears down the session from a side thread.
-- **`main.py` — retuned trigger:** `_WEDGE_TIMEOUTS 3 → 2`,
+- **`main.py`, retuned trigger:** `_WEDGE_TIMEOUTS 3 → 2`,
   `_WEDGE_RECENT 8 → 25 s`. At 3/8 s the detector could never fire (a real
   wedge emits a burst of exactly two lines ~0.15 s apart, then goes silent).
-- **`main.py` — stream-agnostic capture:** the client's stdout+stderr are
+- **`main.py`, stream-agnostic capture:** the client's stdout+stderr are
   merged into one pipe and forwarded with an explicit flush. The previous
   stderr-only filter is what made the earlier "verification" vacuous.
-- **`main.py` — orphan sweep in `_kill_flet_client()`:** cleans up client
+- **`main.py`, orphan sweep in `_kill_flet_client()`:** cleans up client
   windows left behind by dead launchers (two-factor check, never touches a
   second live instance).
 - **`cubeon/launch.py`:** `CUBEON_GPU_RESTARTS` (launcher-internal crash
@@ -129,7 +129,7 @@ the restart request — unreachable at once.
 ### What was intentionally NOT changed
 - **Retry-exhaustion still exits.** Parking in the tray instead would keep
   Open/Quit alive with a persistently broken driver, but that is a behavior
-  change and was not confirmed — flagged, not done.
+  change and was not confirmed, flagged, not done.
 - No change to any encryption/authorization/validation/timeout behavior.
 - No change to the UI, the flet spawn cost, or the tab-module repaint work.
 

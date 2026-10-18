@@ -1,4 +1,4 @@
-# Cubeon Discord — rules, channels & moderation kit
+# Cubeon Discord: rules, channels & moderation kit
 
 Copy-paste ready. Written for a Minecraft-launcher community where the staff
 are the developers: the rules are short on purpose, because a rule nobody can
@@ -13,7 +13,7 @@ apply in one message isn't a rule.
 > **3.** No piracy, cracked launchers, account sharing or selling anything.
 > **4.** No cheating, exploits or unfair play in worlds/voice.
 > **5.** No spam, self-promo, advertising, or link drops without permission.
-> **6.** Support goes in the help channels. Staff never DM you first — that's a scam.
+> **6.** Support goes in the help channels. Staff never DM you first, that's a scam.
 > **7.** Bug reports use the template and include your Cubeon version + diagnostics.
 > **8.** Never share personal data, your auth key, or your identity secret.
 > **9.** One account. No ban evasion, no leaks, no pre-release builds.
@@ -58,7 +58,7 @@ talk. Keep the main voice empty so someone joining a call is joining *someone*.
 
 **1. Be decent.** No harassment, insults, slurs, hate speech, dogpiling, or
 attacking someone's appearance/identity. Don't DM staff to argue or to ask for
-things you were told "no" to — that's a ban, not a negotiation. 🔴 Slurs and
+things you were told "no" to, that's a ban, not a negotiation. 🔴 Slurs and
 hate speech = instant ban + delete.
 
 **2. Keep it SFW.** No NSFW, nudity, gore, or shock content. Spoil story beats
@@ -78,7 +78,7 @@ link-dropping. No ping/reaction/mention spam, no recruiting in DMs, no repeated
 DMs to people who haven't answered you.
 
 **6. Support lives in the help channels.** That's where staff see it, and where
-the answer helps the next person. **Staff will never DM you first** — we only
+the answer helps the next person. **Staff will never DM you first**, we only
 DM you if *you* message *us*. Anyone who claims to be Cubeon staff in a DM,
 asks for your identity secret, your auth key, or a "verification" code is
 scamming you. Report it, don't paste the code.
@@ -91,7 +91,7 @@ paragraph of speculation is not a bug report.
 
 **8. Protect your data.** Don't post real names, emails, phone numbers, IPs, or
 screenshots with personal info in them. **Never share your Cubeon identity
-secret or `auth_key.json`/`identity.json`** — whoever holds that secret owns
+secret or `auth_key.json`/`identity.json`**, whoever holds that secret owns
 your Cubeon name. If someone asks for it, it's a scam.
 
 **9. One account, no evasion.** Don't use alts to dodge a ban, don't share
@@ -99,7 +99,7 @@ private/unreleased builds or leaked files, and don't repost Cubeon's source or
 repackaged builds.
 
 **10. Keep it civil.** Political/religious arguments and personal drama stay in
-DMs. "Disagree with the decision, not the person" — and take it to
+DMs. "Disagree with the decision, not the person", and take it to
 `#staff-tickets` if you think a decision is wrong.
 
 **11. Language.** English is the main language; other languages have
@@ -107,7 +107,7 @@ DMs. "Disagree with the decision, not the person" — and take it to
 
 **12. Follow staff instructions.** Staff can lock a thread, mute, or remove a
 message to keep things calm. If you think we were wrong, use
-`#staff-tickets` — not the public channel.
+`#staff-tickets`, not the public channel.
 
 ---
 
@@ -131,11 +131,11 @@ Appeals: one `#staff-tickets` thread per ban, within 7 days. An admin involved
 
 ## 5. Staff setup
 
-- **Owner (Hamza)** — everything; the only account that posts in `#announcements`.
-- **Admin** — ban/kick, manage channels, pin, bulk delete.
-- **Moderator** — delete, timeout, lock threads. No channel restructuring.
-- **Helper** — badge only; answers help channels and escalates hard cases.
-- **Bot** (`Cubeon Helper`) — `Manage Roles` **off**, admin off, can only read
+- **Owner (Hamza)**, everything; the only account that posts in `#announcements`.
+- **Admin**, ban/kick, manage channels, pin, bulk delete.
+- **Moderator**, delete, timeout, lock threads. No channel restructuring.
+- **Helper**, badge only; answers help channels and escalates hard cases.
+- **Bot** (`Cubeon Helper`), `Manage Roles` **off**, admin off, can only read
   and post in its own channels. Never let a bot moderate.
 
 Staff don't argue in public: one reply ("handled in `#staff-tickets`") and done.
@@ -149,7 +149,7 @@ Staff don't argue in public: one reply ("handled in `#staff-tickets`") and done.
 **Version:** 1.0.2   **OS:** Windows 11   **Minecraft:** 1.21.1 (Fabric)
 **What I did:** <steps>
 **Expected:** <what should have happened>
-**Instead:** <what happened — paste the full error text>
+**Instead:** <what happened, paste the full error text>
 **Diagnostics:** <paste from Cubeon → Settings → copy diagnostics>
 **Already tried:** <restart, re-download, other version...>
 ```
@@ -165,15 +165,15 @@ Staff don't argue in public: one reply ("handled in `#staff-tickets`") and done.
 
 **Moderation DM** (private, matter-of-fact, no lecture)
 ```
-Hey <name> — you <did X> in #<channel> (<link>), which is rule <n>: <quote the
+Hey <name>, you <did X> in #<channel> (<link>), which is rule <n>: <quote the
 rule>. Because <reason>, this is a <24h timeout / 7-day ban>.
 It expires <time/date>. If you think this is wrong, open a ticket in
-#staff-tickets. — <mod>
+#staff-tickets. <mod>
 ```
 
 **Changelog post** (`#changelog`)
 ```
-**v1.0.2** — <one line>
+**v1.0.2**, <one line>
 - Fixed: <user-visible fix>
 - Fixed: <another>
 - Changed: <behaviour change>
@@ -192,10 +192,10 @@ official site. If someone does any of the above: block, report, and tell staff.
 
 ## 7. Keeping it maintainable
 
-- Pin one message in `#start-here` and **edit it in place** — never repost the
+- Pin one message in `#start-here` and **edit it in place**, never repost the
   rules, or the "latest rules" link rots.
 - Review the rules when a feature ships (pre-release rule 9) or after the first
-  time you actually need a rule you didn't have — rules should be written after
+  time you actually need a rule you didn't have, rules should be written after
   the incident, not before it.
 - If a rule causes an argument in `#staff-chat` more than once a month, either
   the wording is unclear or the rule is wrong. Fix the rule, not the member.

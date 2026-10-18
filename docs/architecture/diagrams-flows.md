@@ -1,7 +1,7 @@
 # Visual Flow Diagrams
 
 > ASCII diagrams of Cubeon's core flows: mod profile sync, skin network,
-> server hosting, friends/P2P, backups — plus content compatibility/doctor
+> server hosting, friends/P2P, backups, plus content compatibility/doctor
 > and modpack install (added 2026-09-15). This is a MAIN reference: when a
 > flow changes in code, change it here too.
 

@@ -39,7 +39,7 @@ That is what the Workers themselves have to answer:
 
 | Worker | Who can write | The scarce resource | Protection |
 |---|---|---|---|
-| `cubeon-skins.js` | only the holder of a per-machine secret — **after** first contact | KV writes (1k/day) | SHA-256 secret at rest, constant-time compare, write budget, **per-IP throttle on all write routes, name-keyed displacement cooldown** |
+| `cubeon-skins.js` | only the holder of a per-machine secret, **after** first contact | KV writes (1k/day) | SHA-256 secret at rest, constant-time compare, write budget, **per-IP throttle on all write routes, name-keyed displacement cooldown** |
 | `cubeon-invites.js` | only a host holding the code's secret | KV writes | hashed bearer secret, constant-time compare, per-IP throttle (`RATE_LIMITER` **plus** an always-on in-isolate fallback, keyed to the IP and not the attacker-chosen code), write budget |
 | `cubeon-friends.js` | only the holder of a name's secret | WebSocket + DO time | SHA-256 secret at rest, constant-time compare, secret sent in the first frame (never the URL, so never a request log), sliding-window limiter per IP and per action, reserved names |
 | `cubeon-downloads.js` | nobody - it is read-only | **the GitHub token's API budget**, and the account's shared 100k/day requests | edge-cached release lookup, per-IP throttle (`RATE_LIMITER` + an always-on in-isolate fallback) |
@@ -54,10 +54,10 @@ Two Workers were genuinely exploitable, and **neither needed a fork, a stolen
 secret, or an authenticated write**:
 
 **`cubeon-skins.js`** (the identity/skin backend) had two holes on its
-*first-contact* path, which is unauthenticated by design — the identity model is
+*first-contact* path, which is unauthenticated by design, the identity model is
 trust-on-first-use, so the first request from anyone claims a UUID.
 
-1. **Write amplification** — a random uuid and a random secret are both
+1. **Write amplification**, a random uuid and a random secret are both
    well-formed, so validation cannot help, and each POST cost **2 KV writes**
    against the account-wide 1k/day budget. 500 anonymous POSTs emptied it, after
    which *every* user's skin upload fails until the day rolls over. Now: a
@@ -65,18 +65,18 @@ trust-on-first-use, so the first request from anyone claims a UUID.
    handler. The `RATE_LIMITER` binding is used when bound, and the in-isolate
    fallback always runs as well - but it is best-effort, so treat the binding as
    the protection (see "The measured cost" below).
-2. **Name displacement** (the worse one, because it needs no flood at all) — the
+2. **Name displacement** (the worse one, because it needs no flood at all), the
    name pointer is last-writer-wins by design, and the only guard was a cooldown
    keyed to the **identity**. An attacker mints identities for free, so four
    successive attempts with a fresh uuid each all succeeded: the victim's name
    flipped to an identity with no skin record, so **every friend saw them as
-   cape-only — their skin gone** — and the victim's rename back was itself
+   cape-only, their skin gone**, and the victim's rename back was itself
    cooldown-throttled for an hour. Now the cooldown is keyed to the **name**
    too, and the previous holder is exempt, so a victim reclaims instantly while
    an attacker's next identity waits an hour. Deliberate consequence: renaming
    *onto* a name taken from someone else within the last hour now 429s.
 
-**`cubeon-downloads.js`** was the third — the only Worker holding a credential.
+**`cubeon-downloads.js`** was the third, the only Worker holding a credential.
 It spent one GitHub API call on *every* press against a 5000/hour token, with
 `Cache-Control: no-store`, so ~1.4 requests/second sustained from anyone with the
 URL took the download buttons down for every user. The release lookup is now
@@ -103,8 +103,8 @@ budget is the backstop.
 
 | rapid POSTs to `/` | result |
 |---|---|
-| 8 | 8 × 422 — **zero** 429s |
-| 25 | 25 × 422 — **zero** 429s |
+| 8 | 8 × 422, **zero** 429s |
+| 25 | 25 × 422, **zero** 429s |
 | 120 | **95 × 422, then 25 × 429** |
 
 Two conclusions, both of which cost me a wrong claim before I probed:
