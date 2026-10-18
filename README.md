@@ -1,5 +1,12 @@
 # Cubeon Minecraft Launcher
 
+> **A [Ylet](https://www.ylet.online/) product.** Cubeon is developed and
+> operated under Ylet, alongside
+> [Icono](https://www.ylet.online/#products) and
+> [Spruce](https://www.ylet.online/#products). The company hub - what each
+> product is, how it is released, and the legal pack - lives one level up in
+> `Ylet_Productions/`.
+
 A free desktop Minecraft launcher for playing with friends - offline/cracked
 accounts, one-click modded launches, a shared skin network so players can see
 each other's skins on **any** server, and built-in world hosting via tunnels.
