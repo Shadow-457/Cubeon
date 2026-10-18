@@ -128,6 +128,30 @@ that Java matches".
   rebuildable, but "clean up without deleting or ruining anything" was the ask,
   so they were left alone.
 
+## 5. Audited the maintainer's Sodium config — declined to ship it
+
+Asked to "save my current sodium config as the default fps boost config". The
+honest answer was no, and it took reading the jar to say so confidently.
+
+`~/.cubeon_minecraft/config/sodium-options.json` turned out to be **Sodium
+0.8.12's stock defaults with exactly one deviation**, and the deviation was a
+*downgrade*: `chunk_builder_threads: 2` against a default of `0` = Auto, which
+`ChunkBuilder.getThreadCount()` resolves to `clamp(max(cores/3, cores-6), 1, 10)`
+— **6 threads** on the maintainer's 12-core CPU. So it was stock defaults with
+chunk building cut to a third. (The file was also byte-identical to FastClient's
+profile config apart from the donate-prompt flag, i.e. not their own tuning.)
+
+Sodium's compiled defaults are the perf choice for every other key (all culling
+on, nearest filtering, `SAFE` quad splitting, staging buffers on, render-ahead
+3), so there is nothing a shipped preset could add. Durable rule written to the
+module map instead: **FPS boost keeps writing `options.txt` only**; the real
+FPS-for-looks levers are in **Sodium Extra**, not Sodium.
+
+With the maintainer's agreement, changed one value on their disk
+(`chunk_builder_threads` 2 → 0, backup at
+`/tmp/opencode/sodium-options.json.before`) and verified all 16 graphics keys
+now equal the compiled defaults.
+
 ## Verified
 Full CI-equivalent suite (`bash /tmp/opencode/run_suite.sh`, skips the manual
 `test_visual_*` and `test_wedge_watchdog.py`): **SUITE_DONE failed=0**.

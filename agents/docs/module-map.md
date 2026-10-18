@@ -420,6 +420,29 @@
   menu" block (Settings row gone, switch-before-play_tab ordering, launch.py
   restore call, config migration).
 
+### Do NOT ship a `sodium-options.json` as "the FPS boost config" (audited 2026-10-18)
+- Sodium's compiled-in defaults **are already the performance choice**: every
+  culling toggle on, `animate_only_visible_textures` on, `pixel_filtering_mode
+  NEAREST` (the fast one), `quad_splitting_mode SAFE`, advanced staging buffers
+  on, `cpu_render_ahead_limit 3`, memory tracing off. A brand-new install writes
+  exactly that file, so shipping a copy changes nothing for anyone on stock
+  settings. (Verified by `javap` on `SodiumOptions$QualitySettings` /
+  `$PerformanceSettings` / `$AdvancedSettings` / `$DebugSettings` in
+  `sodium-fabric-0.8.12+mc26.1.2.jar` — the defaults live in the no-arg
+  constructors, and GSON also calls those, so a partial file's missing keys keep
+  the default rather than zeroing.)
+- `chunk_builder_threads` is the one key that usually differs, and it is
+  **machine-specific**: `0` means Auto and `ChunkBuilder.getThreadCount()`
+  resolves it to `clamp(max(cores/3, cores-6), 1, 10)`; any non-zero value is
+  `min(value, cores)`. It is not a "more is better" slider (Sodium's own
+  tooltip: more threads can hurt frame times). Hardcoding it is wrong in both
+  directions — a 12-core box carrying `2` runs a third of the 6 Sodium would
+  pick (real user case, 2026-10-18).
+- So the module-map rule: FPS boost keeps writing **`options.txt` only**. If a
+  Sodium-side boost is ever wanted, the levers that actually cost frames are in
+  **Sodium Extra** (`sodium-extra-options.json`: particles, biome/sky colours,
+  block+portal animations, toasts), not in Sodium's own config.
+
 ## The in-game mod is CHAT-ONLY (2026-10-14) — INVARIANT
 - User request: "remove the whole friends stuff from the Cubeon client, the
   connection and stuff, but add a chat area with friends where we can chat and
