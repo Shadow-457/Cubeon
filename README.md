@@ -1,9 +1,7 @@
 # Cubeon Minecraft Launcher
 
 > **A [Ylet](https://www.ylet.online/) product.** Cubeon is developed and
-> operated under Ylet. The company hub - what each
-> product is, how it is released, and the legal pack - lives one level up in
-> `Ylet_Productions/`.
+> operated under Ylet.
 
 A free desktop Minecraft launcher for playing with friends - offline/cracked
 accounts, one-click modded launches, a shared skin network so players can see
