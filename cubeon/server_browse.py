@@ -385,9 +385,19 @@ def sort_by_status(entries: list) -> list:
     return sorted(entries, key=rank)
 
 
-def browse(query: str = "", tag: str | None = None) -> list:
+def browse(query: str = "", tag: str | None = None,
+           statuses: str = "fetch") -> list:
     """One call for the UI: search + status + sort. Each entry gains
-    'status' (live or last-known shape) and 'icon' (cacheable URL)."""
+    'status' (live or last-known shape, or None) and 'icon' (cacheable
+    URL).
+
+    statuses="fetch" (default): resolve every entry's status now, blocking
+    until each is answered - the semantics of the original one-shot call.
+    statuses="cached": NEVER touch the network; use memory/disk cache, and
+    leave 'status' None where nothing is cached. The tab uses this for its
+    INSTANT first paint (rows appear with "checking…" placeholders) and
+    then fills live numbers in progressively - a first visit must not sit
+    on an empty list for the length of 18 status fetches."""
     entries = search_servers(query, tag)
     results = []
     disk = _disk_load()
@@ -400,7 +410,7 @@ def browse(query: str = "", tag: str | None = None) -> list:
             status = mem_snapshot[key]
         elif key in disk and _fresh(disk[key], DISK_TTL):
             status = {**disk[key]["s"], "stale": True}
-        if status is None:
+        if status is None and statuses == "fetch":
             # Network happens OUTSIDE the caller's thread contract: browse()
             # itself is always called from a background worker (the tab only
             # paints rows), so a blocking fetch here is fine and gives first

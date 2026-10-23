@@ -1437,6 +1437,39 @@ facts belong HERE, not in diary notes.
   `FileNotFoundError`.
 
 ## Play-button state machine (2026-09-18) — INVARIANT
+- **Nothing may be painted OVER the Play button in a Stack (2026-10-19,
+  the "I can't click play" root cause).** The liquid-glass commit put
+  `play_sheen.control` as the LAST child of the footer Stack — a full-size
+  layer exactly over the button, opaque to hit tests whenever the pointer is
+  inside it (hover = band opacity 1, and every click follows a hover). In a
+  real window it absorbed every tap: the handler never fired, the log showed
+  zero backend activity, and headless suites could never see it (no pointer).
+  The sheen now lives INSIDE `play_button.content` (a Stack of the row + the
+  sheen): a descendant is painted over the row too, but taps still belong to
+  the widget that owns `on_click`. This matches motion.Sheen's own doc
+  ("put `s.control` UNDER the content in an ft.Stack"). Guard:
+  `tools/test_play_hit_testing.py` — static, because the failure mode only
+  exists with a real pointer; any future overlay on a clickable must be a
+  DESCENDANT of the clickable, never a later Stack sibling.
+- **The Play button is NEVER disabled for background housekeeping
+  (2026-10-18).** The old "working" mode greyed the button into
+  `FIXING MODS...` + `disabled=True` while the proactive doctor ran — a
+  repair pass over every mod/pack/shader WITH a network check per item. A
+  disabled Container swallows clicks silently, so the live report was "I
+  can't click the play button", with no error and no clue (the repair had
+  failed-looped on a packformat race — next bullet — and the claim sat up to
+  its 120 s ceiling). Now the button stays live and green while the repair
+  runs; the tooltip explains it, and `launch_game`'s own verify pass is the
+  same work on the critical path. If a future claim needs to disable PLAY,
+  it must be an install writing the disk ("installing"), never a read-only
+  check — and it must carry the 120 s guard-timer pattern.
+- `packformat._rewrite_zip` uses a UNIQUE per-call temp file
+  (`zip.<pid>-<tid>.cubeon-new`). The old fixed `.cubeon-new` name made two
+  concurrent repairs of the same pack race: the first `os.replace` consumed
+  the temp, the second died with `FileNotFoundError`, the doctor re-found
+  the pack on every pass, and the failure loop fed the FIXING MODS... lock
+  above. Regression: 4 threads × repair_pack on one zip must produce zero
+  errors and a valid zip (checked in the 2026-10-18 session note).
 - The play button's mode is computed by `set_button_mode()` in `main.py`,
   which repaints ONLY the button subtree (`thread_safe_ui.refresh(play_button)`)
   — never a whole page.update(). If a call site needs a broader repaint, it
@@ -3497,6 +3530,19 @@ sanitize at launch (below). The four still-retired mods
   NOTE: any `patch` of `build_launch_command` in a test MUST accept `**k`
   (e.g. `lambda *a, **k: ...`) — the real call now passes `custom_jvm_flags=`
   as a keyword, and a positional-only mock raises TypeError.
+- **Settings → "Minecraft files" (open-the-folders pane) — contract
+  (2026-10-18).** Rail section `("files", FOLDER_OPEN_ROUNDED, "Minecraft
+  files")` between Notifications and Backups; `main.py` builds
+  `minecraft_files_pane` (7 rows: Minecraft folder, Mods, Resource packs,
+  Shaders, Worlds, Screenshots, Cubeon data) and passes it into
+  `build_settings_tab(...)` as a required arg — a caller that forgets it must
+  fail the smoke test, same rule as the seasonal controls. Rows follow the
+  Import/Seasonal precedent: built in main.py next to the other Settings
+  controls, arranged in settings_tab. Each row opens via the same opener as
+  Backups' "Open backups folder" (os.startfile / open / xdg-open; failure →
+  set_status, never a traceback), creates the folder if missing, and its
+  TOOLTIP is the real resolved path (hover to answer "where is my mods
+  folder").
 - **Settings → Import (scan a folder, import what it finds) — contract
   (2026-10-12).** A new rail section `("import", ...)` sits second in
   `ui/settings_tab.py:SECTIONS`; `main.py` builds its pane via

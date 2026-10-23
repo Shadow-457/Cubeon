@@ -38,6 +38,7 @@ one entry), and a zip is only REWRITTEN when a pack genuinely needs the fix.
 """
 import json
 import os
+import threading
 import zipfile
 
 from . import logging_setup  # noqa: F401  (installs the file log handlers)
@@ -554,7 +555,14 @@ def _rewrite_zip(zip_path: str, *, wrapper: str | None = None,
     Every other entry keeps its name, timestamp and compression mode. A temp
     file + os.replace means a crash mid-rewrite can never leave a half-written
     pack in the game folder for the next launch to choke on."""
-    tmp_path = zip_path + ".cubeon-new"
+    # UNIQUE temp name per call. A fixed zip_path + ".cubeon-new" made two
+    # concurrent repairs of the SAME pack (the doctor's sections overlap, and a
+    # selection change can start a second pass) fight over one file: the first
+    # os.replace consumed it, the second died with FileNotFoundError on a
+    # missing source or destination - the exact traceback seen live 2026-10-18
+    # ("repairing resource pack X failed") that left PLAY stuck on FIXING
+    # MODS... because the repair phase never finished cleanly.
+    tmp_path = f"{zip_path}.{os.getpid()}-{threading.get_ident()}.cubeon-new"
     try:
         with zipfile.ZipFile(zip_path) as zin, \
                 zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
@@ -577,6 +585,13 @@ def _rewrite_zip(zip_path: str, *, wrapper: str | None = None,
                 zout.writestr(new_info, data)
             for name, data in (add or []):
                 zout.writestr(name, data)
+        # The pack (or its folder) can disappear mid-repair - a user deleting a
+        # resource pack while the doctor walks it, or a modpack install
+        # rewriting the tree. That is not a crash, it is "nothing to repair":
+        # report it as a plain failure the caller already handles gracefully.
+        if not os.path.exists(tmp_path):
+            raise OSError(f"the pack changed while it was being repaired: "
+                          f"{os.path.basename(zip_path)}")
         os.replace(tmp_path, zip_path)
     finally:
         if os.path.exists(tmp_path):

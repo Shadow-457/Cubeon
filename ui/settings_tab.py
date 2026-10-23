@@ -36,6 +36,7 @@ SECTIONS = [
     ("java", ft.Icons.COFFEE_ROUNDED, "Java"),
     ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
     ("notifications", ft.Icons.NOTIFICATIONS_ROUNDED, "Notifications"),
+    ("files", ft.Icons.FOLDER_OPEN_ROUNDED, "Minecraft files"),
     ("backups", ft.Icons.BACKUP_ROUNDED, "Backups"),
 ]
 
@@ -123,6 +124,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        backup_enabled_switch, frequency_dropdown,
                        include_saves_switch, keep_last_field,
                        backup_status_text, backup_now_btn, open_folder_btn,
+                       minecraft_files_pane,
                        restore_btn, minekube_badge, cubeon_web_link,
                        seasonal_switch, season_dropdown, seasonal_status_icon,
                        seasonal_status_text, seasonal_source_text,
@@ -528,6 +530,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "versions": versions_pane, "import": import_pane,
         "memory": memory_pane, "display": display_pane,
         "java": java_pane, "seasonal": seasonal_pane,
+        "files": minecraft_files_pane,
         "notifications": notifications_pane,
         "backups": backups_pane,
     }

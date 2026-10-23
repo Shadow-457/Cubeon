@@ -290,6 +290,29 @@ with tempfile.TemporaryDirectory() as tmp:
         hits = sb.browse(tag="cracked")
         ok(hits and all("cracked" in e["tags"] for e in hits),
            "browse(tag=...) filters like search does")
+
+        # instant-paint mode: NEVER network - uncached entries stay statusless
+        sb._MEMORY.clear()
+        os.unlink(sb._DISK_PATH)
+        fetches = {"n": 0}
+
+        def counting(host, port):
+            fetches["n"] += 1
+            return {"online": True, "players": 1, "max": 2, "version": "v",
+                    "motd": "m", "latency": None}
+
+        sb._fetch_status = counting
+        try:
+            rows = sb.browse(statuses="cached")
+            ok(fetches["n"] == 0,
+               "statuses='cached' never touches the network")
+            ok(all(e["status"] is None for e in rows),
+               "uncached entries come back statusless (the UI paints them "
+               "as 'checking…')")
+            ok(len(rows) == len(sb.CATALOGUE),
+               "cached mode still returns the full catalogue")
+        finally:
+            sb._fetch_status = _real_fetch
     finally:
         sb._fetch_status = _real_fetch
         sb._MEMORY.clear()

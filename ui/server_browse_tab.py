@@ -391,28 +391,34 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
 
         def worker():
             try:
-                entries = sb.browse()  # cached hosts stay cheap
+                # INSTANT first paint: catalogue rows from the cache only -
+                # never a blank list while 18 status fetches crawl in. Rows
+                # without a cached answer show "checking…" and fill in as
+                # the pass below answers them (and the sort re-applies).
+                entries = sb.browse(statuses="cached")
                 rows_state["entries"] = entries
-                # A first paint: build rows so the user sees the catalogue
-                # immediately, then fill the numbers in as they resolve.
                 render()
-                for entry in rows_state["entries"]:
-                    _paint_row(entry)
-                thread_safe_ui.refresh(results_col)
-                # Second pass: force a network refresh when asked (the
-                # manual refresh button) - statuses are TTL-cached inside
-                # server_browse, so this never hammers the endpoints.
-                if force:
+                # Live pass: only the entries that actually need the
+                # network, fetched in parallel, each row painted the moment
+                # its answer lands. TTLs inside server_browse keep the
+                # manual force-refresh cheap too.
+                todo = [e for e in rows_state["entries"]
+                        if e.get("status") is None or force]
+                if todo:
                     with ThreadPoolExecutor(max_workers=6) as pool:
                         futures = {pool.submit(
-                            lambda h=entry["host"]:
-                            sb.get_status(h, refresh=True)): entry
-                            for entry in rows_state["entries"]}
+                            lambda h=e["host"]:
+                            sb.get_status(h, refresh=force)): e
+                            for e in todo}
                         for fut, entry in futures.items():
                             try:
-                                entry["status"] = fut.result(timeout=30)
+                                entry["status"] = fut.result(timeout=45)
+                                _paint_row(entry)
+                                thread_safe_ui.refresh(results_col)
                             except Exception:
-                                pass  # keep last-known
+                                pass  # keep the placeholder, never break
+                    render()  # re-apply the most-playing-first sort
+                if force:
                     rows_state["lookup"] = None
                     render()
             finally:

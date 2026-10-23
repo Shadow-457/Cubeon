@@ -3231,10 +3231,30 @@ async def main(page: ft.Page):
                   active=lambda: not play_button.disabled,
                   glass=theme.glass_hover())
     # ... and the specular sheen that sweeps across it every time the pointer
-    # arrives (cubeon/motion.py's Sheen). Built here, placed in the Stack that
-    # wraps the button down in the ACTION FOOTER - the sweep only starts once
-    # that Stack exists, which is the same order the hover can fire in.
+    # arrives (cubeon/motion.py's Sheen).
+    #
+    # HIT-TEST RULE (2026-10-19, this is why PLAY "didn't work"): the sheen
+    # must live INSIDE the button, never as a Stack sibling painted on top of
+    # it. As a sibling, the sweeping band is a full-size painted layer exactly
+    # over the button whenever the pointer is inside it (hover = opacity 1),
+    # and in a real window it absorbs the tap - the click never reached
+    # on_click (the session log showed ZERO handler activity while the user
+    # hammered PLAY; headless can't see it because there is no pointer). A
+    # descendant of the button's content is painted over the row too, but taps
+    # still belong to the widget that owns on_click. motion.Sheen's own doc
+    # says "under the content" for the same reason.
     play_sheen = motion.sheen(radius=RADIUS)
+    play_button.content = ft.Stack(
+        [
+            ft.Row(
+                [play_button_icon, play_button_text],
+                alignment=ft.MainAxisAlignment.CENTER, spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            play_sheen.control,
+        ],
+        expand=True,
+    )
 
     # Text to show any issues with the selected version (e.g., incomplete install)
     version_issue_text = ft.Text("", size=12, color=DANGER, visible=False)
@@ -3389,12 +3409,24 @@ async def main(page: ft.Page):
             # done: that is the "PLAY came very early, while it was installing
             # mods and fixing with the doctor" report (2026-10-16). Disabled,
             # with the reason in the tooltip.
-            paint(SURFACE_HI, TEXT_DIM)
-            play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
-            play_button_text.value = "FIXING MODS..."
-            play_button.disabled = True
-            play_button.tooltip = ("Cubeon is checking and fixing this "
-                                   "profile's mods - one moment.")
+            # NOT disabled (2026-10-18). This used to grey the button out for as
+            # long as the doctor ran, which is a repair pass over every mod, pack
+            # and shader on the profile WITH a network check per item - and one
+            # that, before the packformat temp-file fix, could fail on a broken
+            # resource pack and leave the claim up until the 120s ceiling. The
+            # live report was "I cannot click the play button": a disabled
+            # Container swallows clicks silently, so the user got no launch, no
+            # error, no clue. Repair is housekeeping, not a lock: the click is
+            # accepted and launch_game runs its own verify pass, which is the
+            # same doctor work on the critical path anyway. The button keeps
+            # saying PLAY and simply explains what else is happening.
+            paint(ACCENT, ON_ACCENT)
+            play_button_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
+            play_button_text.value = "PLAY"
+            play_button.disabled = False
+            play_button.tooltip = ("Cubeon is also checking this profile's "
+                                   "mods in the background - Play launches "
+                                   "anyway.")
         elif mode == "installing":
             # A pack install is still writing this instance (base version,
             # loader, then every mod into its profile). It is NOT cancellable
@@ -5422,13 +5454,13 @@ async def main(page: ft.Page):
 
                         # ACTION FOOTER: the primary PLAY action on the right,
                         # with its aura under it (hero_ambient drives the
-                        # bloom's opacity - see the hero_glow comment above) and
-                        # its sheen over it. Stack children paint in order, so
-                        # the glow goes first, the button next, and the sheen
-                        # last: it is a transparent box exactly the size of the
-                        # button (the glow is positioned with negative insets
-                        # and so does not size the Stack) that clips its own
-                        # highlight to the button's rounded shape.
+                        # bloom's opacity - see the hero_glow comment above).
+                        # The sheen is INSIDE play_button (see its creation);
+                        # as a sibling here it absorbed every real-window tap
+                        # that followed a hover and PLAY died (2026-10-18/19).
+                        # Stack children paint in order, so the glow goes
+                        # first and the button last; the glow is positioned
+                        # with negative insets and does not size the Stack.
                         ft.Row(
                             [
                                 ft.Container(expand=True),
@@ -5436,7 +5468,6 @@ async def main(page: ft.Page):
                                     [
                                         hero_glow,
                                         ft.Container(width=280, content=play_button),
-                                        play_sheen.control,
                                     ],
                                     clip_behavior=ft.ClipBehavior.NONE,
                                 ),
@@ -5733,29 +5764,43 @@ async def main(page: ft.Page):
             """Browse's JOIN: launch the selected profile straight into a
             public server. The SAME path the friends flow uses
             (launch_game's --server/--port). No selected version = an
-            honest snackbar, never a dead click."""
+            honest snackbar, never a dead click.
+
+            Runs on a WORKER thread, exactly like on_play_click and the
+            friends launcher: launch_game resolves+installs assets before
+            spawning, which is seconds of blocking network/disk - doing
+            that on the UI thread froze the whole window (reported live
+            2026-10-18 as "the play button isn't working")."""
             version_id = state.get("selected_version")
             if not version_id:
                 _show_snack("Pick a Minecraft version on the Play tab first - "
                             "the server decides which one too.")
                 return
-            try:
-                # Through the core facade - NEVER a direct cubeon.launch
-                # import: the facade is what the test harness stubs, so a
-                # fuzzer-fired JOIN stays a recorded no-op instead of
-                # spawning a real Minecraft process.
-                mc_version = core.extract_mc_version(version_id)
-                loader = state.get("mod_loader") or "fabric"
-                username = cfg.get("username") or "Player"
-                core.launch_game(version_id, username,
-                                 cfg.get("ram_mb", 4096),
-                                 cfg.get("width", 1280), cfg.get("height", 720),
-                                 cfg.get("java_path"), on_exit=None,
-                                 mc_version=mc_version, loader=loader, cfg=cfg,
-                                 server_address=host, server_port=port)
-                _show_snack(f"Launching Minecraft into {name} ({host}:{port})…")
-            except Exception as ex:
-                _show_snack(f"Couldn't launch into {name}: {ex}")
+
+            def worker():
+                try:
+                    # Through the core facade - NEVER a direct cubeon.launch
+                    # import: the facade is what the test harness stubs, so a
+                    # fuzzer-fired JOIN stays a recorded no-op instead of
+                    # spawning a real Minecraft process.
+                    mc_version = core.extract_mc_version(version_id)
+                    loader = state.get("mod_loader") or "fabric"
+                    username = cfg.get("username") or "Player"
+                    core.launch_game(version_id, username,
+                                     cfg.get("ram_mb", 4096),
+                                     cfg.get("width", 1280),
+                                     cfg.get("height", 720),
+                                     cfg.get("java_path"), on_exit=None,
+                                     mc_version=mc_version, loader=loader,
+                                     cfg=cfg,
+                                     server_address=host, server_port=port)
+                    _show_snack(f"Launching Minecraft into {name} "
+                                f"({host}:{port})…")
+                except Exception as ex:
+                    _show_snack(f"Couldn't launch into {name}: {ex}")
+
+            threading.Thread(target=worker, daemon=True,
+                             name="server-browse-join").start()
 
         browse_view, browse_refresh = build_server_browse_tab(
             page, cfg, state, join_game=_join_server, **THEME)
@@ -6248,6 +6293,122 @@ async def main(page: ft.Page):
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=13),
         alignment=ft.Alignment.CENTER, ink=False, on_click=open_backups_folder, expand=True,
+    )
+
+    # ------------------------------------------------------------------
+    # MINECRAFT FILES - Settings > "Minecraft files"
+    #
+    # One place that opens the folders a player actually needs to find by hand:
+    # the game folder itself, mods, resource packs, shaders, worlds,
+    # screenshots and the launcher's own data (config/logs/cache). Before this
+    # the only folder button in the app was "Open backups folder" in Backups,
+    # so "where is my mods folder" had no answer inside Cubeon (the user asked
+    # for exactly this on 2026-10-18).
+    #
+    # Same opener as open_backups_folder - os.startfile on Windows, `open` on
+    # macOS, `xdg-open` elsewhere - and every failure lands in set_status
+    # instead of a traceback. Each folder is created first, because opening a
+    # path that does not exist yet is the one way this reads as broken.
+    # ------------------------------------------------------------------
+    def _open_any_folder(folder, label):
+        import subprocess
+        import sys as _sys
+        try:
+            os.makedirs(folder, exist_ok=True)
+            if _sys.platform == "win32":
+                os.startfile(folder)  # noqa
+            elif _sys.platform == "darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+            set_status(f"Opened {label}")
+        except Exception as ex:
+            set_status(f"Couldn't open {label}: {ex}")
+
+    from cubeon import paths as _paths
+    _FOLDER_ROWS = [
+        ("Minecraft folder", "the game folder - versions, logs and options",
+         lambda: _paths.MINECRAFT_DIR),
+        ("Mods", "every jar Cubeon syncs into the game",
+         lambda: _paths.MODS_DIR),
+        ("Resource packs", "texture packs the game reads",
+         lambda: _paths.RESOURCEPACKS_DIR),
+        ("Shaders", "shaderpacks the game reads",
+         lambda: _paths.SHADERPACKS_DIR),
+        ("Worlds (saves)", "your singleplayer worlds",
+         lambda: os.path.join(_paths.MINECRAFT_DIR, "saves")),
+        ("Screenshots", "the game's screenshots folder",
+         lambda: os.path.join(_paths.MINECRAFT_DIR, "screenshots")),
+        ("Cubeon data", "config, logs and caches - not the game",
+         lambda: _paths.CUBEON_HOME),
+    ]
+
+    def _folder_button(label, hint, getter):
+        """A quiet, left-aligned row: name + hint, chevron on the right.
+        The tooltip is the real resolved path - the honest answer to "where
+        IS my mods folder" without opening anything."""
+        row = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, size=17, color=ACCENT_DIM),
+                    ft.Column(
+                        [ft.Text(label, size=13.5, color=TEXT,
+                                 weight=ft.FontWeight.W_600),
+                         ft.Text(hint, size=11.5, color=TEXT_DIM)],
+                        spacing=1, expand=True,
+                    ),
+                    ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=17, color=TEXT_DIM),
+                ],
+                spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor="transparent", border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=9),
+            on_click=lambda e=None, g=getter, l=label: _open_any_folder(g(), l),
+        )
+        try:
+            row.tooltip = getter()   # the real path, resolved at build time
+        except Exception:
+            row.tooltip = f"Open {label}"
+        theme.attach_hover(row, "transparent", ROW_HOVER)
+        return row
+
+    minecraft_files_pane = ft.Column(
+        [
+            section_label("Minecraft files"),
+            ft.Container(height=2),
+            ft.Text(
+                "Open the folders Cubeon and Minecraft use. Anything you drop "
+                "into Mods, Resource packs or Shaders is picked up on the next "
+                "launch.",
+                size=12, color=TEXT_DIM,
+            ),
+            ft.Container(height=12),
+            ft.Container(
+                content=ft.Column(
+                    [_folder_button(*row) for row in _FOLDER_ROWS],
+                    spacing=2,
+                ),
+                bgcolor=SURFACE_HI, border_radius=RADIUS, padding=8,
+                border=ft.border.Border.all(1, BORDER),
+            ),
+            ft.Container(height=12),
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=15, color=TEXT_FAINT),
+                    ft.Text(
+                        "Hover a row to see its full path. These are the same "
+                        "folders the Mods, Cosmetics and Screenshots surfaces "
+                        "write to - nothing moves without telling you.",
+                        size=11.5, color=TEXT_FAINT, expand=True,
+                    ),
+                ],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Container(height=8),
+        ],
+        spacing=4, visible=False,
     )
 
     restore_file_picker = ft.FilePicker()
@@ -6825,6 +6986,7 @@ async def main(page: ft.Page):
         keep_last_field=keep_last_field,
         backup_status_text=backup_status_text,
         backup_now_btn=backup_now_btn, open_folder_btn=open_folder_btn,
+        minecraft_files_pane=minecraft_files_pane,
         restore_btn=restore_btn, minekube_badge=minekube_badge,
         cubeon_web_link=cubeon_web_link,
         seasonal_switch=seasonal_switch, season_dropdown=season_dropdown,
