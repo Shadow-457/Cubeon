@@ -1,9 +1,7 @@
 # Cubeon Minecraft Launcher
 
 > **A [Ylet](https://www.ylet.online/) product.** Cubeon is developed and
-> operated under Ylet, alongside
-> [Icono](https://www.ylet.online/#products) and
-> [Spruce](https://www.ylet.online/#products). The company hub - what each
+> operated under Ylet. The company hub - what each
 > product is, how it is released, and the legal pack - lives one level up in
 > `Ylet_Productions/`.
 
