@@ -1,6 +1,5 @@
 """Textured Minecraft cuboids with an orthographic orbit camera."""
 from dataclasses import dataclass
-from io import BytesIO
 import math
 import os
 
@@ -14,6 +13,36 @@ class Face:
     vertices: tuple
     normal: tuple
     texture: Image.Image
+
+
+@dataclass
+class ProjectedFace:
+    index: int
+    points: list
+    vertices: list
+    normal: tuple
+    texture: Image.Image
+
+    @property
+    def depth(self):
+        return (self.vertices[1][2] + self.vertices[2][2]) / 2
+
+    @property
+    def polygon(self):
+        origin, horizontal, vertical = self.points
+        return [origin, horizontal,
+                (horizontal[0] + vertical[0] - origin[0], horizontal[1] + vertical[1] - origin[1]), vertical]
+
+    def depth_at(self, point):
+        origin, horizontal, vertical = self.points
+        horizontal_x, horizontal_y = horizontal[0] - origin[0], horizontal[1] - origin[1]
+        vertical_x, vertical_y = vertical[0] - origin[0], vertical[1] - origin[1]
+        determinant = horizontal_x * vertical_y - vertical_x * horizontal_y
+        delta_x, delta_y = point[0] - origin[0], point[1] - origin[1]
+        across = (delta_x * vertical_y - delta_y * vertical_x) / determinant
+        down = (horizontal_x * delta_y - horizontal_y * delta_x) / determinant
+        return (self.vertices[0][2] + across * (self.vertices[1][2] - self.vertices[0][2])
+                + down * (self.vertices[2][2] - self.vertices[0][2]))
 
 
 def _box(sheet, origin, dimensions, bounds, inflate=0, mirrored=False, cape=False):
@@ -59,9 +88,12 @@ class CharacterModel:
         self.faces = []
         for index, (origin, dimensions, bounds, overlay) in enumerate(parts):
             mirrored = legacy and index in (3, 5)
-            self.faces.extend(_box(sheet, origin, dimensions, bounds, mirrored=mirrored))
+            base_faces = _box(sheet, origin, dimensions, bounds, mirrored=mirrored)
             if not legacy or index == 0:
-                self.faces.extend(_box(sheet, overlay, dimensions, bounds, inflate=0.5 if index == 0 else 0.25))
+                overlay_faces = _box(sheet, overlay, dimensions, bounds)
+                for base, outer in zip(base_faces, overlay_faces):
+                    base.texture.alpha_composite(outer.texture)
+            self.faces.extend(base_faces)
         if cape is not None:
             cape = cape.convert("RGBA").resize((64, 32), Image.Resampling.NEAREST)
             self.faces.extend(_box(cape, (0, 0), (10, 16, 1), (-5, 7, -3.5, 5, 23, -2.5), cape=True))
@@ -80,7 +112,7 @@ class CharacterModel:
                 cape = source.convert("RGBA")
         return cls(sheet, slim=slim, cape=cape)
 
-    def render(self, yaw=25, pitch=10, size=(320, 440)):
+    def project(self, yaw=25, pitch=10, size=(320, 440)):
         yaw, pitch = math.radians(yaw), math.radians(pitch)
         yaw_cos, yaw_sin = math.cos(yaw), math.sin(yaw)
         pitch_cos, pitch_sin = math.cos(pitch), math.sin(pitch)
@@ -95,17 +127,21 @@ class CharacterModel:
             return (camera_x, vertical * pitch_cos - camera_depth * pitch_sin,
                     vertical * pitch_sin + camera_depth * pitch_cos)
 
-        canvas = Image.new("RGBA", size)
-        depth_buffer = Image.new("F", size, -100000)
         visible = []
-        for face in self.faces:
+        for index, face in enumerate(self.faces):
             normal = rotate(face.normal, centered=False)
             if normal[2] <= 0.001 or not face.texture.getbbox():
                 continue
             vertices = [rotate(vertex) for vertex in face.vertices]
             projected = [(size[0] / 2 + vertex[0] * scale, size[1] / 2 - vertex[1] * scale) for vertex in vertices]
-            visible.append(((vertices[1][2] + vertices[2][2]) / 2, projected, face.texture, normal, vertices))
-        for _depth, projected, texture, normal, vertices in sorted(visible, key=lambda surface: surface[0]):
+            visible.append(ProjectedFace(index, projected, vertices, normal, face.texture))
+        return visible
+
+    def render(self, yaw=25, pitch=10, size=(320, 440)):
+        canvas = Image.new("RGBA", size)
+        depth_buffer = Image.new("F", size, -100000)
+        for face in sorted(self.project(yaw, pitch, size), key=lambda face: face.depth):
+            projected, texture, normal, vertices = face.points, face.texture, face.normal, face.vertices
             origin, horizontal, vertical = projected
             horizontal_x, horizontal_y = horizontal[0] - origin[0], horizontal[1] - origin[1]
             vertical_x, vertical_y = vertical[0] - origin[0], vertical[1] - origin[1]
@@ -156,8 +192,3 @@ class CharacterModel:
                 alpha=alpha, visible=visible_pixels).convert("L")
             depth_buffer.paste(candidate_depth, (left, top), opaque_pixels)
         return canvas
-
-    def png(self, yaw=25, pitch=10):
-        output = BytesIO()
-        self.render(yaw, pitch).save(output, format="PNG", compress_level=1)
-        return output.getvalue()

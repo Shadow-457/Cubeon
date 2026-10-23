@@ -138,14 +138,17 @@ Durable consequences — do not re-derive these:
   the F1 dialog renders (`_show_shortcuts`), so the on-screen help and the
   real behaviour cannot drift.
 - Bindings: **F1** help · **F11** fullscreen · **Esc** close topmost (help
-  dialog → fullscreen → Account panel) · **Ctrl/Cmd+1…9** jump to the Nth
+  dialog → fullscreen → Account panel) · **Shift+1…9** jump to the Nth
   top-bar tab (indexed off the LIVE `top_nav_items`, so a build without the
   Chat tab numbers correctly) · **Ctrl+,** Settings · **Ctrl+Enter** the big
   button (Play/Cancel/Quit) · **Ctrl+Q** quit. F12 (inspector, CUBEON_INSPECT
   gate) stays in main.py, deliberately not in the user-facing table.
 - Modifier payloads have been spelled both `ctrl` and `control` across flet
   releases, and the key label is `key` (0.86+) with `data` as the older
-  fallback — `_on_key` reads both. **Ctrl or Cmd both count as the command
+  fallback — `_on_key` reads both, accepting modifiers only when they are
+  literally `True`: Flet event `.control` is the originating control object,
+  not a Ctrl flag. Ordinary digits never navigate; shifted symbols also work.
+  **Ctrl or Cmd both count as the command
   modifier** (Cmd+Q works on the macOS build), and **Alt combos are never
   claimed** (Alt belongs to menus/the OS).
 - **Ctrl+Enter must check `play_button.disabled` before firing
@@ -1169,52 +1172,14 @@ facts belong HERE, not in diary notes.
   slugs get renamed and 404 silently (that rotted the list from 12 to 7 live
   entries). Guard: tools/test_modpacks_cf_keyless.py.
 
-## Server Browse - the Servers tab's live public-server view (2026-10-18) — INVARIANTS
-- **There are FOUR server views now**: Console / Browse / Plugins / Settings,
-  one chip each in `server_group_items` (main.py), one `ft.Container` each,
-  one `tabs[...]` entry, all in `SERVER_GROUP_KEYS`, built lazily by the ONE
-  `build_server_tab()` call. Browse lives in `ui/server_browse_tab.py` (its
-  refresh is `_cb("server", "browse_refresh")`, invoked by `switch_tab` when
-  the Browse chip opens).
-- **The catalogue is CURATED, the player counts are LIVE - there is NO free
-  keyless API that lists public servers** (2026-10-18, measured: the list
-  sites answer Cloudflare 403 to non-browser clients; the one open dataset
-  repo is gone). Data lives in `cubeon/server_browse.CATALOGUE` (host, name,
-  tags, blurb). Status endpoints, fallback order: api.minetools.eu/ping →
-  api.mcstatus.io/v2 → api.mcsrvstat.us/3, faked at `net.get_json` in tests.
-  Sort contract (`sort_by_status`): online by players DESC → answered-offline
-  → unknown/unchecked LAST (never above real data). Statuses are cached in
-  memory (STATUS_TTL) + disk (~/.cubeon_launcher/cache/server_status.json,
-  DISK_TTL) - both store the SAME packed shape `{"t":..., "s":status}`.
-- **Tags are editorial; cracked vs premium is DECLARED, not detected** - the
-  free status endpoints no longer expose a cracked flag, and a ping cannot
-  see a login policy. Servers that block datacenter pings (TheArchon,
-  DatBlock, VeltPvP) are deliberately NOT catalogued - they would show a
-  false "offline"; users reach them via the address-lookup box (Enter in the
-  search field, never per-keystroke).
-- **JOIN goes through `core.launch_game(..., server_address=, server_port=)`
-  - NEVER a direct `cubeon.launch` import.** The facade is what the harness
-  stubs; a direct import makes a fuzzer-fired JOIN spawn a real game. No
-  selected version = snackbar, not a dead click.
-- **Flet 0.86 spelling that bit this feature three times** (the mega suite's
-  forbidden-API scan catches some, the runtime fuzz catches the rest):
-  `ft.padding.Padding.symmetric/all(...)` and `ft.Margin.only(...)` - there is
-  NO `ft.padding.symmetric`/`ft.margin.only` function; `ft.Alignment.CENTER`
-  - no `ft.alignment.center`; `ft.Text` has NO `ellipsis=` - use `max_lines=1`.
-  And every UI handler must default its event (`def h(e=None)`) because
-  app_driver fires handlers as `h(FakeEvent(...))` and, on TypeError, `h()`.
-- **Harness**: `_fuzz_common.install_safe_stubs` cans `server_browse`'s
-  status fetches (offline, deterministic); `app_driver.NAV_KEYS` includes
-  `server_browse`; and test_mega_smoke asserts all four server view titles
-  actually MOUNT on a fresh driver - `_ensure_tab` swallows a crashed lazy
-  builder by design, so "the tab opened" alone proves nothing. Guards:
-  tools/test_server_browse.py (59 checks, fully offline), tools/test_mega_smoke.py.
-- **Keep the Browse copy lean (2026-10-23, user: "too bloated with text").**
-  One subtitle line ("Live player counts · most playing first"), one counts
-  line ("N servers · N online · N players"), and exactly ONE description line
-  per row: it shows `entry["blurb"]` until the server answers, then the live
-  MOTD; an offline answer KEEPS the blurb (a blank line reads as broken).
-  Don't reintroduce a separate always-on blurb above the MOTD.
+## Servers has three views (2026-10-24) - INVARIANT
+- Console / Plugins / Settings are the only server-group views in `main.py`,
+  `tabs`, `SERVER_GROUP_KEYS`, and the driver navigation catalogue.
+- Server Browse, its public-server catalogue/status-fetch backend, and its
+  harness stubs/tests were removed at the user's request. Do not restore a
+  Browse host, chip, or JOIN action during a navigation refactor.
+- `tools/test_tab_navigation.py` verifies the remaining views really mount;
+  an `_ensure_tab` failure can otherwise be swallowed by the lazy builder.
 
 ## Chat dupes + latency / restart button / Windows packaging (2026-09-23) — INVARIANTS
 - **Chat dupe rule**: a red "Couldn't send" bubble STAYS in `_pending`
@@ -1773,15 +1738,15 @@ facts belong HERE, not in diary notes.
   `MINECRAFT_DIR/screenshots` (`~/.cubeon_minecraft/screenshots` by default),
   not the user's shared `~/.minecraft`. `cubeon/screenshot_gallery.py` is the
   single boundary for listing, bounded preview decoding, safe clipboard file
-  hand-off, safe deletion, and opening that folder. The Images pane inside
-  Cosmetics uses this boundary; it is selected from the Cosmetics subtab row,
+  hand-off, safe deletion, and opening that folder. The Screenshots pane in
+  Settings uses this boundary; it is selected from the Settings section rail,
   never from the top-level nav. Never pass arbitrary paths into Flet images or
   delete callbacks.
 - **Gallery perf (2026-09-21)**: both hot paths are cached in the store
   module. (a) `list_screenshots()` is memoized against the screenshots
   DIR's mtime+inode (`_dir_signature`, correct because only the game + the
   delete action change the folder and nothing edits a file in place) —
-  re-opening the Images pane scans once, then every open is O(1) instead of
+  re-opening Settings > Screenshots scans once, then every open is O(1) instead of
   `Image.verify()`-ing (full file read) every PNG. (b) `image_base64()`
   renders are disk-cached in `paths.CACHE_DIR/screenshot_renders` keyed by
   source mtime + size bucket (tmp+replace write) — first pass decodes each
@@ -2322,8 +2287,8 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   `cubeon/color_templates._derive()` (darkened `ACCENT_DIM`). The old olive
   literals (`#33431E`, `#0E110A`, ...) must not come back.
 - **Corners are softened (2026-10-15, user request) — INVARIANT-ish.**
-  The one radius family in `cubeon/theme.py` is now `RADIUS = 8`
-  (controls/inputs/chips/nav), `RADIUS_LG = 12` (cards/dialogs/large panels),
+  The one radius family in `cubeon/theme.py` is now `RADIUS = 10`
+  (controls/inputs/chips/nav), `RADIUS_LG = 14` (cards/dialogs/large panels),
   `RADIUS_PILL = 999` (genuinely round; defined but no live call site),
   `RADIUS_NONE = 0` (flush insets: progress bars, dividers, image edges).
   It used to be dead-square `RADIUS = 2`, which read as sharp/harsh. `block()`
@@ -2333,6 +2298,7 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   connection dot (`ui/chat_tab.py`, 4px → a circle) and the unread badge
   (9px). Version art keeps its own `ART_RADIUS = 12` (rounder than controls).
   No test pins a radius value — change the tokens, not call sites.
+  Glass blur is restrained to 10px (soft: 8px), with a 14px hover halo.
 - **Copy rule (binding, 2026-09-11):** all user-facing text is plain and
   gamer-friendly — no jargon (`jar`, `process`, `PID`, `hash`, `config.json`,
   `UUID`, `endpoint`, `.zip`, `OS`, `plugin stack`, "in this build"). Settings/
@@ -2744,31 +2710,38 @@ skins-worker publish (cubeon/skins.py, worker/cubeon-skins.js).
 - **cubeon/remotes.py**: dead code - nothing imports it anymore. Kept in the
   tree (test_skins_net.py does NOT cover it; it tests skins.py). Do NOT call
   it from new code.
-- **ui/skin_tab.py**: hat/Cosmetics pane REMOVED entirely (user: "remove the
-  hat BROWSE shit too") - the section is Skin | Cape panes only, and
-  `build_skin_section` no longer takes `start_prefetch`. Each Browse pane has
-  a search box + an "open folder" button (`_open_folder` -> xdg-open/open/
-  os.startfile). `core.ensure_gallery()` runs at every section build so the
-  drop-folders exist on first run. `cubeon/cosmetics.py` hat drawing helpers
-  still exist (launcher_core re-exports) but have no UI.
-- **build_skin_section signature**: `(..., file_picker, cape_file_picker)` -
-  NO `start_prefetch`. test_ui_smoke's six call sites were updated.
-- **Front/Back preview switch (2026-10-18)**: the Skin pane's "CURRENT LOOK"
-  box has a Front/Back segmented switch (hidden until a custom skin is
-  active - a control that changes nothing is worse than none). The back view is
-  a REAL 180° turn, not a cosmetic flip: `render_local_skin_preview(..., view=)`
-  composites the sheet's BACK-face regions and swaps the two sides, because
-  that is exactly what turning a body half around does. Back-face origins are a
-  fixed offset right of the front ones on a 64x64 sheet - head +16, torso +12,
-  limbs +8 (the right-then-front-then-left-then-back order of every box) - and a
-  legacy 64x32 sheet defines NO back faces, so there the crops stay on the
-  front and only the side swap happens (never invent pixels). The view is read
-  from `_view_state` at RENDER time (not when queued), so a fast toggle lands
-  on the side the user last chose; the cached PNG per view is
-  `_preview_<view>_<filename>.png` so flipping back and forth cannot race one
-  file. Default stays `front`, so the gallery/thumb callers are unchanged.
-  Regression: `tools/test_skin_preview.py` (geometry + legacy + predicate) and
-  the `test_ui_smoke.py` probe that proves the switch reaches the renderer.
+- **ui/skin_tab.py**: Cosmetics is an unboxed, responsive two-column layout:
+  one shared 3D character stage on the left; Skin / Cape uploads and owned
+  card grids on the right. No hats, unlocks, player search, or Images pane.
+  `build_skin_section(..., file_picker, cape_file_picker, assets_dir=None)`
+  reuses the pickers registered by `main.py`; never register one per refresh.
+- **Native orbit preview (2026-10-24)**: `cubeon/appearance.py` builds textured
+  Minecraft cuboids from the actual skin and cape sheets. Legacy sheets,
+  slim/classic arms, the default skin, and texture overlays are supported.
+  Overlay textures are composited onto their corresponding cuboid faces;
+  native depth ordering relies on these boxes not physically intersecting.
+  `default_base_skin()` fills every base face, not only front-facing crops.
+  `cubeon/appearance_scene.py` orders overlapping projected faces by depth;
+  a centre-only painter sort is not sufficient for the cape.
+- **No per-drag PNG frames**: `ui/appearance_preview.py` loads/encodes small
+  face textures once on a single-flight asset worker. The Flet client paints
+  them using `Transform(Matrix4)`; a drag updates matrices, shading, opacity,
+  and paint order, not image bytes. Hidden faces use opacity zero, not
+  visibility false, so their textures remain mounted and ready. All textures
+  use gapless playback. Older asset loads cannot overwrite newer choices.
+  A skin/cape/model change invalidates the mesh; drag/reset does not.
+- Drag rotates through 360 degrees and tilts to +/-75 degrees; arrows and
+  Reset remain available. Cape selection turns the shared character to its
+  back. The stage has no animation timers or persistent render loop.
+- `tools/test_appearance_preview.py` covers default/legacy/slim geometry,
+  software per-pixel depth checks, native cape ordering over 120 camera
+  positions, stale asset loads, actual Flet drag events, and MessagePack
+  patches with no remounts or image-source retransmissions during rotation.
+  The software reference renderer uses Pillow >=10.3 (`ImageMath.lambda_eval`);
+  it is not the interactive rendering path.
+- Wire-level tests must MessagePack-encode the initial `ObjectPatch` before
+  checking later diffs, so control IDs and snapshots exist. Otherwise a
+  three-byte no-op patch can falsely look like an efficient rotation.
 - **Tests**: test_gallery.py rewritten for the local-library pipeline (25
   checks); test_ui_smoke hat checks replaced with "hat browse is gone" and
   the search/pane-flip checks re-pointed at the local library ("your skin
@@ -3254,16 +3227,36 @@ Still-true invariants from the pre-local era:
   only receive the fixed THEME kwarg set — extra tokens (ROW_HOVER,
   ACCENT_TINT, TEXT_FAINT, attach_hover) are imported directly from
   cubeon/theme.py; do NOT add keys to THEME (TypeError at every call site).
-- **Stats tab** (2026-09-09, ui/stats_tab.py): top-nav "stats" key, lazy
-  tab like the others. Read-only counters over existing state
-  (milestones.json, versions scan, folder globs, skins/capes meta) in
-  three sections (Playtime / Library / Cosmetics). RULE: never call
-  get_profile_dir() / get_plugins_dir() / content_dir() from a read-only
-  scan — they CREATE directories as a side effect; glob PROFILES_DIR /
-  SERVERS_DIR / RESOURCEPACKS_DIR / SHADERPACKS_DIR directly
-  (ui_smoke §12 enforces via a comment-stripping matcher). Flet 0.86 has
-  no `ft.margin.only/.symmetric` — use `ft.Margin(l, t, r, b)`. "Playing
-  since" reports the full date (`%b %d, %Y`), not just month+year.
+- **Stats tab** (2026-10-24, `ui/stats_tab.py`): one last-seven-days playtime
+  histogram, lifetime playtime, and an off-by-default "Compare with previous
+  week" checkbox. Comparison adds paired bars to the same Canvas with one
+  common vertical scale, not a second dashboard. No Library/Cosmetics tables,
+  period dropdowns, collection bars, or badge wall.
+- **Activity history**: `cubeon/activity.py` sanitizes finite, nonnegative
+  numbers and keeps at most 400 local-date buckets in `milestones.json`.
+  `milestones.end_play_session()` splits play seconds across local midnight,
+  records a completed session once, and preserves the lifetime totals. Legacy
+  totals never turn into fabricated daily history; the histogram starts with
+  newly recorded sessions. Hosting also records its local-day event.
+- **Account badges**: `ui/activity_widgets.py::build_badges` renders at most
+  four quiet 26px icons: earned playtime, hosting, friends, and one combined
+  Library badge. No filled pills or labels; names/counts live in tooltips.
+  Membership date is in the Library tooltip, not another badge. An empty
+  account has no placeholder badge row.
+- **Read-only collection scans**: `cubeon/library_stats.py` counts existing
+  versions/mods/modpacks/packs/plugins/skins/capes without create-on-read
+  profile/content helpers. `main.py::_scan_account_badges` runs it off-thread
+  when Account opens, guards stale workers with `account_badge_state`, and
+  refreshes only the badge row. Stats performs no directory scan.
+- **Scrolling**: native input remains native. Bounded version, instance,
+  screenshot, import, and pack-creation lists use lazy `ListView` viewports.
+  `cubeon/scrolling.py` provides 180ms client-side ease-out following for
+  app-driven chat/server scrolling, with immediate following in reduced
+  motion. Chat retains its reader-at-end guard and throttles scroll
+  notifications to 50ms. This is not a mouse-wheel interpolation API; Flet
+  0.86/1.0 expose no such setting. Do not add Python per-wheel animation loops.
+- Guards: `tools/test_activity_stats.py`, `tools/test_milestones.py`,
+  `tools/test_keyboard_shortcuts.py`, `tools/test_scrolling.py`.
 - **Chat tab + automatic identity** (2026-09-11, ui/chat_tab.py): top-nav
   "chat" key, inserted at index 3 ONLY when `features.friends_enabled()`, so a
   public no-Friends build has no dead entry. It talks to the process-scoped
@@ -3378,7 +3371,7 @@ Still-true invariants from the pre-local era:
   are visible only while a server tab is active. The identity card moved out
   of the old Profile tab into an `account_dialog` opened by the Account icon
   (`_account_open["fn"]` holder is filled after the dialog is built).
-- **The old "profile" tab is now Cosmetics** (skins/capes/hat only) - key is
+- **The old "profile" tab is now Cosmetics** (skins/capes only) - key is
   still `"profile"` internally, switch_tab/refresh_profile_tab unchanged.
 - **Required-dependency auto-install**: `mods.required_dependencies()` reads
   Modrinth's latest-version `dependencies` (only `dependency_type ==
@@ -4090,14 +4083,27 @@ sanitize at launch (below). The four still-retired mods
   probe must pass auto_fix=False); test fixtures that install fake versions
   leak their pack formats into every later section's targets - clean them up.
 
+## Content loader installation rules (2026-10-24) - INVARIANT
+- `mods.require_mod_loader()` guards local, direct-download, and dependency
+  installs: Fabric / Quilt / Forge / NeoForge are supported; Vanilla is not.
+- `content._require_install_target()` rejects shader installs into Vanilla
+  before touching the store or network. Texture/resource packs remain valid
+  in Vanilla. A shader-capable mod such as Iris/Oculus/OptiFine is still needed
+  in-game; a loader or Sodium alone cannot run a shader pack.
+- `ui/mods_tab.py` disables local and remote mod/shader install actions on
+  Vanilla and re-checks handler calls. Installation captures the selected
+  loader, never the Fabric fallback used only for browsing/search.
+- Guard: `tools/test_loader_content_rules.py` (backend I/O guards, actual
+  Vanilla resource-pack installation, UI enable/disable behavior).
+
 ## Polish surfaces (cosmetics/settings/stats/server)
 - ui/skin_tab.py renders card thumbs LAZILY (one worker per refresh batch,
   mtime-skipped; _THUMB_MEMO closure state) - never call _render_thumb on the
   UI thread. Big previews are single-flight off-thread. Upload handlers park
   their button while working.
-- ui/stats_tab.py refresh_stats: milestone block is sync (1 JSON read); the
-  directory-scan counters run on a worker guarded by _stats_gen. Tests must
-  not expect scan counters synchronously after refresh_stats().
+- ui/stats_tab.py refresh_stats reads bounded milestone activity and updates
+  one histogram. Collection scans belong to the generation-guarded Account
+  badge worker in main.py, not Stats or tab-navigation callbacks.
 - settings persist on on_change_end (RAM) / on_blur/on_submit (fields), not
   per tick.
 - Onboarding (_onboard_finish) publishes the username via the shared

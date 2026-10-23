@@ -1744,7 +1744,8 @@ try:
     from ui.appearance_preview import AppearancePreview
     _orbit = AppearancePreview({"active_skin": None})
     check("the 3D preview supports dragging in both axes", callable(_orbit.gesture.on_pan_update))
-    check("preview frame swaps keep the previous image visible", _orbit.image.gapless_playback)
+    check("preview keeps a native scene mounted rather than swapping frames",
+          isinstance(_orbit.scene, ft.Stack) and _orbit.gesture.content is _orbit.scene)
 
     from ui.seasonal_ui import SeasonalAnimator
     _anim = SeasonalAnimator()

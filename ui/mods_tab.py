@@ -305,6 +305,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         """
         local_install_btn.disabled = not _can_install()
         local_install_btn.tooltip = None if _can_install() else "Choose a mod loader on the Play tab first."
+        _apply_type_labels()
         if _is_mod():
             vanilla_mods_notice.visible = (state["mod_loader"] == "vanilla")
             shader_notice.visible = False

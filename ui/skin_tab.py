@@ -1,13 +1,7 @@
-"""
-Cubeon - Skin section.
-Lets the user upload and manage a local custom in-game skin. Previously its
-own "Skin" sidebar tab; now embedded as a section inside the Profile dialog
-(main.py's "Signed in as" click target), alongside the launcher-only
-profile picture and the username field.
+"""Cosmetics: shared native 3D preview and local Skin / Cape libraries.
 
-It lets the user upload a real skin PNG, stores it locally, renders a
-preview from its actual pixels, and applies it in-game if a local-skin
-mod (CustomSkinLoader) is installed for the current profile.
+Uploads are stored locally and applied in-game when the corresponding
+skin/cape mod is installed for the current profile. Screenshots live in Settings.
 """
 
 # Standard library imports

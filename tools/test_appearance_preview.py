@@ -10,9 +10,14 @@ import _sandbox_home
 _sandbox_home.isolate()
 
 import flet as ft
+import msgpack
+from flet.controls.base_control import BaseControl
+from flet.controls.object_patch import ObjectPatch
+from flet.messaging.protocol import configure_encode_object_for_msgpack
 from PIL import Image, ImageChops
 from cubeon import skins
 from cubeon.appearance import CharacterModel, Face
+from cubeon.appearance_scene import order_faces, _intersection, _area
 from ui.appearance_preview import AppearancePreview
 from _fuzz_common import every_control, walk
 import app_driver
@@ -61,10 +66,23 @@ masked_difference = ImageChops.multiply(difference, frames[0].getchannel("A").co
 check("the cape cannot paint through the opaque front of the character", masked_difference.getbbox() is None)
 check("the cape is visible on the character's back", cape_model.render(180, 0).getpixel((160, 220)) != frames[3].getpixel((160, 220)))
 
+def correct_native_order(yaw, pitch):
+    ordered = order_faces(cape_model.project(yaw, pitch))
+    for first_index, first in enumerate(ordered):
+        for second in ordered[first_index + 1:]:
+            overlap = _intersection(first.polygon, second.polygon)
+            if len(overlap) >= 3 and abs(_area(overlap)) > 0.01:
+                if any(first.depth_at(point) - second.depth_at(point) > 1e-4 for point in overlap):
+                    return False
+    return True
+
+
+check("native face ordering keeps the cape outside the body across the orbit",
+      all(correct_native_order(yaw, pitch) for yaw in range(0, 360, 15) for pitch in (-60, -20, 0, 20, 60)))
+
 stage = AppearancePreview({"active_skin": "older.png"})
-check("frame swaps retain the old image instead of blinking", stage.image.gapless_playback)
-check("orbit uses one stable image control", stage.gesture.content is stage.image)
-jobs, loads, paints, renders = [], [], [], []
+check("orbit uses one stable native scene", stage.gesture.content is stage.scene)
+jobs, loads, paints = [], [], []
 
 
 class QueuedThread:
@@ -75,49 +93,56 @@ class QueuedThread:
         jobs.append(self.target)
 
 
-class TestModel:
-    def __init__(self, name):
-        self.name = name
-
-    def png(self, yaw, pitch):
-        renders.append((self.name, yaw, pitch))
-        if self.name == "older.png":
-            stage.cfg["active_skin"] = "newest.png"
-            stage.refresh(invalidate=True)
-            stage.turn(30)
-        return f"{self.name}:{yaw}:{pitch}".encode()
-
-
 def load_model(cfg, default_cape_path):
     loads.append(dict(cfg))
-    return TestModel(cfg.get("active_skin"))
+    if cfg.get("active_skin") == "older.png":
+        stage.cfg["active_skin"] = "newest.png"
+        stage.refresh(invalidate=True)
+        stage.turn(30)
+    loaded = CharacterModel(skins.default_base_skin())
+    loaded.fixture_name = cfg.get("active_skin")
+    return loaded
 
 
 with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
      patch.object(CharacterModel, "from_config", side_effect=load_model), \
      patch("ui.appearance_preview.thread_safe_ui.refresh", side_effect=paints.append):
     stage.refresh(invalidate=True)
-    check("rendering starts one background worker", len(jobs) == 1)
+    check("loading starts one background asset worker", len(jobs) == 1)
     jobs.pop(0)()
-    check("a stale render never replaces the newly selected skin", stage.image.src.startswith(b"newest.png:"))
-    check("queued drag and skin requests coalesce into the same worker", not jobs and len(renders) == 2)
-    check("only the newest completed frame repaints", paints.count(stage.image) == 1)
-    check("the worker exits when there is no pending frame", not stage._running)
+    check("a stale asset load never replaces the selected skin", stage._model.fixture_name == "newest.png")
+    check("queued asset and drag requests do not spawn frame workers", not jobs and len(loads) == 2)
+    check("only the newest loaded mesh repaints", paints.count(stage.scene) == 1)
+    check("the asset worker exits once the mesh is ready", not stage._running)
+    textures = [plane.content for plane in stage._mesh.values()]
+    check("all textures stay mounted and use gapless playback", all(texture.gapless_playback for texture in textures) and all(plane.visible for plane in stage._mesh.values()))
     prior_loads = len(loads)
     stage.refresh(invalidate=True)
     jobs.pop(0)()
-    check("changing the arm model invalidates the cached geometry", len(loads) == prior_loads + 1)
+    check("changing the arm model reloads geometry", len(loads) == prior_loads + 1)
+    textures = tuple((id(plane.content), plane.content.src) for plane in stage._mesh.values())
     stage.gesture.on_pan_update(ft.DragUpdateEvent(name="pan_update", control=stage.gesture,
         local_position=ft.Offset(0, 0), global_position=ft.Offset(0, 0), local_delta=ft.Offset(20, 1000)))
     check("real drag payloads rotate horizontally and clamp vertical tilt", stage.yaw == 69 and stage.pitch == 75)
     stage.reset()
-    jobs.pop(0)()
-    check("reset returns to the initial camera without remounting the image", stage.yaw == 25 and stage.pitch == 10 and stage.gesture.content is stage.image)
-    for angle in range(55):
+    check("reset returns to the initial camera without remounting the scene", stage.yaw == 25 and stage.pitch == 10 and stage.gesture.content is stage.scene)
+    encode = configure_encode_object_for_msgpack(BaseControl)
+    initial, _added, _removed = ObjectPatch.from_diff(None, stage.scene, BaseControl)
+    msgpack.packb(initial.to_message(), default=encode)
+    patch_sizes = []
+    for angle in (0, 30, 90, 180, 270, 330):
         stage.yaw = angle
         stage.refresh()
-        jobs.pop(0)()
-    check("orbit frame caching is bounded", len(stage._frames) == 48)
+        changes, added, removed = ObjectPatch.from_diff(stage.scene, stage.scene, BaseControl)
+        encoded = msgpack.packb(changes.to_message(), default=encode)
+        patch_sizes.append(len(encoded))
+        check(f"orbit {angle}: real transform changes reach the client", len(encoded) > 3 and b"transform" in encoded)
+        check(f"orbit {angle}: cached textures and planes never remount", not added and not removed)
+        check(f"orbit {angle}: no PNG/image source retransmits", b"src" not in encoded)
+    check("dragging neither rebuilds textures nor queues PNG frames",
+          not jobs and textures == tuple((id(plane.content), plane.content.src) for plane in stage._mesh.values()))
+    check("native transform patches remain small", max(patch_sizes) < 20000)
+    print(f"  largest native orbit patch: {max(patch_sizes):,} bytes")
 
 driver = app_driver.build_headless()
 driver.open_tab("profile")
