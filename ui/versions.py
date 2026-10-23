@@ -344,10 +344,17 @@ class VersionPicker:
 class InstanceCards:
     """One art card per installed version, carrying loader / mods / last-played.
 
-    Cards are built ONCE and afterwards only RESTYLED (selection) or have
-    their non-image chip row refreshed. A rebuilt ``ft.Image`` is a brand-new
-    control, so Flet re-sends its whole base64 payload and every thumbnail in
-    the row reloads - see tools/test_version_art_cache.py.
+    Cards are built ONCE and afterwards only RESTYLED (selection), have their
+    non-image chip row refreshed, or get their name label edited in place. A
+    rebuilt ``ft.Image`` is a brand-new control, so Flet re-sends its whole
+    base64 payload and every thumbnail in the row reloads - see
+    tools/test_version_art_cache.py.
+
+    For the same reason the row's ``controls`` list is only ever MUTATED, never
+    reassigned: assigning a non-equal list lands in Flet's ``__changes`` and is
+    patched as a whole-list replace, which re-serialises every child (and thus
+    every thumbnail). In-place mutation is diffed child by child, so adding,
+    removing or reordering one card leaves the other images untouched.
     """
 
     def __init__(self, page, *, get_metas, get_labels, get_selected, on_select,
@@ -368,6 +375,7 @@ class InstanceCards:
         self._widgets: dict = {}    # version_id -> (card, art)
         self._chips: dict = {}      # version_id -> the chip Row control
         self._names: dict = {}      # version_id -> the name the card was drawn with
+        self._name_controls: dict = {}  # version_id -> the card's name ft.Text
         self._order = None          # the installed set/order the row holds
         self._selected_styled = None
         # rebuild() is reachable from MORE than one thread: the Play tab's own
@@ -418,6 +426,9 @@ class InstanceCards:
 
         chips = ft.Row([], spacing=6, run_spacing=4, wrap=True)
         self._sync_chips(chips, info)
+        name_text = ft.Text(name, size=13.5, color=TEXT,
+                            weight=ft.FontWeight.W_600, max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS)
         card = ft.Container(
             content=ft.Column(
                 [
@@ -429,9 +440,7 @@ class InstanceCards:
                     ft.Container(
                         content=ft.Column(
                             [
-                                ft.Text(name, size=13.5, color=TEXT,
-                                        weight=ft.FontWeight.W_600, max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS),
+                                name_text,
                                 ft.Text(base, size=10.5, color=TEXT_FAINT,
                                         font_family=FONT_MONO, max_lines=1,
                                         overflow=ft.TextOverflow.ELLIPSIS),
@@ -454,7 +463,7 @@ class InstanceCards:
             tooltip=f"Select {name}",
             on_click=lambda e, k=vid: self.on_select(k),
         )
-        return card, art, chips
+        return card, art, chips, name_text
 
     @staticmethod
     def _style(card, selected):
@@ -482,19 +491,32 @@ class InstanceCards:
             self._widgets.pop(gone, None)
             self._chips.pop(gone, None)
             self._names.pop(gone, None)
+            self._name_controls.pop(gone, None)
             touched = True
         for vid in metas:
             meta = metas.get(vid, {})
             label = labels.get(vid)
             name = label or meta.get("display_name") or vid
-            if vid not in self._widgets or self._names.get(vid) != name:
-                card, art, chips = self._make_card(vid, meta, label, name)
+            if vid not in self._widgets:
+                card, art, chips, name_text = self._make_card(
+                    vid, meta, label, name)
                 self._widgets[vid] = (card, art)
                 self._chips[vid] = chips
                 self._names[vid] = name
+                self._name_controls[vid] = name_text
                 touched = True
-            elif self._sync_chips(self._chips[vid],
-                                  instance_info.describe(vid, meta, label)):
+                continue
+            if self._names.get(vid) != name:
+                # Rename only: edit the label in place. Re-creating the card
+                # would build a new ft.Image, and Flet cannot diff that - it
+                # re-sends the base64 art and every thumbnail in the row
+                # visibly reloads. See the class docstring.
+                self._name_controls[vid].value = name
+                self._widgets[vid][0].tooltip = f"Select {name}"
+                self._names[vid] = name
+                thread_safe_ui.refresh(self._widgets[vid][0])
+            if self._sync_chips(self._chips[vid],
+                                instance_info.describe(vid, meta, label)):
                 thread_safe_ui.refresh(self._chips[vid])
         order = list(metas)
         if order != self._order:
@@ -502,7 +524,13 @@ class InstanceCards:
             touched = True
         if touched:
             cards = [self._widgets[vid][0] for vid in order]
-            self.row.controls = cards
+            # Mutate the existing list: reassigning it is tracked as a
+            # structural change and patched as a full-list replace, which
+            # re-serialises every card (and every image) even when only one
+            # card was added or moved. In-place mutation lets Flet's keyed
+            # list diff touch only the children that actually changed.
+            if list(self.row.controls) != cards:
+                self.row.controls[:] = cards
             self.row.visible = bool(cards)
             self.empty.visible = not cards
             thread_safe_ui.refresh(self.row)

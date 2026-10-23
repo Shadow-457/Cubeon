@@ -331,10 +331,14 @@ Durable consequences — do not re-derive these:
 - INVARIANTS (guarded by tools/test_version_ui.py + test_instances.py):
   - The picker filters its OWN `self._entries` snapshot and **never touches
     `version_dropdown`** (the live dropdown is main.py's alone).
-  - Instance cards are built once and only restyled/refresh their imageless chip
-    row — a rebuilt `ft.Image` re-sends its base64 payload (see
-    test_version_art_cache.py). Cards stay width=210 with a one-default-str
-    `on_click` (`lambda e, k=vid: on_select(k)`); that shape is how
+  - Instance cards are built once and only restyled / have their imageless chip
+    row refreshed / have the name label edited in place — a rebuilt `ft.Image`
+    re-sends its base64 payload (see test_version_art_cache.py). The row's
+    `controls` list is only MUTATED (`row.controls[:] = [...]`), never
+    reassigned: a non-equal reassignment is patched by Flet as a whole-list
+    replace, which re-sends EVERY card's art (the old rename bug). Cards stay
+    width=210 with a one-default-str `on_click`
+    (`lambda e, k=vid: on_select(k)`); that shape is how
     test_version_art_cache finds them.
   - `main.py` keeps the `ft.Dropdown` as the source of truth; `refresh_version_list`
     feeds the picker richer entry dicts and mirrors the plain option text.
@@ -4332,6 +4336,16 @@ Cubeon cape resolves.
   once a Play click was followed by a delete). Guarded by test_version_ui
   section 6. Still open: `_rescan_installed` touches ft controls off the event
   loop instead of going through `cubeon/thread_safe_ui`.
+- **"Jump back in" thumbnails flash on ANY Play-menu change (fixed 2026-10-23).**
+  Renaming an instance re-created its card, and `_rebuild` then did
+  `self.row.controls = cards`. Flet tracks a plain `controls` reassignment in
+  `__changes` (the field is structural, not a `Prop`) and patches it as a
+  whole-list REPLACE, so ONE rename re-sent EVERY thumbnail's base64 payload.
+  Fix: the name `ft.Text` is stored per card and edited in place on rename, and
+  the row list is mutated with `row.controls[:] = cards`, which Flet's keyed
+  list diff turns into per-child add/remove/move ops. Verified at the Flet wire
+  level: rename = one 130 B text replace, add = one child add, reorder = moves,
+  zero image `src` re-sends. Regression: test_version_art_cache.py sections 6-7.
 
 - **A release `--clobber` upload DELETES the asset before uploading the new one
   (2026-10-17) - INVARIANT-ish.** An upload that is interrupted in between

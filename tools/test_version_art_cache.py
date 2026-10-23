@@ -20,6 +20,13 @@ over. Two independent causes, both fixed here and both pinned by this file:
      416 KB of art for six installed versions, re-sent per selection change.
      Selection is now a border/fill restyle, which sends two fields.
 
+  3. Renaming an instance used to re-create its card, and the row was then
+     re-assigned as a whole (`row.controls = [...]`). Flet tracks a plain
+     `controls` reassignment as a structural change and patches it as a
+     whole-list REPLACE, so ONE renamed card re-sent EVERY thumbnail in the
+     row. The label is now edited in place and the row list is mutated
+     (`row.controls[:] = [...]`), which Flet diffs child by child.
+
 The card half is checked against the REAL built UI through tools/app_driver,
 because the invariant is object identity of the live controls - which is
 exactly what a re-created widget breaks.
@@ -47,6 +54,7 @@ import app_driver                                           # noqa: E402
 import _fuzz_common as fz                                   # noqa: E402
 from _fuzz_common import every_control                      # noqa: E402
 from cubeon import theme, version_art                       # noqa: E402
+from ui.versions import InstanceCards                       # noqa: E402
 
 passed = 0
 failed = 0
@@ -152,6 +160,20 @@ stubs.core.get_installed_versions = lambda *a, **k: [
     {"id": "1.20.1", "type": "release", "name": "1.20.1"},
 ]
 page = app_driver.DriverPage()
+
+# Keep a handle to the live InstanceCards the real app builds, so the rename
+# and reorder invariants below are checked against the production row.
+_live_cards = {}
+_real_init = InstanceCards.__init__
+
+
+def _capturing_init(self, *args, **kwargs):
+    _real_init(self, *args, **kwargs)
+    _live_cards["instance"] = self
+
+
+InstanceCards.__init__ = _capturing_init
+
 stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")   # the row lives on the Play tab
@@ -212,6 +234,51 @@ check("every card is the SAME widget (no rebuild -> no image resend)",
 check("and every card still holds the SAME image widget",
       all(id(art_of(after_cards[vid])) == before[vid][1] for vid in before),
       "art controls were re-created")
+
+print("\n6. renaming an instance edits its label in place")
+instance_cards = _live_cards["instance"]
+row_list = instance_cards.row.controls
+labels = {}
+instance_cards.get_labels = lambda: labels
+before = {vid: (id(c), id(art_of(c))) for vid, c in find_cards().items()}
+labels["1.20.1"] = "SmokePilot"
+instance_cards.rebuild()
+after_cards = find_cards()
+
+check("the card is the SAME widget after a rename",
+      all(id(after_cards[vid]) == before[vid][0] for vid in before),
+      "a rename re-created the card")
+check("and it still holds the SAME image widget",
+      all(id(art_of(after_cards[vid])) == before[vid][1] for vid in before),
+      "a rename re-created the art control")
+check("the row list was mutated in place, not reassigned",
+      instance_cards.row.controls is row_list,
+      "row.controls was replaced -> Flet re-sends every child")
+check("the card shows the new name",
+      after_cards["1.20.1"].content.controls[1].content.controls[0].value
+      == "SmokePilot")
+check("the tooltip follows the new name",
+      after_cards["1.20.1"].tooltip == "Select SmokePilot")
+
+print("\n7. a reorder keeps the cards (and their images) alive")
+metas = dict(instance_cards.get_metas())
+instance_cards.get_metas = lambda: dict(reversed(list(metas.items())))
+before = {vid: (id(c), id(art_of(c))) for vid, c in find_cards().items()}
+instance_cards.rebuild()
+reordered = find_cards()
+
+check("a reorder does not re-create any card",
+      all(id(reordered[vid]) == before[vid][0] for vid in before),
+      "a reorder re-created a card")
+check("nor any image",
+      all(id(art_of(reordered[vid])) == before[vid][1] for vid in before),
+      "a reorder re-created an art control")
+check("and the row list is still the same object",
+      instance_cards.row.controls is row_list,
+      "row.controls was replaced -> Flet re-sends every child")
+check("the cards follow the new order",
+      [id(c) for c in instance_cards.row.controls]
+      == [before[vid][0] for vid in reversed(list(metas))])
 
 print(f"\n{passed} passed, {failed} failed")
 print("Version-art cache test: " + ("FAIL" if failed else "PASS"))
