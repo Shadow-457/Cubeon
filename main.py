@@ -5063,6 +5063,35 @@ async def main(page: ft.Page):
         rename_instance_btn.opacity = 1 if installed_sel else 0.4
         delete_instance_btn.opacity = 1 if installed_sel else 0.4
 
+    # "Folder" on the hero card: the answer to "where is my Minecraft folder"
+    # without leaving the Play tab (2026-10-23). Opens the game directory
+    # (not the Cubeon data dir) and always stays clickable - it is harmless
+    # when nothing is installed and is still the right folder to tidy up.
+    def _open_minecraft_folder(e=None):
+        from cubeon.paths import MINECRAFT_DIR
+        _open_any_folder(MINECRAFT_DIR, "Minecraft folder")
+
+    folder_instance_btn = theme.attach_hover(
+        ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, size=15,
+                            color=TEXT_DIM),
+                    ft.Text("Folder", size=12, color=TEXT_DIM),
+                ],
+                spacing=6,
+            ),
+            bgcolor=ft.Colors.with_opacity(0.35, SURFACE_HI),
+            border=ft.border.Border.all(1, CARD_BORDER),
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+            tooltip=("Open the Minecraft game folder "
+                     "(versions, mods, saves, screenshots)"),
+        ),
+        ft.Colors.with_opacity(0.35, SURFACE_HI), ROW_HOVER,
+    )
+    folder_instance_btn.on_click = _open_minecraft_folder
+
     # -----------------------------------------------------------------
     # PLAY TAB LAYOUT
     #
@@ -5106,34 +5135,30 @@ async def main(page: ft.Page):
     # One fetch per version serves every interested control (_art_watchers), so
     # update_hero running on every selection change doesn't re-spawn the fetch.
     # -----------------------------------------------------------------
-    ART_RADIUS = 12  # version art keeps a rounder corner than the 8px controls
-    # The version spotlight: the official key art at its TRUE aspect (Mojang's
-    # art is square, so cropping it into a wide banner threw most of it away)
-    # beside the official release title and a line of patch-notes flavour.
-    hero_art = ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER,
-                        width=152, height=152, border_radius=ART_RADIUS)
-    hero_art_title = ft.Text("", size=15, color=TEXT,
-                             weight=ft.FontWeight.W_700, max_lines=1,
-                             overflow=ft.TextOverflow.ELLIPSIS)
-    hero_art_note = ft.Text("", size=12, color=TEXT_DIM, max_lines=3,
-                            overflow=ft.TextOverflow.ELLIPSIS)
-    hero_art_panel = ft.Container(
-        content=ft.Row(
-            [
-                hero_art,
-                ft.Container(width=16),
-                ft.Column(
-                    [hero_art_title, ft.Container(height=6), hero_art_note],
-                    spacing=0, expand=True,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                ),
+    # The version art IS the hero panel's background (2026-10-23): the old
+    # layout kept it in a separate "spotlight" card under the launcher, which
+    # read as a second, unrelated card. Now the selected version's official
+    # key art fills the main card behind a scrim, so the panel has a visual
+    # identity instead of a flat glass fill.
+    hero_art = ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER, expand=True)
+    hero_art_scrim = ft.Container(
+        left=0, top=0, right=0, bottom=0,
+        # Dark at the bottom where the controls live, lighter at the top so
+        # the art is still visible behind the instance header.
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment.TOP_CENTER,
+            end=ft.Alignment.BOTTOM_CENTER,
+            colors=[
+                ft.Colors.with_opacity(0.34, BG),
+                ft.Colors.with_opacity(0.78, BG),
+                ft.Colors.with_opacity(0.96, BG),
             ],
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            stops=[0.0, 0.34, 1.0],
         ),
-        padding=16,
-        bgcolor=CARD_FILL,
-        border=ft.border.Border.all(1, CARD_BORDER),
-        border_radius=ART_RADIUS,
+    )
+    hero_art_layer = ft.Container(
+        content=hero_art,
+        left=0, top=0, right=0, bottom=0,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
     )
     _hero_art_uid = {"value": None}
@@ -5169,17 +5194,6 @@ async def main(page: ft.Page):
     def _refresh_hero_banner(version):
         base = core.extract_mc_version(version) or version
         _hero_art_uid["value"] = version
-
-        # Text first - it comes from the cached feed, so it's right even before
-        # the image bytes are on disk.
-        info = version_art.meta(base) if base else {}
-        hero_art_title.value = (info.get("title")
-                                or (f"Minecraft {base}" if base else "Minecraft"))
-        note = info.get("shortText") or ""
-        hero_art_note.value = note
-        hero_art_note.visible = bool(note)
-        thread_safe_ui.refresh(hero_art_title)
-        thread_safe_ui.refresh(hero_art_note)
 
         cached = version_art.src(base) if base else None
         if hero_art.src != (cached or "titleimg.jpg"):
@@ -5343,156 +5357,162 @@ async def main(page: ft.Page):
             ft.Container(height=16),  # heading -> card
 
             # --- HERO PANEL: the instance card ---
+            # The selected version's art is the card's BACKGROUND (see
+            # hero_art above), under a bottom-heavy scrim so every control and
+            # label stays readable. The old version-spotlight card below the
+            # hero is gone - the art now belongs to the main card itself.
             ft.Container(
-                content=ft.Column(
+                content=ft.Stack(
                     [
-                        # INSTANCE HEADER: emblem, instance name + meta line,
-                        # contextual rename/delete.
-                        ft.Row(
-                            [
-                                # Rotating grass-block GIF (assets/grass_block.gif),
-                                # generated in-house - the instance's emblem.
-                                ft.Image(src="grass_block.gif", width=56, height=56, fit=ft.BoxFit.CONTAIN),
-                                ft.Container(width=12),
-                                ft.Column(
-                                    [
-                                        ft.Row(
-                                            [
-                                                hero_title,
-                                                ft.Container(width=4),
-                                                rename_instance_btn,
-                                                delete_instance_btn,
-                                            ],
-                                            spacing=2,
-                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        ),
-                                        ft.Row(
-                                            [
-                                                hero_loader_chip,
-                                                pack_name_badge,
-                                                hero_version_text,
-                                            ],
-                                            spacing=10,
-                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                        ),
-                                        version_issue_text,
-                                    ],
-                                    spacing=6,
-                                    expand=True,
-                                ),
-                            ],
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        hero_art_layer,
+                        hero_art_scrim,
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    # INSTANCE HEADER: emblem, instance name + meta line,
+                                    # contextual rename/delete.
+                                    ft.Row(
+                                        [
+                                            # Rotating grass-block GIF (assets/grass_block.gif),
+                                            # generated in-house - the instance's emblem.
+                                            ft.Image(src="grass_block.gif", width=56, height=56, fit=ft.BoxFit.CONTAIN),
+                                            ft.Container(width=12),
+                                            ft.Column(
+                                                [
+                                                    ft.Row(
+                                                        [
+                                                            hero_title,
+                                                            ft.Container(width=4),
+                                                            ft.Container(expand=True),
+                                                            folder_instance_btn,
+                                                            rename_instance_btn,
+                                                            delete_instance_btn,
+                                                        ],
+                                                        spacing=4,
+                                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                    ft.Row(
+                                                        [
+                                                            hero_loader_chip,
+                                                            pack_name_badge,
+                                                            hero_version_text,
+                                                        ],
+                                                        spacing=10,
+                                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                                    ),
+                                                    version_issue_text,
+                                                ],
+                                                spacing=6,
+                                                expand=True,
+                                            ),
+                                        ],
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+
+                                    ft.Container(height=16),
+
+                                    # CONFIGURATION: two related fields on one row - game
+                                    # version (a dropdown) and account (an account field) -
+                                    # then the mod loader choice below them.
+                                    ft.Row(
+                                        [
+                                            ft.Column(
+                                                [
+                                                    section_label("Game version"),
+                                                    ft.Container(height=6),
+                                                    version_dropdown_button,
+                                                ],
+                                                spacing=0,
+                                                expand=True,
+                                            ),
+                                            ft.Container(width=16),
+                                            ft.Column(
+                                                [
+                                                    section_label("Account"),
+                                                    ft.Container(height=6),
+                                                    username_field,
+                                                ],
+                                                spacing=0,
+                                                expand=True,
+                                            ),
+                                        ],
+                                    ),
+                                    ft.Container(height=14),
+                                    ft.Column(
+                                        [
+                                            section_label("Mod loader"),
+                                            ft.Container(height=6),
+                                            loader_toggle,
+                                            loader_status_text,
+                                        ],
+                                        spacing=0,
+                                    ),
+
+                                    ft.Container(height=18),
+
+                                    # FPS BOOST: the toggle that actually helps. Sits in
+                                    # the Play menu (not Settings) because it changes what
+                                    # THIS launch looks and feels like, right next to the
+                                    # loader choice it rides on. See the fps_boost_switch
+                                    # builder above.
+                                    ft.Row(
+                                        [
+                                            ft.Column(
+                                                [
+                                                    section_label("FPS boost"),
+                                                    ft.Container(height=2),
+                                                    ft.Text(
+                                                        "Max FPS at launch. Off restores vanilla graphics "
+                                                        "(fancy, smooth lighting, shadows) on the next launch.",
+                                                        size=11, color=TEXT_DIM,
+                                                    ),
+                                                ],
+                                                spacing=0,
+                                                expand=True,
+                                            ),
+                                            fps_boost_switch,
+                                        ],
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+
+                                    ft.Container(height=18),
+
+                                    # ACTION FOOTER: the primary PLAY action on the right,
+                                    # with its aura under it (hero_ambient drives the
+                                    # bloom's opacity - see the hero_glow comment above).
+                                    # The sheen is INSIDE play_button (see its creation);
+                                    # as a sibling here it absorbed every real-window tap
+                                    # that followed a hover and PLAY died (2026-10-18/19).
+                                    # Stack children paint in order, so the glow goes
+                                    # first and the button last; the glow is positioned
+                                    # with negative insets and does not size the Stack.
+                                    ft.Row(
+                                        [
+                                            ft.Container(expand=True),
+                                            ft.Stack(
+                                                [
+                                                    hero_glow,
+                                                    ft.Container(width=280, content=play_button),
+                                                ],
+                                                clip_behavior=ft.ClipBehavior.NONE,
+                                            ),
+                                        ],
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+
+                                    ft.Container(height=12),
+                                    progress_row,
+                                    progress_bar,
+                                ],
+                                spacing=0,
+                            ),
+                            padding=20,
                         ),
-
-                        ft.Container(height=16),
-
-                        # CONFIGURATION: two related fields on one row - game
-                        # version (a dropdown) and account (an account field) -
-                        # then the mod loader choice below them.
-                        ft.Row(
-                            [
-                                ft.Column(
-                                    [
-                                        section_label("Game version"),
-                                        ft.Container(height=6),
-                                        version_dropdown_button,
-                                    ],
-                                    spacing=0,
-                                    expand=True,
-                                ),
-                                ft.Container(width=16),
-                                ft.Column(
-                                    [
-                                        section_label("Account"),
-                                        ft.Container(height=6),
-                                        username_field,
-                                    ],
-                                    spacing=0,
-                                    expand=True,
-                                ),
-                            ],
-                        ),
-                        ft.Container(height=14),
-                        ft.Column(
-                            [
-                                section_label("Mod loader"),
-                                ft.Container(height=6),
-                                loader_toggle,
-                                loader_status_text,
-                            ],
-                            spacing=0,
-                        ),
-
-                        ft.Container(height=18),
-
-                        # FPS BOOST: the toggle that actually helps. Sits in
-                        # the Play menu (not Settings) because it changes what
-                        # THIS launch looks and feels like, right next to the
-                        # loader choice it rides on. See the fps_boost_switch
-                        # builder above.
-                        ft.Row(
-                            [
-                                ft.Column(
-                                    [
-                                        section_label("FPS boost"),
-                                        ft.Container(height=2),
-                                        ft.Text(
-                                            "Max FPS at launch. Off restores vanilla graphics "
-                                            "(fancy, smooth lighting, shadows) on the next launch.",
-                                            size=11, color=TEXT_DIM,
-                                        ),
-                                    ],
-                                    spacing=0,
-                                    expand=True,
-                                ),
-                                fps_boost_switch,
-                            ],
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-
-                        ft.Container(height=18),
-
-                        # ACTION FOOTER: the primary PLAY action on the right,
-                        # with its aura under it (hero_ambient drives the
-                        # bloom's opacity - see the hero_glow comment above).
-                        # The sheen is INSIDE play_button (see its creation);
-                        # as a sibling here it absorbed every real-window tap
-                        # that followed a hover and PLAY died (2026-10-18/19).
-                        # Stack children paint in order, so the glow goes
-                        # first and the button last; the glow is positioned
-                        # with negative insets and does not size the Stack.
-                        ft.Row(
-                            [
-                                ft.Container(expand=True),
-                                ft.Stack(
-                                    [
-                                        hero_glow,
-                                        ft.Container(width=280, content=play_button),
-                                    ],
-                                    clip_behavior=ft.ClipBehavior.NONE,
-                                ),
-                            ],
-                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-
-                        ft.Container(height=12),
-                        progress_row,
-                        progress_bar,
                     ],
-                    spacing=0,
                 ),
-                **glass_card(hero=True, padding=20),
+                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                **glass_card(hero=True, padding=0),
             ),
-
-            ft.Container(height=18),  # card -> version spotlight
-
-            # VERSION SPOTLIGHT - the selected version's official key art at its
-            # true (square) aspect beside the official release title and a line
-            # of patch-notes flavour from Mojang's own feed. Cropping the square
-            # art into a full-width banner threw most of it away, which is what
-            # made it read as "not showing correctly". Falls back to the bundled
-            # key art (and a plain label) for versions the feed doesn't carry.
-            hero_art_panel,
 
             ft.Container(height=24),
 

@@ -344,6 +344,15 @@ Durable consequences — do not re-derive these:
     feeds the picker richer entry dicts and mirrors the plain option text.
   - `on_rename_instance`/`on_delete_instance` take an optional `vid=` so the
     manager can target any instance (not just the selected one).
+  - The Play hero card's BACKGROUND is the selected version's art (2026-10-23):
+    `hero_art` is a full-card `ft.Image(fit=COVER, expand=True)` inside a
+    `ft.Stack` [art layer, gradient scrim, padded content]. The separate
+    version-spotlight card below the hero is GONE - `_refresh_hero_banner` only
+    swaps `hero_art.src`; do not reintroduce a second art surface.
+  - The hero header carries a "Folder" button (`folder_instance_btn`) that
+    opens `cubeon.paths.MINECRAFT_DIR` via `_open_any_folder` (late-bound, same
+    opener as Settings → Minecraft files); it stays enabled with no install
+    selected because the game folder is still a valid thing to open.
 - Last-played is a tiny `CUBEON_HOME/instance_play.json` sidecar written at
   launch (`instance_info.mark_played`) — deliberately NOT config.json, which is
   the most-written file in the launcher.
@@ -1183,6 +1192,12 @@ facts belong HERE, not in diary notes.
   actually MOUNT on a fresh driver - `_ensure_tab` swallows a crashed lazy
   builder by design, so "the tab opened" alone proves nothing. Guards:
   tools/test_server_browse.py (59 checks, fully offline), tools/test_mega_smoke.py.
+- **Keep the Browse copy lean (2026-10-23, user: "too bloated with text").**
+  One subtitle line ("Live player counts · most playing first"), one counts
+  line ("N servers · N online · N players"), and exactly ONE description line
+  per row: it shows `entry["blurb"]` until the server answers, then the live
+  MOTD; an offline answer KEEPS the blurb (a blank line reads as broken).
+  Don't reintroduce a separate always-on blurb above the MOTD.
 
 ## Chat dupes + latency / restart button / Windows packaging (2026-09-23) — INVARIANTS
 - **Chat dupe rule**: a red "Couldn't send" bubble STAYS in `_pending`

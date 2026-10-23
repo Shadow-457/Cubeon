@@ -64,7 +64,7 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
         "tag": None,
         "loading": False,
     }
-    row_controls = {}           # host -> {"dot","players","motd","join","line2"}
+    row_controls = {}           # host -> {"dot","players","motd","join"}
 
     # ------------------------------------------------------------------
     # Row building
@@ -97,10 +97,8 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
                            bgcolor=OFFLINE_DOT)
         players_text = ft.Text("checking…", size=12.5, color=TEXT_FAINT,
                                font_family=FONT_MONO)
-        motd_text = ft.Text("", size=11, color=TEXT_FAINT, max_lines=1,
-                            font_family=FONT_MONO)
-        blurb_text = ft.Text(entry.get("blurb") or "", size=12,
-                             color=TEXT_DIM, max_lines=1)
+        motd_text = ft.Text(entry.get("blurb") or "", size=11, color=TEXT_FAINT,
+                            max_lines=1, font_family=FONT_MONO)
 
         version_id = state.get("selected_version")
         join_btn = attach_hover(
@@ -174,7 +172,6 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
                     ft.Container(expand=True, content=ft.Column(
                         [
                             name_row,
-                            blurb_text,
                             motd_text,
                         ],
                         spacing=3,
@@ -195,7 +192,7 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
         attach_hover(row, "transparent", ROW_HOVER)
         row_controls[host] = {
             "dot": dot, "players": players_text, "motd": motd_text,
-            "join": join_btn, "blurb": blurb_text,
+            "join": join_btn,
         }
         _apply_status(row_controls[host], entry)
         return row
@@ -215,14 +212,17 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
             ctrl["dot"].bgcolor = ONLINE_DOT
             ctrl["players"].value = f"{int(s.get('players') or 0):,} online"
             ctrl["players"].color = TEXT
-            ctrl["motd"].value = s.get("motd") or ""
+            # The one description line starts as the catalogue blurb and
+            # becomes the server's real MOTD once it answers.
+            ctrl["motd"].value = s.get("motd") or ctrl["motd"].value
             ctrl["players"].tooltip = ("last seen recently - refreshing"
                                        if s.get("stale") else None)
         elif s is not None:
             ctrl["dot"].bgcolor = OFFLINE_DOT
             ctrl["players"].value = "offline"
             ctrl["players"].color = TEXT_FAINT
-            ctrl["motd"].value = ""
+            # Keep the blurb - a blank second line reads as broken, not as
+            # "this server is down".
         # else: leave the "checking…" placeholders alone
 
     def _paint_row(entry: dict):
@@ -263,10 +263,8 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
                      ft.Text("No servers match" if (q or tag)
                              else "Checking the big servers…",
                              size=14, color=TEXT_DIM),
-                     ft.Text("Type any address like mc.example.net to check "
-                             "and join it" if (q or tag) else
-                             "Live player counts, refreshed in the "
-                             "background",
+                     ft.Text("Type an address like mc.example.net" if (q or tag)
+                             else "Live counts load in the background",
                              size=12, color=TEXT_FAINT)],
                     spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -279,8 +277,7 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
         players = sum(int((e.get("status") or {}).get("players") or 0)
                       for e in shown)
         status_line.value = (
-            f"{len(shown)} servers · {online} online · {players:,} players "
-            f"in total · sorted most playing first"
+            f"{len(shown)} servers · {online} online · {players:,} players"
             if shown else "")
         thread_safe_ui.refresh(results_col)
         thread_safe_ui.refresh(status_line)
@@ -289,7 +286,7 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
     # Search + tag chips
     # ------------------------------------------------------------------
     search_field = ft.TextField(
-        hint_text="Search servers, or type an address like mc.hypixel.net",
+        hint_text="Search or type an address (mc.example.net)",
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         expand=True, dense=True, border_radius=RADIUS,
         border_color=BORDER, focused_border_color=ACCENT,
@@ -353,7 +350,7 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
         rows_state["query"] = ""
         rows_state["lookup"] = {
             "name": host, "host": key, "tags": ["lookup"],
-            "blurb": "Direct address lookup - live status below.",
+            "blurb": "Direct address lookup",
             "status": None, "icon": sb.icon_url(key),
         }
         render()
@@ -454,9 +451,7 @@ def build_server_browse_tab(page: ft.Page, cfg: dict, state: dict, *,
                 ],
                 spacing=10,
             ),
-            ft.Text("Live player counts from free public status APIs · "
-                    "click a server's address to copy it · JOIN launches "
-                    "the game straight into the server",
+            ft.Text("Live player counts · most playing first",
                     size=12, color=TEXT_FAINT),
             ft.Container(height=8),
             ft.Row([search_field, refresh_button], spacing=10),
