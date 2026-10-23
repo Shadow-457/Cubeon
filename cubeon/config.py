@@ -117,8 +117,9 @@ DEFAULT_CONFIG = {
     # that actually raise frame rate (Sodium, Lithium, ImmediatelyFast,
     # EntityCulling, MoreCulling, BadOptimizations, Krypton, ThreadTweak,
     # Dynamic FPS - fetched from Modrinth like any other mod) are present in
-    # the Fabric/Quilt profile, AND unlock Minecraft's own options.txt frame
-    # rate (Vsync off, FPS cap lifted - see cubeon/game_options.py).
+    # the Fabric/Quilt profile. It does NOT touch Vsync/maxFps (2026-10-24):
+    # those are the player's frame pacing, and a fresh install keeps
+    # Minecraft's own defaults (Vsync ON). See cubeon/game_options.py.
     # The Cubeon Client itself is a social mod and draws nothing expensive;
     # this is what turns "activate Cubeon Client" into a real FPS win.
     # Turning it off leaves the mod set and the game's options exactly as the
@@ -207,11 +208,10 @@ DEFAULT_CONFIG = {
     # timezone at startup (autumn/spring/winter/summer templates). The palette
     # is bound at import time, so changing this needs a relaunch - the Settings
     # pane says so, and offers to do it. Turning it off just keeps the normal
-    # green identity. OFF BY DEFAULT (2026-09-18 smoothness pass): the season
-    # detection + palette swap + greeting card are pure decoration, and the
-    # default experience should be the plain green identity unless the user
-    # asks for seasons.
-    "seasonal_theme": False,
+    # green identity. ON BY DEFAULT (2026-10-23 user ask): the seasonal look is
+    # the launcher's identity now, and a first run should wear it rather than
+    # looking like every other green launcher. Ambience stays opt-in below.
+    "seasonal_theme": True,
     # "auto" = follow the detected season. A season name overrides the guess,
     # for the two cases detection can't win: a user who disagrees with it, and
     # the tropics/equator, where "autumn" is a fiction either way. The Settings
@@ -219,8 +219,8 @@ DEFAULT_CONFIG = {
     "season_override": "auto",
     # The little companion in the top bar (assets/pets/<season>.gif). Pure
     # decoration - it costs no timer of its own, the GIF animates itself.
-    # Off with the rest of the seasonal layer by default.
-    "season_pet": False,
+    # On with the seasonal look by default.
+    "season_pet": True,
     # Falling leaves / snow / petals / fireflies in the corner. Opt-in AND
     # off by default: it is the only part of the seasonal layer that needs a
     # repaint clock, so it ships disabled until it has been measured on real

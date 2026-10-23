@@ -66,13 +66,19 @@ public final class MoveOverlayScreen extends Screen {
 
 		// Live ghost of the overlay itself; the keystrokes widget is drawn fully lit
 		// so it reads as a preview.
+		float hudScale = CubeonHudConfig.get().scale;
+		context.getMatrices().push();
+		context.getMatrices().scale(hudScale, hudScale, 1.0F);
+
 		switch (overlay) {
-			case FPS -> CubeonHud.renderFps(context, this.client, x, y);
-			case KEYS -> CubeonHud.renderKeys(context, this.client, x, y, true);
-			case ARMOR -> CubeonHud.renderArmor(context, this.client, x, y);
-			case PING -> CubeonHud.renderPing(context, this.client, x, y);
-			case CPS -> CubeonHud.renderCps(context, this.client, x, y);
+			case FPS -> CubeonHud.renderFps(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
+			case KEYS -> CubeonHud.renderKeys(context, this.client, (int) (x / hudScale), (int) (y / hudScale), true);
+			case ARMOR -> CubeonHud.renderArmor(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
+			case PING -> CubeonHud.renderPing(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
+			case CPS -> CubeonHud.renderCps(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
 		}
+
+		context.getMatrices().pop();
 
 		CubeonHud.drawOutline(context, x - PADDING, y - PADDING, w + 2 * PADDING, h + 2 * PADDING, 0xFFFFFFFF);
 		context.drawCenteredTextWithShadow(this.textRenderer, Text.translatable("cubeonclient.editor.hint"),

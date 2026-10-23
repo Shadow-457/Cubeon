@@ -65,15 +65,21 @@ public final class MoveOverlayScreen extends Screen {
 		int w = CubeonHud.widthOf(overlay, this.minecraft);
 		int h = CubeonHud.heightOf(overlay, this.minecraft);
 
+		float hudScale = CubeonHudConfig.get().scale;
+		graphics.pose().pushMatrix();
+		graphics.pose().scale(hudScale, hudScale);
+
 		// Live ghost of the overlay itself; the keystrokes widget is drawn fully lit
 		// so it reads as a preview.
 		switch (overlay) {
-			case FPS -> CubeonHud.renderFps(graphics, this.minecraft, x, y);
-			case KEYS -> CubeonHud.renderKeys(graphics, this.minecraft, x, y, true);
-			case ARMOR -> CubeonHud.renderArmor(graphics, this.minecraft, x, y);
-			case PING -> CubeonHud.renderPing(graphics, this.minecraft, x, y);
-			case CPS -> CubeonHud.renderCps(graphics, this.minecraft, x, y);
+			case FPS -> CubeonHud.renderFps(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale));
+			case KEYS -> CubeonHud.renderKeys(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale), true);
+			case ARMOR -> CubeonHud.renderArmor(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale));
+			case PING -> CubeonHud.renderPing(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale));
+			case CPS -> CubeonHud.renderCps(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale));
 		}
+
+		graphics.pose().popMatrix();
 
 		CubeonHud.drawOutline(graphics, x - PADDING, y - PADDING, w + 2 * PADDING, h + 2 * PADDING, 0xFFFFFFFF);
 		graphics.centeredText(this.font, Component.translatable("cubeonclient.editor.hint"), this.width / 2, 12, 0xFFFFC87D);

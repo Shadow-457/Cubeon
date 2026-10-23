@@ -1,32 +1,14 @@
 """
-Unlock Minecraft's own frame-rate knobs.
+Minecraft's own graphics knobs, without touching the player's frame pacing.
 
 Adding Sodium and friends only raises the frame rate a machine is *capable* of
-rendering. A client whose options.txt still says `enableVsync:true` and a low
-`maxFps` will keep reading 60 - or, worse, ~30 whenever a frame overruns the
-vblank and Vsync snaps it to half the display refresh. That is the single most
-common reason "I have Sodium but my FPS did not change" (FastClient-style
-clients turn these two off as part of their perf preset).
-
-So this module flips exactly the two options that are pure "unlock" and carry
-no gameplay or visual choice:
-
-  enableVsync:false     stop quantising output to the monitor's refresh rate
-  maxFps:260            remove the hard frame cap (vanilla's top slider value)
-
-Everything else in options.txt is left byte-for-byte alone. Resource packs and
-shaders are the player's choices and the launcher does not rewrite them (see
-content.py's rule) - raising the cap cannot make a slow machine fast, it only
-stops a fast machine being held back.
-
-Max FPS mode (apply_max_fps) is the launcher's DEFAULT graphics config
-(fps_boost_enabled defaults to True) and goes a step further. As well as the
-pure engine-work options - fast graphics preset, minimal particles, no ambient
-occlusion/shadow passes, trimmed entity update distance, no biome blending,
-chunk saves off the render thread - it also lowers the four levers that
-dominate frame rate on real hardware: renderDistance (8/12 -> 6),
-simulationDistance (12 -> 5), mipmapLevels (2) and 2D clouds (renderClouds
-"fast").
+rendering. Max FPS mode (apply_max_fps) is the launcher's DEFAULT graphics
+config (fps_boost_enabled defaults to True). It sets the engine-work options -
+fast graphics preset, minimal particles, no ambient occlusion/shadow passes,
+trimmed entity update distance, no biome blending, chunk saves off the render
+thread - plus the four levers that dominate frame rate on real hardware:
+renderDistance (8/12 -> 6), simulationDistance (12 -> 5), mipmapLevels (2) and
+2D clouds (renderClouds "fast").
 
   2026-10-18: those four used to be deliberately left alone "because they
   change what the player sees". A side-by-side run against FastClient on the
@@ -37,6 +19,15 @@ simulationDistance (12 -> 5), mipmapLevels (2) and 2D clouds (renderClouds
   Cubeon shipped measurably slower than the thing it is compared to. This is
   still a DEFAULT, not a lock: FPS boost OFF rewrites every one of these keys
   back to Minecraft's own defaults, render distance included.
+
+  2026-10-24: the launcher NO LONGER touches enableVsync or maxFps at all.
+  It used to force `enableVsync:false` + `maxFps:260` on every launch, which
+  meant a player could never keep Vsync on - and on a machine that can feed
+  frames faster than the monitor, that turns Minecraft into a six-core space
+  heater (the 2026-10-24 fan-noise report: 582% CPU, 83 C package, in a
+  singleplayer world). A fresh install now keeps Minecraft's own defaults
+  (Vsync ON, maxFps 120); a player who already turned Vsync off keeps it off.
+  The launcher never rewrites that choice in either direction.
 
 restore_vanilla_look() is Max FPS mode's OFF switch (2026-10-15): it rewrites
 the SAME keys back to Minecraft's own defaults, so turning FPS boost off in
@@ -59,6 +50,8 @@ from .paths import MINECRAFT_DIR
 
 VSYNC_KEY = "enableVsync"
 MAX_FPS_KEY = "maxFps"
+# Deliberately NOT in any applier below: these two belong to the player. The
+# launcher reads neither and writes neither (see the module docstring).
 
 # Max FPS mode (2026-10-14; distance levers added 2026-10-18). Each entry is
 # (key, value, why). Deliberately absent: resource packs, shaders, leaves and
@@ -117,33 +110,21 @@ VANILLA_LOOK_OPTIONS = {
     "renderClouds": '"true"',
 }
 
-# Vanilla's FPS slider tops out at 260 and labels it "Unlimited"; anything
-# above the slider is meaningless, and 260 is high enough to never be the cap
-# on real hardware.
-UNLIMITED_FPS = 260
+# Vsync and maxFps are intentionally absent from every table above. A fresh
+# install keeps Minecraft's own defaults (Vsync ON, maxFps 120); a player who
+# turned Vsync off keeps it off. The launcher must not rewrite that choice -
+# forcing it off on every launch is what turned Minecraft into a six-core
+# space heater on 2026-10-24.
 
 
 def options_path() -> str:
     return os.path.join(MINECRAFT_DIR, "options.txt")
 
 
-def unlock_frame_rate(path: str | None = None) -> dict:
-    """Turns off Vsync and lifts the FPS cap in options.txt, in place.
-
-    Returns {"changed": [...], "detail": str, "path": str}. "changed" lists the
-    option keys actually rewritten (empty when there was nothing to do or no
-    options.txt yet). Never raises: a missing/unwritable file is reported, not
-    fatal - this is a bonus on top of the mods, not a launch requirement.
-    """
-    return _set_options(path or options_path(),
-                        {VSYNC_KEY: "false", MAX_FPS_KEY: str(UNLIMITED_FPS)},
-                        "frame rate unlock")
-
-
 def _set_options(target: str, wanted: dict, label: str) -> dict:
     """Rewrites exactly the `wanted` keys in an options.txt, in place.
 
-    Same contract as unlock_frame_rate(): only keys that already exist are
+    Contract shared by every applier here: only keys that already exist are
     touched (an older version's file is never given an unknown key), the value
     is written only when it differs, the write is atomic and idempotent, and
     every failure is reported instead of raised - a bonus on top of the mods,
@@ -222,8 +203,7 @@ def _set_options(target: str, wanted: dict, label: str) -> dict:
 def apply_max_fps(path: str | None = None) -> dict:
     """Max FPS mode: set Minecraft's speed-only graphics options.
 
-    Same never-raises contract as unlock_frame_rate(). Returns the same
-    {"changed", "detail", "path"} shape.
+    Never raises; returns the shared {"changed", "detail", "path"} shape.
     """
     return _set_options(path or options_path(),
                         {k: v for k, v, _ in MAX_FPS_OPTIONS},

@@ -12,6 +12,7 @@ The failure this is really guarding against is silent: a launcher that installs 
 the main menu, and the player has no way to tell it was the launcher's doing.
 """
 import fnmatch
+import glob
 import json
 import os
 import re
@@ -491,6 +492,50 @@ def test_fabric_api_install():
         cubeonfriends.fabric_api_installed = real_installed
 
 
+def test_shipped_jars(matrix):
+    section("shipped jars only declare classes they contain")
+    # 2026-10-23 crash: the WIP emotes overlay added a literal
+    # "com.emotesmod.EmotesMod" to the MAIN entrypoint of fabric.mod.json while
+    # no bracket actually layered that overlay in. Every rebuilt jar therefore
+    # advertised a class it did not contain, and Fabric aborted startup with
+    # ClassNotFoundException before the main menu. A jar that names a missing
+    # entrypoint is not a warning: it is an unlaunchable game.
+    fabric_json = open(os.path.join(MOD, "src", "main", "resources", "fabric.mod.json"),
+                       encoding="utf-8").read()
+    ok("com.emotesmod.EmotesMod" not in fabric_json,
+       "the emotes main class is templated, not literal in fabric.mod.json")
+    ok("${emotes_main}" in fabric_json and "emotes_main" in
+       open(os.path.join(MOD, "build.gradle"), encoding="utf-8").read(),
+       "the build decides whether the emotes entrypoint exists")
+
+    jars = sorted(glob.glob(os.path.join(ROOT, "assets", "jars",
+                                         "cubeon-client-*.jar")))
+    if not jars:
+        ok(True, "no built jars to inspect (skip)")
+        return
+    for path in jars:
+        name = os.path.basename(path)
+        try:
+            with zipfile.ZipFile(path) as jar:
+                names = set(jar.namelist())
+                meta = json.loads(jar.read("fabric.mod.json"))
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile) as exc:
+            ok(False, f"{name}: readable jar ({exc})")
+            continue
+        missing = []
+        for stage, classes in (meta.get("entrypoints") or {}).items():
+            for entry in classes:
+                # A value may be "class" or "class::method"; only the class
+                # matters for existence.
+                cls = str(entry).split("::", 1)[0].strip()
+                if not cls:
+                    continue
+                if cls.replace(".", "/") + ".class" not in names:
+                    missing.append(f"{stage}:{cls}")
+        ok(not missing, f"{name}: every declared entrypoint class is present "
+                        f"(missing: {missing})")
+
+
 def main():
     matrix = test_table()
     test_version_parsing()
@@ -500,6 +545,7 @@ def main():
     test_fabric_api_install()
     test_resources(matrix)
     test_mouse_buttons()
+    test_shipped_jars(matrix)
     print()
     print(f"{passed} passed, {failed} failed")
     return 1 if failed else 0

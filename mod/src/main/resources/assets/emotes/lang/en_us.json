@@ -1,0 +1,25 @@
+{
+	"key.category.emotes.main": "Emotes",
+
+	"key.emotes.wave": "Emote: Wave",
+	"key.emotes.dance": "Emote: Dance",
+	"key.emotes.bow": "Emote: Bow",
+	"key.emotes.salute": "Emote: Salute",
+	"key.emotes.shrug": "Emote: Shrug",
+	"key.emotes.point": "Emote: Point",
+
+	"emotes.emote.wave": "Wave",
+	"emotes.emote.dance": "Dance",
+	"emotes.emote.bow": "Bow",
+	"emotes.emote.salute": "Salute",
+	"emotes.emote.shrug": "Shrug",
+	"emotes.emote.point": "Point",
+
+	"emotes.command.list": "Available emotes:",
+	"emotes.command.list.entry": "  - %s  (%s)",
+	"emotes.command.unknown": "Unknown emote '%s'.",
+	"emotes.command.not_player": "Only a player can do that.",
+	"emotes.command.stopped": "Emote stopped.",
+	"emotes.command.played": "Emoting: %s",
+	"emotes.command.played_others": "Made %d player(s) emote: %s"
+}

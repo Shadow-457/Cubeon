@@ -46,6 +46,7 @@ __all__ = [
     "RESIZE_EDGES",
     "custom_chrome_enabled",
     "maximize_state",
+    "native_maximized",
 ]
 
 # The config.json key (see cubeon/config.py) and its env override. The env var
@@ -144,3 +145,69 @@ def maximize_state(event_name, current):
     if ev == "unmaximize":
         return False
     return current
+
+
+def native_maximized(pid=None, *, title="Cubeon"):
+    """Ask the OS whether the real window is maximized: True/False/None.
+
+    WHY THIS EXISTS (2026-10-23 report): "I can't resize the window - it says
+    the window is maximized but it isn't; clicking maximize twice fixes it."
+    The Python-side ``page.window.maximized`` is what we LAST WROTE, not what
+    the window manager actually did. If a saved geometry asked for maximized
+    on a hidden window and the WM ignored it, every later click toggled a lie:
+    the first click "restored" a normal window (no visible change), the second
+    maximized it. The glyph and the resize hot-zones were wrong too.
+
+    Windows only, because that is the only platform with the custom frame
+    (see ``custom_chrome_enabled``). The flet client is a SEPARATE process, so
+    the window is found by process id when we have it, else by title. Returns
+    ``None`` when it cannot tell - callers must keep their last known state.
+
+    Never raises: a crash-report path must not take the launcher down.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsZoomed.argtypes = [wintypes.HWND]
+        user32.IsZoomed.restype = wintypes.BOOL
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _visit(hwnd, _lparam):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                if pid:
+                    owner = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+                    if int(owner.value) != int(pid):
+                        return True
+                else:
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length <= 0:
+                        return True
+                    buf = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buf, length + 1)
+                    if title and buf.value.strip() != title:
+                        return True
+                found.append(hwnd)
+                return False  # first match wins
+            except Exception:
+                return True
+
+        user32.EnumWindows(_visit, 0)
+        if not found:
+            return None
+        return bool(user32.IsZoomed(found[0]))
+    except Exception:
+        return None

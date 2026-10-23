@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "com.emotesmod.mixin.client",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"ModelMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

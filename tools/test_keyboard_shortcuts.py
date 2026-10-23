@@ -133,10 +133,11 @@ check("wiring: F11 toggles fullscreen via the always-send write",
       and '_force_window_bool("full_screen", active)' in src,
       "a bare full_screen=False is DROPPED by flet (it equals the default)")
 check("wiring: fullscreen parks the resize hot-zones",
-      "not (_chrome_state[\"maximized\"] or _fullscreen[\"active\"])" in src,
-      "a fullscreen window has nothing to resize")
+      "not (_is_chrome_maximized() or _fullscreen[\"active\"])" in src,
+      "a fullscreen window has nothing to resize (and the OS is asked, not "
+      "our last write - 2026-10-23 maximize lie)")
 check("wiring: the fullscreen rect is never saved as window geometry",
-      'maximized = bool(w.maximized) or bool(_fullscreen["active"])' in src,
+      'maximized = _is_chrome_maximized() or bool(_fullscreen["active"])' in src,
       "otherwise the next launch opens screen-sized-but-not-fullscreen")
 check("wiring: a native fullscreen change is adopted",
       'ev.replace("_", "-") in ("enter-full-screen",' in src

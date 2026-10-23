@@ -477,28 +477,11 @@ check("main.py imports the motion layer", "from cubeon import motion" in _main_s
 check("the startup pass applies the saved level before any widget is built",
       'motion.set_level(cfg.get("motion_level", motion.DEFAULT_LEVEL))'
       in _main_src)
-check("the hero bloom exists and is driven by an Ambient",
-      "hero_glow = ft.Container(" in _main_src
-      and "hero_ambient = motion.ambient(hero_glow" in _main_src)
-check("the bloom is a green radial gradient fading to transparent",
-      "ft.RadialGradient(" in _main_src
-      and 'ft.Colors.with_opacity(0.42, ACCENT)' in _main_src
-      and "ft.Colors.with_opacity(0.0, ACCENT)" in _main_src)
-_hero_span = None
-for _m in _re.finditer(r"ft\.Stack\(", _main_src):
-    _cand = _main_src[_m.start():_m.start() + 700]
-    if "hero_glow," in _cand:
-        _hero_span = _cand
-        break
-check("the bloom sits BEHIND the Play button in a non-clipping Stack",
-      _hero_span is not None and "content=play_button" in _hero_span
-      and "clip_behavior=ft.ClipBehavior.NONE" in _hero_span,
-      (_hero_span or "")[:260])
-check("the Play sheen paints ABOVE the button in that same Stack",
-      _hero_span is not None and "play_sheen.control," in _hero_span
-      and (_hero_span.index("content=play_button")
-           < _hero_span.index("play_sheen.control")),
-      (_hero_span or "")[:400])
+check("the Play/QUIT aura is gone (2026-10-23 user ask: no glow behind it)",
+      "hero_glow" not in _main_src and "hero_ambient" not in _main_src)
+check("the Play sheen still lives INSIDE the button's own Stack",
+      "play_button.content = ft.Stack(" in _main_src
+      and "play_sheen.control," in _main_src)
 check("the sheen is built with the button's own radius",
       "play_sheen = motion.sheen(radius=RADIUS)" in _main_src)
 check("hovering the Play button fires the sweep, leaving it fires the reset",

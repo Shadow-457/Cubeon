@@ -7,6 +7,11 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.ItemStack;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayDeque;
@@ -80,6 +85,10 @@ public final class CubeonHud {
 		sampleClicks(client);
 
 		// While the position editor is open it draws its own live ghost instead.
+		if (client.getDebugHud().shouldShowDebugHud()) {
+			return;
+		}
+
 		if (client.options.hudHidden || client.currentScreen instanceof MoveOverlayScreen) {
 			return;
 		}
@@ -88,25 +97,38 @@ public final class CubeonHud {
 		int screenW = context.getScaledWindowWidth();
 		int screenH = context.getScaledWindowHeight();
 
+		float hudScale = config.scale;
+		context.getMatrices().pushMatrix();
+		context.getMatrices().scale(hudScale, hudScale);
+
 		if (config.showFps) {
-			renderFps(context, client, posX(Overlay.FPS, config, client, screenW), posY(Overlay.FPS, config, client, screenH));
+			renderFps(context, client, (int) (posX(Overlay.FPS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.FPS, config, client, screenH) / hudScale));
 		}
 
 		if (config.showKeys) {
-			renderKeys(context, client, posX(Overlay.KEYS, config, client, screenW), posY(Overlay.KEYS, config, client, screenH), false);
+			renderKeys(context, client, (int) (posX(Overlay.KEYS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.KEYS, config, client, screenH) / hudScale), false);
 		}
 
 		if (config.showArmor) {
-			renderArmor(context, client, posX(Overlay.ARMOR, config, client, screenW), posY(Overlay.ARMOR, config, client, screenH));
+			renderArmor(context, client, (int) (posX(Overlay.ARMOR, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.ARMOR, config, client, screenH) / hudScale));
 		}
 
 		if (config.showPing) {
-			renderPing(context, client, posX(Overlay.PING, config, client, screenW), posY(Overlay.PING, config, client, screenH));
+			renderPing(context, client, (int) (posX(Overlay.PING, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.PING, config, client, screenH) / hudScale));
 		}
 
 		if (config.showCps) {
-			renderCps(context, client, posX(Overlay.CPS, config, client, screenW), posY(Overlay.CPS, config, client, screenH));
+			renderCps(context, client, (int) (posX(Overlay.CPS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.CPS, config, client, screenH) / hudScale));
 		}
+
+		context.getMatrices().popMatrix();
+
+		renderTargetHighlight(context, client);
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */
@@ -139,23 +161,25 @@ public final class CubeonHud {
 	// ------------------------------------------------------------- size & placement math
 
 	public static int widthOf(Overlay overlay, MinecraftClient client) {
-		return switch (overlay) {
+		int base = switch (overlay) {
 			case FPS -> fpsWidth(client);
 			case KEYS -> widgetWidth();
 			case ARMOR -> ARMOR_WIDTH;
 			case PING -> pingWidth(client);
 			case CPS -> cpsWidth(client);
 		};
+		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
 	}
 
 	public static int heightOf(Overlay overlay, MinecraftClient client) {
-		return switch (overlay) {
+		int base = switch (overlay) {
 			case FPS -> fpsHeight(client);
 			case KEYS -> widgetHeight();
 			case ARMOR -> ARMOR_HEIGHT;
 			case PING -> client.textRenderer.fontHeight + 3;
 			case CPS -> cpsHeight(client);
 		};
+		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
 	}
 
 	public static int widgetWidth() {
@@ -269,7 +293,22 @@ public final class CubeonHud {
 
 		int row = 0;
 
-		for (ItemStack stack : stacks) {
+		boolean[] showSlots = {
+				CubeonHudConfig.get().showArmorHelmet,
+				CubeonHudConfig.get().showArmorChest,
+				CubeonHudConfig.get().showArmorLegs,
+				CubeonHudConfig.get().showArmorFeet,
+				CubeonHudConfig.get().showArmorMainHand,
+				CubeonHudConfig.get().showArmorOffHand,
+		};
+
+		for (int i = 0; i < stacks.length; i++) {
+			if (!showSlots[i]) {
+				continue;
+			}
+
+			ItemStack stack = stacks[i];
+
 			if (stack.isEmpty() || stack.getMaxDamage() <= 0) {
 				continue;
 			}
@@ -362,5 +401,68 @@ public final class CubeonHud {
 		int dashX = x + width / 2 - 5;
 		int dashY = y + SPACE_HEIGHT / 2;
 		context.fill(dashX, dashY, dashX + 10, dashY + 1, down ? KEY_TEXT_DOWN : KEY_TEXT);
+	}
+
+	private static void renderTargetHighlight(DrawContext context, MinecraftClient client) {
+		if (client.player == null || client.crosshairTarget == null) {
+			return;
+		}
+
+		if (!(client.crosshairTarget instanceof EntityHitResult hit)) {
+			return;
+		}
+
+		if (!(hit.getEntity() instanceof PlayerEntity target)) {
+			return;
+		}
+
+		if (client.player.distanceTo(target) > client.player.getEntityInteractionRange() + 1.0D) {
+			return;
+		}
+
+		Box box = target.getBoundingBox();
+		Vec3d[] corners = {
+				new Vec3d(box.minX, box.minY, box.minZ),
+				new Vec3d(box.maxX, box.minY, box.minZ),
+				new Vec3d(box.minX, box.maxY, box.minZ),
+				new Vec3d(box.maxX, box.maxY, box.minZ),
+				new Vec3d(box.minX, box.minY, box.maxZ),
+				new Vec3d(box.maxX, box.minY, box.maxZ),
+				new Vec3d(box.minX, box.maxY, box.maxZ),
+				new Vec3d(box.maxX, box.maxY, box.maxZ),
+		};
+
+		float minX = Float.MAX_VALUE;
+		float minY = Float.MAX_VALUE;
+		float maxX = -Float.MAX_VALUE;
+		float maxY = -Float.MAX_VALUE;
+
+		for (Vec3d corner : corners) {
+			Vec3d projected = client.gameRenderer.project(corner);
+			minX = Math.min(minX, (float) projected.x);
+			minY = Math.min(minY, (float) projected.y);
+			maxX = Math.max(maxX, (float) projected.x);
+			maxY = Math.max(maxY, (float) projected.y);
+		}
+
+		if (minX == Float.MAX_VALUE) {
+			return;
+		}
+
+		int x1 = (int) minX;
+		int y1 = (int) minY;
+		int x2 = (int) maxX;
+		int y2 = (int) maxY;
+		int color = 0xFFFF3333;
+
+		context.fill(x1, y1, x2, y1 + 1, color);
+		context.fill(x1, y2 - 1, x2, y2, color);
+		context.fill(x1, y1, x1 + 1, y2, color);
+		context.fill(x2 - 1, y1, x2, y2, color);
+
+		int cx = context.getScaledWindowWidth() / 2;
+		int cy = context.getScaledWindowHeight() / 2;
+		context.fill(cx - 6, cy, cx + 6, cy + 1, color);
+		context.fill(cx, cy - 6, cx + 1, cy + 6, color);
 	}
 }

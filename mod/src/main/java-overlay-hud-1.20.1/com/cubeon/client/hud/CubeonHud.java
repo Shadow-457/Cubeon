@@ -6,6 +6,11 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.ItemStack;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.Box;
+import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayDeque;
 
@@ -79,6 +84,10 @@ public final class CubeonHud {
 		sampleClicks(client);
 
 		// While the position editor is open it draws its own live ghost instead.
+		if (client.options.debugEnabled) {
+			return;
+		}
+
 		if (client.options.hudHidden || client.currentScreen instanceof MoveOverlayScreen) {
 			return;
 		}
@@ -87,25 +96,37 @@ public final class CubeonHud {
 		int screenW = context.getScaledWindowWidth();
 		int screenH = context.getScaledWindowHeight();
 
+		float hudScale = config.scale;
+		context.getMatrices().push();
+		context.getMatrices().scale(hudScale, hudScale, 1.0F);
+
 		if (config.showFps) {
-			renderFps(context, client, posX(Overlay.FPS, config, client, screenW), posY(Overlay.FPS, config, client, screenH));
+			renderFps(context, client, (int) (posX(Overlay.FPS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.FPS, config, client, screenH) / hudScale));
 		}
 
 		if (config.showKeys) {
-			renderKeys(context, client, posX(Overlay.KEYS, config, client, screenW), posY(Overlay.KEYS, config, client, screenH), false);
+			renderKeys(context, client, (int) (posX(Overlay.KEYS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.KEYS, config, client, screenH) / hudScale), false);
 		}
 
 		if (config.showArmor) {
-			renderArmor(context, client, posX(Overlay.ARMOR, config, client, screenW), posY(Overlay.ARMOR, config, client, screenH));
+			renderArmor(context, client, (int) (posX(Overlay.ARMOR, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.ARMOR, config, client, screenH) / hudScale));
 		}
 
 		if (config.showPing) {
-			renderPing(context, client, posX(Overlay.PING, config, client, screenW), posY(Overlay.PING, config, client, screenH));
+			renderPing(context, client, (int) (posX(Overlay.PING, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.PING, config, client, screenH) / hudScale));
 		}
 
 		if (config.showCps) {
-			renderCps(context, client, posX(Overlay.CPS, config, client, screenW), posY(Overlay.CPS, config, client, screenH));
+			renderCps(context, client, (int) (posX(Overlay.CPS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.CPS, config, client, screenH) / hudScale));
 		}
+
+		context.getMatrices().pop();
+
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */
@@ -138,23 +159,25 @@ public final class CubeonHud {
 	// ------------------------------------------------------------- size & placement math
 
 	public static int widthOf(Overlay overlay, MinecraftClient client) {
-		return switch (overlay) {
+		int base = switch (overlay) {
 			case FPS -> fpsWidth(client);
 			case KEYS -> widgetWidth();
 			case ARMOR -> ARMOR_WIDTH;
 			case PING -> pingWidth(client);
 			case CPS -> cpsWidth(client);
 		};
+		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
 	}
 
 	public static int heightOf(Overlay overlay, MinecraftClient client) {
-		return switch (overlay) {
+		int base = switch (overlay) {
 			case FPS -> fpsHeight(client);
 			case KEYS -> widgetHeight();
 			case ARMOR -> ARMOR_HEIGHT;
 			case PING -> client.textRenderer.fontHeight + 3;
 			case CPS -> cpsHeight(client);
 		};
+		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
 	}
 
 	public static int widgetWidth() {
@@ -268,7 +291,22 @@ public final class CubeonHud {
 
 		int row = 0;
 
-		for (ItemStack stack : stacks) {
+		boolean[] showSlots = {
+				CubeonHudConfig.get().showArmorHelmet,
+				CubeonHudConfig.get().showArmorChest,
+				CubeonHudConfig.get().showArmorLegs,
+				CubeonHudConfig.get().showArmorFeet,
+				CubeonHudConfig.get().showArmorMainHand,
+				CubeonHudConfig.get().showArmorOffHand,
+		};
+
+		for (int i = 0; i < stacks.length; i++) {
+			if (!showSlots[i]) {
+				continue;
+			}
+
+			ItemStack stack = stacks[i];
+
 			if (stack.isEmpty() || stack.getMaxDamage() <= 0) {
 				continue;
 			}
@@ -362,4 +400,5 @@ public final class CubeonHud {
 		int dashY = y + SPACE_HEIGHT / 2;
 		context.fill(dashX, dashY, dashX + 10, dashY + 1, down ? KEY_TEXT_DOWN : KEY_TEXT);
 	}
+
 }

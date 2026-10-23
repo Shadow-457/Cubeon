@@ -127,6 +127,10 @@ bracket.overlays.each { overlay ->
                 + "but ${dir} does not exist.")
     }
     sourceSets.main.java.srcDir dir
+    def resDir = "src/main/resources-overlay-${overlay}"
+    if (file(resDir).isDirectory()) {
+        sourceSets.main.resources.srcDir resDir
+    }
 }
 
 // The 26.x HUD brings a mixin of its own - a ClientPacketListener hook that feeds
@@ -155,6 +159,7 @@ processResources {
     // fragment: the file it names is only in the jar for those brackets, so
     // listing it unconditionally would have every Yarn jar point at a config
     // that is not there.
+    def emotes = bracket.overlays.any { it.toString().startsWith('emotes') }
     def replacements = [
             version        : project.version,
             minecraft_range: bracket.depends,
@@ -163,6 +168,15 @@ processResources {
             mixins_extra   : obfuscated ? '' :
                     ',\n    {\n      "config": "cubeon-client-hud.mixins.json",\n' +
                             '      "environment": "client"\n    }',
+            emotes_entrypoint : emotes ? ',\n      "com.emotesmod.client.EmotesClient"' : '',
+            emotes_main       : emotes ? '\n      "com.emotesmod.EmotesMod"\n    ' : '',
+            // Only an emotes build has a common (server-capable) initializer;
+            // the base mod is a pure client mod. Declaring the emotes main
+            // class in a jar that does not contain it is not a warning - Fabric
+            // aborts startup with ClassNotFoundException (2026-10-23 crash).
+            environment       : emotes ? '*' : 'client',
+            emotes_mixins     : emotes ? ',\n    {\n      "config": "emotes.client.mixins.json",\n' +
+                            '      "environment": "client"\n    }' : '',
     ]
     inputs.properties replacements
     filesMatching('fabric.mod.json') {

@@ -800,13 +800,14 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             if pruned and status_cb:
                 status_cb("Removed extra perf mods")
             # The game is not running yet (the JVM starts further down), so
-            # options.txt can be edited safely. This is what stops a machine
-            # that CAN render 120 FPS from still reading 60/30 because of
-            # Vsync and the frame cap.
+            # options.txt can be edited safely. Deliberately NO Vsync/maxFps
+            # rewrite here (2026-10-24): forcing `enableVsync:false` +
+            # `maxFps:260` on every launch meant a player could never keep
+            # Vsync on, and on a fast machine that pegged six cores in a
+            # singleplayer world (582% CPU, 83 C package). A fresh install now
+            # keeps Minecraft's own defaults (Vsync ON, maxFps 120), and an
+            # existing options.txt is left exactly as the player set it.
             from . import game_options
-            unlocked = game_options.unlock_frame_rate()
-            if unlocked["changed"] and status_cb:
-                status_cb("Frame rate unlocked")
             # Max FPS mode: the game's own speed-only graphics options.
             # Same launch-path spot as the frame unlock - options.txt is not
             # owned by a running JVM yet. Gated on the Play-menu FPS boost

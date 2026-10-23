@@ -1,5 +1,6 @@
 package com.cubeon.client.hud;
 
+import com.cubeon.client.ChatCollapse;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import org.slf4j.Logger;
@@ -23,6 +24,7 @@ public final class CubeonHudClient implements ClientModInitializer {
 		// well. The launcher installs Fabric API; this is the belt to that brace.
 		try {
 			CubeonHudConfig.load();
+			ChatCollapse.register();
 			CubeonHudKeybinds.register();
 			CubeonHud.register();
 

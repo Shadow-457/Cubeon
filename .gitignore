@@ -2,6 +2,7 @@
 archive/
 .claude/
 mod/build/
+mod.bak-*/
 dist/
 build/
 *.AppImage

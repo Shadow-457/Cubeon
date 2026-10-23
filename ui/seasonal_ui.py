@@ -40,27 +40,51 @@ from cubeon.theme import (
     attach_hover,
 )
 
-# The companion sprite per season. Summer reuses assets/parrot.gif - the mascot
-# the account panel already perches on the avatar - so only three sprites have
-# to be generated (tools/make_season_pets.py).
+# The companions per season. Two where the art exists (autumn, winter, spring)
+# and the parrot in summer, which doubles as the account-panel mascot. The pick
+# is made ONCE per season per process (see _pet_index): the top bar, the
+# first-run tour and the tooltip must agree with each other, but a fresh launch
+# may bring the other one - "sometimes that one, sometimes that one" (user ask,
+# 2026-10-23).
 PET_FILES = {
-    seasonal.AUTUMN: "pets/autumn_fox.gif",
-    seasonal.WINTER: "pets/winter_golem.gif",
-    seasonal.SPRING: "pets/spring_bee.gif",
-    seasonal.SUMMER: "parrot.gif",
+    seasonal.AUTUMN: ("pets/autumn_fox.gif", "pets/autumn_hedgehog.gif"),
+    seasonal.WINTER: ("pets/winter_golem.gif", "pets/winter_penguin.gif"),
+    seasonal.SPRING: ("pets/spring_bee.gif", "pets/spring_chick.gif"),
+    seasonal.SUMMER: ("parrot.gif",),
 }
 PET_NAMES = {
-    seasonal.AUTUMN: "Autumn fox",
-    seasonal.WINTER: "Snow golem",
-    seasonal.SPRING: "Spring bee",
-    seasonal.SUMMER: "Parrot",
+    seasonal.AUTUMN: ("Autumn fox", "Autumn hedgehog"),
+    seasonal.WINTER: ("Snow golem", "Snow penguin"),
+    seasonal.SPRING: ("Spring bee", "Spring chick"),
+    seasonal.SUMMER: ("Parrot",),
 }
 PET_LINES = {
-    seasonal.AUTUMN: "The fox moved in when the leaves did.",
-    seasonal.WINTER: "The golem is keeping the bar cold for you.",
-    seasonal.SPRING: "The bee came back with the blossom.",
-    seasonal.SUMMER: "The parrot is on holiday with you.",
+    seasonal.AUTUMN: ("The fox moved in when the leaves did.",
+                      "The hedgehog is hoarding the last warm afternoons."),
+    seasonal.WINTER: ("The golem is keeping the bar cold for you.",
+                      "The penguin waddled in with the first snow."),
+    seasonal.SPRING: ("The bee came back with the blossom.",
+                      "The chick hatched just in time for the season."),
+    seasonal.SUMMER: ("The parrot is on holiday with you.",),
 }
+# season -> index into the tuples above. Filled lazily so importing this module
+# (tests, the server, packaging) does no randomness at all.
+_PET_PICK: "dict[str, int]" = {}
+
+
+def _pet_choice(season: str):
+    """The (files, names, lines) triple for this season's chosen companion."""
+    key = season if season in PET_FILES else seasonal.SUMMER
+    files = PET_FILES[key]
+    index = _PET_PICK.get(key)
+    if index is None or index >= len(files):
+        index = random.randrange(len(files))
+        _PET_PICK[key] = index
+    names = PET_NAMES.get(key) or ("Companion",)
+    lines = PET_LINES.get(key) or ("",)
+    return (files[index],
+            names[index] if index < len(names) else names[0],
+            lines[index] if index < len(lines) else lines[0])
 # The icon the badge wears. Chosen to match the palette's one-voice rule: the
 # badge is tinted with ACCENT, so the glyph is the season, not decoration.
 SEASON_ICONS = {
@@ -111,11 +135,15 @@ DIR_LEFT, DIR_RIGHT = -1, 1
 
 
 def pet_src(info: seasonal.SeasonInfo) -> str:
-    return PET_FILES.get(info.season, PET_FILES[seasonal.SUMMER])
+    return _pet_choice(info.season)[0]
 
 
 def pet_name(info: seasonal.SeasonInfo) -> str:
-    return PET_NAMES.get(info.season, "Companion")
+    return _pet_choice(info.season)[1]
+
+
+def pet_line(info: seasonal.SeasonInfo) -> str:
+    return _pet_choice(info.season)[2]
 
 
 def icon_for(info: seasonal.SeasonInfo):
@@ -175,7 +203,7 @@ def build_perch(info: seasonal.SeasonInfo, on_click=None):
     inner = ft.Container(
         content=ft.Image(src=pet_src(info), width=PERCH_CELL, height=PERCH_CELL,
                          fit=ft.BoxFit.CONTAIN),
-        tooltip=f"{pet_name(info)} - {PET_LINES.get(info.season, '')}",
+        tooltip=f"{pet_name(info)} - {pet_line(info)}",
         on_click=on_click,
     )
     pet = {
@@ -221,7 +249,7 @@ def build_pet(info: seasonal.SeasonInfo, on_click=None, size: int = 30) -> ft.Co
                          fit=ft.BoxFit.CONTAIN),
         padding=ft.padding.Padding.symmetric(horizontal=2),
         ink=False,
-        tooltip=f"{pet_name(info)} - {PET_LINES.get(info.season, '')}",
+        tooltip=f"{pet_name(info)} - {pet_line(info)}",
         on_click=on_click,
         offset=ft.Offset(0, 0),
         animate_offset=ft.Animation(130, ft.AnimationCurve.EASE_OUT),
@@ -240,7 +268,7 @@ def update_pet(pet: dict, info: seasonal.SeasonInfo) -> None:
     """
     pet["season"] = info.season
     pet["ctrl"].content.src = pet_src(info)
-    pet["ctrl"].tooltip = f"{pet_name(info)} - {PET_LINES.get(info.season, '')}"
+    pet["ctrl"].tooltip = f"{pet_name(info)} - {pet_line(info)}"
 
 
 WEATHER = {

@@ -1,6 +1,7 @@
 package com.cubeon.client.hud;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.Util;
 import net.minecraft.network.protocol.ping.ServerboundPingRequestPacket;
 
 /**
@@ -32,7 +33,7 @@ public final class PingProbe {
 			return;
 		}
 
-		long now = System.currentTimeMillis();
+		long now = Util.getMillis();
 
 		if (now - lastRequestMs < INTERVAL_MS) {
 			return;
@@ -44,7 +45,7 @@ public final class PingProbe {
 
 	/** Called from the pong packet handler with the send time the server echoed back. */
 	public static void onPong(long sentAtMillis) {
-		lastPing = (int) Math.max(0, System.currentTimeMillis() - sentAtMillis);
+		lastPing = (int) Math.max(0, Util.getMillis() - sentAtMillis);
 	}
 
 	/** Latest measured latency in ms, or -1 when nothing has been measured yet. */

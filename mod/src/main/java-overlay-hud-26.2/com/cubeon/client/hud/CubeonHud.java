@@ -9,6 +9,11 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayDeque;
 
@@ -80,6 +85,14 @@ public final class CubeonHud {
 		sampleClicks(client);
 
 		// While the position editor is open it draws its own live ghost instead.
+		if (client.getDebugOverlay().showDebugScreen()) {
+			return;
+		}
+
+		if (client.getDebugOverlay().showDebugScreen()) {
+			return;
+		}
+
 		if (client.gui.hud.isHidden() || client.gui.screen() instanceof MoveOverlayScreen) {
 			return;
 		}
@@ -88,25 +101,38 @@ public final class CubeonHud {
 		int screenW = graphics.guiWidth();
 		int screenH = graphics.guiHeight();
 
+		float hudScale = config.scale;
+		graphics.pose().pushMatrix();
+		graphics.pose().scale(hudScale, hudScale);
+
 		if (config.showFps) {
-			renderFps(graphics, client, posX(Overlay.FPS, config, client, screenW), posY(Overlay.FPS, config, client, screenH));
+			renderFps(graphics, client, (int) (posX(Overlay.FPS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.FPS, config, client, screenH) / hudScale));
 		}
 
 		if (config.showKeys) {
-			renderKeys(graphics, client, posX(Overlay.KEYS, config, client, screenW), posY(Overlay.KEYS, config, client, screenH), false);
+			renderKeys(graphics, client, (int) (posX(Overlay.KEYS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.KEYS, config, client, screenH) / hudScale), false);
 		}
 
 		if (config.showArmor) {
-			renderArmor(graphics, client, posX(Overlay.ARMOR, config, client, screenW), posY(Overlay.ARMOR, config, client, screenH));
+			renderArmor(graphics, client, (int) (posX(Overlay.ARMOR, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.ARMOR, config, client, screenH) / hudScale));
 		}
 
 		if (config.showPing) {
-			renderPing(graphics, client, posX(Overlay.PING, config, client, screenW), posY(Overlay.PING, config, client, screenH));
+			renderPing(graphics, client, (int) (posX(Overlay.PING, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.PING, config, client, screenH) / hudScale));
 		}
 
 		if (config.showCps) {
-			renderCps(graphics, client, posX(Overlay.CPS, config, client, screenW), posY(Overlay.CPS, config, client, screenH));
+			renderCps(graphics, client, (int) (posX(Overlay.CPS, config, client, screenW) / hudScale),
+					(int) (posY(Overlay.CPS, config, client, screenH) / hudScale));
 		}
+
+		graphics.pose().popMatrix();
+
+		renderTargetHighlight(graphics, client);
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */
@@ -139,23 +165,25 @@ public final class CubeonHud {
 	// ------------------------------------------------------------- size & placement math
 
 	public static int widthOf(Overlay overlay, Minecraft client) {
-		return switch (overlay) {
+		int base = switch (overlay) {
 			case FPS -> fpsWidth(client);
 			case KEYS -> widgetWidth();
 			case ARMOR -> ARMOR_WIDTH;
 			case PING -> pingWidth(client);
 			case CPS -> cpsWidth(client);
 		};
+		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
 	}
 
 	public static int heightOf(Overlay overlay, Minecraft client) {
-		return switch (overlay) {
+		int base = switch (overlay) {
 			case FPS -> fpsHeight(client);
 			case KEYS -> widgetHeight();
 			case ARMOR -> ARMOR_HEIGHT;
 			case PING -> client.font.lineHeight + 3;
 			case CPS -> cpsHeight(client);
 		};
+		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
 	}
 
 	public static int widgetWidth() {
@@ -269,7 +297,22 @@ public final class CubeonHud {
 
 		int row = 0;
 
-		for (ItemStack stack : stacks) {
+		boolean[] showSlots = {
+				CubeonHudConfig.get().showArmorHelmet,
+				CubeonHudConfig.get().showArmorChest,
+				CubeonHudConfig.get().showArmorLegs,
+				CubeonHudConfig.get().showArmorFeet,
+				CubeonHudConfig.get().showArmorMainHand,
+				CubeonHudConfig.get().showArmorOffHand,
+		};
+
+		for (int i = 0; i < stacks.length; i++) {
+			if (!showSlots[i]) {
+				continue;
+			}
+
+			ItemStack stack = stacks[i];
+
 			if (stack.isEmpty() || stack.getMaxDamage() <= 0) {
 				continue;
 			}
@@ -365,5 +408,68 @@ public final class CubeonHud {
 		int dashX = x + width / 2 - 5;
 		int dashY = y + SPACE_HEIGHT / 2;
 		graphics.fill(dashX, dashY, dashX + 10, dashY + 1, down ? KEY_TEXT_DOWN : KEY_TEXT);
+	}
+
+	private static void renderTargetHighlight(GuiGraphicsExtractor graphics, Minecraft client) {
+		if (client.player == null || client.hitResult == null) {
+			return;
+		}
+
+		if (!(client.hitResult instanceof EntityHitResult hit)) {
+			return;
+		}
+
+		if (!(hit.getEntity() instanceof Player target)) {
+			return;
+		}
+
+		if (client.player.distanceTo(target) > client.player.entityInteractionRange() + 1.0D) {
+			return;
+		}
+
+		AABB box = target.getBoundingBox();
+		Vec3[] corners = {
+				new Vec3(box.minX, box.minY, box.minZ),
+				new Vec3(box.maxX, box.minY, box.minZ),
+				new Vec3(box.minX, box.maxY, box.minZ),
+				new Vec3(box.maxX, box.maxY, box.minZ),
+				new Vec3(box.minX, box.minY, box.maxZ),
+				new Vec3(box.maxX, box.minY, box.maxZ),
+				new Vec3(box.minX, box.maxY, box.maxZ),
+				new Vec3(box.maxX, box.maxY, box.maxZ),
+		};
+
+		float minX = Float.MAX_VALUE;
+		float minY = Float.MAX_VALUE;
+		float maxX = -Float.MAX_VALUE;
+		float maxY = -Float.MAX_VALUE;
+
+		for (Vec3 corner : corners) {
+			Vec3 projected = client.gameRenderer.projectPointToScreen(corner);
+			minX = Math.min(minX, (float) projected.x);
+			minY = Math.min(minY, (float) projected.y);
+			maxX = Math.max(maxX, (float) projected.x);
+			maxY = Math.max(maxY, (float) projected.y);
+		}
+
+		if (minX == Float.MAX_VALUE) {
+			return;
+		}
+
+		int x1 = (int) minX;
+		int y1 = (int) minY;
+		int x2 = (int) maxX;
+		int y2 = (int) maxY;
+		int color = 0xFFFF3333;
+
+		graphics.fill(x1, y1, x2, y1 + 1, color);
+		graphics.fill(x1, y2 - 1, x2, y2, color);
+		graphics.fill(x1, y1, x1 + 1, y2, color);
+		graphics.fill(x2 - 1, y1, x2, y2, color);
+
+		int cx = graphics.guiWidth() / 2;
+		int cy = graphics.guiHeight() / 2;
+		graphics.fill(cx - 6, cy, cx + 6, cy + 1, color);
+		graphics.fill(cx, cy - 6, cx + 1, cy + 6, color);
 	}
 }

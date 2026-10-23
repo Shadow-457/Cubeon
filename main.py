@@ -219,6 +219,8 @@ from ui.seasonal_ui import (  # Seasonal badge/companion/ambience (the runtime h
     reflow_ambience as season_reflow_ambience,
     update_badge as season_update_badge, update_pet as season_update_pet,
 )
+from ui.onboarding import build_onboarding  # First-run full-screen welcome/tour
+from ui.crash_report import show_crash_dialog  # Game-crash report + log copy
 from cubeon import seasonal as cubeon_seasonal  # Season detection/caching; the palette half runs in cubeon/__init__
 from cubeon import friends  # Realtime social client (identity, presence, chat, calls)
 from cubeon.friends_service import FriendsService  # Headless owner of friends/P2P (launcher Chat tab + in-game mod)
@@ -883,33 +885,41 @@ async def main(page: ft.Page):
         Mesa/gallium driver mid first-frame (SIGSEGV coredumps, 2026-09-06).
         """
         _fit_geometry_to_work_area()
-        page.window.width = _gw
-        page.window.height = _gh
-        # Never demand a minimum bigger than the size we are about to ask
-        # for: the WM would then force the larger one and the client would
-        # wait on a frame size that never arrives (see
-        # _fit_geometry_to_work_area).
         page.window.min_width = min(980, int(_gw))
         page.window.min_height = min(640, int(_gh))
         page.window.resizable = True
-        if not _needs_center:
-            page.window.left = _gl
-            page.window.top = _gt
+        if _saved_maximized:
+            # Do NOT ask for the saved rect as a window SIZE when the window
+            # should be maximized. That rect is the MAXIMIZED one, and on a
+            # scaled desktop it is expressed in X pixels while the flet client
+            # works in logical pixels - asking for it made the client wait for
+            # an OpenGL frame that could never arrive ("Timed out waiting for
+            # OpenGL frame of size 1872x1172 (have 1440x900)", 2026-10-23),
+            # so the launcher died before the finished UI painted. Maximize
+            # alone lets the WM pick the real screen size; the saved rect is
+            # only the restore size for the non-maximized path.
+            page.window.maximized = True
         else:
-            area = _work_area()
-            if area:
-                _ax, _ay, _aw, _ah = area
-                page.window.left = max(0, _ax + (_aw - int(_gw)) // 2)
-                page.window.top = max(0, _ay + (_ah - int(_gh)) // 2)
+            page.window.width = _gw
+            page.window.height = _gh
+            if not _needs_center:
+                page.window.left = _gl
+                page.window.top = _gt
             else:
-                size = _screen_size()
-                if size:
-                    page.window.left = max(0, (size[0] - int(_gw)) // 2)
-                    page.window.top = max(0, (size[1] - int(_gh)) // 2)
-            # When screen probing fails, _reveal_window() awaits the native
-            # async center method after mapping. This function is synchronous
-            # and must not call Window.center() without awaiting it.
-        page.window.maximized = _saved_maximized
+                area = _work_area()
+                if area:
+                    _ax, _ay, _aw, _ah = area
+                    page.window.left = max(0, _ax + (_aw - int(_gw)) // 2)
+                    page.window.top = max(0, _ay + (_ah - int(_gh)) // 2)
+                else:
+                    size = _screen_size()
+                    if size:
+                        page.window.left = max(0, (size[0] - int(_gw)) // 2)
+                        page.window.top = max(0, (size[1] - int(_gh)) // 2)
+                # When screen probing fails, _reveal_window() awaits the native
+                # async center method after mapping. This function is synchronous
+                # and must not call Window.center() without awaiting it.
+            page.window.maximized = False
         # Glass mode: translucent window + glass canvas. Only the BACKGROUND
         # goes translucent - panels/text keep full opacity, so contrast is
         # unchanged. A compositor that refuses alpha simply shows the colours
@@ -1556,6 +1566,35 @@ async def main(page: ft.Page):
     # never be saved as the window's restored geometry).
     _fullscreen = {"active": False}
 
+    # The flet client is a separate process, so the real window state has to
+    # be read from the OS (Windows only - that is where the custom frame
+    # lives). Cached pid; 0 means "look the window up by title".
+    _client_pid = {"pid": None}
+
+    def _native_maximized():
+        """True/False from the real window, or None when it cannot be read.
+
+        The Python-side `page.window.maximized` is the value we last WROTE,
+        not what the window manager did. Trusting it is how "it says the
+        window is maximized but it isn't - and I can't resize" happened
+        (2026-10-23): the WM ignored the hidden-window maximize, the glyph and
+        the resize hot-zones believed the write, and the first click only
+        cleared the lie. See winchrome.native_maximized.
+        """
+        if sys.platform != "win32":
+            return None
+        try:
+            if _client_pid["pid"] is None:
+                pids = _live_flet_clients(resolve_assets_dir())
+                _client_pid["pid"] = int(pids[0]) if pids else 0
+            return winchrome.native_maximized(_client_pid["pid"] or None)
+        except Exception:
+            return None
+
+    def _is_chrome_maximized():
+        native = _native_maximized()
+        return bool(_chrome_state["maximized"] if native is None else native)
+
     def _force_window_bool(name, value):
         """Write a window bool so the value ALWAYS reaches the client.
 
@@ -1587,7 +1626,11 @@ async def main(page: ft.Page):
             pass  # a title-bar button must never take the UI down
 
     def _chrome_maximize(e=None):
-        target = not bool(_chrome_state["maximized"])
+        # Toggle the REAL state, not our last write. If the WM ignored an
+        # earlier maximize (hidden-window restore), the button used to spend
+        # its first click clearing that lie - the 2026-10-23 "click maximize
+        # twice" report.
+        target = not _is_chrome_maximized()
         try:
             _force_window_bool("maximized", target)
         except Exception:
@@ -1616,7 +1659,7 @@ async def main(page: ft.Page):
         """
         set_resize_edges_visible(
             _resize_edges,
-            not (_chrome_state["maximized"] or _fullscreen["active"]))
+            not (_is_chrome_maximized() or _fullscreen["active"]))
         for _e in _resize_edges:
             thread_safe_ui.refresh(_e)
 
@@ -4498,6 +4541,56 @@ async def main(page: ft.Page):
             # that should put the button back to "play", since launch_game()
             # itself is non-blocking (it spawns the process and returns right
             # away on a background watcher thread).
+            def _show_crash_report(reason, lines, session_id):
+                """Surface the game's own log instead of one line of text.
+
+                The full log is on disk (cubeon/launch.py tails it); read the
+                tail of it so the dialog can show what the game actually said.
+                Bounded read: a mod that spams a stack trace every tick can
+                produce megabytes, and the dialog only renders ~60k chars.
+                """
+                try:
+                    from cubeon.paths import CUBEON_HOME
+                except Exception:
+                    CUBEON_HOME = None
+                log_text = "\n".join(lines or [])
+                log_path = None
+                if CUBEON_HOME and session_id:
+                    candidate = os.path.join(
+                        CUBEON_HOME, f"game-{session_id}.log")
+                    if os.path.isfile(candidate):
+                        log_path = candidate
+                        try:
+                            size = os.path.getsize(candidate)
+                            with open(candidate, "r", encoding="utf-8",
+                                      errors="replace") as fh:
+                                if size > 300_000:
+                                    fh.seek(size - 300_000)
+                                    fh.readline()  # drop the partial line
+                                full = fh.read()
+                            if full.strip():
+                                log_text = full
+                        except OSError:
+                            pass  # keep the in-memory tail
+                label = f"Minecraft {core.extract_mc_version(version_id) or version_id}"
+
+                def _open():
+                    show_crash_dialog(
+                        page, reason=reason, log_text=log_text,
+                        version_label=label, log_path=log_path,
+                        show_snack=_show_snack)
+
+                # Mounting a dialog from the watcher thread must happen on the
+                # UI loop; fall back to a direct call on harnesses without one
+                # (show_crash_dialog swallows its own failures).
+                async def _open_async():
+                    _open()
+
+                try:
+                    page.run_task(_open_async)
+                except Exception:
+                    _open()
+
             def on_exit(code, lines=None, session_id=None):
                 # Mark the game as finished BEFORE touching any UI, so the
                 # post-launch "Minecraft is running" block below can see that
@@ -4554,6 +4647,12 @@ async def main(page: ft.Page):
                         progress_label.visible = True
                         progress_spinner.visible = False
                         set_status("Crashed")
+                        # The one-line reason stays under the button; the log
+                        # and a way to ask for help open on top (2026-10-23).
+                        try:
+                            _show_crash_report(reason, lines, session_id)
+                        except Exception:
+                            pass  # the reason line is still there
                     else:
                         progress_bar.visible = False
                         progress_label.visible = False
@@ -5313,37 +5412,6 @@ async def main(page: ft.Page):
     # The card is compact and top-aligned; it is never stretched to fill the
     # viewport just because there is room below it.
 
-    # The hero panel's ambience (2026-10-18): a soft green aura around the Play
-    # button that breathes. It goes BEHIND the button inside a Stack (see the
-    # ACTION FOOTER) rather than behind the panel: a bloom behind the frosted
-    # panel would be blurred away with everything else, whereas the button's own
-    # opaque fill turns the bloom into a halo bleeding out from the edge of the
-    # thing you are supposed to click. The negative insets are what make the
-    # halo wider than the button; the Stack must let it bleed (ClipBehavior
-    # NONE).
-    #
-    # The bleed stays inside the hero panel's own 20px padding, because the
-    # panel clips now that it carries a backdrop filter (theme.GLASS_BLUR wraps
-    # a blurred Container in a ClipRRect) - so the bloom fades out before it
-    # reaches an edge instead of being sliced off by one.
-    #
-    # Self-moving, so it only runs on the `full` motion level - the Motion
-    # switch in Settings parks it at rest. Two writes per breath, each
-    # interpolated by the control's own animate_opacity - far under one repaint
-    # a second (motion.Ambient explains the arithmetic).
-    hero_glow = ft.Container(
-        left=-18, top=-20, right=-18, bottom=-20,
-        gradient=ft.RadialGradient(
-            colors=[ft.Colors.with_opacity(0.42, ACCENT),
-                    ft.Colors.with_opacity(0.0, ACCENT)],
-            stops=[0.0, 0.8],
-            radius=1.0,
-            center=ft.Alignment.CENTER,
-        ),
-        animate_opacity=ft.Animation(motion.AMBIENT_MS, motion.EASE_SOFT),
-    )
-    hero_ambient = motion.ambient(hero_glow, low=0.45)
-
     play_tab = ft.Column(
         [
             ft.Column(
@@ -5477,25 +5545,17 @@ async def main(page: ft.Page):
 
                                     ft.Container(height=18),
 
-                                    # ACTION FOOTER: the primary PLAY action on the right,
-                                    # with its aura under it (hero_ambient drives the
-                                    # bloom's opacity - see the hero_glow comment above).
-                                    # The sheen is INSIDE play_button (see its creation);
-                                    # as a sibling here it absorbed every real-window tap
-                                    # that followed a hover and PLAY died (2026-10-18/19).
-                                    # Stack children paint in order, so the glow goes
-                                    # first and the button last; the glow is positioned
-                                    # with negative insets and does not size the Stack.
+                                    # ACTION FOOTER: the primary PLAY action on the
+                                    # right. No aura/glow behind it (user ask,
+                                    # 2026-10-23): the seasonal accent made the
+                                    # bloom read as a red halo around QUIT GAME.
+                                    # The sheen stays INSIDE play_button (see its
+                                    # creation) - as a sibling it absorbed every
+                                    # real-window tap that followed a hover.
                                     ft.Row(
                                         [
                                             ft.Container(expand=True),
-                                            ft.Stack(
-                                                [
-                                                    hero_glow,
-                                                    ft.Container(width=280, content=play_button),
-                                                ],
-                                                clip_behavior=ft.ClipBehavior.NONE,
-                                            ),
+                                            ft.Container(width=280, content=play_button),
                                         ],
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
@@ -7337,7 +7397,7 @@ async def main(page: ft.Page):
             _resize_edges = build_resize_edges(_on_resize_edge)
             # A window that came up maximized has no resizable border to grab.
             set_resize_edges_visible(_resize_edges,
-                                     not _chrome_state["maximized"])
+                                     not _is_chrome_maximized())
             _root_content = ft.Stack([_root_content, *_resize_edges],
                                      fit=ft.StackFit.EXPAND, expand=True)
         except Exception:
@@ -7468,6 +7528,99 @@ async def main(page: ft.Page):
             page.update()
         _startup_mark("finished UI revealed")
 
+    # The overlay handle lives outside the `if` so the post-reveal fade below
+    # can stay a plain `if _onboard_overlay is not None`.
+    _onboard_overlay = None
+
+    # -----------------------------------------------------------------
+    # FIRST-RUN ONBOARDING
+    # A brand-new config (no "onboarded" flag) gets a full-screen, four-step
+    # welcome: what Cubeon is, the in-game name, the features worth knowing
+    # about, and the seasonal look (with a real switch for it). The old
+    # one-field dialog explained none of that - a first run ended up feeling
+    # like "a pop-up with a username box" (user ask, 2026-10-23).
+    #
+    # The screen is an overlay, not a Dialog: it has to own the whole window,
+    # fade in smoothly, and let its own steps animate. It is appended LAST to
+    # page.overlay, so it sits above every other overlay until the user
+    # finishes. Nothing is written until _finish_onboarding; the seasonal
+    # switch is the one exception (it is a real preference and saves as it is
+    # flipped, exactly like its Settings twin).
+    #
+    # The seasonal step doubles as this season's greeting, so finishing marks
+    # `season_seen` - otherwise the once-per-season card would land on top of
+    # the screen that just explained the season.
+    # -----------------------------------------------------------------
+    if "onboarded" not in cfg:
+
+        def _finish_onboarding(name):
+            ok, err = core.validate_username(name)
+            if not ok:
+                return False, err
+            profile_username_field.value = name
+            # Publish the new name NOW, synchronously. The old call here
+            # (on_profile_username_change) was removed by the account-panel
+            # debounce rework and this call site was missed - every first
+            # run crashed both "Start playing" and Enter in the welcome
+            # dialog with NameError. Point the shared publisher at this
+            # field and publish directly: the debounced path would fire
+            # 1.2s later, after this handler has already saved cfg and
+            # retired the overlay.
+            _name_state["field"] = profile_username_field
+            _cancel_pending_name()
+            _publish_username()
+            cfg["onboarded"] = True
+            try:
+                cfg["season_seen"] = cubeon_seasonal.current().slug
+            except Exception:
+                pass  # a greeting key is optional; finishing must not fail
+            try:
+                core.save_config(cfg)
+            except Exception as ex:
+                return False, f"Couldn't save your settings: {ex}"
+            return True, ""
+
+        def _onboard_season_toggle(on):
+            # The onboarding speaks about "the seasonal look" as one thing, so
+            # the switch owns both halves that make it visible: the palette
+            # (next start) and the top-bar companion (immediately). Ambience
+            # stays off - it is the one part with a repaint clock and the
+            # Settings pane still treats it as opt-in.
+            cfg["seasonal_theme"] = bool(on)
+            cfg["season_pet"] = bool(on)
+            try:
+                core.save_config(cfg)
+            except Exception:
+                pass  # the switch still reflects the choice for this session
+            try:
+                cubeon_seasonal.refresh(cfg)
+                _season_runtime_apply()
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "onboarding seasonal runtime apply failed", exc_info=True)
+
+        try:
+            _onboard_overlay = build_onboarding(
+                page,
+                initial_name=cfg.get("username") or "",
+                info=cubeon_seasonal.current(),
+                friends_on=friends_enabled(),
+                season_on=bool(cfg.get("seasonal_theme")),
+                backdrop=_bg_path,
+                validate_name=core.validate_username,
+                on_season_toggle=_onboard_season_toggle,
+                on_finish=_finish_onboarding,
+            )
+            page.overlay.append(_onboard_overlay)
+            # Mount it transparent; the fade-in is fired right after the
+            # window's own reveal (see below), so the two fades don't overlap
+            # into one flash.
+            page.update()
+        except Exception:
+            traceback.print_exc()  # a missed welcome must not break startup
+
+
+
     # AWAIT the finish reveal (same rationale as the splash above). Awaiting
     # yields to the loop, which flushes the swap patch queued at page.update()
     # just above, applies the real geometry and fades the finished UI in.
@@ -7479,6 +7632,17 @@ async def main(page: ft.Page):
         _show_window()
         try:
             _app_root.opacity = 1.0  # never leave the UI stuck invisible
+        except Exception:
+            pass
+
+    # Now that the window is up, bring the first-run tour in. The overlay was
+    # mounted transparent a moment ago, so this is one opacity animation over
+    # an already-visible launcher - no second window reveal, no flash.
+    if _onboard_overlay is not None:
+        try:
+            _onboard_overlay.opacity = 1
+            _onboard_overlay.scale = ft.Scale(1)
+            thread_safe_ui.refresh(_onboard_overlay)
         except Exception:
             pass
 
@@ -7718,68 +7882,6 @@ async def main(page: ft.Page):
         logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
     # -----------------------------------------------------------------
-    # FIRST-RUN ONBOARDING
-    # A brand-new config (no "onboarded" flag) gets one lightweight dialog:
-    # pick your in-game name, done. No multi-step wizard - everything else
-    # (versions, mods) has sane defaults and can be discovered in the UI.
-    # -----------------------------------------------------------------
-    if "onboarded" not in cfg:
-        onboard_name = ft.TextField(
-            value=cfg.get("username") or "",
-            label="Your in-game name",
-            border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
-            label_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI,
-            border_radius=RADIUS, height=52,
-            autofocus=True,
-            on_submit=lambda e: _onboard_finish(),
-        )
-
-        def _onboard_finish(e=None):
-            name = onboard_name.value.strip()
-            ok, err = core.validate_username(name)
-            if not ok:
-                onboard_name.error_text = err
-                page.update()
-                return
-            profile_username_field.value = name
-            # Publish the new name NOW, synchronously. The old call here
-            # (on_profile_username_change) was removed by the account-panel
-            # debounce rework and this call site was missed - every first
-            # run crashed both "Start playing" and Enter in the welcome
-            # dialog with NameError. Point the shared publisher at this
-            # field and publish directly: the debounced path would fire
-            # 1.2s later, after this handler has already saved cfg and
-            # closed the dialog.
-            _name_state["field"] = profile_username_field
-            _cancel_pending_name()
-            _publish_username()
-            cfg["onboarded"] = True
-            core.save_config(cfg)
-            _close_dialog(onboard_dlg)
-
-        onboard_dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Welcome to Cubeon", color=TEXT, font_family=FONT_DISPLAY),
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Text("Pick the name you'll play as. You can change it "
-                            "later from the Account menu.", size=13, color=TEXT_DIM),
-                    onboard_name,
-                ], tight=True, spacing=14),
-                width=360,
-            ),
-            actions=[ft.TextButton("Start playing", on_click=_onboard_finish,
-                                   style=ft.ButtonStyle(color=ACCENT))],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        try:
-            _open_dialog(onboard_dlg)
-        except Exception:
-            pass  # a missed welcome dialog must not break startup
-
-
-
-    # -----------------------------------------------------------------
     # SEASONAL GREETING
     # Once per season per year: the "the season changed and the launcher
     # noticed" moment, which is the whole point of a seasonal update. It is
@@ -7880,7 +7982,7 @@ async def main(page: ft.Page):
             # Fullscreen counts as maximized here: its rect is the whole
             # screen, and saving that would make the next fresh launch open
             # screen-sized-but-not-fullscreen.
-            maximized = bool(w.maximized) or bool(_fullscreen["active"])
+            maximized = _is_chrome_maximized() or bool(_fullscreen["active"])
             if maximized:
                 # Keep the last RESTORED geometry: the window manager's
                 # un-maximize returns to its own remembered size, and saving
@@ -7948,6 +8050,14 @@ async def main(page: ft.Page):
                     # maximize the window without the button ever being pressed.
                     _set_chrome_maximized(
                         winchrome.maximize_state(ev, _chrome_state["maximized"]))
+                elif ev in ("resized", "resize", "rescale"):
+                    # Belt-and-braces for a WM that ignored our maximize on a
+                    # hidden window (the "maximized but it isn't / can't
+                    # resize" report): the first real resize event is our
+                    # chance to adopt what the OS actually did.
+                    native = _native_maximized()
+                    if native is not None and native != _chrome_state["maximized"]:
+                        _set_chrome_maximized(native)
                 # Debounced: dragging the window fires dozens of events, and
                 # each save is a tiny file write. Saving 400ms after the last
                 # event is plenty; a crash mid-drag only loses the last tweak.

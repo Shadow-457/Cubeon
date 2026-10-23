@@ -1957,6 +1957,12 @@ facts belong HERE, not in diary notes.
   GOTCHA: `SeasonalAnimator._frame()` acquires the animator's non-reentrant
   lock itself — never call it while holding `anim._lock` (deadlock; the test
   suite calls `_wander`/`_frame` bare).
+- TWO companions per season (2026-10-23 user ask): `PET_FILES`/`PET_NAMES`/
+  `PET_LINES` are tuples and `_pet_choice()` picks one at random, ONCE per
+  season per process (`_PET_PICK`). Keep that cache: `pet_src`, `pet_name` and
+  `pet_line` must agree, and the onboarding tour, the top-bar perch and the
+  tooltip all read them. A fresh launch may bring the other animal. Tests may
+  clear `sui._PET_PICK` to exercise both.
 - Restart-to-apply: module-level `_relaunch["request"]` (threading.Event) in
   main.py. The button saves cfg, sets it, closes the window; the __main__
   session loop checks it right after ft.run returns (ghost client already
@@ -1967,6 +1973,42 @@ facts belong HERE, not in diary notes.
   `cfg["season_seen"] == "<year>-<season>"`, non-modal, only for onboarded
   users) must stay wrapped in try/except: a missed hello must never break
   startup.
+
+## First-run onboarding - full-screen, not a dialog (2026-10-23) — INVARIANTS
+- `ui/onboarding.py:build_onboarding()` owns the whole first-run screen. The
+  only trigger is `"onboarded" not in cfg` (main.py). It is a `page.overlay`
+  full-window Container (left/top/right/bottom=0), NOT a Dialog, so it can own
+  the backdrop and animate.
+- Design contract (user feedback, 2026-10-23): NO left rail/stepper, NO card
+  inside a card, and no generic SaaS copy. The layout is a top bar (brand +
+  four progress ticks + counter), a centered stage (max width 880), and a
+  two-button footer. One strong prop per beat: the rotating Cubeon cube
+  (`cubeon-rotating.gif`), a Minecraft-style nametag, four feature tiles, the
+  season's companion.
+- GOTCHA (features beat, 2026-10-23): never use
+  `CrossAxisAlignment.STRETCH` on a Row that lives in an unbounded-height
+  Column. It demands infinite cross-axis height and Flutter lays the beat out
+  off-screen, so the page looks empty below the headline. `_feature_tile()`
+  uses a fixed `height` instead and the Row aligns START.
+- The overlay wears the app's real backdrop (`main.py` passes `_bg_path`, the
+  same `glass_<season>.jpg` the root uses) under a dark scrim + green bloom.
+- Motion: overlay fades/scales in AFTER `_reveal_window()` (main sets
+  `opacity=1` and `scale=1`); step bodies cross-fade through one
+  AnimatedSwitcher while drifting up 1.2% via `animate_offset`. The 30ms
+  settle is generation-guarded (`state["gen"]`); keep it that way so rapid
+  clicks can't leave a step parked off-position.
+- Finishing (`on_finish` in main.py) publishes the username synchronously
+  (same `_name_state`/`_publish_username` path the old dialog used), sets
+  `cfg["onboarded"]=True`, saves, and sets `cfg["season_seen"]` to the current
+  slug - the seasonal beat IS this season's greeting, so the separate card must
+  not immediately follow it.
+- The seasonal switch saves immediately and owns BOTH `seasonal_theme` and
+  `season_pet` (palette waits for relaunch, companion applies live via
+  `_season_runtime_apply`); it deliberately leaves `season_ambience` alone.
+- Flet compatibility gotcha: `TextField.error_text` exists in the pinned 0.86
+  but 1.0 renamed it to `error`. Assigning the wrong one raises from inside
+  on_change. `ui/onboarding.py` uses `_field_error()`, which checks `error`
+  first. Do not re-add bare `field.error_text = ...` in new code.
 
 ## Atomic JSON writes + hardening (2026-09-14) — INVARIANT
 - Every persisted JSON state file (config.json, skins.json, skin_net.json,
@@ -2497,6 +2539,14 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
   must NEVER be touched.
 - **Packaged launchers have no `mod/build/libs`** — jars must exist in
   `assets/jars/`. `find_jar` order: cache → assets/jars → build/libs.
+- **A jar must only declare entrypoints it actually contains.** `fabric.mod.json`
+  is templated: the emotes `main` entrypoint (`com.emotesmod.EmotesMod`) is
+  emitted ONLY when the bracket's overlays include an `emotes*` overlay, and
+  `environment` stays `client` otherwise. A literal entrypoint in a jar without
+  that class aborts Minecraft at startup with `ClassNotFoundException` before
+  the main menu (2026-10-23). `tools/test_mod_matrix.py::test_shipped_jars`
+  checks every `assets/jars/cubeon-client-*.jar` against its own class list —
+  rebuild (`python3 tools/build_mod_jars.py`) after touching the template.
 - **The live relay lags the repo.** Features needing new Worker behavior
   (e.g. the T_SYSTEM "No Cubeon user" reply) must degrade gracefully; never
   block a request thread on the relay.
@@ -3382,24 +3432,23 @@ sanitize at launch (below). The four still-retired mods
   particles:2 (MINIMAL — 0 is ALL), ao:false, entityShadows:false,
   entityDistanceScaling:0.75, biomeBlendRadius:0, syncChunkWrites:false,
   renderDistance:6, simulationDistance:5, mipmapLevels:2, renderClouds:"fast"
-  (`MAX_FPS_OPTIONS`). unlock_frame_rate() and apply_max_fps() share
+  (`MAX_FPS_OPTIONS`). `apply_max_fps()` and `restore_vanilla_look()` share
   `_set_options()` — the contract is: only keys ALREADY in options.txt are
   touched (no invented unknown keys), values written only when they differ,
   atomic + idempotent, never raises. STRING options (graphicsPreset,
   renderClouds) must be written QUOTED. `restore_vanilla_look()` is the OFF
   switch and restores all of the above to Minecraft's defaults, distance
   levers included. Tests: tools/test_perf_mods.py section 10 + 11.
-- **Frame-rate unlock (cubeon/game_options.py)**: adding mods only raises what
-  the machine CAN render; Minecraft's own `options.txt` will still read 60 (or
-  ~30, Vsync halving) if `enableVsync:true` / a low `maxFps`. This module flips
-  EXACTLY those two keys (`enableVsync:false`, `maxFps:260`, vanilla's top
-  slider) on the launch path, atomically and idempotently, and touches NOTHING
-  else (render distance / graphics / packs / shaders stay the player's choice —
-  same rule as content.py). Only keys already present are changed, so an older
-  options.txt without them is not given unknown keys. Called in
-  `launch_game` right after `perf_mods.ensure_installed`, gated by the same
-  `perf_mods_enabled`. The game is not running yet at that point, so it cannot
-  race the game's save-on-exit.
+- **Vsync / maxFps are the PLAYER's (2026-10-24) — INVARIANT.** The launcher
+  must never read or write `enableVsync` / `maxFps` in options.txt. It used to
+  force `enableVsync:false` + `maxFps:260` on every launch (the old
+  `unlock_frame_rate()`, now deleted), which meant a player could never keep
+  Vsync on. On a machine that can feed frames faster than the monitor, that
+  pegged six cores in a singleplayer world (582% CPU, 83 °C package, fans
+  roaring — the 2026-10-24 report). A fresh install keeps Minecraft's own
+  defaults (Vsync ON, maxFps 120); an existing options.txt is left exactly as
+  the player set it. Guard: tools/test_perf_mods.py §7 asserts the function is
+  gone, the launch path never calls it, and no applier table uses the keys.
 - **Client JVM flags are CPU-AWARE (2026-10-05) — INVARIANT.** `cubeon/launch.py`
   builds them per launch with `client_jvm_flags()` (NOT a fixed list), so a
   pinned/limited CPU is tuned correctly:

@@ -267,7 +267,11 @@ def run_app(callback, *, assets_dir=None):
     in each tool."""
     import flet as ft
     old = getattr(ft, "app", None)                # Flet 0.8x
-    if old is not None:
+    # On Flet 1.0 `flet.app` still exists as a MODULE import, so a bare
+    # `is not None` check picked the uncallable module and died with
+    # "'module' object is not callable" before drawing a frame. Only the 0.8x
+    # callable counts; everything else goes through ft.run().
+    if callable(old):
         if assets_dir:
             old(target=callback, assets_dir=assets_dir)
         else:
@@ -286,7 +290,10 @@ def has_async_entry() -> bool:
     their sync and async entry points: on 1.0 the app's coroutine must be
     awaited, because main.run_sync()'s asyncio.run() raises inside a loop."""
     import flet as ft
-    return getattr(ft, "app", None) is None and hasattr(ft, "run")
+    # `flet.app` can still be importable as a MODULE on 1.0, so `is None` is
+    # not a version check - only a CALLABLE ft.app means the 0.8x API.
+    return (not callable(getattr(ft, "app", None))
+            and hasattr(ft, "run"))
 
 
 def _thread_hook(args):

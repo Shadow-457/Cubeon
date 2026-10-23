@@ -7,18 +7,19 @@
   "authors": ["Cubeon"],
   "license": "MIT",
   "icon": "assets/cubeon-client/icon.png",
-  "environment": "client",
+  "environment": "${environment}",
   "entrypoints": {
+    "main": [${emotes_main}],
     "client": [
       "com.cubeon.client.CubeonClient",
-      "com.cubeon.client.hud.CubeonHudClient"
+      "com.cubeon.client.hud.CubeonHudClient"${emotes_entrypoint}
     ]
   },
   "mixins": [
     {
       "config": "cubeon-client.mixins.json",
       "environment": "client"
-    }${mixins_extra}
+    }${mixins_extra}${emotes_mixins}
   ],
   "depends": {
     "minecraft": "${minecraft_range}",

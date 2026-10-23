@@ -438,7 +438,24 @@ sui.update_pet(_pet, _info_w)
 check("update_pet swaps the sprite in place (animator keeps its registration)",
       _pet["season"] == seasonal.WINTER
       and _pet["ctrl"].content.src == sui.pet_src(_info_w)
-      and "golem" in (_pet["ctrl"].tooltip or "").lower())
+      and sui.pet_name(_info_w).lower() in (_pet["ctrl"].tooltip or "").lower())
+
+# Two companions per season (2026-10-23 user ask): each LAUNCH may bring either
+# one, but a single process must stay consistent - the tour, the top bar and
+# the tooltip would otherwise disagree about which animal moved in.
+import random as _random  # noqa: E402
+for _season, _info in ((seasonal.AUTUMN, _info_a), (seasonal.WINTER, _info_w)):
+    _seen = set()
+    _random.seed(7)
+    for _ in range(60):
+        sui._PET_PICK.pop(_season, None)
+        _seen.add(sui.pet_src(_info))
+    check(f"{_season} rotates between its two companions", len(_seen) >= 2)
+    sui._PET_PICK.pop(_season, None)
+    _first = sui.pet_src(_info)
+    check(f"{_season} keeps one companion for the whole launch",
+          all(sui.pet_src(_info) == _first for _ in range(5)))
+sui._PET_PICK.clear()
 
 _bounds = (200, 56, 5, 0.6, 0.4, False)
 _parts = sui.build_ambience(_info_a, width=200, height=56)[1]

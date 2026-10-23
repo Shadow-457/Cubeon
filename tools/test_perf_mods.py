@@ -1,20 +1,21 @@
 """
 Offline regression suite for the FPS-boost install path (cubeon/perf_mods.py)
-and the frame-rate unlocker (cubeon/game_options.py).
+and the options.txt appliers (cubeon/game_options.py).
 
 The point of the feature: the Cubeon Client is a social mod, so "activate
 Cubeon Client" must also bring the mods that actually raise frame rate
-(Sodium, Lithium, ImmediatelyFast, EntityCulling, MoreCulling, ...) AND unlock
-Minecraft's own Vsync/FPS-cap options. These tests pin the install/skip/fail
-behaviour and the options rewrite with no network and no real profile:
+(Sodium, Lithium, ImmediatelyFast, EntityCulling, MoreCulling, ...). It must
+NOT touch Vsync/maxFps - those belong to the player. These tests pin the
+install/skip/fail behaviour and the options rewrite with no network and no
+real profile:
 
   - a clean profile gets the whole suite, in order;
   - one/both already present (by slug, display name, project id or filename)
     -> kept, never re-downloaded (a duplicate Sodium is a crash, not a boost);
   - only Fabric/Quilt get anything; vanilla/Forge is a clean no-op;
   - every failure (no build, download error) is reported, never raised;
-  - options.txt: only enableVsync and maxFps are touched, atomically and
-    idempotently, and a file without those keys is left alone.
+  - options.txt: graphics keys are rewritten atomically and idempotently,
+    enableVsync/maxFps are never read or written.
 """
 import json as _json
 import os
@@ -188,54 +189,67 @@ check("opaque performance project IDs are recognized",
 check("retired project IDs are no longer recognized",
       "badoptimizations" not in perf._present("1.20.1", "fabric"))
 
-print("\n7. the frame-rate unlocker touches only vsync + the FPS cap")
+print("\n7. options.txt: the launcher leaves Vsync/maxFps alone")
 with tempfile.TemporaryDirectory() as tmp:
     path = os.path.join(tmp, "options.txt")
     original = (
         "version:4671\n"
         "renderDistance:8\n"
         "enableVsync:true\n"
-        "maxFps:70\n"
+        "maxFps:120\n"
+        "graphicsPreset:\"fancy\"\n"
         "fullscreen:false\n"
         "resourcePacks:[\"vanilla\"]\n"
     )
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(original)
 
-    result = game_options.unlock_frame_rate(path)
-    check("both keys reported changed",
-          set(result["changed"]) == {"enableVsync", "maxFps"}, f"got {result!r}")
+    result = game_options.apply_max_fps(path)
+    check("the graphics preset is rewritten",
+          "graphicsPreset" in result["changed"], f"got {result!r}")
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
-    check("vsync now false", "enableVsync:false" in text, repr(text))
-    check("fps cap lifted", "maxFps:260" in text, repr(text))
+    check("Vsync is left exactly as the player had it",
+          "enableVsync:true" in text, repr(text))
+    check("the player's FPS cap is left alone",
+          "maxFps:120" in text, repr(text))
+    check("no Vsync/maxFps key is ever reported changed",
+          "enableVsync" not in result["changed"]
+          and "maxFps" not in result["changed"], f"got {result!r}")
     check("trailing newline preserved", text.endswith("\n"), repr(text[-5:]))
     check("other options untouched",
-          "renderDistance:8" in text and "fullscreen:false" in text
+          "renderDistance:6" in text and "fullscreen:false" in text
           and "resourcePacks:[\"vanilla\"]" in text, repr(text))
     check("exactly one line changed per key",
-          text.count("enableVsync:") == 1 and text.count("maxFps:") == 1, repr(text))
+          text.count("enableVsync:") == 1 and text.count("maxFps:") == 1,
+          repr(text))
     check("original had a trailing newline too", original.endswith("\n"))
 
-    second = game_options.unlock_frame_rate(path)
-    check("idempotent: second run is a no-op",
-          second["changed"] == [] and "already applied" in second["detail"],
-          f"got {second!r}")
+    second = game_options.apply_max_fps(path)
+    check("idempotent: second run writes nothing",
+          second["changed"] == [], f"got {second!r}")
 
     check("missing file is reported, not raised",
-          game_options.unlock_frame_rate(os.path.join(tmp, "nope.txt"))["changed"] == [])
+          game_options.apply_max_fps(os.path.join(tmp, "nope.txt"))["changed"] == [])
 
-with tempfile.TemporaryDirectory() as tmp:
-    path = os.path.join(tmp, "options.txt")
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("renderDistance:12\nmaxFps:120\n")  # no enableVsync key
-    before = open(path, encoding="utf-8").read()
-    result = game_options.unlock_frame_rate(path)
-    after = open(path, encoding="utf-8").read()
-    check("maxFps still raised when under the cap", "maxFps:260" in after, repr(after))
-    check("no unknown enableVsync key invented",
-          "enableVsync" not in after and before != after, repr(after))
-    check("only maxFps reported", result["changed"] == ["maxFps"], f"got {result!r}")
+# The 2026-10-24 fan-noise fix: forcing enableVsync:false + maxFps:260 on
+# every launch is gone for good. A fresh install keeps Minecraft's defaults
+# (Vsync ON, maxFps 120) and an existing file is never rewritten.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_launch_now = open(os.path.join(_ROOT, "cubeon", "launch.py"),
+                   encoding="utf-8").read()
+_options_src = open(os.path.join(_ROOT, "cubeon", "game_options.py"),
+                    encoding="utf-8").read()
+check("the frame-rate unlocker is gone",
+      not hasattr(game_options, "unlock_frame_rate"))
+check("the launch path never rewrites Vsync or maxFps",
+      "unlock_frame_rate" not in _launch_now
+      and "game_options.VSYNC_KEY" not in _launch_now
+      and "game_options.MAX_FPS_KEY" not in _launch_now,
+      "forcing Vsync off on every launch pegged six cores in singleplayer")
+check("no applier writes Vsync/maxFps keys",
+      "VSYNC_KEY:" not in _options_src and "MAX_FPS_KEY:" not in _options_src,
+      "the constants stay documented but no table may use them")
 
 print("\n8. the EntityCulling config is repaired of crash-inducing entries")
 with tempfile.TemporaryDirectory() as tmp:

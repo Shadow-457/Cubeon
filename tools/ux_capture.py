@@ -963,7 +963,13 @@ def _run_windowed(outdir, pixel_ratio, empty, only, software):
         # imports the client so the renderer is chosen at window creation.
         os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
         os.environ.setdefault("GALLIUM_DRIVER", "llvmpipe")
-    fz.run_app(capture_main_async if fz.has_async_entry() else capture_main)
+    # Both entries need the tour arguments bound; Flet 1.0 calls the target as
+    # `target(page)` and only awaits it when it is a coroutine function, so use
+    # functools.partial (which keeps that identity) rather than a lambda.
+    from functools import partial
+    target = (capture_main_async if fz.has_async_entry() else capture_main)
+    fz.run_app(partial(target, outdir=outdir, pixel_ratio=pixel_ratio,
+                       empty=empty, only=only))
     import flet as ft
     fz.run_app(lambda page: capture_main(page, outdir, pixel_ratio, empty, only))
 

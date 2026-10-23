@@ -44,6 +44,26 @@ public final class CubeonHudMenuScreen extends Screen {
 		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
 		y += ROW_HEIGHT;
 
+		float[] scales = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
+
+		addRenderableWidget(Button.builder(Component.literal("Scale: " + CubeonHudConfig.get().scale), button -> {
+			CubeonHudConfig cfg = CubeonHudConfig.get();
+			int idx = 0;
+
+			for (int i = 0; i < scales.length; i++) {
+				if (Math.abs(scales[i] - cfg.scale) < 0.001F) {
+					idx = i;
+					break;
+				}
+			}
+
+			cfg.scale = scales[(idx + 1) % scales.length];
+			CubeonHudConfig.save();
+			button.setMessage(Component.literal("Scale: " + cfg.scale));
+		}).bounds(x, y + ROW_GAP, TOTAL_WIDTH, 20).build());
+
+		y += ROW_HEIGHT + ROW_GAP;
+
 		int halfWidth = TOTAL_WIDTH / 2 - ROW_GAP / 2;
 
 		addRenderableWidget(Button.builder(Component.translatable("cubeonclient.menu.reset_positions"), button -> {

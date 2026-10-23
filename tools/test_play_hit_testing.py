@@ -13,7 +13,7 @@ These checks are static (source-shape) because the failure mode only exists
 with a real pointer. They pin the invariant:
   1. play_sheen.control is a DESCENDANT of play_button's content (taps land
      on the widget that owns on_click), and
-  2. the footer Stack paints hero_glow then the button - nothing after it.
+  2. nothing is painted as a sibling behind or above the button in the footer.
 
 Run: python3 tools/test_play_hit_testing.py
 """
@@ -55,20 +55,20 @@ ok(m2 is not None,
    "(a descendant, so taps reach on_click)")
 
 # ...and the sheen must NOT be a sibling painted after the button anywhere.
-# Target the real footer Stack by its unique content (glow + the button).
+# The footer used to be a Stack (glow + button); the glow was removed on
+# 2026-10-23, so the button now sits directly in the footer Row. If a Stack
+# ever comes back around it, the sheen-inside rule above still has to hold.
 footer = re.search(
-    r"ft\.Stack\(\s*\[\s*hero_glow,.*?content=play_button\),?\s*\],",
+    r"ft\.Row\(\s*\[\s*ft\.Container\(expand=True\),\s*"
+    r"ft\.Container\(width=280, content=play_button\),\s*\],",
     src, re.S)
-ok(footer is not None, "footer Stack block found (glow + button)")
+ok(footer is not None,
+   "the footer mounts the button directly (no painted layer behind/above it)")
 footer_block = footer.group(0) if footer else ""
 ok("play_sheen" not in footer_block,
-   "the footer Stack no longer paints play_sheen ON TOP of the button")
-
-# Footer order: hero_glow first, the button last - nothing painted after it.
-order = footer_block.find("hero_glow") < footer_block.find("content=play_button") \
-    if footer_block else False
-ok(order,
-   "footer Stack order is glow -> button (nothing layered over the button)")
+   "the footer no longer paints play_sheen ON TOP of the button")
+ok("hero_glow" not in src,
+   "the Play/QUIT aura is gone (2026-10-23 user ask)")
 
 # --------------------------------------------------------------------------
 print("the button itself")

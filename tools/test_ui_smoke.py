@@ -1507,6 +1507,10 @@ try:
         "_chrome_state": {"maximized": False},
         "winchrome": winchrome,
         "_set_chrome_maximized": lambda maximized: None,
+        # The resize branch asks the OS what the window really is (the
+        # 2026-10-23 "maximized but it isn't / can't resize" fix). None means
+        # "couldn't tell", which is what off-Windows always returns.
+        "_native_maximized": lambda: None,
     }
     _window_probe = _ui_functions(_main_src, ["_on_window_event"], _window_scope,
                                  "_geometry_timer = None")
@@ -2273,6 +2277,17 @@ check("the maximize glyph follows the NATIVE events, not only our clicks",
       "winchrome.maximize_state(ev" in _src_main
       and "_set_chrome_maximized(" in _src_main,
       "the drag area's double-click and Win+arrow maximize without the button")
+check("the maximize button toggles the OS state, not our last write",
+      "target = not _is_chrome_maximized()" in _src_main
+      and "def _is_chrome_maximized()" in _src_main
+      and "winchrome.native_maximized(" in _src_main,
+      "trusting page.window.maximized is how 'maximized but it isn't - and I "
+      "can't resize' happened (2026-10-23): the first click only cleared the lie")
+check("a real resize event adopts the native maximize state",
+      'native = _native_maximized()' in _src_main
+      and "_set_chrome_maximized(native)" in _src_main,
+      "a WM that ignored the hidden-window maximize must be caught on the "
+      "first genuine resize instead of staying wrong until the next click")
 check("a window that STARTS maximized still gets the right glyph",
       'getattr(page.window, "maximized", False)' in _src_main
       and "set_maximized_glyph(_chrome_ctl, True)" in _src_main,

@@ -33,6 +33,15 @@ public final class CubeonHudConfig {
 	public boolean showPing = false;
 	public boolean showCps = false;
 
+	public boolean showArmorHelmet = true;
+	public boolean showArmorChest = true;
+	public boolean showArmorLegs = true;
+	public boolean showArmorFeet = true;
+	public boolean showArmorMainHand = true;
+	public boolean showArmorOffHand = true;
+
+	public float scale = 1.0F;
+
 	/** 0 = flush left, 1 = flush right. */
 	public float fpsX = 0.0F;
 	/** 0 = top, 1 = bottom. */
@@ -125,5 +134,8 @@ public final class CubeonHudConfig {
 		pingY = clamp01(pingY);
 		cpsX = clamp01(cpsX);
 		cpsY = clamp01(cpsY);
+
+		if (scale < 0.5F) scale = 0.5F;
+		if (scale > 2.0F) scale = 2.0F;
 	}
 }
