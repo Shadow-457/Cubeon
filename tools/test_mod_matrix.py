@@ -381,6 +381,52 @@ def test_resources(matrix):
     ok("resources-26x" in gradle,
        "and ships the folder holding it only for the brackets that need it")
 
+    # The dynamic crosshair (2026-10-24) is the opposite case: every jar has one
+    # per-era CrosshairMixin, so its config is listed unconditionally. It has to
+    # be fail-soft for the same reason as the others - a Minecraft that moved
+    # renderCrosshair costs the bigger crosshair, not the game.
+    cross_cfg_path = os.path.join(MOD, "src", "main", "resources",
+                                  "cubeon-client-crosshair.mixins.json")
+    ok(os.path.isfile(cross_cfg_path), "the dynamic crosshair's mixin config is shipped")
+    if os.path.isfile(cross_cfg_path):
+        cross_cfg = load(cross_cfg_path)
+        ok(cross_cfg.get("package") == "com.cubeon.client.hud.mixin",
+           "it names the HUD's mixin package")
+        ok(cross_cfg.get("required") is False
+           and cross_cfg.get("injectors", {}).get("defaultRequire") == 0,
+           "and it is fail-soft: a moved crosshair hook costs the scale, not the game")
+        ok(release is not None
+           and int(cross_cfg.get("compatibilityLevel", "JAVA_0").split("_")[1])
+           >= int(release.group(1)),
+           "its compatibilityLevel is not below the jar's own bytecode")
+    ok("cubeon-client-crosshair.mixins.json" in fabric_json,
+       "fabric.mod.json lists the crosshair config for every bracket")
+
+    # The 26.x motion blur is data as much as code: a persistent target is what
+    # turns the two-pass blur into frame accumulation, and a chain that never
+    # writes back to minecraft:main would render nothing at all.
+    mb_json_path = os.path.join(MOD, "src", "main", "resources-26x", "assets",
+                                "cubeon-client", "post_effect", "motion_blur.json")
+    mb_shader_path = os.path.join(MOD, "src", "main", "resources-26x", "assets",
+                                  "cubeon-client", "shaders", "post", "motion_blur.fsh")
+    ok(os.path.isfile(mb_json_path), "the 26.x motion blur post effect is shipped")
+    ok(os.path.isfile(mb_shader_path), "and its fragment shader is shipped")
+    if os.path.isfile(mb_json_path):
+        mb = load(mb_json_path)
+        ok(any(target.get("persistent") for target in mb.get("targets", {}).values()),
+           "the effect keeps a persistent previous-frame target")
+        samplers = {entry.get("sampler_name")
+                    for post_pass in mb.get("passes", [])
+                    for entry in post_pass.get("inputs", [])}
+        ok({"In", "Prev"} <= samplers,
+           f"it samples both the current and the previous frame (got {sorted(samplers)})")
+        ok(any(post_pass.get("output") == "minecraft:main"
+               for post_pass in mb.get("passes", [])),
+           "and writes its result back to minecraft:main")
+    if os.path.isfile(hud_cfg_path):
+        ok("MotionBlurMixin" in (hud_cfg.get("client") or []),
+           "the 26.x HUD mixin config registers the motion blur hook")
+
 
 def test_mouse_buttons():
     section("per-bracket mouse-button convention")
@@ -519,6 +565,20 @@ def test_shipped_jars(matrix):
             with zipfile.ZipFile(path) as jar:
                 names = set(jar.namelist())
                 meta = json.loads(jar.read("fabric.mod.json"))
+                # Read the mixin configs while the archive is still open; the
+                # `with` block closes it, and a closed ZipFile cannot be read.
+                mixin_configs = []
+                for entry in meta.get("mixins") or []:
+                    cfg_name = entry.get("config") if isinstance(entry, dict) else entry
+                    if not cfg_name:
+                        continue
+                    if cfg_name not in names:
+                        mixin_configs.append((cfg_name, None))
+                        continue
+                    try:
+                        mixin_configs.append((cfg_name, json.loads(jar.read(cfg_name))))
+                    except (KeyError, ValueError) as exc:
+                        mixin_configs.append((cfg_name, f"unreadable ({exc})"))
         except (OSError, KeyError, ValueError, zipfile.BadZipFile) as exc:
             ok(False, f"{name}: readable jar ({exc})")
             continue
@@ -534,6 +594,29 @@ def test_shipped_jars(matrix):
                     missing.append(f"{stage}:{cls}")
         ok(not missing, f"{name}: every declared entrypoint class is present "
                         f"(missing: {missing})")
+
+        # The same failure mode, one layer down: fabric.mod.json lists a mixin
+        # config, and the config names classes. If the config is not in the jar
+        # (wrong overlay) or names a class that is not (wrong era copy), Mixin
+        # skips it and the feature silently does nothing. That is how the
+        # crosshair and the 26.x motion blur would fail, so check the chain.
+        missing_mixins = []
+        for cfg_name, cfg in mixin_configs:
+            if cfg is None:
+                missing_mixins.append(f"config:{cfg_name}")
+                continue
+            if isinstance(cfg, str):
+                missing_mixins.append(f"{cfg_name}: {cfg}")
+                continue
+            package = cfg.get("package", "")
+            for side in ("mixins", "client", "server"):
+                for cls in cfg.get(side) or []:
+                    class_path = (package + "." + cls).replace(".", "/") + ".class"
+                    if class_path not in names:
+                        missing_mixins.append(f"{cfg_name}:{cls}")
+        ok(not missing_mixins,
+           f"{name}: every listed mixin config and class is present "
+           f"(missing: {missing_mixins})")
 
 
 def main():

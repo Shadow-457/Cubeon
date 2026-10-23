@@ -55,6 +55,7 @@ ASSETS_JARS = os.path.join(ROOT, "assets", "jars")
 # the HUD, and a missing com/cubeon/client/hud class is the only cheap way to see that).
 REQUIRED_ENTRIES = ("fabric.mod.json",
                     "cubeon-client.mixins.json",
+                    "cubeon-client-crosshair.mixins.json",
                     "assets/cubeon-client/icon.png",
                     "com/cubeon/client/CubeonClient.class",
                     "com/cubeon/client/WorldPlayers.class",
@@ -63,14 +64,20 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class",
                     "com/cubeon/client/hud/CubeonHudClient.class",
                     "com/cubeon/client/hud/CubeonHudConfig.class",
-                    "com/cubeon/client/hud/CubeonHud.class")
+                    "com/cubeon/client/hud/CubeonHud.class",
+                    "com/cubeon/client/hud/mixin/CrosshairMixin.class")
 
 # The 26.x brackets only. The HUD there measures ping through a mixin of its own,
 # and a mixin that is compiled but not registered by a config silently does
 # nothing - the HUD still draws, its ping is just wrong, which is exactly the
 # kind of failure nobody notices. So the class and its config are required.
+# The motion blur lives only here too: its post effect and shader are the effect,
+# and MotionBlurMixin is what asks for it every frame.
 REQUIRED_ENTRIES_26X = ("cubeon-client-hud.mixins.json",
-                        "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class")
+                        "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class",
+                        "com/cubeon/client/hud/mixin/MotionBlurMixin.class",
+                        "assets/cubeon-client/post_effect/motion_blur.json",
+                        "assets/cubeon-client/shaders/post/motion_blur.fsh")
 
 # Loom 1.18 (all 24 brackets) refuses to start on an older JVM, and the system
 # gradle here runs on 21, so the build needs an explicit JAVA_HOME.

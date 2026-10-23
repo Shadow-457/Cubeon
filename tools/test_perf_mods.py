@@ -470,7 +470,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "use_closest_point_entity_sort": True,  # taste -> keep
         },
         "performance": {
-            "chunk_builder_threads": 2,           # wrong (0 = all cores)
+            "chunk_builder_threads": 8,           # wrong (Cubeon asks for 2)
             "chunk_build_defer_mode": "ZERO_FRAMES",   # wrong
             "animate_only_visible_textures": False,    # wrong
             "use_entity_culling": False,               # wrong
@@ -511,7 +511,7 @@ with tempfile.TemporaryDirectory() as tmp:
           and fixed["performance"]["animate_only_visible_textures"] is True
           and fixed["performance"]["chunk_build_defer_mode"] == "ALWAYS"
           and fixed["performance"]["quad_splitting_mode"] == "SAFE"
-          and fixed["performance"]["chunk_builder_threads"] == 0
+          and fixed["performance"]["chunk_builder_threads"] == perf.chunk_builder_threads()
           and fixed["quality"]["hidden_fluid_culling"] is True
           and fixed["quality"]["improved_fluid_shaping"] is False
           and fixed["advanced"]["cpu_render_ahead_limit"] == 3,
@@ -525,13 +525,34 @@ with tempfile.TemporaryDirectory() as tmp:
           and fixed["future_section"] == {"we_do_not_know": 1}, repr(fixed))
     check("and no section was added or removed",
           set(fixed) == set(drifted), repr(sorted(fixed)))
-    # The values are the ones Sodium itself compiles in: with the boost on
-    # there is nothing for a later "restore" to write back.
+    # Every other value is the one Sodium itself compiles in: with the boost on
+    # there is nothing for a later "restore" to write back. chunk_builder_threads
+    # is the deliberate exception (2, not Auto) - measured by the player
+    # 2026-10-24; see perf_mods.chunk_builder_threads().
     check("the fast values ARE Sodium's own defaults",
           perf.SODIUM_MAX_FPS_OPTIONS["quality"]["hidden_fluid_culling"] is True
           and perf.SODIUM_MAX_FPS_OPTIONS["performance"]["chunk_build_defer_mode"] == "ALWAYS"
           and perf.SODIUM_MAX_FPS_OPTIONS["performance"]["quad_splitting_mode"] == "SAFE"
           and perf.SODIUM_MAX_FPS_OPTIONS["advanced"]["use_advanced_staging_buffers"] is True)
+    check("chunk builder threads default to 2, not Sodium's Auto (0)",
+          perf.SODIUM_MAX_FPS_OPTIONS["performance"]["chunk_builder_threads"] == 2
+          and perf.chunk_builder_threads() == min(2, max(1, (os.cpu_count() or 4) - 1)),
+          f"got {perf.SODIUM_MAX_FPS_OPTIONS['performance']['chunk_builder_threads']!r}")
+    # ... but never more than the machine has: 2 on 3+ cores, 1 on 1-2.
+    _real_cpu_count = os.cpu_count
+    try:
+        os.cpu_count = lambda: 2
+        check("a 2-core box gets 1 builder thread, not 2",
+              perf.chunk_builder_threads() == 1)
+        os.cpu_count = lambda: 3
+        check("3 cores get 2", perf.chunk_builder_threads() == 2)
+        os.cpu_count = lambda: 1
+        check("1 core gets 1", perf.chunk_builder_threads() == 1)
+        os.cpu_count = lambda: None
+        check("an unknown core count assumes 4 and asks for 2",
+              perf.chunk_builder_threads() == 2)
+    finally:
+        os.cpu_count = _real_cpu_count
 
     again = perf.apply_max_fps_sodium(path)
     check("idempotent: the next launch changes nothing",
@@ -563,7 +584,7 @@ with tempfile.TemporaryDirectory() as tmp:
         _json.dump({
             "quality": {"weather_quality": True, "leaves_quality": "fancy",
                         "enable_vignette": True},
-            "performance": {"chunk_builder_threads": 1,
+            "performance": {"chunk_builder_threads": 8,
                             "always_defer_chunk_updates": False,
                             "use_entity_culling": True,
                             "use_fog_occlusion": False},

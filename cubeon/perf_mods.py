@@ -158,11 +158,14 @@ def sanitize_entityculling_config(path: str | None = None) -> dict:
 # kept in <game dir>/config/sodium-options.json.
 #
 # Unlike options.txt there is nothing to save for turning the boost off: every
-# default in Sodium 0.8.x IS already the fast value. That was read straight off
-# the option holder (SodiumOptions$*Settings, values verified by decompiling
-# sodium-fabric 0.8.14): hiddenFluidCulling true, chunkBuildDeferMode ALWAYS,
-# quadSplittingMode SAFE, useAdvancedStagingBuffers true, cpuRenderAheadLimit 3.
-# So this is a REPAIR, not a preset - and it exists because nothing stops a
+# default in Sodium 0.8.x IS already the fast value, with ONE exception -
+# chunk_builder_threads (see chunk_builder_threads() below). The rest was read
+# straight off the option holder (SodiumOptions$*Settings, values verified by
+# decompiling sodium-fabric 0.8.14): hiddenFluidCulling true,
+# chunkBuildDeferMode ALWAYS, quadSplittingMode SAFE, useAdvancedStagingBuffers
+# true, cpuRenderAheadLimit 3.
+# So this is a REPAIR, not a preset - every key here is Sodium's own default
+# except chunk_builder_threads - and it exists because nothing stops a
 # profile from holding a config that is not the default: an older Sodium, an
 # older Cubeon, or a "raise your FPS" guide telling the player to switch fog
 # occlusion off. Those files sat there forever and kept the renderer doing work
@@ -183,13 +186,41 @@ def sanitize_entityculling_config(path: str | None = None) -> dict:
 #   quality.use_closest_point_entity_sort more correct translucent sorting,
 #                                         off by default
 #   notifications.*                       Sodium's own one-time prompts
+
+
+def chunk_builder_threads() -> int:
+    """How many Sodium chunk-builder threads Cubeon asks for: 2.
+
+    Sodium's own default is 0 = Auto, which `ChunkBuilder.getThreadCount()`
+    resolves to `clamp(max(cores/3, cores-6), 1, 10)` - 6 threads on a 12-core
+    box. This is the one key in this table that is NOT Sodium's default, and
+    that is deliberate.
+
+    2026-10-18 the rule here was "never hardcode a thread count" (Auto was
+    assumed better). 2026-10-24 the player measured the opposite on their own
+    12-core machine: 2 builder threads gave steadier frame times than Auto's 6.
+    That matches what chunk meshing is - bursty, memory-bound work that spends
+    more time contending with the render thread and with itself the more
+    builders there are. Their measurement beats the earlier theory, so 2 is the
+    default now; the old note is kept in agents/docs/module-map.md so nobody
+    "fixes" it back to Auto a third time.
+
+    Still capped by cores so a small machine is never oversubscribed: 1 thread
+    on a 1-2 core box, 2 from 3 cores up. Sodium clamps any value to
+    `min(value, cores)` itself, so this can never ask for more than the box has.
+    """
+    cores = os.cpu_count() or 4
+    return max(1, min(2, cores - 1))
+
+
 SODIUM_MAX_FPS_OPTIONS = {
     "quality": {
         "hidden_fluid_culling": True,        # don't draw hidden fluid faces
         "improved_fluid_shaping": False,     # the cheap fluid mesher
     },
     "performance": {
-        "chunk_builder_threads": 0,          # 0 = a builder thread per core
+        # 2, not Sodium's Auto (0): see chunk_builder_threads().
+        "chunk_builder_threads": chunk_builder_threads(),
         "chunk_build_defer_mode": "ALWAYS",  # defer rebuilds off the frame
         "animate_only_visible_textures": True,
         "use_entity_culling": True,
@@ -232,7 +263,8 @@ def apply_max_fps_sodium(path: str | None = None) -> dict:
     the JVM starts, so it can never race Sodium's own save-on-exit.
 
     A missing file is NOT created: without a config, Sodium uses its compiled
-    defaults, which are exactly the values above.
+    defaults, which are the fast values for every key except
+    chunk_builder_threads (Auto there, 2 once Sodium has written the file).
     """
     target = path or sodium_config_path()
     result = {"changed": [], "detail": "", "path": target}

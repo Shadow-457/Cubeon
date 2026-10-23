@@ -493,13 +493,18 @@ Durable consequences — do not re-derive these:
   `sodium-fabric-0.8.12+mc26.1.2.jar` — the defaults live in the no-arg
   constructors, and GSON also calls those, so a partial file's missing keys keep
   the default rather than zeroing.)
-- `chunk_builder_threads` is the one key that usually differs, and it is
-  **machine-specific**: `0` means Auto and `ChunkBuilder.getThreadCount()`
-  resolves it to `clamp(max(cores/3, cores-6), 1, 10)`; any non-zero value is
-  `min(value, cores)`. It is not a "more is better" slider (Sodium's own
-  tooltip: more threads can hurt frame times). Hardcoding it is wrong in both
-  directions — a 12-core box carrying `2` runs a third of the 6 Sodium would
-  pick (real user case, 2026-10-18).
+- `chunk_builder_threads` is the one key that usually differs, and it is the
+  one key where Cubeon does NOT use Sodium's default. Sodium's `0` means Auto,
+  which `ChunkBuilder.getThreadCount()` resolves to
+  `clamp(max(cores/3, cores-6), 1, 10)` — 6 threads on a 12-core box.
+  **2026-10-24 (player-measured, supersedes the 2026-10-18 "never hardcode"
+  rule): 2 builder threads give steadier frame times than Auto's 6 on that same
+  12-core machine.** Chunk meshing is bursty and memory-bound, so past ~2
+  builders the contention with the render thread costs more than the extra
+  parallelism saves. `perf_mods.chunk_builder_threads()` returns
+  `min(2, max(1, cores-1))` (1 thread on 1–2 cores, 2 from 3 up) and the repair
+  writes it. Do NOT revert this to `0` without a newer measurement from the
+  player — the 2026-10-18 note that Auto is better was theory, not data.
 - So the module-map rule (2026-10-18): FPS boost never ships or creates a
   `sodium-options.json`. It does REPAIR one that already exists — see the next
   bullet — and if a Sodium-side toggle is ever wanted beyond that, the levers
@@ -510,10 +515,10 @@ Durable consequences — do not re-derive these:
   launch (2026-10-18, user-requested).** `cubeon/launch.py` calls it directly
   under the same `fps_boost_enabled` check as the options.txt rewrite. It puts
   the performance keys that are ALREADY in `<MINECRAFT_DIR>/config/
-  sodium-options.json` back to the defaults listed above
+  sodium-options.json` back to the fast values listed above
   (`SODIUM_MAX_FPS_OPTIONS`): hidden_fluid_culling true, improved_fluid_shaping
-  false, chunk_builder_threads **0 (Auto — never a hardcoded thread count, see
-  the rest-of-the-file audit above)**, chunk_build_defer_mode ALWAYS,
+  false, chunk_builder_threads **2 (see the bullet above — the one deliberate
+  non-default)**, chunk_build_defer_mode ALWAYS,
   animate_only_visible_textures / use_entity_culling / use_fog_occlusion /
   use_block_face_culling / use_no_error_g_l_context true, quad_splitting_mode
   SAFE, use_advanced_staging_buffers true, cpu_render_ahead_limit 3,
@@ -2436,7 +2441,7 @@ server hosting is Paper-only, exposed to friends via Minekube Connect tunnels.
 | `launcher_core.py` | Re-export shim over the `cubeon` package (legacy import surface). |
 | `cubeon/` | All launcher logic (see table below). |
 | `ui/` | Flet tab builders: `server_tab.py` (biggest), `mods_tab.py`, `modpacks_tab.py`, `skin_tab.py`, `stats_tab.py`, `chat_tab.py`. Pure builders — they receive `cfg`/`state` by reference and helpers (`section_label`, `pixel_divider`, theme) from main.py. |
-| `mod/` | The in-game Fabric mod. **2026-10-15: the standalone HUD mod merged in — one jar per Minecraft version, 24 of them, 1.20 → 26.3. 2026-10-17: renamed throughout to the Cubeon Client.** Shared tree `src/main/java/` is Minecraft-FREE: `Bridge.java` (localhost HTTP client: roster/chat/players/events only - `/dm` via sendChat is the mod's only POST), `Json.java`, `BadgeNames.java`, `mixin/YggdrasilSessionServiceMixin.java`, `com/cubeon/client/hud/CubeonHudConfig.java`. Everything that touches Minecraft lives in a per-bracket overlay: `java-overlay-api-yarn/` (1.20–1.21.11, Yarn names - `CubeonClient.java` entrypoint/chat notices, `TabListTag.java`, `WorldPlayers.java`, `mixin/PlayerTabOverlayMixin.java`) and `java-overlay-api-mojang/` (26.x, the same four files in plain names). The HUD is seven `java-overlay-hud-*/` copies of **`com.cubeon.client.hud`** (`CubeonHudClient`/`CubeonHud`/`CubeonHudKeybinds`/`CubeonHudMenuScreen`/`MoveOverlayScreen`, plus `PingProbe` and a `mixin/` for 26.x); its Minecraft-facing API only moved 5 times across the 24 versions (26.3 also renamed `InputConstants.Type.KEYSYM` to `KEYBOARD`, so it has its own copy of the 26.2-era HUD). 26.x also adds `resources-26x/cubeon-client-hud.mixins.json`. `brackets.json` = **single source of truth** for the matrix (read by build.gradle AND cubeonfriends.py). |
+| `mod/` | The in-game Fabric mod. **2026-10-15: the standalone HUD mod merged in — one jar per Minecraft version, 24 of them, 1.20 → 26.3. 2026-10-17: renamed throughout to the Cubeon Client.** Shared tree `src/main/java/` is Minecraft-FREE: `Bridge.java` (localhost HTTP client: roster/chat/players/events only - `/dm` via sendChat is the mod's only POST), `Json.java`, `BadgeNames.java`, `mixin/YggdrasilSessionServiceMixin.java`, `com/cubeon/client/hud/CubeonHudConfig.java`, `CrosshairScale.java`, `MotionBlur.java`. Everything that touches Minecraft lives in a per-bracket overlay: `java-overlay-api-yarn/` (1.20–1.21.11, Yarn names - `CubeonClient.java` entrypoint/chat notices, `TabListTag.java`, `WorldPlayers.java`, `mixin/PlayerTabOverlayMixin.java`) and `java-overlay-api-mojang/` (26.x, the same four files in plain names). The HUD is seven `java-overlay-hud-*/` copies of **`com.cubeon.client.hud`** (`CubeonHudClient`/`CubeonHud`/`CubeonHudKeybinds`/`CubeonHudMenuScreen`/`MoveOverlayScreen`, plus `PingProbe` and a `mixin/` for 26.x); its Minecraft-facing API only moved 5 times across the 24 versions (26.3 also renamed `InputConstants.Type.KEYSYM` to `KEYBOARD`, so it has its own copy of the 26.2-era HUD). 26.x also adds `resources-26x/cubeon-client-hud.mixins.json`. `brackets.json` = **single source of truth** for the matrix (read by build.gradle AND cubeonfriends.py). |
 | `worker/` | Cloudflare Worker + Durable Object relay (`cubeon-friends.js`, `cubeon-invites.js`). Protocol constants must stay in parity with `cubeon/friends.py` (asserted by `tools/test_friends.py`). |
 | `assets/jars/` | Shippable jars: both Friends mod jars + `connect-spigot.jar` (Minekube Connect). |
 | `tools/` | Test harnesses (plain scripts printing `N passed, M failed`). |
@@ -4269,6 +4274,63 @@ Cubeon cape resolves.
   each with a warm loom cache) then `tools/test_mod_matrix.py` +
   `tools/test_mod_compile.py`. No test compiles the `hud-*` sources: only the 24
   real Gradle builds do, so a green test run does NOT mean the HUD compiles.
+
+## Dynamic crosshair + motion blur (2026-10-24) — INVARIANTS
+Two optional HUD effects, both ON by default in `CubeonHudConfig`
+(`dynamicCrosshair`, `motionBlur`) and both toggled from the Cubeon Client menu
+(K → Dynamic Crosshair row; Motion Blur row exists only on 26.x).
+
+- **The crosshair is WRAPPED, never reimplemented.** `CrosshairMixin` pushes a
+  scale transform at the HEAD of vanilla's crosshair draw and pops it at RETURN.
+  Vanilla's attack indicator, spectator crosshair, hidden-HUD handling and
+  debug-crosshair rules all stay vanilla. Reimplementing the draw would mean
+  owning all of that in eight era copies.
+- **One Minecraft-free implementation, eight mixin copies.** The size curve lives
+  in `src/main/java/com/cubeon/client/hud/CrosshairScale.java` (shared by all
+  24 jars): `IDLE 1.0 → ON_TARGET 1.3`, exponential smoothing with
+  `TAU_SECONDS = 0.045`, frame delta clamped to 0.1 s. The mixins only decide
+  *where* to scale and *what* "on target" means.
+- **"On target" is vanilla's own pick entity**: `MinecraftClient.targetedEntity`
+  (1.20–1.21.11, Yarn) / `Minecraft.crosshairPickEntity` (26.x). Do not invent a
+  raycast; that is how the two would disagree with the outline box.
+- **The mixin target names are deliberately descriptor-less** (`renderCrosshair`,
+  `extractCrosshair`). The signatures changed across eras (DrawContext only →
+  +RenderTickCounter; 1.21.6 swaps `MatrixStack` for `Matrix3x2fStack`; 26.x
+  renames `InGameHud` to `Gui`/`Hud` and draws via `GuiGraphicsExtractor`), so
+  the per-era copy is chosen by overlay, not by descriptor matching.
+- **Crosshair config is listed UNCONDITIONALLY** in `fabric.mod.json`
+  (`cubeon-client-crosshair.mixins.json`, `required:false`,
+  `defaultRequire:0`): every jar has a copy, and a Minecraft that moved the
+  crosshair method must cost the bigger crosshair, never the game.
+- **Motion blur is 26.x ONLY** (26.1/26.2/26.3). It is a real Minecraft post
+  effect, not a launcher trick: `resources-26x/assets/cubeon-client/
+  post_effect/motion_blur.json` + `shaders/post/motion_blur.fsh`, blending the
+  current `minecraft:main` frame with a **persistent** `cubeon-client:prev`
+  target and writing back to `minecraft:main`. The persistent target is what
+  makes it frame accumulation; the shader uses `prev.a` as a validity mask so
+  the first frame after allocation/resize does not mix black.
+- **`MotionBlur.active()` is the single guard**: off when the config flag is
+  off, and **off whenever Iris is loaded** (`FabricLoader.isModLoaded("iris")`)
+  — Iris owns the post-effect pipeline, so Cubeon stays out of it. Do not add a
+  second Iris check inside a mixin.
+- **Re-arming differs by era and that is not cosmetic**: 26.1/26.2 hold one
+  `postEffectId` + `effectActive`, which vanilla clears every tick in
+  `checkEntityPostEffect`, so the mixin shadows both fields and re-arms at
+  `GameRenderer.render` HEAD — but only when `postEffectId == null`, which keeps
+  the creeper/spider/enderman spectator effects working. 26.3 rebuilds
+  `requestedPostEffects` in `GameRenderer.update(DeltaTracker)`, so that copy
+  appends at its TAIL (after vanilla's effects, before the GUI). Both skip when
+  `level`/`player` is null (title/loading screens have no world frame to smear).
+- **The menu is vertically centred from a row count** (`ROWS` +
+  `contentHeight()`), not a hand-tuned `height/2 - 66`; adding a row means
+  bumping `ROWS` in all eight `CubeonHudMenuScreen` copies, otherwise the stack
+  drifts off-centre.
+- Guards: `tools/test_mod_matrix.py` asserts the crosshair config is shipped and
+  fail-soft, that the post effect keeps a persistent target and writes back to
+  `minecraft:main`, that `MotionBlurMixin` is registered in the 26.x config, and
+  that every mixin config listed by every shipped jar names classes the jar
+  actually contains. `tools/build_mod_jars.py` has the same files in
+  `REQUIRED_ENTRIES` / `REQUIRED_ENTRIES_26X`.
 
 ## Worker abuse protection (2026-10-17)
 - **A fork cannot reach the owner's Cloudflare account — but it never needed

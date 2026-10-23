@@ -22,6 +22,11 @@ public final class CubeonHudMenuScreen extends Screen {
 	private static final int ROW_GAP = 4;
 	private static final int ROW_HEIGHT = 24;
 	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + ROW_GAP + MOVE_WIDTH;
+	/**
+	 * Toggle rows above the Scale/Reset buttons: the five overlays, Dynamic
+	 * Crosshair, and - on 26.x only - Motion Blur.
+	 */
+	private static final int ROWS = 7;
 
 	public CubeonHudMenuScreen() {
 		super(Component.translatable("cubeonclient.menu.title"));
@@ -31,7 +36,7 @@ public final class CubeonHudMenuScreen extends Screen {
 	protected void init() {
 		CubeonHudConfig config = CubeonHudConfig.get();
 		int x = this.width / 2 - TOTAL_WIDTH / 2;
-		int y = this.height / 2 - 66;
+		int y = this.height / 2 - contentHeight() / 2;
 
 		addToggleRow(x, y, Overlay.FPS, () -> config.showFps, v -> config.showFps = v, CubeonHudMenuScreen::showFpsLabel);
 		y += ROW_HEIGHT;
@@ -42,6 +47,12 @@ public final class CubeonHudMenuScreen extends Screen {
 		addToggleRow(x, y, Overlay.PING, () -> config.showPing, v -> config.showPing = v, CubeonHudMenuScreen::showPingLabel);
 		y += ROW_HEIGHT;
 		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
+		y += ROW_HEIGHT;
+		addFeatureRow(x, y, () -> config.dynamicCrosshair, v -> config.dynamicCrosshair = v,
+				CubeonHudMenuScreen::dynamicCrosshairLabel);
+		y += ROW_HEIGHT;
+		addFeatureRow(x, y, () -> config.motionBlur, v -> config.motionBlur = v,
+				CubeonHudMenuScreen::motionBlurLabel);
 		y += ROW_HEIGHT;
 
 		float[] scales = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
@@ -91,12 +102,27 @@ public final class CubeonHudMenuScreen extends Screen {
 		}).bounds(x + TOGGLE_WIDTH + ROW_GAP, y, MOVE_WIDTH, 20).build());
 	}
 
+	/** A toggle for a feature with no position of its own, so it spans the full width. */
+	private void addFeatureRow(int x, int y, BooleanSupplier enabled, Consumer<Boolean> setter,
+			Supplier<Component> label) {
+		addRenderableWidget(Button.builder(label.get(), button -> {
+			setter.accept(!enabled.getAsBoolean());
+			CubeonHudConfig.save();
+			button.setMessage(label.get());
+		}).bounds(x, y, TOTAL_WIDTH, 20).build());
+	}
+
+	/** Every row between the title and the bottom of the screen. */
+	private static int contentHeight() {
+		return ROWS * ROW_HEIGHT + 2 * (ROW_HEIGHT + ROW_GAP);
+	}
+
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		/* The vanilla background is extracted by extractRenderStateWithTooltipAndSubtitles
 		 * before this method runs, so there is nothing to draw behind the widgets here. */
 		super.extractRenderState(graphics, mouseX, mouseY, partialTick);
-		graphics.centeredText(this.font, this.title, this.width / 2, this.height / 2 - 80, 0xFFFFFFFF);
+		graphics.centeredText(this.font, this.title, this.width / 2, this.height / 2 - contentHeight() / 2 - 14, 0xFFFFFFFF);
 	}
 
 	@Override
@@ -136,6 +162,16 @@ public final class CubeonHudMenuScreen extends Screen {
 
 	private static Component showCpsLabel() {
 		return Component.translatable("cubeonclient.menu.show_cps", stateLabel(CubeonHudConfig.get().showCps));
+	}
+
+	private static Component dynamicCrosshairLabel() {
+		return Component.translatable("cubeonclient.menu.dynamic_crosshair",
+				stateLabel(CubeonHudConfig.get().dynamicCrosshair));
+	}
+
+	private static Component motionBlurLabel() {
+		return Component.translatable("cubeonclient.menu.motion_blur",
+				stateLabel(CubeonHudConfig.get().motionBlur));
 	}
 
 	private static Component stateLabel(boolean enabled) {
