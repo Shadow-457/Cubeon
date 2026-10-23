@@ -13,7 +13,7 @@ flet>=0.86,<0.87
 flet-desktop>=0.86,<0.87
 minecraft-launcher-lib>=8.0
 requests>=2.31.0
-pillow>=10.0.0
+pillow>=10.2.0
 # Realtime social layer (Friends tab): presence, chat, groups, voice-call
 # signalling all ride one WebSocket. Pure-Python, tiny - see cubeon/friends.py.
 websocket-client>=1.7.0

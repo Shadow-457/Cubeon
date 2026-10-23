@@ -19,11 +19,23 @@ something is this script, because the rule has a sharp edge:
 Policy (`next`):
   * if `v{APP_VERSION}` is not a tag yet -> that version (a maintainer edits
     APP_VERSION to declare a release, including the start of a new minor
-    series, e.g. 1.2.0);
+    series, e.g. 1.3.0);
   * otherwise -> the highest of (APP_VERSION, every v* tag) with the patch
-    bumped (1.2.0 -> 1.2.1 -> 1.2.2 ...), which is what makes a release per
+    bumped (1.3.0 -> 1.3.1 -> 1.3.2 ...), which is what makes a release per
     push automatic and what makes a re-run of an already-tagged commit
     idempotent (the workflow reuses the tag it finds, it does not mint one).
+
+Release channels (2026-10-24):
+  * a STABLE is a minor release - patch zero, e.g. 1.3.0 or 1.4.0. It is
+    published as a normal GitHub release, becomes `/releases/latest` (which
+    feeds the home page, the download Worker and the default updater), and is
+    the only channel allowed to stamp its version into the website;
+  * everything else is a BETA - 1.3.1, 1.3.2, ... - published as a GitHub
+    PRERELEASE. GitHub keeps prereleases out of `/releases/latest`, so a beta
+    is invisible on the home page and to stable users by construction, while
+    the app's optional beta channel (cubeon/updater.py) can still see it;
+  * the site therefore keeps showing the last stable while betas ship, and a
+    stable starts the cycle again by editing APP_VERSION to the next X.Y.0.
 
 Versions are compared NUMERICALLY per segment - "1.2.10" must beat "1.2.9",
 which a plain string sort gets wrong.
@@ -32,8 +44,10 @@ CLI:
   python3 tools/release_version.py next                    # version for this push
   python3 tools/release_version.py next --tags v1.1.2      # ... from explicit tags
   python3 tools/release_version.py current                 # APP_VERSION in the tree
+  python3 tools/release_version.py channel 1.3.1           # "stable" or "beta"
   python3 tools/release_version.py bump 1.2.9              # -> 1.2.10
-  python3 tools/release_version.py stamp 1.2.1             # rewrite APP_VERSION + the site
+  python3 tools/release_version.py stamp 1.2.1             # rewrite APP_VERSION (+ site if stable)
+  python3 tools/release_version.py stamp 1.3.1 --no-site   # beta: APP_VERSION only
   python3 tools/release_version.py stamp 1.2.1 --check     # report only, change nothing
 """
 from __future__ import annotations
@@ -82,6 +96,21 @@ def parse(text: str) -> tuple[int, int, int] | None:
 
 def fmt(version: tuple[int, int, int]) -> str:
     return ".".join(str(p) for p in version)
+
+
+def channel(version: str) -> str:
+    """'stable' for a minor release (patch 0), 'beta' for everything else.
+
+    The patch-zero rule is the whole channel system: 1.3.0 is a stable, 1.3.1
+    is the first beta after it, 1.3.2 the next, and 1.4.0 starts a new stable.
+    GitHub's prerelease flag (set by the workflow from this answer) is what
+    hides betas from `/releases/latest`, so the home page and the stable
+    updater never need to know they exist.
+    """
+    parsed = parse(version)
+    if parsed is None:
+        raise VersionError(f"not a vX.Y.Z version: {version!r}")
+    return "stable" if parsed[2] == 0 else "beta"
 
 
 def bump(version: str) -> str:
@@ -147,20 +176,28 @@ def git_tags(repo: Path = ROOT) -> list[str]:
     return [line.strip() for line in out.stdout.splitlines() if line.strip()]
 
 
-def stamp(version: str, root: Path = ROOT, check: bool = False) -> list[tuple[Path, int]]:
-    """Write `version` into APP_VERSION and the site's display text.
+def stamp(version: str, root: Path = ROOT, check: bool = False,
+          site: bool | None = None) -> list[tuple[Path, int]]:
+    """Write `version` into APP_VERSION and (for a stable) the site's text.
 
     Returns [(path, replacements)] for the files that changed (or would change
     with check=True). APP_VERSION is load-bearing, so a tree where it can't be
     found raises: a silent no-op here ships a binary that nags every user
     forever while its release tag says something else.
+
+    `site` defaults to "only for a stable". A beta must not move the website's
+    version: the site advertises the download the home page actually serves,
+    and that is always the last stable (`/releases/latest` excludes
+    prereleases). Pass site=True/False to override (the CLI's --site/--no-site).
     """
     if parse(version) is None:
         raise VersionError(f"refusing to stamp a non vX.Y.Z version: {version!r}")
+    if site is None:
+        site = channel(version) == "stable"
 
     editors: list[tuple[Path, re.Pattern, str]] = [
         (UPDATER, _APP_VERSION_RE, r"\g<1>{version}\g<3>"),
-        *SITE_FILES,
+        *(SITE_FILES if site else ()),
     ]
     changed: list[tuple[Path, int]] = []
     for path, pattern, template in editors:
@@ -199,13 +236,18 @@ def _cmd_current(args) -> int:
     return 0
 
 
+def _cmd_channel(args) -> int:
+    print(channel(args.version))
+    return 0
+
+
 def _cmd_bump(args) -> int:
     print(bump(args.version))
     return 0
 
 
 def _cmd_stamp(args) -> int:
-    changed = stamp(args.version, check=args.check)
+    changed = stamp(args.version, check=args.check, site=args.site)
     verb = "would stamp" if args.check else "stamped"
     if not changed:
         print(f"{verb} {args.version}: already current")
@@ -229,6 +271,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("current", help="APP_VERSION in this tree")
     p.set_defaults(func=_cmd_current)
 
+    p = sub.add_parser("channel", help="'stable' or 'beta' for a version")
+    p.add_argument("version")
+    p.set_defaults(func=_cmd_channel)
+
     p = sub.add_parser("bump", help="patch+1 of an explicit version")
     p.add_argument("version")
     p.set_defaults(func=_cmd_bump)
@@ -236,7 +282,11 @@ def main(argv=None) -> int:
     p = sub.add_parser("stamp", help="write a version into APP_VERSION + the site")
     p.add_argument("version")
     p.add_argument("--check", action="store_true", help="report only, change nothing")
-    p.set_defaults(func=_cmd_stamp)
+    p.add_argument("--site", dest="site", action="store_true", default=None,
+                   help="also stamp the website (default: only for a stable)")
+    p.add_argument("--no-site", dest="site", action="store_false",
+                   help="leave the website on its current (stable) version")
+    p.set_defaults(func=_cmd_stamp, site=None)
 
     args = ap.parse_args(argv)
     if not getattr(args, "func", None):

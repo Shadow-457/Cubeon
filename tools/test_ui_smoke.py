@@ -297,6 +297,24 @@ check("the reported case (JVM path in the log + a missing file) is not "
       "blamed on Java", "java" not in _reported.lower(), f"got {_reported!r}")
 check("...it names the file that was actually missing",
       "sodium.json" in _reported, f"got {_reported!r}")
+# 2026-10-24 report: quitting the game from the launcher opened "Crashed: Java
+# couldn't be started". The game log's narrator error (libflite is optional and
+# absent on most Linux boxes) ends with "No such file or directory" and starts
+# with java.lang, so the old `"java" in line` test matched it. Only the java
+# EXECUTABLE being missing may be reported as missing Java.
+_flite = app._explain_exit(1, [
+    "Suppressed: java.lang.UnsatisfiedLinkError: libflite.so: cannot open "
+    "shared object file: No such file or directory"])
+check("a missing native library (java.lang.*) is not blamed on Java",
+      "couldn't be started" not in _flite.lower(), f"got {_flite!r}")
+_fnf = app._explain_exit(1, [
+    "java.io.FileNotFoundException: config/thing.json (No such file or directory)"])
+check("a java.io missing-file exception is not blamed on Java",
+      "couldn't be started" not in _fnf.lower(), f"got {_fnf!r}")
+_missing_exe = app._explain_exit(1, [
+    "[Errno 2] No such file or directory: '/opt/jdk/bin/java'"])
+check("a genuinely missing java executable is still named",
+      "java" in _missing_exe.lower(), f"got {_missing_exe!r}")
 _java_missing = app._explain_exit(
     1, ['Error: Cannot run program "java": No such file or directory'])
 check("a genuinely missing Java IS still named",
@@ -605,8 +623,8 @@ try:
     import cubeon.milestones as _mile
     _mile.load_state()
     _sec_txt = " | ".join(all_text(section)).lower()
-    check("hat browse is gone (no cosmetics tab, no hat tiles)",
-          "cosmetics" not in _sec_txt
+    check("hat browse is gone (no hat pane or hat tiles)",
+          not any(getattr(control, "value", "") in ("Hats", "Hat") for control in walk(section))
           and "veteran" not in _sec_txt and "party" not in _sec_txt,
           _sec_txt[:200])
 except Exception as ex:
@@ -1086,6 +1104,10 @@ if _mods_click is not None:
         _click_err = f"{type(_ex).__name__}: {_ex}"
     check("clicking Mods (lazy build + refresh_mods_list) doesn't raise",
           _clicked_ok, _click_err)
+    _mods_text = all_text(page.controls[0])
+    check("Mods content-type controls actually mount after the lazy build",
+          all(label in _mods_text for label in ("resource packs", "shaders")),
+          "the lazy builder can swallow an exception without mounting the tab")
 
 
 # --- refresh() on an UNMOUNTED control must not raise -----------------------
@@ -1330,7 +1352,7 @@ check("local install runs on a worker thread",
       "handle_local_mod_files must not block the UI thread")
 check("local install parks its button",
       "local_install_btn.disabled = True" in _local_src
-      and "local_install_btn.disabled = False" in _local_src,
+      and "local_install_btn.disabled = not _can_install()" in _local_src,
       "the Install-from-file button must be parked while installing")
 check("local install repaints via control refresh, not page.update",
       "page.update()" not in _local_src
@@ -1379,18 +1401,20 @@ check("stats scans are read-only (no create-on-read helpers)",
 _screenshot_tab_path = os.path.join(_app_root, "ui", "screenshot_gallery.py")
 _screenshot_tab_src = (open(_screenshot_tab_path, encoding="utf-8").read()
                        if os.path.exists(_screenshot_tab_path) else "")
-check("screenshot gallery is inside the Cosmetics panes",
+check("screenshot gallery is in Settings, not Cosmetics",
       "def build_screenshot_gallery_tab" in _screenshot_tab_src
-      and '"images",\n            "Images"' in open(
-          os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
+      and '("images", ft.Icons.PHOTO_LIBRARY_ROUNDED, "Screenshots")' in open(
+          os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
       and "screenshot_gallery=screenshot_gallery_tab" in _main_src
       and "refresh_screenshot_gallery=refresh_screenshot_gallery" in _main_src
-      and "pid == \"images\"" in open(
+      and 'key == "images"' in open(
+          os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
+      and "screenshot_gallery" not in open(
           os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
       and '("gallery", ft.Icons.PHOTO_LIBRARY_OUTLINED, "Gallery")' not in _main_src
       and '"gallery": screenshot_gallery_tab' not in _main_src
       and "screenshot_gallery_button" not in _main_src,
-      "Images must be a Cosmetics pane and Gallery must not consume top-nav space")
+      "Screenshots belong in Settings without taking a top-nav entry")
 check("screenshot gallery offers copy-image action",
       "screenshot-copy" in _screenshot_tab_src
       and "set_files" in _screenshot_tab_src
@@ -1717,65 +1741,10 @@ try:
     check("server RAM gesture commits once within hardware bounds", len(_ram_saves) == 1
           and _ram_saves[0]["server_ram_mb"] == _slider.max)
 
-    _skin_source = open(os.path.join(_app_root, "ui", "skin_tab.py"), encoding="utf-8").read()
-    for _cape in (False, True):
-        _QueuedThread.jobs.clear()
-        _painted = []
-        _preview, _status = ft.Image(src="icon.svg", visible=False), ft.Text("")
-        _state_name = "_cape_preview_state" if _cape else "_preview_state"
-        _lock_name = "_cape_preview_lock" if _cape else "_preview_lock"
-        _request = "render_cape_preview_for" if _cape else "render_preview_for"
-        _worker = "_render_big_cape_preview" if _cape else "_render_big_preview"
-        _preview_scope = dict(os=os, base64=base64, open=lambda *a: io.BytesIO(b"preview"),
-            core=types.SimpleNamespace(SKINS_DIR="unused", CAPES_DIR="unused",
-                render_local_skin_preview=lambda *a, **k: None, render_cape_preview=lambda *a, **k: None),
-            custom_preview=_preview, cape_preview=_preview, upload_status=_status, cape_status=_status,
-            DEFAULT_CAPE_PREVIEW_SRC="capes/cubeon_cape_preview.png",
-            thread_safe_ui=types.SimpleNamespace(refresh=_painted.append),
-            threading=types.SimpleNamespace(Thread=_QueuedThread, RLock=threading.RLock))
-        # The skin preview also keeps the chosen FRONT/BACK view and syncs
-        # the switch that selects it; both are defined elsewhere in
-        # build_skin_section, so the isolated probe supplies them.
-        _view_preamble = ("" if _cape else
-            '_view_state = {"value": "front"}\n'
-            'def _sync_view_toggle(visible):\n'
-            '    pass\n')
-        _preview_probe = _ui_functions(_skin_source,
-            [_worker, _request] + (["show_default_cape_preview"] if _cape else []), _preview_scope,
-            f'{_state_name} = {{"running": False, "queued": None, "generation": 0}}\n{_lock_name} = threading.RLock()\n{_view_preamble}')
-        _preview_probe[_request]("older.png")
-        _preview_probe[_request]("newest.png")
-        _QueuedThread.jobs.pop(0).run()
-        check(f"{'cape' if _cape else 'skin'} stale preview does not paint", not _painted)
-        _QueuedThread.jobs.pop(0).run()
-        check(f"{'cape' if _cape else 'skin'} newest preview refreshes exact image", _painted == [_preview]
-              and _preview.visible and _preview.src == base64.b64encode(b"preview").decode("ascii"))
-        if not _cape:
-            # The Front/Back switch must reach the RENDERER, not just change a
-            # variable: a flipped toggle that re-previews the same side is the
-            # exact bug this guards.
-            _views = []
-            _preview_probe["_render_big_preview_orig"] = None
-            _orig_render = _preview_scope["core"].render_local_skin_preview
-            _preview_scope["core"].render_local_skin_preview = (
-                lambda *a, **k: _views.append(k.get("view")))
-            _preview_probe["_view_state"]["value"] = "back"
-            _preview_probe[_request]("older.png")
-            _QueuedThread.jobs.pop(0).run()
-            _preview_scope["core"].render_local_skin_preview = _orig_render
-            check("the selected skin view reaches the renderer", _views == ["back"],
-                  str(_views))
-            _preview_probe["_view_state"]["value"] = "front"
-            _painted.clear()
-        _preview_probe[_request]("pending.png")
-        if _cape:
-            _preview_probe["show_default_cape_preview"]()
-        else:
-            _preview_probe[_request](None)
-        _paint_count = len(_painted)
-        _QueuedThread.jobs.pop(0).run()
-        check(f"{'default cape' if _cape else 'removed skin'} survives old preview completion",
-              len(_painted) == _paint_count and (_preview.src == "capes/cubeon_cape_preview.png" if _cape else not _preview.visible))
+    from ui.appearance_preview import AppearancePreview
+    _orbit = AppearancePreview({"active_skin": None})
+    check("the 3D preview supports dragging in both axes", callable(_orbit.gesture.on_pan_update))
+    check("preview frame swaps keep the previous image visible", _orbit.image.gapless_playback)
 
     from ui.seasonal_ui import SeasonalAnimator
     _anim = SeasonalAnimator()

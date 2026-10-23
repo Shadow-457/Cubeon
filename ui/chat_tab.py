@@ -75,6 +75,7 @@ from cubeon import faces as _faces
 from cubeon import friends as _friends
 from cubeon import profile as _profile
 from cubeon import thread_safe_ui
+from cubeon import scrolling
 
 _POLL_SECONDS = 1.5
 # Faster cadences (see _poll_interval): while a conversation is open the user
@@ -320,6 +321,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     # already at the bottom - tracked by the on_scroll handler.
     transcript = ft.ListView(expand=True, spacing=0, auto_scroll=False,
                              on_scroll=lambda e: _on_transcript_scroll(e),
+                             scroll_interval=50,
                              padding=ft.padding.Padding.symmetric(
                                  vertical=6, horizontal=2), visible=False)
 
@@ -931,7 +933,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         if not (force or _stick["at_end"]):
             return
         try:
-            page.run_task(transcript.scroll_to, -1)
+            scrolling.follow_end(page, transcript)
         except Exception:
             pass   # headless/test hosts have no run_task
 

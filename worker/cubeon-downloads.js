@@ -11,11 +11,15 @@
  *   GET /linuxdownload    -> streams Cubeon-x86_64.AppImage
  *   GET /linuxdeb         -> streams the .deb for the current APP_VERSION
  *   GET /linuxsetup       -> streams Cubeon-Linux-x86_64-Setup.sh
+ *   GET /count            -> {"value": N}: how many distinct visitors downloaded
+ *   GET /count/hit        -> records this IP (once ever) and returns the total
  *   GET /health           -> plain-text OK, for debugging by hand
  *
  * Bindings required: a secret GITHUB_TOKEN with read access to the repo
- * (read-only is enough):
+ * (read-only is enough), and a KV namespace bound as DOWNLOADS for the
+ * one-per-IP counter:
  *
+ *   npx wrangler kv namespace create DOWNLOADS
  *   npx wrangler deploy -c wrangler-downloads.toml
  *   echo "<token>" | npx wrangler secret put GITHUB_TOKEN -c wrangler-downloads.toml
  *
@@ -238,12 +242,96 @@ function throttled() {
   });
 }
 
+// ------------------------------------------------------- download counter ---
+// One count per IP, not one per click (2026-10-24). A repeat visitor, a
+// re-download and the browser's own retry all hit the stored marker and add
+// nothing, so the visible number is "distinct visitors who downloaded", which
+// is a much more honest figure than a raw press tally.
+//
+// Only a SHA-256 of the address is stored, never the address itself. The hash
+// exists solely so the same visitor is not counted twice; it is not linked to
+// any other record and cannot practically be reversed to an IP.
+const COUNT_KEY = "count";
+const COUNTED_PREFIX = "ip:";
+const COUNT_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Cache-Control": "no-store",
+};
+
+async function visitorKey(request) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const digest = await crypto.subtle.digest("SHA-256",
+    new TextEncoder().encode(ip));
+  const hex = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return COUNTED_PREFIX + hex;
+}
+
+async function readCount(env) {
+  if (!env.DOWNLOADS) return 0;
+  const raw = await env.DOWNLOADS.get(COUNT_KEY);
+  const total = Number.parseInt(raw || "0", 10);
+  return Number.isFinite(total) && total >= 0 ? total : 0;
+}
+
+/**
+ * Counts this visitor once and returns the running total.
+ *
+ * Without the KV binding (local dev, the Node tests) it answers 0 rather than
+ * throwing: the counter is decoration, and a download must never fail because
+ * it is unavailable. KV has no atomic increment, so two brand-new visitors
+ * landing in the same millisecond can lose one count - acceptable for a number
+ * whose job is to say "a few hundred people", and a Durable Object per counter
+ * would cost far more than that accuracy is worth.
+ */
+export async function markDownload(request, env) {
+  if (!env.DOWNLOADS) return 0;
+  const key = await visitorKey(request);
+  if (await env.DOWNLOADS.get(key)) return readCount(env);
+  await env.DOWNLOADS.put(key, "1");
+  const total = (await readCount(env)) + 1;
+  await env.DOWNLOADS.put(COUNT_KEY, String(total));
+  return total;
+}
+
+function countResponse(total, status = 200) {
+  return new Response(JSON.stringify({ value: total }), {
+    status,
+    headers: { ...COUNT_HEADERS, "Content-Type": "application/json" },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
       return new Response("cubeon-downloads ok");
+    }
+
+    // The site's counter. GET /count is a read (no throttle: it costs one KV
+    // read and the page calls it once); GET /count/hit is a WRITE and pays the
+    // same per-IP gate as a download, so a script cannot drain the account's
+    // shared 1k KV writes/day. Both carry CORS because the site lives on a
+    // different origin, and no-store because a cached total is a lie.
+    if (url.pathname === "/count" || url.pathname === "/count/hit") {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            ...COUNT_HEADERS,
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+          },
+        });
+      }
+      if (request.method !== "GET") return countResponse(0, 405);
+      if (url.pathname === "/count") {
+        return countResponse(await readCount(env));
+      }
+      const limited = await throttle(request, env);
+      if (limited) return limited;
+      return countResponse(await markDownload(request, env));
     }
 
     const spec = FILES[url.pathname];
@@ -272,6 +360,12 @@ export default {
     if (!asset) {
       return new Response(`no matching asset for ${url.pathname} in the latest release`, { status: 404 });
     }
+
+    // Count the download itself as well as the site's click: with JavaScript
+    // off, or a link pasted straight into the address bar, the page never
+    // calls /count/hit - and the per-IP marker makes the two paths idempotent
+    // for the same visitor. Never let the counter break a download.
+    await markDownload(request, env).catch(() => {});
 
     // Accept: application/octet-stream makes GitHub answer the asset with a
     // redirect to the real bytes; follow it and stream them on.

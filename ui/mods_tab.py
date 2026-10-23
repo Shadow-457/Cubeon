@@ -17,6 +17,7 @@ import threading   # For running network calls in the background without freezin
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
+from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
 
 from cubeon.theme import (  # design system: corner radius, on-accent fg, hover states
     RADIUS, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
@@ -291,7 +292,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return False
         for m in mods:
             name = re.sub(r"[^a-z0-9]+", "", (m.get("display_name") or "").lower())
-            if "iris" in name or "optifine" in name:
+            if "iris" in name or "optifine" in name or "oculus" in name:
                 return True
         return False
 
@@ -302,6 +303,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         resource packs / shaders come from their single shared game folder.
         Applies the filter from the installed_filter_field.
         """
+        local_install_btn.disabled = not _can_install()
+        local_install_btn.tooltip = None if _can_install() else "Choose a mod loader on the Play tab first."
         if _is_mod():
             vanilla_mods_notice.visible = (state["mod_loader"] == "vanilla")
             shader_notice.visible = False
@@ -674,6 +677,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def handle_local_mod_files(files):
         if not files:
             return
+        if not _can_install():
+            local_install_status.value = "Choose a compatible mod loader on the Play tab first. Texture packs work in vanilla."
+            local_install_status.visible = True
+            thread_safe_ui.refresh(local_install_status)
+            return
         picked = files[0]
         local_install_status.value = "Installing..."
         local_install_status.visible = True
@@ -719,7 +727,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 local_install_status.value = f"Install failed: {ex}"
             local_install_status.visible = True
             thread_safe_ui.refresh(local_install_status)
-            local_install_btn.disabled = False
+            local_install_btn.disabled = not _can_install()
             thread_safe_ui.refresh(local_install_btn)
 
         threading.Thread(target=worker, daemon=True,
@@ -763,6 +771,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             pass
 
     def open_local_mod_picker(e):
+        if not _can_install():
+            local_install_status.value = "Mods and shaders need a compatible mod loader. Choose one on the Play tab."
+            local_install_status.visible = True
+            thread_safe_ui.refresh(local_install_status)
+            return
         if _is_mod():
             # Vanilla can't load mods: refuse here instead of letting the
             # install land in a profile the game never reads. (install_local_
@@ -830,14 +843,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     browse_results_view = ft.Column(spacing=8)  # Will hold the search/recommendation results
     browse_status_text = ft.Text("", size=12, color=TEXT_DIM)
-    # One page of 5 results, up to 20 pages (100 hits) - Modrinth's own
+    # One page of 10 results, up to 10 pages (100 hits) - Modrinth's own
     # per-request cap. Pages are fetched ON DEMAND (see _fetch_browse_page):
     # opening the tab loads page 1 only, and each pager click fetches just the
-    # page it needs instead of pulling all 20 pages up front (which made the
+    # page it needs instead of pulling all 10 pages up front (which made the
     # tab slow and heavy). Each fetched page is stashed in browse_state["pages"]
     # so going back to a page already seen is instant and never re-fetches.
-    BROWSE_PAGE_SIZE = 5
-    MAX_BROWSE_PAGES = 20
+    BROWSE_PAGE_SIZE = 10
+    MAX_BROWSE_PAGES = 10
     browse_state = {
         "results": [],          # items on the page currently rendered
         "page": 0,
@@ -883,6 +896,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def _is_mod() -> bool:
         return active_content["type"] == "mod"
+
+    def _can_install(content_type=None):
+        return (content_type or _ct()) == "resourcepack" or state.get("mod_loader") in MOD_CAPABLE_LOADERS
 
     def loader_for_content() -> str | None:
         """The loader half of the profile key a pack is stored under.
@@ -932,18 +948,54 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     category_chips_container.visible = False  # folded behind the "..." button
 
     # --- Content-type segmented control (Mods / Resource Packs / Shaders) ---
-    # Styled as underline tabs, not buttons: the selected section gets a
-    # small accent rule and bright text; the rest are quiet dim labels.
-    content_segment_row = ft.Row(spacing=18)
+    # A filled pill bar, not bare underline tabs (2026-10-24). The underline
+    # version was so quiet that the resource-pack and shader sections read as
+    # decoration and people never noticed the tab could change - "it just goes
+    # past". A bordered tray with an accent-filled selected pill makes the
+    # current section obvious, and the icons say what each one is before the
+    # label is read.
+    content_segment_row = ft.Row(spacing=4)
+    content_segment_bar = ft.Container(
+        content=content_segment_row,
+        bgcolor=CARD_FILL,
+        border=ft.border.Border.all(1, CARD_BORDER),
+        border_radius=RADIUS + 2,
+        padding=4,
+    )
+    CONTENT_TAB_ICONS = {
+        "mod": ft.Icons.EXTENSION_ROUNDED,
+        "resourcepack": ft.Icons.PALETTE_ROUNDED,
+        "shader": ft.Icons.AUTO_AWESOME_ROUNDED,
+    }
+
+    def _content_tab(tid, label, selected):
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(CONTENT_TAB_ICONS.get(tid, ft.Icons.CATEGORY_ROUNDED),
+                            size=15, color=ACCENT_HI if selected else TEXT_DIM),
+                    ft.Text(label, size=13,
+                            weight=ft.FontWeight.W_700 if selected
+                            else ft.FontWeight.W_500,
+                            color=ACCENT_HI if selected else TEXT_DIM),
+                ],
+                spacing=7,
+                tight=True,
+            ),
+            bgcolor=ACCENT_TINT if selected else "transparent",
+            border=ft.border.Border.all(1, ACCENT if selected else "transparent"),
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=13, vertical=8),
+            ink=False,
+            on_click=lambda e, t=tid: on_content_type_change(t),
+            animate=ft.Animation(160, ft.AnimationCurve.EASE_OUT_CUBIC),
+        )
 
     def build_content_segment():
         content_segment_row.controls.clear()
         for tid, label in CONTENT_TABS:
             content_segment_row.controls.append(
-                text_tab(label,
-                         selected=_ct() == tid,
-                         on_click=lambda e, t=tid: on_content_type_change(t))
-            )
+                _content_tab(tid, label, _ct() == tid))
         page.update()
 
     def _apply_type_labels():
@@ -951,10 +1003,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         Kept in one place so every type-dependent label switches together."""
         header_title.value = dict(CONTENT_TABS)[_ct()]
         if _is_mod():
-            header_subtitle.value = "Download mods, or manage what's already installed."
+            header_subtitle.value = ("Download mods, or manage what's already installed." if _can_install()
+                                     else "Choose a mod loader on the Play tab to install mods.")
             mod_search_field.hint_text = "Search mods... e.g. sodium, iris, jei"
         elif _ct() == "resourcepack":
-            header_subtitle.value = "Download resource packs - they apply to every version."
+            header_subtitle.value = "Texture packs work in vanilla and modded Minecraft."
             mod_search_field.hint_text = "Search resource packs... e.g. faithful, stay true"
         else:
             header_subtitle.value = "Download shaders - they need Iris or OptiFine to run."
@@ -1274,7 +1327,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         detail_mc = state["selected_mc_version"]
         detail_version = version_dropdown.value
         detail_search_mc = current_mc_version_for_search()
-        detail_loader = browse_loader() if content_type == "mod" else loader_for_content()
+        detail_loader = state.get("mod_loader")
         title = mod.get("title") or mod.get("display_name") or "Mod"
         icon_url = mod.get("icon_url")
         blurb = (mod.get("description") or "").strip()
@@ -1451,6 +1504,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             """An Install button that owns its busy / done / error states."""
             done = {"v": bool(installed_now.get(v.get("filename")))}
             busy = {"v": False}
+            blocked = content_type != "resourcepack" and detail_loader not in MOD_CAPABLE_LOADERS
             fg = ON_ACCENT if big else ACCENT
             text = ft.Text(label, size=13 if big else 12,
                            weight=ft.FontWeight.W_700,
@@ -1466,11 +1520,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 border_radius=RADIUS,
                 padding=ft.padding.Padding.symmetric(
                     horizontal=16 if big else 12, vertical=10 if big else 7),
-                ink=False, disabled=done["v"],
+                ink=False, disabled=done["v"] or blocked,
+                tooltip="Choose a compatible mod loader on the Play tab first." if blocked else None,
             )
 
             def on_click(e):
-                if busy["v"] or done["v"]:
+                if busy["v"] or done["v"] or blocked:
                     return
                 busy["v"] = True
                 btn.disabled = True
@@ -1846,7 +1901,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
             ink=False,
-            disabled=is_installed,
+            disabled=is_installed or not _can_install(row_content_type),
+            tooltip="Choose a compatible mod loader on the Play tab first." if not _can_install(row_content_type) else None,
         )
 
         def on_download(e):
@@ -1855,10 +1911,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             current Minecraft version and loader), then downloads it and refreshes the installed list.
             """
             content_type = row_content_type
+            if not _can_install(content_type):
+                return
             selected_mc = state["selected_mc_version"]
             selected_version = version_dropdown.value
             search_mc_version = current_mc_version_for_search()
-            selected_loader = browse_loader() if content_type == "mod" else loader_for_content()
+            selected_loader = state.get("mod_loader")
             download_btn.disabled = True
             download_btn_text.value = "Finding file..."
             download_btn_text.color = TEXT_DIM
@@ -2069,8 +2127,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             [
                 ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=TEXT_DIM, size=14),
                 ft.Text(
-                    "Vanilla is selected. Mods here won't load until you switch to "
-                    "Fabric, Quilt, Forge, or NeoForge on the Play tab.",
+                    "Mods need Fabric, Quilt, Forge, or NeoForge. Choose a loader on Play.",
                     size=12, color=TEXT_DIM,
                 ),
             ],
@@ -2088,8 +2145,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             [
                 ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=TEXT_DIM, size=14),
                 ft.Text(
-                    "Shaders run on Iris (with Sodium) or OptiFine. Install Iris "
-                    "from the Mods tab, then pick a shader in-game.",
+                    "Shaders need a mod loader plus Iris, Oculus, or OptiFine. Sodium alone isn't enough.",
                     size=12, color=TEXT_DIM,
                 ),
             ],
@@ -2269,7 +2325,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # the tabs and the search field.
             ft.Column(
                 [
-                    content_segment_row,
+                    content_segment_bar,
                     local_install_status,
                     vanilla_mods_notice,
                     shader_notice,

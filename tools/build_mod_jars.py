@@ -76,7 +76,9 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
 REQUIRED_ENTRIES_26X = ("cubeon-client-hud.mixins.json",
                         "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class",
                         "com/cubeon/client/hud/mixin/MotionBlurMixin.class",
-                        "assets/cubeon-client/post_effect/motion_blur.json",
+                        "assets/cubeon-client/post_effect/motion_blur_low.json",
+                        "assets/cubeon-client/post_effect/motion_blur_medium.json",
+                        "assets/cubeon-client/post_effect/motion_blur_high.json",
                         "assets/cubeon-client/shaders/post/motion_blur.fsh")
 
 # Loom 1.18 (all 24 brackets) refuses to start on an older JVM, and the system

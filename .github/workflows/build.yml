@@ -162,6 +162,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      channel: ${{ steps.version.outputs.channel }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -270,6 +271,15 @@ jobs:
           # download worker keep pointing at the previous release until every
           # asset is up and `publish` has verified them.
           #
+          # CHANNEL decides whether this is a stable (patch zero) or a beta.
+          # A beta is created as a GitHub PRERELEASE, which is what keeps it out
+          # of /releases/latest - the home page, the download Worker and the
+          # default updater all read that endpoint, so a beta cannot leak onto
+          # the site even if its assets are already public.
+          CHANNEL="$(python3 tools/release_version.py channel "$VERSION")"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "$TAG is a $CHANNEL release"
+          #
           # NB: look the release up with `gh release view`, NOT the
           # `releases/tags/<tag>` API endpoint: that endpoint returns 404 for a
           # DRAFT (learned the hard way on the first real run - it made the
@@ -282,6 +292,16 @@ jobs:
             # would otherwise leave a window where /releases/latest points at a
             # release whose binary is missing. `publish` re-publishes at the end.
             gh release edit "$TAG" --draft=true
+            if [ "$CHANNEL" = "beta" ]; then
+              gh release edit "$TAG" --prerelease
+            fi
+          elif [ "$CHANNEL" = "beta" ]; then
+            gh release create "$TAG" \
+              --title "Cubeon $TAG (beta)" \
+              --draft \
+              --prerelease \
+              --verify-tag \
+              --generate-notes
           else
             gh release create "$TAG" \
               --title "Cubeon $TAG" \
@@ -588,26 +608,35 @@ jobs:
           echo "$have"
 
       - name: Publish
-        # Un-draft last. --latest only when this version is ahead of what is
-        # already PUBLIC: re-publishing an older release (a re-run after a
-        # failed build) must not move /releases/latest backwards, or the
-        # download links would silently offer the older build. Our own release
-        # is still a draft here, so it is not in this list.
+        # Un-draft last. A beta is published as a PRERELEASE and is never made
+        # "latest": GitHub already keeps prereleases out of /releases/latest,
+        # and asking for --latest on one is at best redundant. A stable takes
+        # --latest only when it is ahead of what is already PUBLIC:
+        # re-publishing an older release (a re-run after a failed build) must
+        # not move /releases/latest backwards, or the download links would
+        # silently offer the older build. Our own release is still a draft
+        # here, so it is not in this list.
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release.outputs.tag }}
+          CHANNEL: ${{ needs.release.outputs.channel }}
         run: |
           set -euo pipefail
-          highest="$(gh release list --limit 300 --json tagName,isDraft \
-                     --jq '.[] | select(.isDraft == false) | .tagName' \
-                     | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
-          newest="$(printf '%s\n%s\n' "${highest#v}" "${TAG#v}" | sort -V | tail -1)"
-          if [ -z "$highest" ] || [ "$newest" = "${TAG#v}" ]; then
-            gh release edit "$TAG" --draft=false --latest
+          if [ "$CHANNEL" = "beta" ]; then
+            gh release edit "$TAG" --draft=false --prerelease --latest=false
+            echo "published $TAG as a beta (prerelease): hidden from /releases/latest"
           else
-            echo "$TAG is not ahead of the public $highest; publishing without --latest"
-            gh release edit "$TAG" --draft=false --latest=false
+            highest="$(gh release list --limit 300 --json tagName,isDraft \
+                       --jq '.[] | select(.isDraft == false) | .tagName' \
+                       | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+            newest="$(printf '%s\n%s\n' "${highest#v}" "${TAG#v}" | sort -V | tail -1)"
+            if [ -z "$highest" ] || [ "$newest" = "${TAG#v}" ]; then
+              gh release edit "$TAG" --draft=false --latest
+            else
+              echo "$TAG is not ahead of the public $highest; publishing without --latest"
+              gh release edit "$TAG" --draft=false --latest=false
+            fi
           fi
           gh release view "$TAG" --json tagName,isDraft,isPrerelease,url
           # Closing summary. `gh release view` has no isLatest field, so ask the

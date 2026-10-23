@@ -37,6 +37,7 @@ SECTIONS = [
     ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
     ("notifications", ft.Icons.NOTIFICATIONS_ROUNDED, "Notifications"),
     ("files", ft.Icons.FOLDER_OPEN_ROUNDED, "Minecraft files"),
+    ("images", ft.Icons.PHOTO_LIBRARY_ROUNDED, "Screenshots"),
     ("backups", ft.Icons.BACKUP_ROUNDED, "Backups"),
 ]
 
@@ -132,7 +133,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        season_pin_note,
                        season_pet_switch, season_ambience_switch,
                        BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
-                       TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO):
+                       TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
+                       screenshot_gallery=None, refresh_screenshot_gallery=None):
     """Assembles the two-pane Settings tab from main.py's existing controls.
 
     `save_width_height_java` is main.py's save_settings() minus the button
@@ -435,6 +437,54 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             set_status("Couldn't show a test notification")
 
     notify_backend = osnotify.backend_name()
+
+    # --- Update channel (2026-10-24) ---------------------------------------
+    # STABLE reads GitHub's /releases/latest, which never returns a prerelease.
+    # BETA reads the release list and also sees the prereleases the workflow
+    # publishes for 1.3.1, 1.3.2, ... A cycling chip rather than a dropdown:
+    # there are two states, one click, and it matches the launcher's other
+    # inline toggles. The choice is read at startup by main.py's updater call.
+    update_channel_chip = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.VERIFIED_ROUNDED, size=15, color=ACCENT),
+                ft.Text("STABLE", size=12, weight=ft.FontWeight.W_700,
+                        color=ACCENT),
+            ],
+            spacing=6, tight=True,
+        ),
+        bgcolor=ACCENT_TINT, border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+        ink=False,
+        on_click=lambda e: _cycle_update_channel(),
+    )
+
+    def _paint_update_channel():
+        beta = str(cfg.get("update_channel") or "stable").lower() == "beta"
+        row = update_channel_chip.content
+        row.controls[0].icon = (ft.Icons.SCIENCE_ROUNDED if beta
+                                else ft.Icons.VERIFIED_ROUNDED)
+        row.controls[1].value = "BETA" if beta else "STABLE"
+        try:
+            update_channel_chip.update()
+        except Exception:
+            pass
+
+    def _cycle_update_channel():
+        beta = str(cfg.get("update_channel") or "stable").lower() == "beta"
+        cfg["update_channel"] = "stable" if beta else "beta"
+        try:
+            from cubeon import config as _config
+            _config.save_config(cfg)
+        except Exception:
+            set_status("Couldn't save the update channel")
+        _paint_update_channel()
+        set_status("Update channel: beta - prereleases will be offered too"
+                   if cfg["update_channel"] == "beta" else
+                   "Update channel: stable")
+
+    _paint_update_channel()
+
     notify_test_btn = ft.Container(
         content=ft.Text("Send a test notification", color=TEXT,
                         weight=ft.FontWeight.W_600, size=14),
@@ -466,6 +516,15 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     ],
                     spacing=12,
                 ),
+                bgcolor=SURFACE_HI, border_radius=RADIUS, padding=14,
+            ),
+            ft.Container(height=12),
+            ft.Container(
+                content=_setting_row(
+                    "Update channel",
+                    "Stable offers finished minor releases. Beta also offers "
+                    "the prereleases that ship between them.",
+                    update_channel_chip, TEXT=TEXT, TEXT_FAINT=TEXT_FAINT),
                 bgcolor=SURFACE_HI, border_radius=RADIUS, padding=14,
             ),
             ft.Container(height=12),
@@ -526,11 +585,16 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         spacing=8, visible=False,
     )
 
+    if screenshot_gallery is None:
+        from ui.screenshot_gallery import build_screenshot_gallery_tab
+        screenshot_gallery, refresh_screenshot_gallery = build_screenshot_gallery_tab(page)
+
     panes = {
         "versions": versions_pane, "import": import_pane,
         "memory": memory_pane, "display": display_pane,
         "java": java_pane, "seasonal": seasonal_pane,
         "files": minecraft_files_pane,
+        "images": ft.Container(content=screenshot_gallery, height=620),
         "notifications": notifications_pane,
         "backups": backups_pane,
     }
@@ -541,6 +605,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     def _select_section(key):
         active_section["value"] = key
+        if key == "images" and callable(refresh_screenshot_gallery):
+            refresh_screenshot_gallery()
         for k, pane in panes.items():
             pane.visible = (k == key)
         _rebuild_rail()

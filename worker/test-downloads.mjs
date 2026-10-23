@@ -45,6 +45,20 @@ function makeCache({ enabled = true } = {}) {
   };
 }
 
+// --- Stub KV: the same get/put surface the counter uses ---------------------
+function makeKV() {
+  const store = new Map();
+  return {
+    store,
+    async get(key) {
+      return store.has(key) ? store.get(key) : null;
+    },
+    async put(key, value) {
+      store.set(key, String(value));
+    },
+  };
+}
+
 // --- Stub GitHub: counts API calls, serves fake asset bytes ------------------
 function installWorld({ cache = makeCache(), releaseFails = false } = {}) {
   const world = { apiCalls: 0, assetFetches: 0, lastAuth: null, cache };
@@ -157,6 +171,67 @@ world = fresh();
 res = await get("/windowsdownload");
 check("the token is presented to GitHub as a Bearer header",
   world.lastAuth === "Bearer ghp_test_token", String(world.lastAuth));
+
+// -------------------------------------------------------------- the counter ---
+// One count per IP, not per press (2026-10-24). This is the whole property the
+// site advertises: a repeat visitor and a re-download must not move the number,
+// a new visitor must. KV is stubbed here exactly as the Worker uses it.
+env.DOWNLOADS = makeKV();
+world = fresh();
+res = await get("/count");
+let countBody = await res.json();
+check("a fresh namespace reads 0", countBody.value === 0,
+  `value=${countBody.value}`);
+check("the count is readable from the site's origin",
+  res.headers.get("Access-Control-Allow-Origin") === "*");
+check("the count is never cached", /no-store/.test(res.headers.get("Cache-Control") || ""));
+
+res = await get("/count/hit", {}, "198.51.100.1");
+check("the first hit from an IP counts", (await res.json()).value === 1);
+res = await get("/count/hit", {}, "198.51.100.1");
+check("a repeat hit from the same IP does NOT count", (await res.json()).value === 1);
+res = await get("/count/hit", {}, "198.51.100.2");
+check("a different IP counts", (await res.json()).value === 2);
+
+res = await get("/count");
+check("GET /count returns the running total", (await res.json()).value === 2);
+
+world = fresh();
+res = await get("/windowsdownload", {}, "198.51.100.3");
+check("a direct download (JavaScript off) still counts", res.status === 200,
+  `status ${res.status}`);
+res = await get("/count");
+check("...and the total went up", (await res.json()).value === 3);
+
+res = await get("/windowsdownload", {}, "198.51.100.3");
+res = await get("/count");
+check("re-downloading from the same IP does not count again",
+  (await res.json()).value === 3);
+
+const keys = [...env.DOWNLOADS.store.keys()];
+check("KV holds a count plus one HASHED marker per visitor",
+  keys.includes("count") &&
+  keys.filter((k) => k !== "count").every((k) => /^ip:[0-9a-f]{64}$/.test(k)),
+  JSON.stringify(keys));
+check("the raw IP address never reaches KV",
+  !JSON.stringify(keys).includes("198.51.100.1"));
+
+res = await get("/count/hit", { method: "POST" });
+check("a non-GET hit is refused", res.status === 405, `status ${res.status}`);
+res = await get("/count", { method: "OPTIONS" });
+check("the CORS preflight is answered", res.status === 204 &&
+  res.headers.get("Access-Control-Allow-Methods") === "GET, OPTIONS",
+  `status ${res.status}`);
+
+// The counter is decoration: no KV binding (local dev) must answer 0, and a
+// download must still work.
+delete env.DOWNLOADS;
+world = fresh();
+res = await get("/count");
+check("without the KV binding the count reads 0, not an error",
+  res.status === 200 && (await res.json()).value === 0, `status ${res.status}`);
+res = await get("/windowsdownload");
+check("...and downloads still stream", res.status === 200, `status ${res.status}`);
 
 // ----------------------------------------------------- the cost property ---
 

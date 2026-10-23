@@ -67,6 +67,7 @@ from .mods import MODRINTH_API, modrinth_search_index, rank_search_hits
 # folders (get_profile_dir), same link-into-place engine, same loud failure
 # when a caller forgets which profile it is acting on.
 from .mods import get_profile_dir, resolve_profile_dir, require_loader_and_version
+from .mod_loaders import MOD_CAPABLE_LOADERS
 
 import logging
 
@@ -514,6 +515,12 @@ def _store_target_of(link_path: str) -> str | None:
     return target if os.path.exists(target) else None
 
 
+def _require_install_target(content_type, mc_version, loader):
+    require_loader_and_version(mc_version, loader, f"install {_cfg(content_type)['label'].lower()}")
+    if content_type == "shader" and loader not in MOD_CAPABLE_LOADERS:
+        raise ValueError("Vanilla can't run shader packs. Choose a compatible mod loader and install Iris or Oculus first.")
+
+
 def install_local_content(content_type: str, src_path: str,
                           mc_version: str | None = None,
                           version_id: str | None = None,
@@ -528,6 +535,7 @@ def install_local_content(content_type: str, src_path: str,
     if the game would have rejected it (a pack.mcmeta format that doesn't cover
     the version being played is the classic "Incompatible" report), so a pack
     added by hand lands in a state the game accepts."""
+    _require_install_target(content_type, mc_version, loader)
     exts = _cfg(content_type)["exts"]
     label = _cfg(content_type)["label"].lower()
     if not src_path.lower().endswith(exts):
@@ -823,6 +831,7 @@ def download_content(content_type: str, download_url: str, filename: str,
     pass runs on the downloaded file BEFORE it becomes the stored copy, so the
     store never holds a pack the game would reject. progress_cb(downloaded,
     total) is throttled inside net. Returns the profile path it was linked at."""
+    _require_install_target(content_type, mc_version, loader)
     store = store_dir(content_type)
     tmp = os.path.join(store, f".fetch-{os.getpid()}-{os.path.basename(filename)}.part")
     algo, expected = None, None

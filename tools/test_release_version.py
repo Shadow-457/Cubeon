@@ -76,6 +76,21 @@ check("releasable drops junk", rv.releasable(["v1.0.0", "nightly", "v1.1", "v1.0
       == [(1, 0, 0), (1, 0, 1)])
 
 
+# ----------------------------------------------------------------- channel ---
+section("channel - patch zero is stable, everything else is beta")
+check("1.3.0 is stable", rv.channel("1.3.0") == "stable")
+check("1.4.0 is stable (a new minor series)", rv.channel("1.4.0") == "stable")
+check("2.0.0 is stable (a major bump)", rv.channel("2.0.0") == "stable")
+check("1.3.1 is beta", rv.channel("1.3.1") == "beta")
+check("1.3.10 is beta", rv.channel("1.3.10") == "beta")
+check("v-prefixed input is accepted", rv.channel("v1.3.1") == "beta")
+check("channel rejects garbage", raises(rv.channel, "1.3"))
+check("the first push of 1.3.0 is stable",
+      rv.channel(rv.next_version("1.3.0", ["v1.2.21"])) == "stable")
+check("the push after it is beta",
+      rv.channel(rv.next_version("1.3.0", ["v1.2.21", "v1.3.0"])) == "beta")
+
+
 # -------------------------------------------------------------------- next() ---
 section("next_version - the policy")
 check("no tags at all -> the declared version",
@@ -168,11 +183,28 @@ try:
           (tmp / "web" / "download.html").read_text(encoding="utf-8").count("Version 2.5.0") == 2)
     check("stamp is idempotent (second run reports nothing)",
           rv.stamp("2.5.0") == [])
+
+    # Channel gating (2026-10-24): a beta must never move the website's
+    # version, because the site advertises the download /releases/latest
+    # actually serves - and that is the last stable.
+    beta_changed = rv.stamp("2.5.1")
+    check("a beta stamps APP_VERSION only", len(beta_changed) == 1,
+          f"changed={beta_changed}")
+    check("...leaving the site on the last stable",
+          "v2.5.0 &middot; Installer" in
+          (tmp / "web" / "index.html").read_text(encoding="utf-8"))
+    check("site=True forces a beta to stamp the site",
+          len(rv.stamp("2.5.2", site=True)) == 3)
+    check("site=False keeps a stable off the site",
+          len(rv.stamp("2.5.0", site=False)) == 1)
+    check("a stable stamps the site by default",
+          len(rv.stamp("2.6.0")) == 3)
+
     check("stamp round-trips through current()",
-          rv.read_app_version(tmp / "cubeon" / "updater.py") == "2.5.0")
+          rv.read_app_version(tmp / "cubeon" / "updater.py") == "2.6.0")
     check("stamp rejects garbage", raises(rv.stamp, "2.5"))
     check("stamp counts replacements per file",
-          all(isinstance(n, int) and n > 0 for _p, n in rv.stamp("2.6.0")))
+          all(isinstance(n, int) and n > 0 for _p, n in rv.stamp("2.6.1", site=True)))
 
     # The literal moved / two of them -> must raise, never silently no-op.
     (tmp / "cubeon" / "updater.py").write_text(

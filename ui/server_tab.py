@@ -15,6 +15,7 @@ import re
 import threading
 
 import flet as ft
+from cubeon import scrolling
 from cubeon.theme import (  # design system (radius, toggles, faint text tier, underline tabs, accent fg)
     RADIUS, animated_switch, TEXT_FAINT, text_tab, ON_ACCENT,
     attach_hover, ROW_HOVER, ACCENT_TINT, CARD_BORDER, CARD_FILL,
@@ -943,7 +944,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             return ACCENT
         return TEXT_DIM
 
-    console_log = ft.ListView(expand=True, spacing=1, auto_scroll=True)
+    console_log = ft.ListView(expand=True, spacing=1, auto_scroll=True,
+                              auto_scroll_animation=scrolling.animation())
     console_line_count = ft.Text("0 lines", size=11, color=TEXT_FAINT, font_family=FONT_MONO)
 
     # Pending page.update callbacks + one-shot flush flag for the coalesced
@@ -1035,6 +1037,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         Server start floods dozens of lines/second; each used to cost a
         full-tree diff. The whole console lives in two controls, so this
         repaints only those."""
+        with thread_safe_ui.TREE_LOCK:
+            console_log.auto_scroll_animation = scrolling.animation()
         thread_safe_ui.refresh(console_log)
         thread_safe_ui.refresh(console_line_count)
 

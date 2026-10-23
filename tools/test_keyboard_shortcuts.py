@@ -41,9 +41,16 @@ CASES = (
     ({"key": "f11"}, keys.FULLSCREEN),
     ({"key": "Escape"}, keys.ESCAPE),
     ({"key": "esc"}, keys.ESCAPE),
-    ({"key": "1", "ctrl": True}, "tab:1"),
-    ({"key": "Digit3", "ctrl": True}, "tab:3"),
-    ({"key": "Numpad9", "meta": True}, "tab:9"),      # Cmd+9 on macOS
+    ({"key": "1", "shift": True}, "tab:1"),
+    ({"key": "Digit3", "shift": True}, "tab:3"),
+    ({"key": "Numpad9", "shift": True}, "tab:9"),
+    ({"key": "!", "shift": True}, "tab:1"),
+    ({"key": "(", "shift": True}, "tab:9"),
+    ({"key": "1", "ctrl": True}, None),
+    ({"key": "1", "meta": True}, None),
+    ({"key": "1", "ctrl": object()}, None),
+    ({"key": "1", "shift": True, "ctrl": True}, None),
+    ({"key": "1", "shift": True, "alt": True}, None),
     ({"key": "Enter", "ctrl": True}, keys.MAIN_ACTION),
     ({"key": "NumpadEnter", "ctrl": True}, keys.MAIN_ACTION),
     ({"key": ",", "ctrl": True}, keys.SETTINGS),
@@ -94,7 +101,7 @@ covered = {
     keys.resolve("F1"),
     keys.resolve("F11"),
     keys.resolve("Escape"),
-    keys.resolve("1", ctrl=True),
+    keys.resolve("1", shift=True),
     keys.resolve("Enter", ctrl=True),
     keys.resolve(",", ctrl=True),
     keys.resolve("q", ctrl=True),
@@ -147,7 +154,7 @@ check("wiring: Ctrl+Enter can't bypass a disabled Play",
       "if not play_button.disabled:" in src
       and "_main_action_click()" in src,
       "the mouse path is blocked by disabled; the keyboard must be too")
-check("wiring: Ctrl+N indexes the LIVE nav list",
+check("wiring: Shift+N indexes the LIVE nav list",
       "switch_tab(top_nav_items[n - 1][0])" in src,
       "a hardcoded table would desync when the Chat tab is absent")
 check("wiring: Escape closes the help dialog before other things",
@@ -164,6 +171,24 @@ check("wiring: top-nav tooltip stays EXACTLY the label", "tooltip=label," in src
       "goto()/ux_capture label matching - that regressed test_fuzz.py once")
 check("wiring: F12 inspector still handled",
       'if str(key) == "F12" and _inspector_enabled:' in src)
+
+import inspect
+import flet as ft
+import app_driver
+
+driver = app_driver.build_headless()
+handler = driver.page.on_keyboard_event
+jump = inspect.getclosurevars(handler).nonlocals["_jump_to_tab"]
+switch = inspect.getclosurevars(jump).nonlocals["switch_tab"]
+active = inspect.getclosurevars(switch).nonlocals["active_tab"]
+for digit in range(1, 10):
+    handler(ft.KeyboardEvent("keyboard_event", driver.page, str(digit), False, False, False, False))
+check("real Flet event.control never acts as a Ctrl modifier", active["value"] == "play")
+handler(ft.KeyboardEvent("keyboard_event", driver.page, "2", True, False, False, False))
+check("real Shift+2 event switches to Mods", active["value"] == "mods")
+handler(ft.KeyboardEvent("keyboard_event", driver.page, "3", False, False, False, False))
+check("typing numbers after a switch keeps the current tab", active["value"] == "mods")
+check("help documents Shift-number navigation", any(combo == "Shift + 1 … 9" for combo, _label in keys.CATALOGUE))
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

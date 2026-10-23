@@ -480,10 +480,9 @@ def section_runtime():
     # "the tab opened" is true even when its build threw, and a view that
     # ISN'T mounted is invisible to a page scan. So: a fresh driver, open
     # each server screen, and assert its title Text is IN THE TREE right
-    # then (server_tab + server_browse_tab titles).
+    # then (server_tab titles).
     from _fuzz_common import every_control as _ec
     _views = (("server_console", "Console"),
-              ("server_browse", "Browse servers"),
               ("server_plugins", "Plugins"),
               ("server_settings", "Server settings"))
     try:
@@ -576,7 +575,10 @@ SUITES = [
     # The FPS boost as the user experiences it (options.txt + Sodium's own
     # config/sodium-options.json), and the motion layer every hover goes
     # through. Both are offline and take a few seconds.
-    "test_perf_mods.py", "test_motion.py",
+    "test_perf_mods.py", "test_motion.py", "test_tab_navigation.py",
+    "test_activity_stats.py", "test_keyboard_shortcuts.py", "test_milestones.py",
+    "test_scrolling.py",
+    "test_appearance_preview.py", "test_loader_content_rules.py",
 ]
 
 

@@ -22,8 +22,8 @@ importing main.py, which would be a circular import (main.py imports the tabs).
 THE DESIGN SYSTEM  (colour theory + why it looks the way it does)
 --------------------------------------------------------------------------------
 Cubeon is a launcher for a game made of cubes, so the UI keeps a calm, tidy
-Minecraft-adjacent feel: one small radius family (RADIUS = 8px on controls,
-RADIUS_LG = 12px on cards/panels) softly rounds every corner. It used to be dead
+Minecraft-adjacent feel: one small radius family (RADIUS = 10px on controls,
+RADIUS_LG = 14px on cards/panels) softly rounds every corner. It used to be dead
 square (RADIUS = 2px) - softened on 2026-10-15 because the hard edges read as
 sharp rather than crisp. A single token family still drives buttons, inputs,
 cards, chips, nav and dialogs so the rounding is uniform rather than a
@@ -164,12 +164,12 @@ ACCENT_TINT_HI = ft.Colors.with_opacity(0.20, ACCENT) # hovered version of the s
 # decoration Flutter refuses to paint - one stray side colour would turn every
 # hovered panel into an error screen. The specular highlight is animated instead
 # (cubeon/motion.py's Sheen), which is where the eye actually reads "glass".
-GLASS_BLUR = ft.Blur(14, 14, ft.BlurTileMode.MIRROR)       # cards, dialogs, panels
-GLASS_BLUR_SOFT = ft.Blur(10, 10, ft.BlurTileMode.MIRROR)  # large, list-bearing surfaces
+GLASS_BLUR = ft.Blur(10, 10, ft.BlurTileMode.MIRROR)       # cards, dialogs, panels
+GLASS_BLUR_SOFT = ft.Blur(8, 8, ft.BlurTileMode.MIRROR)  # large, list-bearing surfaces
 GLASS_RIM = ft.Colors.with_opacity(0.12, "#FFFFFF")        # panel outline: a lit rim
 GLASS_RIM_HI = ft.Colors.with_opacity(0.30, "#FFFFFF")     # ... and its hovered state
 GLASS_HALO = ft.Colors.with_opacity(0.30, ACCENT)          # green bloom under a hovered panel
-GLASS_HALO_PX = 20
+GLASS_HALO_PX = 14
 GLASS_RADIUS_STEP = 3        # how far a hovered panel's corners open up
 
 
@@ -224,8 +224,8 @@ def card_border():
 # (2026-10-15, user request - the old 2px read as sharp/harsh), not dead square;
 # big surfaces take a touch more than small ones so a card doesn't look
 # under-rounded next to its own padding. RADIUS_NONE stays 0 for flush insets.
-RADIUS = 8          # default - buttons, inputs, chips, nav items, small elements
-RADIUS_LG = 12      # cards, dialogs, large panels
+RADIUS = 10          # default - buttons, inputs, chips, nav items, small elements
+RADIUS_LG = 14      # cards, dialogs, large panels
 RADIUS_PILL = 999   # former pills/chips - genuinely round now (clamped by size)
 RADIUS_NONE = 0     # flush insets - progress bars, dividers, image edges
 

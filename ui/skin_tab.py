@@ -28,6 +28,7 @@ from cubeon.theme import (
     SURFACE_MAX, TEXT_FAINT,
 )
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
+from ui.appearance_preview import AppearancePreview
 
 # Our own launcher core module - contains logic for skin storage/rendering
 import launcher_core as core
@@ -45,8 +46,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                         TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO=None,
                         mc_version=None, mc_loader=None, file_picker=None,
-                        cape_file_picker=None, screenshot_gallery=None,
-                        refresh_screenshot_gallery=None):
+                        cape_file_picker=None, assets_dir=None):
     """
     Builds the skin-management section shown inside the Profile tab:
     a preview of the active skin, an upload button, and the list of
@@ -91,66 +91,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # won't be visible, instead of pretending it's a full skin-server swap.
     # =====================================================================
 
-    # Preview image for whichever custom skin is selected/just uploaded.
-    # src is set to a transparent 1x1 placeholder up front (not left empty)
-    # since some Flet versions require Image.src to always be a real string.
-    custom_preview = ft.Image(
-        src="icon.svg",
-        width=156, height=242, fit=ft.BoxFit.CONTAIN, visible=False,
-    )
-    custom_preview_empty = ft.Column(
-        [
-            ft.Icon(ft.Icons.PERSON_OUTLINE_ROUNDED, size=34,
-                    color=TEXT_FAINT),
-            ft.Text("No custom skin", size=12, color=TEXT_DIM),
-            ft.Text("Upload one to preview it", size=10, color=TEXT_FAINT),
-        ],
-        spacing=6, tight=True,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-    )
-    skin_preview_name = ft.Text("Default Minecraft skin", size=13,
-                                color=TEXT, weight=ft.FontWeight.W_700,
-                                text_align=ft.TextAlign.CENTER)
-    skin_preview_meta = ft.Text("Not wearing a custom skin", size=10,
-                                color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
-
-    # --- Front / back view switch -----------------------------------------
-    # The preview is composited from the sheet's own pixels, so "back" is a
-    # real 180° turn (back-face regions plus the two sides traded) rather than
-    # a cosmetic flip - see core.render_local_skin_preview(view=...). It sits
-    # under the picture because that is the thing it changes, and it stays
-    # hidden until there is a custom skin to turn: with no skin the box shows
-    # the empty state, and a control that changes nothing is worse than none.
-    _view_state = {"value": "front"}
-
-    def _view_segment(label):
-        return ft.Container(
-            content=ft.Text(label, size=11, color=TEXT,
-                            weight=ft.FontWeight.W_600),
-            padding=ft.padding.Padding.symmetric(horizontal=13, vertical=3),
-        )
-
-    view_toggle = ft.CupertinoSlidingSegmentedButton(
-        selected_index=0,   # 0 = front, 1 = back
-        thumb_color=ACCENT_TINT,
-        bgcolor=SURFACE_MAX,
-        padding=2,
-        controls=[_view_segment("Front"), _view_segment("Back")],
-        tooltip="Turn the preview around - the back of the skin, as others "
-                "see it from behind",
-        visible=False,
-    )
-
-    def on_view_change(e):
-        """Re-composite the preview from the other side."""
-        view = "back" if int(getattr(e.control, "selected_index", 0) or 0) == 1 \
-            else "front"
-        if view == _view_state["value"]:
-            return
-        _view_state["value"] = view
-        render_preview_for(cfg.get("active_skin"))
-
-    view_toggle.on_change = on_view_change
+    appearance = AppearancePreview(cfg, assets_dir)
+    skin_preview_name = ft.Text("Default Minecraft skin", size=13, color=TEXT)
+    skin_preview_meta = ft.Text("Not wearing a custom skin", size=10, color=TEXT_DIM)
 
     upload_status = ft.Text("", size=12, color=TEXT_DIM)
     skin_model = ft.Dropdown(
@@ -195,104 +138,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # scroll.
     skins_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
 
-    _preview_state = {"running": False, "queued": None, "generation": 0}
-    _preview_lock = threading.RLock()
-
-    def _render_big_preview(filename: str, generation, view: str):
-        """The actual PIL work - worker-thread only."""
-        # One file per (view, skin): a fast Front/Back toggle leaves the other
-        # view's PNG on disk instead of racing this one for the same path.
-        out_path = (os.path.join(core.SKINS_DIR,
-                                 f"_preview_{view}_{filename}.png")
-                    if filename else
-                    os.path.join(core.SKINS_DIR, "_preview_default.png"))
-        try:
-            if not filename:
-                return
-            core.render_local_skin_preview(filename, out_path, scale=8,
-                                           view=view)
-            # ft.Image.src resolves relative strings against assets_dir and
-            # can otherwise only load actual URLs - SKINS_DIR lives under the
-            # user's home folder (~/.cubeon_launcher), nowhere near the app's
-            # assets/ folder, so pointing src at that absolute path just
-            # fails to load (this was tried and didn't work). src_base64 is
-            # the correct way to show bytes that aren't a bundled asset.
-            # This Flet version (0.86) has no separate src_base64 property -
-            # ft.Image.src itself accepts a str, base64 str, or raw bytes.
-            # Setting a nonexistent `src_base64` attribute was silently
-            # swallowed by Flet (it's just a plain Python attr, not a real
-            # control field), so the client never got the new image and kept
-            # showing the last real `src` value (the placeholder cube icon).
-            with open(out_path, "rb") as f:
-                src = base64.b64encode(f.read()).decode("ascii")
-            with _preview_lock:
-                if generation == _preview_state["generation"]:
-                    custom_preview.src = src
-                    custom_preview.visible = True
-                    thread_safe_ui.refresh(custom_preview)
-                    try:
-                        custom_preview_empty.visible = False
-                        thread_safe_ui.refresh(custom_preview_empty)
-                    except NameError:
-                        pass  # isolated preview regression harness
-        except Exception as ex:
-            with _preview_lock:
-                if generation == _preview_state["generation"]:
-                    upload_status.value = f"Couldn't render preview: {ex}"
-                    thread_safe_ui.refresh(upload_status)
-        finally:
-            with _preview_lock:
-                _preview_state["running"] = False
-                nxt = _preview_state["queued"]
-                _preview_state["queued"] = None
-                if nxt is not None:
-                    render_preview_for(nxt)
-
-    def render_preview_for(filename: str):
-        # The 8x body composite is hundreds of ms of PIL work - too heavy for
-        # the UI thread every time the Profile tab opens or a Use click lands.
-        # Single-flight: at most one render runs; a newer request while one is
-        # in flight replaces the queued one (the newest intent wins), and the
-        # finally block re-runs it when the current render finishes.
-        #
-        # The view is read from _view_state at RENDER time, not captured when
-        # the request was queued, so a fast Front/Back click lands on the side
-        # the user last chose instead of finishing the abandoned render.
-        with _preview_lock:
-            _preview_state["generation"] += 1
-            generation = _preview_state["generation"]
-            view = _view_state["value"]
-            # A control that changes nothing is worse than none: the view
-            # switch only exists while there is a skin it can turn.
-            _sync_view_toggle(bool(filename))
-            if not filename:
-                _preview_state["queued"] = None
-                custom_preview.visible = False
-                thread_safe_ui.refresh(custom_preview)
-                try:
-                    custom_preview_empty.visible = True
-                    skin_preview_name.value = "Default Minecraft skin"
-                    skin_preview_meta.value = "Not wearing a custom skin"
-                    thread_safe_ui.refresh(custom_preview_empty)
-                    thread_safe_ui.refresh(skin_preview_name)
-                    thread_safe_ui.refresh(skin_preview_meta)
-                except NameError:
-                    pass  # isolated preview regression harness
-                return
-            if _preview_state["running"]:
-                _preview_state["queued"] = filename
-                return
-            _preview_state["running"] = True
-            threading.Thread(
-                target=_render_big_preview,
-                args=(filename, generation, view),
-                daemon=True, name="ux-skin-preview").start()
-
-    def _sync_view_toggle(visible: bool):
-        """Show the Front/Back switch only when it can do something."""
-        if view_toggle.visible != visible:
-            view_toggle.visible = visible
-            thread_safe_ui.refresh(view_toggle)
+    def render_preview_for(filename):
+        appearance.refresh(invalidate=True)
 
     def set_active(filename: str):
         try:
@@ -596,6 +443,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             upload_status.value = "Upload and select a skin first."
         else:
             core.set_skin_model(cfg, active, skin_model.value)
+            appearance.refresh(invalidate=True)
             choice = {"slim": "Slim / Alex", "classic": "Classic / Steve",
                       "auto": "Auto-detect"}.get(skin_model.value, "Auto-detect")
             upload_status.value = f"Active skin now uses {choice} arms."
@@ -658,10 +506,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     if cape_file_picker is None:
         cape_file_picker = ft.FilePicker()
 
-    cape_preview = ft.Image(
-        src="icon.svg",
-        width=120, height=192, fit=ft.BoxFit.CONTAIN, visible=False,
-    )
     cape_preview_name = ft.Text("Cubeon Cape", size=13,
                                 color=TEXT, weight=ft.FontWeight.W_700,
                                 text_align=ft.TextAlign.CENTER)
@@ -671,57 +515,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Wrapping card grid, same as the skins installed list (see _owned_card).
     capes_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
 
-    _cape_preview_state = {"running": False, "queued": None, "generation": 0}
-    _cape_preview_lock = threading.RLock()
-
-    def _render_big_cape_preview(filename: str, generation):
-        out_path = os.path.join(core.CAPES_DIR, f"_preview_{filename}.png")
-        try:
-            core.render_cape_preview(filename, out_path, scale=10)
-            with open(out_path, "rb") as f:
-                src = base64.b64encode(f.read()).decode("ascii")
-            with _cape_preview_lock:
-                if generation == _cape_preview_state["generation"]:
-                    cape_preview.src = src
-                    cape_preview.visible = True
-                    thread_safe_ui.refresh(cape_preview)
-        except Exception as ex:
-            with _cape_preview_lock:
-                if generation == _cape_preview_state["generation"]:
-                    cape_status.value = f"Couldn't render preview: {ex}"
-                    thread_safe_ui.refresh(cape_status)
-        finally:
-            with _cape_preview_lock:
-                _cape_preview_state["running"] = False
-                nxt = _cape_preview_state["queued"]
-                _cape_preview_state["queued"] = None
-                if nxt is not None:
-                    render_cape_preview_for(nxt)
-
-    def render_cape_preview_for(filename: str):
-        # Same single-flight worker-thread shape as the skin preview: the
-        # 10x face composite never runs on the UI thread.
-        with _cape_preview_lock:
-            _cape_preview_state["generation"] += 1
-            generation = _cape_preview_state["generation"]
-            if _cape_preview_state["running"]:
-                _cape_preview_state["queued"] = filename
-                return
-            _cape_preview_state["running"] = True
-            threading.Thread(target=_render_big_cape_preview, args=(filename, generation),
-                             daemon=True, name="ux-cape-preview").start()
+    def render_cape_preview_for(filename):
+        appearance.refresh(invalidate=True)
 
     def show_default_cape_preview():
-        # No custom cape selected == wearing the shared Cubeon cape, which the
-        # Worker serves to everyone. Show its bundled preview asset (resolved
-        # against assets_dir) so the box is never blank and the default reads
-        # as a real, selected choice.
-        with _cape_preview_lock:
-            _cape_preview_state["generation"] += 1
-            _cape_preview_state["queued"] = None
-            cape_preview.src = DEFAULT_CAPE_PREVIEW_SRC
-            cape_preview.visible = True
-            thread_safe_ui.refresh(cape_preview)
+        appearance.refresh(invalidate=True)
 
     def set_active_cape(filename):
         try:
@@ -897,61 +695,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # fixed-width preview on the left, the actionable content on the right,
     # so each pane reads the same way.
 
-    skin_preview_box = ft.Container(
-        content=ft.Column(
-            [
-                ft.Text("CURRENT LOOK", size=10, color=ACCENT,
-                        weight=ft.FontWeight.W_700,
-                        style=ft.TextStyle(letter_spacing=1.1)),
-                ft.Container(
-                    content=ft.Stack([custom_preview, custom_preview_empty],
-                                     alignment=ft.Alignment.CENTER),
-                    bgcolor=SURFACE_MAX,
-                    border=ft.border.Border.all(1, CARD_BORDER),
-                    border_radius=RADIUS,
-                    width=182, height=252,
-                    alignment=ft.Alignment.CENTER,
-                ),
-                skin_preview_name,
-                skin_preview_meta,
-                ft.Container(height=2),
-                view_toggle,
-            ],
-            spacing=7,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
-        border_radius=RADIUS, padding=14,
-        # Tall enough for the Front/Back switch under the labels; the empty
-        # state (no switch) simply has the same box to itself.
-        width=214, height=392, alignment=ft.Alignment.CENTER,
-    )
-
-    cape_preview_box = ft.Container(
-        content=ft.Column(
-            [
-                ft.Text("CURRENT LOOK", size=10, color=ACCENT,
-                        weight=ft.FontWeight.W_700,
-                        style=ft.TextStyle(letter_spacing=1.1)),
-                ft.Container(
-                    content=cape_preview,
-                    bgcolor=SURFACE_MAX,
-                    border=ft.border.Border.all(1, CARD_BORDER),
-                    border_radius=RADIUS,
-                    width=152, height=202,
-                    alignment=ft.Alignment.CENTER,
-                ),
-                cape_preview_name,
-                cape_preview_meta,
-            ],
-            spacing=7,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        ),
-        bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
-        border_radius=RADIUS, padding=14,
-        width=184, height=304, alignment=ft.Alignment.CENTER,
-    )
-
     # The hats/capes notes are tooltips on their pane labels rather than
     # visible paragraphs - same detail, none of the wall of text.
 
@@ -962,32 +705,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                          "for now.")
         return label
 
-    skin_pane = ft.Row(
-        [
-            skin_preview_box,
-            ft.Container(width=16),
-            ft.Column(
-                [skins_label, _grid_scroll(skins_list_col),
-                 ft.Container(height=2), skin_model, apply_model_button,
-                 upload_button, upload_status],
-                spacing=6, expand=True,
-            ),
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.START,
-    )
-
-    cape_pane = ft.Row(
-        [
-            cape_preview_box,
-            ft.Container(width=16),
-            ft.Column(
-                [_cape_label_with_note(), _grid_scroll(capes_list_col),
-                 ft.Container(height=2), cape_upload_button, cape_status],
-                spacing=6, expand=True,
-            ),
-        ],
-        vertical_alignment=ft.CrossAxisAlignment.START,
-    )
+    skin_pane = ft.Column(
+        [skins_label, _grid_scroll(skins_list_col), skin_preview_name,
+         skin_preview_meta, skin_model, apply_model_button, upload_button, upload_status], spacing=8)
+    cape_pane = ft.Column(
+        [_cape_label_with_note(), _grid_scroll(capes_list_col), cape_preview_name,
+         cape_preview_meta, cape_upload_button, cape_status], spacing=8)
 
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for
@@ -998,17 +721,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ("skin", "Skin", skin_pane),
         ("cape", "Cape", cape_pane),
     ]
-    if screenshot_gallery is not None:
-        PANES.append((
-            "images",
-            "Images",
-            ft.Container(
-                content=screenshot_gallery,
-                height=620,
-                expand=True,
-            ),
-        ))
-
     pane_holder = ft.Container(content=skin_pane)
     tab_row = ft.Row(spacing=18)
 
@@ -1027,9 +739,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         pane_holder.content = dict(
             (p[0], p[2]) for p in PANES)[pid]
         build_pane_tabs()
-        if pid == "images" and callable(refresh_screenshot_gallery):
-            refresh_screenshot_gallery()
-        page.update()
+        if pid == "cape":
+            appearance.turn(180 - appearance.yaw)
+        thread_safe_ui.refresh(tab_row)
+        thread_safe_ui.refresh(pane_holder)
 
     build_pane_tabs()
 
@@ -1039,7 +752,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 [
                     ft.Column(
                         [
-                            ft.Text("Appearance", size=24, color=TEXT,
+                            ft.Text("Cosmetics", size=24, color=TEXT,
                                     font_family=FONT_DISPLAY),
                             ft.Text("Choose what your character wears in-game.",
                                     size=12, color=TEXT_DIM),
@@ -1048,11 +761,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
             ft.Container(height=8),
-            tab_row,
-            ft.Container(height=10),
-            pane_holder,
+            ft.ResponsiveRow([
+                ft.Container(content=appearance.control, col={"xs": 12, "md": 6}),
+                ft.Container(content=ft.Column([tab_row, ft.Container(height=10), pane_holder], spacing=8),
+                             col={"xs": 12, "md": 6}),
+            ], spacing=24, run_spacing=20),
         ],
         spacing=6,
     )
 
+    appearance.refresh()
     return skin_section

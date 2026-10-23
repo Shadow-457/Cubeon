@@ -515,20 +515,6 @@ def install_safe_stubs(verbose=False):
         "filename": "fuzz.mrpack", "url": "https://cdn.modrinth.com/x.mrpack",
         "size_kb": 1, "version_number": "1.0.0"}
 
-    # The server Browse view (Servers > Browse) pings real status APIs from a
-    # background worker the moment its tab opens. Canned shape-correct
-    # answers keep that deterministic and offline - and the "online" one
-    # wins the sort, so the row-painting path really runs.
-    try:
-        from cubeon import server_browse as _server_browse
-        _server_browse._fetch_status = lambda host, port: {
-            "online": True, "players": 123, "max": 200, "version": "1.21",
-            "motd": "canned status", "latency": None}
-        _server_browse.get_status = lambda address, *, refresh=False: {
-            "online": True, "players": 123, "max": 200, "version": "1.21",
-            "motd": "canned status", "latency": None}
-    except Exception:
-        pass
     # The mod detail dialog fetches project metadata + the version list. A
     # browse row is clickable, so this path runs the moment a hit renders -
     # unstubbed it would fetch the real Modrinth API and prefill real state.

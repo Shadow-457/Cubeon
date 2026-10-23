@@ -5,9 +5,14 @@
 # a read-only GitHub token as a secret and streams the latest release's
 # installer files directly, with no expiry and no GitHub page.
 #
-# Deploy (no KV, no account setup beyond what already exists):
+# Bindings:
+#   * GITHUB_TOKEN  - secret, read access to the private repo.
+#   * DOWNLOADS     - KV namespace for the one-per-IP download counter.
+#
+# Deploy (KV + secret):
 #
 #   cd worker
+#   npx wrangler kv namespace create DOWNLOADS     # paste the id below
 #   npx wrangler deploy -c wrangler-downloads.toml
 #   echo "<read-only token>" | npx wrangler secret put GITHUB_TOKEN -c wrangler-downloads.toml
 #
@@ -42,3 +47,10 @@ namespace_id = "1004"
   [ratelimits.simple]
   limit = 30
   period = 60
+
+# The one-per-IP download counter. A NEW namespace starts empty, which is the
+# clean reset to 0: `count` is absent until the first visitor, and readCount()
+# treats that as zero. Only SHA-256 hashes of visitor IPs are stored.
+[[kv_namespaces]]
+binding = "DOWNLOADS"
+id = "48d59b26f72948e9930c2dec0e373a19"

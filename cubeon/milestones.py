@@ -22,6 +22,7 @@ import time
 
 from .paths import CUBEON_HOME
 from .atomicio import write_json
+from . import activity
 
 MILESTONES_PATH = os.path.join(CUBEON_HOME, "milestones.json")
 
@@ -47,6 +48,8 @@ def _defaults() -> dict:
         "seconds_played": 0,
         "sessions_hosted": 0,
         "friends_count_high": 0,
+        "sessions_played": 0,
+        "activity": {},
     }
 
 
@@ -67,6 +70,7 @@ def load_state() -> dict:
             for k in base:
                 if k in data:
                     base[k] = data[k]
+        base["activity"] = activity.clean_history(base.get("activity"))
         _state = base
         if data is None:
             _save_state_locked()
@@ -95,7 +99,7 @@ def _save_state_locked() -> None:
         pass
 
 
-def add_play_seconds(seconds: float) -> None:
+def add_play_seconds(seconds: float, started_at: float | None = None, *, completed=False) -> None:
     """Credits in-game time. Clamps negatives (a broken clock must not be
     able to subtract playtime) and huge single credits (an absurd record
     must not dominate the stat)."""
@@ -109,6 +113,7 @@ def add_play_seconds(seconds: float) -> None:
     st = load_state()
     with _lock:
         st["seconds_played"] += seconds
+        activity.record_playtime(st, seconds, started_at, completed=completed)
         _save_state_locked()
 
 
@@ -197,7 +202,7 @@ def end_play_session(now: float | None = None, session_id: str | None = None) ->
         _write_play_session({"sessions": records})
         seconds = _play_session_elapsed(rec, time.time() if now is None else now)
     if seconds > 0:
-        add_play_seconds(seconds)
+        add_play_seconds(seconds, rec["started"], completed=True)
     return seconds
 
 
@@ -244,6 +249,7 @@ def add_hosted_session() -> None:
     st = load_state()
     with _lock:
         st["sessions_hosted"] += 1
+        activity.record_hosting(st)
         _save_state_locked()
 
 

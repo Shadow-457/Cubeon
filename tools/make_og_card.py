@@ -36,7 +36,7 @@ HTML = os.path.join(ROOT, "tools", "og-card.html")  # source; NOT under web/
 W, H = 1200, 630
 
 # Clipboard of what the card says. Keep it in step with web/index.html's hero.
-HEADLINE = "Minecraft is better with friends."
+HEADLINE = "Minecraft, but better."
 LEDE = ("A free desktop launcher for Windows and Linux: play offline under any "
         "name, and keep mods, skins and versions in one window. No account, "
         "no adverts.")

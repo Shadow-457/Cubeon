@@ -50,7 +50,8 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
     status = ft.Text("", size=11, color=TEXT_DIM)
     capture_count = ft.Text("0 captures", size=11, color=TEXT_DIM,
                             font_family=FONT_MONO)
-    thumb_column = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True)
+    thumb_column = ft.ListView(spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
+                              cache_extent=320)
 
     async def _copy_file_to_clipboard(filename):
         from flet.controls.services.clipboard import Clipboard

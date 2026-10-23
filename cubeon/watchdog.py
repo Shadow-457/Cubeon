@@ -20,6 +20,34 @@ _sessions = None
 _processes = {}
 _recovery_thread = None
 
+# Sessions the USER ended from the launcher (the QUIT GAME button). A SIGTERM
+# death has a negative exit code, which the launch watcher would otherwise
+# report as a crash and open the crash dialog over a perfectly normal quit
+# (2026-10-24 report). The launcher and the watcher live in the same process,
+# so a small in-memory set is enough - it never needs to survive a restart.
+_intentional_stops: set[str] = set()
+
+
+def mark_intentional_stop(session_id: str | None) -> None:
+    """Remember that this session is being ended ON PURPOSE."""
+    if session_id:
+        _intentional_stops.add(str(session_id))
+
+
+def consume_intentional_stop(session_id: str | None) -> bool:
+    """True once for a session the launcher deliberately stopped.
+
+    Consuming (rather than peeking) keeps the set from growing and means a
+    later unrelated exit with the same id can never inherit the excuse.
+    """
+    if not session_id:
+        return False
+    try:
+        _intentional_stops.remove(str(session_id))
+        return True
+    except KeyError:
+        return False
+
 
 def _process_identity(pid: int) -> dict | None:
     try:
@@ -251,6 +279,9 @@ def terminate(pid: int, session_id: str | None = None) -> bool:
                     (session_id is None or rec["session_id"] == session_id)), None)
     if rec is None or not rec.get("identity"):
         return False
+    # Mark BEFORE terminating: the game can exit between the signal and the
+    # watcher thread, and on_exit must already know this death was requested.
+    mark_intentional_stop(rec.get("session_id") or session_id)
     try:
         process = psutil.Process(pid)
         if {"created": process.create_time(), "boot": psutil.boot_time()} != rec["identity"]:

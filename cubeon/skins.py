@@ -116,11 +116,27 @@ def default_base_skin() -> Image.Image:
     _rect(s, 11, 12, 13, 13, skin_shade)
     _rect(s, 11, 13, 13, 14, (126, 79, 61, 255))
 
-    # Body: teal shirt, bare arms (classic Steve), jeans with grey shoes.
+    for origin_x, origin_y, width, height, depth, color in (
+        (16, 16, 8, 12, 4, shirt), (40, 16, 4, 12, 4, skin),
+        (32, 48, 4, 12, 4, skin), (0, 16, 4, 12, 4, jeans), (16, 48, 4, 12, 4, jeans),
+    ):
+        _rect(s, origin_x + depth, origin_y, origin_x + depth + width, origin_y + depth, color)
+        _rect(s, origin_x + depth + width, origin_y,
+              origin_x + 2 * width + depth, origin_y + depth, color)
+        _rect(s, origin_x, origin_y + depth,
+              origin_x + 2 * (width + depth), origin_y + depth + height, color)
+        if color == skin:
+            _rect(s, origin_x, origin_y + depth,
+                  origin_x + 2 * (width + depth), origin_y + depth + 4, shirt)
+        elif color == jeans:
+            _rect(s, origin_x, origin_y + depth + height - 3,
+                  origin_x + 2 * (width + depth), origin_y + depth + height, shoes)
+
     _rect(s, 20, 20, 28, 32, shirt)
     _rect(s, 20, 20, 28, 21, shirt_shade)
     for ax, ay in ((44, 20), (36, 52)):
         _rect(s, ax, ay, ax + 4, ay + 12, skin)
+        _rect(s, ax, ay, ax + 4, ay + 4, shirt)
         _rect(s, ax, ay + 10, ax + 4, ay + 12, skin_shade)   # hands
     for lx, ly in ((4, 20), (20, 52)):
         _rect(s, lx, ly, lx + 4, ly + 12, jeans)

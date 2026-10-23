@@ -4,8 +4,8 @@
 Three things must keep holding at once, because each of them once broke the
 site in a way code review couldn't see:
 
-  1. The visible count is the SHARED press total served by Abacus
-     (abacus.jasoncameron.dev) - it is global, not per-device, and the page
+  1. The visible count is the SHARED per-visitor total served by the
+     cubeon-downloads Worker - one count per IP, not per press - and the page
      must never fetch anything else for it. All of this is exercised by
      running the REAL web/assets/site.js in Node on a DOM stub.
   2. The download routes stream from the cubeon-downloads Worker, because the
@@ -14,7 +14,7 @@ site in a way code review couldn't see:
   3. Every page loads web/assets/site.js - index.html once shipped without the
      tag, which silently killed the counter, cookie note and mobile menu.
 
-No test here touches the network: GitHub and Abacus are both stubbed.
+No test here touches the network: GitHub and the Worker are both stubbed.
 """
 from __future__ import annotations
 
@@ -32,7 +32,6 @@ WEB = os.path.join(REPO, "web")
 SITE_JS = os.path.join(WEB, "assets", "site.js")
 WORKER_JS = os.path.join(REPO, "worker", "cubeon-downloads.js")
 WORKER_URL = "https://cubeon-downloads.hamza-457-shahbaz.workers.dev"
-ABACUS = "https://abacus.jasoncameron.dev"
 GONE = [  # the rejected GitHub-count plumbing; kept out on purpose
     os.path.join(WEB, "api", "download-count.js"),
     os.path.join(WEB, "assets", "download-count.json"),
@@ -95,17 +94,18 @@ Object.defineProperty(globalThis, "navigator", {
 globalThis.matchMedia = () => ({ matches: false });
 globalThis.localStorage = { getItem() { return null; }, setItem() {} };
 
-// A stand-in for Abacus: records every request, answers with a value.
+// A stand-in for the download Worker's counter: records every request,
+// answers with the shared total, and insists on the Worker's own URL.
 let value = 0;
 let hitFails = false;
 let getFails = false;
 let requested = [];
-function urlFor(action) {
-  return "https://abacus.jasoncameron.dev/" + action + "/cubeon-site/downloads";
-}
 globalThis.fetch = async (url, options) => {
   const target = String(url);
-  const action = target.indexOf("/hit/") !== -1 ? "hit" : "get";
+  if (target.indexOf("https://cubeon-downloads.hamza-457-shahbaz.workers.dev/") !== 0) {
+    throw new Error("unexpected counter origin: " + target);
+  }
+  const action = target.endsWith("/count/hit") ? "hit" : "get";
   requested.push({ action, keepalive: !!(options && options.keepalive) });
   if ((action === "hit" && hitFails) || (action === "get" && getFails)) {
     throw new Error("counter unreachable");
@@ -241,14 +241,17 @@ if node:
 with open(SITE_JS, encoding="utf-8") as handle:
     site_source = handle.read()
 
-check("the count is the shared Abacus total",
-      ABACUS in site_source and "ask('get')" in site_source and "ask('hit')" in site_source)
+check("the count is served by our own download Worker",
+      WORKER_URL in site_source and "BASE + '/count'" in site_source
+      and "ask('get')" in site_source and "ask('hit')" in site_source)
+check("site.js no longer calls a third-party counter",
+      "abacus" not in site_source.lower())
 count_block = site_source.split("(function downloadCount")[1].split("})();")[0] \
     if "(function downloadCount" in site_source else ""
 # The count itself must never be read from or written to localStorage - it only
-# ever comes from Abacus. The one localStorage use allowed here is the testing
-# mode's local flag (Ctrl+Shift+T / ?nocount=1): it stores nothing about the
-# count, and every line touching storage for it names TEST_FLAG.
+# ever comes from the Worker. The one localStorage use allowed here is the
+# testing mode's local flag (Ctrl+Shift+T / ?nocount=1): it stores nothing about
+# the count, and every line touching storage for it names TEST_FLAG.
 per_device_storage = [line.strip() for line in count_block.splitlines()
                       if "localStorage." in line and "TEST_FLAG" not in line]
 check("the counter block holds no per-device storage", not per_device_storage,
@@ -289,6 +292,22 @@ check("the Worker serves every route the site counts",
 check("the Worker reads its token from a secret, never from source",
       "env.GITHUB_TOKEN" in worker_source and "Bearer " in worker_source)
 
+# The one-per-IP counter (2026-10-24). Two properties matter: the number counts
+# VISITORS (a stored marker makes a repeat press a no-op), and the raw address
+# is never stored - only a SHA-256 of it.
+with open(os.path.join(REPO, "worker", "wrangler-downloads.toml"), encoding="utf-8") as handle:
+    toml_source = handle.read()
+check("the Worker counts one per IP, not one per press",
+      "COUNTED_PREFIX" in worker_source and "visitorKey" in worker_source
+      and "markDownload" in worker_source)
+check("...by storing a SHA-256 marker, never the address",
+      "crypto.subtle.digest" in worker_source and "SHA-256" in worker_source)
+check("the counter is bound to KV, so a fresh namespace starts at 0",
+      'binding = "DOWNLOADS"' in toml_source
+      and "env.DOWNLOADS" in worker_source)
+check("the counter allows the site's origin and is never cached",
+      "Access-Control-Allow-Origin" in worker_source and "no-store" in worker_source)
+
 leak = subprocess.run(
     ["grep", "-rl", "--exclude-dir=.git", "--exclude-dir=archive",
      "--exclude-dir=dist", "--exclude-dir=build", "--exclude-dir=node_modules",
@@ -305,8 +324,9 @@ check("no GitHub token is committed anywhere", leak.stdout.strip() == "",
 
 with open(os.path.join(REPO, "worker", "wrangler-downloads.toml"), encoding="utf-8") as handle:
     toml_source = handle.read()
-check("the Worker's config names it and has no KV to maintain",
-      'name = "cubeon-downloads"' in toml_source and "kv_namespaces" not in toml_source)
+check("the Worker's config names it and binds the counter KV",
+      'name = "cubeon-downloads"' in toml_source
+      and 'binding = "DOWNLOADS"' in toml_source)
 
 # ---------------------------------------------------------------------------
 # 4b. abuse protection for the Worker that holds a credential
@@ -334,7 +354,7 @@ check("the cached release carries a TTL",
 check("...measured in minutes (seconds re-costs, hours hides a release)",
       bool(ttl) and 60 <= int(ttl.group(1)) <= 3600, ttl.group(1) if ttl else "no constant")
 check("the streamed installer is cacheable, not no-store",
-      '"no-store"' not in worker_source)
+      '`public, max-age=${RELEASE_CACHE_SECONDS}`' in worker_source)
 check("an optional RATE_LIMITER gate is honoured, with a 429",
       "env.RATE_LIMITER" in worker_source and "429" in worker_source)
 check("...and a broken/unbound limiter degrades to serving, never to an error",
@@ -419,8 +439,12 @@ for page in ("index.html", "download.html"):
 # the cookies/privacy pages must keep describing the counter honestly
 with open(os.path.join(WEB, "cookies.html"), encoding="utf-8") as handle:
     cookies_html = handle.read()
-check("cookies.html discloses the counter service",
-      "Abacus" in cookies_html and "abacus" in cookies_html)
+check("cookies.html discloses the download counter",
+      "download counter" in cookies_html.lower())
+check("...and says it counts one per visitor, not per click",
+      "one per visitor" in cookies_html.lower())
+check("...and explains the address hash without naming a third party",
+      "hash" in cookies_html.lower() and "abacus" not in cookies_html.lower())
 with open(os.path.join(WEB, "privacy.html"), encoding="utf-8") as handle:
     privacy_html = handle.read()
 check("privacy.html discloses the shared press total", "download counter" in privacy_html)

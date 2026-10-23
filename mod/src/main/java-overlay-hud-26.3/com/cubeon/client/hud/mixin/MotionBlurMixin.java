@@ -44,7 +44,7 @@ public class MotionBlurMixin {
 		}
 
 		GameRenderer renderer = (GameRenderer) (Object) this;
-		Identifier id = Identifier.fromNamespaceAndPath(MotionBlur.NAMESPACE, MotionBlur.PATH);
+		Identifier id = Identifier.fromNamespaceAndPath(MotionBlur.NAMESPACE, MotionBlur.effectId());
 		List<Identifier> requested = renderer.getRequestedPostEffects();
 
 		if (!requested.contains(id)) {

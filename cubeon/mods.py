@@ -193,6 +193,12 @@ def require_loader_and_version(mc_version: str | None, loader: str | None, actio
         raise ValueError(f"Can't {action}: no mod loader selected.")
 
 
+def require_mod_loader(mc_version: str | None, loader: str | None, action: str) -> None:
+    require_loader_and_version(mc_version, loader, action)
+    if loader not in MOD_CAPABLE_LOADERS:
+        raise ValueError("Vanilla can't load mods. Choose Fabric, Quilt, Forge, or NeoForge on the Play tab first.")
+
+
 def list_profiles() -> list[dict]:
     """Every profile that currently has a folder, with its mod count -
     used to populate the 'copy mods from...' picker."""
@@ -569,13 +575,7 @@ def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
         raise ValueError("That's not a .jar file.")
     if not os.path.isfile(src_path):
         raise ValueError("Couldn't find that file.")
-    require_loader_and_version(mc_version, loader, "install a mod")
-    if str(loader).lower() == "vanilla":
-        # Vanilla can't load mods at all - a jar dropped into the vanilla
-        # profile would sit there forever, never read by the game (the same
-        # rule the Import section enforces). Fail loudly instead.
-        raise ValueError("Vanilla can't load mods - switch the loader to "
-                         "Fabric, Forge or Quilt on the Play tab first.")
+    require_mod_loader(mc_version, loader, "install a mod")
 
     profile_dir = get_profile_dir(mc_version, loader)
     filename = _safe_jar_filename(os.path.basename(src_path))
@@ -1820,7 +1820,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     success is success for the main mod: a dependency that fails to resolve is
     reported, never raised.
     """
-    require_loader_and_version(mc_version, loader, "download a mod")
+    require_mod_loader(mc_version, loader, "download a mod")
     installed: list[str] = []
     skipped = 0
     failed: list[str] = []
@@ -1947,7 +1947,7 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
     the whole reason a modpack profile could end up unlaunchable after a single
     click of Download. superseded_cb(list_of_names), if given, is told what was
     moved aside so the UI can say so rather than silently mutating the list."""
-    require_loader_and_version(mc_version, loader, "download a mod")
+    require_mod_loader(mc_version, loader, "download a mod")
 
     profile_dir = get_profile_dir(mc_version, loader)
     dest = os.path.join(profile_dir, filename)

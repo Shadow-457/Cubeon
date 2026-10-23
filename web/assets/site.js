@@ -105,42 +105,35 @@
     show(os || 'windows');                    /* an unknown device still gets a button */
   })();
 
-  /* ---- global "downloads" counter ---------------------------------------
+  /* ---- shared "downloads" counter ---------------------------------------
      Every press of a real download button (`/windowsdownload` and the Linux
-     trio) adds one to a SHARED total that every visitor sees, here and on
-     every page: not a per-device figure, but the overall number of presses.
+     trio) is counted by our own download Worker, and every visitor sees the
+     same total. It is ONE per IP, not one per press: the Worker stores a hash
+     of the address it already sees and ignores repeats, so re-downloading
+     does not inflate the number and no identifier is sent from here.
 
-     The total lives at Abacus (github.com/JasonCameron/abacus), an
-     open-source, cookie-free counter service. The only thing it ever
-     receives is "add 1 to cubeon-site" - no cookie, no identifier, nothing
-     tied to a person - which is what lets cookies.html and privacy.html
-     keep their promises. `/get` reads the total for display; `/hit` adds
-     one and returns the new value (keepalive lets the +1 survive the jump
-     to the release file, which navigates away from this page). If the
-     counter cannot be reached the line simply stays hidden - never a
-     made-up number. ------------------------------------------------------ */
+     GET /count reads the total for display; GET /count/hit records this
+     visitor (idempotently) and returns the new value (keepalive lets the
+     request survive the jump to the release file, which navigates away from
+     this page). If the counter cannot be reached the line simply stays
+     hidden - never a made-up number. -------------------------------- */
   (function downloadCount(){
     var counters = document.querySelectorAll('[data-download-count]');
     if(!counters.length || !window.fetch) return;
-    var BASE = 'https://abacus.jasoncameron.dev';
-    var NAMESPACE = 'cubeon-site';
-    /* The counter key was reset to 'downloads2' on 2026-09-24: testing had
-       pushed the old 'downloads' key to 33, and the public Abacus instance
-       only accepts get/hit - POST /set needs an instance-admin token nobody
-       on our side has, so a number can go UP but never down. A fresh key is
-       the only read-only way back to a sane total. Switch this string back to
-       'downloads' to restore the old (higher) count. */
-    var KEY = 'downloads2';
+    var BASE = 'https://cubeon-downloads.hamza-457-shahbaz.workers.dev';
     /* Routes that hand over a file, mirroring the redirects in
        web/vercel.json - a test keeps the two lists equal. Links to the
        download PAGE are page views, not downloads. */
     var ROUTES = ['/windowsdownload', '/linuxdownload', '/linuxdeb', '/linuxsetup'];
 
     /* ---- testing mode -----------------------------------------------------
-       The owner's own test clicks shouldn't inflate the public number (that
-       is exactly how 'downloads' reached 33). Ctrl+Shift+T toggles it, or open
-       any page with ?nocount=1. Purely local: a localStorage flag, no request,
-       nothing sent anywhere - and the counter line says so while it's on. --- */
+       The owner's own test clicks shouldn't inflate the public number. Since
+       2026-10-24 the Worker also counts one per IP, so a test click from the
+       owner's own machine is already ignored after the first one - this flag
+       keeps even that first one out, and keeps the local browser from making
+       the request at all. Ctrl+Shift+T toggles it, or open any page with
+       ?nocount=1. Purely local: a localStorage flag, no request, nothing sent
+       anywhere - and the counter line says so while it's on. -------------- */
     var TEST_FLAG = 'cubeonTestMode';
     var testing = false;
     function readTestFlag(){
@@ -169,7 +162,7 @@
              && isFinite(data.value) && data.value >= 0 ? data.value : null;
     }
     function ask(action){
-      return fetch(BASE + '/' + action + '/' + NAMESPACE + '/' + KEY, {
+      return fetch(BASE + '/count' + (action === 'hit' ? '/hit' : ''), {
         headers: { 'Accept': 'application/json' },
         keepalive: action === 'hit'
       })

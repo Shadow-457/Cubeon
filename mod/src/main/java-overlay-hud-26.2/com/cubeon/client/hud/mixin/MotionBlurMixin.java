@@ -55,7 +55,7 @@ public class MotionBlurMixin {
 			return;
 		}
 
-		this.postEffectId = Identifier.fromNamespaceAndPath(MotionBlur.NAMESPACE, MotionBlur.PATH);
+		this.postEffectId = Identifier.fromNamespaceAndPath(MotionBlur.NAMESPACE, MotionBlur.effectId());
 		this.effectActive = true;
 	}
 }

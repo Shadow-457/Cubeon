@@ -103,6 +103,16 @@ try:
         check(not watchdog.terminate(live.pid, newer) and live.poll() is None
               and not reused.return_value.terminate.called,
               "termination rejects reused process identity")
+    # 2026-10-24: a QUIT GAME press terminates the game on purpose, and that
+    # death has a negative exit code. The launch watcher asks this marker so a
+    # requested quit is not reported as a crash. It is consumed exactly once.
+    check(watchdog.consume_intentional_stop("never-marked") is False,
+          "an unmarked session is not an intentional stop")
+    watchdog.mark_intentional_stop("sess-quit")
+    check(watchdog.consume_intentional_stop("sess-quit") is True,
+          "a marked session is an intentional stop")
+    check(watchdog.consume_intentional_stop("sess-quit") is False,
+          "the intentional-stop marker is consumed once")
     live.terminate()
     live.wait(timeout=5)
     check(watchdog.clear(third), "matching exited session clears")

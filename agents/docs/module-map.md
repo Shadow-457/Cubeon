@@ -748,8 +748,10 @@ Durable consequences — do not re-derive these:
 Last updated: 2026-10-13 (site = `web/` on Vercel at cubeon.vercel.app: landing /
 download / help + legal pages sharing web/assets/site.css + site.js; the landing
 page was rebuilt onto the full design system on this date — see the site bullets
-further down. The download count is ONE shared Abacus total read by site.js; the
-old API-function/CI-JSON plumbing is gone and a test keeps it gone. Same day:
+further down. The download count is ONE shared per-visitor total served by
+`worker/cubeon-downloads.js` (KV, one count per hashed IP) and read by site.js;
+the old Abacus and API-function/CI-JSON plumbing is gone and a test keeps it
+gone. Same day:
 Settings → Import reworked to per-instance "Import to" + search with duplicate
 detection, and the "launcher reopens after close" family fixed — exit-0 always
 clean + wedge burst-gap; scan now skips non-Minecraft jars/zips; version lists
@@ -1097,6 +1099,16 @@ facts belong HERE, not in diary notes.
   inside the function, because `paths` is the lowest layer and must not depend
   on a module that does network work — and that also keeps `requests` off the
   startup path.
+- **Release channels are decided by the PATCH number** (2026-10-24):
+  `tools/release_version.py::channel()` returns `stable` only for `X.Y.0`
+  (1.3.0, 1.4.0); every other patch is `beta`. The workflow publishes a beta as
+  a GitHub PRERELEASE, and `/releases/latest` excludes prereleases, so betas
+  are invisible to the home page, `worker/cubeon-downloads.js` and the default
+  updater by construction. `stamp()` refuses to write a beta into
+  `web/index.html` / `web/download.html` (the site keeps the last stable);
+  override only with `--site` / `--no-site`. `cubeon/updater.py`'s beta channel
+  reads the release LIST and picks the highest non-draft tag. Do not "fix" a
+  beta by making it latest: that is exactly what the channel rule prevents.
 - **`loader_java` must REJECT a too-old Java, not just a missing one.** Existence
   is not sufficient: an installer jar is EXECUTED, so a Java 8 on PATH (found
   via the deliberate fallback) used to sail through the old `os.path.isfile()`
@@ -1230,8 +1242,10 @@ facts belong HERE, not in diary notes.
   and Start Menu + Desktop shortcut registration.
 - **Flet Image Fit**: Flet 0.86 uses `ft.BoxFit` (e.g. `ft.BoxFit.COVER`), NOT
   `ft.ImageFit`. Any image fit must use `ft.BoxFit`.
-- **Release Version**: `cubeon/updater.py` APP_VERSION is `1.0.1`, reflected on
-  `web/index.html` and `web/download.html`.
+- **Release Version**: `cubeon/updater.py` APP_VERSION is `1.3.0` (the first
+  stable of the channel system), reflected on `web/index.html` and
+  `web/download.html`. Beta releases after it (1.3.1, 1.3.2 ...) deliberately
+  do NOT change the site.
 
 
 ## Chat face avatars (2026-09-22) — HOW-TO
@@ -2137,6 +2151,10 @@ code wins — but fix this file too. Durable facts belong HERE, not in diary not
   (the pooled `requests.Session` is invisible to a `requests.get` monkeypatch).
 
 ## Flet 0.86 hard rules (learned 2026-09-06, each cost real debugging time)
+- Borders use `ft.border.Border.all(...)`, never `ft.border.all(...)`. Mods
+  tab smoke checks must assert the content-type controls actually mount:
+  `_ensure_tab` swallows builder exceptions, so a successful nav click alone
+  can hide a broken tab (regression: `tools/test_ui_smoke.py` section 8).
 - **Dialog API: `Page.show_dialog(dlg)` / `Page.pop_dialog()` — there is NO
   `Page.open()`/`Page.close()` on 0.86.** Dialogs (AlertDialog AND SnackBar —
   both are DialogControls) live in the managed stack `page._dialogs.controls`,
@@ -3125,13 +3143,13 @@ Still-true invariants from the pre-local era:
   choreography: always per-control refreshes. ui_smoke §10 asserts no raw
   `page.update()` line inside the two handlers.
 - **Tab switching stays an INSTANT content cut; only the top bar's affordance
-  animates** (2026-10-16, user ask "animate the top tab switcher"). `TAB_FADE_MS
-  = 0` — the cross-fade has now been tried TWICE and rejected twice: 220ms in the
+  animates** (2026-10-16, user ask "animate the top tab switcher"). The cached
+  Stack swaps visibility without a cross-fade, which was rejected twice: 220ms in the
   2026-09-09 pass ("sloppy rendering") and 170ms in this one ("stucky buggy and
   not smooth"). Do not bring it back a third time; two live tab trees animating
-  at once is what the user is seeing, and `switch_tab` is a whole-tree diff.
+  at once is what the user is seeing. Keep navigation a scoped diff.
   The active affordance animates in three parts at once, all sharing
-  `NAV_ANIM = ft.Animation(150, EASE_OUT_CUBIC)` so the switch reads as one
+  `NAV_ANIM = ft.Animation(180, EASE_OUT_CUBIC)` so the switch reads as one
   gesture:
     * the green underline GROWS as a **paint-only `scale_x` 0↔1, centred**
       (`ft.Scale(scale_x=…, alignment=ft.Alignment.CENTER)`), with `width`
@@ -3139,9 +3157,10 @@ Still-true invariants from the pre-local era:
       centred nav row 1–2px per frame — that WAS the stutter.
     * the icon lifts (`animate_scale`, 0.94↔1.0).
     * the tint fades (the button's `animate`).
-  `switch_tab`'s tail is STILL a scoped diff —
-  `thread_safe_ui.refresh(tab_switcher)` + `refresh(subnav_bar)` + per-nav-button
-  refreshes, never `page.update()`. Keep it that way.
+  `switch_tab`'s tail batches only the changed controls with
+  `page.update(*switch_controls)`, never a whole-page `page.update()`.
+  Cached panes and the fixed-size sliding highlight are covered by
+  `tools/test_tab_navigation.py`; see UI animation choreography for the contract.
   Measured in the FakePage harness: steady-state switch = 0 page.update calls.
 - **Download progress is throttled at the SOURCE** (2026-09-09 efficiency
   pass): `net.stream_to_file` fires progress_cb per 64 KiB chunk — hundreds
@@ -4102,10 +4121,24 @@ Cubeon cape resolves.
 
 ## UI animation choreography (2026-10-16) — Phase 4
 - Curves/durations live next to the thing they animate, as named constants:
-  `NAV_ANIM` + `TAB_FADE_MS` + `ACCOUNT_ANIM_MS`/`ACCOUNT_PANEL_SQUASH` in
+  `NAV_ANIM` + `ACCOUNT_ANIM_MS`/`ACCOUNT_PANEL_SQUASH` in
   main.py's TOP NAVIGATION / Account blocks, `RAIL_ANIM` in
   `ui/settings_tab.py`. There is deliberately NO `PANE_ANIM`: the Settings
   content pane does not animate at all (see the one-flush rule below).
+- **Tab navigation keeps visited panes mounted (2026-10-24).** `tab_switcher`
+  is an expanding `ft.Stack`, with one padded wrapper per visited tab in
+  `_tab_views`. Append wrappers in place on first entry; subsequent switches
+  only flip old/new visibility and patch those panes plus changed navigation
+  controls in one scoped `page.update(*controls)`. Never recreate wrappers or
+  reintroduce a content cross-fade: it remounts/retransmits tab trees and images.
+  Existing refresh callbacks still run on entry; lazy builders still build only
+  when their tab is first opened, not all at startup.
+  Same-tab clicks are no-ops; normalize `server` to `server_console` before
+  storing `active_tab`. The highlight stays 50 px wide and moves via one native
+  180 ms offset animation, without stretch/bump timers; it fades out for the
+  separate Settings gear. Regression: `tools/test_tab_navigation.py` checks
+  real Flet MessagePack patches for zero remounted controls or image resends
+  on cached Play/Settings visits, motion levels, and server-chip navigation.
 - **ONE FLUSH PER GESTURE (the rule that replaced the "two-update" trick).** A
   property written in the same frame animates from the value the client already
   holds — so "dip then settle" needs two flushes, and the second one has to come
@@ -4277,8 +4310,9 @@ Cubeon cape resolves.
 
 ## Dynamic crosshair + motion blur (2026-10-24) — INVARIANTS
 Two optional HUD effects, both ON by default in `CubeonHudConfig`
-(`dynamicCrosshair`, `motionBlur`) and both toggled from the Cubeon Client menu
-(K → Dynamic Crosshair row; Motion Blur row exists only on 26.x).
+(`dynamicCrosshair`, `motionBlur` + `motionBlurStrength`) and both toggled from
+the Cubeon Client menu (K → Dynamic Crosshair row; the Motion Blur row cycles
+Off/Low/Medium/High and exists only on 26.x).
 
 - **The crosshair is WRAPPED, never reimplemented.** `CrosshairMixin` pushes a
   scale transform at the HEAD of vanilla's crosshair draw and pops it at RETURN.
@@ -4304,15 +4338,31 @@ Two optional HUD effects, both ON by default in `CubeonHudConfig`
   crosshair method must cost the bigger crosshair, never the game.
 - **Motion blur is 26.x ONLY** (26.1/26.2/26.3). It is a real Minecraft post
   effect, not a launcher trick: `resources-26x/assets/cubeon-client/
-  post_effect/motion_blur.json` + `shaders/post/motion_blur.fsh`, blending the
-  current `minecraft:main` frame with a **persistent** `cubeon-client:prev`
-  target and writing back to `minecraft:main`. The persistent target is what
-  makes it frame accumulation; the shader uses `prev.a` as a validity mask so
-  the first frame after allocation/resize does not mix black.
-- **`MotionBlur.active()` is the single guard**: off when the config flag is
-  off, and **off whenever Iris is loaded** (`FabricLoader.isModLoaded("iris")`)
+  post_effect/motion_blur_{low,medium,high}.json` + `shaders/post/motion_blur.fsh`,
+  blending the current `minecraft:main` frame with a **persistent**
+  `cubeon-client:prev` target and writing back to `minecraft:main`. The
+  persistent target is what makes it frame accumulation; the shader uses
+  `prev.a` as a validity mask so the first frame after allocation/resize does
+  not mix black.
+- **Strength is three JSON files, not a runtime uniform** (2026-10-24): the
+  menu cycles `motionBlurStrength` 0..3 and `MotionBlur.effectId()` picks
+  `motion_blur_low/medium/high` (BlurAmount 0.38/0.58/0.78). Minecraft bakes
+  post-effect uniforms into the resource, so swapping the id is the supported
+  way to change them and needs no accessor mixin into `PostChain`. Keep the
+  three files' BlurAmount ordered low < medium < high (`test_mod_matrix.py`
+  asserts it) and keep `MotionBlur.java`'s `PATHS` in the same order.
+- **The shader masks by MOTION, measured against the unblurred centre tap.**
+  The previous frame is averaged over a 5-tap cross to soften the ghost edge,
+  but the blend weight uses `length(current - prevCentre)`: a static scene
+  blends nothing and stays sharp, a moving camera gets the full amount. Do not
+  measure against the averaged sample — spatial blur looks like motion, and the
+  effect would slowly soften the whole screen while standing still.
+- **`MotionBlur.active()` is the single guard**: off when `blurStrength() <= 0`,
+  and **off whenever Iris is loaded** (`FabricLoader.isModLoaded("iris")`)
   — Iris owns the post-effect pipeline, so Cubeon stays out of it. Do not add a
-  second Iris check inside a mixin.
+  second Iris check inside a mixin. A config from before the strength setting
+  has a null `motionBlurStrength`; `blurStrength()` migrates it from the old
+  boolean (OFF stays OFF, ON becomes Medium).
 - **Re-arming differs by era and that is not cosmetic**: 26.1/26.2 hold one
   `postEffectId` + `effectActive`, which vanilla clears every tick in
   `checkEntityPostEffect`, so the mixin shadows both fields and re-arms at

@@ -404,25 +404,45 @@ def test_resources(matrix):
 
     # The 26.x motion blur is data as much as code: a persistent target is what
     # turns the two-pass blur into frame accumulation, and a chain that never
-    # writes back to minecraft:main would render nothing at all.
-    mb_json_path = os.path.join(MOD, "src", "main", "resources-26x", "assets",
-                                "cubeon-client", "post_effect", "motion_blur.json")
+    # writes back to minecraft:main would render nothing at all. The three
+    # strength files must also stay ordered, because the menu's Off/Low/Medium/
+    # High row is just an index into them (2026-10-24).
+    mb_dir = os.path.join(MOD, "src", "main", "resources-26x", "assets",
+                          "cubeon-client", "post_effect")
     mb_shader_path = os.path.join(MOD, "src", "main", "resources-26x", "assets",
                                   "cubeon-client", "shaders", "post", "motion_blur.fsh")
-    ok(os.path.isfile(mb_json_path), "the 26.x motion blur post effect is shipped")
-    ok(os.path.isfile(mb_shader_path), "and its fragment shader is shipped")
-    if os.path.isfile(mb_json_path):
+    mb_amounts = {}
+    for level in ("low", "medium", "high"):
+        mb_json_path = os.path.join(mb_dir, f"motion_blur_{level}.json")
+        ok(os.path.isfile(mb_json_path),
+           f"the 26.x motion blur post effect ships ({level})")
+        if not os.path.isfile(mb_json_path):
+            continue
         mb = load(mb_json_path)
         ok(any(target.get("persistent") for target in mb.get("targets", {}).values()),
-           "the effect keeps a persistent previous-frame target")
+           f"the {level} effect keeps a persistent previous-frame target")
         samplers = {entry.get("sampler_name")
                     for post_pass in mb.get("passes", [])
                     for entry in post_pass.get("inputs", [])}
         ok({"In", "Prev"} <= samplers,
-           f"it samples both the current and the previous frame (got {sorted(samplers)})")
+           f"{level} samples both the current and the previous frame (got {sorted(samplers)})")
         ok(any(post_pass.get("output") == "minecraft:main"
                for post_pass in mb.get("passes", [])),
-           "and writes its result back to minecraft:main")
+           f"and {level} writes its result back to minecraft:main")
+        amounts = [uniform.get("value")
+                   for post_pass in mb.get("passes", [])
+                   for uniform in post_pass.get("uniforms", {}).get("MotionBlurConfig", [])
+                   if uniform.get("name") == "BlurAmount"]
+        ok(len(amounts) == 1 and isinstance(amounts[0], (int, float)),
+           f"{level} declares one numeric BlurAmount (got {amounts})")
+        if amounts:
+            mb_amounts[level] = float(amounts[0])
+    ok(os.path.isfile(mb_shader_path), "and the shared fragment shader is shipped")
+    ok(len(mb_amounts) == 3
+       and mb_amounts["low"] < mb_amounts["medium"] < mb_amounts["high"],
+       f"the strengths are ordered low < medium < high (got {mb_amounts})")
+    ok(not os.path.isfile(os.path.join(mb_dir, "motion_blur.json")),
+       "the old single-strength effect is gone, not left as dead data")
     if os.path.isfile(hud_cfg_path):
         ok("MotionBlurMixin" in (hud_cfg.get("client") or []),
            "the 26.x HUD mixin config registers the motion blur hook")

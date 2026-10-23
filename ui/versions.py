@@ -181,7 +181,8 @@ class VersionPicker:
             tooltip="Manage installed versions",
         )
 
-        self.list = ft.Column([], spacing=2, scroll=ft.ScrollMode.AUTO, height=320)
+        self.list = ft.ListView([], spacing=2, scroll=ft.ScrollMode.AUTO, height=320,
+                                cache_extent=320)
 
         self.dialog = ft.AlertDialog(
             modal=False, bgcolor=SURFACE,
@@ -570,7 +571,7 @@ class InstancesManager:
         # One dialog, reused: its rows are re-drawn on every open AND after an
         # action taken from a row, so a deleted instance can't linger in a
         # dialog that is still on screen. See refresh().
-        self._body: ft.Column | None = None
+        self._body: ft.ListView | None = None
         self._dialog: ft.AlertDialog | None = None
 
     def _row(self, inst, selected):
@@ -666,8 +667,8 @@ class InstancesManager:
                 content=ft.Text("No versions installed yet.", size=12, color=TEXT_DIM),
                 padding=ft.padding.Padding.symmetric(horizontal=4, vertical=16))]
         if self._body is None:
-            self._body = ft.Column([], spacing=8, scroll=ft.ScrollMode.AUTO,
-                                   height=420)
+            self._body = ft.ListView([], spacing=8, scroll=ft.ScrollMode.AUTO,
+                                     height=420, cache_extent=320)
         self._body.controls = rows
         if size_slots:
             threading.Thread(target=self._fill_sizes, args=(size_slots,),
@@ -704,8 +705,8 @@ class InstancesManager:
 
     def open(self):
         if self._dialog is None:
-            self._body = ft.Column([], spacing=8, scroll=ft.ScrollMode.AUTO,
-                                   height=420)
+            self._body = ft.ListView([], spacing=8, scroll=ft.ScrollMode.AUTO,
+                                     height=420, cache_extent=320)
             self._dialog = ft.AlertDialog(
                 modal=False, bgcolor=SURFACE,
                 title=ft.Text("Instances", color=TEXT, weight=ft.FontWeight.W_800),

@@ -400,7 +400,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 for p in profiles
             ],
         )
-        mods_column = ft.Column(spacing=2, scroll=ft.ScrollMode.AUTO)
+        mods_column = ft.ListView(spacing=2, scroll=ft.ScrollMode.AUTO,
+                                  cache_extent=320)
         mod_checks = []  # rebuilt whenever the selected profile changes
         create_status = ft.Text("", size=12, color=TEXT_DIM)
 
@@ -563,11 +564,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     browse_status = ft.Text("", size=12, color=TEXT_DIM)
     browse_title = ft.Text("Popular modpacks", size=12,
                            color=TEXT_DIM, font_family=FONT_MONO)
-    # One page of 5, up to 10 pages. Pages are fetched ON DEMAND - opening the
+    # One page of 10, up to 10 pages. Pages are fetched ON DEMAND - opening the
     # tab loads page 1 only and each pager click fetches just that page from
     # both providers (Modrinth + CurseForge) for its offset. Fetched pages are
     # cached in browse_state["pages"] so stepping back is instant.
-    PAGE_SIZE = 5
+    PAGE_SIZE = 10
     MAX_PAGES = 10
     browse_state = {
         "results": [],          # items on the page currently rendered

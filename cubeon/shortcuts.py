@@ -13,7 +13,7 @@ THE COMBOS (kept deliberately small and conventional)
   F1                   the shortcut list itself
   F11                  fullscreen on / off
   Esc                  leave fullscreen, else close the account panel
-  Ctrl+1 … Ctrl+9      jump to that tab in the top bar
+  Shift+1 … Shift+9    jump to that tab in the top bar
   Ctrl+,               Settings
   Ctrl+Enter           the big button: Play / Cancel / Quit
   Ctrl+Q               quit Cubeon
@@ -51,7 +51,7 @@ CATALOGUE = (
     ("F1", "Show this shortcut list"),
     ("F11", "Fullscreen on / off"),
     ("Esc", "Leave fullscreen, or close the account panel"),
-    ("Ctrl + 1 … 9", "Jump to that tab in the top bar"),
+    ("Shift + 1 … 9", "Jump to that tab in the top bar"),
     ("Ctrl + ,", "Settings"),
     ("Ctrl + Enter", "Play / cancel / quit the selected instance"),
     ("Ctrl + Q", "Quit Cubeon"),
@@ -73,6 +73,7 @@ _COMMA = (",", "comma")
 # Flutter reports digit keys as "1", "Digit1" or "Numpad1" depending on the
 # client build; all three mean the same shortcut.
 _DIGIT = re.compile(r"(?:digit|numpad)?([1-9])")
+_SHIFT_DIGITS = dict(zip("!@#$%^&*(", "123456789"))
 
 
 def tab_action(index: int) -> str:
@@ -112,11 +113,15 @@ def resolve(key, *, ctrl: bool = False, alt: bool = False,
     if not k:
         return None
     # Alt belongs to menus and the OS; never claim it.
-    if alt:
+    if alt is True:
         return None
-    cmd = bool(ctrl or meta)
+    cmd = ctrl is True or meta is True
 
     if not cmd:
+        if shift is True:
+            digit = _DIGIT.fullmatch(_SHIFT_DIGITS.get(k, k))
+            if digit:
+                return tab_action(digit.group(1))
         return _PLAIN.get(k)
 
     if k in _ENTER:
@@ -125,7 +130,4 @@ def resolve(key, *, ctrl: bool = False, alt: bool = False,
         return QUIT
     if k in _COMMA:
         return SETTINGS
-    m = _DIGIT.fullmatch(k)
-    if m:
-        return tab_action(m.group(1))
     return None

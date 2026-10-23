@@ -200,6 +200,8 @@ def _relaunch_fresh_process() -> bool:
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 from cubeon import motion  # The animation layer (hover/press/cascade/shimmer/ambience)
+from cubeon import milestones as cubeon_milestones
+from cubeon import library_stats as cubeon_library_stats
 from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
 from cubeon import status_text as cubeon_status  # strips "<... at 0x...>" from labels
 from cubeon import version_art  # Per-version wiki banners for the Play tab
@@ -208,8 +210,8 @@ from ui.skin_tab import build_skin_section, DEFAULT_CAPE_PREVIEW_SRC  # Imports 
 from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
 from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab builder function
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
-from ui.server_browse_tab import build_server_browse_tab  # Servers > Browse view
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetics counters
+from ui.activity_widgets import build_badges
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
 from ui.import_section import build_import_section  # Settings -> Import: scan a folder, import what it finds
 from ui.seasonal_ui import (  # Seasonal badge/companion/ambience (the runtime half of cubeon/seasonal.py)
@@ -367,7 +369,19 @@ def _explain_exit(code: int, lines=None) -> str:
                 return line
             if "unrecognized option" in low_line and "java" in low_line:
                 return line
-            if "no such file or directory" in low_line and "java" in low_line:
+            # The line must name the java EXECUTABLE, not merely start with a
+            # java.* class name. `java.lang.UnsatisfiedLinkError: libflite.so:
+            # ... No such file or directory` is Minecraft's narrator failing to
+            # find an optional native library - it happens on almost every
+            # Linux box and is harmless - but it matched the old
+            # `"no such file" and "java"` test and turned every quit into
+            # "Java couldn't be started" (2026-10-24 report). The same went for
+            # any `java.io.FileNotFoundException: ... (No such file or
+            # directory)`. `(?<![\w.])`/`(?![\w.])` reject `java.lang` and
+            # `java.io`, while still accepting "/opt/jdk/bin/java" and
+            # `java: no such file or directory`.
+            if "no such file or directory" in low_line and re.search(
+                    r"(?<![\w.])(?:java|javaw)(?:\.exe)?(?![\w.])", low_line):
                 return line
         return None
 
@@ -1333,7 +1347,6 @@ async def main(page: ft.Page):
         top_nav_items.insert(3, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED, "Chat"))
     server_group_items = [
         ("server_console", ft.Icons.TERMINAL_ROUNDED, "Console"),
-        ("server_browse", ft.Icons.TRAVEL_EXPLORE_ROUNDED, "Browse"),
         ("server_plugins", ft.Icons.EXTENSION_ROUNDED, "Plugins"),
         ("server_settings", ft.Icons.TUNE_ROUNDED, "Settings"),
     ]
@@ -1347,28 +1360,8 @@ async def main(page: ft.Page):
     # a single gesture rather than three separate jumps. See
     # build_top_nav_button (the resting values) and _style_nav_button (the
     # active ones).
-    NAV_ANIM = ft.Animation(150, ft.AnimationCurve.EASE_OUT_CUBIC)
-    # The CONTENT swap stays INSTANT. A 170ms cross-fade was tried here
-    # (2026-10-16) and the verdict was immediate - "stucky buggy and not
-    # smooth" - which is the SECOND time a faded cross-fade has been rejected
-    # (see switch_tab's own note about a 220ms fade reading as "sloppy
-    # rendering"). Two full tab trees animate at once and a live tab (Play's
-    # ambient particles, the console) keeps repainting underneath it. What
-    # people actually asked for is the top bar's motion, and that is where it
-    # lives.
-    TAB_FADE_MS = 0
-
-    # The main content area on the right - it will be replaced when switching tabs.
-    # tab_switcher (a single AnimatedSwitcher created once) is now a plain
-    # pass-through: duration=0 makes the swap instant. It is kept as a
-    # switcher (not a plain Container) only so the structure - and the
-    # switch_tab code that assigns .content - stays unchanged.
-    tab_switcher = ft.AnimatedSwitcher(
-        content=ft.Container(expand=True),
-        transition=ft.AnimatedSwitcherTransition.FADE,
-        duration=TAB_FADE_MS,
-        reverse_duration=TAB_FADE_MS,
-    )
+    NAV_ANIM = ft.Animation(180, ft.AnimationCurve.EASE_OUT_CUBIC)
+    tab_switcher = ft.Stack(expand=True, fit=ft.StackFit.EXPAND)
     content_area = ft.Container(content=tab_switcher, expand=True)
 
     def _style_nav_button(btn, is_active):
@@ -1391,6 +1384,8 @@ async def main(page: ft.Page):
             btn.bgcolor = ACCENT_TINT if is_active else "transparent"
             icon_ctrl = btn.content.controls[0]
             underline = btn.content.controls[1]
+            icon_ctrl.animate_scale = NAV_ANIM if motion.transforms() else None
+            underline.animate_scale = NAV_ANIM if motion.transforms() else None
             icon_ctrl.color = ACCENT if is_active else TEXT_DIM
             icon_ctrl.scale = 1.0 if is_active else 0.94
             underline.bgcolor = ACCENT if is_active else "transparent"
@@ -1476,6 +1471,49 @@ async def main(page: ft.Page):
         btn.cubeon_top_icon = True
         nav_buttons[key] = btn
         return btn
+
+    # ------------------------------------------------------------------
+    # Geometry is fixed by construction: every top icon is an icon (21) over a
+    # 24-wide underline with 13px side padding, so each button is 50x43 and
+    # the row spacing is 6. Nothing here measures live controls, which keeps
+    # the animation independent of layout timing.
+    NAV_BTN_W, NAV_BTN_H, NAV_GAP = 50, 43, 6
+    NAV_ROW_WIDTH = (len(top_nav_items) * (NAV_BTN_W + NAV_GAP)) - NAV_GAP
+    nav_blob = ft.Container(
+        width=NAV_BTN_W,
+        height=NAV_BTN_H,
+        left=0,
+        top=0,
+        bgcolor=ACCENT_TINT,
+        border_radius=RADIUS,
+        offset=ft.Offset(0, 0),
+        animate_offset=NAV_ANIM,
+        animate_opacity=NAV_ANIM,
+    )
+
+    def _nav_key_for(key):
+        """The top-bar entry a tab belongs to (server sub-tabs share one)."""
+        return SERVER_TOP_KEY if key in SERVER_GROUP_KEYS else key
+
+    def _nav_index(key):
+        keys = [k for k, _icon, _label in top_nav_items]
+        try:
+            return keys.index(_nav_key_for(key))
+        except ValueError:
+            return None
+
+    def _move_nav_blob(old_key, new_key):
+        """Move the fixed-size highlight with one client-side transform."""
+        old_idx, new_idx = _nav_index(old_key), _nav_index(new_key)
+        if new_idx is None:
+            nav_blob.opacity = 0
+            return True
+        if old_idx == new_idx:
+            return False
+        nav_blob.opacity = 1
+        nav_blob.animate_offset = NAV_ANIM if motion.transforms() else None
+        nav_blob.offset = ft.Offset(new_idx * (NAV_BTN_W + NAV_GAP) / NAV_BTN_W, 0)
+        return True
 
     def build_nav_button(key, icon, label, *, icon_size=18, indent=0):
         """A labeled chip button - used for the server sub-tabs (Console /
@@ -1781,7 +1819,15 @@ async def main(page: ft.Page):
         nav_row = ft.Row(
             [build_top_nav_button(key, icon, label)
              for key, icon, label in top_nav_items],
-            spacing=6,
+            spacing=NAV_GAP,
+        )
+        # The blob is the first child so it paints BEHIND the icons; the row is
+        # the second. Both are fixed-size, so the Stack's size is stable and
+        # the blob's left offset is measured from the row's own origin.
+        nav_stack = ft.Stack(
+            [nav_blob, nav_row],
+            width=NAV_ROW_WIDTH,
+            height=NAV_BTN_H,
         )
         account_btn = ft.IconButton(
             icon=ft.Icons.PERSON_ROUNDED, icon_size=22, icon_color=TEXT_DIM,
@@ -1806,7 +1852,7 @@ async def main(page: ft.Page):
                     # mascot strolling a shop sign - not in the right-hand
                     # cluster where the account/settings icons live.
                     season_perch,
-                    ft.Row([ft.Container(expand=True), nav_row,
+                    ft.Row([ft.Container(expand=True), nav_stack,
                             ft.Container(expand=True)], expand=True),
                     account_btn,
                     settings_btn,
@@ -2216,8 +2262,7 @@ async def main(page: ft.Page):
             mc_loader=state.get("mod_loader"),
             file_picker=skin_file_picker,
             cape_file_picker=cape_file_picker,
-            screenshot_gallery=screenshot_gallery_tab,
-            refresh_screenshot_gallery=refresh_screenshot_gallery,
+            assets_dir=resolve_assets_dir(),
         )
 
     # Profile tab content - a plain scrollable column like every other tab,
@@ -2364,6 +2409,8 @@ async def main(page: ft.Page):
     # thread_safe_ui because it fires on a timer thread.
     # -----------------------------------------------------------------
     ACCOUNT_PANEL_W = 390
+    account_badges = ft.Row(spacing=4, tight=True, visible=False)
+    account_badge_state = {"generation": 0, "counts": None}
     # The open/close choreography. ONE duration for the slide and the stretch:
     # two different durations end at visibly different times, which reads as
     # two things happening instead of one sheet being pulled out.
@@ -2465,6 +2512,7 @@ async def main(page: ft.Page):
                 ft.Row([profile_avatar_with_parrot], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Container(height=14),
                 profile_dialog_username,
+                account_badges,
                 ft.Container(height=10),
                 profile_username_field,
                 ft.Container(height=18),
@@ -2508,6 +2556,20 @@ async def main(page: ft.Page):
     )
     page.overlay.extend([account_scrim, account_panel])
 
+    def _scan_account_badges(generation):
+        try:
+            counts = cubeon_library_stats.collect_library()
+            badges = build_badges(cubeon_milestones.load_state(), counts)
+        except Exception:
+            return
+        with thread_safe_ui.TREE_LOCK:
+            if generation != account_badge_state["generation"]:
+                return
+            account_badge_state["counts"] = counts
+            account_badges.controls[:] = badges
+            account_badges.visible = bool(badges)
+        thread_safe_ui.refresh(account_badges)
+
     def _open_account_panel(e=None):
         # "Opens like a stretched sheet of paper" (user ask, 2026-10-16): the
         # panel is MOUNTED squashed, so this ONE write unfurls it - `right`
@@ -2517,6 +2579,9 @@ async def main(page: ft.Page):
         # refresh_wearing() runs first so its caption changes ride the same
         # refresh (its image composites are a worker thread and land later).
         refresh_wearing()
+        account_badges.controls[:] = build_badges(cubeon_milestones.load_state(), account_badge_state["counts"])
+        account_badges.visible = bool(account_badges.controls)
+        account_badge_state["generation"] += 1
         account_scrim.visible = True
         account_scrim.opacity = 1
         account_panel.right = 0
@@ -2526,6 +2591,9 @@ async def main(page: ft.Page):
         # was the "whole app reloads" jank - it re-synced every mounted tab.
         thread_safe_ui.refresh(account_scrim)
         thread_safe_ui.refresh(account_panel)
+        threading.Thread(target=_scan_account_badges,
+                         args=(account_badge_state["generation"],), daemon=True,
+                         name="ux-account-badges").start()
 
     def refresh_profile_tab():
         """Called whenever the Profile tab becomes active, so its fields
@@ -4597,6 +4665,16 @@ async def main(page: ft.Page):
                 # this launch is already over and leave the result alone.
                 with _exit_lock:
                     exited["done"] = True
+                # Did the user end this game from the QUIT GAME button? SIGTERM
+                # gives a negative exit code, which looks exactly like a crash;
+                # consuming the marker here is what keeps a requested quit from
+                # opening the crash dialog.
+                try:
+                    from cubeon import watchdog as _watchdog_exit
+                    intentional_stop = _watchdog_exit.consume_intentional_stop(
+                        session_id)
+                except Exception:
+                    intentional_stop = False
                 # Credit THIS session's playtime (clamped inside). Session-keyed:
                 # an older game's exit must not end a newer one's record.
                 try:
@@ -4636,7 +4714,7 @@ async def main(page: ft.Page):
                                           large_image=_discord_img, large_text=_discord_img_text)
                         state["running_version"] = None  # version is safe to delete again
                         progress_bar.visible = False
-                        crashed = bool(code)
+                        crashed = bool(code) and not intentional_stop
                     if crashed:
                         # A non-zero exit is a crash or a refused launch. Saying so
                         # matters: the old code hid this entirely, so a failed
@@ -5621,7 +5699,6 @@ async def main(page: ft.Page):
     mods_tab = ft.Container(expand=True)
     modpacks_tab = ft.Container(expand=True)
     server_console_tab = ft.Container(expand=True)
-    server_browse_tab = ft.Container(expand=True)
     server_plugins_tab = ft.Container(expand=True)
     server_settings_tab = ft.Container(expand=True)
     stats_tab_host = ft.Container(expand=True)
@@ -5840,56 +5917,10 @@ async def main(page: ft.Page):
             **THEME,
         )
 
-        def _join_server(host: str, port: int, name: str):
-            """Browse's JOIN: launch the selected profile straight into a
-            public server. The SAME path the friends flow uses
-            (launch_game's --server/--port). No selected version = an
-            honest snackbar, never a dead click.
-
-            Runs on a WORKER thread, exactly like on_play_click and the
-            friends launcher: launch_game resolves+installs assets before
-            spawning, which is seconds of blocking network/disk - doing
-            that on the UI thread froze the whole window (reported live
-            2026-10-18 as "the play button isn't working")."""
-            version_id = state.get("selected_version")
-            if not version_id:
-                _show_snack("Pick a Minecraft version on the Play tab first - "
-                            "the server decides which one too.")
-                return
-
-            def worker():
-                try:
-                    # Through the core facade - NEVER a direct cubeon.launch
-                    # import: the facade is what the test harness stubs, so a
-                    # fuzzer-fired JOIN stays a recorded no-op instead of
-                    # spawning a real Minecraft process.
-                    mc_version = core.extract_mc_version(version_id)
-                    loader = state.get("mod_loader") or "fabric"
-                    username = cfg.get("username") or "Player"
-                    core.launch_game(version_id, username,
-                                     cfg.get("ram_mb", 4096),
-                                     cfg.get("width", 1280),
-                                     cfg.get("height", 720),
-                                     cfg.get("java_path"), on_exit=None,
-                                     mc_version=mc_version, loader=loader,
-                                     cfg=cfg,
-                                     server_address=host, server_port=port)
-                    _show_snack(f"Launching Minecraft into {name} "
-                                f"({host}:{port})…")
-                except Exception as ex:
-                    _show_snack(f"Couldn't launch into {name}: {ex}")
-
-            threading.Thread(target=worker, daemon=True,
-                             name="server-browse-join").start()
-
-        browse_view, browse_refresh = build_server_browse_tab(
-            page, cfg, state, join_game=_join_server, **THEME)
         server_console_tab.content = console
-        server_browse_tab.content = browse_view
         server_settings_tab.content = settings
         server_plugins_tab.content = plugins
-        _tab_cbs["server"] = {"refresh": refresh,
-                              "browse_refresh": browse_refresh}
+        _tab_cbs["server"] = {"refresh": refresh}
 
     _TAB_BUILDERS = {
         "mods": _build_mods_tab,
@@ -7060,6 +7091,8 @@ async def main(page: ft.Page):
         width_field=width_field, height_field=height_field,
         java_path_field=java_path_field, custom_jvm_field=custom_jvm_field,
         detected_java=detected_java, import_pane=import_pane,
+        screenshot_gallery=screenshot_gallery_tab,
+        refresh_screenshot_gallery=refresh_screenshot_gallery,
         backup_enabled_switch=backup_enabled_switch,
         frequency_dropdown=frequency_dropdown,
         include_saves_switch=include_saves_switch,
@@ -7094,14 +7127,14 @@ async def main(page: ft.Page):
         "modpacks": modpacks_tab,
         "profile": profile_tab,
         "server_console": server_console_tab,
-        "server_browse": server_browse_tab,
         "server_plugins": server_plugins_tab,
         "server_settings": server_settings_tab,
         "settings": settings_tab,
         "stats": stats_tab_host,
         "chat": chat_tab_host,
     }
-    SERVER_GROUP_KEYS = {"server_console", "server_browse", "server_plugins", "server_settings"}
+    SERVER_GROUP_KEYS = {"server_console", "server_plugins", "server_settings"}
+    _tab_views = {}
 
     def _reconcile_running_button():
         """Self-heal the play button against a dead session record.
@@ -7145,25 +7178,42 @@ async def main(page: ft.Page):
         tab, and of the Servers tab (with its Console/Plugins/Settings chip
         row) when switching to any of its keys.
         """
-        active_tab["value"] = key
         # The top-bar Servers icon is an entry point, not a tab of its own:
         # it opens the Console (the chips then switch between the three).
         if key == SERVER_TOP_KEY:
             key = "server_console"
+        previous_tab = active_tab["value"]
+        if key not in tabs or key == previous_tab:
+            return
+        active_tab["value"] = key
+        switch_controls = []
         # Update nav button styles
         for k, btn in nav_buttons.items():
-            _style_nav_button(btn, k == key or (k == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS))
+            is_active = k == key or (k == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS)
+            if btn.data != is_active:
+                _style_nav_button(btn, is_active)
+                switch_controls.append(btn)
+        if _move_nav_blob(previous_tab, key):
+            switch_controls.append(nav_blob)
         # The server chip row lives under the top bar and is visible only
         # while a server tab is active. The top-bar "Servers" icon itself is
         # just an entry point - it opens the Console.
-        subnav_bar.visible = key in SERVER_GROUP_KEYS
-        # Replace content - instantly. No AnimatedSwitcher fade: a 220ms
-        # cross-fade reads as lag on tab changes (the user reads it as
-        # "sloppy rendering"), and the fade forced the whole-page update
-        # below to carry two full tab trees at once. Hard-cut + scoped
-        # refresh is the snappy path.
-        tab_switcher.content = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
-            horizontal=28, vertical=24), expand=True)
+        show_subnav = key in SERVER_GROUP_KEYS
+        if subnav_bar.visible != show_subnav:
+            subnav_bar.visible = show_subnav
+            switch_controls.append(subnav_bar)
+        previous_view = _tab_views[previous_tab]
+        previous_view.visible = False
+        view = _tab_views.get(key)
+        if view is None:
+            view = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
+                horizontal=28, vertical=24), expand=True)
+            _tab_views[key] = view
+            tab_switcher.controls.append(view)
+            switch_controls.append(tab_switcher)
+        else:
+            view.visible = True
+            switch_controls.extend((previous_view, view))
         # If switching to Mods, refresh the list and load recommendations if not yet loaded
         if key == "mods":
             _ensure_tab("mods")
@@ -7182,8 +7232,6 @@ async def main(page: ft.Page):
         elif key in SERVER_GROUP_KEYS:
             _ensure_tab("server")
             refresh_server_tab()
-            if key == "server_browse":
-                _cb("server", "browse_refresh")()
         elif key == "stats":
             _ensure_tab("stats")
             _cb("stats", "refresh")()
@@ -7198,19 +7246,12 @@ async def main(page: ft.Page):
             # instance while the Play tab was hidden, and the button must
             # never be the stale one.
             _sync_play_button()
-        # Scoped repaint, NOT page.update(): a whole-page diff re-sends every
-        # control of every mounted tab over the websocket (~hundreds) - a
-        # visible frame hitch exactly at the moment of the switch. Diffing
-        # the switcher + subnav alone paints the swap; the nav buttons'
-        # style changes ride along in the same flush.
-        thread_safe_ui.refresh(tab_switcher)
-        thread_safe_ui.refresh(subnav_bar)
-        for btn in nav_buttons.values():
-            thread_safe_ui.refresh(btn)
+        page.update(*switch_controls)
 
     # Initialize content area with the Play tab
-    tab_switcher.content = ft.Container(play_tab, padding=ft.padding.Padding.symmetric(
+    _tab_views["play"] = ft.Container(play_tab, padding=ft.padding.Padding.symmetric(
         horizontal=28, vertical=24), expand=True)
+    tab_switcher.controls.append(_tab_views["play"])
 
     # -----------------------------------------------------------------
     # FINAL LAYOUT - assemble the whole page
@@ -7877,7 +7918,12 @@ async def main(page: ft.Page):
 
     try:
         from cubeon import updater
-        updater.check_in_background(_announce_update, token=cfg.get("update_token"))
+        # The optional beta channel (Settings > Notifications). Stable reads
+        # /releases/latest, which GitHub keeps free of prereleases; beta reads
+        # the release list, so someone who opted in still hears about 1.3.1.
+        updater.check_in_background(
+            _announce_update, token=cfg.get("update_token"),
+            channel=cfg.get("update_channel", "stable"))
     except Exception:
         logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
@@ -8217,7 +8263,7 @@ async def main(page: ft.Page):
             pass
 
     def _jump_to_tab(index):
-        """Ctrl+N: switch to the Nth top-bar tab (1-based).
+        """Shift+N: switch to the Nth top-bar tab (1-based).
 
         Indexed off `top_nav_items` instead of a hardcoded table, so the
         numbering always matches what the user actually sees - the Chat tab
@@ -8238,11 +8284,11 @@ async def main(page: ft.Page):
             key = getattr(e, "key", "") or getattr(e, "data", "")
             action = cubeon_shortcuts.resolve(
                 key,
-                ctrl=bool(getattr(e, "ctrl", False)
-                          or getattr(e, "control", False)),
-                alt=bool(getattr(e, "alt", False)),
-                shift=bool(getattr(e, "shift", False)),
-                meta=bool(getattr(e, "meta", False)),
+                ctrl=(getattr(e, "ctrl", False) is True
+                      or getattr(e, "control", False) is True),
+                alt=getattr(e, "alt", False) is True,
+                shift=getattr(e, "shift", False) is True,
+                meta=getattr(e, "meta", False) is True,
             )
             if action is None:
                 if str(key) == "F12" and _inspector_enabled:

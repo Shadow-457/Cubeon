@@ -24,12 +24,21 @@ log = logging.getLogger(__name__)
 
 # Bump this with every release. The release feed's tag must match the same
 # scheme ("v1.2.3") or the comparison can't work.
-APP_VERSION = "1.2.20"
+APP_VERSION = "1.3.0"
 
 # Override with CUBEON_UPDATE_FEED for staging/testing; the default points at
 # the project's GitHub releases. An unreachable feed must never bother the
 # user - this is a hint service, not a dependency.
+#
+# STABLE vs BETA (2026-10-24): `/releases/latest` is GitHub's own definition of
+# stable - it never returns a draft or a prerelease - so the default feed needs
+# no filtering. The beta channel asks for the full list and picks the highest
+# tag itself, prereleases included. A release is beta when its patch is not
+# zero (1.3.1, 1.3.2 ...); a stable is a minor bump (1.3.0, 1.4.0). That rule
+# lives in tools/release_version.py and is mirrored by the workflow.
 DEFAULT_FEED = "https://api.github.com/repos/Shadow-457/Cubeon/releases/latest"
+DEFAULT_BETA_FEED = ("https://api.github.com/repos/Shadow-457/Cubeon/"
+                     "releases?per_page=30")
 
 # Where "there is a newer version" SENDS people. Our own download page, never
 # the release's own html_url: this repo is private, so a visitor without an
@@ -99,9 +108,31 @@ def should_announce(cfg: dict, version: str) -> bool:
         return True
 
 
+def _newest_release(payload):
+    """The newest non-draft release from a `/releases` LIST.
+
+    A dict is returned as-is: staging feeds (and CUBEON_UPDATE_FEED) may answer
+    with a single release object, and the beta channel must still work against
+    one. Numeric per-segment ordering, so 1.3.10 beats 1.3.9.
+    """
+    if isinstance(payload, dict):
+        return payload
+    if not isinstance(payload, list):
+        return {}
+    best, best_version = {}, None
+    for release in payload:
+        if not isinstance(release, dict) or release.get("draft"):
+            continue
+        version = _parse(release.get("tag_name") or "")
+        if version is not None and (best_version is None or version > best_version):
+            best, best_version = release, version
+    return best
+
+
 def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
                       token: str | None = None,
-                      download_url: str | None = None) -> dict | None:
+                      download_url: str | None = None,
+                      channel: str = "stable") -> dict | None:
     """{'version', 'url', 'notes'} when a newer release exists, else None.
     Network errors raise - callers running in the UI should use the
     background wrapper below instead.
@@ -110,13 +141,23 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
     release's own `html_url`: release pages on this private repo are an auth
     wall for everyone without access, so sending users there is a dead end.
 
+    `channel` is "stable" (default) or "beta". Stable reads `/releases/latest`,
+    which GitHub keeps free of drafts and prereleases. Beta reads the release
+    list and picks the highest tag, so it also sees the beta releases that are
+    deliberately hidden from the home page and the stable feed.
+
     PRIVATE repos: the releases API needs a token. Pass one (fine-grained,
     'Contents: read-only' is enough) via the token arg, the
     CUBEON_UPDATE_TOKEN env var, or config["update_token"]. Be aware the
     token ships inside the launcher build, so anyone who extracts it can
     read the private repo - fine for personal builds, not for wide
     distribution."""
-    feed = feed_url or os.environ.get("CUBEON_UPDATE_FEED") or DEFAULT_FEED
+    beta = str(channel or "stable").strip().lower() == "beta"
+    if beta:
+        feed = (feed_url or os.environ.get("CUBEON_UPDATE_BETA_FEED")
+                or os.environ.get("CUBEON_UPDATE_FEED") or DEFAULT_BETA_FEED)
+    else:
+        feed = feed_url or os.environ.get("CUBEON_UPDATE_FEED") or DEFAULT_FEED
     page = download_url or os.environ.get("CUBEON_DOWNLOAD_URL") or DOWNLOAD_URL
     tok = token or os.environ.get("CUBEON_UPDATE_TOKEN")
     headers = {"Accept": "application/vnd.github+json"}
@@ -125,6 +166,8 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
     resp = requests.get(feed, timeout=timeout, headers=headers)
     resp.raise_for_status()
     data = resp.json()
+    if beta:
+        data = _newest_release(data)
     tag = data.get("tag_name") or ""
     if is_newer(tag):
         return {"version": tag.lstrip("v"),
@@ -135,18 +178,21 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
 
 def check_in_background(on_update, feed_url: str | None = None,
                         token: str | None = None,
-                        download_url: str | None = None) -> threading.Thread:
+                        download_url: str | None = None,
+                        channel: str = "stable") -> threading.Thread:
     """Run the check off the UI thread; on_update(dict) fires only on a
     POSITIVE result. Everything else - no update, no network, bad feed -
     stays in the log where it belongs."""
     def run():
         try:
             info = check_for_updates(feed_url=feed_url, token=token,
-                                     download_url=download_url)
+                                     download_url=download_url,
+                                     channel=channel)
             if info:
                 on_update(info)
             else:
-                log.info("update check: up to date (v%s)", APP_VERSION)
+                log.info("update check: up to date (v%s, %s)",
+                         APP_VERSION, channel)
         except Exception as ex:  # noqa: BLE001 - never surface, just log
             log.info("update check skipped: %s", ex.__class__.__name__)
 
