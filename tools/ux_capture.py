@@ -1024,7 +1024,7 @@ def main():
     ap = argparse.ArgumentParser(
         description="Capture Cubeon UX screenshots (captures, does not judge).")
     ap.add_argument("--out", default=None,
-                    help="output folder (default: agents/docs/ux_shots[_empty])")
+                    help="output folder (default: archive/ui-captures[-empty])")
     ap.add_argument("--empty", action="store_true",
                     help="tour the new-user/empty state instead of populated")
     ap.add_argument("--only", default=None,
@@ -1043,8 +1043,8 @@ def main():
     only = tuple(t.strip().lower() for t in args.only.split(",") if t.strip()) \
         if args.only else None
     outdir = args.out or os.path.join(
-        REPO, "agents", "docs",
-        "ux_shots_empty" if args.empty else "ux_shots")
+        REPO, "archive",
+        "ui-captures-empty" if args.empty else "ui-captures")
 
     if args.list:
         stubs = fz.install_safe_stubs()

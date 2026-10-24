@@ -33,7 +33,7 @@ system, artifact, and results. Do not mark untested platforms as verified.
 - [ ] If enabled, test Friends between separate sandbox identities.
 - [ ] Check startup without network access and failure messages for unavailable
       downloads, missing Java, or insufficient disk space.
-- [ ] Complete the [Windows smoke test](../WINDOWS_SMOKE_TEST.md) on real Windows
+- [ ] Complete the [Windows smoke test](windows-smoke-test.md) on real Windows
       hardware when shipping a Windows artifact.
 
 ## Publish

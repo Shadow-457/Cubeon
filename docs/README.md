@@ -8,7 +8,7 @@ provide the implementation details.
 
 ## Getting started
 
-- [Using Cubeon](SIMPLE_OWNER_GUIDE.md): install, launch, update, and troubleshoot.
+- [User guide](user-guide.md): install, launch, update, and troubleshoot.
 - [Development setup](development/setup.md): run the source and configure tools.
 - [Contributing](development/development-workflow.md): make and verify changes.
 - [Testing](development/testing.md): smoke checks, regression suites, and UI checks.
@@ -39,7 +39,7 @@ source and contract tests when changing a route or message format.
 
 - [Build guide](release/build.md)
 - [Release checklist](release/release-checklist.md)
-- [Windows smoke test](WINDOWS_SMOKE_TEST.md)
+- [Windows smoke test](release/windows-smoke-test.md)
 
 ## Technical records
 
@@ -49,8 +49,8 @@ records, not a guarantee of current behavior or deployment status.
 
 Other dated reports:
 
-- [September 17 bug report](bug-report-2026-09-17.md)
-- [September 18 CI investigation](bugfix-2026-09-18-ci-red-suite.md)
+- [September 17 bug report](reports/2026-09-17-bug-report.md)
+- [September 18 CI investigation](reports/2026-09-18-ci-investigation.md)
 - [Community rules](community/discord-rules.md)
 
 When behavior changes, update its guide and relevant protocol reference.

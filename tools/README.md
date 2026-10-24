@@ -36,7 +36,7 @@ Java prerequisites, and the distinction between headless and visual checks.
 | `app_driver.py` | Exercise the UI with headless fixtures; `explore` runs a usage pass |
 | `launch_sandbox.py` | Start a separate launcher environment for multi-user checks |
 | `fuzz_visual.py` | Interactive visual exercise; requires a desktop |
-| `ux_capture.py` | Capture UI images; requires the tool's display setup |
+| `ux_capture.py` | Capture UI images under `archive/ui-captures/`; requires the tool's display setup |
 
 Examples:
 

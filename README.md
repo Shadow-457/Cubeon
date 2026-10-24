@@ -1,5 +1,11 @@
+<h1 align="center">Cubeon</h1>
+
+<p align="center">Minecraft Java Edition launcher by <a href="https://www.ylet.online/">Ylet</a>.</p>
+
 <p align="center">
-  <img src="docs/assets/readme-cover.svg" width="1280" alt="Cubeon. Minecraft Java Edition launcher by Ylet.">
+  <a href="https://github.com/Shadow-457/Cubeon/releases"><img src="https://img.shields.io/github/v/release/Shadow-457/Cubeon?include_prereleases&amp;style=flat-square&amp;label=VERSION&amp;color=8a2be2&amp;labelColor=555555" alt="Latest Cubeon release" height="28"></a>
+  <img src="https://img.shields.io/badge/MINECRAFT-Java_Edition-64a900?style=flat-square&amp;labelColor=555555" alt="Minecraft Java Edition" height="28">
+  <img src="https://img.shields.io/badge/PLATFORM-Windows_%7C_Linux_%7C_macOS-909090?style=flat-square&amp;labelColor=555555" alt="Windows, Linux, and macOS" height="28">
 </p>
 
 <p align="center">
@@ -7,6 +13,10 @@
   <a href="docs/README.md">Documentation</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="SECURITY.md">Security</a>
+</p>
+
+<p align="center">
+  <img src="web/assets/cubeon-play.png" width="1100" alt="Cubeon's Play screen, using the screenshot published on the website.">
 </p>
 
 Cubeon manages game installations, modded instances, cosmetics, and local
@@ -33,7 +43,7 @@ not run mods or shader packs on its own.
 
 Get the build for your operating system from the
 [download page](https://cubeon.ylet.online/download).
-See [Using Cubeon](docs/SIMPLE_OWNER_GUIDE.md) for first launch, updates, and
+See [User guide](docs/user-guide.md) for first launch, updates, and
 troubleshooting. Python is not required for packaged builds.
 
 ## Run from source

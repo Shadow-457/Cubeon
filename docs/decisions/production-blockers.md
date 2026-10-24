@@ -1,4 +1,7 @@
-Good question, the repo already has a full audit (`agents/docs/production-readiness-gaps.md`), and I've since closed a few of its items. Here's the honest list, updated for what's been done, grouped by what actually blocks shipping:
+# Production blockers
+
+This historical review supplements `docs/decisions/production-readiness-gaps.md`.
+The findings below are grouped by the release area they affect.
 
 ## 🔴 Blockers (would embarrass you on day one)
 

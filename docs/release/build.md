@@ -74,7 +74,7 @@ single-file portable build is available through
 Windows Python can also run the build scripts under Wine. Use a configured
 Windows Python environment, not Linux Python with a Windows output name.
 A successful Wine launch does not replace testing on Windows; follow the
-[Windows smoke test](../WINDOWS_SMOKE_TEST.md).
+[Windows smoke test](windows-smoke-test.md).
 
 ## macOS
 

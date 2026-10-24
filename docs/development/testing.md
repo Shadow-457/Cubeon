@@ -90,5 +90,5 @@ CI is not identical to the default smoke gate.
 
 Report exact commands, failures, and skips. A passing headless run does not
 establish desktop frame rate, window visibility, or platform packaging.
-Use [Windows smoke testing](../WINDOWS_SMOKE_TEST.md) and the
+Use [Windows smoke testing](../release/windows-smoke-test.md) and the
 [release checklist](../release/release-checklist.md) for those checks.

@@ -581,6 +581,7 @@ SUITES = [
     "test_scrolling.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",
     "test_mod_ui_stability.py",
+    "test_repository_hygiene.py",
 ]
 
 

@@ -198,7 +198,7 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
   the on-disk + harness picture as accurate, the in-world feel as unconfirmed.
 
 ## Notes for the next agent / user
-- `agents/memory/cubeon-friends-mod.md` (2026-08-29) is the historical build log
+- `docs/decisions/cubeon-friends-mod.md` (2026-08-29) is the historical build log
   (how to compile the 26.x jar by hand, gotchas, deploy targets) but **predates
   the friends_tab → FriendsService port**: it still references `friends_tab.py`
   and `local_api.start()` from `main.py` directly, both of which are gone.
@@ -213,7 +213,7 @@ storage isn't metered). Routes: `POST /claim`, `GET /name/<name>`, `GET /ws`
 - `kind:"p2p"` on `call_invite` is what lets the receiver distinguish a P2P world
   invite from legacy voice; voice UI was removed with chat, so non-p2p incoming
   rings are auto-declined (`_on_call_invite`).
-- FriendsSystem, P2P, and worker docs also live in `agents/docs/`
+- FriendsSystem, P2P, and Worker references live under `docs/architecture/`
   (`guide-cubeon-modules.md`, `guide-worker-backend.md`, `guide-data-flow.md`,
   `phase2b-*.md`, `architecture-infrastructure.md`).
 

@@ -5,16 +5,22 @@ mod/build/
 mod.bak-*/
 dist/
 build/
+logs/
+*.log
+*.class
 *.AppImage
 *.zip
 __pycache__/
 *.pyc
+.venv/
+.venv-*/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .DS_Store
 .directory
-.kilo/worktrees/
 .freebuff/*
-.claude/*
-.zwork/*
 .zwork
 instructions.txt
 .kilo
@@ -46,11 +52,6 @@ Ylem.jpg
 
 # Gradle build cache (mod/)
 mod/.gradle/
-
-# --- the standalone HUD mod this repo absorbed ---
-# Its HUD now lives in mod/src/main/java-overlay-hud-* (package
-# com.cubeon.client.hud) and its per-version build parameters in
-# mod/brackets.json, so nothing here is a source of truth any more.
 
 # --- CurseForge API key (build-time secret, never committed) ----------------
 # The ONE key every Cubeon build ships is written to cubeon/_cf_key.py by
