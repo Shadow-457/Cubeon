@@ -1,0 +1,35 @@
+name: Feature proposal
+description: Propose a focused improvement to Cubeon.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the task or limitation, not just the feature name.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain what should change and how someone would use it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workarounds or simpler approaches, if any.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Relevant platforms, Minecraft versions, references, or mockups.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues for a similar proposal.
+          required: true

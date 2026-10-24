@@ -1,89 +1,60 @@
-# Cubeon Documentation
+[Cubeon](../README.md) / Documentation
 
-This directory contains all project documentation organized by audience and topic.
+# Cubeon documentation
 
-## Quick Navigation
+Installation and development guides, followed by the architecture and
+protocol references. Choose a starting point below; the remaining sections
+provide the implementation details.
 
-| If you're... | Start Here |
-|--------------|------------|
-| A **player** wanting to run Cubeon | [Simple Owner Guide](SIMPLE_OWNER_GUIDE.md) |
-| A **developer** setting up the project | [Development Setup](development/setup.md) |
-| A **contributor** making changes | [Development Workflow](development/development-workflow.md) |
-| An **architect** understanding the system | [Architecture Overview](architecture/overview.md) |
-| A **release manager** cutting a release | [Release Checklist](release/release-checklist.md) |
+## Getting started
 
-## Documentation Structure
+- [Using Cubeon](SIMPLE_OWNER_GUIDE.md): install, launch, update, and troubleshoot.
+- [Development setup](development/setup.md): run the source and configure tools.
+- [Contributing](development/development-workflow.md): make and verify changes.
+- [Testing](development/testing.md): smoke checks, regression suites, and UI checks.
+- [Security reporting](../SECURITY.md): report a vulnerability privately.
 
-```
-docs/
-├── README.md                           # This file
-├── SIMPLE_OWNER_GUIDE.md               # Player guide (run, build, troubleshoot)
-├── bug-report-2026-09-17.md            # Consolidated bug findings
-│
-├── architecture/                       # System design
-│   ├── overview.md                     # High-level architecture
-│   ├── launcher.md                     # Launcher modules & entry points
-│   ├── friends.md                      # Friends/social system
-│   ├── p2p.md                          # P2P worlds & tunneling
-│   ├── mod-management.md               # Mods & modpacks
-│   ├── content-storage.md              # Global store + profile links model
-│   ├── infrastructure.md               # Infrastructure overview
-│   ├── data-flow.md                    # Data flow diagrams
-│   └── diagrams-flows.md               # Mermaid diagrams
-│
-├── protocols/                          # Wire protocols
-│   ├── skins-api.md                    # Skin/cape CustomSkinAPI
-│   ├── invites-api.md                  # Invite codes ↔ tunnel addresses
-│   └── friends-api.md                  # Friends WebSocket protocol
-│
-├── development/                        # Developer guides
-│   ├── setup.md                        # Prerequisites, env, running
-│   ├── development-workflow.md         # Branching, testing, PRs, releases
-│   └── testing.md                      # All test suites, adding tests
-│
-├── release/                            # Release process
-│   ├── build.md                        # Platform builds, PyInstaller
-│   └── release-checklist.md            # Pre/post-release verification
-│
-└── decisions/                          # Design decisions & history
-    ├── bugs-and-flaws.md               # Known issues catalog
-    ├── production-readiness-gaps.md    # Production gaps
-    ├── phase1-skins-capes.md           # Skins/cape design history
-    ├── phase2b-batch2.md               # P2P design batches
-    ├── phase2b-batch3.md
-    ├── phase2b-batch4.md
-    ├── phase2b-batch5.md
-    ├── phase2b-batch6.md
-    ├── skins-identity-workflow.md      # Skin identity deep-dive
-    ├── modpack-install-version-matching.md
-    ├── discord-server-layout.md
-    ├── customskinloader-verified-facts.md
-    ├── modpack-providers.md
-    ├── cubeon-friends-mod.md
-    ├── production-blockers.md
-    └── friends-menu-notes.md
-```
+## Architecture
 
-## Key Reference Files
+- [Overview](architecture/overview.md): components, boundaries, and launch flow.
+- [Launcher](architecture/launcher.md): modules and entry points.
+- [Content storage](architecture/content-storage.md): shared storage and instance isolation.
+- [Mod management](architecture/mod-management.md): installation and dependencies.
+- [Friends](architecture/friends.md): service ownership and chat integration.
+- [Networking](architecture/p2p.md): sessions, tunnels, and world sharing.
+- [Infrastructure](architecture/infrastructure.md): hosted services.
+- [Data flow](architecture/data-flow.md) and [diagrams](architecture/diagrams-flows.md).
 
-| File | Purpose |
-|------|---------|
-| `architecture/launcher.md` | Maps `cubeon/` modules to responsibilities |
-| `protocols/skins-api.md` | Worker routes, KV layout, CSL registration |
-| `protocols/friends-api.md` | Durable Object design, WebSocket protocol |
-| `development/testing.md` | All 40+ test suites with descriptions |
-| `release/build.md` | PyInstaller flags, cross-compile recipes |
+## Backend
 
-## Keeping Docs Current
+Protocol references describe the client/Worker boundary. Check the linked
+source and contract tests when changing a route or message format.
 
-- **Architecture docs** reflect the *current* code - update when modules change
-- **Protocol docs** must match Worker source - parity tests enforce this
-- **Decision docs** are append-only history - don't rewrite, add new entries
-- **Release docs** updated per release cycle
+- [Skins and capes](protocols/skins-api.md)
+- [Invite codes](protocols/invites-api.md)
+- [Friends WebSocket](protocols/friends-api.md)
+- [Worker deployment](../worker/README.md)
 
-## Related
+## Builds and releases
 
-- [Root README](../README.md) - Project overview & quick links
-- [Module Map](../agents/docs/module-map.md) - Durable invariants for AI agents
-- [Worker README](../worker/README.md) - Worker deploy/verify commands
-- [Tools README](../tools/README.md) - Test suite quick reference
+- [Build guide](release/build.md)
+- [Release checklist](release/release-checklist.md)
+- [Windows smoke test](WINDOWS_SMOKE_TEST.md)
+
+## Technical records
+
+The [decision records](decisions/) and [performance reports](performance/)
+document investigations and earlier design choices. They are historical
+records, not a guarantee of current behavior or deployment status.
+
+Other dated reports:
+
+- [September 17 bug report](bug-report-2026-09-17.md)
+- [September 18 CI investigation](bugfix-2026-09-18-ci-red-suite.md)
+- [Community rules](community/discord-rules.md)
+
+When behavior changes, update its guide and relevant protocol reference.
+Keep dated investigations intact rather than rewriting their conclusions.
+
+[Project README](../README.md) · [Contribution guide](../CONTRIBUTING.md) ·
+[Tool reference](../tools/README.md)

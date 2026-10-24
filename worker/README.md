@@ -1,20 +1,22 @@
+[Documentation](../docs/README.md) / Backend
+
 # Cubeon Workers
 
-Five Cloudflare Workers, all on the free tier, no VPS, no card. (All five
-answer their own `/health` text as of 2026-10-17, which is how the table below
-was checked - a `workers.dev` subdomain with nothing deployed answers 404
-instead.)
+Cloudflare Workers provide Cubeon's online services. Each service has its
+own source and deployment configuration in this directory. Repository
+configuration is not proof of deployment health; verify the intended
+environment after deploying.
 
-| Worker | Job | Status |
+| Worker | Responsibility | Configuration |
 |---|---|---|
-| `cubeon-skins.js` | identity + skins: UUID-anchored skins, username pointers, the Cubeon cape | **live** |
-| `cubeon-invites.js` | short invite codes → a host's tunnel address | **live** (wrangler-invites.toml) |
-| `cubeon-friends.js` | Friends tab: presence, chat, groups, voice signalling | **live** |
-| `cubeon-downloads.js` | holds the read-only GitHub token and streams the installers | **live** (wrangler-downloads.toml) |
-| `cubeon-waitlist.js` | the site's email waitlist (count only, never the addresses) | **live** |
+| `cubeon-skins.js` | Skin identity, username pointers, textures, and the Cubeon cape | `wrangler-skins.toml` |
+| `cubeon-invites.js` | Invite codes for tunnel addresses | `wrangler-invites.toml` |
+| `cubeon-friends.js` | Presence, chat, groups, and voice signaling | `wrangler-friends.toml` |
+| `cubeon-downloads.js` | Release lookup and installer downloads | `wrangler-downloads.toml` |
+| `cubeon-waitlist.js` | Website email signup | `wrangler-waitlist.toml` |
 
-The skins Worker is fully live - the read path (the `/skins/<name>.json`
-CustomSkinAPI lookup) *and* the write routes (`POST /api/heartbeat`,
+The skins Worker provides the `/skins/<name>.json` CustomSkinAPI lookup
+and the write routes (`POST /api/heartbeat`,
 `POST /api/skin`, `POST /report`). Its write surface stays narrow on purpose:
 all three are POST-only (405 otherwise) and matched before any read route.
 They're separate Workers because the friends one needs a **Durable Object**

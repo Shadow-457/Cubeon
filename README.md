@@ -1,177 +1,93 @@
-# Cubeon Minecraft Launcher
+<p align="center">
+  <img src="docs/assets/readme-cover.svg" width="1280" alt="Cubeon. Minecraft Java Edition launcher by Ylet.">
+</p>
 
-> **A [Ylet](https://www.ylet.online/) product.** Cubeon is developed and
-> operated under Ylet, alongside
-> [Icono](https://www.ylet.online/#products) and
-> [Spruce](https://www.ylet.online/#products). The company hub - what each
-> product is, how it is released, and the legal pack - lives one level up in
-> `Ylet_Productions/`.
+<p align="center">
+  <a href="https://cubeon.ylet.online/download">Download</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="SECURITY.md">Security</a>
+</p>
 
-A free desktop Minecraft launcher for playing with friends - offline/cracked
-accounts, one-click modded launches, a shared skin network so players can see
-each other's skins on **any** server, and built-in world hosting via tunnels.
+Cubeon manages game installations, modded instances, cosmetics, and local
+servers. Developed by [Ylet](https://www.ylet.online/), it is built with
+Python and Flet for Linux, Windows, and macOS.
 
-Built with Python + Flet. No Mojang account hehe, no paywall.
+## Capabilities
 
-![Cubeon Launcher](assets/titleimg.jpg)
+- Install Minecraft releases and snapshots, and switch between saved instances.
+- Manage Vanilla, Fabric, Quilt, Forge, and NeoForge configurations.
+- Browse mods and modpacks, with instance-specific mods, resource packs, and shaders.
+- Preview skins and capes in 3D, and manage a local cosmetics library.
+- Track playtime and compare activity in the Stats tab.
+- Manage local servers and share access through tunnels.
 
-## Quick Links
+Friends-enabled builds also include chat, presence, and in-game integration.
+Feature availability can differ between development and public builds.
 
-| Audience | Start Here |
-|----------|------------|
-| **Players** | [Simple Owner Guide](docs/SIMPLE_OWNER_GUIDE.md) - run, build, troubleshoot |
-| **Developers** | [Development Setup](docs/development/setup.md) - environment, run, debug |
-| **Contributors** | [Development Workflow](docs/development/development-workflow.md) - testing, PRs, releases |
-| **Architects** | [Architecture Overview](docs/architecture/overview.md) - system design |
+Cubeon uses local/offline player profiles, not Microsoft account sign-in.
+Mods require a compatible loader; Vanilla supports resource packs but does
+not run mods or shader packs on its own.
 
-## Features
+## Getting started
 
-- **Offline/cracked login** - any 3–16 character username. Your identity is a
-  stable UUID (`~/.cubeon_launcher/auth_key.json`) that survives renames.
-- **Version manager** - browse releases/snapshots, auto-download on first launch.
-- **Mod loaders** - Vanilla, Fabric, Quilt, Forge, NeoForge; auto-installs the
-  loader for the chosen version. Per-profile mods synced at launch.
-- **Skin network** - upload your skin; other Cubeon players see it in-game on
-  any server via CustomSkinLoader + Cloudflare Worker. Every Cubeon player also
-  wears the shared Cubeon cape automatically.
-- **Friends** - unique Cubeon names, presence, chat, groups, voice signalling.
-- **Host-a-world / tunneling** - invite codes that turn into tunnel addresses.
-- **Modpacks** - install/manage modpacks per version+loader profile.
-- **Settings** - RAM slider (bounded by your actual RAM), window resolution,
-  custom Java path.
-- **Tuned Java** - every launch gets an Aikar-derived G1GC argument set for
-  smooth frame times.
-- **Seasonal look** - the launcher picks a palette from your timezone, with a
-  little season companion; change or disable it in Settings.
-- **Desktop notifications** - a local OS toast when an install finishes, when
-  the friend you talk to most comes online, and when a new Cubeon version is
-  out. Raised by your own computer (Windows toast / `notify-send` / `osascript`)
-  - nothing is sent anywhere. One switch per type in Settings.
+Get the build for your operating system from the
+[download page](https://cubeon.ylet.online/download).
+See [Using Cubeon](docs/SIMPLE_OWNER_GUIDE.md) for first launch, updates, and
+troubleshooting. Python is not required for packaged builds.
 
-## Project Layout
+## Run from source
 
-```
-Cubeon/
-├── main.py                 # UI entry point - builds tabs, boots Flet
-├── launcher_core.py        # Facade: import launcher_core as core
-├── cubeon/                 # ALL business logic (no UI imports)
-├── ui/                     # Flet UI layer - one module per tab
-├── mod/                    # In-game Fabric mod (Gradle)
-├── worker/                 # Cloudflare Workers (JS)
-├── templates/              # Color-theme palettes
-├── assets/                 # Icons, art, jars, fonts, pets
-├── packaging/              # Build scripts + PyInstaller specs
-├── tools/                  # Tests + dev scripts
-├── agents/                 # AI-agent notebook + docs + memory
-├── docs/                   # Documentation
-├── archive/                # Old snapshots & regenerable build output
-├── dist/                   # PyInstaller output (gitignored)
-└── build/                  # Build artifacts (gitignored)
-```
-
-## Documentation
-
-### Architecture
-- [Overview](docs/architecture/overview.md) - System overview
-- [Launcher](docs/architecture/launcher.md) - Launcher modules
-- [Friends](docs/architecture/friends.md) - Friends system
-- [P2P](docs/architecture/p2p.md) - P2P/tunneling
-- [Mod Management](docs/architecture/mod-management.md) - Mod/modpack system
-- [Content Storage](docs/architecture/content-storage.md) - Content storage model
-
-### Protocols
-- [Skin/Cape API](docs/protocols/skins-api.md) - CustomSkinAPI + cape
-- [Invite Codes](docs/protocols/invites-api.md) - Short codes → tunnel addresses
-- [Friends WebSocket](docs/protocols/friends-api.md) - Presence, chat, voice
-
-### Development
-- [Setup](docs/development/setup.md) - Prerequisites, environment, running
-- [Workflow](docs/development/development-workflow.md) - Branching, testing, PRs
-- [Testing](docs/development/testing.md) - Test suites, adding tests, CI
-
-### Release
-- [Build](docs/release/build.md) - Platform builds, PyInstaller, artifacts
-- [Release Checklist](docs/release/release-checklist.md) - Pre/post-release steps
-
-### Decisions & History
-- [Bugs & Flaws](docs/decisions/bugs-and-flaws.md) - Known issues
-- [Production Readiness](docs/decisions/production-readiness-gaps.md) - Gaps
-- [Phase 1: Skins & Capes](docs/decisions/phase1-skins-capes.md)
-- [Phase 2b: P2P Design](docs/decisions/phase2b-batch2.md) - [3](docs/decisions/phase2b-batch3.md) - [4](docs/decisions/phase2b-batch4.md) - [5](docs/decisions/phase2b-batch5.md) - [6](docs/decisions/phase2b-batch6.md)
-- [Skins Identity Workflow](docs/decisions/skins-identity-workflow.md)
-- [Modpack Version Matching](docs/decisions/modpack-install-version-matching.md)
-- [Discord Server Layout](docs/decisions/discord-server-layout.md)
-- [CustomSkinLoader Facts](docs/decisions/customskinloader-verified-facts.md)
-- [Modpack Providers](docs/decisions/modpack-providers.md)
-- [Cubeon Friends Mod](docs/decisions/cubeon-friends-mod.md)
-- [Production Blockers](docs/decisions/production-blockers.md)
-- [Friends Menu Notes](docs/decisions/friends-menu-notes.md)
-
-### Reports
-- [Bug Report 2026-09-17](docs/bug-report-2026-09-17.md) - Consolidated findings
-
-## Building
+Use Python 3.11, the version used by CI, and a desktop session.
 
 ```bash
-# Linux AppImage
-./packaging/build_appimage.sh
-
-# Windows EXE + ZIP
-python packaging/build_windows.py
-
-# macOS App Bundle
-./packaging/build_macos.sh
+git clone https://github.com/Shadow-457/Cubeon.git
+cd Cubeon
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python main.py
 ```
 
-See [Build Documentation](docs/release/build.md) for details.
+On Windows, use `python` to create the environment and activate it with
+`.\.venv\Scripts\Activate.ps1` in PowerShell.
 
-## Running Tests
+The dependency file pins Flet to `0.86.x`. Use the virtual environment rather
+than an unrelated system installation. Additional tools and platform notes
+are in [Development setup](docs/development/setup.md).
+
+## Development
+
+Run these commands from the repository root, in the virtual environment:
 
 ```bash
-# Full test gate (syntax + imports + contracts + runtime)
 python tools/test_mega_smoke.py
-
-# Static only (fast)
-python tools/test_mega_smoke.py --static
-
-# Specific areas
-python tools/test_friends_service.py
-python tools/test_ui_smoke.py
-python tools/test_mod_compile.py
-python tools/test_osnotify.py
-
-# Worker tests
-cd worker && node test-worker.mjs
+node worker/test-worker.mjs
 ```
 
-See [Testing Guide](docs/development/testing.md) for all test suites.
+The smoke gate checks Python source, contracts, and headless UI behavior.
+Add `--suites` to run its registered regression suites. Node.js is only
+needed for Worker tests; Java tooling is only needed for mod work.
 
-## Backend Infrastructure
+- [Contribution guide](CONTRIBUTING.md)
+- [Testing](docs/development/testing.md)
+- [Architecture](docs/architecture/overview.md)
+- [Builds and releases](docs/release/build.md)
+- [Backend services](worker/README.md)
 
-Three Cloudflare Workers on the free tier:
+## Support and security
 
-| Worker | Job | KV/DO |
-|--------|-----|-------|
-| `cubeon-skins.js` | Identity + skins + cape | KV `SKINS` |
-| `cubeon-invites.js` | Invite codes → tunnel addresses | KV `INVITES` |
-| `cubeon-friends.js` | Presence, chat, groups, voice | Durable Object |
+Report reproducible bugs through [GitHub Issues](https://github.com/Shadow-457/Cubeon/issues).
+Include your Cubeon version, operating system, and steps to reproduce.
+Use the [contribution guide](CONTRIBUTING.md) for feature proposals and pull requests.
 
-See [Worker README](worker/README.md) for deploy instructions.
+Security vulnerabilities should be reported privately, not in public issues.
+See the [security policy](SECURITY.md) for the reporting channel and required details.
 
 ## License
 
-MIT License - see LICENSE file (if present) or source headers.
+Cubeon is licensed under [Apache 2.0](LICENSE). See [NOTICE](NOTICE) for
+attribution. Third-party components retain their own licenses.
 
-## Community
-
-- **Discord**: [cubeon.run.place](https://discord.gg/cubeon) (if configured)
-- **Issues**: GitHub Issues
-- **Source**: Private repo (github.com/Shadow-457/Cubeon)
-
----
-
-**Note**: The user runs an installed PyInstaller build at `~/.local/opt/Cubeon/cubeon`,
-not this source tree. Source changes require rebuild + reinstall:
-```bash
-pyinstaller Cubeon.spec --noconfirm && cp dist/Cubeon ~/.local/opt/Cubeon/cubeon
-```
+Cubeon is not affiliated with Mojang or Microsoft. Minecraft is a trademark
+of Mojang Studios.

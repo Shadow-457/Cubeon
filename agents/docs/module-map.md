@@ -1,5 +1,24 @@
 # Cubeon module map — read this before reading any source
 
+## Public documentation (2026-10-24)
+- `README.md` is the short project overview, download/source entry point, and
+  license reference. The actual repository license is Apache 2.0, not MIT.
+- `docs/README.md` indexes the current guides. `docs/SIMPLE_OWNER_GUIDE.md`
+  is the player guide; source setup, testing, build recipes, and publication
+  belong in `docs/development/` and `docs/release/`, not in the player guide.
+- Root `CONTRIBUTING.md` and `SECURITY.md` are the GitHub-facing contribution
+  and private-reporting entry points. `.github/ISSUE_TEMPLATE/` contains bug
+  and feature forms; `.github/pull_request_template.md` captures verification.
+  Templates deliberately do not assume repository labels or response SLAs.
+- `docs/assets/readme-cover.svg` is the README cover. It reuses the existing
+  `assets/cube.svg` geometry and palette, with no external fonts or images.
+  It is branding, not an application screenshot.
+- Keep public instructions independent of one developer's home directory or
+  sibling company checkout. Do not claim nonexistent tooling configuration,
+  deployment health, or measured desktop performance.
+- Dated decisions and performance investigations remain historical records.
+  The public index labels them accordingly; preserve their original findings.
+
 ## This repo moved, and Cubeon is now a Ylet product (2026-10-18) — INVARIANT
 The company folder was reorganised the same day this map was last edited:
 
@@ -1225,8 +1244,14 @@ facts belong HERE, not in diary notes.
 - `cubeon/faces.get_face_b64(name)` is THE way to show any Cubeon player's
   head (skins Worker `/faces/<name>.png`, disk-cached in `cache/faces/`,
   negative-cached 10 min for non-Cubeon 404s, background download, never
-  blocks). Pair it with a `bool(get_face_b64(...))` token inside the
-  repaint sig so late-landing faces paint on the next poll.
+  blocks). Chat repaint signatures use the actual cached source, not only a
+  boolean, so late downloads AND changed face bytes trigger the next repaint.
+- Encoded face sources have a 128-entry LRU keyed by file mtime/size.
+  `ui/chat_tab.py` keeps friend/request rows and separate header/self avatars
+  mounted during presence, unread, and connection updates. Image sources
+  change only for actual avatar changes, with gapless playback. Removed peers
+  are evicted; filtering retains cached rows. Uploaded self PFP bytes are
+  cached by path/mtime/size. Guard: `tools/test_chat_avatar_stability.py`.
 - Self-avatar fallback chain everywhere: uploaded pfp → face URL
   (`skins.get_skin_face_url` = Cubeon endpoint since 2026-09-22, was
   crafatar which 404s for offline accounts) → color chip.
@@ -3197,11 +3222,15 @@ Still-true invariants from the pre-local era:
   old stacked layout (browse results with installed list a full scroll
   below) is gone. ui_smoke §11 asserts the pattern in all three files.
 - **Browse paging is lazy, one page at a time (2026-09-20)**: both the Mods
-  tab (`ui/mods_tab.py`, BROWSE_PAGE_SIZE=5, MAX_BROWSE_PAGES=20) and the
-  Modpacks tab (`ui/modpacks_tab.py`, PAGE_SIZE=5, MAX_PAGES=10) advertise a
+  tab (`ui/mods_tab.py`, BROWSE_PAGE_SIZE=10, MAX_BROWSE_PAGES=10) and the
+  Modpacks tab (`ui/modpacks_tab.py`, PAGE_SIZE=10, MAX_PAGES=10) advertise a
   full page count but fetch only the requested page — the pager's Next/Prev
   triggers a fetch for that offset, not a 20-page prefetch. `browse_state`
   holds the page cache; a page already in `results` renders without refetching.
+  Both tabs also keep bounded row caches so ordinary refreshes do not remount
+  unchanged artwork; actions and installed metadata update in place.
+  `cubeon/icons.py` caches encoded sources in a 128-entry LRU and coalesces
+  in-flight downloads before starting workers. Guard: `test_mod_ui_stability.py`.
   `offset` is part of every search cache key in `cubeon/mods.py`,
   `cubeon/content.py`, and `cubeon/modpacks.py` so pages cache independently.
   Modrinth's per-request cap is 100 (`limit`); a SHORT page clamps

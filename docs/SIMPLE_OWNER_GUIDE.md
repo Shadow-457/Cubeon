@@ -1,291 +1,103 @@
-# Cubeon: simple owner guide
+[Documentation](README.md) / User guide
 
-This guide is for using and maintaining Cubeon without needing to understand
-its code. If a command looks scary, you can send it to me and I can help.
+# Using Cubeon
 
-## What Cubeon is
+## Install and launch
 
-Cubeon is a Minecraft launcher. It can:
+Download the build for your operating system from
+[cubeon.ylet.online/download](https://cubeon.ylet.online/download).
+Packaged builds do not require a separate Python installation.
 
-- install and start Minecraft;
-- manage Fabric, Forge, Quilt, and NeoForge profiles;
-- install mods and modpacks;
-- let Cubeon players find each other, chat, and invite each other to play;
-- share skins and the Cubeon cape;
-- host a world for friends through a tunnel.
+- **Windows:** use the setup executable, or extract the portable ZIP before
+  running `Cubeon.exe`. Keep the portable folder's files together.
+- **Linux:** use the provided installer or package. For an AppImage, grant
+  execute permission and launch it from your file manager or terminal.
+- **macOS:** extract the release archive and open the app. Unsigned builds
+  may require approval through the operating system's security settings.
 
-There are two parts:
+Only approve a security warning after checking the download's source.
+Do not disable system-wide security protections to launch an app.
 
-1. **The launcher**, the desktop app you open.
-2. **The online services**, small Cloudflare services that help friends find
-   each other and exchange messages. Minecraft itself still runs on your own
-   computer.
-
-## What is already online
-
-The friends service is deployed and running at:
-
-```text
-https://cubeon-friends.hamza-457-shahbaz.workers.dev
-```
-
-The launcher is already configured to use it. You do not need to start a
-server on your computer for friends chat or friend requests.
-
-## The launcher files
-
-| File/folder | Plain-English meaning |
-|---|---|
-| `dist/Cubeon-x86_64.AppImage` | Linux app you can double-click |
-| `packaging/build_appimage.sh` | Makes the Linux app |
-| `packaging/build_windows.py` | Makes the Windows app/ZIP |
-| `packaging/build_macos.sh` | Makes the Mac app/archive |
-| `assets/cube.svg` | The original Cubeon cube artwork |
-| `assets/icon_*.png` and `assets/icon.ico` | Versions of that artwork for Linux/Windows |
-| `assets/jars/` | Friends mod jars and Connect plugin included in builds |
-| `cubeon/updater.py` | Checks whether a newer release exists |
-| `~/.cubeon_launcher/cubeon.log` | Local launcher error log |
-
-## Running Cubeon on Linux
-
-Double-click:
-
-```text
-/home/fuckarch/Downloads/Cubeon/dist/Cubeon-x86_64.AppImage
-```
-
-If Linux asks whether to run it, choose **Run** or **Allow executing file**.
-
-If the file is missing, the build has not finished. Build it with:
+For a Linux AppImage downloaded to the current directory:
 
 ```bash
-cd /home/fuckarch/Downloads/Cubeon
-bash packaging/build_appimage.sh
+chmod +x Cubeon-x86_64.AppImage
+./Cubeon-x86_64.AppImage
 ```
 
-Wait until the terminal says:
+If you are running the source rather than a release, follow
+[Development setup](development/setup.md).
 
-```text
-Built dist/Cubeon-x86_64.AppImage
-```
+## First game launch
 
-The build can take several minutes. Do not close the terminal during the
-build. Keep a few GB free because temporary build files are large.
+1. Set a player name in Account. Cubeon uses local/offline profiles rather
+   than Microsoft account sign-in.
+2. Select a Minecraft version in Play.
+3. Choose Vanilla or a loader compatible with that version.
+4. Review memory and Java settings if needed, then select Play.
 
-## Building the Windows app
+The first launch downloads missing game components and can take longer.
+Selecting an existing instance restores its version and loader.
 
-You normally do this on a Windows computer, because PyInstaller should build
-Windows apps on Windows.
+An offline profile does not authenticate you to servers that require a
+Microsoft/Mojang account.
 
-1. Download the Cubeon source folder.
-2. Install Python 3.11 or newer.
-3. Open PowerShell in the Cubeon folder.
-4. Run:
+## Mods, packs, and cosmetics
 
-```powershell
-python -m pip install -r requirements.txt pyinstaller
-python packaging/build_windows.py
-```
+- **Mods:** select a compatible modded instance first. A Fabric mod does not
+  work just because another loader is installed.
+- **Resource packs:** work with Vanilla as well as modded instances, subject
+  to Minecraft version compatibility. Enable them in the game's settings.
+- **Shaders:** require a compatible loader and shader runtime, such as Iris
+  or Oculus. Downloading a shader ZIP alone does not enable shaders.
+- **Modpacks:** carry their own Minecraft and loader requirements. Review
+  the pack's requirements before installing it.
+- **Cosmetics:** manage skins and capes in Cosmetics; drag the 3D preview to
+  inspect the model. In-game visibility depends on compatible skin support.
 
-The result will be in `dist/Cubeon/` and
-`dist/Cubeon-Windows-x64.zip`.
+Screenshots have a separate section in Settings. Stats shows playtime and
+activity comparisons; it does not measure the game's frame rate.
 
-Windows may show a SmartScreen warning because the app is not code-signed.
-Choose **More info**, then **Run anyway** if you trust the file.
+## Friends and servers
 
-## Building the Mac app
+Friends-enabled builds include chat and in-game integration. Some public
+builds omit these features. You do not need to deploy the backend yourself
+to use a build configured for Cubeon's services.
 
-On a Mac, open Terminal in the Cubeon folder and run:
+Local server hosting runs on your computer. Shared access depends on the
+server and tunnel being available, and may be affected by firewall or
+network settings.
 
-```bash
-python3 -m pip install -r requirements.txt pyinstaller
-bash packaging/build_macos.sh
-```
+## Updates
 
-The result will be in `dist/`.
+When Cubeon offers an update, open the download page, download the new
+build, close the running launcher, and install or replace the app.
+The update notice does not replace the running binary automatically.
 
-## How updates work right now
+Keep the launcher closed while replacing a portable build. Updating the
+app is different from deleting its data folders.
 
-Cubeon currently uses a safe, manual update process:
+## Data and troubleshooting
 
-1. A new release is uploaded to GitHub.
-2. The launcher checks GitHub in the background.
-3. If a newer version exists, Cubeon shows **Get it**.
-4. Clicking **Get it** opens **cubeon.ylet.online/download** in your browser -
-   your own site, not the GitHub release page. That page only works for people
-   you have given access to (the repo is private), so the buttons on the site
-   are the ones to hand out.
-5. You download the new app.
-6. You close Cubeon and replace the old app with the new one.
+| Location | Contents |
+| --- | --- |
+| `~/.cubeon_launcher/` | Settings, local identity, caches, and server data |
+| `~/.cubeon_launcher/cubeon.log` | Launcher log |
+| `~/.cubeon_minecraft/` | Cubeon's game files |
 
-Cubeon does **not** secretly replace itself yet. This prevents an update from
-breaking the app while it is running.
+`~` means your home folder. The game path can be overridden in a development
+environment. Back up worlds before removing game files, and keep identity
+files private.
 
-Before telling a lot of people about a Windows build, walk through
-`docs/WINDOWS_SMOKE_TEST.md` once on a real Windows machine - CI builds the
-installer but has never run the real Windows app, so that pass is the only
-proof it works on someone else's PC.
+If the app will not start, run it from a terminal and record the error.
+For a failed game launch, check the selected version, loader, Java path,
+and memory setting. For missing cosmetics, check the instance's skin support
+rather than repeatedly reinstalling the launcher.
 
-### Publishing a release
+[Report an issue](https://github.com/Shadow-457/Cubeon/issues) with your
+operating system, Cubeon version, steps to reproduce, and relevant log
+lines. Remove tokens, identity details, usernames, and private server
+addresses before attaching logs.
 
-**Pushing is the release.** You do not tag anything, and you do not upload
-anything. From the Cubeon folder:
-
-```bash
-cd /home/fuckarch/Downloads/Cubeon
-git add -A
-git commit -m "describe the change"
-git push
-```
-
-GitHub then builds all three platforms and publishes a new version by itself:
-
-1. it works out the next version number and puts it into the app;
-2. it builds Linux, Windows and macOS;
-3. only when every file is uploaded does the release become public.
-
-So after a push, watch the **Actions** tab. Green at the end = the version is
-live on the Releases page. (It takes roughly 15–20 minutes.)
-
-#### Which number comes next
-
-Normally the last number goes up on its own: `1.2.0` → `1.2.1` → `1.2.2` …
-If you want to start a new series, edit `cubeon/updater.py` before pushing:
-
-```python
-APP_VERSION = "1.3.0"
-```
-
-The next push then releases `v1.3.0`, and later pushes continue from there.
-Never edit the tag or the release by hand, the number in the app and the number
-on the release must match, or every user is told an update exists that never
-goes away. If you must change a version by hand, use
-`python3 tools/release_version.py stamp 1.2.3` so both change together.
-
-(You can still make a tag yourself, `git tag v1.2.3 && git push origin v1.2.3`,
-and it will be released exactly as typed, that is the escape hatch, not the
-normal path.)
-
-The GitHub repository is private:
-
-```text
-https://github.com/Shadow-457/Cubeon
-```
-
-A private repository is good for storing your source code. It is not ideal for
-giving downloads to many people because download permission is required.
-
-
-## Making a public build without Friends
-
-There are two build types:
-
-- `build_appimage.sh`, development build, Friends included;
-- `build_public_appimage.sh`, public build, Friends disabled.
-
-For a public Linux build:
-
-```bash
-cd /home/fuckarch/Downloads/Cubeon
-bash packaging/build_public_appimage.sh
-```
-
-The result is named:
-
-```text
-dist/Cubeon-public-x86_64.AppImage
-```
-
-The public build does not include Friends jars. It also does not start the
-Friends online service or the local Friends bridge. Minecraft will not show a
-Friends button. The rest of Cubeon still works: Minecraft launching, profiles,
-mods, modpacks, skins, servers, and settings.
-
-For a public Windows build, run on Windows:
-
-```powershell
-python packaging/build_public_windows.py
-```
-
-It creates `dist/Cubeon-public-Windows-x64.zip`.
-
-The regular development build is not changed. You can keep using it whenever
-you want to continue developing Friends.
-
-### The Friends button is missing in Minecraft
-
-This usually means you are using an older AppImage. The launcher must include
-both the Friends jars and the Minecraft version map. Build a new AppImage with
-the latest packaging script, then launch Minecraft again. In the launcher, use
-Fabric or Quilt; the Friends mod does not run on Vanilla, Forge, or NeoForge.
-
-
-## Testing friends with another person
-
-Both people should:
-
-1. Open Cubeon.
-2. Start Minecraft.
-3. Open **Cubeon Friends** in Minecraft.
-4. Choose a different Cubeon name.
-5. Add each other.
-6. Accept the friend request.
-7. Send a chat message.
-8. Try **Play**.
-9. Try **Sync** with a mod that one person does not have.
-
-If something fails, write down the exact step and message. Also send the log
-from each computer:
-
-```text
-~/.cubeon_launcher/cubeon.log
-```
-
-## If something breaks
-
-### The AppImage opens an error about `icons.json`
-
-Use a newly built AppImage. The packaging script now includes all Flet files.
-Do not use an older AppImage from before the packaging fix.
-
-### The colors look green or wrong
-
-Use a newly built AppImage. The build now includes the `templates/` color files.
-The app icon and window artwork come from `assets/cube.svg`.
-
-### `dist/` is empty
-
-The build did not finish. Run:
-
-```bash
-cd /home/fuckarch/Downloads/Cubeon
-bash packaging/build_appimage.sh
-```
-
-Wait for `Built dist/Cubeon-x86_64.AppImage`.
-
-### The launcher starts but Minecraft does not
-
-Check that Java is installed, the selected version has finished installing,
-the loader matches the profile, and there is enough free disk space. The log
-is at `~/.cubeon_launcher/cubeon.log`.
-
-### Friends do not connect
-
-Both people should use the latest launcher and latest Friends mod jar. Check
-the internet connection. The online friends service is already deployed; there
-is no local server to start.
-
-## Things you do not need to worry about
-
-- You do not need to buy a Windows signing certificate for personal use.
-- You do not need to run Cloudflare every time Cubeon starts.
-- You do not need to manually copy Friends mod jars into the AppImage.
-- You do not need to understand PyInstaller to use the finished app.
-- Crash reporting is off unless it is explicitly enabled and configured.
-
-## Technical notes
-
-Developers and agents can read `agents/docs/module-map.md`,
-`agents/docs/production-readiness-gaps.md`, `worker/README.md`, and
-`agents/docs/guide-worker-backend.md`. Most users only need this file.
+Building or maintaining a release is covered in the
+[build guide](release/build.md), not required for normal use.

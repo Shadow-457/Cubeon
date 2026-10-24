@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible problem with Cubeon.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include enough detail to reproduce the problem. Remove credentials, identity data, and private server addresses from attachments.
+        Report security vulnerabilities privately using the [security policy](https://github.com/Shadow-457/Cubeon/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Cubeon version
+      description: For source builds, include the commit if known.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS version or distribution; include the desktop session or GPU for rendering issues.
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Installer or system package
+        - AppImage
+        - Portable archive
+        - Source checkout
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: game_instance
+    attributes:
+      label: Minecraft version and loader
+      description: Only needed when the problem concerns a game instance.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Start from opening the app and describe the shortest reproducible sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Attach a screenshot or short recording for a visual problem.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Include only relevant, redacted lines from cubeon.log or the terminal.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues for the same problem.
+          required: true
+        - label: I removed credentials and private identity data from this report.
+          required: true

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title description">
+  <title id="title">Cubeon</title>
+  <desc id="description">Minecraft Java Edition launcher by Ylet, with the green Cubeon mark on a dark background.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#101410"/>
+      <stop offset="1" stop-color="#1b281c"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#a6d065" stroke-opacity="0.045"/>
+    </pattern>
+    <clipPath id="corners">
+      <rect width="1280" height="320" rx="20"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#corners)">
+    <rect width="1280" height="320" fill="url(#background)"/>
+    <rect x="760" width="520" height="320" fill="url(#grid)"/>
+    <circle cx="1080" cy="160" r="136" fill="#a6d065" fill-opacity="0.035"/>
+    <g font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+      <text x="64" y="73" fill="#a6d065" font-size="12" font-weight="600" letter-spacing="2.4">MINECRAFT JAVA EDITION</text>
+      <text x="60" y="155" fill="#f1f4ee" font-size="76" font-weight="700" letter-spacing="-2">Cubeon</text>
+      <text x="64" y="198" fill="#b7c2b4" font-size="23">Versions, mods, and cosmetics.</text>
+      <path d="M64 230H112" stroke="#a6d065" stroke-opacity="0.6"/>
+      <text x="64" y="264" fill="#859481" font-size="14">Linux · Windows · macOS</text>
+      <text x="290" y="264" fill="#859481" font-size="14">Developed by Ylet</text>
+    </g>
+    <ellipse cx="1081" cy="281" rx="92" ry="11" fill="#080b08" fill-opacity="0.35"/>
+    <g transform="translate(846 -20) scale(0.92)" stroke="#12140f" stroke-width="3" stroke-linejoin="round">
+      <polygon points="256,100 358,156 256,212 154,156" fill="#a6d065"/>
+      <polygon points="154,156 256,212 256,324 154,268" fill="#628a38"/>
+      <polygon points="256,212 358,156 358,268 256,324" fill="#3e5a22"/>
+    </g>
+  </g>
+  <rect x="0.5" y="0.5" width="1279" height="319" rx="19.5" fill="none" stroke="#33402f" stroke-opacity="0.7"/>
+</svg>

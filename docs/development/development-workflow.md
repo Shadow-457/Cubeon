@@ -1,78 +1,64 @@
-# Development Workflow
+[Documentation](../README.md) / Development
 
-## Branching Strategy
+# Development workflow
 
-- **main** - stable, deployable
-- Feature branches - `feature/<description>`
-- Bug fixes - `fix/<issue-number>-<description>`
-- Release tags - `vN.N.N` (e.g., `v1.2.3`)
+For issue reports and pull requests, start with the
+[contribution guide](../../CONTRIBUTING.md). For source work, follow
+[Development setup](setup.md). Keep a change focused on one
+problem, and include enough information for someone else to reproduce it.
 
-## Code Standards
+## Making a change
 
-### Python
-- Type hints on all public functions
-- Docstrings for modules, classes, and public methods
-- `ruff` for linting (run `ruff check .`)
-- No `except:` bare clauses (use `except Exception:`)
-- No mutable default arguments
+1. Check existing issues and nearby tests before adding new behavior.
+2. Follow the surrounding code's style and module boundaries.
+3. Add a regression check for a bug fix or changed contract.
+4. Update the guide or protocol reference affected by the change.
 
-### Java (mod/)
-- Java 17 bytecode target (all brackets)
-- `-Xlint:all` clean compile
-- Fabric Loom 1.14.10
-- One jar per bracket in `mod/brackets.json`
+Avoid unrelated refactors, generated build output, and new dependencies
+unless the change needs them. The repository does not currently include a
+shared Ruff, mypy, or Pyright configuration.
 
-### JavaScript (worker/)
-- ES modules (`type: module` in package.json)
-- No external deps for tests (stub KV)
-- Cloudflare Workers compatible
+## Boundaries to preserve
 
-## Testing Before Commit
+- UI builders live in `ui/`; application wiring lives in `main.py`.
+- Background UI writes use `cubeon/thread_safe_ui.py`. Do not call a whole-page
+  update from a worker thread to refresh one control.
+- Shared downloads must not mix the active content of different instances.
+- Persistent state uses the existing atomic-write helpers.
+- Client and Worker changes must preserve their protocol contract.
+- Mod version routing is defined in `mod/brackets.json`.
+
+See [Architecture](../architecture/overview.md) for the relevant modules.
+
+## Verification
+
+Run the most relevant test first, then the smoke gate:
 
 ```bash
-# 1. Syntax + imports + contracts + control flow + headless runtime
+python tools/test_ui_smoke.py
 python tools/test_mega_smoke.py
-
-# 2. Static checks only (fast)
-python tools/test_mega_smoke.py --static
-
-# 3. Specific area tests
-python tools/test_friends_service.py    # Friends + bridge
-python tools/test_ui_smoke.py           # UI tabs
-python tools/test_mod_compile.py        # Mod compilation
-python tools/test_mod_matrix.py         # Bracket routing
-
-# 4. Worker tests
-cd worker && node test-worker.mjs
 ```
 
-## Pull Request Checklist
+For a broader regression run, use `python tools/test_mega_smoke.py --suites`.
+For Worker changes, run `node worker/test-worker.mjs` and the affected
+client contract tests. For mod changes, run the Java compile and version
+matrix checks listed in [Testing](testing.md).
 
-- [ ] All tests pass (`test_mega_smoke.py`)
-- [ ] No new bare `except:` clauses
-- [ ] No mutable default arguments
-- [ ] Type hints on new public functions
-- [ ] Docstrings updated for changed behavior
-- [ ] Worker protocol parity maintained (if touching friends/invites/skins)
-- [ ] `mod/brackets.json` updated if Minecraft version support changed
-- [ ] CHANGELOG updated (if user-facing change)
+Headless tests cannot validate visual smoothness, a platform's window
+behavior, or an actual Minecraft launch. Record manual checks separately.
 
-## Code Review Focus Areas
+## Pull requests
 
-1. **Security**: No secrets in code, no SQL injection, no path traversal
-2. **Atomic writes**: All JSON state via `atomicio.write_json()` or `os.replace()`
-3. **Thread safety**: `_chat_lock`, `_metadata_lock`, `_sync_lock`, `_state_lock` usage
-4. **Error handling**: Human-readable messages, no raw exceptions in UI
-5. **Test coverage**: New code has regression tests
+Describe the problem, the change, and the commands you ran. Include a real
+screenshot or short recording for a visible UI change. Note any failing or
+skipped checks rather than describing an incomplete run as passing.
 
-## Release Process
+Do not include credentials, player identity files, local paths belonging to
+one machine, or bundled game downloads.
 
-See `docs/release/build.md` and `docs/release/release-checklist.md`.
+## Releases
 
-## Debugging Workflow
-
-1. **Reproduce** with `tools/app_driver.py script <steps.json>`
-2. **Isolate** with `tools/test_fuzz.py` (hostile corpus)
-3. **Visual debug** with `tools/fuzz_visual.py --bots 4`
-4. **Logs**: `tail -f ~/.cubeon_launcher/cubeon.log`
-5. **Inspector**: `CUBEON_INSPECT=1 python main.py` → F12
+A push to `main` can start the release workflow. Release publication is a
+maintainer operation, separate from submitting a change. Follow
+the [build guide](../release/build.md) and
+[release checklist](../release/release-checklist.md).
