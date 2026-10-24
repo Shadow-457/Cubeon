@@ -175,7 +175,9 @@ case "$cmd" in
         [ -f "$RELSTATE/releases/$tag" ] && { echo "422 already_exists" >&2; exit 1; }
         case " $* " in *" --verify-tag "*) ;; *) echo "gh: --verify-tag missing" >&2; exit 1;; esac
         case " $* " in *" --draft "*) ;; *) echo "gh: --draft missing" >&2; exit 1;; esac
-        touch "$RELSTATE/releases/$tag"; echo "created draft $tag";;
+        touch "$RELSTATE/releases/$tag"
+        case " $* " in *" --prerelease "*) touch "$RELSTATE/prerelease/$tag";; esac
+        echo "created draft $tag";;
       upload)
         tag="$1"; shift || true
         [ -f "$RELSTATE/releases/$tag" ] || { echo "gh: no such release" >&2; exit 1; }
@@ -227,6 +229,8 @@ author|body|createdAt|publishedAt|tarballUrl|zipballUrl|targetCommitish|uploadUr
         [ -f "$RELSTATE/releases/$tag" ] || { echo "gh: not found" >&2; exit 1; }
         case " $* " in *" --draft=false "*) touch "$RELSTATE/published/$tag";; esac
         case " $* " in *" --draft=true "*) rm -f "$RELSTATE/published/$tag";; esac
+        # --prerelease is what keeps a beta out of /releases/latest.
+        case " $* " in *" --prerelease "*) touch "$RELSTATE/prerelease/$tag";; esac
         case " $* " in *" --latest "*) touch "$RELSTATE/latest/$tag";; esac;;
       *) echo "gh-stub: unhandled release $sub" >&2; exit 1;;
     esac;;
@@ -247,6 +251,7 @@ class Sim:
         self.home = self.dir / "home"
         self.log = self.dir / "last.log"
         for d in (self.state / "releases", self.state / "published",
+                  self.state / "prerelease",
                   self.state / "assets", self.state / "latest", self.bin, self.home):
             d.mkdir(parents=True, exist_ok=True)
         # The sandbox gets exactly one tool: the real one. Nothing else is
@@ -384,8 +389,12 @@ try:
     check("the bump commit's parent is the pushed commit",
           sim.git("rev-parse", "HEAD^") == first)
     check("the release is a DRAFT until publish", not sim.has("published", "v1.1.3"))
-    check("the site's display text was bumped",
-          (sim.work / "web" / "index.html").read_text().count("v1.1.3") == 2)
+    # 1.1.3 is a BETA (patch != 0): the site advertises the last STABLE
+    # (/releases/latest excludes prereleases), so it must not move. The stable
+    # case is section 6b.
+    check("a beta leaves the site on the last stable",
+          (sim.work / "web" / "index.html").read_text().count("v1.1.2") == 2
+          and "v1.1.3" not in (sim.work / "web" / "index.html").read_text())
     check("the tag name matches the version the app now reports (updater contract)",
           sim.git("rev-parse", "v1.1.3^{commit}", cwd=sim.origin)
           == sim.git("rev-parse", "HEAD"))
@@ -447,6 +456,16 @@ try:
     check("stamped the tree to match the tag",
           'APP_VERSION = "1.5.0"' in (sim.work / "cubeon" / "updater.py").read_text())
 
+    section("6b. a STABLE (X.Y.0) does stamp the website")
+    sim.git("tag", "v1.6.0")
+    sim.git("push", "-q", "origin", "refs/tags/v1.6.0")
+    rc = sim.run_step(RELEASE_STEP, "refs/tags/v1.6.0")
+    check("the step succeeds", rc == 0, sim.log.read_text()[-400:])
+    check("released 1.6.0", sim.released("") == "1.6.0", sim.log.read_text()[-400:])
+    check("the site's display text moved to the stable",
+          (sim.work / "web" / "index.html").read_text().count("v1.6.0") == 2,
+          (sim.work / "web" / "index.html").read_text())
+
     section("7. publish refuses an incomplete release")
     COMPLETE = ["Cubeon-Windows-x64-Setup.exe", "Cubeon-Windows-x64.zip",
                 "Cubeon-macOS.zip", "Cubeon-x86_64.AppImage",
@@ -470,7 +489,11 @@ try:
     # older failed build): publishing the older one must not drag `latest` back.
     (sim.state / "published" / "v1.1.5").touch()
     env = sim.env()
-    env.update({"TAG": "v1.1.3", "GITHUB_REF": "refs/heads/main"})
+    # CHANNEL is one of the workflow's outputs (tools/release_version.py
+    # channel). This first run is the STABLE branch on purpose: latest-forward
+    # only exists there. The beta branch is checked separately below.
+    env.update({"TAG": "v1.1.3", "CHANNEL": "stable",
+                "GITHUB_REF": "refs/heads/main"})
     (sim.state / "assets" / "v1.1.3").write_text("\n".join(COMPLETE) + "\n",
                                                  encoding="utf-8")
     step = sim.dir / "step.sh"
@@ -486,9 +509,22 @@ try:
           sim.has("published", "v1.1.3") and not sim.has("latest", "v1.1.3"))
     check("the public release kept `latest`",
           not sim.has("latest", "v1.1.3"))
+
+    section("8b. a BETA is published as a prerelease and never as Latest")
     (sim.state / "assets" / "v1.5.0").write_text(
         "\n".join(COMPLETE[:-1]) + "\ncubeon_1.5.0_amd64.deb\n", encoding="utf-8")
     env["TAG"] = "v1.5.0"
+    env["CHANNEL"] = "beta"
+    rc = subprocess.run(["bash", str(step)], cwd=sim.work, env=env,
+                        capture_output=True, text=True)
+    check("the publish step exits 0 for a beta",
+          rc.returncode == 0, detail=rc.stderr.strip() or rc.stdout.strip())
+    check("the beta is public, marked prerelease, and not Latest",
+          sim.has("published", "v1.5.0") and sim.has("prerelease", "v1.5.0")
+          and not sim.has("latest", "v1.5.0"))
+
+    section("8c. a STABLE ahead of the public one does become Latest")
+    env["CHANNEL"] = "stable"
     rc = subprocess.run(["bash", str(step)], cwd=sim.work, env=env,
                         capture_output=True, text=True)
     check("the publish step exits 0 when it publishes as Latest",
