@@ -24,6 +24,7 @@ background download; when it lands, the caller's face-availability token
 and the next repaint shows the face.
 """
 import base64
+from collections import OrderedDict
 import os
 import re
 import threading
@@ -54,6 +55,8 @@ _RETRY_LOCAL = 60.0
 _lock = threading.Lock()
 _missed: dict[str, float] = {}   # lowercased name -> monotonic retry-at deadline
 _inflight: set[str] = set()
+_sources = OrderedDict()
+_SOURCE_LIMIT = 128
 
 
 def url(name: str) -> "str | None":
@@ -119,13 +122,27 @@ def get_face_b64(name: str) -> "str | None":
     A cache miss kicks off the one background download (subject to the
     negative cache) so a LATER call - the next poll repaint - can show it.
     Never blocks, never raises: an avatar is cosmetic."""
+    name = (name or "").strip()
     if url(name) is None:
         return None
     path = _dest(name)
     try:
-        if os.path.isfile(path) and os.path.getsize(path) > 0:
+        stat = os.stat(path)
+        if stat.st_size > 0:
+            stamp = (stat.st_mtime_ns, stat.st_size)
+            with _lock:
+                cached = _sources.get(path)
+                if cached and cached[0] == stamp:
+                    _sources.move_to_end(path)
+                    return cached[1]
             with open(path, "rb") as f:
-                return base64.b64encode(f.read()).decode("ascii")
+                encoded = base64.b64encode(f.read()).decode("ascii")
+            with _lock:
+                _sources[path] = (stamp, encoded)
+                _sources.move_to_end(path)
+                while len(_sources) > _SOURCE_LIMIT:
+                    _sources.popitem(last=False)
+            return encoded
     except OSError:
         pass
     _schedule(name)

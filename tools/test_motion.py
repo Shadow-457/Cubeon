@@ -146,8 +146,10 @@ check("the resting scale is written at build time",
 
 hover(c)
 check("hovering swaps the fill", c.bgcolor == "#202020", c.bgcolor)
-check("hovering lifts the control",
+check("hovering leaves the control's size unchanged",
       abs(_scale_value(c) - motion.LIFT) < 1e-9, _scale_value(c))
+check("default hover and press do not zoom", motion.LIFT == 1.0 and motion.PRESS == 1.0)
+check("default clicks start no press animation", not callable(getattr(c, "on_tap_down", None)))
 hover(c, False)
 check("leaving restores the fill and the scale",
       c.bgcolor == "#101010" and _scale_value(c) == 1.0,
@@ -201,10 +203,10 @@ else:
     p = motion.polish(ft.Container(bgcolor="#101010"), "#101010", "#202020")
     hover(p)
     tap_down(p)
-    check("pressing dips the control",
+    check("default pressing keeps the control at its resting size",
           abs(_scale_value(p) - motion.PRESS) < 1e-9, _scale_value(p))
     time.sleep(motion.RELEASE_MS / 1000.0 + 0.12)
-    check("the press releases itself back to the lifted rest",
+    check("default pressing needs no delayed resize",
           abs(_scale_value(p) - motion.LIFT) < 1e-9, _scale_value(p))
     hover(p, False)
     tap_down(p)
@@ -238,20 +240,19 @@ g = ft.Container(bgcolor="#101010", border=theme.glass_edge(),
 theme.attach_hover(g, "#101010", "#202020")
 _g_rest = (g.border_radius, g.border.top.color, g.shadow)
 hover(g)
-check("glass: the corners open up",
+check("glass: the corners stay fixed",
       g.border_radius == theme.RADIUS + theme.GLASS_RADIUS_STEP, g.border_radius)
 check("glass: the rim lights up", g.border.top.color == theme.GLASS_RIM_HI)
-check("glass: a halo rises under the panel",
-      g.shadow is not None and g.shadow == theme.glass_hover()["halo"])
+check("glass: hovering does not change the shadow", g.shadow is _g_rest[2])
 hover(g, False)
 check("glass: hovering out puts all three back",
       (g.border_radius, g.border.top.color, g.shadow) == _g_rest)
 
 motion.set_level("reduced")
 hover(g)
-check("reduced: the light still moves (rim + halo), the geometry does not",
+check("reduced: the rim fades without changing geometry",
       g.border.top.color == theme.GLASS_RIM_HI
-      and g.border_radius == theme.RADIUS and g.shadow is not None,
+      and g.border_radius == theme.RADIUS and g.shadow is _g_rest[2],
       f"{g.border_radius} {g.border.top.color}")
 hover(g, False)
 motion.set_level("full")
@@ -497,11 +498,10 @@ check("the old inline play-button hover wiring is gone",
       "on_hover=_on_play_hover," not in _main_src)
 
 _mp_src = open(os.path.join(REPO, "ui", "modpacks_tab.py")).read()
-check("the modpack browse cascades its results in",
-      "motion.stagger(results_view.controls)" in _mp_src)
-check("... and its loading placeholder breathes",
-      "motion.shimmer([loading_row])" in _mp_src
-      and "motion.stop_shimmer()" in _mp_src)
+check("modpack refreshes do not replay an entrance cascade",
+      "motion.stagger(results_view.controls)" not in _mp_src)
+check("... and loading uses a native spinner without a pulse worker",
+      "ft.ProgressRing(" in _mp_src and "motion.shimmer(" not in _mp_src)
 # The browse half of the tab is everything before the row builders; the install
 # path (later in the file) legitimately PREFERS the Play tab's version.
 _mp_browse_src = _mp_src.split("def build_pack_row")[0]
@@ -511,10 +511,10 @@ check("the modpack browse is NOT filtered by the Play tab's version "
       "'no packs found')",
       "mc_version=" not in _mp_browse_src)
 _mods_src = open(os.path.join(REPO, "ui", "mods_tab.py")).read()
-check("the mod browse cascades its results in",
-      "motion.stagger(browse_results_view.controls)" in _mods_src)
-check("... and its loading placeholder breathes",
-      "motion.shimmer([loading_row])" in _mods_src)
+check("mod browse refreshes do not replay an entrance cascade",
+      "motion.stagger(browse_results_view.controls)" not in _mods_src)
+check("... and loading uses a native spinner without a pulse worker",
+      "ft.ProgressRing(" in _mods_src and "motion.shimmer(" not in _mods_src)
 
 _set_src = open(os.path.join(REPO, "ui", "settings_tab.py")).read()
 check("the Settings row exists", '"Motion",' in _set_src)

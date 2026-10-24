@@ -37,6 +37,36 @@ from cubeon import thread_safe_ui
 
 # Version art keeps a slightly rounder corner than the 8px controls.
 ART_RADIUS = 12
+BANNER_FADE_MS = 180
+
+
+class VersionBanner:
+    """Cross-fade only the backdrop, leaving the Play card's controls mounted."""
+
+    def __init__(self, source="titleimg.jpg"):
+        self.source = source
+        self.control = ft.AnimatedSwitcher(
+            content=self._frame(source),
+            transition=ft.AnimatedSwitcherTransition.FADE,
+            duration=BANNER_FADE_MS, reverse_duration=BANNER_FADE_MS,
+            switch_in_curve=ft.AnimationCurve.EASE_IN_OUT,
+            switch_out_curve=ft.AnimationCurve.EASE_IN_OUT,
+            expand=True, data="play-banner",
+        )
+
+    @staticmethod
+    def _frame(source):
+        return ft.Container(image=ft.DecorationImage(src=source, fit=ft.BoxFit.COVER))
+
+    def set_source(self, source):
+        source = source or "titleimg.jpg"
+        with thread_safe_ui.TREE_LOCK:
+            if source == self.source:
+                return False
+            self.source = source
+            self.control.content = self._frame(source)
+        thread_safe_ui.refresh(self.control)
+        return True
 
 
 def _chip(label, *, accent=False, danger=False):
@@ -754,4 +784,4 @@ class InstancesManager:
                 pass
 
 
-__all__ = ["VersionPicker", "InstanceCards", "InstancesManager", "format_release"]
+__all__ = ["VersionBanner", "VersionPicker", "InstanceCards", "InstancesManager", "format_release"]

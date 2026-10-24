@@ -345,13 +345,21 @@ Durable consequences — do not re-derive these:
     test_version_art_cache finds them.
   - `main.py` keeps the `ft.Dropdown` as the source of truth; `refresh_version_list`
     feeds the picker richer entry dicts and mirrors the plain option text.
+  - Explicit installed-instance picks from Jump back in, the version picker,
+    and the Instances manager share `_pick_version()`. It selects the
+    instance's own loader before refreshing dependent views and clears any
+    pending loader install. Ordinary refreshes/manual loader toggles do not
+    use this path, so their intentional loader choice remains intact.
   - `on_rename_instance`/`on_delete_instance` take an optional `vid=` so the
     manager can target any instance (not just the selected one).
   - The Play hero card's BACKGROUND is the selected version's art (2026-10-23):
-    `hero_art` is a full-card `ft.Image(fit=COVER, expand=True)` inside a
-    `ft.Stack` [art layer, gradient scrim, padded content]. The separate
-    version-spotlight card below the hero is GONE - `_refresh_hero_banner` only
-    swaps `hero_art.src`; do not reintroduce a second art surface.
+    `hero_art` is a `ui.versions.VersionBanner` inside a `ft.Stack` [art layer,
+    gradient scrim, padded content]. Its native 180ms fade swaps only the
+    background frame; identical sources do not replay it. The controls stay
+    mounted. Do not reintroduce a separate version-spotlight card.
+  - Loader availability notices occupy a fixed 18px slot. Instance title and
+    version labels are bounded single-line fields, so Jump back in cannot
+    resize the hero while checking loaders or selecting a long instance ID.
   - The hero header carries a "Folder" button (`folder_instance_btn`) that
     opens `cubeon.paths.MINECRAFT_DIR` via `_open_any_folder` (late-bound, same
     opener as Settings → Minecraft files); it stays enabled with no install
@@ -1740,8 +1748,10 @@ facts belong HERE, not in diary notes.
   single boundary for listing, bounded preview decoding, safe clipboard file
   hand-off, safe deletion, and opening that folder. The Screenshots pane in
   Settings uses this boundary; it is selected from the Settings section rail,
-  never from the top-level nav. Never pass arbitrary paths into Flet images or
-  delete callbacks.
+  never from the top-level nav. Settings initializes every pane's visibility
+  from its active section, so the gallery is hidden on the initial Game
+  versions page as well as on other sections. Never pass arbitrary paths into
+  Flet images or delete callbacks.
 - **Gallery perf (2026-09-21)**: both hot paths are cached in the store
   module. (a) `list_screenshots()` is memoized against the screenshots
   DIR's mtime+inode (`_dir_signature`, correct because only the game + the
@@ -4190,7 +4200,9 @@ Cubeon cape resolves.
   is the hover/press engine and `theme.attach_hover()` is a thin wrapper over it.
   It snapshots the control's OWN resting `border_radius`/`border`/`shadow` first,
   then swaps two PREPARED states with ONE write per gesture (the Phase 4
-  one-flush rule): lift (`ft.Scale`), press dip, rim, halo, corner morph. Paint
+  one-flush rule): fill and rim fades. Default lift/press factors are 1.0,
+  corners and shadows stay fixed, and default clicks start no press timer.
+  Explicit callers may opt into transforms. Paint
   only: it never resizes layout, never rebuilds the control, and never wraps
   `on_click` (the nav and the version picker identify their controls by
   `on_click.__defaults__`). A control whose `active()` is False keeps the fill

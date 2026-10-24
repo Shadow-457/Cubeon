@@ -177,6 +177,9 @@ InstanceCards.__init__ = _capturing_init
 stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")   # the row lives on the Play tab
+check("the Play banner mounts a native fade host", any(
+    type(control).__name__ == "AnimatedSwitcher" and control.data == "play-banner"
+    for control in every_control(page)))
 
 
 def find_cards():

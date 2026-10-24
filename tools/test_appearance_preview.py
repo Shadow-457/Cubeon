@@ -19,6 +19,7 @@ from cubeon import skins
 from cubeon.appearance import CharacterModel, Face
 from cubeon.appearance_scene import order_faces, _intersection, _area
 from ui.appearance_preview import AppearancePreview
+from ui.settings_tab import SECTIONS
 from _fuzz_common import every_control, walk
 import app_driver
 
@@ -153,9 +154,17 @@ check("Cosmetics mounts exactly one draggable 3D character", sum(control.data ==
 check("Cosmetics keeps Skin and Cape, not Images", not any(getattr(control, "value", None) == "Images" for control in controls))
 driver.open_tab("settings")
 settings = next(control for control in every_control(driver.page) if callable(getattr(control, "select_section", None)))
-settings.select_section("images")
 panes = inspect.getclosurevars(settings.select_section).nonlocals["panes"]
+check("Settings initially shows only Game versions, not screenshots",
+      panes["versions"].visible and all(not pane.visible for key, pane in panes.items() if key != "versions"))
+check("Screenshots has its own Settings section", any(key == "images" and label == "Screenshots" for key, icon, label in SECTIONS))
+settings.select_section("images")
 check("Settings owns the screenshot gallery", panes["images"].visible and all(not pane.visible for key, pane in panes.items() if key != "images"))
+settings.select_section("memory")
+check("leaving Screenshots hides the gallery", panes["memory"].visible and all(not pane.visible for key, pane in panes.items() if key != "memory"))
+driver.open_tab("play")
+driver.open_tab("settings")
+check("returning to Settings keeps the selected section without showing screenshots", panes["memory"].visible and not panes["images"].visible)
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

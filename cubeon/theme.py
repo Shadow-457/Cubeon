@@ -170,7 +170,7 @@ GLASS_RIM = ft.Colors.with_opacity(0.12, "#FFFFFF")        # panel outline: a li
 GLASS_RIM_HI = ft.Colors.with_opacity(0.30, "#FFFFFF")     # ... and its hovered state
 GLASS_HALO = ft.Colors.with_opacity(0.30, ACCENT)          # green bloom under a hovered panel
 GLASS_HALO_PX = 14
-GLASS_RADIUS_STEP = 3        # how far a hovered panel's corners open up
+GLASS_RADIUS_STEP = 0        # keep corners fixed while hovering
 
 
 def glass_edge():
@@ -199,8 +199,8 @@ def card(*, padding=24, hero=False, blur=GLASS_BLUR):
 
 def glass_hover():
     """The hover state of a glass control, as the plain dict cubeon/motion.py's
-    polish() reads: the corners open up, the rim catches the light and a green
-    halo rises underneath. Kept here (not in motion) because it is palette.
+    polish() reads: the rim catches the light without resizing the control
+    or changing its shadow. Kept here because it is palette.
 
     motion.py looks this up through the pinned slot at the bottom of the module
     rather than importing this module: theme imports motion, so the reverse
@@ -208,8 +208,7 @@ def glass_hover():
     return {
         "radius": GLASS_RADIUS_STEP,
         "rim": GLASS_RIM_HI,
-        "halo": ft.BoxShadow(blur_radius=GLASS_HALO_PX, spread_radius=0,
-                             color=GLASS_HALO),
+        "halo": None,
     }
 
 
@@ -299,10 +298,9 @@ def attach_hover(container, base_bg, hover_bg):
     ~35 call sites across every tab, all of them the same one expression.
 
     The work itself lives in cubeon/motion.py (2026-10-18). On top of the
-    original fill swap it now fades the fill instead of snapping it, lifts the
-    control a hair while hovered, and dips it while pressed - so every row,
-    card and hand-built button in the launcher responds the same way, and
-    Settings > Display > Motion can calm it (or switch it off) app-wide.
+    original fill swap it fades the fill and border colour without zooming,
+    bouncing, or morphing the control. Geometry stays stable on every row,
+    card and hand-built button in the launcher.
     Returns the container so it can be used inline where it is created.
     """
     return motion.polish(container, base_bg, hover_bg)

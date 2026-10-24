@@ -204,6 +204,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     _roster_sig = {"v": None}
     _identity_sig = {"v": None}
     _header_sig = {"v": None}
+    _friend_rows = {}
+    _request_rows = {}
+    _you_picture = {"key": None, "src": None}
     _last_day = {}
     _last_dir = {}
     # Optimistic sends: canon friend -> [{"text", "wrap", "ts", "t0",
@@ -473,65 +476,61 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             h = (h * 31 + ord(ch)) & 0xFFFFFFFF
         return AVATAR_COLORS[h % len(AVATAR_COLORS)]
 
-    def _paint_avatar(box, name, size, online=None):
+    def _paint_avatar(box, name, size, online=None, source=None):
         """Fills an existing rounded-square avatar with the player's Cubeon
         face (fetched from the skins Worker, disk-cached by cubeon.faces)
         when one exists, falling back to the name's initial in a stable
         per-name color. `online=True` rings it in the presence green, which
         is the one place green is allowed to appear here."""
+        face = source if source is not None else _faces.get_face_b64(name)
         color = _avatar_color(name)
-        box.width = box.height = size
-        box.border_radius = RADIUS
-        box.border = ft.border.Border.all(
-            2 if online else 1, ACCENT if online else CARD_BORDER)
-        box.alignment = ft.Alignment.CENTER
-        face = _faces.get_face_b64(name)
-        if face:
-            box.bgcolor = SURFACE_HI
-            box.content = ft.Image(src=face, width=size - 2, height=size - 2,
-                                   fit=ft.BoxFit.COVER,
-                                   border_radius=RADIUS)
-        else:
-            box.bgcolor = ft.Colors.with_opacity(0.16, color)
-            box.content = ft.Text((name[:1] or "?").upper(),
-                                  size=int(size * 0.42), color=color,
-                                  weight=ft.FontWeight.W_700)
+        with thread_safe_ui.TREE_LOCK:
+            box.width = box.height = size
+            box.border_radius = RADIUS
+            box.border = ft.border.Border.all(
+                2 if online else 1, ACCENT if online else CARD_BORDER)
+            box.alignment = ft.Alignment.CENTER
+            if face:
+                box.bgcolor = SURFACE_HI
+                if isinstance(box.content, ft.Image):
+                    if box.content.src != face:
+                        box.content.src = face
+                else:
+                    box.content = ft.Image(
+                        src=face, width=size - 2, height=size - 2,
+                        fit=ft.BoxFit.COVER, border_radius=RADIUS,
+                        gapless_playback=True)
+            else:
+                box.bgcolor = ft.Colors.with_opacity(0.16, color)
+                if not isinstance(box.content, ft.Text):
+                    box.content = ft.Text(size=int(size * 0.42),
+                                          weight=ft.FontWeight.W_700)
+                box.content.value = (name[:1] or "?").upper()
+                box.content.color = color
 
     def _avatar(name, size, online=None):
         box = ft.Container()
         _paint_avatar(box, name, size, online)
         return box
 
-    def _set_you_avatar(name):
-        """Your identity-card avatar: the profile picture you set on the
-        Profile tab when you have one, else your Cubeon skin face (the
-        same /faces/<name>.png every friend card shows), else the
-        color-initial chip."""
-        you_avatar.width = you_avatar.height = 34
+    def _get_you_picture():
+        """Read the uploaded profile picture only when its file changes."""
         pfp_path = _profile.get_profile_picture_path(cfg)
-        if pfp_path:
-            # ft.Image.src only accepts asset-relative paths or URLs in this
-            # Flet version - an absolute path under ~/.cubeon_launcher fails
-            # to load and renders as a permanently blank square (see
-            # skin_tab.render_preview_for for the same discovery). Feed it
-            # base64 bytes instead; if the file can't be read, fall back to
-            # the color-initial chip so the card is never an empty box.
-            try:
-                with open(pfp_path, "rb") as f:
-                    b64 = base64.b64encode(f.read()).decode("ascii")
-            except OSError:
-                b64 = None
-            if b64:
-                you_avatar.bgcolor = SURFACE_HI
-                you_avatar.border = ft.border.Border.all(1, CARD_BORDER)
-                you_avatar.alignment = ft.Alignment.CENTER
-                you_avatar.content = ft.Image(src=b64, width=32, height=32,
-                                              fit=ft.BoxFit.COVER,
-                                              border_radius=RADIUS)
-            else:
-                _paint_avatar(you_avatar, name, 34)
-        else:
-            _paint_avatar(you_avatar, name, 34)
+        if not pfp_path:
+            _you_picture.update(key=None, src=None)
+            return None
+        try:
+            stat = os.stat(pfp_path)
+            key = (pfp_path, stat.st_mtime_ns, stat.st_size)
+            if key == _you_picture["key"]:
+                return _you_picture["src"]
+            with open(pfp_path, "rb") as picture:
+                source = base64.b64encode(picture.read()).decode("ascii")
+            _you_picture.update(key=key, src=source)
+            return source
+        except OSError:
+            _you_picture.update(key=None, src=None)
+            return None
 
     def _pill(label, fill, fg, on_click):
         return ft.Container(
@@ -621,12 +620,32 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         else:
             preview, preview_color = _presence(f)
         stamp = _short_stamp(last_ts) if last_ts else ""
+        cached = _friend_rows.get(name)
+        if cached:
+            row = cached["row"]
+            _paint_avatar(cached["avatar"], label, 34, online)
+            cached["title"].value = label
+            cached["uid"].value = _uid_line(uid)
+            cached["preview"].value = preview
+            cached["preview"].color = preview_color
+            cached["stamp"].value = stamp
+            cached["stamp"].color = ACCENT if unread else TEXT_FAINT
+            cached["stamp"].tooltip = _full_date(last_ts) if last_ts else None
+            cached["badge"].visible = bool(unread)
+            cached["badge"].content.value = str(unread) if unread < 100 else "99+"
+            row.bgcolor = _row_bg(is_sel)
+            row.tooltip = _recipient(name, f)
+            attach_hover(row, _row_bg(is_sel), ROW_HOVER)
+            return row
+        avatar = _avatar(label, 34, online)
+        badge = _unread_badge(unread)
+        badge.visible = bool(unread)
         trailing = ft.Column(
             [
                 ft.Text(stamp, size=10,
                         color=ACCENT if unread else TEXT_FAINT,
                         tooltip=_full_date(last_ts) if last_ts else None),
-                _unread_badge(unread) if unread else ft.Container(),
+                badge,
             ],
             spacing=3, tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.END,
@@ -634,7 +653,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         row = ft.Container(
             content=ft.Row(
                 [
-                    _avatar(label, 34, online),
+                    avatar,
                     ft.Column(
                         [
                             ft.Text(label, size=13, color=TEXT,
@@ -662,59 +681,64 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             on_click=lambda e, n=name: _select(n),
         )
         attach_hover(row, _row_bg(is_sel), ROW_HOVER)
+        details = row.content.controls[1].controls
+        _friend_rows[name] = {
+            "row": row, "avatar": avatar, "title": details[0],
+            "uid": details[1], "preview": details[2],
+            "stamp": trailing.controls[0], "badge": badge,
+        }
         return row
 
-    def _request_row(name):
+    def _request_row(name, outgoing=False):
         label, uid = _peer_identity(name)
-        return ft.Container(
+        key = (outgoing, name)
+        cached = _request_rows.get(key)
+        title = f"Waiting on {label}" if outgoing else label
+        if cached:
+            _paint_avatar(cached["avatar"], label, 30)
+            cached["title"].value = title
+            cached["uid"].value = _uid_line(uid)
+            cached["row"].tooltip = _recipient(name)
+            return cached["row"]
+        avatar = _avatar(label, 30)
+        actions = (
+            [_pill("Cancel", None, TEXT_DIM, lambda e, n=name: _cancel_out(n))]
+            if outgoing else [
+                _pill("Accept", ACCENT, ON_ACCENT, lambda e, n=name: _accept(n)),
+                _pill("Decline", None, TEXT_DIM, lambda e, n=name: _decline(n)),
+            ])
+        row = ft.Container(
             tooltip=_recipient(name),
             content=ft.Row(
                 [
-                    _avatar(label, 30),
+                    avatar,
                     ft.Column([
-                        ft.Text(label, size=12, color=TEXT,
-                                weight=ft.FontWeight.W_600, max_lines=1,
+                        ft.Text(title, size=12,
+                                color=TEXT_DIM if outgoing else TEXT,
+                                weight=None if outgoing else ft.FontWeight.W_600,
+                                max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS),
                         ft.Text(_uid_line(uid), size=10, color=TEXT_FAINT,
                                 font_family=FONT_MONO, max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS),
                     ], spacing=1, tight=True, expand=True),
-                    _pill("Accept", ACCENT, ON_ACCENT,
-                          lambda e, n=name: _accept(n)),
-                    _pill("Decline", None, TEXT_DIM,
-                          lambda e, n=name: _decline(n)),
+                    *actions,
                 ],
                 spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            bgcolor=CARD_FILL,
-            border=ft.border.Border.all(1, CARD_BORDER),
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=7),
+            bgcolor=None if outgoing else CARD_FILL,
+            border=None if outgoing else ft.border.Border.all(1, CARD_BORDER),
+            border_radius=None if outgoing else RADIUS,
+            padding=ft.padding.Padding.symmetric(
+                horizontal=8, vertical=4 if outgoing else 7),
         )
-
-    def _outgoing_row(name):
-        label, uid = _peer_identity(name)
-        return ft.Container(
-            tooltip=_recipient(name),
-            content=ft.Row(
-                [
-                    _avatar(label, 30),
-                    ft.Column([
-                        ft.Text(f"Waiting on {label}", size=12, color=TEXT_DIM,
-                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                        ft.Text(_uid_line(uid), size=10, color=TEXT_FAINT,
-                                font_family=FONT_MONO, max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS),
-                    ], spacing=1, tight=True, expand=True),
-                    _pill("Cancel", None, TEXT_DIM,
-                          lambda e, n=name: _cancel_out(n)),
-                ],
-                spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-        )
+        details = row.content.controls[1].controls
+        _request_rows[key] = {
+            "row": row, "avatar": avatar,
+            "title": details[0], "uid": details[1],
+        }
+        return row
 
     # --- rendering -------------------------------------------------------
     def _set_status(text, error=False):
@@ -747,14 +771,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         })
         connected = bool(roster.get("connected"))
         available = bool(roster.get("available"))
-        pfp_path = _profile.get_profile_picture_path(cfg)
-        # Face-availability rides in the sig so a face that finishes
-        # downloading flips the token and the next repaint paints it
-        # (None when your uploaded picture wins - the face is moot then).
-        you_face = None if pfp_path else bool(_faces.get_face_b64(shown))
+        you_source = _get_you_picture() or _faces.get_face_b64(shown)
         sig = (shown, uid, roster.get("you_minecraft_username"),
-               roster.get("you_display_name"), connected, available, pfp_path,
-               you_face)
+               roster.get("you_display_name"), connected, available, you_source)
         if sig == _identity_sig["v"]:
             return
         _identity_sig["v"] = sig
@@ -762,7 +781,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         your_id_text.value = uid or "Waiting for your ID…"
         copy_id_btn.visible = bool(uid)
         you_avatar.tooltip = _uid_line(uid)
-        _set_you_avatar(shown)
+        _paint_avatar(you_avatar, shown, 34, source=you_source)
         conn_dot.bgcolor = (ACCENT if connected
                             else (WARNING if available else DANGER))
         conn_text.value = ("Connected" if connected else
@@ -792,11 +811,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         outgoing = [n for n in outgoing_all if n not in _canceled]
         has_any = bool(incoming or outgoing)
         with thread_safe_ui.TREE_LOCK:
-            requests_col.controls.clear()
-            for name in incoming:
-                requests_col.controls.append(_request_row(name))
-            for name in outgoing:
-                requests_col.controls.append(_outgoing_row(name))
+            active = {(False, name) for name in incoming} | {
+                (True, name) for name in outgoing}
+            for key in list(_request_rows):
+                if key not in active:
+                    del _request_rows[key]
+            requests_col.controls[:] = [
+                _request_row(name) for name in incoming] + [
+                _request_row(name, outgoing=True) for name in outgoing]
         requests_label.visible = has_any
         requests_col.visible = has_any
         thread_safe_ui.refresh(requests_col)
@@ -805,6 +827,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _rebuild_friends(roster):
         friends = [f for f in (roster.get("friends") or [])
                    if isinstance(f, dict) and f.get("name")]
+        active = {f["name"] for f in friends}
         query = (find_field.value or "").strip().lower()
         if query:
             def _match(f):
@@ -813,17 +836,21 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         or (uid and query in uid))
             friends = [f for f in friends if _match(f)]
         with thread_safe_ui.TREE_LOCK:
-            friends_col.controls.clear()
+            for name in list(_friend_rows):
+                if name not in active:
+                    del _friend_rows[name]
+            rows = []
             if not friends and not query:
-                friends_col.controls.append(
+                rows.append(
                     ft.Text("No friends yet. Add one above.", size=12,
                             color=TEXT_FAINT))
             elif not friends:
-                friends_col.controls.append(
+                rows.append(
                     ft.Text("No friend matches that.", size=12,
                             color=TEXT_FAINT))
             for f in friends:
-                friends_col.controls.append(_friend_row(f))
+                rows.append(_friend_row(f))
+            friends_col.controls[:] = rows
         thread_safe_ui.refresh(friends_col)
 
     def _friend_by_name(name):
@@ -839,7 +866,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         f = _friend_by_name(name) or {}
         label, uid = _peer_identity(name, f)
         sub, sub_color = _presence(f)
-        sig = (name, label, uid, sub, sub_color, bool(_faces.get_face_b64(label)))
+        sig = (name, label, uid, sub, sub_color, _faces.get_face_b64(label))
         if sig == _header_sig["v"]:
             return
         _header_sig["v"] = sig
@@ -870,9 +897,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         # disk, so rows kept their initial chip until some unrelated roster
         # change - "I downloaded faces but never see them".
         face_sig = tuple(
-            bool(_faces.get_face_b64(_peer_identity(f.get("name"), f)[0]))
+            _faces.get_face_b64(_peer_identity(f.get("name"), f)[0])
             for f in friend_rows) + tuple(
-            bool(_faces.get_face_b64(_peer_identity(n)[0])) for n in requests)
+            _faces.get_face_b64(_peer_identity(n)[0]) for n in requests)
         sig = (roster.get("friends") or [],
                roster.get("requests_in") or [],
                roster.get("requests_out") or [],

@@ -30,7 +30,6 @@ from cubeon.theme import (  # design system: corner radius, hover helper/tokens/
 )
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
-from cubeon import motion  # entrance cascade + loading shimmer
 from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 
 import launcher_core as core
@@ -58,6 +57,46 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # One install at a time - the whole thing writes to a shared game dir, and
     # two packs installing at once would race each other's version/loader.
     busy = {"value": False}
+    browse_rows = {}
+    installed_rows = {}
+
+    def _remember_row(cache, key, entry):
+        cache[key] = entry
+        if len(cache) > 200:
+            cache.pop(next(iter(cache)))
+
+    def _pack_presentation(pack):
+        description = pack.get("description") or ""
+        if len(description) > 90:
+            description = description[:87] + "..."
+        versions = pack.get("versions") or []
+        selected = state.get("selected_mc_version")
+        line = f"{pack.get('downloads', 0):,} downloads"
+        if selected and versions and selected not in versions:
+            line += "  ·  installs its own Minecraft version"
+        return description, line
+
+    def _pack_icon(url, size):
+        _icons.prefetch(url)
+        if url:
+            return ft.Image(src=_icons.src(url), width=size, height=size,
+                            border_radius=RADIUS, fit=ft.BoxFit.COVER, gapless_playback=True)
+        return ft.Container(width=size, height=size, bgcolor=ROW_HOVER, border_radius=RADIUS,
+                            content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=22),
+                            alignment=ft.Alignment.CENTER)
+
+    def _sync_pack_icon(row, old_url, url, size, installed=False):
+        if old_url == url:
+            return
+        holder = row.content.controls[0]
+        image = holder.content if installed else holder
+        if isinstance(image, ft.Image) and url:
+            _icons.prefetch(url)
+            image.src = _icons.src(url)
+        elif installed:
+            holder.content = _pack_icon(url, size)
+        else:
+            row.content.controls[0] = _pack_icon(url, size)
     # Guards the one-time refresh of the 'Installed packs' list once an install
     # actually starts overwriting the target profile (see status_cb below). A
     # reinstall of an already-listed pack would otherwise keep showing its old
@@ -671,9 +710,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         browse_state["results"] = []
         browse_state["total_pages"] = MAX_PAGES
         browse_state["gen"] = search_gen["v"]
-        results_view.controls.clear()
-        page.update()
-        _load_page(0, search_gen["v"])
+        _render_page()
 
     def installed_pack_tokens() -> set:
         """Punctuation-free tokens of installed modpack *names*, so a Modrinth
@@ -697,18 +734,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         page_num = browse_state["page"]
         if page_num not in browse_state["pages"]:
             # Not fetched yet: show loading and go get just this page.
-            motion.stop_shimmer()
-            results_view.controls.clear()
-            loading_row = ft.Row(
-                [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                 ft.Text("Loading...", size=13, color=TEXT_DIM)],
-                spacing=10,
-            )
-            results_view.controls.append(loading_row)
-            # Let the placeholder breathe while the providers are probed
-            # (motion.shimmer - one shared daemon thread drives it, and it is
-            # stopped the moment the results land below).
-            motion.shimmer([loading_row])
+            if not results_view.controls or isinstance(results_view.controls[0], (ft.Text, ft.Row)):
+                results_view.controls[:] = [ft.Row(
+                    [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
+                     ft.Text("Loading...", size=13, color=TEXT_DIM)], spacing=10)]
+            results_view.disabled = True
             pager_row.visible = False
             page.update()
             _load_page(page_num, browse_state.get("gen"))
@@ -720,25 +750,20 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         results = browse_state["pages"].get(page_num, [])
         browse_state["results"] = results
 
-        results_view.controls.clear()
+        rows = []
         if not results:
-            motion.stop_shimmer()
-            results_view.controls.append(
+            rows.append(
                 ft.Text(browse_state.get("empty_msg", ""), size=13, color=TEXT_DIM))
         else:
-            motion.stop_shimmer()
             installed = installed_pack_tokens()
             for pack in results:
                 title = re.sub(r"[^a-z0-9]+", "", (pack.get("title") or "").lower())
                 slug = re.sub(r"[^a-z0-9]+", "", (pack.get("slug") or "").lower())
                 is_installed = (bool(title) and title in installed) or \
                     (bool(slug) and slug in installed)
-                results_view.controls.append(build_pack_row(pack, is_installed))
-            # The rows are new to the client, so this is their entrance rather
-            # than a gesture: they cascade in instead of appearing all at once
-            # (motion.stagger - opacity 0 is written here, before the repaint
-            # below, and a daemon thread walks them up a few ms apart).
-            motion.stagger(results_view.controls)
+                rows.append(build_pack_row(pack, is_installed))
+        results_view.controls[:] = rows
+        results_view.disabled = False
 
         browse_status.value = f"{len(results)} packs" if results else ""
         if (results and page_num == 0 and not _current_query()
@@ -816,6 +841,19 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         restrained green wash instead of a solid slab - so five rows don't
         stack five loud buttons.
         """
+        key = (pack.get("provider"), str(pack.get("project_id") or pack.get("slug") or pack["title"]))
+        cached = browse_rows.get(key)
+        if cached:
+            metadata, row, sync_action = cached
+            _sync_pack_icon(row, metadata.get("icon_url"), pack.get("icon_url"), 48)
+            metadata.clear()
+            metadata.update(pack)
+            labels = row.content.controls[1].controls
+            labels[0].value = pack["title"]
+            labels[1].value, labels[2].value = _pack_presentation(pack)
+            sync_action(is_installed)
+            return row
+        pack = dict(pack)
         install_btn_text = ft.Text(
             "Installed" if is_installed else "Install",
             size=12.5, weight=ft.FontWeight.W_700,
@@ -829,6 +867,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 spacing=6, tight=True,
             ),
             bgcolor=None if is_installed else ACCENT_TINT,
+            width=136, height=36, alignment=ft.Alignment.CENTER,
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
             ink=False,
@@ -925,9 +964,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                                     _install_chosen_version),
             )
 
-        description = (pack.get("description") or "")
-        if len(description) > 90:
-            description = description[:87] + "..."
+        description, meta_line = _pack_presentation(pack)
 
         # Cheap, advisory-only compatibility hint from the search hit's own
         # `versions` list (already returned by /search - no extra request).
@@ -937,26 +974,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         # of what's shown here. Phrased as information, not a warning: the
         # pack installs its own Minecraft version, so a mismatch with the
         # Play tab is normal and no longer blocks the install.
-        wanted_mc = state.get("selected_mc_version")
-        pack_versions = pack.get("versions") or []
-        known_mismatch = bool(wanted_mc and pack_versions and wanted_mc not in pack_versions)
-        meta_line = f"{pack.get('downloads', 0):,} downloads"
-        if known_mismatch:
-            meta_line += "  ·  installs its own Minecraft version"
-
-        _icons.prefetch(pack.get("icon_url"))  # cache art for the next render
-        icon = (
-            ft.Image(src=_icons.src(pack.get("icon_url")),
-                     width=48, height=48,
-                     border_radius=RADIUS, fit=ft.BoxFit.COVER) if pack.get("icon_url") else
-            ft.Container(width=48, height=48, bgcolor=ROW_HOVER, border_radius=RADIUS,
-                         content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=22),
-                         alignment=ft.Alignment.CENTER)
-        )
+        icon = _pack_icon(pack.get("icon_url"), 48)
 
         # Hover lift: transparent at rest, faint surface under the cursor -
         # same affordance as the mods tab's rows, no permanent slab.
-        return attach_hover(
+        row = attach_hover(
             ft.Container(
                 content=ft.Row(
                     [
@@ -982,6 +1004,21 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             ),
             "transparent", ROW_HOVER,
         )
+
+        def sync_action(installed):
+            nonlocal is_installed
+            is_installed = installed
+            icon = install_btn.content.controls[0]
+            icon.name = ft.Icons.CHECK_ROUNDED if installed else ft.Icons.DOWNLOAD_ROUNDED
+            icon.color = TEXT_FAINT if installed else ACCENT
+            install_btn_text.value = "Installed" if installed else "Install"
+            install_btn_text.color = TEXT_FAINT if installed else ACCENT
+            install_btn.bgcolor = None if installed else ACCENT_TINT
+            install_btn.disabled = installed
+            install_btn.on_click = None if installed else on_install
+
+        _remember_row(browse_rows, key, (pack, row, sync_action))
+        return row
 
     # --- Installed packs -----------------------------------------------------
 
@@ -1010,6 +1047,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         go_to_pack(m)
 
     def build_installed_row(meta):
+        key = meta.get("version_id") or (meta.get("mc_version"), meta.get("loader"), meta.get("name"))
+        cached = installed_rows.get(key)
+        if cached:
+            metadata, row = cached
+            _sync_pack_icon(row, metadata.get("icon_url"), meta.get("icon_url"), 44, installed=True)
+            metadata.clear()
+            metadata.update(meta)
+            labels = row.content.controls[1].controls
+            labels[0].value = meta.get("name", "Modpack")
+            labels[1].value = f"{meta.get('mc_version', '?')} · {(meta.get('loader') or 'vanilla').title()} · {meta.get('mod_count', 0)} mods"
+            return row
+        meta = dict(meta)
         loader = (meta.get("loader") or "vanilla").title()
         subtitle = f"{meta.get('mc_version', '?')} · {loader} · {meta.get('mod_count', 0)} mods"
 
@@ -1117,14 +1166,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         # The pack's Modrinth art, recorded in its meta at install time, so an
         # installed pack is as easy to recognise as it was in the browse list.
         # A pack imported from disk has no recorded art and keeps the glyph.
-        _icons.prefetch(meta.get("icon_url"))
-        pack_icon = (
-            ft.Image(src=_icons.src(meta.get("icon_url")), width=44, height=44,
-                     border_radius=RADIUS, fit=ft.BoxFit.COVER)
-            if meta.get("icon_url") else
-            ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=20)
-        )
-        return attach_hover(
+        pack_icon = _pack_icon(meta.get("icon_url"), 44)
+        row = attach_hover(
             ft.Container(
                 content=ft.Row(
                     [
@@ -1149,16 +1192,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             ),
             "transparent", ROW_HOVER,
         )
+        _remember_row(installed_rows, key, (meta, row))
+        return row
 
     def refresh_installed_packs():
         try:
             packs = core.list_installed_modpacks()
         except Exception:
             packs = []
-        installed_view.controls.clear()
+        rows = []
         installed_count.value = f"{len(packs)} installed" if packs else ""
         if not packs:
-            installed_view.controls.append(
+            rows.append(
                 ft.Container(
                     content=ft.Column(
                         [
@@ -1173,7 +1218,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             )
         else:
             for meta in packs:
-                installed_view.controls.append(build_installed_row(meta))
+                rows.append(build_installed_row(meta))
+        installed_view.controls[:] = rows
         # Scoped diff of this tab's list (not page.update(): switching TO
         # modpacks used to re-sync every mounted tab over the wire - the
         # frame hitch on each tab switch).

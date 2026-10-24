@@ -7,8 +7,8 @@ One place that decides how the launcher moves, so every surface moves the
 same way and a single Settings switch can calm the whole app down. It is
 deliberately small: four primitives and a level.
 
-    polish(control, ...)   hover tint + a small lift + a press dip + the liquid
-                           glass hover (corners open, rim lights up, green halo),
+    polish(control, ...)   hover tint + a lit rim with stable geometry;
+                           explicit callers can opt into lift or press feedback,
                            applied to any hand-built Container (theme.attach_hover
                            delegates here, so the ~35 existing call sites get it
                            without changing a line)
@@ -84,10 +84,10 @@ FAST = ft.Animation(FAST_MS, EASE)
 BASE = ft.Animation(BASE_MS, EASE)
 SLOW = ft.Animation(SLOW_MS, EASE)
 
-# How far a hovered control lifts and how far a pressed one dips. Small on
-# purpose: the lift should read as "the panel noticed you", not as a bounce.
-LIFT = 1.028
-PRESS = 0.975
+# Shared controls keep their geometry fixed; explicit callers can opt into
+# a different lift or press factor without changing the app-wide defaults.
+LIFT = 1.0
+PRESS = 1.0
 
 # The specular sheen (see Sheen below): how long one sweep takes, how bright the
 # highlight band gets, and how far past the surface's own edges it travels -
@@ -98,7 +98,7 @@ SHEEN_TRAVEL = 1.35
 
 # How far a hovered glass panel's corners open up, when the caller does not
 # override it through the glass style (theme.glass_hover()).
-GLASS_RADIUS_STEP = 3
+GLASS_RADIUS_STEP = 0
 
 # The cascade: per-item gap and how long one item takes to arrive. `STAGGER_CAP_MS`
 # bounds the whole cascade, so a 40-row list compresses its gap instead of
@@ -396,7 +396,7 @@ def polish(container, base_bg=None, hover_bg=None, *,
 
     container.on_hover = _on_hover
 
-    if _HAS_TAP_DOWN:
+    if _HAS_TAP_DOWN and press != 1.0:
         def _on_tap_down(e):
             if not transforms() or not _allowed():
                 return

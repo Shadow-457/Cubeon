@@ -230,7 +230,7 @@ from cubeon.features import friends_enabled  # Development vs. public (no-Friend
 from ui.chat_tab import build_chat_tab  # Chat tab: friends list, requests, encrypted chat
 from ui.screenshot_gallery import build_screenshot_gallery_tab
 from ui.versions import (  # Play tab version management: picker, cards, instances manager
-    VersionPicker, InstanceCards, InstancesManager,
+    VersionBanner, VersionPicker, InstanceCards, InstancesManager,
 )
 from ui.window_chrome import (  # Windows-only custom frame widgets (policy: cubeon/winchrome.py)
     build_window_controls, set_maximized_glyph,
@@ -2706,7 +2706,8 @@ async def main(page: ft.Page):
         for i in range(len(LOADER_IDS))
     ]
 
-    loader_status_text = ft.Text("", size=11, color=TEXT_DIM, visible=False)
+    loader_status_text = ft.Text("", size=11, color=TEXT_DIM, visible=False,
+                                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
 
     # FPS boost: the Play-menu toggle (moved out of Settings on 2026-10-15).
     # ON = the launcher sets Minecraft's own speed-only graphics options at
@@ -3225,10 +3226,16 @@ async def main(page: ft.Page):
         thread_safe_ui.refresh(version_dropdown)
 
     def _pick_version(key):
-        """A click on a row in the picker dialog: select it and apply it."""
+        """Select a version, using an installed instance's own loader."""
         _ensure_version_option(key)
         version_dropdown.value = key
-        picker.sync_label()
+        if key in state["installed"]:
+            meta = (state.get("installed_meta") or {}).get(key) or {}
+            loader = instance_info.detect_loader(key, meta.get("folder"))
+            if loader in LOADER_IDS:
+                state["pending_loader_install"] = None
+                state["mod_loader"] = loader
+                loader_toggle.selected_index = LOADER_IDS.index(loader)
         on_version_selected()
 
     picker = VersionPicker(
@@ -5283,8 +5290,10 @@ async def main(page: ft.Page):
     # -----------------------------------------------------------------
 
     # Hero panel widgets -----------------------------------------------------
-    hero_title = ft.Text("Minecraft", size=22, color=TEXT, font_family=FONT_DISPLAY)
-    hero_version_text = ft.Text("", size=11, color=TEXT_FAINT, font_family=FONT_MONO)
+    hero_title = ft.Text("Minecraft", size=22, color=TEXT, font_family=FONT_DISPLAY,
+                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
+    hero_version_text = ft.Text("", size=11, color=TEXT_FAINT, font_family=FONT_MONO,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     hero_loader_chip_text = ft.Text("Vanilla", size=10.5, color=ACCENT,
                                     weight=ft.FontWeight.W_700, font_family=FONT_MONO)
     hero_loader_chip = ft.Container(
@@ -5317,7 +5326,7 @@ async def main(page: ft.Page):
     # read as a second, unrelated card. Now the selected version's official
     # key art fills the main card behind a scrim, so the panel has a visual
     # identity instead of a flat glass fill.
-    hero_art = ft.Image(src="titleimg.jpg", fit=ft.BoxFit.COVER, expand=True)
+    hero_art = VersionBanner()
     hero_art_scrim = ft.Container(
         left=0, top=0, right=0, bottom=0,
         # Dark at the bottom where the controls live, lighter at the top so
@@ -5334,7 +5343,7 @@ async def main(page: ft.Page):
         ),
     )
     hero_art_layer = ft.Container(
-        content=hero_art,
+        content=hero_art.control,
         left=0, top=0, right=0, bottom=0,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
     )
@@ -5373,9 +5382,7 @@ async def main(page: ft.Page):
         _hero_art_uid["value"] = version
 
         cached = version_art.src(base) if base else None
-        if hero_art.src != (cached or "titleimg.jpg"):
-            hero_art.src = cached or "titleimg.jpg"
-            thread_safe_ui.refresh(hero_art)
+        hero_art.set_source(cached)
         uid = version
 
         def _ready(value):
@@ -5383,10 +5390,7 @@ async def main(page: ft.Page):
             # stale - drop it rather than flash the wrong art.
             if uid != _hero_art_uid["value"]:
                 return
-            art = value or "titleimg.jpg"
-            if hero_art.src != art:
-                hero_art.src = art
-                thread_safe_ui.refresh(hero_art)
+            hero_art.set_source(value)
 
         _request_art(base, _ready)
 
@@ -5398,9 +5402,7 @@ async def main(page: ft.Page):
     def _select_instance(version_id):
         if version_id not in state["installed"]:
             return
-        _ensure_version_option(version_id)
-        version_dropdown.value = version_id
-        on_version_selected()
+        _pick_version(version_id)
 
     instance_cards = InstanceCards(
         page,
@@ -5431,9 +5433,7 @@ async def main(page: ft.Page):
         if state.get("running_version"):
             set_status("A game is already running")
             return
-        _ensure_version_option(version_id)
-        version_dropdown.value = version_id
-        on_version_selected()
+        _pick_version(version_id)
         on_play_click()
 
     # Repaint the big button the moment a pack install claims or releases an
@@ -5529,7 +5529,6 @@ async def main(page: ft.Page):
                                                         [
                                                             hero_title,
                                                             ft.Container(width=4),
-                                                            ft.Container(expand=True),
                                                             folder_instance_btn,
                                                             rename_instance_btn,
                                                             delete_instance_btn,
@@ -5589,12 +5588,13 @@ async def main(page: ft.Page):
                                             section_label("Mod loader"),
                                             ft.Container(height=6),
                                             loader_toggle,
-                                            loader_status_text,
+                                            ft.Container(content=loader_status_text, height=18,
+                                                         data="play-loader-status"),
                                         ],
                                         spacing=0,
                                     ),
 
-                                    ft.Container(height=18),
+                                    ft.Container(height=4),
 
                                     # FPS BOOST: the toggle that actually helps. Sits in
                                     # the Play menu (not Settings) because it changes what

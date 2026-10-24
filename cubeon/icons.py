@@ -23,6 +23,7 @@ missing icon is cosmetic and must never surface as an error.
 import base64
 import os
 import threading
+from collections import OrderedDict
 from hashlib import sha1
 from urllib.parse import urlparse
 
@@ -41,6 +42,9 @@ ICON_DIR = os.path.join(CUBEON_HOME, "cache", "icons")
 _HEADERS = modrinth_headers("modrinth cdn art")
 
 _lock = threading.Lock()
+_inflight = set()
+_sources = OrderedDict()
+_SOURCE_LIMIT = 128
 
 
 def _dest(url: str) -> str:
@@ -79,8 +83,21 @@ def src(url: str | None) -> str | None:
     if not path:
         return url
     try:
+        stat = os.stat(path)
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        with _lock:
+            cached = _sources.get(path)
+            if cached and cached[0] == stamp:
+                _sources.move_to_end(path)
+                return cached[1]
         with open(path, "rb") as f:
-            return base64.b64encode(f.read()).decode("ascii")
+            encoded = base64.b64encode(f.read()).decode("ascii")
+        with _lock:
+            _sources[path] = (stamp, encoded)
+            _sources.move_to_end(path)
+            while len(_sources) > _SOURCE_LIMIT:
+                _sources.popitem(last=False)
+        return encoded
     except OSError:
         return url
 
@@ -92,15 +109,15 @@ def prefetch(url: str | None) -> None:
     if not url:
         return
     path = _dest(url)
+    with _lock:
+        if path in _inflight or local_path(url):
+            return
+        _inflight.add(path)
 
     def _download():
-        with _lock:
-            try:
-                if os.path.isfile(path) and os.path.getsize(path) > 0:
-                    return  # another thread won the race - nothing to do
-            except OSError:
-                return
         try:
+            if local_path(url):
+                return
             resp = requests.get(url, headers=_HEADERS, timeout=10)
             resp.raise_for_status()
             os.makedirs(ICON_DIR, exist_ok=True)
@@ -110,5 +127,12 @@ def prefetch(url: str | None) -> None:
             os.replace(tmp, path)
         except Exception:
             pass  # cosmetic: the row just falls back to the remote URL
+        finally:
+            with _lock:
+                _inflight.discard(path)
 
-    threading.Thread(target=_download, daemon=True).start()
+    try:
+        threading.Thread(target=_download, daemon=True).start()
+    except Exception:
+        with _lock:
+            _inflight.discard(path)

@@ -17,9 +17,12 @@ No window, no network, no real install.
 
 Run: python3 tools/test_version_ui.py
 """
+import inspect
 import os
 import sys
 import time
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,6 +67,7 @@ stubs.core.get_installed_versions = lambda *a, **k: list(INSTALLED)
 stubs.core.get_available_versions = lambda *a, **k: list(AVAILABLE)
 
 from cubeon import instances as instance_info                 # noqa: E402
+from cubeon.mod_loaders import find_installed_loader_version
 import cubeon.mods as mods_mod                                # noqa: E402
 
 # Two mods in the Fabric (26.1.2) profile so the card shows a count. The stub
@@ -116,6 +120,48 @@ print("\n2. the version picker groups Installed / Available and tags rows")
 
 picker_btn = fz.clickable_with_subtext(page, "pick a minecraft version")
 check("the Game-version button exists", bool(picker_btn))
+if picker_btn and FABRIC_ID in cards and "1.21.11" in cards:
+    picker_model = inspect.getclosurevars(picker_btn[0].on_click).nonlocals["self"]
+    selection_handler = inspect.getclosurevars(picker_model.on_pick).nonlocals["on_version_selected"]
+    selection_scope = inspect.getclosurevars(selection_handler).nonlocals
+    selection_state = selection_scope["state"]
+    loader_scope = inspect.getclosurevars(selection_scope["refresh_loader_support"]).nonlocals
+    loader_control = loader_scope["loader_toggle"]
+    status_slots = [control for control in every_control(page) if control.data == "play-loader-status"]
+    check("loader notices have a fixed-height slot in the Play card",
+          len(status_slots) == 1 and status_slots[0].height == 18
+          and status_slots[0].content is loader_scope["loader_status_text"])
+    hero_scope = inspect.getclosurevars(selection_scope["update_hero"]).nonlocals
+    check("long Jump Back In names cannot wrap the Play header",
+          hero_scope["hero_title"].max_lines == 1 and hero_scope["hero_title"].expand
+          and hero_scope["hero_version_text"].max_lines == 1 and hero_scope["hero_version_text"].expand)
+    loader_ids = list(stubs.core.SUPPORTED_LOADERS)
+    loader_scope["loader_check_cache"]["1.21.11"] = {
+        loader: (True, False) for loader in loader_ids if loader != "vanilla"
+    }
+    loader_scope["loader_check_cache"][FABRIC_ID] = {
+        loader: (True, loader == "fabric") for loader in loader_ids if loader != "vanilla"
+    }
+    with patch.object(stubs.core, "find_installed_loader_version", find_installed_loader_version):
+        selection_state["mod_loader"] = "vanilla"
+        loader_control.selected_index = loader_ids.index("vanilla")
+        cards[FABRIC_ID].on_click(None)
+        check("Quick Jump selects the Fabric instance's loader", selection_state["mod_loader"] == "fabric")
+        check("Quick Jump updates the loader toggle", loader_control.selected_index == loader_ids.index("fabric"))
+        check("Jump Back In keeps the loader-status region's height", status_slots[0].height == 18)
+        check("Quick Jump uses the Fabric instance's base version", selection_state["selected_mc_version"] == "26.1.2")
+        cards["1.21.11"].on_click(None)
+        check("Quick Jump back to Vanilla clears the Fabric selection", selection_state["mod_loader"] == "vanilla")
+        picker_model.on_pick(FABRIC_ID)
+        check("the version picker also selects the installed instance's loader", selection_state["mod_loader"] == "fabric")
+        loader_control.selected_index = loader_ids.index("vanilla")
+        loader_control.on_change(SimpleNamespace(control=loader_control))
+        check("an explicit loader toggle is not overridden by a refresh", selection_state["mod_loader"] == "vanilla")
+        selection_state["pending_loader_install"] = {"version_id": FABRIC_ID, "loader": "forge"}
+        cards[FABRIC_ID].on_click(None)
+        check("selecting an installed instance cancels a stale pending loader choice",
+              selection_state["pending_loader_install"] is None and selection_state["mod_loader"] == "fabric")
+        picker_model.on_pick("1.21.11")
 if picker_btn:
     driver._fire_named(picker_btn[0], "on_click", "open version picker")
 

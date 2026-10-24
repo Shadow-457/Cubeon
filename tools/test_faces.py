@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import time
+from unittest.mock import patch
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -77,9 +78,30 @@ def main():
     dest = faces._dest(name)
     with open(dest, "wb") as f:
         f.write(_Resp().content)
+    for repeat in range(200):
+        if name.lower() not in faces._inflight:
+            break
+        time.sleep(0.01)
     got = faces.get_face_b64(name)
     check("cached face is served as base64",
           bool(got) and base64.b64decode(got) == _Resp().content)
+    with patch("builtins.open", wraps=open) as reads:
+        check("cached faces reuse encoded bytes without reopening the file",
+              all(faces.get_face_b64(name) == got for repeat in range(20))
+              and reads.call_count == 0)
+    with open(dest, "wb") as changed:
+        changed.write(b"changed face")
+    check("face changes invalidate the encoded cache", faces.get_face_b64(name) != got)
+    os.unlink(dest)
+    with patch.object(faces, "_schedule") as scheduled:
+        check("removed face files do not return stale encoded bytes",
+              faces.get_face_b64(name) is None and scheduled.call_count == 1)
+    for index in range(faces._SOURCE_LIMIT + 3):
+        cached_name = f"Cache{index}"
+        with open(faces._dest(cached_name), "wb") as cached:
+            cached.write(b"cached face")
+        faces.get_face_b64(cached_name)
+    check("encoded face cache stays bounded", len(faces._sources) == faces._SOURCE_LIMIT)
 
     # --- negative cache: a non-Cubeon name never re-requests -------------
     def _failing_get(url, headers=None, timeout=None):

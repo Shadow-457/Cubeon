@@ -598,6 +598,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "notifications": notifications_pane,
         "backups": backups_pane,
     }
+    for key, pane in panes.items():
+        pane.visible = (key == active_section["value"])
 
     # --- left rail ------------------------------------------------------------
     rail = ft.Column(spacing=2)
