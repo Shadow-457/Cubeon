@@ -34,14 +34,6 @@ public final class CubeonHudConfig {
 	public boolean showCps = false;
 
 	/**
-	 * Grows the vanilla crosshair while it is over an entity (2026-10-24).
-	 * Vanilla's crosshair is the same size whether it is pointing at a wall or
-	 * at a player, which is the one piece of feedback a PvP crosshair is
-	 * supposed to give. The scale itself lives in {@link CrosshairScale}.
-	 */
-	public boolean dynamicCrosshair = true;
-
-	/**
 	 * 26.x only: blends the previous world frame into the current one, so fast
 	 * camera movement leaves a short trail. The effect is a Minecraft post
 	 * effect (post_effect/motion_blur_*.json) driven by {@link MotionBlur}; on

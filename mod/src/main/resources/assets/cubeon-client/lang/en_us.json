@@ -14,7 +14,6 @@
 	"cubeonclient.menu.show_armor": "Show Armour: %s",
 	"cubeonclient.menu.show_ping": "Show Ping: %s",
 	"cubeonclient.menu.show_cps": "Show CPS: %s",
-	"cubeonclient.menu.dynamic_crosshair": "Dynamic Crosshair: %s",
 	"cubeonclient.menu.motion_blur": "Motion Blur: %s",
 	"cubeonclient.menu.move": "Move",
 	"cubeonclient.menu.reset_positions": "Reset Positions",

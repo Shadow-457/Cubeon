@@ -23,10 +23,9 @@ public final class CubeonHudMenuScreen extends Screen {
 	private static final int ROW_HEIGHT = 24;
 	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + ROW_GAP + MOVE_WIDTH;
 	/**
-	 * Toggle rows above the Scale/Reset buttons: the five overlays, Dynamic
-	 * Crosshair, and - on 26.x only - Motion Blur.
+	 * Toggle rows above the Scale/Reset buttons: the five overlays.
 	 */
-	private static final int ROWS = 6;
+	private static final int ROWS = 5;
 
 	public CubeonHudMenuScreen() {
 		super(Text.translatable("cubeonclient.menu.title"));
@@ -47,9 +46,6 @@ public final class CubeonHudMenuScreen extends Screen {
 		addToggleRow(x, y, Overlay.PING, () -> config.showPing, v -> config.showPing = v, CubeonHudMenuScreen::showPingLabel);
 		y += ROW_HEIGHT;
 		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
-		y += ROW_HEIGHT;
-		addFeatureRow(x, y, () -> config.dynamicCrosshair, v -> config.dynamicCrosshair = v,
-				CubeonHudMenuScreen::dynamicCrosshairLabel);
 		y += ROW_HEIGHT;
 
 		float[] scales = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
@@ -97,16 +93,6 @@ public final class CubeonHudMenuScreen extends Screen {
 				this.client.setScreen(new MoveOverlayScreen(this, overlay));
 			}
 		}).dimensions(x + TOGGLE_WIDTH + ROW_GAP, y, MOVE_WIDTH, 20).build());
-	}
-
-	/** A toggle for a feature with no position of its own, so it spans the full width. */
-	private void addFeatureRow(int x, int y, BooleanSupplier enabled, Consumer<Boolean> setter,
-			Supplier<Text> label) {
-		addDrawableChild(ButtonWidget.builder(label.get(), button -> {
-			setter.accept(!enabled.getAsBoolean());
-			CubeonHudConfig.save();
-			button.setMessage(label.get());
-		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
 	}
 
 	/** Every row between the title and the bottom of the screen. */
@@ -159,11 +145,6 @@ public final class CubeonHudMenuScreen extends Screen {
 
 	private static Text showCpsLabel() {
 		return Text.translatable("cubeonclient.menu.show_cps", stateLabel(CubeonHudConfig.get().showCps));
-	}
-
-	private static Text dynamicCrosshairLabel() {
-		return Text.translatable("cubeonclient.menu.dynamic_crosshair",
-				stateLabel(CubeonHudConfig.get().dynamicCrosshair));
 	}
 
 	private static Text stateLabel(boolean enabled) {

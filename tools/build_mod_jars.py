@@ -55,7 +55,6 @@ ASSETS_JARS = os.path.join(ROOT, "assets", "jars")
 # the HUD, and a missing com/cubeon/client/hud class is the only cheap way to see that).
 REQUIRED_ENTRIES = ("fabric.mod.json",
                     "cubeon-client.mixins.json",
-                    "cubeon-client-crosshair.mixins.json",
                     "assets/cubeon-client/icon.png",
                     "com/cubeon/client/CubeonClient.class",
                     "com/cubeon/client/WorldPlayers.class",
@@ -64,8 +63,7 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class",
                     "com/cubeon/client/hud/CubeonHudClient.class",
                     "com/cubeon/client/hud/CubeonHudConfig.class",
-                    "com/cubeon/client/hud/CubeonHud.class",
-                    "com/cubeon/client/hud/mixin/CrosshairMixin.class")
+                    "com/cubeon/client/hud/CubeonHud.class")
 
 # The 26.x brackets only. The HUD there measures ping through a mixin of its own,
 # and a mixin that is compiled but not registered by a config silently does

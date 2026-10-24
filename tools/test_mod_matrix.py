@@ -381,26 +381,18 @@ def test_resources(matrix):
     ok("resources-26x" in gradle,
        "and ships the folder holding it only for the brackets that need it")
 
-    # The dynamic crosshair (2026-10-24) is the opposite case: every jar has one
-    # per-era CrosshairMixin, so its config is listed unconditionally. It has to
-    # be fail-soft for the same reason as the others - a Minecraft that moved
-    # renderCrosshair costs the bigger crosshair, not the game.
-    cross_cfg_path = os.path.join(MOD, "src", "main", "resources",
-                                  "cubeon-client-crosshair.mixins.json")
-    ok(os.path.isfile(cross_cfg_path), "the dynamic crosshair's mixin config is shipped")
-    if os.path.isfile(cross_cfg_path):
-        cross_cfg = load(cross_cfg_path)
-        ok(cross_cfg.get("package") == "com.cubeon.client.hud.mixin",
-           "it names the HUD's mixin package")
-        ok(cross_cfg.get("required") is False
-           and cross_cfg.get("injectors", {}).get("defaultRequire") == 0,
-           "and it is fail-soft: a moved crosshair hook costs the scale, not the game")
-        ok(release is not None
-           and int(cross_cfg.get("compatibilityLevel", "JAVA_0").split("_")[1])
-           >= int(release.group(1)),
-           "its compatibilityLevel is not below the jar's own bytecode")
-    ok("cubeon-client-crosshair.mixins.json" in fabric_json,
-       "fabric.mod.json lists the crosshair config for every bracket")
+    # The dynamic crosshair was REMOVED on 2026-10-24 (the player asked for it
+    # after it misbehaved in game). It must be gone rather than disabled: a
+    # leftover config in fabric.mod.json would name a class that no longer
+    # exists, which Fabric reports as a startup warning.
+    ok(not os.path.isfile(os.path.join(MOD, "src", "main", "resources",
+                                       "cubeon-client-crosshair.mixins.json")),
+       "the removed dynamic crosshair's mixin config is gone")
+    ok("cubeon-client-crosshair.mixins.json" not in fabric_json,
+       "and fabric.mod.json no longer lists it")
+    ok(not os.path.isfile(os.path.join(MOD, "src", "main", "java", "com", "cubeon",
+                                       "client", "hud", "CrosshairScale.java")),
+       "nor does the shared tree still carry CrosshairScale")
 
     # The 26.x motion blur is data as much as code: a persistent target is what
     # turns the two-pass blur into frame accumulation, and a chain that never
@@ -618,8 +610,8 @@ def test_shipped_jars(matrix):
         # The same failure mode, one layer down: fabric.mod.json lists a mixin
         # config, and the config names classes. If the config is not in the jar
         # (wrong overlay) or names a class that is not (wrong era copy), Mixin
-        # skips it and the feature silently does nothing. That is how the
-        # crosshair and the 26.x motion blur would fail, so check the chain.
+        # skips it and the feature silently does nothing. That is how the 26.x
+        # motion blur would fail, so check the chain.
         missing_mixins = []
         for cfg_name, cfg in mixin_configs:
             if cfg is None:

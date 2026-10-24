@@ -25,10 +25,10 @@ public final class CubeonHudMenuScreen extends Screen {
 	private static final int ROW_HEIGHT = 24;
 	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + ROW_GAP + MOVE_WIDTH;
 	/**
-	 * Toggle rows above the Scale/Reset buttons: the five overlays, Dynamic
-	 * Crosshair, and - on 26.x only - Motion Blur.
+	 * Toggle rows above the Scale/Reset buttons: the five overlays
+	 * and Motion Blur.
 	 */
-	private static final int ROWS = 7;
+	private static final int ROWS = 6;
 
 	public CubeonHudMenuScreen() {
 		super(Component.translatable("cubeonclient.menu.title"));
@@ -49,9 +49,6 @@ public final class CubeonHudMenuScreen extends Screen {
 		addToggleRow(x, y, Overlay.PING, () -> config.showPing, v -> config.showPing = v, CubeonHudMenuScreen::showPingLabel);
 		y += ROW_HEIGHT;
 		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
-		y += ROW_HEIGHT;
-		addFeatureRow(x, y, () -> config.dynamicCrosshair, v -> config.dynamicCrosshair = v,
-				CubeonHudMenuScreen::dynamicCrosshairLabel);
 		y += ROW_HEIGHT;
 		// Motion Blur cycles Off -> Low -> Medium -> High (2026-10-24). One row,
 		// four states: the old on/off switch forced everyone onto one strength,
@@ -107,16 +104,6 @@ public final class CubeonHudMenuScreen extends Screen {
 				this.minecraft.gui.setScreen(new MoveOverlayScreen(this, overlay));
 			}
 		}).bounds(x + TOGGLE_WIDTH + ROW_GAP, y, MOVE_WIDTH, 20).build());
-	}
-
-	/** A toggle for a feature with no position of its own, so it spans the full width. */
-	private void addFeatureRow(int x, int y, BooleanSupplier enabled, Consumer<Boolean> setter,
-			Supplier<Component> label) {
-		addRenderableWidget(Button.builder(label.get(), button -> {
-			setter.accept(!enabled.getAsBoolean());
-			CubeonHudConfig.save();
-			button.setMessage(label.get());
-		}).bounds(x, y, TOTAL_WIDTH, 20).build());
 	}
 
 	/** A row that steps through a fixed list of values on each click. */
@@ -189,11 +176,6 @@ public final class CubeonHudMenuScreen extends Screen {
 
 	private static Component showCpsLabel() {
 		return Component.translatable("cubeonclient.menu.show_cps", stateLabel(CubeonHudConfig.get().showCps));
-	}
-
-	private static Component dynamicCrosshairLabel() {
-		return Component.translatable("cubeonclient.menu.dynamic_crosshair",
-				stateLabel(CubeonHudConfig.get().dynamicCrosshair));
 	}
 
 	private static Component motionBlurLabel() {
