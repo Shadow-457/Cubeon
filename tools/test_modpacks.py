@@ -153,7 +153,13 @@ def main():
     modpacks.net._do_get = _net_seam
     modpacks.install_version = lambda v, *a, **k: calls.__setitem__("version", v)
     modpacks.install_mod_loader = lambda lid, v, *a, **k: (calls.__setitem__("loader", (lid, v)) or "fabric-loader-0.15.7-1.20.1")
-    modpacks.get_profile_dir = lambda mc, loader: profile_dir
+    modpacks.get_profile_dir = lambda mc, loader, version_id=None: profile_dir
+    # content.py imports its own reference to get_profile_dir; keep the pack's
+    # bundled resourcepack/shader routing inside the scratch profile too.
+    modpacks.content_profile_dir = (
+        lambda ct, mc, loader, version_id=None: os.path.join(profile_dir, ct))
+    from cubeon import mods as _mods
+    _mods.get_profile_dir = lambda mc, loader, version_id=None: profile_dir
 
     # --- pure helpers ---
     idx = {"dependencies": {"minecraft": "1.20.1", "quilt-loader": "1.2"}}

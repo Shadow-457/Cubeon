@@ -90,6 +90,25 @@ def period_summary(state, period="recent_week", *, today=None):
     return summary
 
 
+def range_summary(state, days, *, today=None):
+    """Daily playtime for the last `days` days (ending today), oldest first."""
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 7
+    days = max(1, min(days, HISTORY_DAYS))
+    today = today or date.today()
+    start = today - timedelta(days=days - 1)
+    history = clean_history(state.get("activity"))
+    dates = [(start + timedelta(days=index)).isoformat() for index in range(days)]
+    rows = [history.get(key, {}) for key in dates]
+    summary = {metric: sum(nonnegative(row.get(metric)) for row in rows) for metric in METRICS}
+    summary.update(label=f"Last {days} days", dates=dates,
+                   hours=[nonnegative(row.get("seconds_played")) / 3600 for row in rows],
+                   active_days=sum(nonnegative(row.get("seconds_played")) > 0 for row in rows))
+    return summary
+
+
 def earned_badges(state, collections=None):
     tracks = (
         ("playtime", "seconds_played", ((3600, "Explorer", "1 hour in game"),

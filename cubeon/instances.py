@@ -3,8 +3,8 @@
 The Play tab used to answer "what loader is this? how many mods? how big?
 when did I last play it?" from three unrelated places at once: the version
 dropdown's option text, ``state["installed_meta"]``, and ad-hoc id parsing
-inline in ``main.py``. None of them could answer all four, so the richer
-instance cards and the Instances manager had nothing to render.
+inline in ``main.py``. None of them could answer all four, so the Play tab's
+instance panel had nothing to render.
 
 This module is the single source of truth for that. It is pure data - no
 Flet - so it is trivially unit-testable and the UI module (``ui/versions.py``)
@@ -20,7 +20,7 @@ rather than raising into the UI):
 
 The size walk is deliberately NOT part of ``describe()``: it is the one
 expensive call here (a full recursive stat of a version folder - thousands
-of files), and the Play tab rebuilds its cards on the event loop. Callers
+of files), and the Play tab rebuilds its list on the event loop. Callers
 that want it (the Instances manager) ask for it explicitly and off-thread
 via ``instance_size_bytes``.
 """
@@ -114,17 +114,40 @@ def instance_size_bytes(version_id: str, folder: "str | None" = None,
     return total
 
 
-def mod_count(mc_version: "str | None", loader: "str | None") -> int:
-    """How many mods the shared (version, loader) profile holds.
+def mod_count(mc_version: "str | None", loader: "str | None",
+              version_id: "str | None" = None) -> int:
+    """How many mods this instance's profile holds.
 
-    Cheap (one listdir). Zero for vanilla / a missing profile, and never
-    raises - the count is decoration, not a reason to fail a repaint.
+    Deliberately NOT ``len(list_mods(...))``. That reads a ``.cubeon.json``
+    sidecar and stats every jar, so on a 300-mod pack it costs ~50 ms - and
+    ``describe()`` is called once per row on every Play-tab repaint. The rows
+    only need the count, so this does one
+    ``scandir`` and no per-file opens: the same answer in ~0.3 ms. The filter
+    matches ``list_mods`` exactly (``.jar`` / ``.jar.disabled`` regular files;
+    sidecars and ``_profile.json`` are not jars).
+
+    Zero for vanilla / a missing profile, and never raises - the count is
+    decoration, not a reason to fail a repaint.
     """
     if not mc_version or loader not in MOD_CAPABLE:
         return 0
     try:
-        from .mods import list_mods
-        return len(list_mods(mc_version, loader))
+        from .mods import resolve_profile_dir
+        profile_dir = resolve_profile_dir(mc_version, loader, version_id)
+        if not os.path.isdir(profile_dir):
+            return 0
+        total = 0
+        with os.scandir(profile_dir) as entries:
+            for entry in entries:
+                name = entry.name
+                if not (name.endswith(".jar") or name.endswith(".jar.disabled")):
+                    continue
+                try:
+                    if entry.is_file():
+                        total += 1
+                except OSError:
+                    continue
+        return total
     except Exception:
         return 0
 
@@ -143,6 +166,17 @@ def _read_play_store() -> dict:
     except (OSError, ValueError):
         pass
     return {}
+
+
+def play_store() -> dict:
+    """A snapshot of the last-played sidecar ({version_id: epoch}).
+
+    Public so a caller rendering several instances (the version panel)
+    reads the file ONCE and passes it to every ``describe(..., play_store=)``
+    instead of re-opening it per row. Never raises; a missing/corrupt file is
+    an empty map.
+    """
+    return _read_play_store()
 
 
 def mark_played(version_id: "str | None", when: "float | None" = None) -> None:
@@ -203,22 +237,34 @@ def describe(version_id: str, meta: "dict | None" = None,
     from .versions import extract_mc_version
 
     meta = meta or {}
+    sidecar = {}
     try:
-        base = extract_mc_version(version_id) or version_id
+        from .mods import read_instance_meta
+        sidecar = read_instance_meta(version_id) or {}
     except Exception:
-        base = version_id
+        sidecar = {}
+    try:
+        base = sidecar.get("mc_version") or extract_mc_version(version_id) or version_id
+    except Exception:
+        base = sidecar.get("mc_version") or version_id
     loader = detect_loader(version_id, meta.get("folder"))
+    recorded_loader = sidecar.get("loader")
+    if recorded_loader in MOD_CAPABLE or recorded_loader == "vanilla":
+        loader = recorded_loader
+    display_name = label or sidecar.get("name") or meta.get("display_name") or version_id
     return {
         "id": version_id,
         "base_version": base,
         "loader": loader,
         "loader_label": loader_label(loader),
-        "display_name": (label or meta.get("display_name") or version_id),
+        "display_name": display_name,
         "folder": meta.get("folder") or version_id,
         "incomplete": bool(meta.get("incomplete")),
         "issue": meta.get("issue") or "",
-        "mod_count": mod_count(base, loader) if with_mods else 0,
+        "mod_count": mod_count(base, loader, version_id) if with_mods else 0,
         "last_played": last_played(version_id, play_store),
+        "profile": sidecar.get("profile") or "",
+        "is_instance": bool(sidecar),
     }
 
 

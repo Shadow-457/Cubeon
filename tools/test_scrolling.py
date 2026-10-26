@@ -12,7 +12,7 @@ import flet as ft
 from cubeon import motion, scrolling
 from _fuzz_common import every_control, walk
 import app_driver
-from ui.versions import VersionPicker, InstancesManager
+from ui.versions import VersionPicker
 from ui.screenshot_gallery import build_screenshot_gallery_tab
 
 passed = 0
@@ -59,14 +59,10 @@ motion.set_level("full")
 
 picker = VersionPicker(page, get_selected=lambda: None, label_for=None,
                        on_pick=lambda value: None, on_browse_online=lambda: None)
-check("version picker builds rows on demand", isinstance(picker.list, ft.ListView) and picker.list.build_controls_on_demand)
-check("version picker stays bounded and preloads a small nearby area", picker.list.height == 320 and picker.list.cache_extent == 320)
-manager = InstancesManager(page, get_instances=lambda: [], get_selected=lambda: None,
-                           on_play=lambda value: None, on_rename=lambda *args: None,
-                           on_delete=lambda value: None)
-manager._render()
-check("instance manager uses a bounded lazy viewport",
-      isinstance(manager._body, ft.ListView) and manager._body.build_controls_on_demand and manager._body.height == 420)
+check("version panel builds rows on demand",
+      isinstance(picker.list, ft.ListView) and picker.list.build_controls_on_demand)
+check("version panel stays bounded and preloads a small nearby area",
+      picker.list.expand and picker.list.cache_extent == 320)
 gallery, _refresh = build_screenshot_gallery_tab(page)
 check("screenshot thumbnails use a lazy native viewport",
       any(isinstance(control, ft.ListView) and control.build_controls_on_demand for control in walk(gallery)))

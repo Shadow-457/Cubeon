@@ -70,9 +70,56 @@ with tempfile.TemporaryDirectory() as tmp:
           "profile collector flag stripped, exactly one G1 remains", f"{collectors}")
     check("-XX:ParallelGCThreads=4" in cmd, "non-selection tuning flags survive")
 
+# --- a bogus Settings java_path must never reach Popen -------------------------
+# 2026-10-25: config.json held java_path "他他他"; build_launch_command passed
+# it straight into mll's executablePath, so Popen raised FileNotFoundError on
+# the garbage string instead of starting the game with a real Java.
+print("\n1b. an invalid configured Java falls back instead of crashing")
+with tempfile.TemporaryDirectory() as tmp:
+    version = "java-path-test"
+    vdir = os.path.join(launch.MINECRAFT_DIR, "versions", version)
+    os.makedirs(vdir, exist_ok=True)
+    with open(os.path.join(vdir, version + ".json"), "w") as fh:
+        json.dump({"id": version, "type": "release",
+                   "mainClass": "net.minecraft.client.main.Main",
+                   "arguments": {"game": [], "jvm": []}}, fh)
+    seen = {}
+
+    def _fake_command(vid, directory, opts):
+        seen["opts"] = dict(opts)
+        return ["java", "-cp", "x", "net.minecraft.client.main.Main"]
+
+    with patch.object(launch.mll.command, "get_minecraft_command",
+                      side_effect=_fake_command):
+        launch.build_launch_command(version, "tester", 2048, 854, 480, "他他他")
+    chosen = seen["opts"].get("executablePath")
+    check(chosen != "他他他",
+          "the bogus path is not handed to the launcher", repr(chosen))
+    check(chosen is None or os.path.isfile(chosen) or shutil.which(chosen),
+          "the fallback is a real Java (or mll's own default)", repr(chosen))
+
+    # A real explicit path is still honoured verbatim.
+    with patch.object(launch.mll.command, "get_minecraft_command",
+                      side_effect=_fake_command):
+        launch.build_launch_command(version, "tester", 2048, 854, 480,
+                                    sys.executable)
+    check(seen["opts"].get("executablePath") == sys.executable,
+          "a valid explicit Java is kept", repr(seen["opts"].get("executablePath")))
+
 # ---------------------------------------------------------------------- L15 ---
 print("\n2. java-major table (L15)")
 check(launch.required_java_major("1.17") == 16, "1.17 requires Java 16")
+check(launch.required_java_major("fabric-loader-0.19.5-26.2") == 25,
+      "a modern Fabric instance requires Java 25, not Java 8")
+check(launch.required_java_major("1.21.11-forge-61.0.1") == 21,
+      "a Forge instance uses its base release's Java requirement")
+with patch.object(launch, "find_java", return_value="java11"), \
+        patch.object(launch, "java_major_version", side_effect=lambda path: {
+            "java11": 11, "/jdk26/bin/java": 26}.get(path)), \
+        patch.object(launch.mll.java_utils, "find_system_java_versions",
+                     return_value=["/jdk26"]):
+    check(launch.find_java_for_version("fabric-loader-0.19.5-26.2") == "/jdk26/bin/java",
+          "loader launch selects a sufficient JVM instead of the Java 11 on PATH")
 check(launch.required_java_major("1.17.1") == 16, "1.17.1 requires Java 16")
 check(launch.required_java_major("1.18") == 17, "1.18 requires Java 17")
 check(launch.required_java_major("1.20.1") == 17, "1.20.1 requires Java 17")
@@ -176,7 +223,7 @@ with tempfile.TemporaryDirectory() as tmp:
     spawn_gate = threading.Event()
     spawn_released = threading.Event()
 
-    def slow_sync(mc_version, loader):
+    def slow_sync(mc_version, loader, version_id=None):
         staged.append((mc_version, loader))
         spawn_gate.set()
         time.sleep(0.3)
@@ -843,6 +890,37 @@ with patch.object(content, "sync_content_to_game", lambda *a: None), \
           f"{sum(1 for c in seen if c)} online passes across {len(seen)} doctor calls")
 
 # ---------------------------------------------------------------------- scrub
+print("\nM2. declined Doctor changes keep mods and allow Minecraft to launch")
+with patch.object(content, "sync_content_to_game", lambda *args: None), \
+        patch.object(launch, "sync_mods_to_game", lambda *args: None), \
+        patch.object(launch, "build_launch_command", lambda *args, **kwargs: ["java", "game"]), \
+        patch.object(launch.subprocess, "Popen") as spawn:
+    for first_launch in (True, False):
+        spawn.reset_mock()
+        local_cache.invalidate("first_launch_doctor")
+        if not first_launch:
+            local_cache.set("first_launch_doctor", ("1.20.1", "fabric", "1.20.1"), True)
+        approver = lambda change: False
+        approvals = []
+        def declined_doctor(*args, **kwargs):
+            change = {"action": "disable", "mods": [{"filename": "demo.jar"}]}
+            approvals.append(kwargs.get("approve_cb") is approver and not launch._spawn_lock.locked())
+            change["approved"] = kwargs["approve_cb"](change)
+            return {"fixed": [], "changes": [change]}
+        with patch.object(doctor, "run_doctor", side_effect=declined_doctor):
+            try:
+                launch.launch_game("1.20.1", "A", 800, 600, 400, None,
+                                   mc_version="1.20.1", loader="fabric", approve_mod_changes=approver)
+                cancelled = False
+            except RuntimeError as error:
+                cancelled = "Launch" in str(error)
+        check(not cancelled and spawn.called,
+              f"declined repair still spawns Minecraft (first launch={first_launch})")
+        check(approvals and all(approvals), "Doctor gets approval callback outside the spawn lock")
+        if first_launch:
+            check(local_cache.get("first_launch_doctor", ("1.20.1", "fabric", "1.20.1")) is not None,
+                  "declined first-launch review does not repeat on every Play click")
+
 print("\nN. unresolved ${...} placeholders scrubbed from the launch argv (offline)")
 # minecraft_launcher_lib 8.0 does not substitute ${clientid}/${auth_xuid}
 # (Microsoft-only placeholders), so a real 1.21+ version.json leaks them
@@ -880,6 +958,7 @@ print("\nO. custom JVM flags from settings are appended to the launch argv")
 # jvmArguments block (before the main class / minecraft args). A bad quote must
 # fall back to a naive split, never abort a launch.
 from cubeon.launch import _parse_custom_jvm_flags
+from cubeon.launch import invalid_custom_jvm_flags
 
 check(_parse_custom_jvm_flags(None) == [] and _parse_custom_jvm_flags("  ") == [],
       "empty/blank custom flags parse to nothing")
@@ -887,6 +966,20 @@ check(_parse_custom_jvm_flags('-Dmsg="a b" -Xss2M') == ["-Dmsg=a b", "-Xss2M"],
       "quoted values stay one arg")
 check(_parse_custom_jvm_flags('-Dbad="oops') == ['-Dbad="oops'],
       "unbalanced quote falls back to a naive split instead of raising")
+
+# 2026-10-25: custom_jvm_flags was "他他他". mll puts these tokens before the
+# main class, so a bare token became the MAIN CLASS and 26.3 died with
+# ClassNotFoundException. Non-option tokens must be dropped, not launched.
+check(_parse_custom_jvm_flags("他他他") == [],
+      "a bare non-flag token is dropped instead of becoming the main class",
+      repr(_parse_custom_jvm_flags("他他他")))
+check(_parse_custom_jvm_flags("-Xss2M 他他他 -Dkeep=1") == ["-Xss2M", "-Dkeep=1"],
+      "only the invalid token is dropped; valid flags survive")
+check(invalid_custom_jvm_flags("他他他") == ["他他他"],
+      "the doctor can name the offending token")
+check(_parse_custom_jvm_flags("--add-opens java.base/java.lang=ALL-UNNAMED")
+      == ["--add-opens", "java.base/java.lang=ALL-UNNAMED"],
+      "an option's separate value is not mistaken for a main class")
 
 with tempfile.TemporaryDirectory() as tmp:
     version = "jvmflags-test"
@@ -914,6 +1007,41 @@ with tempfile.TemporaryDirectory() as tmp:
     # still first, so the RAM slider keeps primacy unless the user overrides it.
     check(jvm.index("-Xmx2048M") < jvm.index("-Dmy.prop=hello"),
           "custom flags come after Cubeon's defaults (override wins)")
+
+    with patch.object(launch.mll.command, "get_minecraft_command",
+                      side_effect=_capture):
+        launch.build_launch_command(version, "tester", 2048, 854, 480, None,
+                                    custom_jvm_flags="他他他 -Xss2M")
+    jvm = seen.get("jvmArguments", [])
+    check("他他他" not in jvm,
+          "a bare token never reaches the JVM argv", f"jvmArguments={jvm}")
+    check("-Xss2M" in jvm, "valid flags still ride along")
+
+print("\nO2. the doctor finds and clears a launch-config crash")
+from cubeon import doctor  # noqa: E402
+
+_cfg = config.load_config()
+_cfg["custom_jvm_flags"] = "他他他"
+_cfg["java_path"] = "/definitely/not/here/java"
+config.save_config(_cfg)
+_rep = doctor.run_doctor(auto_fix=False, check_online=False,
+                         include=("launch",))
+_kinds = {p["kind"] for p in _rep["problems"]}
+check("jvm-flags" in _kinds,
+      "invalid custom JVM flags are reported", str(_rep["problems"]))
+check("java-path" in _kinds,
+      "a missing configured Java is reported", str(_rep["problems"]))
+check(not _rep["fixed"] and config.load_config()["custom_jvm_flags"] == "他他他",
+      "without auto_fix nothing is changed")
+_rep = doctor.run_doctor(auto_fix=True, check_online=False,
+                         include=("launch",))
+_after = config.load_config()
+check(_after.get("custom_jvm_flags") == "" and _after.get("java_path") is None,
+      "auto_fix clears the crashing flags and the dead Java path",
+      repr({"flags": _after.get("custom_jvm_flags"),
+            "java": _after.get("java_path")}))
+check(all(p["fixed"] for p in _rep["problems"]),
+      "the fixed problems are reported as fixed", str(_rep["problems"]))
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

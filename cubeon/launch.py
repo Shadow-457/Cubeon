@@ -148,7 +148,10 @@ def required_java_major(version_id: str) -> int:
     server jar, because the launcher needs to pick the right Java *before*
     it ever tries to start (and a too-old Java just prints the error the user
     pasted)."""
-    ver = _parse_version(version_id)
+    # Loader and isolated instance ids are not release numbers. Resolve their
+    # own base before choosing a JVM (fabric-loader-... previously chose Java 8).
+    from .versions import extract_mc_version
+    ver = _parse_version(extract_mc_version(version_id))
     if ver >= (26, 1):
         return 25
     if ver >= (1, 20, 5):
@@ -589,12 +592,20 @@ def _sanitize_client_json(version_id: str) -> None:
     _write_client_json(json_path, data)
 
 
-def _parse_custom_jvm_flags(raw: str | None) -> list[str]:
-    """Split a user-supplied JVM-flag string into argv pieces.
+# JVM options that take their VALUE as the next argv token. Without this list
+# a legitimate `--add-opens java.base/java.lang=ALL-UNNAMED` would lose its
+# value when non-flag tokens are stripped (see _parse_custom_jvm_flags).
+_JVM_VALUE_OPTIONS = frozenset({
+    "-cp", "-classpath", "--class-path",
+    "-p", "--module-path", "--upgrade-module-path",
+    "--add-opens", "--add-exports", "--add-reads", "--patch-module",
+    "--limit-modules", "--enable-native-access",
+    "-javaagent", "-agentlib", "-agentpath",
+})
 
-    Quotes are respected (`-Dfoo="a b"` stays one arg); an unbalanced quote
-    falls back to a naive whitespace split so a typo can never abort a launch.
-    """
+
+def _split_custom_jvm_flags(raw: str | None) -> list[str]:
+    """Quote-aware split; an unbalanced quote falls back to whitespace."""
     raw = (raw or "").strip()
     if not raw:
         return []
@@ -602,6 +613,56 @@ def _parse_custom_jvm_flags(raw: str | None) -> list[str]:
         return shlex.split(raw)
     except ValueError:
         return raw.split()
+
+
+def _filter_jvm_tokens(tokens) -> tuple[list[str], list[str]]:
+    """(usable flags, rejected tokens).
+
+    A custom-flags string is spliced into the JVM argv before the main class.
+    Any bare token that is not the value of a preceding option is therefore
+    read by Java as the MAIN CLASS - which is exactly how a config holding
+    ``custom_jvm_flags: "他他他"`` crashed Minecraft 26.3 with
+    ``ClassNotFoundException: 他他他`` (2026-10-25). Reject those tokens
+    instead of handing them to Popen.
+    """
+    kept: list[str] = []
+    dropped: list[str] = []
+    expect_value = False
+    for token in tokens:
+        if expect_value:
+            kept.append(token)
+            expect_value = False
+            continue
+        if token.startswith("-"):
+            kept.append(token)
+            expect_value = token in _JVM_VALUE_OPTIONS
+        else:
+            dropped.append(token)
+    return kept, dropped
+
+
+def invalid_custom_jvm_flags(raw: str | None) -> list[str]:
+    """Tokens in `raw` that would be mistaken for the main class.
+
+    Exposed for the doctor, which reports/fixes a config that would crash the
+    next launch.
+    """
+    return _filter_jvm_tokens(_split_custom_jvm_flags(raw))[1]
+
+
+def _parse_custom_jvm_flags(raw: str | None) -> list[str]:
+    """Split a user-supplied JVM-flag string into safe argv pieces.
+
+    Quotes are respected (`-Dfoo="a b"` stays one arg); an unbalanced quote
+    falls back to a naive whitespace split so a typo can never abort a launch.
+    Non-option tokens are dropped - see _filter_jvm_tokens for why.
+    """
+    kept, dropped = _filter_jvm_tokens(_split_custom_jvm_flags(raw))
+    if dropped:
+        logging.getLogger(__name__).warning(
+            "Ignoring invalid custom JVM flag token(s) %r - they would "
+            "be read as the main class", dropped)
+    return kept
 
 
 def build_launch_command(version_id: str, username: str, ram_mb: int,
@@ -645,8 +706,26 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         "resolutionWidth": str(width),
         "resolutionHeight": str(height),
     }
+    # Only hand mll a Java that actually exists. A typo'd / cleared Settings
+    # path used to go straight into executablePath, and Popen then died with
+    # FileNotFoundError on the garbage string (2026-10-25: java_path was
+    # "他他他"). A missing configured path now falls back to the same
+    # resolution the Java check uses, so the game still starts on a machine
+    # that plainly has Java.
+    java = None
     if java_path:
-        options["executablePath"] = java_path
+        candidate = _normalize_java_path(java_path)
+        if os.path.isfile(candidate) or shutil.which(candidate):
+            major = java_major_version(candidate)
+            if major is None or major >= required_java_major(version_id):
+                java = candidate
+    if java is None:
+        try:
+            java = find_java_for_version(version_id, None)
+        except Exception:
+            java = find_java()
+    if java:
+        options["executablePath"] = java
 
     try:
         command = mll.command.get_minecraft_command(version_id, MINECRAFT_DIR, options)
@@ -694,7 +773,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                  java_path: str | None, on_exit=None,
                  *, mc_version: str, loader: str,
                  cfg: dict | None = None, status_cb=None, log_cb=None,
-                 server_address: str | None = None, server_port: int | None = None) -> subprocess.Popen:
+                 server_address: str | None = None, server_port: int | None = None,
+                 approve_mod_changes=None) -> subprocess.Popen:
     """
     mc_version and loader are keyword-only and required (no more silent
     `mc_version or version_id` / `loader=None` fallbacks). Mods live in
@@ -736,6 +816,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 mc_version, loader,
                 manage=bool(cfg.get("manage_skin_mod", True)),
                 status_cb=status_cb,
+                version_id=version_id,
             )
         except Exception:
             pass
@@ -747,7 +828,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         from .features import friends_enabled
         from .mods import get_profile_dir
         from . import cubeonfriends
-        _profile_dir = get_profile_dir(mc_version, loader)
+        _profile_dir = get_profile_dir(mc_version, loader, version_id)
         if not friends_enabled() or not (cfg or {}).get("client_mod_enabled", True):
             # Off: either a public build (no Friends backend at all) or the
             # user's Settings toggle. Both must also REMOVE any jar a
@@ -767,7 +848,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 # best-effort: a profile without it still gets the button.
                 try:
                     _api_detail = cubeonfriends.ensure_fabric_api(
-                        mc_version, loader, status_cb=status_cb)
+                        mc_version, loader, status_cb=status_cb,
+                        version_id=version_id)
                     if _api_detail.startswith(("couldn't", "no ", "download")):
                         logging.getLogger(__name__).info(
                             "Fabric API not installed: %s", _api_detail)
@@ -790,13 +872,15 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                 and cfg.get("perf_mods_enabled", True)):
             from . import perf_mods
             report = perf_mods.ensure_installed(mc_version, loader,
-                                                status_cb=status_cb)
+                                                status_cb=status_cb,
+                                                version_id=version_id)
             if report["installed"] and status_cb:
                 status_cb("FPS boost installed")
             # The suite was narrowed to Sodium only; remove the retired mods so
             # an existing profile stops loading the pile instead of leaving the
             # user to delete eight jars by hand.
-            pruned = perf_mods.prune_retired_perf_mods(mc_version, loader)
+            pruned = perf_mods.prune_retired_perf_mods(mc_version, loader,
+                                                       version_id=version_id)
             if pruned and status_cb:
                 status_cb("Removed extra perf mods")
             # The game is not running yet (the JVM starts further down), so
@@ -945,9 +1029,10 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # this launch already did it. Every later launch goes back to the fast
     # offline pass. Never raises into the spawn path.
     _full_doctor_done = False
+    pending_mod_changes = []
     try:
         from . import local_cache
-        _doctor_key = (str(mc_version), str(loader))
+        _doctor_key = (str(mc_version), str(loader), str(version_id))
         _full_doctor_done = local_cache.get(
             "first_launch_doctor", _doctor_key, max_age=30 * 86400) is not None
     except Exception:
@@ -958,7 +1043,9 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             from . import local_cache as _lc
             _rep = _full_doctor(mc_version, loader, auto_fix=True,
                                 check_online=True, version_id=version_id,
-                                include=("mods",))
+                                include=("mods",), approve_cb=approve_mod_changes)
+            pending_mod_changes = [change for change in _rep.get("changes") or []
+                                   if not change.get("approved")]
             _fixed = len(_rep.get("fixed") or [])
             if _fixed and status_cb:
                 status_cb(f"Fixed {_fixed} mod problem(s)")
@@ -971,23 +1058,28 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             logging.getLogger(__name__).warning(
                 "first-launch doctor failed", exc_info=True)
     try:
+        report = {}
+        try:
+            from .doctor import run_doctor
+            report = run_doctor(mc_version, loader, auto_fix=True,
+                                check_online=False, version_id=version_id,
+                                include=("mods", "resourcepacks", "shaders"),
+                                approve_cb=approve_mod_changes)
+            fixed = len(report.get("fixed") or [])
+            if fixed and status_cb:
+                status_cb(f"Fixed {fixed} content problem(s)")
+        except Exception:
+            logging.getLogger(__name__).warning("launch doctor failed", exc_info=True)
+        if pending_mod_changes or any(not change.get("approved") for change in report.get("changes") or []):
+            if status_cb:
+                status_cb("Keeping your mods and starting Minecraft")
         with _spawn_lock:
             try:
                 from .content import sync_content_to_game
-                sync_content_to_game(mc_version, loader)
+                sync_content_to_game(mc_version, loader, version_id)
             except Exception:
                 logging.getLogger(__name__).warning("content staging failed", exc_info=True)
-            try:
-                from .doctor import run_doctor
-                report = run_doctor(mc_version, loader, auto_fix=True,
-                                    check_online=False, version_id=version_id,
-                                    include=("mods", "resourcepacks", "shaders"))
-                fixed = len(report.get("fixed") or [])
-                if fixed and status_cb:
-                    status_cb(f"Fixed {fixed} content problem(s)")
-            except Exception:
-                logging.getLogger(__name__).warning("launch doctor failed", exc_info=True)
-            sync_mods_to_game(mc_version, loader)
+            sync_mods_to_game(mc_version, loader, version_id)
             process = subprocess.Popen(
                 command,
                 cwd=MINECRAFT_DIR,

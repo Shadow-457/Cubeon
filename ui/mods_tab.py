@@ -14,10 +14,12 @@ re-filtered for the new version+loader profile).
 # Standard library imports
 import re          # For turning mod names into comparable "slugs"
 import threading   # For running network calls in the background without freezing the UI
+import time        # Throttle for the automatic problem check
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
+from cubeon.doctor_ui import make_mod_change_approver, open_repair_review
 
 from cubeon.theme import (  # design system: corner radius, on-accent fg, hover states
     RADIUS, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
@@ -33,6 +35,7 @@ from cubeon import eta as cubeon_eta  # measured "time left" for downloads
 from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
+from cubeon import instances as instance_info  # the selected instance's real loader
 
 
 def batch_progress_text(value: float, total: float, eta: "str | None" = None) -> str:
@@ -57,10 +60,23 @@ def batch_progress_text(value: float, total: float, eta: "str | None" = None) ->
     return f"Downloading… {pct}% (file {now}/{files}){left}"
 
 
+def mod_compatibility_note(mod: dict, mc_version: str | None, loader: str | None) -> str:
+    if loader not in MOD_CAPABLE_LOADERS:
+        return "Choose a mod loader on the Play tab."
+    versions = mod.get("game_versions")
+    loaders = mod.get("loaders")
+    if mc_version and versions is not None and mc_version not in versions:
+        return f"No build for Minecraft {mc_version}. Open the mod to see supported versions."
+    if loaders is not None and loader not in loaders:
+        return f"No {loader.title()} build. Open the mod to see supported loaders."
+    return ""
+
+
 def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.Dropdown, *,
                     section_label,
                     BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
-                    TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO):
+                    TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
+                    switch_loader=None):
     """
     Builds the Mods tab's root control (a Flet Column) and returns it along
     with a couple of functions main.py needs to call from other tabs.
@@ -255,7 +271,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         mods.
         """
         names = set()
-        for m in core.list_mods(state["selected_mc_version"], state["mod_loader"]):
+        for m in core.list_mods(state["selected_mc_version"], state["mod_loader"],
+                                version_id=version_dropdown.value):
             inst_slug = (m.get("slug") or "").lower()
             if inst_slug:
                 names.add(inst_slug)
@@ -294,6 +311,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         that blocks a download: a miss just shows "Download" again."""
         tokens = set()
         for it in core.list_content(_ct(), state["selected_mc_version"],
+                                    version_id=version_dropdown.value,
                                     loader=loader_for_content()):
             tokens.add(re.sub(r"[^a-z0-9]+", "", it["display_name"].lower()))
         return tokens
@@ -305,7 +323,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         'install Iris' notice is only useful before this point, so it retires
         itself instead of nagging someone who already did it."""
         try:
-            mods = core.list_mods(state["selected_mc_version"], state["mod_loader"])
+            mods = core.list_mods(state["selected_mc_version"], state["mod_loader"],
+                                  version_id=version_dropdown.value)
         except Exception:
             return False
         for m in mods:
@@ -327,11 +346,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if _is_mod():
             vanilla_mods_notice.visible = (state["mod_loader"] == "vanilla")
             shader_notice.visible = False
-            all_mods = core.list_mods(state["selected_mc_version"], state["mod_loader"])
+            all_mods = core.list_mods(state["selected_mc_version"], state["mod_loader"],
+                                      version_id=version_dropdown.value)
         else:
             vanilla_mods_notice.visible = False
             shader_notice.visible = (_ct() == "shader"
                                      and not shader_requirement_installed())
+            if shader_notice.visible:
+                _sync_shader_notice()
             # Version info is what lets each installed row say whether the game
             # will actually accept it (see cubeon/packformat.py). The list is
             # this instance's profile: packs follow the version+loader now,
@@ -410,32 +432,24 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # "My mods won't load" almost always means a leftover duplicate copy of a
     # mod or a missing required dependency. The doctor finds and fixes both; it
     # also runs by itself the moment a mod is installed, so the common
-    # breakage never becomes a mystery. The user-facing wording stays plain -
-    # "Fix problems" - the word "doctor" never leaves the code.
+    # breakage never becomes a mystery. The word "doctor" never leaves the code.
+    #
+    # The VISIBLE repair action moved to the Play card ("Fix crash", left of
+    # PLAY) on 2026-10-25: that is where people look when a launch just failed,
+    # and it can cover mods + resource packs + shaders in one pass. This tab
+    # keeps the quiet result line from the automatic pass and the review dialog
+    # that the pass's "Review" toast opens.
+    approve_mod_change = make_mod_change_approver(page)
     repair_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             font_family=FONT_MONO, visible=False)
-    repair_btn = attach_hover(ft.Container(
-        content=ft.Row(
-            [ft.Icon(ft.Icons.BUILD_ROUNDED, color=ACCENT, size=15),
-             ft.Text("Fix problems", color=ACCENT, size=12.5,
-                     weight=ft.FontWeight.W_700)],
-            spacing=6, tight=True),
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
-        ink=False,
-    ), "transparent", ACCENT_TINT)
 
     def _set_repair_status(t):
         repair_status.value = t
-        repair_status.visible = True
+        repair_status.visible = bool(t)
         thread_safe_ui.refresh(repair_status)
 
-    def _finish_repair():
-        repair_btn.disabled = False
-        thread_safe_ui.refresh(repair_btn)
-
     def run_mod_repair(e=None):
-        """Check the current tab's content for the usual breakage and fix it.
+        """Open the repair review for the tab currently being looked at.
 
         Mods: leftover duplicate copies, missing required dependencies, jars
         built for a different loader/version, and two mods that declare they
@@ -445,45 +459,82 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         game show a pack as "Incompatible", and shader zips whose shaders/
         folder is buried a level too deep (cubeon/doctor.py).
 
-        Plugin and modpack checks live in the same doctor and run from the
-        automatic passes (after an install and before a launch), which is where
-        they matter; this button stays scoped to the tab being looked at so it
-        can't spend a minute checking a server that isn't relevant."""
+        The Play tab's "Fix crash" runs the same review across all three
+        sections; this entry point stays scoped to the tab being looked at so
+        the automatic pass's "Review" link can't spend a minute checking a
+        server that isn't relevant."""
         sections = []
         if _is_mod():
             if state["mod_loader"] == "vanilla":
                 return
-            sections = ["mods", "modpacks"]
+            sections = ["mods"]
         elif _ct() == "shader":
             sections = ["shaders"]
         else:
             sections = ["resourcepacks"]
-        repair_btn.disabled = True
-        _set_repair_status("Checking...")
+        _set_repair_status("")
+
+        def done():
+            refresh_mods_list()
+
+        try:
+            open_repair_review(
+                page, mc_version=state["selected_mc_version"], loader=state["mod_loader"],
+                version_id=version_dropdown.value, include=sections, run_doctor=core.run_doctor,
+                on_status=_set_repair_status, on_done=done)
+        except Exception as error:
+            _set_repair_status(f"Could not open repair review: {error}")
+
+    # --- Automatic check ---------------------------------------------------
+    # The same repair pass the install path already runs, but also every so
+    # often on its own: when the Mods tab opens and when the Installed list is
+    # shown, at most once per instance every AUTO_CHECK_SECONDS. It says
+    # something only when it actually fixed something (toast, with a Review
+    # action); a clean result just updates the quiet line in the Installed
+    # header.
+    AUTO_CHECK_SECONDS = 15 * 60
+    auto_check_state = {"last": {}, "running": False}
+
+    def auto_check(force=False):
+        mc = state.get("selected_mc_version")
+        loader = state.get("mod_loader")
+        version_id = version_dropdown.value
+        if not mc or not version_id or auto_check_state["running"]:
+            return
+        key = (version_id, loader)
+        last = auto_check_state["last"].get(key)
+        if not force and last and time.time() - last < AUTO_CHECK_SECONDS:
+            return
+        auto_check_state["running"] = True
+        auto_check_state["last"][key] = time.time()
 
         def worker():
             try:
-                report = core.run_doctor(
-                    state["selected_mc_version"], state["mod_loader"],
-                    auto_fix=True, check_online=True,
-                    status_cb=_set_repair_status, include=sections,
-                    version_id=version_dropdown.value)
-            except Exception as ex:
-                _set_repair_status(f"Couldn't check: {ex}")
-                _finish_repair()
-                return
-            problems = report.get("problems") or []
-            fixed = len(report.get("fixed") or [])
-            if not problems:
-                _set_repair_status("No problems found.")
-            else:
-                _set_repair_status(f"Fixed {fixed} of {len(problems)} problem(s).")
-            refresh_mods_list()
-            _finish_repair()
+                try:
+                    report = core.run_doctor(mc, loader, auto_fix=True, check_online=True,
+                                             approve_cb=approve_mod_change,
+                                             version_id=version_id)
+                except TypeError:
+                    report = core.run_doctor(mc, loader, auto_fix=True, check_online=True,
+                                             approve_cb=approve_mod_change)
+                fixed = len((report or {}).get("fixed") or [])
+                if fixed:
+                    refresh_mods_list()
+                    _set_repair_status(f"Fixed {fixed} problem{'s' if fixed != 1 else ''} just now")
+                    dialogs.show_snack(
+                        page,
+                        f"Fixed {fixed} problem{'s' if fixed != 1 else ''} in this instance automatically.",
+                        duration=8000, action=lambda e: run_mod_repair(),
+                        action_label="Review")
+                else:
+                    _set_repair_status("No problems found")
+            except Exception:
+                # A background nicety: never surface its own failures as errors.
+                auto_check_state["last"].pop(key, None)
+            finally:
+                auto_check_state["running"] = False
 
-        threading.Thread(target=worker, daemon=True).start()
-
-    repair_btn.on_click = run_mod_repair
+        threading.Thread(target=worker, daemon=True, name="ux-auto-check").start()
 
     def _compat_lines(m):
         """The one-line compatibility verdict for an installed pack/shader.
@@ -491,15 +542,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         Silence means "the game will load it" - a positive line on every row
         would just add noise. A pack the game would show as Incompatible is the
         whole reason this exists, so that one is called out in red with the
-        full explanation in a tooltip (and the row is what "Fix problems"
-        repairs)."""
+        full explanation in a tooltip (and Play's "Fix crash" repairs it)."""
         compat = m.get("compat")
         if not compat or compat.get("ok") is True:
             return []
         detail = (compat.get("reason") or "").strip()
         if compat.get("ok") is False:
             return [ft.Text(
-                "Incompatible - press Fix problems",
+                "Incompatible - use Fix crash on Play",
                 size=10.5, color=DANGER,
                 tooltip=detail or "The game would show this as incompatible.")]
         return [ft.Text(
@@ -547,7 +597,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 try:
                     core.delete_content(_ct(), m["filename"],
                                         state["selected_mc_version"],
-                                        loader_for_content())
+                                        version_id=version_dropdown.value,
+                                        loader=loader_for_content())
                 except Exception as ex:
                     _set_installed_status(f"Couldn't remove: {ex}")
                     return
@@ -585,7 +636,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                     ft.Text(m["display_name"], size=13.5, color=TEXT,
                                             weight=ft.FontWeight.W_600),
                                     ft.Text(f"{m['size_kb']:,.0f} KB", size=10.5,
-                                            color=TEXT_FAINT, font_family=FONT_MONO),
+                                            color=ft.Colors.with_opacity(0.7, TEXT), font_family=FONT_MONO),
                                     *_compat_lines(m),
                                 ],
                                 spacing=2, expand=True,
@@ -614,7 +665,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # re-sync the list either way so a stale row can't linger.
             try:
                 core.toggle_mod(state["selected_mc_version"],
-                                state["mod_loader"], m["filename"])
+                                state["mod_loader"], m["filename"],
+                                version_id=version_dropdown.value)
             except Exception as ex:
                 _set_installed_status(str(ex))
                 refresh_mods_list()
@@ -630,7 +682,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # the file is already gone, but protected/other failures surface.
             try:
                 core.delete_mod(state["selected_mc_version"],
-                                state["mod_loader"], m["filename"])
+                                state["mod_loader"], m["filename"],
+                                version_id=version_dropdown.value)
             except Exception as ex:
                 _set_installed_status(f"Couldn't remove: {ex}")
                 refresh_mods_list()
@@ -657,7 +710,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                         weight=ft.FontWeight.W_600),
                                 ft.Text(
                                     f"{m['size_kb']:,.0f} KB  ·  {'Enabled' if m['enabled'] else 'Disabled'}",
-                                    size=11, color=TEXT_FAINT, font_family=FONT_MONO,
+                                    size=11.5, color=ft.Colors.with_opacity(0.7, TEXT), font_family=FONT_MONO,
                                 ),
                             ],
                             spacing=2, expand=True,
@@ -701,10 +754,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def open_folder_click(e):
         """Opens the folder for the active content type in the system file explorer."""
         if _is_mod():
-            core.open_mods_folder(state["selected_mc_version"], state["mod_loader"])
+            core.open_mods_folder(state["selected_mc_version"], state["mod_loader"],
+                                  version_id=version_dropdown.value)
         else:
             core.open_content_folder(_ct(), state["selected_mc_version"],
-                                     loader_for_content())
+                                     version_id=version_dropdown.value,
+                                     loader=loader_for_content())
 
     # --- Install from file: lets the user pick a .jar already on their
     # disk and drop it straight into the current profile's mods folder,
@@ -739,7 +794,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             try:
                 if _is_mod():
                     core.install_local_mod(picked.path, state["selected_mc_version"],
-                                           state["mod_loader"])
+                                           state["mod_loader"],
+                                           version_id=version_dropdown.value)
                 else:
                     core.install_local_content(
                         _ct(), picked.path, state["selected_mc_version"],
@@ -915,6 +971,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     )
     browse_title_text = ft.Text("Recommended", size=12,
                                  color=TEXT_DIM, font_family=FONT_MONO)
+    search_scope = {"compatible": True}
+    browse_scope_text = ft.Text("", size=11.5, color=TEXT_DIM)
+    compatible_only = ft.Checkbox(
+        label="Compatible only", value=True,
+        active_color=ACCENT,
+        label_style=ft.TextStyle(color=TEXT_DIM, size=11.5),
+        on_change=lambda event: _change_search_scope(bool(event.control.value)),
+    )
 
     # Currently selected category filter ("" = All). Kept as mutable state
     # so both the chip row and the search/recommend functions can read it.
@@ -937,8 +1001,44 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     def _is_mod() -> bool:
         return active_content["type"] == "mod"
 
+    def _instance_mod_capable():
+        """Does the SELECTED INSTANCE really have a mod loader?
+
+        ``state["mod_loader"]`` is the switcher's choice, not on-disk truth: it
+        can read "fabric" because another instance on the same Minecraft
+        version has Fabric, or because the user armed Play to install one.
+        Trusting it let a plain Vanilla folder accept mods and shaders (the
+        2026-10-25 report). An installed instance therefore has to prove it
+        with its own descriptor; a not-yet-installed version still follows the
+        switcher, and a pending loader install counts as the intent to become
+        modded.
+        """
+        vid = version_dropdown.value
+        if not vid:
+            return False
+        pending = state.get("pending_loader_install") or {}
+        if (pending.get("version_id") == vid
+                and pending.get("loader") in MOD_CAPABLE_LOADERS):
+            return True
+        if vid in (state.get("installed") or set()):
+            try:
+                meta = (state.get("installed_meta") or {}).get(vid) or {}
+                info = instance_info.describe(
+                    vid, meta, (cfg.get("version_labels") or {}).get(vid),
+                    with_mods=False, play_store={})
+                return info.get("loader") in MOD_CAPABLE_LOADERS
+            except Exception:
+                return False
+        # Not installed yet: the switcher is the only loader information.
+        return state.get("mod_loader") in MOD_CAPABLE_LOADERS
+
     def _can_install(content_type=None):
-        return (content_type or _ct()) == "resourcepack" or state.get("mod_loader") in MOD_CAPABLE_LOADERS
+        kind = content_type or _ct()
+        if kind == "resourcepack":
+            # Texture packs work in plain Vanilla - always allowed.
+            return True
+        return (_instance_mod_capable()
+                and state.get("mod_loader") in MOD_CAPABLE_LOADERS)
 
     def loader_for_content() -> str | None:
         """The loader half of the profile key a pack is stored under.
@@ -994,13 +1094,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # past". A bordered tray with an accent-filled selected pill makes the
     # current section obvious, and the icons say what each one is before the
     # label is read.
-    content_segment_row = ft.Row(spacing=4)
+    content_segment_row = ft.Row(spacing=2)
     content_segment_bar = ft.Container(
         content=content_segment_row,
         bgcolor=CARD_FILL,
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS + 2,
-        padding=4,
+        padding=3,
     )
     CONTENT_TAB_ICONS = {
         "mod": ft.Icons.EXTENSION_ROUNDED,
@@ -1013,19 +1113,21 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             content=ft.Row(
                 [
                     ft.Icon(CONTENT_TAB_ICONS.get(tid, ft.Icons.CATEGORY_ROUNDED),
-                            size=15, color=ACCENT_HI if selected else TEXT_DIM),
-                    ft.Text(label, size=13,
+                            size=14, color=TEXT if selected else TEXT_DIM),
+                    ft.Text(label, size=12,
                             weight=ft.FontWeight.W_700 if selected
                             else ft.FontWeight.W_500,
-                            color=ACCENT_HI if selected else TEXT_DIM),
+                            color=TEXT if selected else TEXT_DIM),
                 ],
-                spacing=7,
+                spacing=6,
                 tight=True,
             ),
-            bgcolor=ACCENT_TINT if selected else "transparent",
-            border=ft.border.Border.all(1, ACCENT if selected else "transparent"),
+            # Neutral selection: orange is kept for Download / primary actions.
+            bgcolor=ft.Colors.with_opacity(0.10, TEXT) if selected else "transparent",
+            border=ft.border.Border.all(
+                1, ft.Colors.with_opacity(0.5, TEXT) if selected else "transparent"),
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=13, vertical=8),
+            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
             ink=False,
             on_click=lambda e, t=tid: on_content_type_change(t),
             animate=ft.Animation(160, ft.AnimationCurve.EASE_OUT_CUBIC),
@@ -1045,13 +1147,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if _is_mod():
             header_subtitle.value = ("Download mods, or manage what's already installed." if _can_install()
                                      else "Choose a mod loader on the Play tab to install mods.")
-            mod_search_field.hint_text = "Search mods... e.g. sodium, iris, jei"
+            mod_search_field.hint_text = "Search mods or paste a Modrinth link..."
         elif _ct() == "resourcepack":
             header_subtitle.value = "Texture packs work in vanilla and modded Minecraft."
             mod_search_field.hint_text = "Search resource packs... e.g. faithful, stay true"
         else:
             header_subtitle.value = "Download shaders - they need Iris or OptiFine to run."
             mod_search_field.hint_text = "Search shaders... e.g. complementary, BSL, sildurs"
+        compatible_only.visible = _is_mod()
 
     def on_content_type_change(new_type):
         if _ct() == new_type:
@@ -1084,16 +1187,42 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         """The loader to filter Modrinth results by. Vanilla can't load mods
         at all, so default that case to Fabric (the most commonly supported
         loader) rather than sending an invalid facet."""
-        return state["mod_loader"] if state["mod_loader"] != "vanilla" else "fabric"
+        loader = state.get("mod_loader") or "vanilla"
+        return loader if loader != "vanilla" else "fabric"
+
+    def _change_search_scope(compatible):
+        search_scope["compatible"] = compatible
+        compatible_only.value = compatible
+        run_mod_search() if mod_search_field.value.strip() else load_recommended_mods()
+
+    def _search_all_modrinth(event=None):
+        active_category["value"] = ""
+        build_category_chips()
+        _change_search_scope(False)
+
+    def _refresh_browse_scope():
+        if _is_mod() and not search_scope["compatible"]:
+            label = "All Minecraft versions · all loaders"
+        else:
+            version = current_mc_version_for_search() or "all versions"
+            label = f"Minecraft {version}"
+            if _is_mod():
+                label = f"{browse_loader().title()} · {label}"
+        category = active_category["value"]
+        if category:
+            choices = core.MOD_CATEGORIES if _is_mod() else core.category_choices(_ct())
+            label += f" · {dict(choices).get(category, category)}"
+        browse_scope_text.value = label
 
     browse_generation = {"value": 0}
 
     def _browse_key():
         return (mod_search_field.value.strip(), state.get("selected_mc_version"),
                 version_dropdown.value, state.get("mod_loader"), _ct(),
-                active_category["value"])
+                active_category["value"], search_scope["compatible"])
 
     def _begin_browse():
+        _refresh_browse_scope()
         browse_generation["value"] += 1
         return browse_generation["value"], _browse_key()
 
@@ -1125,6 +1254,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         content_type = _ct()
         query = _browse_query()
         mc_version, loader = current_mc_version_for_search(), browse_loader()
+        if content_type == "mod" and not search_scope["compatible"]:
+            mc_version, loader = None, None
         cat = active_category["value"]
         offset = page_num * BROWSE_PAGE_SIZE
         if content_type == "mod":
@@ -1161,7 +1292,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 if not _browse_current(token):
                     return
                 browse_status_text.value = f"{error_prefix}: {ex}"
+                with thread_safe_ui.TREE_LOCK:
+                    browse_results_view.disabled = False
+                    browse_results_view.controls[:] = [
+                        ft.Text("Search unavailable. Check your connection and retry.", size=13, color=TEXT_DIM),
+                        quiet_chip("Retry", on_click=lambda event: run_mod_search_safe()),
+                    ]
                 thread_safe_ui.refresh(browse_status_text)
+                thread_safe_ui.refresh(browse_results_view)
                 return
             if not _browse_current(token):
                 return  # a newer search/type/category took over while we fetched
@@ -1281,6 +1419,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if not results:
             rows.append(
                 ft.Text(browse_state.get("empty_msg", ""), size=13, color=TEXT_DIM))
+            if _is_mod() and _browse_query() and (search_scope["compatible"] or active_category["value"]):
+                rows.append(quiet_chip("Search all Modrinth", on_click=_search_all_modrinth))
         else:
             # Snapshot the mode once: a background recommend/search worker can
             # finish and call this right after the user flipped the content-type
@@ -1313,7 +1453,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         browse_results_view.controls[:] = rows
         browse_results_view.disabled = False
 
-        browse_status_text.value = f"{len(results)} mod(s)" if results else ""
+        matched_query = results[0].get("search_query", _browse_query()) if results else ""
+        browse_status_text.value = (
+            f'Related matches for "{matched_query}"' if matched_query and matched_query != _browse_query()
+            else f"{len(results)} result(s)" if results else "")
         browse_pager_label.value = f"Page {page_num + 1} of {total_pages}"
         browse_pager_row.visible = total_pages > 1
         browse_pager_prev.disabled = page_num <= 0
@@ -1435,7 +1578,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         installed_now = {}
         try:
-            items = (core.list_mods(detail_mc, detail_loader) if content_type == "mod"
+            items = (core.list_mods(detail_mc, detail_loader,
+                                    version_id=detail_version) if content_type == "mod"
                      else core.list_content(content_type, detail_mc,
                                             version_id=detail_version, loader=detail_loader))
             for m in items:
@@ -1493,6 +1637,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         result = core.install_mod_with_dependencies(
                             v["url"], v["filename"],
                             mc_version=detail_mc, loader=detail_loader,
+                            version_id=detail_version,
                             slug=details.get("slug"), project_id=details.get("project_id"),
                             hashes=v.get("hashes"),
                             status_cb=on_status, progress_cb=_install_progress,
@@ -1518,7 +1663,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     try:
                         report = (core.mod_doctor(
                             detail_mc, detail_loader,
-                            auto_fix=True, status_cb=on_status)
+                            auto_fix=True, status_cb=on_status, approve_cb=approve_mod_change,
+                            version_id=detail_version)
                             if content_type == "mod" else {})
                         fixed = len(report.get("fixed") or [])
                     except Exception:
@@ -1679,7 +1825,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         holder.content = ft.Row(
                             [ft.Column(
                                 [ft.Text("Latest for your setup", size=11,
-                                         color=TEXT_FAINT, font_family=FONT_MONO),
+                                         color=ft.Colors.with_opacity(0.7, TEXT), font_family=FONT_MONO),
                                  ft.Text(vnum, size=16, color=TEXT,
                                          weight=ft.FontWeight.W_800,
                                          font_family=FONT_DISPLAY)],
@@ -1915,6 +2061,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         rows don't stack five loud buttons.
         """
         row_content_type = _ct()
+        compatibility_note = (mod_compatibility_note(
+            mod, current_mc_version_for_search(), state.get("mod_loader"))
+            if row_content_type == "mod" else "")
         key = _row_key(mod.get("project_id") or mod.get("slug") or mod["title"])
         cached = browse_rows.get(key)
         if cached and cached[0] == mod:
@@ -1922,7 +2071,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return cached[1]
         # The download button's text and icon change based on installed status
         download_btn_text = ft.Text(
-            "Installed" if is_installed else "Download",
+            "Installed" if is_installed else "Unavailable" if compatibility_note else "Download",
             size=12.5, weight=ft.FontWeight.W_700,
             color=TEXT_FAINT if is_installed else ACCENT,
         )
@@ -1940,8 +2089,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
             ink=False,
-            disabled=is_installed or not _can_install(row_content_type),
-            tooltip="Choose a compatible mod loader on the Play tab first." if not _can_install(row_content_type) else None,
+            disabled=is_installed or bool(compatibility_note) or not _can_install(row_content_type),
+            tooltip=compatibility_note or ("Choose a compatible mod loader on the Play tab first." if not _can_install(row_content_type) else None),
         )
 
         def on_download(e):
@@ -1950,7 +2099,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             current Minecraft version and loader), then downloads it and refreshes the installed list.
             """
             content_type = row_content_type
-            if not _can_install(content_type):
+            if not _can_install(content_type) or (content_type == "mod" and mod_compatibility_note(
+                    mod, current_mc_version_for_search(), state.get("mod_loader"))):
                 return
             selected_mc = state["selected_mc_version"]
             selected_version = version_dropdown.value
@@ -2041,6 +2191,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         result = core.install_mod_with_dependencies(
                             file_info["url"], file_info["filename"],
                             mc_version=selected_mc, loader=selected_loader,
+                            version_id=selected_version,
                             slug=mod.get("slug"), project_id=mod.get("project_id"),
                             hashes=file_info.get("hashes"),
                             status_cb=_dep_status, progress_cb=_batch_progress,
@@ -2135,12 +2286,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             [
                                 ft.Text(mod["title"], size=15, color=TEXT,
                                         weight=ft.FontWeight.W_700, max_lines=1),
-                                ft.Text(description or " ", size=12, color=TEXT_DIM,
-                                        max_lines=1),
+                                ft.Text(compatibility_note or description or " ", size=12, color=TEXT_DIM,
+                                        max_lines=1, tooltip=compatibility_note or description),
                                 ft.Row(
                                     [
                                         ft.Text(f"{mod.get('downloads', 0):,} downloads",
-                                                size=11, color=TEXT_FAINT, font_family=FONT_MONO),
+                                                size=11, color=ft.Colors.with_opacity(0.7, TEXT), font_family=FONT_MONO),
                                     ],
                                     spacing=8,
                                 ),
@@ -2162,10 +2313,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             icon = download_btn.content.controls[0]
             icon.name = ft.Icons.CHECK_ROUNDED if installed else ft.Icons.DOWNLOAD_ROUNDED
             icon.color = TEXT_FAINT if installed else ACCENT
-            download_btn_text.value = "Installed" if installed else "Download"
+            download_btn_text.value = "Installed" if installed else "Unavailable" if compatibility_note else "Download"
             download_btn_text.color = TEXT_FAINT if installed else ACCENT
             download_btn.bgcolor = None if installed else ACCENT_TINT
-            download_btn.disabled = installed or not _can_install(row_content_type)
+            download_btn.disabled = installed or bool(compatibility_note) or not _can_install(row_content_type)
             download_btn.on_click = None if installed else on_download
 
         _remember_row(browse_rows, key, (dict(mod), row, sync_action))
@@ -2192,20 +2343,117 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # Shown on the Shaders segment: a shader .zip only does anything if Iris
     # (Fabric) or OptiFine is installed to read it, so say so plainly rather
     # than let a downloaded shader look like it should "just work".
+    shader_notice_text = ft.Text("", size=12.5, color=TEXT_DIM, expand=True)
+    shader_setup_label = ft.Text("Set up shaders", size=12.5, color=ACCENT,
+                                 weight=ft.FontWeight.W_700)
+    shader_setup_btn = ft.Container(
+        content=ft.Row([ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=15, color=ACCENT),
+                        shader_setup_label], spacing=6, tight=True),
+        bgcolor=ACCENT_TINT, border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=14, vertical=8),
+        ink=False,
+        on_click=lambda e: _setup_shaders(),
+    )
     shader_notice = ft.Container(
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, color=TEXT_DIM, size=14),
-                ft.Text(
-                    "Shaders need a mod loader plus Iris, Oculus, or OptiFine. Sodium alone isn't enough.",
-                    size=12, color=TEXT_DIM,
-                ),
+                shader_notice_text,
+                shader_setup_btn,
             ],
-            spacing=8,
+            spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         visible=False,
         padding=ft.padding.Padding.symmetric(vertical=6),
     )
+
+    def _sync_shader_notice():
+        """Words + button for the Shaders tab. Plain Vanilla can't run shader
+        packs at all, so instead of a dead (greyed-out) Download button the
+        user gets one click that makes the instance shader-ready."""
+        if state.get("mod_loader") in ("fabric", "quilt"):
+            shader_notice_text.value = ("Shaders need Iris (with Sodium) to run. "
+                                        "One click installs both for this instance.")
+            shader_setup_label.value = "Install Iris"
+        else:
+            shader_notice_text.value = ("Shaders can't run on plain Vanilla. One click switches this "
+                                        "instance to Fabric and installs Iris + Sodium - "
+                                        "then every shader below works.")
+            shader_setup_label.value = "Set up shaders"
+
+    setup_busy = {"v": False}
+
+    def _setup_shaders():
+        """Make this instance shader-capable: Fabric (or Quilt) + Iris + Sodium.
+
+        Mods are stored per (Minecraft version, loader) profile and staged at
+        launch, so Iris can be installed into the Fabric profile right away.
+        If Fabric itself isn't installed yet, Play installs it on the next
+        launch (the same path as picking Fabric on the Play tab)."""
+        if setup_busy["v"]:
+            return
+
+        def say(text, bad=False):
+            local_install_status.value = text
+            local_install_status.color = DANGER if bad else TEXT_DIM
+            local_install_status.visible = True
+            thread_safe_ui.refresh(local_install_status)
+
+        if not state.get("selected_mc_version") or not version_dropdown.value:
+            say("Pick a Minecraft version on the Play tab first.", bad=True)
+            return
+        # The loader switch touches the Play tab's controls, so it happens HERE
+        # on the UI thread; only the network work goes to the background.
+        if state.get("mod_loader") not in ("fabric", "quilt"):
+            say("Switching to Fabric...")
+            if not switch_loader or not switch_loader("fabric"):
+                say("Fabric isn't available for this Minecraft version, "
+                    "so shaders can't be set up here. Try another version.", bad=True)
+                return
+        setup_busy["v"] = True
+        shader_setup_btn.disabled = True
+        shader_setup_label.value = "Setting up..."
+        thread_safe_ui.refresh(shader_setup_btn)
+
+        def worker():
+            try:
+                loader = state.get("mod_loader")
+                mc = state["selected_mc_version"]
+                version_id = version_dropdown.value
+                search_mc = current_mc_version_for_search() or mc
+                say("Finding Iris...")
+                info = core.get_mod_download("iris", mc_version=search_mc, loader=loader)
+                if not info:
+                    say(f"Iris has no build for Minecraft {search_mc} yet. "
+                        "Try an older version.", bad=True)
+                    return
+                result = core.install_mod_with_dependencies(
+                    info["url"], info["filename"],
+                    mc_version=mc, loader=loader, version_id=version_id,
+                    slug="iris", project_id=info.get("project_id") or "iris",
+                    hashes=info.get("hashes"),
+                    status_cb=lambda t: say(status_text.human(t)),
+                    progress_cb=lambda done, total: say(
+                        f"Installing Iris + Sodium... {int(done * 100 / total)}%") if total else None,
+                )
+                refresh_mods_list()
+                if result.get("failed"):
+                    say("Installed, but these failed: " + ", ".join(result["failed"]), bad=True)
+                else:
+                    say("Shaders are ready. Install a shader pack below, then press Play"
+                        + (" (Fabric finishes installing on first launch)."
+                           if not core.find_installed_loader_version(
+                               state["installed"], loader,
+                               core.extract_mc_version(version_id) or version_id) else "."))
+            except Exception as ex:
+                say(f"Couldn't set up shaders: {ex}", bad=True)
+            finally:
+                setup_busy["v"] = False
+                shader_setup_btn.disabled = False
+                _sync_shader_notice()
+                thread_safe_ui.refresh(shader_notice)
+
+        threading.Thread(target=worker, daemon=True, name="ux-shader-setup").start()
 
     # Tracks the (version, loader) profile the browse section currently
     # reflects, so we only re-fetch recommendations/search when it's
@@ -2221,38 +2469,36 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     browse_pane = ft.Column(
         [
-            ft.Row([mod_search_field, filters_button], spacing=6),
+            ft.Row([mod_search_field, filters_button], spacing=8),
             category_chips_container,
-            ft.Container(height=18),
+            ft.Container(height=6),
             ft.Row([browse_title_text, ft.Container(expand=True), browse_status_text],
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Container(height=8),
             browse_results_view,
             browse_pager_row,
         ],
-        spacing=8,
+        spacing=12,
         visible=True,
     )
 
     installed_pane = ft.Column(
         [
+            # One header row: title on the left, the automatic-check status
+            # line + count grouped on the right. The repair ACTION itself lives
+            # on the Play card now ("Fix crash", left of PLAY).
             ft.Row(
                 [section_label("Installed"), ft.Container(expand=True),
-                 repair_btn, installed_count_text],
-                spacing=12,
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            repair_status,
+                 repair_status, installed_count_text],
+                spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             installed_status,
-            ft.Container(height=10),
             installed_filter_field,
-            ft.Container(height=10),
             mods_list_view,
         ],
-        spacing=8,
+        spacing=12,
         visible=False,
     )
 
-    view_segment_row = ft.Row(spacing=18)
+    view_segment_row = ft.Row(spacing=22)
 
     def _build_view_segment():
         view_segment_row.controls.clear()
@@ -2262,9 +2508,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 # Live-ish count on the tab itself: cheap to compute here
                 # because refresh_mods_list also calls _build_view_segment.
                 try:
-                    n = len(core.list_mods(state["selected_mc_version"], state["mod_loader"])) \
+                    n = len(core.list_mods(state["selected_mc_version"], state["mod_loader"],
+                                           version_id=version_dropdown.value)) \
                         if _is_mod() else len(core.list_content(
                             _ct(), state["selected_mc_version"],
+                            version_id=version_dropdown.value,
                             loader=loader_for_content()))
                     count_note = f" ({n})" if n else ""
                 except Exception:
@@ -2282,9 +2530,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         active_view["value"] = new_view
         browse_pane.visible = (new_view == "browse")
         installed_pane.visible = (new_view == "installed")
+        browse_scope_text.visible = (new_view == "browse")
+        compatible_only.visible = (new_view == "browse")
+        thread_safe_ui.refresh(browse_scope_text)
+        thread_safe_ui.refresh(compatible_only)
         _build_view_segment()
         if new_view == "installed":
             refresh_mods_list()
+            auto_check()
         thread_safe_ui.refresh(browse_pane)
         thread_safe_ui.refresh(installed_pane)
 
@@ -2333,13 +2586,15 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # install worker can park it while an install runs (double-pick guard).
     local_install_btn = attach_hover(ft.Container(
         content=ft.Row(
-            [ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=TEXT_DIM, size=16),
-             ft.Text("Install from file", color=TEXT_DIM, size=13,
+            [ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=TEXT_DIM, size=14),
+             ft.Text("From file", color=TEXT_DIM, size=12,
                      weight=ft.FontWeight.W_600)],
-            spacing=6,
+            spacing=5, tight=True,
         ),
+        border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
+        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
+        tooltip="Install from a file on your computer",
         ink=False, on_click=open_local_mod_picker,
     ), "transparent", ROW_HOVER)
 
@@ -2347,28 +2602,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # alternating huge gaps with dense slabs.
     mods_tab = ft.Column(
         [
-            # Header with title, description, and two quiet ghost actions.
-            ft.Row(
-                [
-                    ft.Column(
-                        [header_title, header_subtitle],
-                        spacing=2,
-                    ),
-                    ft.Container(expand=True),
-                    local_install_btn,
-                    ft.Container(width=6),
-                    attach_hover(ft.Container(
-                        content=ft.Row(
-                            [ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, color=ACCENT, size=16),
-                             ft.Text("Open folder", color=ACCENT, size=13, weight=ft.FontWeight.W_600)],
-                            spacing=6,
-                        ),
-                        border_radius=RADIUS,
-                        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
-                        ink=False, on_click=open_folder_click,
-                    ), "transparent", ACCENT_TINT),
-                ],
-            ),
+            # Header: just the title + one-line description.
+            ft.Column([header_title, header_subtitle], spacing=2),
             ft.Container(height=14),
             # Segment tabs and their contextual notices share ONE block: an
             # empty status line / hidden notice used to sit as separate
@@ -2377,24 +2612,31 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # the tabs and the search field.
             ft.Column(
                 [
-                    content_segment_bar,
+                    ft.Row([content_segment_bar, ft.Container(expand=True), local_install_btn],
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     local_install_status,
                     vanilla_mods_notice,
                     shader_notice,
                 ],
-                spacing=6,
+                spacing=8,
             ),
-            ft.Container(height=14),
+            ft.Container(height=12),
             # View tabs: Browse (search + results) and Installed (your list)
             # share the screen one at a time - no more scrolling past the
             # whole catalog to reach your installed items.
-            view_segment_row,
-            ft.Container(height=6),
+            ft.Row([view_segment_row, ft.Container(expand=True),
+                    browse_scope_text, compatible_only],
+                   spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Container(height=14),
             browse_pane,
             installed_pane,
         ],
-        spacing=8,
+        spacing=0,
         scroll=ft.ScrollMode.AUTO,
     )
 
-    return mods_tab, refresh_mods_list, load_recommended_mods, refresh_browse_for_new_profile
+    def open_hook():
+        load_recommended_mods()
+        auto_check()
+
+    return mods_tab, refresh_mods_list, open_hook, refresh_browse_for_new_profile

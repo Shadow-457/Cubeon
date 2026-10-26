@@ -7,6 +7,7 @@ import json
 import os
 import re
 import secrets
+import sys
 import threading
 import uuid
 
@@ -167,6 +168,10 @@ DEFAULT_CONFIG = {
     # glass_mode_enabled). See cubeon/winchrome.py for the policy and why this
     # is Windows-only, and settings_tab.py for the toggle.
     "custom_window_chrome": False,
+    # Whether the user has actually touched the Custom window frame toggle.
+    # load_config flips a legacy Windows-only False to the Linux default ONCE;
+    # after the first real toggle this marker makes the choice stick.
+    "custom_window_chrome_chosen": False,
     "server_ram_mb": 2048,  # RAM allocated to the local server started from the Server tab
     # Whether Smooth mode (low-ping optimization) is ON per server version.
     # Stored explicitly rather than inferred from server.properties, because
@@ -268,6 +273,15 @@ def load_config() -> dict:
             # restore-on-off behaviour). The user's ON/OFF choice carries over.
             if "max_fps_enabled" in data and "fps_boost_enabled" not in data:
                 cfg["fps_boost_enabled"] = bool(data["max_fps_enabled"])
+            # Custom window frame (2026-10-26): Linux now draws the branded
+            # frame and it is the Linux default. Configs written before that
+            # persisted the Windows-only False default, which the user never
+            # chose - flip it ONCE for Linux, then honour the toggle for good
+            # (the Settings checkbox sets custom_window_chrome_chosen).
+            if (sys.platform.startswith("linux")
+                    and not data.get("custom_window_chrome_chosen")
+                    and data.get("custom_window_chrome") is False):
+                cfg["custom_window_chrome"] = True
             return cfg
     except (json.JSONDecodeError, OSError, FileNotFoundError):
         pass

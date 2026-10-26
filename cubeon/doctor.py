@@ -29,6 +29,12 @@ never a launch):
   plugins       - each server's plugin jars: readable, actually a plugin (it
                   has a plugin descriptor), and no two enabled jars claiming
                   the same plugin name.
+  launch        - the global launch config: a `custom_jvm_flags` token that is
+                  not a JVM option is read by Java as the MAIN CLASS (crashed
+                  26.3 with `ClassNotFoundException: 他他他` on 2026-10-25), and
+                  an explicit `java_path` that no longer exists. Both are
+                  auto-fixed by clearing the bad value so the launcher falls
+                  back to its own defaults.
 
 Report shape (a superset of mod_doctor's, so existing callers keep working):
   {"checked", "problems", "fixed", "unfixed", "sections", "summary"}
@@ -38,6 +44,7 @@ entries from the mods section keep their original "mod" key too.
 import json
 import os
 import re
+import shutil
 import zipfile
 
 from . import logging_setup  # noqa: F401  (installs the file log handlers)
@@ -51,7 +58,8 @@ import logging
 
 log = logging.getLogger(__name__)
 
-ALL_SECTIONS = ("mods", "resourcepacks", "shaders", "modpacks", "plugins")
+ALL_SECTIONS = ("launch", "mods", "resourcepacks", "shaders", "modpacks",
+                "plugins")
 
 # Files a jar must carry (at the zip root) to be a loadable plugin. Paper reads
 # plugin.yml / paper-plugin.yml, Spigot and Paper also accept bungee.yml for
@@ -62,11 +70,8 @@ _PLUGIN_NAME_RE = re.compile(r"^\s*name\s*:\s*[\"']?([^\"'\n#]+)", re.MULTILINE)
 
 
 def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
-               # NOTE: auto_fix defaults to True ("fix what you find"). A
-               # caller that only wants a REPORT must pass auto_fix=False
-               # explicitly - the default quietly repairs.
                auto_fix: bool = True, check_online: bool = True,
-               status_cb=None, include=None,
+               status_cb=None, include=None, approve_cb=None, cancel_event=None,
                version_id: str | None = None) -> dict:
     """Check (and, when auto_fix is on, repair) every kind of installed content.
 
@@ -77,22 +82,37 @@ def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
     include: optional iterable of section names to run only those (the UI uses
     it to scope a check to the tab the user is looking at).
 
+    Existing mods can only be disabled or replaced after approve_cb(change)
+    returns True. The report's changes list records these proposals and consent.
+
     Never raises. Returns the report described in the module docstring."""
+    changes = []
+
+    def review(change):
+        changes.append(change)
+        return approve_cb(change) is True if approve_cb else False
+
     wanted = tuple(include) if include else ALL_SECTIONS
     runners = {
+        "launch": lambda: _launch_section(auto_fix, status_cb),
         "mods": lambda: _mods_section(mc_version, loader, auto_fix,
-                                      check_online, status_cb),
+                                      check_online, status_cb, review, cancel_event,
+                                      version_id=version_id),
         "resourcepacks": lambda: _resourcepacks_section(mc_version, version_id,
                                                         auto_fix, status_cb),
         "shaders": lambda: _shaders_section(auto_fix, status_cb),
         "modpacks": lambda: _modpacks_section(mc_version, loader, auto_fix,
-                                              check_online, status_cb),
+                                              check_online, status_cb, review, cancel_event,
+                                              version_id=version_id),
         "plugins": lambda: _plugins_section(auto_fix, status_cb),
     }
 
     report = {"checked": 0, "problems": [], "fixed": [], "unfixed": [],
-              "sections": {}, "summary": ""}
+              "sections": {}, "summary": "", "changes": changes, "cancelled": False}
     for name in ALL_SECTIONS:
+        if cancel_event is not None and cancel_event.is_set():
+            report["cancelled"] = True
+            break
         if name not in wanted:
             continue
         try:
@@ -146,15 +166,97 @@ def _say(status_cb, text: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Section: launch config (global, not per-instance)
+# ---------------------------------------------------------------------------
+
+def _launch_section(auto_fix, status_cb) -> tuple:
+    """Catch config values that make the next launch die before Minecraft.
+
+    The 2026-10-25 crash was `custom_jvm_flags: "他他他"`: mll puts custom JVM
+    args before the main class, so a bare token becomes the class name and
+    Java reports `ClassNotFoundException: 他他他`. The doctor previously only
+    looked at installed content, so "Fix crash" had nothing to fix even though
+    the crash was entirely launcher config. Same for a Settings `java_path`
+    that points at a deleted/moved binary.
+    """
+    from .config import load_config, save_config, CONFIG_PATH
+    from .launch import invalid_custom_jvm_flags, _normalize_java_path
+
+    if not os.path.isfile(CONFIG_PATH):
+        return 0, []  # brand-new install: defaults are valid, nothing to report
+    _say(status_cb, "Checking launch settings...")
+    try:
+        cfg = load_config()
+    except Exception:
+        return 0, []
+
+    entries = []
+    changed = False
+
+    raw_flags = cfg.get("custom_jvm_flags") or ""
+    bad_tokens = invalid_custom_jvm_flags(raw_flags)
+    if bad_tokens:
+        detail = (f"{', '.join(repr(t) for t in bad_tokens[:3])} "
+                  f"{'is' if len(bad_tokens) == 1 else 'are'} not JVM flags. "
+                  "Java reads a bare token as the main class, so the game "
+                  "crashes with ClassNotFoundException before Minecraft starts.")
+        fixed = False
+        fix = ""
+        if auto_fix:
+            try:
+                from .launch import _parse_custom_jvm_flags
+                cfg["custom_jvm_flags"] = " ".join(
+                    _parse_custom_jvm_flags(raw_flags))
+                changed = True
+                fixed = True
+                fix = "removed the non-flag token(s) from custom JVM flags"
+            except Exception:
+                log.warning("clearing invalid custom JVM flags failed",
+                            exc_info=True)
+        entries.append(_entry("launch", "jvm-flags", "Custom JVM flags",
+                              detail, fixed, fix))
+
+    configured_java = cfg.get("java_path")
+    if configured_java:
+        candidate = _normalize_java_path(configured_java)
+        if not (os.path.isfile(candidate) or shutil.which(candidate)):
+            detail = (f"The Java path in Settings ({configured_java!r}) does "
+                      "not exist, so launching falls back to auto-detect.")
+            fixed = False
+            fix = ""
+            if auto_fix:
+                cfg["java_path"] = None
+                changed = True
+                fixed = True
+                fix = "reset Java path to auto-detect"
+            entries.append(_entry("launch", "java-path", "Java path",
+                                  detail, fixed, fix))
+
+    if changed:
+        try:
+            save_config(cfg)
+        except Exception:
+            log.warning("saving repaired launch config failed", exc_info=True)
+            for entry in entries:
+                if entry["fixed"]:
+                    entry["fixed"] = False
+                    entry.pop("fix", None)
+    return 1, entries
+
+
+# ---------------------------------------------------------------------------
 # Section: mods (delegates to cubeon/mods.py:mod_doctor)
 # ---------------------------------------------------------------------------
 
-def _mods_section(mc_version, loader, auto_fix, check_online, status_cb) -> tuple:
+def _mods_section(mc_version, loader, auto_fix, check_online, status_cb, approve_cb, cancel_event,
+                  version_id=None) -> tuple:
     if not mc_version or loader not in mods.MOD_CAPABLE_LOADERS:
         return 0, []
     _say(status_cb, "Checking your mods...")
     report = mods.mod_doctor(mc_version, loader, auto_fix=auto_fix,
-                             check_online=check_online, status_cb=status_cb)
+                             check_online=check_online, status_cb=status_cb,
+                             approve_cb=approve_cb, cancel_event=cancel_event,
+                             version_id=version_id)
     entries = []
     for problem in report.get("problems") or []:
         # mod_doctor's entries keep their own keys ("mod", "kind", "detail",
@@ -294,7 +396,8 @@ def _profile_mod_count(profile_dir: str) -> int:
         return 0
 
 
-def _modpacks_section(mc_version, loader, auto_fix, check_online, status_cb) -> tuple:
+def _modpacks_section(mc_version, loader, auto_fix, check_online, status_cb, approve_cb, cancel_event,
+                      version_id=None) -> tuple:
     checked = 0
     entries = []
     for key, profile_dir, meta in _iter_modpack_markers():
@@ -336,9 +439,13 @@ def _modpacks_section(mc_version, loader, auto_fix, check_online, status_cb) -> 
                 "none - reinstall the pack to rebuild it", False))
 
         pack_mc = meta.get("mc_version")
+        pack_version_id = meta.get("version_id")
         if pack_mc:
-            installed = os.path.isdir(
-                os.path.join(MINECRAFT_DIR, "versions", str(pack_mc)))
+            versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+            installed = os.path.isdir(os.path.join(versions_dir, str(pack_mc)))
+            if pack_version_id:
+                installed = installed and os.path.isdir(
+                    os.path.join(versions_dir, str(pack_version_id)))
             if not installed:
                 entries.append(_entry(
                     "modpacks", "pack-version-missing", pack_name,
@@ -350,12 +457,21 @@ def _modpacks_section(mc_version, loader, auto_fix, check_online, status_cb) -> 
         # (check_online=False) because a per-pack API pass would hammer the API
         # once per installed pack.
         pack_loader = meta.get("loader")
-        if (pack_mc and pack_loader
-                and (str(pack_mc), pack_loader) != (str(mc_version), loader)
+        # Same instance as the one the outer mods section just checked? Then
+        # skip - otherwise every problem would be reported twice. Compare the
+        # instance id when both sides have one, so two packs that share an
+        # (mc_version, loader) pair are still checked separately.
+        if pack_version_id or version_id:
+            same_instance = str(pack_version_id or "") == str(version_id or "")
+        else:
+            same_instance = (str(pack_mc), pack_loader) == (str(mc_version), loader)
+        if (pack_mc and pack_loader and not same_instance
                 and pack_loader in mods.MOD_CAPABLE_LOADERS):
             try:
                 nested = mods.mod_doctor(str(pack_mc), pack_loader,
-                                         auto_fix=auto_fix, check_online=False)
+                                         auto_fix=auto_fix, check_online=False, approve_cb=approve_cb,
+                                         cancel_event=cancel_event,
+                                         version_id=pack_version_id)
             except Exception:
                 log.warning("mod check for modpack %s failed", pack_name,
                             exc_info=True)

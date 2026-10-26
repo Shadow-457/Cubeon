@@ -598,12 +598,11 @@ def reach_filters_open(page, nav):
 
 
 def reach_fix_problems(page, nav):
-    """Mods tab -> Installed -> the 'Fix problems' doctor line. The doctor is
+    """Play tab -> the 'Fix crash' doctor line next to PLAY. The doctor is
     fast on an empty profile, and whatever it reports (all-clear or a repaired
     row) is exactly the surface we want in the shot."""
-    reach_tab(page, nav, "mods")
-    _subtab(page, "installed")
-    return _click_first(page, "fix problems")
+    reach_tab(page, nav, "play")
+    return _click_first(page, "fix crash")
 
 
 def reach_search_typed(page, nav):
@@ -687,8 +686,8 @@ STATE_PLAN = [
      None),
     ("mods_filters_open", "Mods tab",
      "Expanded category chips: wrapping, tap targets, selected state.", None),
-    ("mods_fix_problems", "Mods tab",
-     "'Fix problems' result line: is the doctor's outcome legible and calm?",
+    ("mods_fix_problems", "Play tab",
+     "'Fix crash' result line: is the doctor's outcome legible and calm?",
      None),
 
     # ---- modpacks tab

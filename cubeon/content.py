@@ -172,14 +172,16 @@ def store_dir(content_type: str) -> str:
 
 
 def resolve_content_profile_dir(content_type: str, mc_version: str | None,
-                                loader: str | None) -> str:
+                                loader: str | None,
+                                version_id: str | None = None) -> str:
     require_loader_and_version(mc_version, loader, "read content")
-    return os.path.join(resolve_profile_dir(mc_version, loader),
+    return os.path.join(resolve_profile_dir(mc_version, loader, version_id),
                         _cfg(content_type)["subdir"])
 
 
 def profile_dir(content_type: str, mc_version: str | None,
-                loader: str | None) -> str:
+                loader: str | None,
+                version_id: str | None = None) -> str:
     """Where THIS instance's packs of this type live (a folder of links).
 
     Fails loudly on a missing version/loader rather than resolving to the
@@ -188,7 +190,7 @@ def profile_dir(content_type: str, mc_version: str | None,
     the game never looks."""
     require_loader_and_version(
         mc_version, loader, f"manage {_cfg(content_type)['label_plural'].lower()}")
-    d = os.path.join(get_profile_dir(mc_version, loader),
+    d = os.path.join(get_profile_dir(mc_version, loader, version_id),
                      _cfg(content_type)["subdir"])
     os.makedirs(d, exist_ok=True)
     return d
@@ -304,13 +306,14 @@ def _store_entry(content_type: str, src_path: str,
 
 
 def link_into_profile(content_type: str, stored_path: str,
-                      mc_version: str | None, loader: str | None) -> str:
+                      mc_version: str | None, loader: str | None,
+                      version_id: str | None = None) -> str:
     """Links a stored pack into an instance's profile; returns the linked path.
 
     Links (symlink, then hardlink, then copy - global_mod_cache.link_into_place)
     rather than copying: the profile stays cheap metadata and the store stays
     the single place the bytes actually live."""
-    dest = os.path.join(profile_dir(content_type, mc_version, loader),
+    dest = os.path.join(profile_dir(content_type, mc_version, loader, version_id),
                         os.path.basename(stored_path))
     if os.path.isdir(stored_path):
         # link_into_place handles files only, so a folder pack is linked as a
@@ -419,7 +422,7 @@ def list_content(content_type: str, mc_version: str | None = None, *,
     as Incompatible (skipping that is cheaper: one zip read per item)."""
     if not mc_version or not loader:
         return []
-    d = resolve_content_profile_dir(content_type, mc_version, loader)
+    d = resolve_content_profile_dir(content_type, mc_version, loader, version_id)
     if not os.path.isdir(d):
         return []
     exts = _cfg(content_type)["exts"]
@@ -473,7 +476,8 @@ def _path_size(path: str) -> float:
 
 def delete_content(content_type: str, filename: str,
                    mc_version: str | None = None, loader: str | None = None,
-                   *, purge_store: bool = False) -> None:
+                   *, purge_store: bool = False,
+                   version_id: str | None = None) -> None:
     """Removes a pack/shader from THIS instance's profile (the link), leaving
     the store copy alone - another instance may be using it, and re-installing
     is then instant. `purge_store=True` also deletes the stored bytes, for a
@@ -482,7 +486,7 @@ def delete_content(content_type: str, filename: str,
     Guards against a filename that escapes the content folder (a caller passing
     '../something'), the same path-escape check delete_version uses, since this
     deletes real files."""
-    d = profile_dir(content_type, mc_version, loader)
+    d = profile_dir(content_type, mc_version, loader, version_id)
     target = os.path.join(d, filename)
     if os.path.dirname(os.path.abspath(target)) != os.path.abspath(d):
         raise ValueError("Refusing to delete a path outside the content folder.")
@@ -554,13 +558,14 @@ def install_local_content(content_type: str, src_path: str,
     stored = _store_entry(content_type, src_path)
     if src_hash:
         _write_origin_hash(stored, src_hash)
-    dest = link_into_profile(content_type, stored, mc_version, loader)
+    dest = link_into_profile(content_type, stored, mc_version, loader, version_id)
     _verify_and_fix(content_type, dest, mc_version, version_id, fix_cb)
     return os.path.basename(dest)
 
 
 def open_content_folder(content_type: str, mc_version: str | None = None,
-                        loader: str | None = None) -> None:
+                        loader: str | None = None,
+                        version_id: str | None = None) -> None:
     """Opens the folder this content type lives in FOR THE ACTIVE INSTANCE.
 
     The profile folder, not the game folder: the game folder is rebuilt at
@@ -569,7 +574,7 @@ def open_content_folder(content_type: str, mc_version: str | None = None,
     (where the staged copies are), which is what a caller with no instance
     selected gets."""
     if mc_version and loader:
-        d = profile_dir(content_type, mc_version, loader)
+        d = profile_dir(content_type, mc_version, loader, version_id)
     else:
         d = content_dir(content_type)
     if os.name == "nt":
@@ -583,11 +588,13 @@ def open_content_folder(content_type: str, mc_version: str | None = None,
 
 
 def is_installed(content_type: str, filename: str,
-                 mc_version: str | None = None, loader: str | None = None) -> bool:
+                 mc_version: str | None = None, loader: str | None = None,
+                 version_id: str | None = None) -> bool:
     """Is this pack in the active instance's profile? (A folder pack counts -
     the game accepts unpacked packs, and list_content lists them.)"""
     if mc_version and loader:
-        target = os.path.join(resolve_content_profile_dir(content_type, mc_version, loader), filename)
+        target = os.path.join(resolve_content_profile_dir(
+            content_type, mc_version, loader, version_id), filename)
     else:
         target = os.path.join(content_dir(content_type), filename)
     return os.path.isdir(target) or os.path.isfile(target)
@@ -683,7 +690,8 @@ def content_compat(content_type: str, filename: str,
     Shaders: {"ok", "reason"} - structure only, they carry no format.
     None when the file can't be found/read at all."""
     if mc_version and loader:
-        path = os.path.join(resolve_content_profile_dir(content_type, mc_version, loader), filename)
+        path = os.path.join(resolve_content_profile_dir(
+            content_type, mc_version, loader, version_id), filename)
     else:
         path = os.path.join(content_dir(content_type), filename)
     if not os.path.exists(path):     # isdir too: a folder pack has no isfile
@@ -856,7 +864,7 @@ def download_content(content_type: str, download_url: str, filename: str,
                 os.remove(tmp)
             except OSError:
                 pass
-    linked = link_into_profile(content_type, stored, mc_version, loader)
+    linked = link_into_profile(content_type, stored, mc_version, loader, version_id)
     # Remember which project this came from so the installed list can show its
     # thumbnail later (a bare .zip carries no Modrinth identity).
     remember_content_meta(content_type, os.path.basename(linked),
@@ -916,7 +924,8 @@ def _store_from_game_folder(content_type: str, path: str, name: str) -> str:
 
 
 def _adopt_foreign_entries(content_type: str, staged: list[str],
-                           mc_version: str | None, loader: str | None) -> int:
+                           mc_version: str | None, loader: str | None,
+                           version_id: str | None = None) -> int:
     """Takes ownership of anything in the game folder this sync did not put
     there: a pack the user dropped in by hand, dragged from a file manager, or
     installed with a build of Cubeon that had no profiles.
@@ -941,7 +950,7 @@ def _adopt_foreign_entries(content_type: str, staged: list[str],
             continue
         try:
             stored = _store_from_game_folder(content_type, full, fname)
-            link_into_profile(content_type, stored, mc_version, loader)
+            link_into_profile(content_type, stored, mc_version, loader, version_id)
             adopted += 1
         except Exception:      # noqa: BLE001 - never break a launch over this
             log.warning("couldn't adopt %s from the game folder", full,
@@ -949,7 +958,8 @@ def _adopt_foreign_entries(content_type: str, staged: list[str],
     return adopted
 
 
-def sync_content_to_game(mc_version: str | None, loader: str | None) -> None:
+def sync_content_to_game(mc_version: str | None, loader: str | None,
+                         version_id: str | None = None) -> None:
     """Rebuilds the game's resourcepacks/ and shaderpacks/ from THIS instance's
     profile - the packs/shaders twin of mods.sync_mods_to_game(), and the step
     that makes them change when the user changes instance.
@@ -965,19 +975,19 @@ def sync_content_to_game(mc_version: str | None, loader: str | None) -> None:
     require_loader_and_version(mc_version, loader, "sync packs into the game")
     for content_type in ("resourcepack", "shader"):
         try:
-            _sync_content_type(content_type, mc_version, loader)
+            _sync_content_type(content_type, mc_version, loader, version_id)
         except Exception:      # noqa: BLE001
             log.warning("couldn't sync %s into the game", content_type,
                         exc_info=True)
 
 
 def _sync_content_type(content_type: str, mc_version: str,
-                       loader: str) -> None:
+                       loader: str, version_id: str | None = None) -> None:
     d = content_dir(content_type)
     staged = _read_staged(content_type)
-    _adopt_foreign_entries(content_type, staged, mc_version, loader)
+    _adopt_foreign_entries(content_type, staged, mc_version, loader, version_id)
 
-    profile = profile_dir(content_type, mc_version, loader)
+    profile = profile_dir(content_type, mc_version, loader, version_id)
     wanted = [n for n in sorted(os.listdir(profile)) if not n.startswith(".")]
 
     # Drop what we staged for an instance that is no longer selected. Only ever

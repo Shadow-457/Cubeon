@@ -6,6 +6,7 @@ import inspect
 import os
 import re
 import shutil
+from contextlib import nullcontext
 
 # minecraft_launcher_lib costs ~116ms to import (it pulls in requests);
 # nothing here needs it until the user actually installs/launches, so it
@@ -14,7 +15,9 @@ from .lazy import LazyModule
 mll = LazyModule("minecraft_launcher_lib")
 
 from .paths import MINECRAFT_DIR
-from .versions import get_installed_versions, install_version
+from .versions import (get_installed_versions, install_version,
+                       _InstallCancelBridge, _PatchedMllDownloads,
+                       _DownloadCancelled, _active_install)
 from . import local_cache
 
 SUPPORTED_LOADERS = {
@@ -161,7 +164,8 @@ def loader_java(mc_version: str, loader_id: str = "") -> str:
         f"path in Settings, or point JAVA_HOME at it, then try again.{detail}")
 
 
-def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, max_cb) -> str:
+def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, max_cb,
+                       cancel_event=None, *, loader_version: str | None = None) -> str:
     """Installs the given loader (fabric/quilt/forge/neoforge) for mc_version
     and returns the resulting launchable version id. For 'vanilla' this is
     just install_version(). Uses the id the library reports and confirms it
@@ -170,7 +174,8 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     if loader_id == "vanilla" or loader_id not in SUPPORTED_LOADERS:
         from .config import launch_java_path
         install_version(mc_version, progress_cb, status_cb, max_cb,
-                        explicit_java=bool(launch_java_path()))
+                        explicit_java=bool(launch_java_path()),
+                        cancel_event=cancel_event)
         return mc_version
 
     before = {v["id"] for v in get_installed_versions()}
@@ -182,7 +187,20 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     from .winproc import patch_mll
     patch_mll()
 
-    callback = {"setStatus": status_cb, "setProgress": progress_cb, "setMax": max_cb}
+    bridge = _InstallCancelBridge(cancel_event) if cancel_event is not None else None
+
+    def checked(cb):
+        def call(*args):
+            if bridge is not None:
+                bridge.note_thread()
+                if bridge.should_stop():
+                    raise _DownloadCancelled()
+            return cb(*args)
+        return call
+
+    callback = {"setStatus": checked(status_cb), "setProgress": checked(progress_cb),
+                "setMax": checked(max_cb)}
+    callback["setStatus"]("Preparing mod loader")
     loader = mll.mod_loader.get_mod_loader(loader_id)
     # Resolve Java BEFORE the download starts: failing here is instant and the
     # message is actionable, versus a half-finished install and a bare WinError.
@@ -196,10 +214,35 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     kwargs = {"callback": callback, "java": java}
     try:
         if "loader_version" in inspect.signature(loader.install).parameters:
-            kwargs["loader_version"] = loader.get_latest_loader_version(mc_version)
+            kwargs["loader_version"] = loader_version or loader.get_latest_loader_version(mc_version)
     except Exception:
+        if loader_version:
+            raise
         pass  # no version list (or an older API): let the library choose
-    reported = loader.install(mc_version, MINECRAFT_DIR, **kwargs)
+    if loader_version and "loader_version" not in kwargs:
+        raise RuntimeError("This installer cannot install the loader build required by the modpack.")
+    expected_id = None
+    if kwargs.get("loader_version") and hasattr(loader, "get_installed_version"):
+        expected_id = loader.get_installed_version(mc_version, kwargs["loader_version"])
+    expected_folder = (os.path.join(MINECRAFT_DIR, "versions", expected_id)
+                       if expected_id else None)
+    folder_existed = bool(expected_folder and os.path.exists(expected_folder))
+    owns_attempt = False
+    try:
+        with (_active_install(expected_id) if expected_id else nullcontext()):
+            owns_attempt = True
+            with _PatchedMllDownloads(bridge, explicit_java=True):
+                reported = loader.install(mc_version, MINECRAFT_DIR, **kwargs)
+            callback["setStatus"]("Checking mod loader files")
+    except Exception:
+        # Own only the new loader folder, never the verified base or an
+        # existing profile that may contain worlds and user-installed mods.
+        if owns_attempt and expected_folder and not folder_existed:
+            shutil.rmtree(expected_folder, ignore_errors=True)
+        raise
+    finally:
+        if bridge is not None:
+            bridge.release()
 
     after = get_installed_versions()
     by_id = {v["id"]: v for v in after}
@@ -209,6 +252,11 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
     candidates = ([reported] if isinstance(reported, str) and reported else []) + new_ids
     for vid in candidates:
         if vid not in by_id:
+            continue
+        if loader_version and expected_id and vid != expected_id:
+            continue
+        if vid != expected_id and find_installed_loader_version(
+                {vid}, loader_id, mc_version) != vid:
             continue
         if by_id[vid].get("incomplete"):
             # A loader install is tiny (one json), so an incomplete one
@@ -220,13 +268,14 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
                 f"The {loader_id} install didn't finish (network "
                 "interrupted). Try again once you're back online.")
         return vid
-    for vid in new_ids:
-        return vid
     # Nothing new appeared (e.g. already installed) - best-effort match.
-    for v in after:
-        if loader_id in v["id"].lower() and mc_version in v["id"]:
-            return v["id"]
-    return mc_version
+    complete_ids = {v["id"] for v in after if not v.get("incomplete")}
+    existing = (expected_id if expected_id in complete_ids else None) if loader_version else find_installed_loader_version(
+        complete_ids, loader_id, mc_version)
+    if existing:
+        return existing
+    raise RuntimeError(f"The {SUPPORTED_LOADERS[loader_id]} installer did not create "
+                       "a complete instance. Try installing it again.")
 
 
 def install_fabric(mc_version: str, progress_cb, status_cb, max_cb) -> str:

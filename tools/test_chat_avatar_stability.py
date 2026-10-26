@@ -63,6 +63,12 @@ with tempfile.TemporaryDirectory() as directory:
     service = RosterService()
     with (patch.object(chat.threading.Thread, "start"),
           patch.object(chat._faces, "get_face_b64", side_effect=sources.get),
+          # Production bumps cubeon.faces.revision() when a download lands.
+          # Here the dict is the "disk": any source change is a new revision,
+          # so the roster's cached face tokens invalidate exactly as they do
+          # when a real face file appears.
+          patch.object(chat._faces, "revision",
+                       side_effect=lambda: tuple(sorted(sources.items()))),
           patch.object(chat._profile, "get_profile_picture_path", return_value=str(picture)) as pfp,
           patch.object(thread_safe_ui, "refresh")):
         root, refresh = chat.build_chat_tab(

@@ -53,7 +53,7 @@ ALL_SLUGS = list(perf.PERF_MOD_SLUGS)
 
 
 def _wire(installed, download=None, download_raises=False):
-    perf.list_mods = lambda mc, ld: list(installed)
+    perf.list_mods = lambda mc, ld, **kwargs: list(installed)
     perf.get_mod_download = lambda slug, mc_version=None, loader=None: dict(FILE, filename=slug + ".jar")
     calls = []
 
@@ -78,7 +78,7 @@ check("project ids are recorded on install",
 check("sodium installs first (biggest win), then the companions",
       calls[0][1] == "sodium" and len(calls) == len(ALL_SLUGS), f"got {calls!r}")
 # Now the profile really holds them.
-perf.list_mods = lambda mc, ld: [
+perf.list_mods = lambda mc, ld, **kwargs: [
     {"slug": s, "display_name": s.title(), "filename": s + ".jar"}
     for s in ALL_SLUGS
 ]
@@ -121,7 +121,7 @@ for loader in ("forge", "neoforge", "vanilla", None):
           report["installed"] == [] and calls == [], f"got {report!r}")
 
 print("\n5. failures are reported, never raised")
-perf.list_mods = lambda mc, ld: []
+perf.list_mods = lambda mc, ld, **kwargs: []
 perf.get_mod_download = lambda slug, **kw: None
 report = perf.ensure_installed("1.21.11", "quilt")
 check("no build -> failed list", report["failed"] == ALL_SLUGS, f"got {report!r}")
@@ -295,13 +295,13 @@ with tempfile.TemporaryDirectory() as tmp:
 
 print("\n9. retired perf mods are pruned from an existing profile")
 _deleted = []
-perf.list_mods = lambda mc, ld: [
+perf.list_mods = lambda mc, ld, **kwargs: [
     {"slug": "sodium", "project_id": "AANobbMI", "filename": "sodium.jar"},
     {"slug": "krypton", "project_id": "fQEb0iXm", "filename": "krypton.jar"},
     {"project_id": "vSEH1ERy", "filename": "threadtweak.jar"},
     {"slug": None, "project_id": None, "filename": "my-own-mod.jar"},
 ]
-perf.delete_mod = lambda mc, ld, fn: _deleted.append(fn)
+perf.delete_mod = lambda mc, ld, fn, **kwargs: _deleted.append(fn)
 removed = perf.prune_retired_perf_mods("1.21.11", "fabric")
 check("only the Cubeon-installed retired mods are deleted",
       sorted(_deleted) == ["krypton.jar", "threadtweak.jar"], f"got {_deleted!r}")

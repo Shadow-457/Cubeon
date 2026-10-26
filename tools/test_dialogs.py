@@ -14,9 +14,9 @@ straight through. The exception escapes whichever handler mounted the dialog,
 so a no-op (the user is looking at the dialog already) surfaced as an
 application error. Anything that can fire twice hits it - a double click, a
 poll tick racing a button, a retry - which is exactly the "random" the
-report described. The repo had already grown two one-off workarounds for it
-(main.py `_dialog_mounted`, ui/versions.py `InstancesManager._is_mounted`)
-while the 25 call sites going through the shared helper stayed exposed.
+report described. The repo had already grown a one-off workaround for it
+(main.py `_dialog_mounted`) while the 25 call sites going through the shared
+helper stayed exposed.
 
 The fix is one guard in the shared helper, so no call site can hit it:
 a dialog that is already mounted is refreshed instead of re-shown.

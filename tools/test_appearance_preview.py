@@ -82,16 +82,31 @@ check("native face ordering keeps the cape outside the body across the orbit",
       all(correct_native_order(yaw, pitch) for yaw in range(0, 360, 15) for pitch in (-60, -20, 0, 20, 60)))
 
 stage = AppearancePreview({"active_skin": "older.png"})
-check("orbit uses one stable native scene", stage.gesture.content is stage.scene)
+check("rotation uses one stable scene without drag handlers",
+      stage.gesture.content is stage.scene and type(stage.gesture).__name__ == "Container")
 jobs, loads, paints = [], [], []
 
 
 class QueuedThread:
-    def __init__(self, target, **kwargs):
-        self.target = target
+    def __init__(self, target, args=(), **kwargs):
+        self.target = lambda: target(*args)
 
     def start(self):
         jobs.append(self.target)
+
+
+class InlinePool:
+    def __init__(self, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def map(self, fn, values):
+        return map(fn, values)
 
 
 def load_model(cfg, default_cape_path):
@@ -100,63 +115,65 @@ def load_model(cfg, default_cape_path):
         stage.cfg["active_skin"] = "newest.png"
         stage.refresh(invalidate=True)
         stage.turn(30)
-    loaded = CharacterModel(skins.default_base_skin())
-    loaded.fixture_name = cfg.get("active_skin")
-    return loaded
+    return CharacterModel(skins.default_base_skin())
 
 
+# Camera/mesh geometry is checked above. These fixtures focus on lifecycle
+# and the real Flet patch size without rasterising sixty full-size images.
 with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
+     patch("ui.appearance_preview.ThreadPoolExecutor", InlinePool), \
+     patch("ui.appearance_preview.render_frame", return_value=Image.new("RGBA", (320, 440), "white")), \
      patch.object(CharacterModel, "from_config", side_effect=load_model), \
      patch("ui.appearance_preview.thread_safe_ui.refresh", side_effect=paints.append):
     stage.refresh(invalidate=True)
     check("loading starts one background asset worker", len(jobs) == 1)
     jobs.pop(0)()
-    check("a stale asset load never replaces the selected skin", stage._model.fixture_name == "newest.png")
-    check("queued asset and drag requests do not spawn frame workers", not jobs and len(loads) == 2)
-    check("only the newest loaded mesh repaints", paints.count(stage.scene) == 1)
-    check("the asset worker exits once the mesh is ready", not stage._running)
-    textures = [plane.content for plane in stage._mesh.values()]
-    check("all textures stay mounted and use gapless playback", all(texture.gapless_playback for texture in textures) and all(plane.visible for plane in stage._mesh.values()))
-    prior_loads = len(loads)
-    stage.refresh(invalidate=True)
+    check("a stale asset load never replaces the selected skin",
+          len(loads) == 2 and loads[-1]["active_skin"] == "newest.png" and len(stage._frames) == 60)
+    check("the asset worker exits once frames are ready", not stage._running)
+    textures = tuple((id(frame.content), frame.content.src) for frame in stage._frames)
+    stage.turn(30)
     jobs.pop(0)()
-    check("changing the arm model reloads geometry", len(loads) == prior_loads + 1)
-    textures = tuple((id(plane.content), plane.content.src) for plane in stage._mesh.values())
-    stage.gesture.on_pan_update(ft.DragUpdateEvent(name="pan_update", control=stage.gesture,
-        local_position=ft.Offset(0, 0), global_position=ft.Offset(0, 0), local_delta=ft.Offset(20, 1000)))
-    check("real drag payloads rotate horizontally and clamp vertical tilt", stage.yaw == 69 and stage.pitch == 75)
+    check("the rotation button changes the camera", stage.yaw == 85)
     stage.reset()
-    check("reset returns to the initial camera without remounting the scene", stage.yaw == 25 and stage.pitch == 10 and stage.gesture.content is stage.scene)
+    jobs.pop(0)()
+    check("reset restores the camera without remounting the scene",
+          stage.yaw == 25 and stage.pitch == 10 and stage.gesture.content is stage.scene)
     encode = configure_encode_object_for_msgpack(BaseControl)
     initial, _added, _removed = ObjectPatch.from_diff(None, stage.scene, BaseControl)
     msgpack.packb(initial.to_message(), default=encode)
     patch_sizes = []
     for angle in (0, 30, 90, 180, 270, 330):
-        stage.yaw = angle
-        stage.refresh()
+        stage._set_yaw(angle)
         changes, added, removed = ObjectPatch.from_diff(stage.scene, stage.scene, BaseControl)
         encoded = msgpack.packb(changes.to_message(), default=encode)
         patch_sizes.append(len(encoded))
-        check(f"orbit {angle}: real transform changes reach the client", len(encoded) > 3 and b"transform" in encoded)
-        check(f"orbit {angle}: cached textures and planes never remount", not added and not removed)
-        check(f"orbit {angle}: no PNG/image source retransmits", b"src" not in encoded)
-    check("dragging neither rebuilds textures nor queues PNG frames",
-          not jobs and textures == tuple((id(plane.content), plane.content.src) for plane in stage._mesh.values()))
-    check("native transform patches remain small", max(patch_sizes) < 20000)
-    print(f"  largest native orbit patch: {max(patch_sizes):,} bytes")
+        check(f"orbit {angle}: frame opacity changes reach the client", len(encoded) > 3 and b"opacity" in encoded)
+        check(f"orbit {angle}: cached frames never remount", not added and not removed)
+        check(f"orbit {angle}: no image source retransmits", b"src" not in encoded)
+    check("rotation keeps every cached image and starts no asset workers",
+          not jobs and textures == tuple((id(frame.content), frame.content.src) for frame in stage._frames))
+    check("rotation patches remain small", max(patch_sizes) < 20000)
 
 driver = app_driver.build_headless()
 driver.open_tab("profile")
 switch = inspect.getclosurevars(driver.tabs()["profile"].on_click).nonlocals["switch_tab"]
 cosmetics_root = inspect.getclosurevars(switch).nonlocals["_tab_views"]["profile"]
 controls = list(walk(cosmetics_root))
-check("Cosmetics mounts exactly one draggable 3D character", sum(control.data == "appearance-orbit" for control in controls) == 1)
+check("Cosmetics mounts exactly one character preview", sum(control.data == "appearance-orbit" for control in controls) == 1)
 check("Cosmetics keeps Skin and Cape, not Images", not any(getattr(control, "value", None) == "Images" for control in controls))
+check("Cosmetics offers rotation buttons without drag gestures",
+      any(getattr(c, "tooltip", None) == "Rotate left" for c in controls)
+      and any(getattr(c, "tooltip", None) == "Rotate right" for c in controls)
+      and not any(type(c).__name__ == "GestureDetector" for c in controls))
+check("Cosmetics has no arm model selector or apply button",
+      not any(getattr(c, "label", None) == "Arm model" for c in controls)
+      and not any(getattr(c, "value", None) == "Apply model to active skin" for c in controls))
 driver.open_tab("settings")
 settings = next(control for control in every_control(driver.page) if callable(getattr(control, "select_section", None)))
 panes = inspect.getclosurevars(settings.select_section).nonlocals["panes"]
-check("Settings initially shows only Game versions, not screenshots",
-      panes["versions"].visible and all(not pane.visible for key, pane in panes.items() if key != "versions"))
+check("Settings initially shows one section, not screenshots",
+      not panes["images"].visible and sum(bool(pane.visible) for pane in panes.values()) == 1)
 check("Screenshots has its own Settings section", any(key == "images" and label == "Screenshots" for key, icon, label in SECTIONS))
 settings.select_section("images")
 check("Settings owns the screenshot gallery", panes["images"].visible and all(not pane.visible for key, pane in panes.items() if key != "images"))

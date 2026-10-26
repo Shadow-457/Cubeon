@@ -57,14 +57,13 @@ _feed_refreshing: dict = {"on": False}
 _feed_lock = threading.Lock()
 
 # ENCODED-ART CACHE. src() is called from the render path - on every Play-tab
-# selection change and on every card rebuild - and each call used to re-open
-# the file and base64-encode it again. Mojang's key art is a JPEG of 27-53 KB,
-# so that was a genuine read + encode per call per control on the UI thread
-# (measured 0.127 ms uncached vs 0.023 ms cached). It is the cheaper half of
-# the fix: the expensive part is downstream, because each encoded banner is
-# what gets shipped to the client for that image control - which is why the
-# cards themselves are no longer rebuilt (see _rebuild_instance_cards in
-# main.py, and tools/test_version_art_cache.py which pins both).
+# selection change - and each call used to re-open the file and base64-encode
+# it again. Mojang's key art is a JPEG of 27-53 KB, so that was a genuine read
+# + encode per call per control on the UI thread (measured 0.127 ms uncached
+# vs 0.023 ms cached). The expensive part is downstream: each encoded banner is
+# shipped to the client for that image control. The per-instance art cards and
+# the Play tab's instance list are gone (2026-10-26), so the hero banner is the
+# one consumer left - see tools/test_version_art_cache.py.
 #
 # The encoded string is keyed by the file's (mtime, size), so a re-downloaded
 # banner - which lands via os.replace, giving it a new mtime - is picked up

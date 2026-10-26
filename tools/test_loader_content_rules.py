@@ -88,5 +88,28 @@ state["mod_loader"] = "fabric"
 refresh()
 check("choosing Fabric re-enables installing mods", not install_button.disabled)
 
+# 2026-10-25 report: "why can I install mods/shaders on plain vanilla". The
+# switcher can read Fabric because another instance on the same MC version has
+# it, or because Play is armed to install it - that must NOT make a plain
+# vanilla folder accept content. The selected INSTANCE has to prove its loader.
+state["installed"] = {"1.21.1"}
+state["installed_meta"] = {"1.21.1": {"id": "1.21.1"}}
+state["mod_loader"] = "fabric"
+refresh()
+check("a plain vanilla instance stays blocked even when the switcher says Fabric",
+      install_button.disabled)
+active_content["type"] = "shader"
+refresh()
+check("...and so do shaders", install_button.disabled)
+active_content["type"] = "resourcepack"
+refresh()
+check("...while texture packs still work in vanilla", not install_button.disabled)
+active_content["type"] = "mod"
+state["pending_loader_install"] = {"version_id": "1.21.1", "loader": "fabric"}
+refresh()
+check("arming a Fabric install for the instance re-enables mods",
+      not install_button.disabled)
+state["pending_loader_install"] = None
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

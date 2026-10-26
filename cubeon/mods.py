@@ -39,6 +39,9 @@ import os
 import re
 import shutil
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache
+from urllib.parse import urlsplit
 
 # `requests` costs ~97ms to import; this module is on the startup path but
 # only touches the network when the user browses/downloads. Lazy so the
@@ -48,8 +51,8 @@ from .lazy import LazyModule
 requests = LazyModule("requests")
 
 from .paths import (
-    APP_NAME, MODS_DIR, PROFILES_DIR,
-    MOD_META_SUFFIX, PROFILE_META_FILENAME,
+    APP_NAME, MINECRAFT_DIR, MODS_DIR, PROFILES_DIR,
+    INSTANCE_META_FILENAME, MOD_META_SUFFIX, PROFILE_META_FILENAME,
     modrinth_headers,
 )
 from .mod_loaders import MOD_CAPABLE_LOADERS
@@ -163,18 +166,223 @@ def profile_key(mc_version: str | None, loader: str | None) -> str:
     return f"{_sanitize(mc_version or 'unknown')}-{_sanitize(loader or 'vanilla')}"
 
 
-def resolve_profile_dir(mc_version: str | None, loader: str | None) -> str:
-    return os.path.join(PROFILES_DIR, profile_key(mc_version, loader))
+def _instance_meta_path(version_id: str | None) -> str | None:
+    """Path of an instance's sidecar, or None for an unsafe/blank id.
+
+    The id comes from config and version folders, so it is treated as a
+    filename: separators and parent hops are refused instead of letting a
+    crafted id read a JSON file outside versions/.
+    """
+    if not version_id or not isinstance(version_id, str):
+        return None
+    if version_id in (".", "..") or "/" in version_id or "\\" in version_id:
+        return None
+    if os.path.basename(version_id) != version_id:
+        return None
+    return os.path.join(MINECRAFT_DIR, "versions", version_id,
+                        INSTANCE_META_FILENAME)
 
 
-def get_profile_dir(mc_version: str | None, loader: str | None) -> str:
-    path = resolve_profile_dir(mc_version, loader)
+def read_instance_meta(version_id: str | None) -> dict | None:
+    """The per-instance record written inside a version folder, or None.
+
+    Never raises: a missing/unreadable sidecar simply means "legacy shared
+    profile", which is exactly how every install made before instance
+    isolation behaved.
+    """
+    path = _instance_meta_path(version_id)
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_instance_meta(version_id: str | None, meta: dict) -> bool:
+    """Atomically write a version folder's instance sidecar. Never raises."""
+    path = _instance_meta_path(version_id)
+    if not path:
+        return False
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, indent=2)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def profile_key_for(mc_version: str | None, loader: str | None,
+                    version_id: str | None = None) -> str:
+    """The profile key an install actually uses.
+
+    When the version folder carries an instance sidecar, its recorded
+    `profile` key wins. Otherwise this is the legacy shared
+    (mc_version, loader) key, so existing installs keep working unchanged.
+    """
+    meta = read_instance_meta(version_id) if version_id else None
+    recorded = (meta or {}).get("profile")
+    if isinstance(recorded, str) and recorded.strip():
+        # A recorded key is a folder name, never a path.
+        if (os.path.basename(recorded) == recorded
+                and "/" not in recorded and "\\" not in recorded
+                and recorded not in (".", "..")):
+            return recorded
+    return profile_key(mc_version, loader)
+
+
+def resolve_profile_dir(mc_version: str | None, loader: str | None,
+                        version_id: str | None = None) -> str:
+    return os.path.join(PROFILES_DIR,
+                        profile_key_for(mc_version, loader, version_id))
+
+
+def get_profile_dir(mc_version: str | None, loader: str | None,
+                    version_id: str | None = None) -> str:
+    path = resolve_profile_dir(mc_version, loader, version_id)
     os.makedirs(path, exist_ok=True)
     meta_path = os.path.join(path, PROFILE_META_FILENAME)
     if not os.path.isfile(meta_path):
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump({"mc_version": mc_version, "loader": loader}, f)
     return path
+
+
+def profile_dir_for_key(key: str | None) -> str | None:
+    """Absolute folder for a profile key (a folder name), or None."""
+    if not key or not isinstance(key, str):
+        return None
+    if key in (".", "..") or os.path.basename(key) != key \
+            or "/" in key or "\\" in key:
+        return None
+    return os.path.join(PROFILES_DIR, key)
+
+
+def _profile_has_content(path: str) -> bool:
+    """Whether a profile already holds mods or content links."""
+    try:
+        for name in os.listdir(path):
+            if name.endswith((".jar", ".jar.disabled")):
+                return True
+            if name in ("resourcepacks", "shaderpacks", "mods"):
+                return True
+        return False
+    except OSError:
+        return False
+
+
+def _profile_slug(label: str | None) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (label or "").lower()).strip("-")
+    return (slug[:40].strip("-") or "pack")
+
+
+def unique_profile_key(mc_version: str | None, loader: str | None,
+                       label: str | None) -> str:
+    """A profile key that no other instance is using.
+
+    Starts from `<mc>-<loader>-<pack-slug>` so the folder is recognisable in
+    the profile list, then adds -2, -3, ... rather than ever merging two
+    packs into one folder.
+    """
+    base = f"{profile_key(mc_version, loader)}-{_profile_slug(label)}"
+    candidate = base
+    n = 2
+    while os.path.isdir(os.path.join(PROFILES_DIR, candidate)):
+        candidate = f"{base}-{n}"
+        n += 1
+    return candidate
+
+
+def create_instance_version(mc_version: str, loader: str,
+                            source_version_id: str, profile: str,
+                            name: str | None = None,
+                            pack: dict | None = None) -> str:
+    """Clone a loader version folder into an isolated instance.
+
+    A modpack must not overwrite a hand-built profile that happens to use the
+    same (mc_version, loader). The launchable version folder is cloned (the
+    client jar is hard-linked, the JSON rewritten with the new id) and a
+    sidecar records the private profile key. Returns the new version id.
+
+    The new id starts with the Minecraft version, so `extract_mc_version()`
+    resolves it without the loader's own version confusing it.
+    """
+    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    source_dir = os.path.join(versions_dir, source_version_id)
+    if not os.path.isdir(source_dir):
+        raise ValueError(f"Can't isolate this install: {source_version_id} is missing.")
+
+    slug = _profile_slug(name)
+    base_id = f"{mc_version}-{loader}-{slug}"
+    new_id = base_id
+    n = 2
+    while True:
+        target = os.path.join(versions_dir, new_id)
+        if not os.path.isdir(target):
+            break
+        existing = read_instance_meta(new_id) or {}
+        if existing.get("profile") == profile:
+            return new_id  # already cloned for this exact profile
+        new_id = f"{base_id}-{n}"
+        n += 1
+
+    target = os.path.join(versions_dir, new_id)
+    os.makedirs(target, exist_ok=False)
+
+    # Find the source metadata even when the folder/json names differ (foreign
+    # launchers). The canonical <id>.json is preferred.
+    source_json = os.path.join(source_dir, f"{source_version_id}.json")
+    if not os.path.isfile(source_json):
+        candidates = sorted(f for f in os.listdir(source_dir)
+                            if f.endswith(".json"))
+        source_json = (os.path.join(source_dir, candidates[0])
+                       if candidates else "")
+    data = {}
+    if source_json and os.path.isfile(source_json):
+        try:
+            with open(source_json, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, json.JSONDecodeError):
+            data = {}
+    data["id"] = new_id
+    json_name = f"{new_id}.json"
+    with open(os.path.join(target, json_name), "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
+    # Hard-link the client jar and any side files; a copy fallback covers a
+    # different filesystem or a mount that refuses links.
+    for entry in os.listdir(source_dir):
+        if entry in (f"{source_version_id}.json", json_name,
+                     INSTANCE_META_FILENAME):
+            continue
+        src = os.path.join(source_dir, entry)
+        if not os.path.isfile(src):
+            continue
+        dst = os.path.join(target, entry)
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copyfile(src, dst)
+
+    meta = {
+        "profile": profile,
+        "name": name or new_id,
+        "mc_version": mc_version,
+        "loader": loader,
+        "source_version_id": source_version_id,
+    }
+    if isinstance(pack, dict) and pack:
+        meta["pack"] = pack
+    write_instance_meta(new_id, meta)
+    return new_id
+
 
 
 def require_loader_and_version(mc_version: str | None, loader: str | None, action: str) -> None:
@@ -456,9 +664,22 @@ def is_protected_mod(meta: dict | None = None, filename: str | None = None) -> b
     return False
 
 
-def list_mods(mc_version: str | None, loader: str | None) -> list[dict]:
-    """Mods installed for this specific version+loader profile only."""
-    profile_dir = resolve_profile_dir(mc_version, loader)
+def list_mods(mc_version: str | None, loader: str | None,
+              version_id: str | None = None, *,
+              profile_key: str | None = None) -> list[dict]:
+    """Mods installed for this specific version+loader profile only.
+
+    Pass version_id to read the profile owned by that installed instance (a
+    modpack clone has its own); without it the legacy shared profile is used.
+    Pass profile_key to read one exact profile folder (the pack export picker
+    knows the folder, not always the instance id).
+    """
+    if profile_key:
+        profile_dir = profile_dir_for_key(profile_key)
+        if not profile_dir:
+            return []
+    else:
+        profile_dir = resolve_profile_dir(mc_version, loader, version_id)
     mods = []
     if not os.path.isdir(profile_dir):
         return mods
@@ -487,8 +708,9 @@ def list_mods(mc_version: str | None, loader: str | None) -> list[dict]:
     return mods
 
 
-def toggle_mod(mc_version: str | None, loader: str | None, filename: str) -> None:
-    profile_dir = get_profile_dir(mc_version, loader)
+def toggle_mod(mc_version: str | None, loader: str | None, filename: str,
+               version_id: str | None = None) -> None:
+    profile_dir = get_profile_dir(mc_version, loader, version_id)
     full = os.path.join(profile_dir, filename)
     # Stale-UI guard: the mod list is a snapshot; the file can vanish (user
     # deleted it in another tab/instance, or the link target is gone) between
@@ -504,8 +726,9 @@ def toggle_mod(mc_version: str | None, loader: str | None, filename: str) -> Non
     os.rename(full, os.path.join(profile_dir, new_name))
 
 
-def delete_mod(mc_version: str | None, loader: str | None, filename: str) -> None:
-    profile_dir = get_profile_dir(mc_version, loader)
+def delete_mod(mc_version: str | None, loader: str | None, filename: str,
+               version_id: str | None = None) -> None:
+    profile_dir = get_profile_dir(mc_version, loader, version_id)
     full = os.path.join(profile_dir, filename)
     # Same stale-UI guard as toggle_mod(): deleting an already-gone entry is a
     # no-op (the goal - it not being in the profile - is already achieved), not
@@ -541,8 +764,9 @@ def _safe_jar_filename(raw_name: str) -> str:
     return stem + (ext if ext else ".jar")
 
 
-def add_mod_file(mc_version: str | None, loader: str | None, src_path: str) -> None:
-    profile_dir = get_profile_dir(mc_version, loader)
+def add_mod_file(mc_version: str | None, loader: str | None, src_path: str,
+                 version_id: str | None = None) -> None:
+    profile_dir = get_profile_dir(mc_version, loader, version_id)
     fname = _safe_jar_filename(os.path.basename(src_path))
     global_mod_cache.put_file(src_path, os.path.join(profile_dir, fname))
 
@@ -558,13 +782,14 @@ def _open_folder(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
-def open_mods_folder(mc_version: str | None, loader: str | None) -> None:
-    profile_dir = get_profile_dir(mc_version, loader)
+def open_mods_folder(mc_version: str | None, loader: str | None,
+                     version_id: str | None = None) -> None:
+    profile_dir = get_profile_dir(mc_version, loader, version_id)
     _open_folder(profile_dir)
 
 
 def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
-                      superseded_cb=None) -> str:
+                      superseded_cb=None, version_id: str | None = None) -> str:
     """Installs a local .jar file into the (mc_version, loader) profile,
     the same destination download_mod() writes to. Used by the 'Install from
     file' button so the user can add a mod they already have on disk without
@@ -577,7 +802,7 @@ def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
         raise ValueError("Couldn't find that file.")
     require_mod_loader(mc_version, loader, "install a mod")
 
-    profile_dir = get_profile_dir(mc_version, loader)
+    profile_dir = get_profile_dir(mc_version, loader, version_id)
     filename = _safe_jar_filename(os.path.basename(src_path))
     dest = os.path.join(profile_dir, filename)
 
@@ -604,7 +829,8 @@ def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
 # Syncing the active profile into the real game mods/ folder
 # ---------------------------------------------------------------------------
 
-def sync_mods_to_game(mc_version: str | None, loader: str | None) -> None:
+def sync_mods_to_game(mc_version: str | None, loader: str | None,
+                      version_id: str | None = None) -> None:
     """Copies every *enabled* jar from the (mc_version, loader) profile into
     the real MINECRAFT_DIR/mods folder the game actually reads at launch,
     and clears out anything left over from a different profile. Without
@@ -629,7 +855,7 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None) -> None:
         # Vanilla (or an unrecognized loader) doesn't load mods - leave MODS_DIR empty.
         return
 
-    profile_dir = get_profile_dir(mc_version, loader)
+    profile_dir = get_profile_dir(mc_version, loader, version_id)
 
     # One jar per mod, even if the profile holds several builds of it.
     #
@@ -769,7 +995,51 @@ def get_recommended_mods(mc_version: str | None = None, loader: str = "fabric",
     return local_cache.cached_call("recommended_mods", cache_key, _fetch, max_age=86400)
 
 
-def search_mods(query: str, mc_version: str | None = None, loader: str = "fabric",
+def _mod_search_queries(query: str) -> list[str]:
+    words = query.split()
+    candidates = [query]
+    if any(word.lower() == "armour" for word in words):
+        candidates.append(" ".join("armor" if word.lower() == "armour" else word for word in words))
+    if len(words) > 1:
+        width = min(2, len(words) - 1)
+        candidates.extend((" ".join(words[-width:]), " ".join(words[:width])))
+    return list(dict.fromkeys(candidates))
+
+
+def _mod_project_reference(query: str) -> str | None:
+    try:
+        parsed = urlsplit(query if "://" in query else "https://" + query)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() not in {
+        "modrinth.com", "www.modrinth.com",
+    }:
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) < 2 or parts[0] not in {"mod", "project"}:
+        return None
+    return parts[1] if re.fullmatch(r"[A-Za-z0-9_-]+", parts[1]) else None
+
+
+def _mod_search_hit(hit: dict, search_query: str) -> dict:
+    loaders = hit.get("loaders")
+    if loaders is None and "categories" in hit:
+        loaders = [category for category in (hit["categories"] or []) if category in MOD_CAPABLE_LOADERS]
+    return {
+        "project_id": hit.get("project_id") or hit.get("id"),
+        "slug": hit.get("slug"),
+        "title": hit.get("title"),
+        "description": hit.get("description"),
+        "icon_url": hit.get("icon_url"),
+        "downloads": hit.get("downloads", 0),
+        "author": hit.get("author"),
+        "game_versions": hit.get("game_versions", hit.get("versions")),
+        "loaders": loaders,
+        "search_query": search_query,
+    }
+
+
+def search_mods(query: str, mc_version: str | None = None, loader: str | None = "fabric",
                  categories: list[str] | None = None, limit: int = 100,
                  offset: int = 0) -> list[dict]:
     """Searches Modrinth for mods, optionally scoped to a specific MC version,
@@ -779,7 +1049,11 @@ def search_mods(query: str, mc_version: str | None = None, loader: str = "fabric
     `offset` pages through Modrinth's result set: the Mods tab fetches one
     page at a time (limit = page size, offset = page * page size) so a browse
     never pulls every page up front. Offset is part of the cache key, so each
-    page caches independently."""
+    page caches independently. Empty name searches try bounded shorter queries;
+    hits identify the effective query so later pages stay on the same results.
+    Modrinth project links resolve directly; installers still check compatibility.
+    """
+    query = " ".join((query or "").split())
     facets = [["project_type:mod"]]
     if loader:
         facets.append([f"categories:{loader}"])
@@ -794,34 +1068,51 @@ def search_mods(query: str, mc_version: str | None = None, loader: str = "fabric
     cache_key = {
         "query": query, "mc_version": mc_version, "loader": loader,
         "categories": categories or [], "limit": limit, "offset": offset,
+        "revision": 2,
     }
 
     def _fetch() -> list[dict]:
+        reference = _mod_project_reference(query)
+        if reference:
+            if offset:
+                return []
+            project = get_mod_details(reference)
+            if not project or project.get("project_type") != "mod":
+                return []
+            return [_mod_search_hit(project, query)]
+
+        effective_query = query
+        candidates = _mod_search_queries(query)
+        if offset and len(candidates) > 1:
+            first_page = search_mods(query, mc_version=mc_version, loader=loader,
+                                     categories=categories, limit=limit)
+            if not first_page:
+                return []
+            effective_query = first_page[0].get("search_query", query)
         params = {
-            "query": query, "limit": str(limit), "offset": str(offset),
+            "query": effective_query, "limit": str(limit), "offset": str(offset),
             "facets": json.dumps(facets),
             "index": modrinth_search_index(query),
         }
-        data = net.get_json(f"{MODRINTH_API}/search", params=params,
-                            headers=modrinth_headers(), timeout=10)
-
-        results = []
-        for hit in data.get("hits", []):
-            results.append({
-                "project_id": hit.get("project_id"),
-                "slug": hit.get("slug"),
-                "title": hit.get("title"),
-                "description": hit.get("description"),
-                "icon_url": hit.get("icon_url"),
-                "downloads": hit.get("downloads", 0),
-                "author": hit.get("author"),
-            })
-        return rank_search_hits(results, query)
+        for candidate in ([effective_query] if offset else candidates):
+            params["query"] = candidate
+            data = net.get_json(f"{MODRINTH_API}/search", params=params,
+                                headers=modrinth_headers(), timeout=10)
+            if data.get("hits"):
+                return rank_search_hits([
+                    _mod_search_hit(hit, candidate) for hit in data["hits"]
+                ], candidate)
+        return []
 
     # Browse/search: 6 hours fresh (long enough that a browsing session never
     # blocks, short enough that "top downloads" stays current), then
     # stale-while-revalidate, then stale forever as the offline fallback.
-    return local_cache.cached_call("search_mods", cache_key, _fetch, max_age=6 * 3600)
+    previous = local_cache.get_stale("search_mods", cache_key)
+    return local_cache.cached_call(
+        "search_mods", cache_key, _fetch,
+        max_age=60 if previous == [] else 6 * 3600,
+        background_refresh=previous != [],
+    )
 
 
 # In-memory slug -> icon URL cache for installed-mod rows. Lives for the
@@ -888,7 +1179,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     if mc_version:
         params["game_versions"] = json.dumps([mc_version])
 
-    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader}
+    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 2}
 
     def _fetch():
         versions = net.get_json(
@@ -923,7 +1214,13 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     # download starting - it must feel instant. 24h fresh, then serve stale
     # and revalidate in the background; a re-released mod picks up on the
     # next browse instead of blocking this click.
-    return local_cache.cached_call("mod_download", cache_key, _fetch, max_age=86400)
+    previous = local_cache.get_stale("mod_download", cache_key)
+    cached = local_cache.cached_call(
+        "mod_download", cache_key, lambda: {"file": _fetch()},
+        max_age=300 if previous and previous.get("file") is None else 86400,
+        background_refresh=not (previous and previous.get("file") is None),
+    )
+    return cached["file"]
 
 
 def get_mod_details(project_id_or_slug: str) -> dict | None:
@@ -962,6 +1259,7 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
 
         return {
             "project_id": p.get("id"),
+            "project_type": p.get("project_type"),
             "slug": p.get("slug"),
             "title": p.get("title") or p.get("slug") or ref,
             "description": p.get("description") or "",
@@ -985,7 +1283,7 @@ def get_mod_details(project_id_or_slug: str) -> dict | None:
         }
 
     return local_cache.cached_call(
-        "mod_details", {"project": ref}, _fetch,
+        "mod_details", {"project": ref, "revision": 2}, _fetch,
         max_age=6 * 3600)
 
 
@@ -1133,6 +1431,8 @@ def _match_wildcard(version: str, pattern: str) -> bool:
 
 
 def _satisfies_range(version: str, expr: str) -> bool:
+    if re.fullmatch(r"\[[^,\[\]]+\]", expr.strip()):
+        return _cmp_versions(version, expr.strip()[1:-1]) == 0
     for m in re.finditer(r"([\[\(])([^,\)]*),?([^\]\)]*)([\]\)])", expr):
         lo_inc = m.group(1) == "["
         hi_inc = m.group(4) == "]"
@@ -1149,10 +1449,37 @@ def _satisfies_range(version: str, expr: str) -> bool:
     return False
 
 
+def _tilde_caret_bounds(term: str):
+    """(floor, ceiling) version strings for `~1.21.5` / `^1.2.3`, or None.
+
+    Fabric/Quilt semver: `~X.Y.Z` = >=X.Y.Z <X.(Y+1).0 (`~X` = <(X+1)), and
+    `^X.Y.Z` = >=X.Y.Z up to the next bump of the left-most non-zero part
+    (^1.2.3 -> <2.0.0, ^0.2.3 -> <0.3.0). Without this a jar declaring
+    `"minecraft": "~1.21.5"` was compared as an EXACT version, judged
+    "built for another Minecraft version" on 1.21.11, and offered for removal."""
+    match = re.match(r"^[~^]\s*(\d+(?:\.\d+)*)", term)
+    if not match:
+        return None
+    nums = [int(p) for p in match.group(1).split(".")]
+    floor = ".".join(str(n) for n in nums)
+    if term[0] == "~":
+        ceiling = [nums[0] + 1] if len(nums) == 1 else [nums[0], nums[1] + 1]
+    else:
+        padded = (nums + [0, 0, 0])[:3]
+        index = next((i for i, n in enumerate(padded) if n), 2)
+        ceiling = padded[:index] + [padded[index] + 1]
+    return floor, ".".join(str(n) for n in ceiling)
+
+
 def _satisfies_term(version: str, term: str) -> bool:
     term = term.strip()
     if term in ("", "*"):
         return True
+    if term[:1] in ("~", "^") and not ("x" in term.lower() or "*" in term):
+        bounds = _tilde_caret_bounds(term)
+        if bounds is not None:
+            floor, ceiling = bounds
+            return _cmp_versions(version, floor) >= 0 and _cmp_versions(version, ceiling) < 0
     if "x" in term.lower() or "*" in term:
         return _match_wildcard(version, term)
     for op in ("<=", ">=", "!=", "==", "=", "<", ">"):
@@ -1187,7 +1514,7 @@ def version_satisfies(version: str, predicate) -> bool:
     return False
 
 
-def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2) -> dict:
+def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2, loader: str | None = None) -> dict:
     """Every mod id a jar PROVIDES, including the ones bundled inside it.
 
     A Fabric jar may ship other mods as jar-in-jar (`META-INF/jars/*.jar`):
@@ -1214,17 +1541,12 @@ def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2) -> dict:
         try:
             with zipfile.ZipFile(io.BytesIO(blob)) as z:
                 names = set(z.namelist())
-                meta = None
-                if "fabric.mod.json" in names:
-                    d = json.loads(z.read("fabric.mod.json").decode("utf-8", "replace"))
-                    meta = (d.get("id"), d.get("version"))
-                elif "quilt.mod.json" in names:
-                    d = json.loads(z.read("quilt.mod.json").decode("utf-8", "replace"))
-                    q = d.get("quilt_loader") or {}
-                    meta = (q.get("id"), q.get("version"))
-                if meta and isinstance(meta[0], str) and meta[0]:
-                    out.setdefault(meta[0].lower(),
-                                   str(meta[1] or ""))
+                meta = read_mod_metadata(io.BytesIO(blob), loader)
+                if meta and (not loader or loader in meta.get("loaders", [])):
+                    if isinstance(meta.get("id"), str) and meta["id"]:
+                        out.setdefault(meta["id"].lower(), str(meta.get("version") or ""))
+                    for identity, version in (meta.get("provided") or {}).items():
+                        out.setdefault(identity.lower(), version)
                 for name in names:
                     if name.startswith("META-INF/jars/") and name.endswith(".jar"):
                         try:
@@ -1242,19 +1564,28 @@ def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2) -> dict:
     return out
 
 
-def read_mod_metadata(jar_path: str) -> dict | None:
+def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
     """A jar's own declared identity: {id, version, name, depends, breaks}.
 
-    Fabric and Quilt only (the launcher's default loaders). Reads
-    `fabric.mod.json`/`quilt.mod.json` straight out of the zip with no
-    download and no network. Returns None for Forge/NeoForge or an
-    unreadable file - callers treat that as "no metadata", never an error.
+    Reads the descriptor for the instance's loader when a universal jar
+    contains several. An unreadable jar contributes no compatibility claim.
     """
     import zipfile
     try:
         with zipfile.ZipFile(jar_path) as z:
             names = set(z.namelist())
-            if "fabric.mod.json" in names:
+            preferred = {
+                "forge": ("META-INF/mods.toml",),
+                "neoforge": ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"),
+                "quilt": ("quilt.mod.json", "fabric.mod.json"),
+                "fabric": ("fabric.mod.json",),
+            }.get(loader, ())
+            descriptor = next((name for name in preferred if name in names), None)
+            if descriptor is None:
+                descriptor = next((name for name in ("fabric.mod.json", "quilt.mod.json",
+                                  "META-INF/neoforge.mods.toml", "META-INF/mods.toml")
+                                  if name in names), None)
+            if descriptor == "fabric.mod.json":
                 d = json.loads(z.read("fabric.mod.json").decode("utf-8", "replace"))
                 return {
                     "id": d.get("id"),
@@ -1262,8 +1593,11 @@ def read_mod_metadata(jar_path: str) -> dict | None:
                     "name": d.get("name") or d.get("id") or "",
                     "depends": d.get("depends") or {},
                     "breaks": d.get("breaks") or {},
+                    "loaders": ["fabric", "quilt"],
+                    "provided": {identity.lower(): str(d.get("version") or "")
+                                 for identity in d.get("provides", []) if isinstance(identity, str)},
                 }
-            if "quilt.mod.json" in names:
+            if descriptor == "quilt.mod.json":
                 d = json.loads(z.read("quilt.mod.json").decode("utf-8", "replace"))
                 q = d.get("quilt_loader") or {}
                 def _pairs(items):
@@ -1278,13 +1612,41 @@ def read_mod_metadata(jar_path: str) -> dict | None:
                     "name": q.get("id") or "",
                     "depends": _pairs(q.get("depends")),
                     "breaks": _pairs(q.get("breaks")),
+                    "loaders": ["quilt"],
+                }
+            if descriptor:
+                import tomllib
+                data = tomllib.loads(z.read(descriptor).decode("utf-8"))
+                declared = data.get("mods") or []
+                if not declared:
+                    return None
+                primary = declared[0]
+                dependencies = (data.get("dependencies") or {}).get(primary.get("modId"), [])
+                dependencies = [entry for entry in dependencies
+                                if str(entry.get("side", "BOTH")).upper() != "SERVER"]
+                manifest = z.read("META-INF/MANIFEST.MF").decode("utf-8", "replace") if "META-INF/MANIFEST.MF" in names else ""
+                implementation = re.search(r"(?m)^Implementation-Version:\s*(.+)$", manifest)
+                def mod_version(entry):
+                    value = str(entry.get("version") or "")
+                    return (implementation.group(1).strip() if implementation else "") if "${" in value else value
+                return {
+                    "id": primary.get("modId"), "name": primary.get("displayName") or primary.get("modId"),
+                    "version": mod_version(primary),
+                    "depends": {entry["modId"]: entry.get("versionRange") or "*"
+                                for entry in dependencies if entry.get("modId")
+                                and (entry.get("mandatory") is True or entry.get("type") == "required")},
+                    "breaks": {entry["modId"]: entry.get("versionRange") or "*"
+                               for entry in dependencies if entry.get("modId") and entry.get("type") == "incompatible"},
+                    "loaders": ["neoforge"] if descriptor.endswith("neoforge.mods.toml") else ["forge", "neoforge"],
+                    "provided": {entry["modId"].lower(): mod_version(entry)
+                                 for entry in declared if entry.get("modId")},
                 }
     except Exception:
         return None
     return None
 
 
-def _read_remote_mod_metadata(download_url: str) -> dict | None:
+def _read_remote_mod_metadata(download_url: str, loader: str | None = None) -> dict | None:
     """Download a jar to a temp file just to read its fabric.mod.json, for
     conflict resolution. The bytes are discarded; nothing is installed."""
     import tempfile
@@ -1294,7 +1656,7 @@ def _read_remote_mod_metadata(download_url: str) -> dict | None:
     try:
         net.download_to(tmp, download_url, headers=modrinth_headers(),
                         timeout=25, attempts=2)
-        return read_mod_metadata(tmp)
+        return read_mod_metadata(tmp, loader)
     except Exception:
         return None
     finally:
@@ -1309,10 +1671,182 @@ def _mod_ref(mod: dict) -> str | None:
     return ref or None
 
 
+@lru_cache(maxsize=1024)
+def _doctor_cached_metadata(path: str, signature: tuple, loader: str | None = None) -> tuple:
+    metadata = read_mod_metadata(path, loader)
+    provided = _nested_mod_metadata(path, loader=loader)
+    if metadata:
+        provided = {**(metadata.get("provided") or {}), **provided}
+    return metadata, provided
+
+
+def _doctor_metadata(path: str, loader: str | None = None) -> tuple:
+    try:
+        stat = os.stat(path)
+        return _doctor_cached_metadata(path, (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns), loader)
+    except Exception:
+        return None, {}
+
+
+def _doctor_local_incompatibility(metadata, mc_version, loader) -> str:
+    if not metadata:
+        return ""
+    loaders = metadata.get("loaders")
+    if loaders and loader not in loaders:
+        return f"This installed build is for {'/'.join(loaders)}, not {loader}."
+    predicate = (metadata.get("depends") or {}).get("minecraft")
+    if predicate and isinstance(predicate, (str, list, tuple)) and not version_satisfies(mc_version, predicate):
+        return f"This installed build requires Minecraft {predicate}; this instance uses {mc_version}."
+    return ""
+
+
+def _doctor_runtime_versions(mc_version: str, loader: str, version_id: str | None) -> dict:
+    """Loader-provided dependencies, with versions from the selected profile.
+
+    None means installed but unversioned, never a downloadable missing mod.
+    """
+    runtime = {"minecraft": mc_version, "java": None}
+    keys = {"fabric": ("fabricloader",), "quilt": ("quilt_loader", "quilted_fabric_loader", "fabricloader"),
+            "forge": ("forge",), "neoforge": ("neoforge", "forge")}.get(loader, ())
+    runtime.update({key: None for key in keys})
+    if not version_id:
+        return runtime
+    path = _instance_meta_path(version_id)
+    if not path:
+        return runtime
+    try:
+        with open(os.path.join(os.path.dirname(path), version_id + ".json"), encoding="utf-8") as source:
+            profile = json.load(source)
+        prefixes = {"forge": "net.minecraftforge:fmlloader:", "neoforge": "net.neoforged:neoforge:",
+                    "fabric": "net.fabricmc:fabric-loader:", "quilt": "org.quiltmc:quilt-loader:"}
+        for library in profile.get("libraries", []):
+            name = library.get("name", "")
+            prefix = prefixes.get(loader)
+            if prefix and name.startswith(prefix):
+                value = name[len(prefix):].split(":", 1)[0]
+                if loader == "forge":
+                    value = value.removeprefix(mc_version + "-")
+                runtime[keys[0]] = value
+        args = profile.get("arguments", {}).get("game", [])
+        flag = "--fml.forgeVersion" if loader == "forge" else "--fml.neoForgeVersion"
+        if loader in ("forge", "neoforge") and flag in args:
+            index = args.index(flag) + 1
+            if index < len(args) and isinstance(args[index], str):
+                runtime[keys[0]] = args[index]
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return runtime
+
+
+def _doctor_online_checks(references, mc_version, loader, status_cb, cancel_event, *, dependencies=True) -> dict:
+    results = {}
+    if not references:
+        return results
+
+    def fetch(reference):
+        if cancel_event is not None and cancel_event.is_set():
+            return None
+        try:
+            file_info = get_mod_download(reference, mc_version=mc_version, loader=loader)
+            required = _required_deps_cached(reference, mc_version, loader) if file_info and dependencies else []
+            return {"file": file_info, "dependencies": required}
+        except Exception as error:
+            return {"error": str(error)}
+
+    pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="doctor-metadata")
+    futures = {pool.submit(fetch, reference): reference for reference in sorted(references)}
+    try:
+        for future in as_completed(futures):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            results[futures[future]] = future.result()
+            if status_cb:
+                status_cb(f"Checking online metadata {len(results)}/{len(futures)}")
+    finally:
+        pool.shutdown(wait=not (cancel_event is not None and cancel_event.is_set()), cancel_futures=True)
+    return results
+
+
+def _doctor_profile_snapshot(profile_dir: str, names=None) -> tuple:
+    snapshot = []
+    for name in sorted(names if names is not None else os.listdir(profile_dir)):
+        if name.endswith((".jar", ".jar.disabled", MOD_META_SUFFIX)):
+            try:
+                stat = os.stat(os.path.join(profile_dir, name))
+                snapshot.append((name, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns))
+            except FileNotFoundError:
+                snapshot.append((name, None))
+    return tuple(snapshot)
+
+
+def _request_mod_change(action: str, affected: list[dict], reason: str, *,
+                        mc_version: str, loader: str, approve_cb, changes: list,
+                        replacement: str | None = None, kept: str | None = None,
+                        version_id: str | None = None) -> bool:
+    change = {"action": action, "mc_version": mc_version, "loader": loader,
+              "mods": [{"name": mod.get("display_name") or mod["filename"],
+                        "filename": mod["filename"]} for mod in affected],
+              "reason": reason, "replacement": replacement, "kept": kept, "approved": False}
+    changes.append(change)
+    if not approve_cb or not affected or any(mod.get("protected") for mod in affected):
+        return False
+    profile_dir = resolve_profile_dir(mc_version, loader, version_id)
+    try:
+        names = {mod["filename"] for mod in affected}
+        names.update(name for name in (replacement, kept) if name)
+        names.update({name + MOD_META_SUFFIX for name in list(names)})
+        names.update({name + ".disabled" for name in list(names) if name.endswith(".jar")})
+        before = _doctor_profile_snapshot(profile_dir, names)
+        if any(not os.path.isfile(os.path.join(profile_dir, mod["filename"])) for mod in affected):
+            return False
+        change["files_snapshot"] = before
+        approved = approve_cb(change) is True
+        change["approved"] = approved and before == _doctor_profile_snapshot(profile_dir, names)
+        if approved and not change["approved"]:
+            change["reason"] += " The installed files changed while awaiting approval; run Doctor again."
+    except Exception:
+        change["approved"] = False
+    return change["approved"]
+
+
+def _doctor_disable(mc_version: str, loader: str, filename: str,
+                    version_id: str | None = None) -> None:
+    profile_dir = resolve_profile_dir(mc_version, loader, version_id)
+    if not filename.endswith(".jar") or os.path.lexists(os.path.join(profile_dir, filename + ".disabled")):
+        raise ValueError("The mod changed or already has a disabled copy. Refresh before repairing.")
+    toggle_mod(mc_version, loader, filename, version_id=version_id)
+
+
+def _doctor_download(candidate: dict, *, mc_version: str, loader: str,
+                     slug=None, project_id=None, approve_cb=None, changes=None,
+                     reason="A compatible dependency needs to replace an installed build.",
+                     version_id: str | None = None) -> bool:
+    changes = changes if changes is not None else []
+    profile_dir = resolve_profile_dir(mc_version, loader, version_id)
+    filename = candidate["filename"]
+    if os.path.lexists(os.path.join(profile_dir, filename)):
+        return False
+    copies = {item["filename"] for item in find_other_copies(profile_dir, filename, slug, project_id)}
+    affected = [mod for mod in list_mods(mc_version, loader, version_id)
+                if mod["filename"] in copies and mod["enabled"]]
+    if affected and not _request_mod_change(
+            "replace", affected, reason, mc_version=mc_version, loader=loader,
+            approve_cb=approve_cb, changes=changes, replacement=filename,
+            version_id=version_id):
+        return False
+    download_mod(candidate["url"], filename, mc_version=mc_version, loader=loader,
+                 slug=slug, project_id=project_id, hashes=candidate.get("hashes"),
+                 preserve_existing=True, version_id=version_id)
+    for mod in affected:
+        _doctor_disable(mc_version, loader, mod["filename"], version_id=version_id)
+    return True
+
+
 def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
                           target_version: str, predicate, *,
                           mc_version: str | None, loader: str,
-                          status_cb=None) -> tuple[bool, str]:
+                          status_cb=None, approve_cb=None, changes=None,
+                          version_id: str | None = None) -> tuple[bool, str]:
     """Try to make a `breaks` conflict go away by installing a build that no
     longer clashes. Two attempts, cheapest first:
 
@@ -1328,10 +1862,12 @@ def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
         status_cb(f"Resolving conflict with {target.get('display_name') or 'a mod'}")
 
     def _install(candidate: dict, owner: dict):
-        download_mod(candidate["url"], candidate["filename"],
-                     mc_version=mc_version, loader=loader,
-                     slug=owner.get("slug"), project_id=owner.get("project_id"),
-                     hashes=candidate.get("hashes"))
+        return _doctor_download(
+            candidate, mc_version=mc_version, loader=loader,
+            slug=owner.get("slug"), project_id=owner.get("project_id"),
+            approve_cb=approve_cb, changes=changes, version_id=version_id,
+            reason=f"{declarer['display_name']} conflicts with {target['display_name']} {target_version}. "
+                   "Doctor found a compatible replacement; the old build will be disabled, not deleted.")
 
     def _candidates(versions, current_filename, *, limit=12):
         """Compatible builds only, newest first, stable before beta - and
@@ -1356,7 +1892,8 @@ def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
             t_versions = []
         for v in _candidates(t_versions, target.get("filename")):
             if not version_satisfies(v.get("version_number"), predicate):
-                _install(v, target)
+                if not _install(v, target):
+                    return False, "approval required"
                 return True, f"updated {target.get('display_name')} to " \
                              f"{str(v.get('version_number')).split('+', 1)[0]}"
 
@@ -1369,14 +1906,15 @@ def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
         except Exception:
             d_versions = []
         for v in _candidates(d_versions, declarer.get("filename")):
-            meta = _read_remote_mod_metadata(v["url"])
+            meta = _read_remote_mod_metadata(v["url"], loader)
             if not meta:
                 continue
             still = any(version_satisfies(target_version, p)
                         for k, p in (meta.get("breaks") or {}).items()
                         if str(k).lower() == target_id.lower())
             if not still:
-                _install(v, declarer)
+                if not _install(v, declarer):
+                    return False, "approval required"
                 shown = str(meta.get("version") or v.get("version_number") or "")
                 return True, f"replaced {declarer.get('display_name')} with " \
                              f"{shown.split('+', 1)[0]}"
@@ -1385,7 +1923,8 @@ def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
 
 def mod_doctor(mc_version: str | None, loader: str | None, *,
                auto_fix: bool = True, check_online: bool = True,
-               status_cb=None) -> dict:
+               status_cb=None, approve_cb=None, cancel_event=None,
+               version_id: str | None = None) -> dict:
     """Find - and, when asked, fix - the common reasons a modpack won't load.
 
     Runs on every install, from a "Fix problems" action, and before a launch.
@@ -1393,9 +1932,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     crashes / the mod does nothing":
 
       1. **Duplicate mods.** Two copies of one mod (an update that left the
-         old jar behind) is the classic crash. Same Modrinth id -> the older
-         copy is DELETED (that is what updating means); same filename stem
-         only -> the older copy is DISABLED, which is reversible.
+         old jar behind) is the classic crash. Extra copies are disabled only
+         after approval; their files are kept so the change is reversible.
       2. **Missing required dependencies.** A mod that declares a required
          dependency (Fabric API, Sodium for Iris, ...) simply refuses to load
          without it. Each missing one is fetched.
@@ -1415,22 +1953,33 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     is on (a clash is a guaranteed crash), with a local disable as the last
     resort if no replacement can be reached.
 
+    approve_cb(change) must return True before any existing mod is disabled
+    or replaced. Without a callback, Doctor reports the proposed change and
+    leaves the mod intact. Each change identifies its profile, files, and reason.
+
     Returns {"checked", "problems": [{kind, mod, detail, fixed, fix?}],
-    "fixed", "unfixed"}. Never raises: a broken check costs a missed problem,
+    "fixed", "unfixed", "changes"}. Never raises: a broken check costs a missed problem,
     never a launch. Every problem whose fix SUCCEEDED is listed in "fixed";
     one whose fix was attempted and failed (or skipped) is in "unfixed".
     """
-    result = {"checked": 0, "problems": [], "fixed": [], "unfixed": []}
+    result = {"checked": 0, "problems": [], "fixed": [], "unfixed": [], "changes": [], "cancelled": False}
     if not mc_version or loader not in MOD_CAPABLE_LOADERS:
         return result
     try:
         require_loader_and_version(mc_version, loader, "check mods")
-        profile_dir = get_profile_dir(mc_version, loader)
-        mods = list_mods(mc_version, loader)
+        profile_dir = get_profile_dir(mc_version, loader, version_id)
+        mods = list_mods(mc_version, loader, version_id)
     except Exception:
         return result
 
     result["checked"] = len(mods)
+    metadata = {mod["filename"]: _doctor_metadata(os.path.join(profile_dir, mod["filename"]), loader)
+                for mod in mods if mod.get("enabled")}
+    runtime_versions = _doctor_runtime_versions(mc_version, loader, version_id)
+
+    def cancelled():
+        result["cancelled"] = cancel_event is not None and cancel_event.is_set()
+        return result["cancelled"]
 
     def _report(kind, mod, detail, fixed, fix_label=""):
         entry = {"kind": kind, "mod": mod, "detail": detail, "fixed": fixed}
@@ -1449,80 +1998,164 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         fname = m.get("filename")
         if not fname:
             continue
+        # The jar's OWN declared mod id is the only proof two files are the same
+        # mod. Filename stems are a guess (two different mods can shrink to the
+        # same short stem), so they are used only for jars whose metadata cannot
+        # be read - never to merge two jars that both say who they are.
+        jar_meta = (metadata.get(fname) or (None, {}))[0] or {}
+        jar_id = str(jar_meta.get("id") or "").lower()
         slug, pid, stem = mod_identity(profile_dir, fname)
         ident = pid or slug
-        key = ("id", ident.lower()) if ident else ("stem", stem)
+        if jar_id:
+            key = ("jar", jar_id)
+        else:
+            key = ("id", ident.lower()) if ident else ("stem", stem)
         groups.setdefault(key, []).append(m)
 
     for key, group in groups.items():
+        if cancelled():
+            return result
         if len(group) < 2:
             continue
         ranked = sorted(group,
-                        key=lambda mm: _version_key(mm.get("filename") or ""),
+                        key=lambda mm: (not _doctor_local_incompatibility(
+                            metadata.get(mm.get("filename"), (None, {}))[0], mc_version, loader),
+                            _version_key(mm.get("filename") or "")),
                         reverse=True)
         winner = ranked[0]
-        # supersede_older_copies handles EVERY other copy of the winner in one
-        # call, so run it once for the group rather than once per loser - a
-        # second call finds nothing left and would report the rest as unfixed.
-        if auto_fix:
+        approved = auto_fix and _request_mod_change(
+            "disable", ranked[1:],
+            f"Multiple copies of {winner['display_name']} can prevent Minecraft from loading. "
+            f"Keep {winner['filename']} and disable the extra copies. Nothing will be deleted.",
+            mc_version=mc_version, loader=loader, approve_cb=approve_cb,
+            changes=result["changes"], kept=winner["filename"],
+            version_id=version_id)
+        if approved:
             if status_cb:
-                status_cb(f"Removing extra copies of {winner['display_name']}")
-            try:
-                supersede_older_copies(
-                    profile_dir, winner["filename"],
-                    winner.get("slug"), winner.get("project_id"))
-            except Exception:
-                pass
+                status_cb(f"Disabling approved extra copies of {winner['display_name']}")
+            for loser in ranked[1:]:
+                try:
+                    _doctor_disable(mc_version, loader, loser["filename"],
+                                    version_id=version_id)
+                except Exception:
+                    pass
         for loser in ranked[1:]:
             # Per-loser truth, not group-level: a loser is fixed only when its
             # own enabled file is actually gone now (deleted or moved to
             # .disabled). A partial failure must not be reported as success.
             still_here = os.path.isfile(
                 os.path.join(profile_dir, loser.get("filename") or ""))
-            fixed = bool(auto_fix and not still_here)
+            fixed = bool(approved and not still_here)
             detail = (f"another copy of {winner['display_name']} is installed "
                       f"({loser['display_name']})")
             _report("duplicate", loser["display_name"], detail, fixed,
-                    "removed" if fixed else "")
+                    "disabled (can be re-enabled)" if fixed else "")
+
+    try:
+        mods = list_mods(mc_version, loader, version_id)
+    except Exception:
+        pass
+
+    incompatible_files = set()
+    locally_verified = set()
+    incompatible_references = {_mod_ref(mod) for mod in mods if mod.get("enabled") and not mod.get("protected")
+                               and _mod_ref(mod) and _doctor_local_incompatibility(
+                                   metadata.get(mod["filename"], (None, {}))[0], mc_version, loader)}
+    alternatives = (_doctor_online_checks(incompatible_references, mc_version, loader, status_cb,
+                                          cancel_event, dependencies=False)
+                    if check_online and auto_fix else {})
+    for mod in mods:
+        if cancelled():
+            return result
+        if mod.get("protected") or not mod.get("enabled"):
+            continue
+        meta = metadata.get(mod["filename"], (None, {}))[0]
+        reason = _doctor_local_incompatibility(meta, mc_version, loader)
+        if not reason:
+            if meta and meta.get("loaders") and (meta.get("depends") or {}).get("minecraft"):
+                locally_verified.add(mod["filename"])
+            continue
+        incompatible_files.add(mod["filename"])
+        fixed, label = False, ""
+        if auto_fix and not cancelled():
+            candidate = None
+            reference = _mod_ref(mod)
+            if check_online and reference:
+                candidate = (alternatives.get(reference) or {}).get("file")
+            if candidate and candidate.get("filename") != mod["filename"]:
+                try:
+                    fixed = _doctor_download(candidate, mc_version=mc_version, loader=loader,
+                                             slug=mod.get("slug"), project_id=mod.get("project_id"),
+                                             approve_cb=approve_cb, changes=result["changes"],
+                                             reason=reason, version_id=version_id)
+                except Exception:
+                    fixed = False
+                label = "replaced with a compatible build" if fixed else ""
+            elif _request_mod_change("disable", [mod], reason + " The file will be kept so you can re-enable it.",
+                                     mc_version=mc_version, loader=loader,
+                                     approve_cb=approve_cb, changes=result["changes"],
+                                     version_id=version_id):
+                try:
+                    _doctor_disable(mc_version, loader, mod["filename"],
+                                    version_id=version_id)
+                    fixed, label = True, "disabled (can be re-enabled)"
+                except Exception:
+                    pass
+        _report("incompatible", mod["display_name"], reason, fixed, label)
+    try:
+        mods = list_mods(mc_version, loader, version_id)
+        for mod in mods:
+            if mod.get("enabled") and not mod.get("protected") and mod["filename"] not in metadata:
+                metadata[mod["filename"]] = _doctor_metadata(os.path.join(profile_dir, mod["filename"]), loader)
+    except Exception:
+        pass
 
     # --- 2 + 3. dependency and loader/version checks (network) -------------
     if check_online:
-        installed_ids = installed_project_ids(mc_version, loader)
+        references = {_mod_ref(mod) for mod in mods if mod.get("enabled") and not mod.get("protected")
+                      and mod["filename"] not in incompatible_files
+                      and mod["filename"] not in locally_verified and _mod_ref(mod)}
+        online = _doctor_online_checks(references, mc_version, loader, status_cb, cancel_event)
+        installed_ids = installed_project_ids(mc_version, loader, version_id)
+        unavailable = []
         for m in mods:
+            if cancelled():
+                return result
             if m.get("protected") or not m.get("enabled"):
+                continue
+            if m["filename"] in incompatible_files or m["filename"] in locally_verified:
                 continue
             ref = m.get("project_id") or m.get("slug")
             if not ref:
                 continue
+            lookup = online.get(ref) or {}
+            if "error" in lookup:
+                # A 300-mod profile used to produce one "verification
+                # unavailable" entry per mod, burying every real problem under
+                # a wall of identical network noise. Collect them and report a
+                # single honest line after the loop.
+                unavailable.append(m["display_name"])
+                continue
 
             # 3. does any release exist for this loader + Minecraft version?
             try:
-                if get_mod_download(ref, mc_version=mc_version, loader=loader) is None:
-                    if auto_fix and status_cb:
-                        status_cb(f"Turning off {m['display_name']}")
-                    fixed = False
-                    fix_label = ""
-                    if auto_fix:
-                        try:
-                            toggle_mod(mc_version, loader, m["filename"])
-                            fixed = True
-                            fix_label = "disabled"
-                        except Exception:
-                            fixed = False
-                    _report("incompatible", m["display_name"],
-                            f"no release for {loader} {mc_version}",
-                            fixed, fix_label)
-                    continue  # a jar that can't load has no useful deps to add
+                if lookup.get("file") is None:
+                    # Missing Modrinth listings cannot disprove a locally
+                    # installed build, especially in CurseForge modpacks.
+                    unavailable.append(m["display_name"])
+                    continue
             except Exception:
                 # Network/API problem, not a proven incompatibility - leave it.
                 continue
 
             # 2. required dependencies the profile doesn't have yet.
             try:
-                deps = _required_deps_cached(ref, mc_version, loader)
+                deps = lookup.get("dependencies") or []
             except Exception:
                 deps = []
             for dep in deps:
+                if cancelled():
+                    return result
                 dep_id = dep.get("project_id")
                 if dep_id and dep_id in installed_ids:
                     continue
@@ -1533,17 +2166,28 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                     if status_cb:
                         status_cb(f"Installing {dep_name}")
                     try:
-                        download_mod(dep["url"], dep["filename"],
-                                     mc_version=mc_version, loader=loader,
-                                     project_id=dep_id, hashes=dep.get("hashes"))
-                        fixed = True
-                        fix_label = "installed"
-                        if dep_id:
+                        fixed = _doctor_download(
+                            dep, mc_version=mc_version, loader=loader, project_id=dep_id,
+                            approve_cb=approve_cb, changes=result["changes"],
+                            version_id=version_id)
+                        fix_label = "installed" if fixed else ""
+                        if fixed and dep_id:
                             installed_ids.add(dep_id)
                     except Exception:
                         fixed = False
                 _report("missing-dependency", m["display_name"],
                         f"needs {dep_name}", fixed, fix_label)
+
+        if unavailable:
+            shown = ", ".join(sorted(unavailable)[:4])
+            more = len(unavailable) - 4
+            if more > 0:
+                shown += f" and {more} more"
+            _report("verification-unavailable",
+                    f"{len(unavailable)} mod(s) couldn't be checked online",
+                    f"Modrinth didn't answer for {shown}. Local checks still "
+                    "ran and no mod was changed because of this; re-run Doctor "
+                    "when you're online.", False)
 
     # --- 4. version conflicts (`breaks`) -----------------------------------
     # Read straight from the installed jars: Fabric records "this mod will not
@@ -1554,12 +2198,11 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     id_map: dict = {}
     metas: dict = {}
     for m in mods:
-        if m.get("protected") or not m.get("enabled") or not m.get("filename"):
+        if not m.get("enabled") or not m.get("filename"):
             continue
-        try:
-            meta = read_mod_metadata(os.path.join(profile_dir, m["filename"]))
-        except Exception:
-            meta = None
+        if m["filename"] in incompatible_files:
+            continue
+        meta = metadata.get(m["filename"], (None, {}))[0]
         if not meta or not meta.get("id"):
             continue
         metas[m["filename"]] = meta
@@ -1589,11 +2232,12 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     # what the jars actually PROVIDE.
     provided: dict = {}
     for m in mods:
-        if m.get("protected") or not m.get("enabled") or not m.get("filename"):
+        if not m.get("enabled") or not m.get("filename"):
+            continue
+        if m["filename"] in incompatible_files:
             continue
         try:
-            bundled = _nested_mod_metadata(
-                os.path.join(profile_dir, m["filename"]))
+            bundled = metadata.get(m["filename"], (None, {}))[1]
         except Exception:
             continue
         for pid, pver in bundled.items():
@@ -1606,6 +2250,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 provided[pid] = pver
 
     for m in mods:
+        if cancelled():
+            return result
         if m.get("protected") or not m.get("enabled") or not m.get("filename"):
             continue
         meta = metas.get(m.get("filename"))
@@ -1614,8 +2260,11 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         for dep_id, predicate in (meta.get("depends") or {}).items():
             dep_key = str(dep_id).lower()
             # Minecraft itself and the loader are always "present".
-            if dep_key in ("minecraft", "fabricloader", "fabric-api",
-                           "java", "quilt_loader", "quilted_fabric_loader"):
+            if dep_key in runtime_versions:
+                actual = runtime_versions[dep_key]
+                if dep_key != "minecraft" and actual and not version_satisfies(actual, predicate):
+                    _report("loader-version", m.get("display_name"),
+                            f"requires {dep_id} {predicate}; this instance uses {actual}", False)
                 continue
             hit = id_map.get(dep_key)
             if hit is None:
@@ -1650,19 +2299,23 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 except Exception:
                     file_info = None
                 if file_info:
+                    if cancelled():
+                        return result
                     if status_cb:
                         status_cb(f"Installing {name_stem(file_info.get('filename') or dep_name)}")
                     try:
-                        download_mod(file_info["url"], file_info["filename"],
-                                     mc_version=mc_version, loader=loader,
-                                     slug=dep_id, hashes=file_info.get("hashes"))
-                        fixed, fix_label = True, "installed"
-                        metas[file_info["filename"]] = {
-                            "id": dep_id,
-                            "version": str(file_info.get("version_number") or ""),
-                            "name": dep_name, "depends": {}, "breaks": {},
-                        }
-                        id_map[dep_key] = (m, str(file_info.get("version_number") or ""))
+                        fixed = _doctor_download(
+                            file_info, mc_version=mc_version, loader=loader, slug=dep_id,
+                            approve_cb=approve_cb, changes=result["changes"],
+                            version_id=version_id)
+                        fix_label = "installed" if fixed else ""
+                        if fixed:
+                            metas[file_info["filename"]] = {
+                                "id": dep_id,
+                                "version": str(file_info.get("version_number") or ""),
+                                "name": dep_name, "depends": {}, "breaks": {},
+                            }
+                            id_map[dep_key] = (m, str(file_info.get("version_number") or ""))
                     except Exception:
                         fixed = False
             # NEVER turn the declaring mod off here. This used to be the
@@ -1683,6 +2336,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     seen_pairs: set = set()
     disabled_targets: set = set()
     for m in mods:
+        if cancelled():
+            return result
         if m.get("protected") or not m.get("enabled"):
             continue
         meta = metas.get(m.get("filename"))
@@ -1718,42 +2373,45 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                         dict(target, display_name=target_name),
                         dep_key, target_version, predicate,
                         mc_version=mc_version, loader=loader,
-                        status_cb=status_cb)
+                            status_cb=status_cb, approve_cb=approve_cb, changes=result["changes"],
+                            version_id=version_id)
                 except Exception:
                     fixed, fix_label = False, ""
-            if auto_fix and not fixed:
-                # Last resort so the game ALWAYS launches: no compatible build
-                # of either side exists, so the two simply cannot coexist. The
-                # declarer refuses to load while the target is present, so turn
-                # the target off (reversible - the user can re-enable it in the
-                # Mods tab). Never delete.
+            if auto_fix and not fixed and fix_label != "approval required":
                 if target.get("filename") in disabled_targets:
                     # Already turned off for an earlier declarer; don't toggle
                     # it back on.
                     fixed, fix_label = True, f"turned off {target_name}"
                 else:
-                    if status_cb:
-                        status_cb(f"Turning off {target_name} to avoid a crash")
-                    try:
-                        toggle_mod(mc_version, loader, target["filename"])
-                        fixed = True
-                        fix_label = f"turned off {target_name}"
-                        disabled_targets.add(target.get("filename"))
-                        id_map.pop(dep_key, None)
-                    except Exception:
-                        fixed, fix_label = False, ""
+                    approved = _request_mod_change(
+                        "disable", [target], f"{declarer_name} {meta.get('version') or ''} {detail}. "
+                        f"Doctor recommends disabling {target_name} to avoid a loading failure. "
+                        "Its file will be kept and you can re-enable it in Installed.",
+                        mc_version=mc_version, loader=loader, approve_cb=approve_cb,
+                        changes=result["changes"], version_id=version_id)
+                    if approved:
+                        try:
+                            _doctor_disable(mc_version, loader, target["filename"],
+                                            version_id=version_id)
+                            fixed = True
+                            fix_label = f"turned off {target_name}"
+                            disabled_targets.add(target.get("filename"))
+                            id_map.pop(dep_key, None)
+                        except Exception:
+                            fixed, fix_label = False, ""
             _report("conflict", declarer_name, detail, fixed, fix_label)
 
     return result
 
 
-def installed_project_ids(mc_version: str | None, loader: str | None) -> set:
+def installed_project_ids(mc_version: str | None, loader: str | None,
+                          version_id: str | None = None) -> set:
     """The Modrinth project ids/slugs already present in a profile (from the
     meta sidecars download_mod writes). Used to skip dependencies that are
     already installed instead of re-downloading them."""
     out = set()
     try:
-        for m in list_mods(mc_version, loader):
+        for m in list_mods(mc_version, loader, version_id):
             if not m.get("enabled"):
                 continue
             for key in ("project_id", "slug"):
@@ -1810,7 +2468,8 @@ def install_mod_with_dependencies(download_url: str, filename: str,
                                   project_id: str | None = None,
                                   hashes: dict | None = None,
                                   progress_cb=None,
-                                  status_cb=None) -> dict:
+                                  status_cb=None,
+                                  version_id: str | None = None) -> dict:
     """Downloads a mod AND every required dependency it needs that the profile
     doesn't already have.
 
@@ -1841,12 +2500,12 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     main_project = project_id or slug
     if not main_project:
         try:
-            main_project = (_read_meta(get_profile_dir(mc_version, loader),
+            main_project = (_read_meta(get_profile_dir(mc_version, loader, version_id),
                                        filename) or {}).get("project_id")
         except Exception:
             main_project = None
 
-    have = installed_project_ids(mc_version, loader)
+    have = installed_project_ids(mc_version, loader, version_id)
     # The main mod is about to be installed, so its own id can't come back as a
     # dependency we still need; make sure a self/circular entry can't loop.
     for _ident in (project_id, slug, main_project):
@@ -1890,7 +2549,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
 
     download_mod(download_url, filename, progress_cb=_batch_progress,
                  slug=slug, mc_version=mc_version, loader=loader,
-                 hashes=hashes, project_id=project_id)
+                 hashes=hashes, project_id=project_id, version_id=version_id)
     _batch["done"] = 1.0
     installed.append(filename)
 
@@ -1903,7 +2562,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
             download_mod(dep["url"], dep["filename"],
                          mc_version=mc_version, loader=loader,
                          project_id=dep_id, hashes=dep.get("hashes"),
-                         progress_cb=_batch_progress)
+                         progress_cb=_batch_progress, version_id=version_id)
             installed.append(dep["filename"])
             # Count only files that actually landed: incrementing per success
             # (rather than assigning the loop index) means a failed dependency
@@ -1922,7 +2581,8 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
                   slug: str | None = None, mc_version: str | None = None,
                   loader: str | None = None, hashes: dict | None = None,
                   project_id: str | None = None,
-                  superseded_cb=None) -> str:
+                  superseded_cb=None, preserve_existing: bool = False,
+                  version_id: str | None = None) -> str:
     """Streams a mod file into the profile folder for (mc_version, loader).
     progress_cb(downloaded, total) is called periodically if provided.
     Returns the final path. slug (when given) is recorded in a sidecar file
@@ -1949,7 +2609,7 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
     moved aside so the UI can say so rather than silently mutating the list."""
     require_mod_loader(mc_version, loader, "download a mod")
 
-    profile_dir = get_profile_dir(mc_version, loader)
+    profile_dir = get_profile_dir(mc_version, loader, version_id)
     dest = os.path.join(profile_dir, filename)
 
     def fetch_fn(tmp_path):
@@ -1969,7 +2629,7 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
 
     global_mod_cache.get_or_fetch(dest, fetch_fn, hashes)
     _write_meta(profile_dir, filename, slug, project_id=project_id, url=download_url)
-    moved = supersede_older_copies(profile_dir, filename, slug, project_id)
+    moved = [] if preserve_existing else supersede_older_copies(profile_dir, filename, slug, project_id)
     if moved and superseded_cb:
         superseded_cb(moved)
     return dest

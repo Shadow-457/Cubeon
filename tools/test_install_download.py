@@ -28,6 +28,8 @@ import os
 import sys
 import tempfile
 import types
+import threading
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -131,7 +133,9 @@ try:
     sha1 = hashlib.sha1(payload).hexdigest()
     path = _path("resume.jar")
     transport = Transport([DyingBody(payload=payload[:400]),
-                           Body(206, payload[400:])])
+                           Body(206, payload[400:], headers={
+                               "Content-Range": f"bytes 400-{len(payload)-1}/{len(payload)}",
+                               "Content-Length": str(len(payload)-400)})])
     ok = _downloader(transport)(URL, path, sha1=sha1)
     check("the resumed download completes", ok is True, f"ok={ok!r}")
     resumed = transport.requests[1][1]
@@ -155,13 +159,63 @@ try:
     with open(path, "rb") as fh:
         check("the file on disk is the good body", fh.read() == good)
 
+    print("\n3c. an interrupted checksum-free file is never published")
+    path = _path("no-checksum.bin")
+    transport = Transport([DyingBody(payload=b"partial!"), Body(404)])
+    try:
+        _downloader(transport)(URL, path)
+    except V._MllDownloadError:
+        pass
+    check("partial bytes stay outside the final filename",
+          not os.path.exists(path) and os.path.exists(path + ".part"))
+    good = b"partial!complete"
+    transport = Transport([Body(206, good[8:], headers={
+        "Content-Range": f"bytes 8-{len(good)-1}/{len(good)}",
+        "Content-Length": str(len(good)-8)})])
+    check("retry without a checksum still fetches the missing bytes",
+          _downloader(transport)(URL, path) is True)
+    check("the completed file replaces its staging file",
+          open(path, "rb").read() == good and not os.path.exists(path + ".part"))
+
+    print("\n3d. a failed overwrite preserves the previous working file")
+    path = _path("working.jar")
+    with open(path, "wb") as fh:
+        fh.write(b"working")
+    transport = Transport([DyingBody(payload=b"broken!!"), Body(404)])
+    try:
+        _downloader(transport)(URL, path, overwrite=True)
+    except V._MllDownloadError:
+        pass
+    check("the old file survives the failed replacement",
+          open(path, "rb").read() == b"working")
+
+    print("\n3e. wrong ranges and short responses are rejected")
+    path = _path("wrong-range.jar")
+    transport = Transport([DyingBody(payload=b"abcdefgh"),
+                           Body(206, b"wrong", headers={"Content-Range": "bytes 0-4/5"}),
+                           Body(200, b"correct")])
+    check("a mismatched range restarts the file safely",
+          _downloader(transport)(URL, path) is True
+          and open(path, "rb").read() == b"correct"
+          and "Range" not in transport.requests[-1][1])
+    path = _path("short.bin")
+    transport = Transport([Body(200, b"short", headers={"Content-Length": "20"}),
+                           Body(404)])
+    raised = None
+    try:
+        _downloader(transport)(URL, path)
+    except V._MllDownloadError as ex:
+        raised = ex
+    check("a short checksum-free body never becomes a complete file",
+          raised is not None and not os.path.exists(path))
+
     # -----------------------------------------------------------------------
     print("\n3b. a stale partial file the server refuses restarts cleanly")
     # -----------------------------------------------------------------------
     good = b"replacement-jar" * 40
     sha1 = hashlib.sha1(good).hexdigest()
     path = _path("stale.jar")
-    with open(path, "wb") as fh:
+    with open(path + ".part", "wb") as fh:
         fh.write(b"x" * (len(good) + 512))  # longer than the real body
     transport = Transport([Body(416), Body(200, good)])
     ok = _downloader(transport)(URL, path, sha1=sha1)
@@ -211,6 +265,30 @@ try:
           _downloader(transport2)(URL, path, sha1=sha1) is True
           and len(transport2.requests) == 1,
           f"n={len(transport2.requests)}")
+    replacement = b"different-checksum" * 30
+    replacement_sha = hashlib.sha1(replacement).hexdigest()
+    transport = Transport([Body(200, replacement)])
+    check("a cached checksum cannot vouch for a different requested checksum",
+          _downloader(transport)(URL, path, sha1=replacement_sha) is True
+          and open(path, "rb").read() == replacement)
+
+    print("\n5b. cancellation interrupts server retry waits")
+    event = threading.Event()
+    bridge = V._InstallCancelBridge(event)
+    bridge.note_thread()
+    transport = Transport([Body(429, headers={"Retry-After": "10"})])
+    timer = threading.Timer(0.15, event.set)
+    with V._PatchedMllDownloads(bridge):
+        timer.start()
+        started = time.monotonic()
+        cancelled = False
+        try:
+            _downloader(transport)(URL, _path("backoff.jar"))
+        except V._DownloadCancelled:
+            cancelled = True
+        check("cancel stops a ten-second Retry-After wait within one second",
+              cancelled and time.monotonic() - started < 1)
+    timer.join()
 
     # -----------------------------------------------------------------------
     print("\n6. one install installs each version once")

@@ -90,19 +90,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     skin_preview_meta = ft.Text("Not wearing a custom skin", size=10, color=TEXT_DIM)
 
     upload_status = ft.Text("", size=12, color=TEXT_DIM)
-    skin_model = ft.Dropdown(
-        label="Arm model",
-        value="auto",
-        width=220,
-        dense=True,
-        options=[
-            ft.dropdown.Option("auto", "Auto-detect"),
-            ft.dropdown.Option("slim", "Slim / Alex (3px arms)"),
-            ft.dropdown.Option("classic", "Classic / Steve (4px arms)"),
-        ],
-        helper_text="Choose Slim / Alex if the uploaded skin has small arms.",
-    )
-
     # Honest, specific status about what will actually be visible in-game, so
     # the user isn't left guessing whether an upload "worked". Three genuinely
     # different situations, and conflating them is what makes a launcher feel
@@ -394,7 +381,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             try:
                 display_name = os.path.splitext(picked.name)[0]
                 entry = core.add_custom_skin(
-                    picked.path, display_name, model=skin_model.value)
+                    picked.path, display_name, model="auto")
                 set_active(entry["filename"])
                 msg = f"Uploaded and set '{entry['name']}' as active skin."
             except ValueError as ve:
@@ -431,18 +418,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             allowed_extensions=["png"],
         )
 
-    def apply_skin_model(e=None):
-        active = cfg.get("active_skin")
-        if not active:
-            upload_status.value = "Upload and select a skin first."
-        else:
-            core.set_skin_model(cfg, active, skin_model.value)
-            appearance.refresh(invalidate=True)
-            choice = {"slim": "Slim / Alex", "classic": "Classic / Steve",
-                      "auto": "Auto-detect"}.get(skin_model.value, "Auto-detect")
-            upload_status.value = f"Active skin now uses {choice} arms."
-        thread_safe_ui.refresh(upload_status)
-
     # Full-width outlined "+ Upload skin" CTA that sits at the BOTTOM of the
     # skins list (matching the target layout). Kept as a subtle outlined
     # button rather than the solid ACCENT hero so it reads as "add another"
@@ -464,14 +439,6 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         alignment=ft.Alignment.CENTER,
         ink=False,
         on_click=open_picker,
-    ), None, SURFACE_HI)
-
-    apply_model_button = attach_hover(ft.Container(
-        content=ft.Text("Apply model to active skin", color=TEXT_DIM,
-                        weight=ft.FontWeight.W_600, size=12),
-        border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=9, horizontal=12),
-        alignment=ft.Alignment.CENTER, ink=False, on_click=apply_skin_model,
     ), None, SURFACE_HI)
 
     refresh_skins_list()
@@ -701,7 +668,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     skin_pane = ft.Column(
         [skins_label, _grid_scroll(skins_list_col), skin_preview_name,
-         skin_preview_meta, skin_model, apply_model_button, upload_button, upload_status], spacing=8)
+         skin_preview_meta, upload_button, upload_status], spacing=8)
     cape_pane = ft.Column(
         [_cape_label_with_note(), _grid_scroll(capes_list_col), cape_preview_name,
          cape_preview_meta, cape_upload_button, cape_status], spacing=8)

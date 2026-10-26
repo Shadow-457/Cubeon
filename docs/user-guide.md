@@ -58,6 +58,39 @@ Microsoft/Mojang account.
 Screenshots have a separate section in Settings. Stats shows playtime and
 activity comparisons; it does not measure the game's frame rate.
 
+### Finding a mod
+
+Mod search shows the selected Minecraft version, loader, and category. Keep
+**Compatible only** enabled to find mods for that instance. If a mod seems
+missing, use **Search all Modrinth** from an empty search, or turn off
+**Compatible only** and select **All** categories. Mods for other versions
+or loaders remain inspectable, but their download button is unavailable.
+
+Use a mod's name or paste its Modrinth project link into the search field.
+When a full name has no matches, Cubeon tries shorter name searches and labels
+them as related matches. A pasted link resolves the project directly, even
+if the current filters would hide it; installation still requires a matching
+Minecraft version and loader. Cubeon's built-in catalog uses Modrinth, so a
+project published only elsewhere will not appear in these results.
+
+### Fixing installed content
+
+**Fix problems** in the installed-content view runs Cubeon's Doctor. For mods,
+it checks duplicate copies, missing required dependencies, loader/version
+compatibility, and declared Fabric conflicts. It can fetch compatible missing
+dependencies. Before disabling extra copies, disabling incompatible/conflicting
+mods, or replacing an installed build, it shows the affected files, instance,
+and reason and asks for approval. Cancel leaves those mods unchanged. Doctor
+keeps old files rather than deleting them; re-enable them in **Mods → Installed**.
+The status reports how many problems were fixed and still need attention. A
+cancelled required repair pauses launch instead of silently changing your mods.
+
+The same system checks resource-pack compatibility and shader-pack structure;
+automatic checks also cover installed modpacks and server plugins. Doctor
+does not fix missing search results, repair arbitrary bugs inside a mod, or
+make a mod run on an unsupported Minecraft version or loader. Back up worlds
+before changing a modded installation.
+
 ## Friends and servers
 
 Friends-enabled builds include chat and in-game integration. Some public

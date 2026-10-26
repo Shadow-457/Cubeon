@@ -327,13 +327,15 @@ def _looks_like_fabric_api(mod: dict) -> bool:
     return "fabric-api" in text or "fabric api" in text
 
 
-def fabric_api_installed(mc_version: str | None, loader: str | None) -> bool:
-    """Whether Fabric API is already in the (mc_version, loader) profile."""
+def fabric_api_installed(mc_version: str | None, loader: str | None,
+                         version_id: str | None = None) -> bool:
+    """Whether Fabric API is already in this instance's mod profile."""
     if not mc_version or loader not in ("fabric", "quilt"):
         return False
     try:
         from .mods import list_mods
-        return any(_looks_like_fabric_api(mod) for mod in list_mods(mc_version, loader))
+        return any(_looks_like_fabric_api(mod)
+                   for mod in list_mods(mc_version, loader, version_id=version_id))
     except Exception:
         # Best-effort: unreadable profile means "don't know", and the caller
         # should not download on top of a copy it failed to see.
@@ -341,7 +343,7 @@ def fabric_api_installed(mc_version: str | None, loader: str | None) -> bool:
 
 
 def ensure_fabric_api(mc_version: str | None, loader: str | None,
-                      status_cb=None) -> str:
+                      status_cb=None, version_id: str | None = None) -> str:
     """Best-effort install of Fabric API for this profile.
 
     Runs from the launch path, so it reports rather than raises: a dead network
@@ -351,7 +353,7 @@ def ensure_fabric_api(mc_version: str | None, loader: str | None,
     if not mc_version or loader not in ("fabric", "quilt"):
         return ""
 
-    if fabric_api_installed(mc_version, loader):
+    if fabric_api_installed(mc_version, loader, version_id):
         return "Fabric API already installed"
 
     try:
@@ -371,7 +373,7 @@ def ensure_fabric_api(mc_version: str | None, loader: str | None,
     try:
         download_mod(file_info["url"], file_info["filename"],
                      slug=FABRIC_API_SLUG, mc_version=mc_version, loader=loader,
-                     hashes=file_info.get("hashes"))
+                     hashes=file_info.get("hashes"), version_id=version_id)
     except Exception as ex:
         return f"download failed ({ex.__class__.__name__})"
     return f"installed Fabric API {file_info.get('version_number')}"

@@ -59,3 +59,6 @@ mod/.gradle/
 # public, so the generated module must never be committed: a committed key is a
 # revoked key. Dev machines may also create it locally; it is gitignored here.
 cubeon/_cf_key.py
+
+# --- Discord bot (local management layer & credentials) ---
+discord-bot/

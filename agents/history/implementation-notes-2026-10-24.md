@@ -1156,6 +1156,14 @@ facts belong HERE, not in diary notes.
   override only with `--site` / `--no-site`. `cubeon/updater.py`'s beta channel
   reads the release LIST and picks the highest non-draft tag. Do not "fix" a
   beta by making it latest: that is exactly what the channel rule prevents.
+- **The release-pipeline test HAND-RUNS the workflow's steps**, so every env
+  var a step reads must also be supplied by the test. The publish step gained
+  `CHANNEL` (the `release` job's output) and died with `CHANNEL: unbound
+  variable` until `tools/test_release_pipeline.py` passed it — the suite went
+  red on the next push, not at edit time. That test now covers both branches:
+  6b proves `X.Y.0` stamps the site while a beta leaves it alone, 8b proves a
+  beta is published as a prerelease and never as Latest, 8c keeps the
+  stable-only latest-forward rule.
 - **`loader_java` must REJECT a too-old Java, not just a missing one.** Existence
   is not sufficient: an installer jar is EXECUTED, so a Java 8 on PATH (found
   via the deliberate fallback) used to sail through the old `os.path.isfile()`

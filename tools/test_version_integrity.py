@@ -114,6 +114,8 @@ check("sha1 leg: matching hash verifies clean", ok is None, str(ok))
 class _Boom:
     """Fake mll: the downloader dies mid-install (net death)."""
 
+    seen_during = []
+
     class install:
         @staticmethod
         def install_minecraft_version(vid, mcdir, callback=None):
@@ -124,6 +126,12 @@ class _Boom:
             with open(os.path.join(mcdir, "versions", vid, vid + ".jar"),
                       "wb") as fh:
                 fh.write(b"PK" + b"\x00" * 300)   # dies at 300/1000 bytes
+            # A rescan while the install is still writing must not paint this
+            # folder as a broken "(incomplete)" instance (2026-10-26 report:
+            # "click one and it just shows as incomplete install").
+            _Boom.seen_during.append(
+                (vid, V.install_in_progress(vid),
+                 {v["id"] for v in V.get_installed_versions()}))
             raise ConnectionError("network went away")
 
 
@@ -144,17 +152,28 @@ try:
     check("partial jar is cleaned up after the failure",
           not os.path.isfile(os.path.join(VERSIONS, "netdeath",
                                           "netdeath.jar")))
+    check("a failed fresh install removes its seeded folder entirely",
+          not os.path.isdir(os.path.join(VERSIONS, "netdeath")))
     installed = scan()
-    check("and the scan no longer calls it installed",
-          installed["netdeath"].get("incomplete") is True)
+    check("and the scan never lists a broken '(incomplete)' row for it",
+          "netdeath" not in installed)
+    check("the live install is registered as in progress",
+          bool(_Boom.seen_during) and _Boom.seen_during[0][1])
+    check("a rescan mid-install never lists it as incomplete",
+          bool(_Boom.seen_during) and "netdeath" not in _Boom.seen_during[0][2],
+          str(_Boom.seen_during[:1]))
 
-    # Order independence. "netdeath" carries the template manifest, so its
-    # json declares id "1.20.1" - the same id as the complete version seeded
-    # above. The scan used to dedupe on that declared id, so whenever
-    # os.listdir() yielded "1.20.1" first the half-installed folder was
-    # silently dropped from the list (neither installed nor incomplete) -
-    # exactly the CI failure this guards. listdir order is
-    # filesystem-dependent, so force the colliding order here.
+    # Order independence. A json-only folder (foreign launcher, hard kill)
+    # carries the template manifest, so its json declares id "1.20.1" - the
+    # same id as the complete version seeded above. The scan used to dedupe on
+    # that declared id, so whenever os.listdir() yielded "1.20.1" first the
+    # half-installed folder was silently dropped from the list (neither
+    # installed nor incomplete) - exactly the CI failure this guards. listdir
+    # order is filesystem-dependent, so force the colliding order here.
+    os.makedirs(os.path.join(VERSIONS, "halfinstall"), exist_ok=True)
+    with open(os.path.join(VERSIONS, "halfinstall", "halfinstall.json"),
+              "w") as fh:
+        json.dump(MANIFEST, fh)  # id stays "1.20.1"
     _real_listdir = V.os.listdir
 
     def _collision_first(path):
@@ -169,7 +188,7 @@ try:
     finally:
         V.os.listdir = _real_listdir
     check("an id collision can never hide a half-install (any listdir order)",
-          forced.get("netdeath", {}).get("incomplete") is True,
+          forced.get("halfinstall", {}).get("incomplete") is True,
           str(sorted(forced)))
 finally:
     V.mll = _real_mll

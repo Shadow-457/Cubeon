@@ -6,12 +6,12 @@ Boots the REAL launcher headless under the safe stubs with two fake installed
 versions - a plain vanilla and a Fabric loader install carrying two mods - and
 checks the three things this feature added:
 
-  1. the Game-version picker groups Installed above Available and tags rows
-     with their loader / release date, and its search filters its own list;
-  2. the "Jump back in" cards carry loader + mod-count + last-played chips
-     without breaking the no-rebuild invariant;
-  3. the Instances manager lists every install and its Play / Rename / Delete
-     buttons work.
+  1. the Game-version control opens a right-hand side panel (not a dialog)
+     that lists installed instances and tags available rows with their
+     loader / release date; its search filters its own list;
+  2. the "Your instances" rows carry loader + mod-count + last-played text
+     and stay plain (no per-row art controls);
+  3. the same panel manages every install (Play / Rename / Delete).
 
 No window, no network, no real install.
 
@@ -55,10 +55,12 @@ INSTALLED = [
     {"id": FABRIC_ID, "type": "release", "display_name": "26.1.2 (Fabric)",
      "folder": FABRIC_ID},
 ]
+# Deliberately does NOT contain FABRIC_ID: an isolated/imported instance has a
+# launch id Mojang's manifest has never heard of. Browsing the online list must
+# still keep it selected instead of silently jumping to the latest release.
 AVAILABLE = [
     {"id": "1.21.11", "type": "release", "releaseTime": "2024-06-13T00:00:00+00:00"},
     {"id": "1.20.1", "type": "release", "releaseTime": "2023-06-07T00:00:00+00:00"},
-    {"id": FABRIC_ID, "type": "release", "releaseTime": "2025-01-01T00:00:00+00:00"},
     {"id": "26w45a", "type": "snapshot", "releaseTime": "2024-11-06T00:00:00+00:00"},
 ]
 
@@ -86,17 +88,26 @@ stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
 driver.open_tab("play")
 
-print("\n1. Jump back in cards carry loader / mods / last-played chips")
+picker_btn = fz.clickable_with_subtext(page, "pick a minecraft version")
+check("the Game-version button exists", bool(picker_btn))
+picker_model = (inspect.getclosurevars(picker_btn[0].on_click).nonlocals["self"]
+                if picker_btn else None)
+if picker_model:
+    picker_model.open()
+panel = picker_model.panel if picker_model else None
+
+print("\n1. the version panel's cards carry loader / mods / last-played text")
 
 
 def find_cards():
+    """The panel's instance cards, tagged ``version-panel-row-<version id>``."""
     out = {}
-    for c in every_control(page):
-        h = getattr(c, "on_click", None)
-        d = getattr(h, "__defaults__", None)
-        if callable(h) and isinstance(d, tuple) and len(d) == 1 \
-                and isinstance(d[0], str) and getattr(c, "width", None) == 210:
-            out[d[0]] = c
+    if panel is None:
+        return out
+    for c in walk(panel):
+        data = getattr(c, "data", None)
+        if isinstance(data, str) and data.startswith("version-panel-row-"):
+            out[data[len("version-panel-row-"):]] = c
     return out
 
 
@@ -106,23 +117,33 @@ check("one card per installed version", set(cards) == {"1.21.11", FABRIC_ID},
 
 fabric_text = subtree_text(cards[FABRIC_ID]) if FABRIC_ID in cards else ""
 check("the Fabric card is tagged with its loader", "fabric" in fabric_text,
-      fabric_text[:120])
+      fabric_text[:160])
 check("the Fabric card shows its mod count", "2 mods" in fabric_text,
-      fabric_text[:120])
+      fabric_text[:160])
 check("the Fabric card shows when it was last played", "ago" in fabric_text,
-      fabric_text[:120])
+      fabric_text[:160])
 vanilla_text = subtree_text(cards["1.21.11"]) if "1.21.11" in cards else ""
 check("the vanilla card is not mislabelled as a loader install",
       "fabric" not in vanilla_text and "mods" not in vanilla_text,
-      vanilla_text[:120])
+      vanilla_text[:160])
+check("the Play tab itself mounts no instance cards",
+      not [c for c in every_control(page)
+           if isinstance(getattr(c, "data", None), str)
+           and c.data.startswith("instance-row-")])
 
-print("\n2. the version picker groups Installed / Available and tags rows")
+print("\n2. the version picker switches between installed and new instances")
 
-picker_btn = fz.clickable_with_subtext(page, "pick a minecraft version")
-check("the Game-version button exists", bool(picker_btn))
-if picker_btn and FABRIC_ID in cards and "1.21.11" in cards:
-    picker_model = inspect.getclosurevars(picker_btn[0].on_click).nonlocals["self"]
-    selection_handler = inspect.getclosurevars(picker_model.on_pick).nonlocals["on_version_selected"]
+selection_scope = None
+if picker_model and FABRIC_ID in cards and "1.21.11" in cards:
+    # The panel's on_pick is main.py's `_pick_version`, which restores the
+    # instance's own loader and then calls `_select_version_ui` ->
+    # `on_version_selected`. Grab the selection handler through that chain so
+    # the test keeps exercising the real repaint path.
+    pick_scope = inspect.getclosurevars(picker_model.on_pick).nonlocals
+    selection_handler = pick_scope.get("on_version_selected")
+    if selection_handler is None:
+        selection_handler = inspect.getclosurevars(
+            pick_scope["_select_version_ui"]).nonlocals["on_version_selected"]
     selection_scope = inspect.getclosurevars(selection_handler).nonlocals
     selection_state = selection_scope["state"]
     loader_scope = inspect.getclosurevars(selection_scope["refresh_loader_support"]).nonlocals
@@ -161,97 +182,153 @@ if picker_btn and FABRIC_ID in cards and "1.21.11" in cards:
         cards[FABRIC_ID].on_click(None)
         check("selecting an installed instance cancels a stale pending loader choice",
               selection_state["pending_loader_install"] is None and selection_state["mod_loader"] == "fabric")
-        picker_model.on_pick("1.21.11")
+        # Leave the instance-only id selected so the online browse below proves
+        # the manifest merge keeps it (it is not in AVAILABLE at all).
+        picker_model.on_pick(FABRIC_ID)
 if picker_btn:
     driver._fire_named(picker_btn[0], "on_click", "open version picker")
 
 
-def dialog_titled(name):
-    for dlg in getattr(page, "opened", []):
-        title = getattr(dlg, "title", None)
-        if title is not None and getattr(title, "value", "") == name:
-            return dlg
-    return None
+panel = picker_model.panel
+check("the version control opens a side panel, not a dialog",
+      picker_model.is_open() and panel.data == "versions-panel"
+      and not any(getattr(d, "title", None) is not None
+                  and getattr(d.title, "value", "") == "Choose version"
+                  for d in getattr(page, "opened", [])))
+check("the panel starts on the installed list", picker_model.title.value == "Instances",
+      picker_model.title.value)
 
 
-picker_dlg = dialog_titled("Game version")
+def picker_row_ids(picker):
+    """Ids of the rows currently rendered in the picker's own list."""
+    ids = []
+    for c in getattr(picker, "list", SimpleNamespace(controls=[])).controls:
+        defaults = getattr(getattr(c, "on_click", None), "__defaults__", None)
+        if isinstance(defaults, tuple) and defaults:
+            ids.append(defaults[0])
+    return ids
 
-# "Browse all versions" pulls the online list and rebuilds the dialog rows.
-browse = [c for c in fz.clickable_with_subtext(page, "browse all versions")
-          if callable(getattr(c, "on_click", None))]
-check("the picker offers 'Browse all versions'", bool(browse))
+
+def picker_group_headers(control):
+    """Visible section headers ('Installed' / 'Available to download')."""
+    return [(c.value or "") for c in walk(control)
+            if type(c).__name__ == "Text"
+            and (c.value or "").strip().lower() in ("installed", "available to download")
+            and getattr(c, "visible", True)]
+
+
+installed_panel_text = subtree_text(panel)
+check("installed rows are listed without group headers",
+      "1.21.11" in installed_panel_text and "26.1.2" in installed_panel_text
+      and not picker_group_headers(panel),
+      str(picker_group_headers(panel)) + " " + installed_panel_text[:160])
+
+# "New instance" pulls the online list and switches the panel to new-only rows.
+browse = [c for c in walk(panel)
+          if callable(getattr(c, "on_click", None))
+          and "new instance" in subtree_text(c).lower()]
+check("the panel offers 'New instance'", bool(browse))
 if browse:
-    driver._fire_named(browse[-1], "on_click", "browse all versions")
+    driver._fire_named(browse[-1], "on_click", "browse new instances")
+    deadline = time.monotonic() + 3
+    from cubeon import thread_safe_ui
+    while time.monotonic() < deadline:
+        with thread_safe_ui.TREE_LOCK:
+            if not picker_model._loading:
+                break
+        time.sleep(0.01)
 
-dialog_text = subtree_text(picker_dlg) if picker_dlg is not None else ""
-check("installed versions are grouped under a header", "installed" in dialog_text,
-      dialog_text[:200])
-check("downloadable-only versions are grouped separately",
-      "available to download" in dialog_text, dialog_text[:200])
-check("rows carry a release date", "2024-06-13" in dialog_text, dialog_text[:200])
-check("installed loader installs are tagged in the online list",
-      "fabric" in dialog_text, dialog_text[:200])
-check("snapshots are badged", "snapshot" in dialog_text, dialog_text[:200])
+check("browsing switches the panel to the new-instance view",
+      picker_model.title.value == "New instance", picker_model.title.value)
 
-# The search must narrow the dialog's own list without touching the dropdown.
-filters = [c for c in walk(picker_dlg)
+new_ids = picker_row_ids(picker_model)
+check("new mode offers only versions that are not installed yet",
+      set(new_ids) == {"1.20.1", "26w45a"}, str(sorted(new_ids)))
+picker_model._set_install_loader("fabric")
+check("an installed vanilla base is available for a new Fabric instance",
+      "1.21.11" in picker_row_ids(picker_model))
+picker_model._set_install_loader("vanilla")
+check("switching back to Vanilla hides its already installed base",
+      "1.21.11" not in picker_row_ids(picker_model))
+panel_text = subtree_text(panel)
+check("new mode has no Installed / Available group headers",
+      not picker_group_headers(panel),
+      str(picker_group_headers(panel)) + " " + panel_text[:160])
+check("rows carry a release date", "2023-06-07" in panel_text, panel_text[:200])
+check("snapshots are badged", "snapshot" in panel_text, panel_text[:200])
+check("the manifest merge keeps an installed-only id selected",
+      selection_scope["version_dropdown"].value == FABRIC_ID,
+      selection_scope["version_dropdown"].value)
+
+# The search must narrow the panel's own list without touching the dropdown.
+filters = [c for c in walk(panel)
            if type(c).__name__ == "TextField"
            and "filter versions" in (getattr(c, "hint_text", "") or "").lower()]
-check("the picker has a filter field", bool(filters))
+check("the panel has a filter field", bool(filters))
 if filters:
     filters[0].value = "1.20"
     driver._fire_named(filters[0], "on_change", "filter versions")
-    filtered = subtree_text(picker_dlg)
-    check("filtering hides non-matching rows", "1.20.1" in filtered)
+    filtered_ids = picker_row_ids(picker_model)
+    check("filtering hides non-matching rows",
+          set(filtered_ids) == {"1.20.1"}, str(sorted(filtered_ids)))
     check("filtering never rewrites the live dropdown value",
-          not driver.errors, str(driver.errors[:2]))
+          not driver.errors and selection_scope["version_dropdown"].value == FABRIC_ID,
+          str(driver.errors[:2]))
 
-print("\n3. the Instances manager lists every install and acts on it")
+# Back to the installed list.
+back = [c for c in walk(panel)
+        if callable(getattr(c, "on_click", None))
+        and subtree_text(c).strip() == "back"]
+if back:
+    driver._fire_named(back[0], "on_click", "back to installed versions")
+check("Back returns the panel to the installed list",
+      picker_model.title.value == "Instances", picker_model.title.value)
 
-manage = fz.clickable_with_subtext(page, "manage installed versions")
-check("the Manage button exists", bool(manage))
-if manage:
-    driver._fire_named(manage[0], "on_click", "open instances manager")
+print("\n3. the same panel manages every install")
 
-# Find the Instances dialog among the opened ones.
-inst_dialog = dialog_titled("Instances")
-check("the Instances manager opens", inst_dialog is not None)
+panel_rows = [c for c in walk(panel)
+              if isinstance(getattr(c, "data", None), str)
+              and c.data.startswith("version-panel-row-")]
+check("the panel lists one row per installed instance", len(panel_rows) == 2,
+      str([getattr(c, "data", "") for c in panel_rows]))
 
-if inst_dialog is not None:
-    dtext = subtree_text(inst_dialog)
-    check("it lists the vanilla instance", "1.21.11" in dtext, dtext[:200])
-    check("it lists the Fabric instance", "26.1.2" in dtext, dtext[:200])
-    check("it shows loader/mod details", "fabric" in dtext and "2 mods" in dtext,
-          dtext[:200])
-    # Every row must expose the three actions.
-    tips = [getattr(c, "tooltip", "") for c in walk(inst_dialog)]
-    check("rows offer Play / Rename / Delete",
-          "Play this instance" in tips and "Rename" in tips and "Delete" in tips,
-          str(tips[:10]))
-    # Fire them all - stubs make this safe; none may raise a hard error.
-    for c in list(walk(inst_dialog)):
-        h = getattr(c, "on_click", None)
-        if callable(h) and getattr(c, "tooltip", "") in (
-                "Play this instance", "Rename", "Delete"):
-            driver._fire_named(c, "on_click", f"manager:{c.tooltip}")
-    check("manager actions raise nothing", not driver.errors,
-          str(driver.errors[:3]))
+dtext = subtree_text(panel)
+check("it lists the vanilla instance", "1.21.11" in dtext, dtext[:200])
+check("it lists the Fabric instance", "26.1.2" in dtext, dtext[:200])
+check("it shows loader/mod details", "fabric" in dtext and "2 mods" in dtext,
+      dtext[:200])
+# Panel rows are select-only: Rename/Delete live on the Play card's folder row.
+tips = [getattr(c, "tooltip", "") for c in walk(panel)]
+check("rows have no per-row Play / Rename / Delete actions",
+      not any(t in ("Play this instance", "Rename", "Delete") for t in tips),
+      str(tips[:12]))
+check("each row shows a real picture (not a vector glyph)",
+      bool(panel_rows) and all(
+          any(type(x).__name__ == "Image" and getattr(x, "src", None)
+              for x in walk(row)) for row in panel_rows),
+      str([[type(x).__name__ for x in walk(row)] for row in panel_rows][:2]))
 
-print("\n4. deleting the LAST instance leaves nothing of it in the Play area")
+# The row click is still the selection path (it closes the sheet).
+if panel_rows:
+    driver._fire_named(panel_rows[-1], "on_click", "select from version panel")
+    check("selecting from the panel closes it", not picker_model.is_open())
+check("selecting from the panel raises nothing", not driver.errors,
+      str(driver.errors[:3]))
+
+print("\n4. deleting the LAST instance from the hero clears the Play area")
 
 # Regression (2026-10-17, user report): "when there's only 1 version and I
 # delete it, it does delete but the UI doesn't correctly disappear". The delete
 # itself worked; the page didn't. refresh_version_list()'s "no installed
-# versions" branch (only reachable by deleting the last one) re-drew the mods /
-# hero parts but NOT the compact Game-version button (which mirrors the
-# dropdown) or the rename/delete pair - so the button still advertised the
-# version that had just been deleted and the destructive pair stayed lit. A
-# delete performed from a row of the OPEN Instances manager was the other half:
-# the dialog stays mounted across the action, so it kept listing the instance
-# that was gone.
+# versions" branch only repainted the mods / hero parts, not the compact
+# Game-version button or the rename/delete pair. The panel is the other half:
+# it stays mounted across the action, so its rows must be rebuilt too - even
+# when the sheet is closed (a stale row there could be clicked later, which
+# selected - and silently re-downloaded - the deleted instance).
 #
-# This section drives the real path: a shrinking installed set (one instance),
-# the manager's row Delete + its confirmation, then the empty-state resets.
+# Rename/Delete are hero-only now (panel rows are select-only), so this drives
+# the real path: one installed instance, select it, hero Delete + confirmation,
+# then the empty-state resets.
 _remaining = [dict(INSTALLED[1])]
 stubs.core.get_installed_versions = lambda *a, **k: list(_remaining)
 
@@ -269,91 +346,34 @@ page.opened.clear()
 page._dialogs.controls.clear()  # type: ignore[attr-defined]
 
 # Re-sync the app against the new installed set through a real entry point:
-# "Browse all versions" is refresh_version_list(online=True).
+# "New instance" is refresh_version_list(online=True).
 # (Each fire needs its own action label: the driver de-dupes identical
 # (control, handler, action) triples so a pass never double-clicks.)
-driver._fire_named(picker_btn[0], "on_click", "open version picker (empty state)")
-browse = [c for c in fz.clickable_with_subtext(page, "browse all versions")
+driver._fire_named(picker_btn[0], "on_click", "open version picker (last instance)")
+browse = [c for c in fz.clickable_with_subtext(page, "new instance")
           if callable(getattr(c, "on_click", None))]
 if browse:
-    driver._fire_named(browse[-1], "on_click", "browse all versions (empty state)")
+    driver._fire_named(browse[-1], "on_click", "browse new instances (last instance)")
+back = [c for c in fz.clickable_with_subtext(page, "back")
+        if callable(getattr(c, "on_click", None))
+        and subtree_text(c).strip() == "back"]
+if back:
+    driver._fire_named(back[0], "on_click", "back to installed versions (last instance)")
 
-# The manager (opened from the picker) now lists that single instance.
-manage = fz.clickable_with_subtext(page, "manage installed versions")
-if manage:
-    driver._fire_named(manage[0], "on_click", "open instances manager (empty state)")
-
-inst_dialog = dialog_titled("Instances")
-check("the manager lists the single remaining instance",
-      inst_dialog is not None and "26.1.2" in subtree_text(inst_dialog),
-      subtree_text(inst_dialog)[:200] if inst_dialog is not None else "no dialog")
-
-row_deletes = [c for c in (walk(inst_dialog) if inst_dialog is not None else [])
+# The panel lists that single instance, with no per-row actions.
+panel_rows = [c for c in walk(panel)
+              if isinstance(getattr(c, "data", None), str)
+              and c.data.startswith("version-panel-row-")]
+check("the panel lists the single remaining instance",
+      [c.data for c in panel_rows] == [f"version-panel-row-{FABRIC_ID}"],
+      str([getattr(c, "data", "") for c in panel_rows]))
+row_deletes = [c for c in (walk(panel) if panel is not None else [])
                if getattr(c, "tooltip", "") == "Delete"]
-check("that row offers Delete", len(row_deletes) == 1, f"{len(row_deletes)} delete buttons")
-if row_deletes:
-    driver._fire_named(row_deletes[0], "on_click", "manager:delete")
-
-confirm = None
-if page.opened:
-    for c in walk(page.opened[-1]):
-        if type(c).__name__ == "TextButton" and "delete" == (ctrl_text(c) or "").lower():
-            confirm = c
-check("Deleting from a row asks for confirmation", confirm is not None)
-if confirm is not None:
-    driver._fire_named(confirm, "on_click", "confirm delete")
-
-check("the delete really removed the instance", not _remaining, str(_remaining))
-check("...without raising", not driver.errors, str(driver.errors[:3]))
-
-# -- the manager must not keep showing a row that no longer exists --------
-check("the open manager stops listing the deleted instance",
-      inst_dialog is not None and "26.1.2" not in subtree_text(inst_dialog),
-      subtree_text(inst_dialog)[:200] if inst_dialog is not None else "no dialog")
-
-# -- and the Play tab must go back to its empty state ---------------------
-picker_text = subtree_text(picker_btn[0]) if picker_btn else ""
-check("the Game-version button stops advertising the deleted version",
-      "1.21.11" not in picker_text and "26.1.2" not in picker_text,
-      picker_text[:160])
-check("the Game-version button says nothing is installed",
-      "no versions installed yet" in picker_text.lower(), picker_text[:160])
-
-tips = {}
-for c in every_control(page):
-    tip = getattr(c, "tooltip", "") or ""
-    if tip in ("Delete instance", "Rename instance"):
-        tips[tip] = c
-check("the hero still exposes rename/delete",
-      set(tips) == {"Delete instance", "Rename instance"}, str(sorted(tips)))
-check("rename/delete are disabled with nothing installed",
-      all(getattr(c, "disabled", None) for c in tips.values()),
-      str({k: getattr(c, "disabled", None) for k, c in tips.items()}))
-check("rename/delete are dimmed with nothing installed",
-      all(getattr(c, "opacity", None) == 0.4 for c in tips.values()),
-      str({k: getattr(c, "opacity", None) for k, c in tips.items()}))
-
-check("the Jump back in cards are gone", not find_cards(), str(sorted(find_cards())))
-empties = [c for c in every_control(page)
-           if type(c).__name__ == "Text"
-           and (c.value or "").lower().startswith("no versions installed yet -")
-           and getattr(c, "visible", None)]
-check("the empty 'Jump back in' notice shows instead", bool(empties),
-      str([c.value for c in every_control(page) if type(c).__name__ == "Text"][:20]))
-
-print("\n5. the hero's own Delete on the LAST instance does the same")
-
-# The reported path exactly: one instance installed, selected, rename/delete
-# lit - delete it and the whole Play area must go back to its empty state.
-_remaining[:] = [dict(INSTALLED[1])]
-driver._fire_named(picker_btn[0], "on_click", "open version picker (hero flow)")
-browse = [c for c in fz.clickable_with_subtext(page, "browse all versions")
-          if callable(getattr(c, "on_click", None))]
-if browse:
-    driver._fire_named(browse[-1], "on_click", "browse all versions (hero flow)")
+check("that row offers no Delete of its own", not row_deletes,
+      f"{len(row_deletes)} delete buttons")
 
 cards = find_cards()
-check("the remaining instance has a Jump back in card",
+check("the remaining instance has an instance row",
       set(cards) == {FABRIC_ID}, str(sorted(cards)))
 if FABRIC_ID in cards:
     driver._fire_named(cards[FABRIC_ID], "on_click", "select the remaining instance")
@@ -386,6 +406,14 @@ if confirm is not None:
 check("the hero delete really removed it", not _remaining, str(_remaining))
 check("the hero delete raised nothing", not driver.errors, str(driver.errors[:3]))
 
+# The panel was CLOSED when the delete happened; its old children must still be
+# gone, so a later click cannot hit the deleted instance.
+check("the closed panel drops the deleted row", not find_cards(),
+      str(sorted(find_cards())))
+check("the closed panel shows the empty notice",
+      "no instances yet" in subtree_text(panel).lower(),
+      subtree_text(panel)[:160])
+
 picker_text = subtree_text(picker_btn[0]) if picker_btn else ""
 check("the Game-version button goes back to 'nothing installed'",
       "no versions installed yet" in picker_text.lower()
@@ -398,60 +426,98 @@ check("rename/delete dim out after the last instance is deleted",
               for c in (del_btn, ren) if c is not None),
       f"delete={getattr(del_btn, 'disabled', None)}/{getattr(del_btn, 'opacity', None)} "
       f"rename={getattr(ren, 'disabled', None)}/{getattr(ren, 'opacity', None)}")
-check("the Jump back in row is gone after the hero delete", not find_cards(),
+
+print("\n5. a version whose folder is already gone is still forgotten")
+
+# The 2026-10-26 report: "when i delete it still shows stale instance and
+# doesn't let me change it". One way to land there: delete_version() raises
+# ValueError("That version folder no longer exists") - the folder is already
+# gone, so the only useful action left is to forget the instance. The old code
+# showed the error and returned, leaving a dead row/card on screen forever.
+_remaining[:] = [dict(INSTALLED[1])]
+stubs.core.get_installed_versions = lambda *a, **k: list(_remaining)
+
+
+def _already_gone(vid):
+    # The folder vanished before the click; a rescan will no longer find it.
+    _remaining[:] = []
+    raise ValueError("That version folder no longer exists.")
+
+
+stubs.core.delete_version = _already_gone
+driver._fire_named(picker_btn[0], "on_click", "open version picker (already gone)")
+browse = [c for c in fz.clickable_with_subtext(page, "new instance")
+          if callable(getattr(c, "on_click", None))]
+if browse:
+    driver._fire_named(browse[-1], "on_click", "browse new instances (already gone)")
+back = [c for c in fz.clickable_with_subtext(page, "back")
+        if callable(getattr(c, "on_click", None))
+        and subtree_text(c).strip() == "back"]
+if back:
+    driver._fire_named(back[0], "on_click", "back to installed versions (already gone)")
+
+cards = find_cards()
+if FABRIC_ID in cards:
+    driver._fire_named(cards[FABRIC_ID], "on_click", "select the vanished instance")
+del_btn = hero_btn("Delete instance")
+driver._fire_named(del_btn, "on_click", "hero:delete vanished instance")
+confirm = None
+if page.opened:
+    for c in walk(page.opened[-1]):
+        if type(c).__name__ == "TextButton" and "delete" == (ctrl_text(c) or "").lower():
+            confirm = c
+check("the vanished instance still asks for confirmation", confirm is not None)
+if confirm is not None:
+    driver._fire_named(confirm, "on_click", "confirm vanished delete")
+
+check("'folder no longer exists' is treated as success, not an error",
+      not driver.errors, str(driver.errors[:3]))
+check("the vanished instance is dropped from the panel", not find_cards(),
       str(sorted(find_cards())))
+picker_text = subtree_text(picker_btn[0]) if picker_btn else ""
+check("the Game-version button no longer advertises it",
+      "26.1.2" not in picker_text and "no versions installed yet" in picker_text.lower(),
+      picker_text[:160])
+check("rename/delete are disabled again",
+      all(getattr(c, "disabled", None)
+          for c in (hero_btn("Delete instance"), hero_btn("Rename instance"))
+          if c is not None))
 
-print("\n6. the 'Jump back in' row survives a concurrent repaint")
+print("\n6. repeated panel rebuilds are safe")
 
-# The install / launch workers repaint off the UI thread (_rescan_installed ->
-# update_hero -> InstanceCards.rebuild), while the Play tab's own selection path
-# calls the same rebuild on the UI thread. Both pop dropped ids BEFORE
-# assembling the row from them, so an interleaved pair raised KeyError on the
-# id the other call had just popped - the repaint and its whole handler died
-# with it (found as a flaky crash in the delete/Play flow above). The row is a
-# pure view object, so the interleaving is reproduced directly here.
-from ui.versions import InstanceCards                          # noqa: E402
-import threading                                               # noqa: E402
-
-META_ONE = {"a": {"id": "a", "display_name": "Alpha"},
-            "b": {"id": "b", "display_name": "Beta"}}
-_tls = threading.local()
-race_cards = InstanceCards(
-    page,
-    get_metas=lambda: getattr(_tls, "metas", {}),
-    get_labels=lambda: {},
-    get_selected=lambda: None,
-    on_select=lambda _vid: None,
-    art_src=lambda _base: None,
-    request_art=lambda _base, _apply: None,
-)
+# Install / launch workers repaint off the UI thread while the Play tab's own
+# selection path can rebuild the same panel rows on the UI thread. The list is
+# a pure view of the live instance descriptors and every mutation happens under
+# TREE_LOCK, so interleaving them must never raise. Drive the real render path
+# from several threads (sizes stubbed out so the test does not spawn walkers).
+picker_model.get_instances = lambda: [{
+    "id": FABRIC_ID, "display_name": "26.1.2 (Fabric)",
+    "base_version": "26.1.2", "loader": "fabric", "loader_label": "Fabric",
+    "mod_count": 2, "last_played": None, "incomplete": False,
+    "folder": FABRIC_ID,
+}]
+picker_model.get_selected = lambda: FABRIC_ID
+picker_model._fill_sizes = staticmethod(lambda slots: None)
+rebuild = picker_model._render_installed
 race_errors = []
 
 
-def _repaint(metas, rounds):
-    _tls.metas = metas
+def _repaint():
     try:
-        for _ in range(rounds):
-            race_cards.rebuild()
-    except Exception as ex:                    # noqa: BLE001 - reported below
+        for _ in range(40):
+            rebuild()
+    except Exception as ex:                # noqa: BLE001 - reported below
         race_errors.append(ex)
 
 
-threads = [threading.Thread(target=_repaint, args=(m, 150))
-           for m in (META_ONE, {}, META_ONE, {}) for _ in range(3)]
+import threading                          # noqa: E402
+threads = [threading.Thread(target=_repaint) for _ in range(6)]
 for t in threads:
     t.start()
 for t in threads:
     t.join()
-check("concurrent rebuilds never raise", not race_errors, str(race_errors[:2]))
-
-_tls.metas = META_ONE
-race_cards.rebuild()
-check("the row is consistent once the race is over",
-      len(race_cards.row.controls) == 2 and race_cards.row.visible
-      and not race_cards.empty.visible,
-      f"{len(race_cards.row.controls)} cards, row.visible="
-      f"{race_cards.row.visible}, empty.visible={race_cards.empty.visible}")
+check("concurrent panel rebuilds never raise", not race_errors,
+      str(race_errors[:2]))
 
 print(f"\n{passed} passed, {failed} failed")
 print("Version-management UI test: " + ("FAIL" if failed else "PASS"))

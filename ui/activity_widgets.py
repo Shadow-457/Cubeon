@@ -67,10 +67,12 @@ class ActivityHistogram:
                 height = (bottom - top) * value / maximum
                 position = left + slot * index + slot * 0.16 + series_index * bar_width
                 if height:
-                    shapes.append(canvas.Rect(position, bottom - height, bar_width - 2, height,
-                                              border_radius=3, paint=ft.Paint(color=color), data=label))
+                    shapes.append(canvas.Rect(position, bottom - height, max(1.0, bar_width - (2 if bar_width > 6 else 1)), height,
+                                              border_radius=min(3, max(0.5, bar_width / 3)), paint=ft.Paint(color=color), data=label))
         if self.labels:
             for index, label in enumerate(self.labels):
+                if not label:  # long ranges label only every few bars
+                    continue
                 position = left + slot * (index + 0.5)
                 shapes.append(canvas.Text(position, self.height - 10, self.labels[index],
                                           style=ft.TextStyle(size=10, color=TEXT_DIM), alignment=ft.Alignment.CENTER))

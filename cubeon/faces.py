@@ -57,6 +57,22 @@ _missed: dict[str, float] = {}   # lowercased name -> monotonic retry-at deadlin
 _inflight: set[str] = set()
 _sources = OrderedDict()
 _SOURCE_LIMIT = 128
+# Bumped whenever a downloaded face lands on disk. UI repaint signatures
+# (the chat roster) include this so they can reuse their last face tokens on
+# an unchanged roster instead of stat-ing every avatar file on every poll.
+_revision = 0
+
+
+def revision() -> int:
+    """Monotonic token for "the on-disk face set may have changed"."""
+    with _lock:
+        return _revision
+
+
+def _bump_revision() -> None:
+    global _revision
+    with _lock:
+        _revision += 1
 
 
 def url(name: str) -> "str | None":
@@ -97,6 +113,7 @@ def _schedule(name: str) -> None:
                 with open(tmp, "wb") as f:
                     f.write(resp.content)
                 os.replace(tmp, _dest(name))
+                _bump_revision()
             else:
                 # A real miss (404: not a Cubeon name / no skin) - stay
                 # negative for a while so repaints don't re-hammer the Worker.

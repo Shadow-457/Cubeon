@@ -6,36 +6,28 @@ Reported symptom: the version art on the launcher's main menu re-loads over and
 over. Two independent causes, both fixed here and both pinned by this file:
 
   1. `version_art.src()` is called from the RENDER path - on every selection
-     change, for the version spotlight and for every "Jump back in" card. It
+     change, for the version spotlight. It
      re-opened the file and base64-encoded it again on each call (Mojang's key
      art is a 27-53 KB JPEG; measured 0.127 ms per uncached call on this
      machine). The encoded string is now cached per file, keyed by
      (mtime, size) so a re-downloaded banner can never serve a stale encode.
 
-  2. `_rebuild_instance_cards()` had the SELECTED version in its change
-     signature, so picking a version discarded and rebuilt every card. A
-     rebuilt ft.Image is a brand-new control: Flet cannot diff it against the
-     old one, so it re-sends the whole (base64) payload and every thumbnail in
-     the row reloads on the client. This is the expensive half - a measured
-     416 KB of art for six installed versions, re-sent per selection change.
-     Selection is now a border/fill restyle, which sends two fields.
+  2. The old "Jump back in" cards rebuilt their ft.Image controls on selection
+     and rename, which made Flet re-send every base64 thumbnail. They were
+     replaced by a plain text list on 2026-10-25, and the Play tab's list was
+     removed entirely on 2026-10-26. Instances now live only in the version
+     panel, whose rows use an icon (not ft.Image) for the cube emblem, so there
+     is no per-row art to re-send at all; section 5 pins both facts.
 
-  3. Renaming an instance used to re-create its card, and the row was then
-     re-assigned as a whole (`row.controls = [...]`). Flet tracks a plain
-     `controls` reassignment as a structural change and patches it as a
-     whole-list REPLACE, so ONE renamed card re-sent EVERY thumbnail in the
-     row. The label is now edited in place and the row list is mutated
-     (`row.controls[:] = [...]`), which Flet diffs child by child.
-
-The card half is checked against the REAL built UI through tools/app_driver,
-because the invariant is object identity of the live controls - which is
-exactly what a re-created widget breaks.
+The instance half is checked against the REAL built UI through
+tools/app_driver.
 
 No network: version_art's transport is replaced with a loud failure, so any
 attempt to fetch during this test is an error rather than a live request.
 
 Run: python3 tools/test_version_art_cache.py
 """
+import inspect
 import os
 import sys
 import tempfile
@@ -52,9 +44,8 @@ _sandbox_home.isolate()
 
 import app_driver                                           # noqa: E402
 import _fuzz_common as fz                                   # noqa: E402
-from _fuzz_common import every_control                      # noqa: E402
+from _fuzz_common import every_control, walk                # noqa: E402
 from cubeon import theme, version_art                       # noqa: E402
-from ui.versions import InstanceCards                       # noqa: E402
 
 passed = 0
 failed = 0
@@ -153,135 +144,88 @@ check("prefetch of a cached banner answers synchronously", len(got) == 1,
       f"callback ran {len(got)} times")
 check("and hands back the encoded banner", bool(got) and got[0] == version_art.src("1.21.11"))
 
-print("\n5. the Jump back in row keeps its cards across a selection change")
+print("\n5. the Play tab has no instance list; panel cards mount real art")
 stubs = fz.install_safe_stubs()
 stubs.core.get_installed_versions = lambda *a, **k: [
     {"id": "1.21.11", "type": "release", "name": "1.21.11"},
     {"id": "1.20.1", "type": "release", "name": "1.20.1"},
 ]
 page = app_driver.DriverPage()
-
-# Keep a handle to the live InstanceCards the real app builds, so the rename
-# and reorder invariants below are checked against the production row.
-_live_cards = {}
-_real_init = InstanceCards.__init__
-
-
-def _capturing_init(self, *args, **kwargs):
-    _real_init(self, *args, **kwargs)
-    _live_cards["instance"] = self
-
-
-InstanceCards.__init__ = _capturing_init
-
 stubs.app.run_sync(page)
 driver = app_driver.Driver(stubs.app, stubs.core, page, stubs)
-driver.open_tab("play")   # the row lives on the Play tab
+driver.open_tab("play")
 check("the Play banner mounts a native fade host", any(
     type(control).__name__ == "AnimatedSwitcher" and control.data == "play-banner"
     for control in every_control(page)))
 
 
-def find_cards():
-    """The instance cards: row-width Containers whose click handler carries the
-    version id as its single default argument
-    (`lambda e, k=version_id: _select_instance(k)`) - the same convention
-    app_driver.tabs() uses to recover nav keys, and exact where a text or
-    tooltip match is not."""
+def find_play_rows():
+    """Old Play-tab rows, tagged ``instance-row-<version id>``."""
     out = {}
     for c in every_control(page):
-        handler = getattr(c, "on_click", None)
-        defaults = getattr(handler, "__defaults__", None)
-        width = getattr(c, "width", None)
-        if callable(handler) and isinstance(defaults, tuple) \
-                and len(defaults) == 1 and isinstance(defaults[0], str) \
-                and width is not None and float(width) == 210:
-            out[defaults[0]] = c
+        data = getattr(c, "data", None)
+        if isinstance(data, str) and data.startswith("instance-row-"):
+            out[data[len("instance-row-"):]] = c
     return out
 
 
-def art_of(card):
-    try:
-        return card.content.controls[0].content
-    except Exception:
-        return None
+check("the Play tab no longer mounts an instance list", not find_play_rows(),
+      str(sorted(find_play_rows())))
+
+picker_btn = fz.clickable_with_subtext(page, "pick a minecraft version")
+check("the Game-version button exists", bool(picker_btn))
+picker_model = None
+if picker_btn:
+    picker_model = inspect.getclosurevars(
+        picker_btn[0].on_click).nonlocals["self"]
+    driver._fire_named(picker_btn[0], "on_click", "open version panel")
+panel = picker_model.panel if picker_model else None
 
 
-cards = find_cards()
-check("the row has one card per installed version",
-      set(cards) == {"1.21.11", "1.20.1"}, f"found {sorted(cards)}")
-check("each card holds a version-art image",
-      all(type(art_of(c)).__name__ == "Image" for c in cards.values()),
-      str({v: type(art_of(c)).__name__ for v, c in cards.items()}))
+def find_panel_rows():
+    """The version panel's instance cards, tagged ``version-panel-row-<id>``."""
+    out = {}
+    if panel is None:
+        return out
+    for c in walk(panel):
+        data = getattr(c, "data", None)
+        if isinstance(data, str) and data.startswith("version-panel-row-"):
+            out[data[len("version-panel-row-"):]] = c
+    return out
 
-selected_before = [vid for vid, c in cards.items()
-                   if c.bgcolor == theme.ACCENT_TINT]
+
+rows = find_panel_rows()
+check("the panel lists one card per installed version",
+      set(rows) == {"1.21.11", "1.20.1"}, f"found {sorted(rows)}")
+check("every card carries a real picture",
+      all(any(type(c).__name__ == "Image" for c in walk(row))
+          for row in rows.values()),
+      "each instance card paints cached key art or a bundled placeholder")
+check("the picture is a loaded src, not an empty box",
+      all((img.src or "") != ""
+          for row in rows.values() for img in walk(row)
+          if type(img).__name__ == "Image"),
+      "an ft.Image with no src renders as a blank card")
+
+selected_before = [vid for vid, c in rows.items()
+                   if getattr(c.border, "top", None) is not None
+                   and c.border.top.color == theme.ACCENT]
 check("exactly one card starts selected", len(selected_before) == 1,
       f"selected: {selected_before}")
-target = next(vid for vid in cards if vid not in selected_before)
+target = next(vid for vid in rows if vid not in selected_before)
 
-before = {vid: (id(c), id(art_of(c))) for vid, c in cards.items()}
-driver._fire_named(cards[target], "on_click", "jump-back-in")
-after_cards = find_cards()
-
-check("selecting a version does not raise", not driver.errors,
+driver._fire_named(rows[target], "on_click", "panel card select")
+check("selecting a card closes the panel",
+      picker_model is not None and not picker_model.is_open())
+driver._fire_named(picker_btn[0], "on_click", "reopen version panel")
+after_rows = find_panel_rows()
+check("selecting a card does not raise", not driver.errors,
       str(driver.errors[:2]))
 check("the selection actually moved",
-      after_cards[target].bgcolor == theme.ACCENT_TINT
-      and after_cards[selected_before[0]].bgcolor == theme.CARD_FILL,
-      f"{target}={after_cards[target].bgcolor} "
-      f"{selected_before[0]}={after_cards[selected_before[0]].bgcolor}")
-check("every card is the SAME widget (no rebuild -> no image resend)",
-      all(id(after_cards[vid]) == before[vid][0] for vid in before),
-      "card containers were re-created")
-check("and every card still holds the SAME image widget",
-      all(id(art_of(after_cards[vid])) == before[vid][1] for vid in before),
-      "art controls were re-created")
-
-print("\n6. renaming an instance edits its label in place")
-instance_cards = _live_cards["instance"]
-row_list = instance_cards.row.controls
-labels = {}
-instance_cards.get_labels = lambda: labels
-before = {vid: (id(c), id(art_of(c))) for vid, c in find_cards().items()}
-labels["1.20.1"] = "SmokePilot"
-instance_cards.rebuild()
-after_cards = find_cards()
-
-check("the card is the SAME widget after a rename",
-      all(id(after_cards[vid]) == before[vid][0] for vid in before),
-      "a rename re-created the card")
-check("and it still holds the SAME image widget",
-      all(id(art_of(after_cards[vid])) == before[vid][1] for vid in before),
-      "a rename re-created the art control")
-check("the row list was mutated in place, not reassigned",
-      instance_cards.row.controls is row_list,
-      "row.controls was replaced -> Flet re-sends every child")
-check("the card shows the new name",
-      after_cards["1.20.1"].content.controls[1].content.controls[0].value
-      == "SmokePilot")
-check("the tooltip follows the new name",
-      after_cards["1.20.1"].tooltip == "Select SmokePilot")
-
-print("\n7. a reorder keeps the cards (and their images) alive")
-metas = dict(instance_cards.get_metas())
-instance_cards.get_metas = lambda: dict(reversed(list(metas.items())))
-before = {vid: (id(c), id(art_of(c))) for vid, c in find_cards().items()}
-instance_cards.rebuild()
-reordered = find_cards()
-
-check("a reorder does not re-create any card",
-      all(id(reordered[vid]) == before[vid][0] for vid in before),
-      "a reorder re-created a card")
-check("nor any image",
-      all(id(art_of(reordered[vid])) == before[vid][1] for vid in before),
-      "a reorder re-created an art control")
-check("and the row list is still the same object",
-      instance_cards.row.controls is row_list,
-      "row.controls was replaced -> Flet re-sends every child")
-check("the cards follow the new order",
-      [id(c) for c in instance_cards.row.controls]
-      == [before[vid][0] for vid in reversed(list(metas))])
+      after_rows[target].border.top.color == theme.ACCENT
+      and after_rows[selected_before[0]].border.top.color != theme.ACCENT,
+      f"{target}={after_rows[target].border} "
+      f"{selected_before[0]}={after_rows[selected_before[0]].border}")
 
 print(f"\n{passed} passed, {failed} failed")
 print("Version-art cache test: " + ("FAIL" if failed else "PASS"))

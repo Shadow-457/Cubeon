@@ -147,6 +147,7 @@ check("a pre-release isn't either", pf.version_key("1.21-pre1") is None)
 
 # The jar is the authority; the table is only for versions not downloaded yet.
 fake_version("1.21.11", 75)
+fake_version("fabric-loader-0.19.5-1.21.11", 75)
 fake_version("26.1.2", 84)
 check("the format comes from the client jar (1.21.11 -> 75)",
       pf.resource_format_for("1.21.11") == 75, pf.resource_format_for("1.21.11"))

@@ -185,6 +185,13 @@ PROFILES_DIR = os.path.join(CUBEON_HOME, "mod_profiles")
 MOD_META_SUFFIX = ".cubeon.json"
 PROFILE_META_FILENAME = "_profile.json"
 
+# Per-instance sidecar written INSIDE a version folder. It records the mod
+# profile key that instance owns, so two installs of the same (mc_version,
+# loader) pair - most importantly an isolated modpack next to a hand-built
+# Fabric profile - never share a mods folder. Installs without this file keep
+# the legacy shared (mc_version, loader) profile.
+INSTANCE_META_FILENAME = "_cubeon_instance.json"
+
 
 def ensure_disk_space(dest_dir: str, needed_bytes: int, what: str = "download") -> None:
     """Refuse a big download/copy when the destination drive is obviously too

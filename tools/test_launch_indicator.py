@@ -194,7 +194,7 @@ def _drain_new_threads(before, timeout):
 def click_play(page):
     """Fill in a username and press the real Play button, then wait out the
     background launch thread."""
-    field = find(page, lambda c: getattr(c, "label", None) == "Username")
+    field = find(page, lambda c: getattr(c, "hint_text", None) == "Username")
     assert field is not None, "no username field"
     field.value = "tester"
     btn = find(page, lambda c: getattr(c, "on_click", None) is not None

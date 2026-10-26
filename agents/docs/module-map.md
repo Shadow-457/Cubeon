@@ -47,7 +47,7 @@ contains Flet support modules.
 
 | Surface | File |
 | --- | --- |
-| Play version picker, cards, banner, instances | `ui/versions.py` |
+| Play version panel, banner, instance rows | `ui/versions.py` |
 | Mods, resource packs, shaders | `ui/mods_tab.py` |
 | Modpacks | `ui/modpacks_tab.py` |
 | Chat | `ui/chat_tab.py` |
@@ -64,7 +64,7 @@ Tabs are lazy-built and retained. Shared state and callbacks are wired in
 
 ### Flet and UI updates
 
-- Dependencies pin Flet and `flet-desktop` to `>=0.86,<0.87`. A machine-wide
+- Dependencies pin Flet and `flet-desktop` to `>=0.86,<0.87`; a machine-wide
   installation of another version is not the release environment.
 - Mutate shared control trees under `thread_safe_ui.TREE_LOCK`; request
   scoped repaints through `thread_safe_ui.refresh()`. Background threads
@@ -73,22 +73,118 @@ Tabs are lazy-built and retained. Shared state and callbacks are wired in
   `ft.border.all`, `ft.padding.only`, and `ft.margin.only`.
 - Local absolute paths are not valid `ft.Image.src` values. Use cached
   base64, bundled asset paths, or a real URL; do not restore blank local images.
-- Reuse installed/browse rows and image controls during metadata updates.
-  Chat presence/unread updates must not remount PFPs. Use gapless playback
-  and change sources only when actual artwork changes.
-- Default hover/click effects are fill/rim fades, not scale or corner morphs.
+- Reuse installed/browse rows and image controls during metadata updates; chat
+  presence must not remount PFPs, and sources change only with real artwork.
+- Default hover/click effects are fill/rim fades, not scale or corner morphs;
   Mods and Modpacks do not replay cascade/shimmer animations on refresh.
+- Rows with expanding spacers must not use `wrap=True`; Flutter's wrapped
+  layout cannot host flex children. Check actual rendering, not only Python builds.
+
+### Navigation shell
+
+- The nav is a **compact left icon rail**: `_build_sidebar()` builds fixed-size
+  tiles (`NAV_BTN_W/H/GAP`, icon over an uppercase label); `nav_blob` slides
+  **vertically** (`_move_nav_blob` uses `Offset(0, idx * (H+GAP) / H)`). The nav
+  area scrolls between the top bar and the pinned account strip, so a short
+  window never clips it.
+- `top_bar` is the **brand strip** (cube mark + wordmark, moved out of the
+  sidebar 2026-10-26) and, under the custom frame, the title bar. Always 52 px;
+  the min/max/close cluster rides it only when `_custom_chrome` is on.
+  `ft.WindowDragArea(content=top_bar, ...)` is load-bearing for the smoke test.
+- The rail resizes by dragging its right edge (`sidebar_resize` /
+  `_set_sidebar_width`), clamped to 116..220 px (default 120), no toggle.
+  Account + Settings share a compact foot strip; the 96 px perch sets the min.
+- The edge uses **horizontal drag**, not pan, and computes the width from
+  `global_position.x - start_x` anchored to the drag-start width. Flet's drag
+  events carry **per-event** deltas (`local_delta` is the movement since the
+  previous event despite its "since the start" docstring), and a pan
+  recogniser sends no `primary_delta` at all — accumulating pan events as if
+  they were cumulative makes the rail look un-resizable. The grip is a 10 px
+  transparent strip that tints on hover; double-click resets the default width.
+  Width changes mutate the existing controls in place (`button widths`,
+  `nav_blob.width`, `nav_stack.width`) and repaint only the sidebar box - never
+  rebuild the nav rows per resize or hide labels per width.
+- `switch_tab()` runs under `thread_safe_ui.TREE_LOCK` and sets **every**
+  cached `_tab_views` pane to `visible = (k == key)`; hiding only the previous
+  pane let a raced/worker transition leave two tabs on screen (2026-10-25).
+  Paint the swap before per-tab refreshes; build lazy tabs before mounting.
+- The hero PLAY click has a 0.35 s `_PLAY_CLICK_COOLDOWN` gate so a rapid
+  double-press cannot run the username/config/Java pipeline twice; CANCEL/QUIT
+  bypass it.
 
 ### Play and content
 
-- Installed-instance selection restores its actual loader before refreshing
-  dependent surfaces. Quick Jump and instance actions use `_pick_version()`.
-- The banner uses an opacity-only 180 ms transition with a stable host.
-  Identical sources are no-ops; late artwork must not replace a newer selection.
-- Reserve the loader-status slot and keep hero labels single-line. Changing
-  Jump back in must not change hero height because a notice appears.
+- **The version picker** is the one instance surface (2026-10-26): a right-hand
+  slide-in panel (`ui/versions.py`, in `page.overlay`) with a 2-column grid of
+  square Mojang key-art cards (`version_art.src`), title + subtitle below. Cards
+  are **select-only** - Folder/Rename/Delete live on the Play card. "New
+  instance" is the same panel with install-time loader chips; `_pick` passes a
+  loader only in `"new"` mode, never vanilla.
+- The Play card's loader control is a **read-only** `loader_readout` +
+  `loader_note` (`_paint_loader_readout`); `loader_toggle` survives only as an
+  unmounted mirror of `state["mod_loader"]` for the launch path and the smoke/
+  version tests. The card always shows Folder / Rename / Delete; there is
+  **no** Advanced disclosure and no "Play this instance".
+- `instances.describe()` is the single source of instance metadata (reads the
+  last-played sidecar through the caller's `play_store`). Render from one
+  `list_installed()` call; `mod_count()` is a cheap `scandir`. `mark_played()`
+  records the instance that actually launched.
+- Version selection repaints only the badge / server-status / loader / instance
+  regions; do not put a whole-page `page.update()` back on the row-click path.
+- Account and Settings are ONE centered, rounded popup (`account_panel` aligned
+  CENTER + `account_card`), not a right-hand sidebar. `_account_panel_size()`
+  scales it to the live window (~88% x 90%, capped 1320x900, min 640x480) and
+  `page.on_resize` refits it. The top account strip is ultra-compact (small
+  avatar, name, one-line username field, Upload/Remove); the "Wearing" previews
+  were removed 2026-10-26 (`refresh_wearing()` is a no-op). Settings inside is
+  a 188 px vertical rail plus a scrollable content pane.
+- The online version list merges installed-only ids so opening "New instance"
+  cannot drop an isolated/imported instance or move the selection.
+- Reserve the loader-status slot and keep hero labels single-line; a notice
+  appearing must not change hero height. Late artwork must never replace a
+  newer selection (the banner is an opacity-only 180 ms transition).
 - Vanilla accepts resource packs, not mods or shader packs. Other loaders
   are valid when compatible; shaders also require Iris/Oculus-style support.
+- Content install gating uses the selected INSTANCE's real loader
+  (`ui/mods_tab._instance_mod_capable` -> `instances.describe`), not
+  `state["mod_loader"]` (a sibling instance or armed install can make the
+  switcher say Fabric). A pending install for this version counts; packs always.
+- `build_launch_command` only passes mll an `executablePath` that exists
+  (`_normalize_java_path`); a missing/typo'd `java_path` falls back to
+  `find_java_for_version`, never the raw config string (FileNotFoundError).
+- `custom_jvm_flags` tokens go before the main class; a bare token becomes the
+  main class (`ClassNotFoundException: 他他他`, 2026-10-25).
+  `_parse_custom_jvm_flags` drops non-option tokens (keeping separate values
+  of `--add-opens`-style options), and the doctor's `launch` section clears bad
+  flags/a dead `java_path`; Fix crash reloads `cfg` after repair.
+- Mod discovery has explicit compatible/all-Modrinth scope; broadened searches
+  and direct project links never bypass install-time version/loader validation.
+  Related-name fallback is labeled and stays on the same query across pages.
+  The project detail dialog still lists builds for other game versions/loaders
+  as "other version"; only browse rows hard-disable them. Do not describe the
+  dialog as compatible-only.
+- A version with no detected loader must leave `state["mod_loader"]` on the
+  switcher's first option (vanilla), never `None`; browse/search code formats
+  the loader name and a `None` there drops the Modrinth loader facet.
+- The local cache stores fetch timestamps, not a caller-independent expiry.
+  Stale reads never mark data fresh; empty mod searches retry after one minute.
+- Doctor requires explicit per-change approval before disabling or replacing
+  existing mods. No callback means no destructive repair; old jars are retained.
+  UI approvals live in `cubeon/doctor_ui.py`; cancellation blocks affected launches.
+  Approval waits happen on workers and outside the launch spawn lock.
+  Locally verified jars skip online checks; unavailable verification is one
+  aggregated advisory, never a per-mod disable.
+- The doctor's visible entry point is **Fix crash** on the Play card, left of
+  PLAY (`play-fix-crash`). It opens `open_repair_review(..., include=None)`,
+  i.e. EVERY section - launch config, mods, packs, shaders, modpacks, plugins -
+  for the selected instance. Mods -> Installed keeps only the automatic pass's
+  result line; its "Review" toast still opens the tab-scoped review.
+- A modpack that needs isolation owns a cloned version folder plus
+  `_cubeon_instance.json` (profile key, pack name, loader, base version). All
+  mod/content/CSL/Friends/perf calls take that instance's `version_id`; no
+  sidecar means the legacy `(mc_version, loader)` profile. Only an empty
+  legacy profile or the same pack may be reused. Clone ids start with the MC
+  version so `extract_mc_version()` still resolves them.
 - Shared storage must not leak one instance's active content into another.
   Installs/cancellation must respect instance ownership and atomic writes.
 - FPS boost is the Play-menu toggle. Turning it off restores the previous
@@ -96,11 +192,16 @@ Tabs are lazy-built and retained. Shared state and callbacks are wired in
 
 ### Chat, cosmetics, and account data
 
-- Chat and the companion mod consume one process-scoped FriendsService.
-  Keep adaptive polling, draft preservation, read markers, and optimistic
-  send/echo reconciliation intact.
-- Self-avatar fallback is uploaded PFP, cached skin face, then initials.
-  Detect real file/source changes without re-reading unchanged bytes per poll.
+- Chat is BETA-labelled in the sidebar and tab heading. Chat and the
+  companion mod consume one process-scoped FriendsService; keep adaptive
+  polling, draft preservation, read markers, and optimistic send/echo intact.
+- `roster_payload()` refreshes peer metadata once and resolves every friend
+  against that snapshot; never call `peer_metadata()` per row (it re-scans the
+  roster and re-reads identity.json, making the poll O(n^2)). The whitelist is
+  cached by `whitelist.json`'s stat signature, roster faces by
+  `(identities, faces.revision())`; a download bumps the revision.
+- Self-avatar fallback is uploaded PFP, cached skin face, then initials; detect
+  real source changes without re-reading unchanged bytes per poll.
 - Cosmetic libraries are local folders. `remotes.py` is still used by the
   offline-session explanation's premium-name lookup; it is not dead code.
 - Cosmetics uses the shared native-client 3D preview, not a new C/Rust
@@ -116,7 +217,12 @@ Tabs are lazy-built and retained. Shared state and callbacks are wired in
   `to_front()` call, and the native `winwindow.py` backstop. Flet's default-value
   suppression can make a plain `visible=True` assignment ineffective.
 - Hide consoles on every Windows child-process spawn. Custom window chrome
-  remains opt-in; fullscreen/maximize changes require explicit state handling.
+  works on **Windows and Linux** (`winchrome.custom_chrome_enabled`): Windows
+  defaults OFF (needs a real-Windows reveal check), Linux defaults ON since
+  2026-10-26, `CUBEON_CUSTOM_CHROME=0/1` overrides either way, an explicit
+  `custom_window_chrome` config value wins, and the one-time
+  `custom_window_chrome_chosen` marker keeps a user's OFF from being migrated
+  back on. macOS keeps the native frame. Maximize/fullscreen need explicit state.
 - Verify Java by running it, and run the complete first-launch doctor.
   Do not blame Java for a graphics failure without Java-specific evidence.
 - The game must not inherit launcher-only software-graphics overrides.
@@ -169,16 +275,15 @@ See [testing](../../docs/development/testing.md) for prerequisites and exclusion
 | UI/tree contracts | `test_ui_smoke.py`, `test_motion.py`, `test_scrolling.py` |
 | Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py` |
 | Mods and artwork | `test_mod_ui_stability.py`, `test_loader_content_rules.py` |
+| Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
+| Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
+| Doctor approval | `test_doctor_consent.py`, `test_launch_fixes.py` |
 | Chat | `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Cosmetics | `test_appearance_preview.py`, `test_capes.py` |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
 | Repository cleanliness | `test_repository_hygiene.py` |
-
-Known baseline: the scoped-repaint assertion in `test_tab_navigation.py`
-also failed before the recent polish. Do not disguise existing failures as
-passing or fix unrelated behavior while changing documentation.
 
 ## Releases and hosted services
 

@@ -314,7 +314,8 @@ def apply_max_fps_sodium(path: str | None = None) -> dict:
     return result
 
 
-def _present(mc_version: str | None, loader: str | None) -> set:
+def _present(mc_version: str | None, loader: str | None,
+             version_id: str | None = None) -> set:
     """The performance mods already in this profile, by slug.
 
     Matches the recorded Modrinth slug, the display name, the project id and
@@ -324,7 +325,7 @@ def _present(mc_version: str | None, loader: str | None) -> set:
     if not mc_version or loader not in MOD_CAPABLE_LOADERS:
         return found
     try:
-        mods = list_mods(mc_version, loader)
+        mods = list_mods(mc_version, loader, version_id=version_id)
     except Exception:
         return found
     for mod in mods:
@@ -337,14 +338,16 @@ def _present(mc_version: str | None, loader: str | None) -> set:
     return found
 
 
-def is_installed(mc_version: str | None, loader: str | None) -> bool:
+def is_installed(mc_version: str | None, loader: str | None,
+                 version_id: str | None = None) -> bool:
     """True when every performance mod is already in the profile."""
     if not mc_version or loader not in MOD_CAPABLE_LOADERS:
         return False
-    return _present(mc_version, loader) >= set(PERF_MOD_SLUGS)
+    return _present(mc_version, loader, version_id) >= set(PERF_MOD_SLUGS)
 
 
-def prune_retired_perf_mods(mc_version: str | None, loader: str | None) -> list:
+def prune_retired_perf_mods(mc_version: str | None, loader: str | None,
+                            version_id: str | None = None) -> list:
     """Removes the retired perf mods from a profile that already has them.
 
     Only entries Cubeon itself installed are eligible: the match is on the
@@ -359,7 +362,7 @@ def prune_retired_perf_mods(mc_version: str | None, loader: str | None) -> list:
     retired_slugs = {slug for slug, _pid in RETIRED_PERF_MODS}
     retired_pids = {pid.lower() for _slug, pid in RETIRED_PERF_MODS}
     try:
-        mods = list_mods(mc_version, loader)
+        mods = list_mods(mc_version, loader, version_id=version_id)
     except Exception:
         return removed
     for mod in mods:
@@ -367,7 +370,8 @@ def prune_retired_perf_mods(mc_version: str | None, loader: str | None) -> list:
         project_id = (mod.get("project_id") or "").lower()
         if slug in retired_slugs or (project_id and project_id in retired_pids):
             try:
-                delete_mod(mc_version, loader, mod["filename"])
+                delete_mod(mc_version, loader, mod["filename"],
+                           version_id=version_id)
                 removed.append(slug or project_id)
             except Exception:
                 pass
@@ -375,7 +379,7 @@ def prune_retired_perf_mods(mc_version: str | None, loader: str | None) -> list:
 
 
 def ensure_installed(mc_version: str | None, loader: str | None,
-                     status_cb=None) -> dict:
+                     status_cb=None, version_id: str | None = None) -> dict:
     """Installs any missing performance mod into the profile.
 
     Returns {"installed", "kept", "failed", "detail"} so the caller can log or
@@ -393,7 +397,7 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         result["detail"] = "performance mods need a Fabric or Quilt profile"
         return result
 
-    present = _present(mc_version, loader)
+    present = _present(mc_version, loader, version_id)
     for slug, project_id, label in PERF_MODS:
         if slug in present:
             result["kept"].append(slug)
@@ -409,7 +413,7 @@ def ensure_installed(mc_version: str | None, loader: str | None,
                 file_info["url"], file_info["filename"],
                 slug=slug, project_id=project_id,
                 mc_version=mc_version, loader=loader,
-                hashes=file_info.get("hashes"),
+                hashes=file_info.get("hashes"), version_id=version_id,
             )
             result["installed"].append(slug)
         except Exception:

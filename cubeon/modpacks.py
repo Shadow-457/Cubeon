@@ -93,7 +93,11 @@ from .paths import (APP_NAME, MINECRAFT_DIR, PROFILES_DIR, MOD_META_SUFFIX,
                    modrinth_headers, user_agent)
 from .versions import install_version, get_installed_versions
 from .mod_loaders import install_mod_loader, find_installed_loader_version, MOD_CAPABLE_LOADERS
-from .mods import get_profile_dir, modrinth_search_index, rank_search_hits, record_mod_source
+from .mods import (get_profile_dir, modrinth_search_index, rank_search_hits,
+                   record_mod_source, profile_key, profile_key_for,
+                   unique_profile_key, create_instance_version,
+                   profile_dir_for_key, read_instance_meta, write_instance_meta,
+                   is_protected_mod)
 # Bundled resource packs/shaders belong to the INSTANCE, like the bundled mods
 # do - so they are routed into the pack's own profile rather than the shared
 # game folder (see _dest_is_content). Reuses content.py's profile layout so a
@@ -204,8 +208,10 @@ def add_pack_install_listener(callback) -> None:
         _INSTALL_LISTENERS.append(callback)
 
 
-def _mark_pack_install(mc_version: str, name: str) -> None:
+def _mark_pack_install(mc_version: str, name: str, *, exclusive: bool = False) -> None:
     with _ACTIVE_INSTALLS_LOCK:
+        if exclusive and str(mc_version) in _ACTIVE_INSTALLS:
+            raise ModpackError("Another modpack is already installing for this Minecraft version. Wait for it to finish.")
         rec = _ACTIVE_INSTALLS.setdefault(str(mc_version), {"name": "", "count": 0})
         rec["count"] += 1
         rec["name"] = name or rec["name"] or "modpack"
@@ -370,7 +376,8 @@ def _content_type_for(rel_path: str) -> str | None:
     return None
 
 
-def _content_profile_dest(rel_path: str, mc_version: str, loader: str) -> str | None:
+def _content_profile_dest(rel_path: str, mc_version: str, loader: str,
+                          version_id: str | None = None) -> str | None:
     """Where a bundled pack/shader lands for this instance, or None when the
     path isn't content. Keeps the pack's own filename (the folder inside a
     profile is already the content type, so the prefix is dropped)."""
@@ -378,12 +385,73 @@ def _content_profile_dest(rel_path: str, mc_version: str, loader: str) -> str | 
     if not content_type or not mc_version or not loader:
         return None
     relative = rel_path.replace("\\", "/")
-    root = content_profile_dir(content_type, mc_version, loader)
+    root = content_profile_dir(content_type, mc_version, loader, version_id)
     _safe_relpath(root, relative)
     name = relative.split("/", 1)[1]
     if not name:
         return None
     return _safe_relpath(root, name)
+
+
+def _legacy_profile_is_empty(mc_version: str, loader: str) -> bool:
+    """True when the shared (mc_version, loader) profile has nothing in it.
+
+    An empty profile is safe to reuse for a pack: there is no hand-built mod
+    set to merge into or overwrite. A profile with any jar (or content folder)
+    is someone's instance and gets a private clone instead.
+    """
+    path = os.path.join(PROFILES_DIR, profile_key(mc_version, loader))
+    try:
+        for name in os.listdir(path):
+            if name in ("resourcepacks", "shaderpacks", "mods"):
+                # An empty folder (Cubeon creates these on demand) is not
+                # someone's content; only actual packs/mods count.
+                try:
+                    if os.listdir(os.path.join(path, name)):
+                        return False
+                except OSError:
+                    return False
+            if name.endswith((".jar", ".jar.disabled")):
+                # Cubeon's own managed client mods (CustomSkinLoader, Friends)
+                # are injected into every profile at install/launch. They do
+                # not make a profile "someone's hand-built instance", so a
+                # pack may still adopt it instead of cloning.
+                if is_protected_mod(filename=name):
+                    continue
+                return False
+    except OSError:
+        return True
+    return True
+
+
+def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None:
+    """The existing install of this pack, if any (an update/reinstall).
+
+    Matching on name + game version + loader keeps a pack update in the same
+    isolated instance instead of creating a second copy every time. The
+    pack's own version is deliberately NOT part of the key.
+    """
+    try:
+        installed = list_installed_modpacks()
+    except Exception:
+        return None
+    for meta in installed:
+        if (meta.get("name") == name
+                and str(meta.get("mc_version")) == str(mc_version)
+                and meta.get("loader") == loader):
+            return meta
+    # A failed/cancelled reinstall drops _modpack.json, but its ownership
+    # sidecar remains. Retry that profile instead of allocating pack-2.
+    try:
+        for version_id in sorted(os.listdir(os.path.join(MINECRAFT_DIR, "versions"))):
+            meta = read_instance_meta(version_id) or {}
+            if (meta.get("name") == name and meta.get("mc_version") == mc_version
+                    and meta.get("loader") == loader and meta.get("profile")
+                    and ("pack_version" in meta or meta.get("pack"))):
+                return {**meta, "version_id": version_id}
+    except OSError:
+        pass
+    return None
 
 
 def _wanted_on_client(file_entry: dict) -> bool:
@@ -469,7 +537,8 @@ def _noop(*_a, **_k):
 
 
 def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
-                       mc_version: str = "", loader: str = "") -> int:
+                       mc_version: str = "", loader: str = "",
+                       version_id: str | None = None) -> int:
     """Copy the pack's override files into place: anything under mods/ goes to
     the profile (so sync_mods_to_game picks it up), bundled resource
     packs/shaders go to the profile's content folders (so they follow THIS
@@ -497,7 +566,7 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
         else:
             # A bundled pack/shader belongs to this instance; everything else
             # (configs, options.txt, ...) keeps its existing shared location.
-            dest = _content_profile_dest(rel, mc_version, loader) \
+            dest = _content_profile_dest(rel, mc_version, loader, version_id) \
                 or _safe_relpath(MINECRAFT_DIR, rel)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".override-", dir=os.path.dirname(dest)) as tmpdir:
@@ -556,7 +625,55 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         if len(files) > MAX_FILES:
             raise ModpackError("This pack lists an implausible number of files; refusing it.")
 
-        profile_dir = get_profile_dir(mc_version, loader_id)
+        # A previous install of THIS pack (an update/reinstall) keeps its own
+        # instance/profile instead of spawning another copy or merging into
+        # whatever now occupies the legacy profile.
+        existing = _find_installed_pack(info["name"], mc_version, loader_id)
+
+        # 0) Decide which mod profile this pack owns BEFORE the long install.
+        #
+        # Installs made before instance isolation share one profile per
+        # (mc_version, loader). Reusing that profile for a pack is only safe
+        # when it is EMPTY (nothing to merge into) or already belongs to this
+        # same pack. Otherwise the pack gets a cloned version folder and a
+        # private profile, so installing Fabulously Optimized next to a
+        # hand-built Fabric instance can never overwrite its 54 mods.
+        #
+        # The clone itself has to wait until the loader is installed (it
+        # copies that version folder), but the profile KEY is known now - and
+        # knowing it now is what lets the stale marker be dropped before the
+        # first progress line.
+        legacy_key = profile_key(mc_version, loader_id)
+        profile = ""
+        version_id = None
+        rebuild_note = ""
+        if existing:
+            existing_vid = existing.get("version_id")
+            existing_profile = existing.get("profile")
+            version_dir = os.path.join(MINECRAFT_DIR, "versions", str(existing_vid or ""))
+            if isinstance(existing_profile, str) and existing_profile:
+                profile = existing_profile
+            if existing_vid and os.path.isdir(version_dir):
+                version_id = existing_vid
+                profile = profile or profile_key_for(mc_version, loader_id, version_id)
+            elif profile:
+                # The tracking record survived but its version folder did not.
+                # Re-clone the loader install and point it back at the same
+                # profile, so the pack updates in place.
+                rebuild_note = "Rebuilding the pack's isolated instance"
+            else:
+                profile = legacy_key
+
+        if not profile:
+            if _legacy_profile_is_empty(mc_version, loader_id):
+                profile = legacy_key
+            else:
+                profile = unique_profile_key(mc_version, loader_id, info["name"])
+                rebuild_note = "Keeping this pack separate from your other mods"
+
+        # A pack that stays on the legacy profile launches through the loader's
+        # canonical version id (no clone needed). That id is only known after
+        # the loader install, so it is filled in there.
 
         # This install is about to overwrite the profile this pack lives in.
         # If the pack was already installed (a repair/reinstall of the same
@@ -569,10 +686,17 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # rebuild begins; it's re-written at the end of THIS install (step 6),
         # so a success puts it back and a failure correctly leaves it gone
         # instead of presenting a half-finished pack as ready to play.
-        try:
-            os.remove(os.path.join(profile_dir, MODPACK_META_FILENAME))
-        except OSError:
-            pass
+        if version_id:
+            marker_dir = get_profile_dir(mc_version, loader_id, version_id)
+        elif profile == legacy_key:
+            marker_dir = get_profile_dir(mc_version, loader_id)
+        else:
+            marker_dir = profile_dir_for_key(profile)
+        if marker_dir:
+            try:
+                os.remove(os.path.join(marker_dir, MODPACK_META_FILENAME))
+            except OSError:
+                pass
 
         # 1) Minecraft version
         status_cb(f"Installing Minecraft {mc_version}")
@@ -584,9 +708,48 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         #    fabric-loader-0.15.x-1.20.1). Vanilla packs skip straight through.
         if loader_id in MOD_CAPABLE_LOADERS:
             status_cb(f"Installing {loader_id.title()} loader")
-            version_id = install_mod_loader(loader_id, mc_version, progress_cb, status_cb, max_cb)
+            loader_version_id = install_mod_loader(loader_id, mc_version, progress_cb,
+                                                   status_cb, max_cb,
+                                                   loader_version=info.get("loader_version") if info.get("loader_version") != "*" else None)
         else:
-            version_id = mc_version
+            loader_version_id = mc_version
+
+        # 2c) Now that the loader exists, clone its version folder for an
+        # isolated pack (or rebuild a missing one). A pack that stays on the
+        # legacy profile just launches through the loader's canonical id.
+        if version_id is None and profile == legacy_key:
+            version_id = loader_version_id
+        elif version_id is None:
+            if rebuild_note:
+                status_cb(rebuild_note)
+            version_id = create_instance_version(
+                mc_version, loader_id, loader_version_id, profile,
+                name=info["name"], pack={"name": info["name"],
+                                         "pack_version": info["pack_version"]})
+
+        # A pack update can change the required loader build. Refresh only
+        # its launch JSON, retaining its id, profile and user content.
+        if version_id != loader_version_id:
+            source_json = os.path.join(MINECRAFT_DIR, "versions", loader_version_id, loader_version_id + ".json")
+            target_json = os.path.join(MINECRAFT_DIR, "versions", version_id, version_id + ".json")
+            with open(source_json, encoding="utf-8") as source:
+                launch_profile = json.load(source)
+            launch_profile["id"] = version_id
+            from .atomicio import write_json
+            write_json(target_json, launch_profile)
+
+        # Record the ownership in the version folder. This is what every
+        # launch/UI lookup uses to find the pack's private profile; without it
+        # the same (mc_version, loader) pair would resolve to the shared one.
+        write_instance_meta(version_id, {
+            "profile": profile,
+            "name": info["name"],
+            "mc_version": mc_version,
+            "loader": loader_id,
+            "pack_version": info["pack_version"],
+            "loader_version": info.get("loader_version"),
+        })
+        profile_dir = get_profile_dir(mc_version, loader_id, version_id)
 
         # 3) The pack's declared mod files, into the matching profile folder.
         client_files = [f for f in files if _wanted_on_client(f)]
@@ -657,14 +820,15 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             n += 1
             path = f.get("path", "")
             status_cb("Downloading pack resources...")
-            dest = _content_profile_dest(path, mc_version, loader_id) \
+            dest = _content_profile_dest(path, mc_version, loader_id, version_id) \
                 or _safe_relpath(MINECRAFT_DIR, path)
             _download_to(dest, f.get("downloads") or [], f.get("hashes"))
             progress_cb(n)
 
         # 5) Overrides (bundled configs + any non-Modrinth-hosted jars).
         status_cb("Applying pack config")
-        _extract_overrides(zf, profile_dir, status_cb, mc_version, loader_id)
+        _extract_overrides(zf, profile_dir, status_cb, mc_version, loader_id,
+                           version_id)
 
         # 6) Record the pack so the tab can list it and Play can select it.
         meta = {
@@ -674,6 +838,7 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             "mc_version": mc_version,
             "loader": loader_id,
             "version_id": version_id,
+            "profile": profile,
             "mod_count": len(mod_files),
         }
         # The browse hit's thumbnail, kept so "Installed packs" can show real
@@ -696,14 +861,16 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         #    declared, is what makes injection deterministic.
         try:
             from . import csl as _csl
-            _csl.ensure_ready(mc_version, loader_id, status_cb=status_cb)
+            _csl.ensure_ready(mc_version, loader_id, status_cb=status_cb,
+                              version_id=version_id)
         except Exception:
             pass  # best-effort: a skins problem must never fail the install
         try:
             from .mods import get_profile_dir as _get_profile_dir
             from . import cubeonfriends as _friends_mod
-            _friends_ok = _friends_mod.ensure_installed(mc_version, loader_id,
-                                                        _get_profile_dir(mc_version, loader_id))
+            _friends_ok = _friends_mod.ensure_installed(
+                mc_version, loader_id,
+                _get_profile_dir(mc_version, loader_id, version_id))
             if loader_id not in ("fabric", "quilt"):
                 # The Friends mod is Fabric-only (see mod/brackets.json).
                 # Saying so beats a silently missing game-menu button.
@@ -767,7 +934,7 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
                                       status_cb=status_cb, max_cb=max_cb,
                                       icon_url=icon_url)
 
-    _mark_pack_install(mc_version, name)
+    _mark_pack_install(mc_version, name, exclusive=True)
     try:
         return _install_from_zip_body(zip_path, progress_cb=progress_cb,
                                       status_cb=status_cb, max_cb=max_cb,
@@ -919,16 +1086,29 @@ def _cf_batch_files(entries: list[dict]) -> list[dict]:
         # (_cf_files_keyless) is what should have been used instead.
         raise ModpackError("No CurseForge API key configured.")
     resolved = []
-    for i in range(0, len(entries), 50):
-        body = entries[i:i + 50]
+    # POST /v1/mods/files takes {"fileIds": [<int>, ...]} - NOT a list of
+    # {projectID, fileID} objects (that shape is what returned the 400 "Bad
+    # Request"). File ids are globally unique on CurseForge, so the project id
+    # isn't needed; the rows come back with `modId`, which the caller matches on.
+    file_ids = []
+    for e in entries:
+        try:
+            fid = int(e["fileID"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if fid > 0 and fid not in file_ids:
+            file_ids.append(fid)
+    for i in range(0, len(file_ids), 50):
         resp = requests.post(
             f"{CURSEFORGE_API}/mods/files",
-            json=[{"projectID": int(e["projectID"]), "fileID": int(e["fileID"])}
-                  for e in body],
+            json={"fileIds": file_ids[i:i + 50]},
             headers={"x-api-key": key,
                      "Accept": "application/json",
+                     "Content-Type": "application/json",
                      "User-Agent": user_agent("curseforge")},
             timeout=30)
+        if resp.status_code in (401, 403):
+            raise ModpackError("CurseForge rejected the API key. Check it in Settings.")
         resp.raise_for_status()
         data = resp.json().get("data")
         if isinstance(data, list):
@@ -961,13 +1141,25 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
         if curseforge_enabled():
             status_cb(f"Resolving {len(entries)} mods from CurseForge...")
             by_key = {}
-            for row in _cf_batch_files(entries):
+            mr_files = []
+            try:
+                rows = _cf_batch_files(entries)
+            except requests.RequestException as exc:
+                # The metadata API being down or picky must not sink the whole
+                # install: the keyless redirect can still fetch every file.
+                logging.getLogger(__name__).warning(
+                    "CurseForge batch lookup failed (%s); using keyless downloads", exc)
+                status_cb("CurseForge lookup failed - using direct downloads instead...")
+                rows = None
+            if rows is None:
+                mr_files = _cf_files_keyless(entries)
+                rows = []
+            for row in rows:
                 by_key[(row.get("modId"), row.get("id"))] = row
             # Missing metadata rows are skipped (not fatal): the pack stays
             # installable minus a broken/removed file, matching the CF launcher's
             # own tolerance of removed files.
-            mr_files = []
-            for e in entries:
+            for e in (entries if by_key or not mr_files else ()):
                 meta = by_key.get((int(e["projectID"]), int(e["fileID"])))
                 if not meta:
                     continue
@@ -1132,9 +1324,9 @@ def _loader_version_from_id(version_id: str | None, mc_version: str) -> str | No
 
 def export_mrpack(name: str, version: str, mc_version: str, loader: str,
                   mod_filenames: list[str], dest_path: str, description: str = "",
-                  summarize_cb=None) -> str:
-    """Write the mods of one installed (mc_version, loader) profile out as a
-    valid Modrinth `.mrpack` at dest_path, and return that path.
+                  summarize_cb=None, profile: str | None = None) -> str:
+    """Write the mods of one installed profile out as a valid Modrinth
+    `.mrpack` at dest_path, and return that path.
 
     This is the mirror image of the install flow above: install reads a
     manifest and lays a profile down, export walks a profile and writes the
@@ -1166,7 +1358,15 @@ def export_mrpack(name: str, version: str, mc_version: str, loader: str,
     if not mc_version or not loader:
         raise ModpackError("Pick which installed version and loader to export.")
 
-    profile_dir = get_profile_dir(mc_version, loader)
+    # `profile` is the profile folder key when exporting an isolated instance.
+    # Legacy callers omit it and keep exporting the shared
+    # (mc_version, loader) profile.
+    if profile:
+        profile_dir = profile_dir_for_key(profile)
+        if not profile_dir:
+            raise ModpackError("That instance's mod profile is invalid.")
+    else:
+        profile_dir = get_profile_dir(mc_version, loader)
     if not os.path.isdir(profile_dir):
         raise ModpackError("That version and loader has no installed mods to export.")
 
@@ -1954,9 +2154,15 @@ def list_installed_modpacks() -> list[dict]:
             continue
         try:
             with open(meta_path, "r", encoding="utf-8") as fh:
-                packs.append(json.load(fh))
+                meta = json.load(fh)
         except (OSError, json.JSONDecodeError):
             continue
+        if not isinstance(meta, dict):
+            continue
+        # Installs made before instance isolation have no recorded profile
+        # key; the folder they sit in IS the key.
+        meta.setdefault("profile", key)
+        packs.append(meta)
     return packs
 
 

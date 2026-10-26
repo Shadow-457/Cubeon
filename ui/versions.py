@@ -3,40 +3,38 @@ Cubeon - Play tab version management UI.
 
 The Play tab's "manage my versions" surface used to be built inline in
 ``main()`` across ~350 lines: the Game-version button and its search dialog,
-the "Jump back in" instance cards, and the rename/delete actions on the hero.
-This module keeps that one concern in one place and lets ``cubeon/instances.py``
-feed all of it the same descriptor dict.
+the instance list, and the rename/delete actions on the hero. This module
+keeps that one concern in one place and lets ``cubeon/instances.py`` feed all
+of it the same descriptor dict.
 
-  * ``VersionPicker``    - the Game-version button + its dialog. Rows are
-    grouped Installed / Available and tagged with the loader, a snapshot
-    badge and (online) the release date; a "Latest release" shortcut jumps
-    straight to the current release.
-  * ``InstanceCards``    - the "Jump back in" row: one art card per installed
-    instance, now carrying loader + mod-count + last-played chips.
-  * ``InstancesManager`` - a dialog listing every installed instance with its
-    loader, mod count, on-disk size (computed off-thread) and last-played
-    time, plus per-row Play / Rename / Delete.
+  * ``VersionPicker`` - the Game-version button plus a right-hand slide-in
+    panel (the same overlay shape as the Account panel) that lists every
+    installed instance with Play / Rename / Delete, and can switch to a
+    "New instance" view of versions that are not installed yet. Rows are
+    tagged with the loader, a snapshot badge and (online) the release date;
+    a "Latest release" shortcut jumps straight to the current release.
 
-All three are pure view code: they take callbacks and descriptor dicts in and
-never reach for the config, the network or the game dir themselves. That keeps
-them cheap to unit-test and free of the import cycle that would come from
-importing ``launcher_core`` here.
+The panel is deliberately NOT a dialog: a dialog dims the whole launcher and
+stacks on top of whatever else is open. The Play tab's version controls belong
+beside the hero, so they use the same non-modal sheet as the Account panel.
+It is pure view code: it takes callbacks and descriptor dicts in and never
+reaches for the config, the network or the game dir itself. That keeps it
+cheap to unit-test and free of the import cycle that would come from importing
+``launcher_core`` here.
 """
 import threading
 
 import flet as ft
 
 from cubeon.theme import (
-    RADIUS, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM, TEXT_FAINT,
-    SURFACE, SURFACE_HI, BORDER, CARD_FILL, CARD_BORDER, DANGER,
-    FONT_MONO, section_label,
+    RADIUS, RADIUS_LG, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM,
+    TEXT_FAINT, SURFACE, SURFACE_HI, BORDER, DANGER,
+    FONT_MONO, FONT_DISPLAY, section_label,
 )
-from cubeon import dialogs as cubeon_dialogs
 from cubeon import instances as instance_info
 from cubeon import thread_safe_ui
+from cubeon import version_art
 
-# Version art keeps a slightly rounder corner than the 8px controls.
-ART_RADIUS = 12
 BANNER_FADE_MS = 180
 
 
@@ -70,15 +68,15 @@ class VersionBanner:
 
 
 def _chip(label, *, accent=False, danger=False):
-    """A small mono tag used on picker rows and instance cards."""
+    """A small mono tag used on picker rows and instance rows."""
     if danger:
         color, bg = DANGER, ft.Colors.with_opacity(0.14, DANGER)
     elif accent:
         color, bg = ACCENT, ACCENT_TINT
     else:
-        color, bg = TEXT_DIM, SURFACE_HI
+        color, bg = ft.Colors.with_opacity(0.82, TEXT), SURFACE_HI
     return ft.Container(
-        content=ft.Text(label, size=10, color=color,
+        content=ft.Text(label, size=11, color=color,
                         weight=ft.FontWeight.W_600, font_family=FONT_MONO),
         bgcolor=bg, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=7, vertical=2),
@@ -109,37 +107,72 @@ def format_release(value) -> str:
 
 
 # =====================================================================
-# VERSION PICKER - the Game-version button and its dialog
+# VERSION PICKER - the Game-version button and its side panel
 # =====================================================================
 class VersionPicker:
-    """The compact "Game version" button plus the search dialog behind it.
+    """The compact "Game version" button plus the slide-in panel behind it.
 
     The real ``ft.Dropdown`` stays the source of truth in ``main`` (dozens of
-    paths read/write it); this only draws its face and the dialog. The dialog
-    keeps its OWN filtered copy of the list, so typing in the search box can
-    never move the selection or start a download - a bug the previous inline
-    implementation had.
+    paths read/write it); this only draws its face and the panel. The panel
+    keeps its OWN filtered copy of the available list, so typing in the search
+    box can never move the selection or start a download - a bug the previous
+    inline implementation had.
+
+    The panel has two modes:
+
+      * ``installed`` - every installed instance with Play / Rename / Delete
+        and its on-disk size (walked off-thread), plus "New instance".
+      * ``new``       - versions that are not installed yet, with search and
+        the "Latest release" shortcut.
+
+    It replaces both the old ``AlertDialog`` picker and the separate Instances
+    manager dialog: the Play tab's version controls are one non-modal surface.
     """
 
+    PANEL_W = 440
+    ANIM_MS = 260
+    # Mounted squashed and parked off-screen, exactly like the Account panel:
+    # one write opens it, so there is no start-value frame to flush.
+    SQUASH = 0.04
+
     def __init__(self, page, *, get_selected, label_for, on_pick, on_browse_online,
-                 on_manage=None):
+                 get_instances=None, get_pack_name=None, on_open=None,
+                 loaders=None, instance_exists=None):
         self.page = page
         self.get_selected = get_selected
         self.label_for = label_for or (lambda _v: None)
         self.on_pick = on_pick
         self.on_browse_online = on_browse_online
-        self.on_manage = on_manage
+        self.get_instances = get_instances or (lambda: [])
+        self.get_pack_name = get_pack_name
+        self.on_open = on_open
+        self.instance_exists = instance_exists
+        # (id, label) pairs. The loader is chosen here, while downloading a
+        # NEW instance, and then belongs to that installation (2026-10-26).
+        self.loaders = list(loaders or [("vanilla", "Vanilla")])
+        self._install_loader = "vanilla"
 
         self._entries: list = []
         self._online = False
         self._latest = None
+        # Two plain modes instead of one crowded list:
+        #   "installed" - what you already have, plus one "New instance" button
+        #   "new"       - only versions you can still add, with search + latest
+        self._mode = "installed"
+        self._offline = False
+        self._loading = False
+        # Version ids whose official art this panel already asked for. The
+        # disk cache in version_art is the real no-refetch guarantee; this
+        # only stops a rebuild storm (one per selection change) from starting
+        # several identical downloads before the first one lands.
+        self._art_requested: set[str] = set()
 
         self.label = ft.Text("No versions installed yet", size=14, color=TEXT_DIM,
                              font_family=FONT_MONO, expand=True)
 
         self.button = ft.Container(
             content=ft.Row(
-                [self.label, ft.Icon(ft.Icons.ARROW_DROP_DOWN_ROUNDED, size=18,
+                [self.label, ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18,
                                      color=TEXT_DIM)],
                 spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -166,7 +199,7 @@ class VersionPicker:
         self.offline_notice = ft.Container(
             content=ft.Row(
                 [ft.Icon(ft.Icons.WIFI_OFF_ROUNDED, color=TEXT_DIM, size=14),
-                 ft.Text("No internet. Showing installed versions only.",
+                 ft.Text("Couldn't load versions. Try again in a moment.",
                          size=12, color=TEXT_DIM)],
                 spacing=8,
             ),
@@ -185,79 +218,185 @@ class VersionPicker:
             visible=False,
         )
 
+        # The ONE way to create an instance: a clear button, not a text link.
         self.browse_link = ft.Container(
             content=ft.Row(
-                [ft.Icon(ft.Icons.CLOUD_DOWNLOAD_ROUNDED, color=ACCENT, size=14),
-                 ft.Text("Browse all versions \u2192", size=12, color=ACCENT,
-                         weight=ft.FontWeight.W_600)],
-                spacing=8,
+                [ft.Icon(ft.Icons.ADD_ROUNDED, color=ACCENT, size=16),
+                 ft.Text("New instance", size=13, color=ACCENT,
+                         weight=ft.FontWeight.W_700)],
+                spacing=6, tight=True,
             ),
+            bgcolor=ACCENT_TINT, border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=9),
             on_click=lambda e: self._browse(),
             ink=False,
         )
-
-        # "Manage installed versions" lives here, not in the Jump back in
-        # header: the Play tab's Jump back in is a row of cards, and the
-        # manager belongs next to the other version controls (2026-10-16).
-        self.manage_link = ft.Container(
+        self.back_link = ft.Container(
             content=ft.Row(
-                [ft.Icon(ft.Icons.TUNE_ROUNDED, color=TEXT_DIM, size=14),
-                 ft.Text("Manage installed versions", size=12, color=TEXT_DIM,
-                         weight=ft.FontWeight.W_600)],
-                spacing=8,
+                [ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, color=TEXT_DIM, size=14),
+                 ft.Text("Back", size=12.5, color=TEXT_DIM, weight=ft.FontWeight.W_600)],
+                spacing=6, tight=True,
             ),
-            on_click=lambda e: self._manage(),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=6),
+            on_click=lambda e: self._back(),
             ink=False,
-            tooltip="Manage installed versions",
+            visible=False,
         )
 
-        self.list = ft.ListView([], spacing=2, scroll=ft.ScrollMode.AUTO, height=320,
-                                cache_extent=320)
+        # Install-time loader choice (2026-10-26): shown only in "New
+        # instance" mode, because an installed instance's loader is fixed.
+        self._loader_chips: dict[str, ft.Container] = {}
+        loader_chip_row = ft.Row(spacing=6, run_spacing=6, wrap=True)
+        for lid, label in self.loaders:
+            chip = ft.Container(
+                content=ft.Text(label, size=11.5,
+                                weight=ft.FontWeight.W_600),
+                data=f"install-loader-{lid}",
+                bgcolor=ACCENT_TINT if lid == self._install_loader else SURFACE_HI,
+                border=ft.border.Border.all(
+                    1, ACCENT if lid == self._install_loader else BORDER),
+                border_radius=RADIUS,
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+                ink=False,
+                on_click=lambda e, k=lid: self._set_install_loader(k),
+            )
+            self._loader_chips[lid] = chip
+            loader_chip_row.controls.append(chip)
+        self.loader_row = ft.Column(
+            [
+                ft.Text("1  CHOOSE YOUR LOADER", size=10.5, color=TEXT_DIM,
+                        weight=ft.FontWeight.W_600),
+                loader_chip_row,
+            ],
+            spacing=6, tight=True, visible=False,
+        )
+        self.loader_hint = ft.Text(
+            "Vanilla Minecraft, without mods.", size=11, color=TEXT_DIM)
+        self.loader_row.controls.append(self.loader_hint)
+        self.version_heading = ft.Text(
+            "2  CHOOSE A MINECRAFT VERSION", size=10.5, color=TEXT_DIM,
+            weight=ft.FontWeight.W_600, visible=False)
+        self.install_hint = ft.Text(
+            "Select a version, then press Download & Play.",
+            size=11, color=TEXT_DIM, visible=False)
+        self.retry_link = ft.TextButton(
+            "Retry", on_click=lambda e: self._browse(), visible=False)
 
-        self.dialog = ft.AlertDialog(
-            modal=False, bgcolor=SURFACE,
-            title=ft.Text("Game version", color=TEXT, weight=ft.FontWeight.W_800),
-            content=ft.Container(
-                width=460,
-                content=ft.Column(
-                    [
-                        self.filter_field,
-                        ft.Container(height=4),
-                        self.list,
-                        ft.Container(height=6),
-                        ft.Row(
-                            [self.latest_chip, self.offline_notice,
-                             ft.Container(expand=True), self.manage_link,
-                             self.browse_link],
-                            spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                    ],
-                    spacing=4, tight=True,
-                ),
+        # Bounded lazy viewport: the panel is a long list, and building every
+        # row at once made opening it visibly hitch on a big install set.
+        self.list = ft.ListView([], spacing=2, scroll=ft.ScrollMode.AUTO,
+                                expand=True, cache_extent=320,
+                                build_controls_on_demand=True)
+
+        self.title = ft.Text("Instances", size=22, color=TEXT,
+                             font_family=FONT_DISPLAY, expand=True)
+        self.subtitle = ft.Text(
+            "Switch, rename, or remove an installed instance.",
+            size=11.5, color=TEXT_DIM,
+        )
+
+        # --- the sheet itself (same choreography as the Account panel) -----
+        self.scrim = ft.Container(
+            bgcolor=ft.Colors.with_opacity(0.55, "#000000"),
+            left=0, top=0, right=0, bottom=0,
+            opacity=0, visible=False, ink=False,
+            data="versions-scrim",
+            on_click=lambda e: self.close(),
+            animate_opacity=ft.Animation(200),
+        )
+        self.panel = ft.Container(
+            bgcolor=SURFACE,
+            width=self.PANEL_W,
+            top=0, bottom=0,
+            right=-self.PANEL_W,
+            data="versions-panel",
+            animate_position=ft.Animation(self.ANIM_MS,
+                                          ft.AnimationCurve.EASE_OUT_CUBIC),
+            animate_scale=ft.Animation(self.ANIM_MS,
+                                       ft.AnimationCurve.EASE_OUT_CUBIC),
+            scale=ft.Scale(scale_x=1, scale_y=self.SQUASH,
+                           alignment=ft.Alignment.TOP_RIGHT),
+            border_radius=ft.BorderRadius(top_left=RADIUS, top_right=0,
+                                          bottom_left=RADIUS, bottom_right=0),
+            shadow=ft.BoxShadow(
+                blur_radius=16,
+                color=ft.Colors.with_opacity(0.45, "#000000"),
+                offset=ft.Offset(-8, 0),
+            ),
+            padding=ft.padding.Padding.only(left=22, right=22, top=26, bottom=20),
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            self.title,
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE_ROUNDED, icon_size=20,
+                                icon_color=TEXT_DIM, tooltip="Close",
+                                on_click=lambda e: self.close(),
+                            ),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    self.subtitle,
+                    ft.Container(height=6),
+                    self.filter_field,
+                    self.loader_row,
+                    self.offline_notice,
+                    self.retry_link,
+                    self.version_heading,
+                    self.list,
+                    self.install_hint,
+                    ft.Container(height=6),
+                    ft.Row(
+                        [self.back_link, self.latest_chip,
+                         ft.Container(expand=True), self.browse_link],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ],
+                spacing=8,
+                expand=True,
             ),
         )
+
+        # `ScrollPage` in the scrolling test has no overlay; a real page does.
+        overlay = getattr(page, "overlay", None)
+        if overlay is not None:
+            overlay.extend([self.scrim, self.panel])
 
     # -- state fed in by main -----------------------------------------
     def set_source(self, entries, *, online, latest=None):
-        """Replace the list this dialog filters and rebuild its rows.
+        """Replace the list this panel filters and rebuild its rows.
 
         No ``page.update()`` here on purpose: callers may be mid-paint, and the
-        dialog usually isn't even open yet. ``open()`` / ``rebuild()`` flush.
+        panel usually isn't even open yet. ``open()`` / ``rebuild()`` flush.
         """
         self._entries = list(entries or [])
         self._online = bool(online)
         self._latest = latest
-        self.filter_field.value = ""
-        self.filter_field.visible = bool(online)
+        self._offline = False
+        self._loading = False
         self.offline_notice.visible = False
-        self.latest_chip.visible = bool(online and latest)
-        self._render_rows()
+        self._apply_mode()
+        if self._mode == "new":
+            self._render_new()
+        elif self.is_open():
+            # An install/delete finished while the sheet was open: keep the
+            # installed rows in step instead of waiting for the next reopen.
+            self._render_installed()
+            thread_safe_ui.refresh(self.list)
 
     def set_offline(self):
         """The online fetch failed: say so and hide the filter."""
+        self._offline = True
+        self._loading = False
         self.filter_field.visible = False
-        self.offline_notice.visible = True
+        self.offline_notice.visible = self._mode == "new"
         self.latest_chip.visible = False
+        self.retry_link.visible = self._mode == "new"
+        if self._mode == "new":
+            self._render_new()
+            thread_safe_ui.refresh(self.panel)
 
     def sync_label(self):
         """Mirror the dropdown's current value onto the button's label."""
@@ -267,36 +406,350 @@ class VersionPicker:
         self.label.color = TEXT if (label or val) else TEXT_DIM
 
     # -- interaction ---------------------------------------------------
-    def open(self):
+    def _apply_mode(self):
+        new = self._mode == "new"
+        self.title.value = "New instance" if new else "Instances"
+        self.subtitle.value = ("Build an instance with the version and loader you want."
+                               if new else
+                               "Switch, rename, or remove an installed instance.")
+        self.filter_field.visible = bool(new and self._online)
+        self.loader_row.visible = bool(new)
+        self.version_heading.visible = new
+        self.install_hint.visible = new
+        self.retry_link.visible = bool(new and self._offline)
+        self.latest_chip.visible = bool(new and self._online and self._latest)
+        self.back_link.visible = new
+        self.browse_link.visible = not new
+        self.offline_notice.visible = bool(new and self._offline)
+
+    def _set_install_loader(self, loader_id):
+        """Choose the loader for the NEXT download only (2026-10-26)."""
+        if loader_id not in self._loader_chips:
+            return
+        self._install_loader = loader_id
+        self.loader_hint.value = {
+            "vanilla": "Vanilla Minecraft, without mods.",
+            "fabric": "A lightweight loader for Fabric mods.",
+            "quilt": "A loader for Quilt-compatible mods.",
+            "forge": "For mods and modpacks built for Forge.",
+            "neoforge": "For mods and modpacks built for NeoForge.",
+        }.get(loader_id, "Use mods made for this loader.")
+        for lid, chip in self._loader_chips.items():
+            active = lid == loader_id
+            chip.bgcolor = ACCENT_TINT if active else SURFACE_HI
+            chip.border = ft.border.Border.all(1, ACCENT if active else BORDER)
+            chip.content.color = ACCENT if active else TEXT_DIM
+            chip.content.weight = (ft.FontWeight.W_700 if active
+                                   else ft.FontWeight.W_600)
+        thread_safe_ui.refresh(self.loader_row)
+        if self._mode == "new":
+            self.rebuild()
+
+    def _back(self):
+        self._mode = "installed"
         self.filter_field.value = ""
-        self._render_rows()
-        cubeon_dialogs.open_dialog(self.page, self.dialog)
+        self._offline = False
+        self.offline_notice.visible = False
+        self._apply_mode()
+        self._render_installed()
+        thread_safe_ui.refresh(self.list)
 
-    def rebuild(self):
-        self._render_rows()
-        self.page.update()
+    def is_open(self) -> bool:
+        return self.panel.right == 0
 
-    def _browse(self):
-        if self.on_browse_online:
-            self.on_browse_online()
-        self.rebuild()
-
-    def _manage(self):
-        """Open the Instances manager. Closes this picker first so the two
-        dialogs never stack (the manager is opened from main via on_manage)."""
-        cubeon_dialogs.close_dialog(self.page, self.dialog)
-        if self.on_manage:
+    def open(self):
+        if self.on_open:
             try:
-                self.on_manage()
+                self.on_open()
             except Exception:
                 pass
+        self._mode = "installed"
+        self.filter_field.value = ""
+        self._offline = False
+        self.offline_notice.visible = False
+        self._set_install_loader("vanilla")
+        self._apply_mode()
+        self.sync_label()
+        self._render_installed()
+        self.scrim.visible = True
+        self.scrim.opacity = 1
+        self.panel.right = 0
+        self.panel.scale = ft.Scale(scale_x=1, scale_y=1,
+                                    alignment=ft.Alignment.TOP_RIGHT)
+        # Per-control diff, not page.update(): a whole-page update re-syncs
+        # every mounted tab and is what made the old dialogs feel heavy.
+        thread_safe_ui.refresh(self.scrim)
+        thread_safe_ui.refresh(self.panel)
+
+    def close(self, e=None):
+        self.panel.right = -self.PANEL_W
+        self.panel.scale = ft.Scale(scale_x=1, scale_y=self.SQUASH,
+                                    alignment=ft.Alignment.TOP_RIGHT)
+        self.scrim.opacity = 0
+
+        def _retire_scrim():
+            # If the panel was reopened inside the fade window, the scrim is
+            # legitimately visible again - hiding it would leave an open panel
+            # with no dim and no click-catcher.
+            if self.panel.right != -self.PANEL_W:
+                return
+            try:
+                self.scrim.visible = False
+                thread_safe_ui.refresh(self.scrim)
+            except Exception:
+                pass  # a late scrim hide must never surface as an error
+
+        timer = threading.Timer(0.25, _retire_scrim)
+        timer.daemon = True
+        timer.start()
+        thread_safe_ui.refresh(self.scrim)
+        thread_safe_ui.refresh(self.panel)
+
+    def rebuild(self):
+        if self._mode == "new":
+            self._render_new()
+        else:
+            self._render_installed()
+        thread_safe_ui.refresh(self.list)
+
+    def refresh_rows(self):
+        """Re-draw the installed rows while the panel is on screen.
+
+        Called after Rename/Delete (including actions taken from a panel row):
+        the panel stays mounted, so without this it would keep showing the old
+        name or the instance that was just removed.
+        """
+        if not self.is_open() or self._mode != "installed":
+            return
+        try:
+            self._render_installed()
+        except Exception:
+            pass
+        thread_safe_ui.refresh(self.list)
+
+    def _browse(self):
+        self._mode = "new"
+        self._loading = True
+        self._offline = False
+        self._apply_mode()
+        self._render_new()
+        thread_safe_ui.refresh(self.panel)
+        if self.on_browse_online:
+            self.on_browse_online()
 
     def _pick(self, key):
         if not key:
             return
-        cubeon_dialogs.close_dialog(self.page, self.dialog)
+        # Only a NEW download carries a loader choice. Installed instances
+        # keep the loader they were created with.
+        install_loader = self._install_loader if self._mode == "new" else None
+        self.close()
         if self.on_pick:
-            self.on_pick(key)
+            if install_loader and install_loader != "vanilla":
+                self.on_pick(key, install_loader)
+            else:
+                self.on_pick(key)
+
+    # -- rows ----------------------------------------------------------
+    def _installed_row(self, inst, selected):
+        """One select-only instance art card: real key art, title below.
+
+        This is the "profile card" look from the reference (user ask,
+        2026-10-26): the version's official Mojang key art fills the top of
+        the card, with the instance name underneath. The art is served from
+        ``version_art``'s on-disk cache, so it is downloaded once and never
+        fetched again; an uncached version shows the bundled placeholder for
+        the moment it takes the download to land.
+
+        Rename and Delete live on the Play card's folder row, not on every
+        panel row - a row is for switching instances, one click.
+        """
+        vid = inst["id"]
+        name = inst.get("display_name") or vid
+        base = inst.get("base_version") or ""
+        loader = inst.get("loader") or "vanilla"
+        loader_label = inst.get("loader_label") or "Vanilla"
+        if inst.get("incomplete") and name.endswith(" (incomplete)"):
+            name = name[:-len(" (incomplete)")]
+        # A plain install's display name is just its id ("26.3"); the card
+        # reads "Minecraft 26.3" like the reference. A loader/pack/renamed
+        # instance keeps its own name.
+        title = name
+        if not base or name.strip().lower() in {
+                str(vid).lower(), str(base).lower()}:
+            title = f"Minecraft {base or vid}"
+        pack = ""
+        if self.get_pack_name:
+            try:
+                pack = self.get_pack_name(vid) or ""
+            except Exception:
+                pack = ""
+        # "FastClient + Fabric 1.21.11": the pack (when there is one), then the
+        # loader and base version. Vanilla keeps it to "Vanilla 1.21.11".
+        subtitle = " + ".join(
+            part for part in (pack, f"{loader_label} {base}".strip()) if part)
+
+        meta_bits = []
+        n = inst.get("mod_count") or 0
+        if n:
+            meta_bits.append(f"{n} mod" + ("s" if n != 1 else ""))
+        played = instance_info.relative_time(inst.get("last_played"))
+        if played:
+            meta_bits.append(f"played {played}")
+
+        size_text = ft.Text("\u2026", size=10.5, color=TEXT_FAINT,
+                            font_family=FONT_MONO)
+
+        is_loader = loader not in (None, "vanilla")
+        # A REAL picture, not a vector glyph: the version's cached key art when
+        # it exists, otherwise a bundled block/cube animation. `src()` is
+        # disk-only and its encode is cached, so this is a dict lookup on every
+        # rebuild after the first.
+        thumb_src = version_art.src(base) if base else None
+        if not thumb_src:
+            thumb_src = "floating_cube.gif" if is_loader else "grass_block.gif"
+        thumb = ft.Image(src=thumb_src, fit=ft.BoxFit.COVER, expand=True)
+        art = ft.Container(
+            # Square key art, exactly like the reference cards: the official
+            # Mojang image is 540x540, so COVER in a square never crops the
+            # artwork into an unreadable strip (the user's "bs photo" report).
+            aspect_ratio=1.0,
+            bgcolor=SURFACE,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            content=thumb,
+        )
+
+        selected_chip = ft.Container(
+            content=ft.Text("selected", size=9, color=ACCENT,
+                            weight=ft.FontWeight.W_700,
+                            font_family=FONT_MONO),
+            bgcolor=ACCENT_TINT,
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=6, vertical=2),
+            visible=selected,
+        )
+        return ft.Container(
+            data=f"version-panel-row-{vid}",
+            content=ft.Column(
+                [
+                    art,
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            title, size=14, color=TEXT,
+                                            weight=ft.FontWeight.W_700,
+                                            max_lines=1,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                            expand=True),
+                                        selected_chip,
+                                        _chip("incomplete", danger=True)
+                                        if inst.get("incomplete")
+                                        else ft.Container(visible=False),
+                                    ],
+                                    spacing=6,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                                ft.Text(subtitle, size=11, color=TEXT_DIM,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS),
+                                ft.Row(
+                                    [ft.Text("  \u00b7  ".join(meta_bits),
+                                             size=10.5, color=TEXT_FAINT,
+                                             font_family=FONT_MONO,
+                                             max_lines=1,
+                                             overflow=ft.TextOverflow.ELLIPSIS,
+                                             expand=True),
+                                     size_text],
+                                    spacing=6,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                            ],
+                            spacing=2, tight=True,
+                        ),
+                        padding=ft.padding.Padding.symmetric(
+                            horizontal=10, vertical=8),
+                    ),
+                ],
+                spacing=0,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+            bgcolor=ACCENT_TINT if selected else SURFACE_HI,
+            border=ft.border.Border.all(1, ACCENT if selected else BORDER),
+            border_radius=RADIUS_LG,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            ink=False,
+            expand=True,
+            on_click=lambda e, v=vid: self._pick(v),
+        ), size_text, inst, thumb, base
+
+    def _request_art(self, base, image):
+        """Fetch an uncached version banner once, then swap it into `image`.
+
+        Disk-cached art is already painted by ``_installed_row``; this is only
+        for the first run (or a brand-new version). ``version_art`` writes the
+        download under CACHE_DIR/version_art, so the next launch paints it
+        instantly and never touches Mojang again.
+        """
+        if not base or not image:
+            return
+        if version_art.cached_path(base):
+            return
+        if base in self._art_requested:
+            return
+        self._art_requested.add(base)
+
+        def _ready(_path):
+            src = version_art.src(base)
+            if not src:
+                return
+            try:
+                image.src = src
+                thread_safe_ui.refresh(image)
+            except Exception:
+                pass
+
+        version_art.prefetch(base, _ready)
+
+    def _render_installed(self):
+        """Re-draw the installed list from the LIVE instance listing."""
+        try:
+            listing = self.get_instances() or []
+        except Exception:
+            listing = []
+        selected = self.get_selected()
+        cards, size_slots, art_slots = [], [], []
+        for inst in listing:
+            row, size_text, meta, thumb, base = self._installed_row(
+                inst, inst["id"] == selected)
+            cards.append(row)
+            size_slots.append((inst["id"], meta.get("folder") or inst["id"],
+                               size_text))
+            art_slots.append((base, thumb))
+        if cards:
+            # Two square art cards per row, like the reference grid. The
+            # placeholder keeps a lone last card at half width instead of
+            # stretching it across the panel.
+            if len(cards) % 2:
+                cards.append(ft.Container(expand=True))
+            rows = [ft.Row(cards[i:i + 2], spacing=10,
+                           vertical_alignment=ft.CrossAxisAlignment.START)
+                    for i in range(0, len(cards), 2)]
+        else:
+            rows = [ft.Container(
+                content=ft.Text(
+                    "No instances yet. Press \u201cNew instance\u201d to add one.",
+                    size=12, color=TEXT_DIM),
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16))]
+        with thread_safe_ui.TREE_LOCK:
+            self.list.controls[:] = rows
+        for base, thumb in art_slots:
+            self._request_art(base, thumb)
+        if size_slots:
+            threading.Thread(target=self._fill_sizes, args=(size_slots,),
+                             daemon=True, name="ux-instance-sizes").start()
 
     def _row(self, entry, selected):
         text = entry.get("text") or entry.get("id") or ""
@@ -304,11 +757,13 @@ class VersionPicker:
         if entry.get("incomplete"):
             chips.append(_chip("incomplete", danger=True))
         elif entry.get("loader") and entry["loader"] != "vanilla":
-            chips.append(_chip(entry.get("loader_label") or entry["loader"], accent=True))
+            chips.append(_chip(entry.get("loader_label") or entry["loader"],
+                               accent=True))
         if entry.get("type") == "snapshot":
             chips.append(_chip("snapshot"))
         date = format_release(entry.get("release_time"))
-        tail = [ft.Text(date, size=10.5, color=TEXT_FAINT, font_family=FONT_MONO)] if date else []
+        tail = [ft.Text(date, size=10.5, color=TEXT_FAINT,
+                        font_family=FONT_MONO)] if date else []
         return ft.Container(
             content=ft.Row(
                 [
@@ -330,7 +785,7 @@ class VersionPicker:
             animate=100,
         )
 
-    def _render_rows(self):
+    def _render_new(self):
         query = (self.filter_field.value or "").strip().lower()
 
         def matches(e):
@@ -339,435 +794,33 @@ class VersionPicker:
             return (query in (e.get("id") or "").lower()
                     or query in (e.get("text") or "").lower())
 
-        installed = [e for e in self._entries if e.get("installed") and matches(e)]
-        available = [e for e in self._entries if not e.get("installed") and matches(e)]
-
-        selected = self.get_selected()
-        # Only label the groups once there's something to distinguish them:
-        # in offline mode every entry is installed and a lone "Installed"
-        # heading is just noise.
-        show_headers = bool(self._online and installed and available)
-        rows = []
-        if installed:
-            if show_headers:
-                rows.append(_group_header("Installed"))
-            rows += [self._row(e, e.get("id") == selected) for e in installed]
-        if available:
-            if show_headers:
-                rows.append(_group_header("Available to download"))
-            rows += [self._row(e, e.get("id") == selected) for e in available]
-
-        if not rows:
-            rows.append(ft.Container(
-                content=ft.Text(
-                    ("No versions match your search." if query else
-                     "No versions here yet. Press \u201cBrowse all versions\u201d "
-                     "to load the online list."),
-                    size=12, color=TEXT_DIM),
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16),
-            ))
-        self.list.controls = rows
-
-
-# =====================================================================
-# INSTANCE CARDS - the "Jump back in" row
-# =====================================================================
-class InstanceCards:
-    """One art card per installed version, carrying loader / mods / last-played.
-
-    Cards are built ONCE and afterwards only RESTYLED (selection), have their
-    non-image chip row refreshed, or get their name label edited in place. A
-    rebuilt ``ft.Image`` is a brand-new control, so Flet re-sends its whole
-    base64 payload and every thumbnail in the row reloads - see
-    tools/test_version_art_cache.py.
-
-    For the same reason the row's ``controls`` list is only ever MUTATED, never
-    reassigned: assigning a non-equal list lands in Flet's ``__changes`` and is
-    patched as a whole-list replace, which re-serialises every child (and thus
-    every thumbnail). In-place mutation is diffed child by child, so adding,
-    removing or reordering one card leaves the other images untouched.
-    """
-
-    def __init__(self, page, *, get_metas, get_labels, get_selected, on_select,
-                 art_src, request_art):
-        self.page = page
-        self.get_metas = get_metas
-        self.get_labels = get_labels
-        self.get_selected = get_selected
-        self.on_select = on_select
-        self.art_src = art_src
-        self.request_art = request_art
-
-        self.row = ft.Row([], spacing=14, scroll=ft.ScrollMode.AUTO)
-        self.empty = ft.Text(
-            "No versions installed yet - pick one above and press Play.",
-            size=12, color=TEXT_DIM, visible=False,
-        )
-        self._widgets: dict = {}    # version_id -> (card, art)
-        self._chips: dict = {}      # version_id -> the chip Row control
-        self._names: dict = {}      # version_id -> the name the card was drawn with
-        self._name_controls: dict = {}  # version_id -> the card's name ft.Text
-        self._order = None          # the installed set/order the row holds
-        self._selected_styled = None
-        # rebuild() is reachable from MORE than one thread: the Play tab's own
-        # selection path runs it on the UI thread, while the install/launch
-        # workers repaint through update_hero -> _rescan_installed. Two of
-        # those interleaving is what this lock prevents - see rebuild().
-        self._lock = threading.Lock()
-
-    def _chip_specs(self, info):
-        specs = []
-        if info.get("incomplete"):
-            specs.append(("incomplete", "danger"))
-        if info.get("loader") and info["loader"] != "vanilla":
-            specs.append((info.get("loader_label") or info["loader"], "accent"))
-        n = info.get("mod_count") or 0
-        if n:
-            specs.append((f"{n} mod" + ("s" if n != 1 else ""), "plain"))
-        played = instance_info.relative_time(info.get("last_played"))
-        if played:
-            specs.append((played, "plain"))
-        return specs
-
-    def _sync_chips(self, chips, info):
-        specs = self._chip_specs(info)
-        if chips.data == specs:
-            return False
-        chips.data = specs
-        chips.controls = [_chip(lbl, accent=(kind == "accent"),
-                                danger=(kind == "danger")) for lbl, kind in specs]
-        chips.visible = bool(specs)
-        return True
-
-    def _make_card(self, vid, meta, label, name):
-        info = instance_info.describe(vid, meta, label)
-        base = info["base_version"]
-        art = ft.Image(src=self.art_src(base) or "titleimg.jpg",
-                       fit=ft.BoxFit.COVER, width=208, height=150)
-
-        def _ready(value, img=art):
-            if value and img.src != value:
-                img.src = value
-                thread_safe_ui.refresh(img)
-
-        try:
-            self.request_art(base, _ready)
-        except Exception:
-            pass
-
-        chips = ft.Row([], spacing=6, run_spacing=4, wrap=True)
-        self._sync_chips(chips, info)
-        name_text = ft.Text(name, size=13.5, color=TEXT,
-                            weight=ft.FontWeight.W_600, max_lines=1,
-                            overflow=ft.TextOverflow.ELLIPSIS)
-        card = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Container(content=art, height=150,
-                                 clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                 border_radius=ft.BorderRadius(
-                                     top_left=ART_RADIUS, top_right=ART_RADIUS,
-                                     bottom_left=0, bottom_right=0)),
-                    ft.Container(
-                        content=ft.Column(
-                            [
-                                name_text,
-                                ft.Text(base, size=10.5, color=TEXT_FAINT,
-                                        font_family=FONT_MONO, max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS),
-                                chips,
-                            ],
-                            spacing=3, tight=True,
-                        ),
-                        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=9),
-                    ),
-                ],
-                spacing=0, tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-            ),
-            width=210,
-            bgcolor=CARD_FILL,
-            border=ft.border.Border.all(1, CARD_BORDER),
-            border_radius=ART_RADIUS,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            ink=False,
-            tooltip=f"Select {name}",
-            on_click=lambda e, k=vid: self.on_select(k),
-        )
-        return card, art, chips, name_text
-
-    @staticmethod
-    def _style(card, selected):
-        card.bgcolor = ACCENT_TINT if selected else CARD_FILL
-        card.border = ft.border.Border.all(1, ACCENT if selected else CARD_BORDER)
-
-    def rebuild(self):
-        """Sync the row with the installed set.
-
-        Serialized on this object: dropped ids are popped from the dicts
-        BEFORE the row is assembled from them, so an interleaved pair of calls
-        (a background install/launch rescan racing the UI thread's own repaint
-        - both are real, see the _lock comment in __init__) used to raise
-        KeyError on the id the other call had just popped, taking the whole
-        repaint - and the exception handler that ran it - down with it.
-        """
-        with self._lock:
-            self._rebuild()
-
-    def _rebuild(self):
-        metas = self.get_metas() or {}
-        labels = self.get_labels() or {}
-        touched = False
-        for gone in [v for v in self._widgets if v not in metas]:
-            self._widgets.pop(gone, None)
-            self._chips.pop(gone, None)
-            self._names.pop(gone, None)
-            self._name_controls.pop(gone, None)
-            touched = True
-        for vid in metas:
-            meta = metas.get(vid, {})
-            label = labels.get(vid)
-            name = label or meta.get("display_name") or vid
-            if vid not in self._widgets:
-                card, art, chips, name_text = self._make_card(
-                    vid, meta, label, name)
-                self._widgets[vid] = (card, art)
-                self._chips[vid] = chips
-                self._names[vid] = name
-                self._name_controls[vid] = name_text
-                touched = True
-                continue
-            if self._names.get(vid) != name:
-                # Rename only: edit the label in place. Re-creating the card
-                # would build a new ft.Image, and Flet cannot diff that - it
-                # re-sends the base64 art and every thumbnail in the row
-                # visibly reloads. See the class docstring.
-                self._name_controls[vid].value = name
-                self._widgets[vid][0].tooltip = f"Select {name}"
-                self._names[vid] = name
-                thread_safe_ui.refresh(self._widgets[vid][0])
-            if self._sync_chips(self._chips[vid],
-                                instance_info.describe(vid, meta, label)):
-                thread_safe_ui.refresh(self._chips[vid])
-        order = list(metas)
-        if order != self._order:
-            self._order = order
-            touched = True
-        if touched:
-            cards = [self._widgets[vid][0] for vid in order]
-            # Mutate the existing list: reassigning it is tracked as a
-            # structural change and patched as a full-list replace, which
-            # re-serialises every card (and every image) even when only one
-            # card was added or moved. In-place mutation lets Flet's keyed
-            # list diff touch only the children that actually changed.
-            if list(self.row.controls) != cards:
-                self.row.controls[:] = cards
-            self.row.visible = bool(cards)
-            self.empty.visible = not cards
-            thread_safe_ui.refresh(self.row)
-            thread_safe_ui.refresh(self.empty)
-            self._selected_styled = None
-        selected = self.get_selected()
-        if selected != self._selected_styled:
-            self._selected_styled = selected
-            for vid, (card, _art) in self._widgets.items():
-                self._style(card, vid == selected)
-                thread_safe_ui.refresh(card)
-
-
-# =====================================================================
-# INSTANCES MANAGER - one dialog to see and manage every install
-# =====================================================================
-class InstancesManager:
-    """A dialog listing every installed instance with its loader, mod count,
-    on-disk size and last-played time, plus per-row Play / Rename / Delete.
-
-    Opened from the version picker's "Manage installed versions" link (it used
-    to hang off a "Manage" button in the Play tab's Jump back in header; that
-    was removed 2026-10-16).
-
-    The size walk is the one expensive thing here, so it runs on a worker
-    thread and fills its labels in afterwards - the dialog opens instantly.
-    """
-
-    def __init__(self, page, *, get_instances, get_selected, on_play, on_rename,
-                 on_delete):
-        self.page = page
-        self.get_instances = get_instances
-        self.get_selected = get_selected
-        self.on_play = on_play
-        self.on_rename = on_rename
-        self.on_delete = on_delete
-        # One dialog, reused: its rows are re-drawn on every open AND after an
-        # action taken from a row, so a deleted instance can't linger in a
-        # dialog that is still on screen. See refresh().
-        self._body: ft.ListView | None = None
-        self._dialog: ft.AlertDialog | None = None
-
-    def _row(self, inst, selected):
-        vid = inst["id"]
-        name = inst["display_name"]
-        sub = ft.Row(
-            [
-                ft.Text(inst["base_version"], size=11, color=TEXT_FAINT,
-                        font_family=FONT_MONO),
-                _chip(inst["loader_label"],
-                      accent=(inst["loader"] != "vanilla")),
-            ],
-            spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-        meta_bits = []
-        n = inst.get("mod_count") or 0
-        if n:
-            meta_bits.append(f"{n} mod" + ("s" if n != 1 else ""))
-        played = instance_info.relative_time(inst.get("last_played"))
-        if played:
-            meta_bits.append(f"played {played}")
-        if inst.get("incomplete"):
-            meta_bits.append("incomplete")
-
-        size_text = ft.Text("\u2026", size=11, color=TEXT_FAINT, font_family=FONT_MONO)
-
-        def _fire(fn, e=None):
-            if fn:
-                fn(vid)
-
-        return ft.Container(
-            content=ft.Row(
-                [
-                    ft.Column(
-                        [
-                            ft.Row(
-                                [ft.Text(name, size=13.5, color=TEXT,
-                                         weight=ft.FontWeight.W_600,
-                                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                                         expand=True),
-                                 ft.Container(
-                                     content=ft.Text("selected", size=9.5, color=ACCENT,
-                                                     weight=ft.FontWeight.W_700,
-                                                     font_family=FONT_MONO),
-                                     bgcolor=ACCENT_TINT, border_radius=RADIUS,
-                                     padding=ft.padding.Padding.symmetric(horizontal=6, vertical=2),
-                                     visible=selected),
-                                 ],
-                                spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            ),
-                            sub,
-                            ft.Text("  \u00b7  ".join(meta_bits) if meta_bits else "",
-                                    size=11, color=TEXT_FAINT,
-                                    visible=bool(meta_bits)),
-                        ],
-                        spacing=3, tight=True, expand=True,
-                    ),
-                    size_text,
-                    ft.IconButton(ft.Icons.PLAY_ARROW_ROUNDED, icon_color=ACCENT,
-                                  icon_size=18, tooltip="Play this instance",
-                                  on_click=lambda e, fn=self.on_play: _fire(fn)),
-                    ft.IconButton(ft.Icons.DRIVE_FILE_RENAME_OUTLINE_ROUNDED,
-                                  icon_color=TEXT_DIM, icon_size=18,
-                                  tooltip="Rename", on_click=lambda e, fn=self.on_rename: _fire(fn)),
-                    ft.IconButton(ft.Icons.DELETE_OUTLINE_ROUNDED,
-                                  icon_color=ft.Colors.with_opacity(0.7, DANGER),
-                                  icon_size=18, tooltip="Delete",
-                                  on_click=lambda e, fn=self.on_delete: _fire(fn)),
-                ],
-                spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            bgcolor=ACCENT_TINT if selected else SURFACE_HI,
-            border=ft.border.Border.all(1, ACCENT if selected else BORDER),
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
-        ), size_text, inst
-
-    def _render(self):
-        """Re-draw the row list from the LIVE instance listing (and kick off
-        the off-thread size walk for the rows just built)."""
-        try:
-            listing = self.get_instances() or []
-        except Exception:
-            listing = []
-        selected = self.get_selected()
-        rows, size_slots = [], []
-        for inst in listing:
-            row, size_text, meta = self._row(inst, inst["id"] == selected)
-            rows.append(row)
-            size_slots.append((inst["id"], meta.get("folder") or inst["id"], size_text))
-        if not rows:
+        available = [e for e in self._entries
+                     if e.get("loader", "vanilla") == "vanilla"
+                     and not (self.instance_exists(self._install_loader, e["id"])
+                              if self.instance_exists else e.get("installed"))
+                     and matches(e)]
+        self.latest_chip.visible = bool(
+            not self._loading and not self._offline and self._latest
+            and any(e["id"] == self._latest for e in available))
+        rows = [self._row(e, False) for e in available]
+        if self._loading:
             rows = [ft.Container(
-                content=ft.Text("No versions installed yet.", size=12, color=TEXT_DIM),
-                padding=ft.padding.Padding.symmetric(horizontal=4, vertical=16))]
-        if self._body is None:
-            self._body = ft.ListView([], spacing=8, scroll=ft.ScrollMode.AUTO,
-                                     height=420, cache_extent=320)
-        self._body.controls = rows
-        if size_slots:
-            threading.Thread(target=self._fill_sizes, args=(size_slots,),
-                             daemon=True).start()
-
-    def _close(self):
-        """The Close button: dismiss the dialog AND forget our reference to it.
-
-        Flet keeps a closed-but-not-yet-dismissed dialog in its dialog stack
-        and ``show_dialog()`` RAISES for one that is still mounted, so the next
-        open() builds a fresh object instead of racing that teardown. The body
-        (and the size text controls inside it) is dropped with it - _render()
-        always redraws from the live listing.
-        """
-        if self._dialog is not None:
-            cubeon_dialogs.close_dialog(self.page, self._dialog)
-        self._dialog = None
-        self._body = None
-
-    def _is_mounted(self) -> bool:
-        """Is our dialog currently in the page's dialog stack?
-
-        ``show_dialog()`` RAISES for a dialog that is already mounted, so
-        open() must not re-show one. Membership is the accurate test: Flet
-        removes a barrier-dismissed dialog from its stack WITHOUT clearing
-        ``.open``, so the flag alone would report a dismissed dialog as still
-        on screen and the Manager would stop reopening (older Flet versions
-        have no stack to ask, so the flag is the fallback there).
-        """
-        stack = getattr(getattr(self.page, "_dialogs", None), "controls", None)
-        if stack is None:
-            return bool(getattr(self._dialog, "open", False))
-        return self._dialog in list(stack)
-
-    def open(self):
-        if self._dialog is None:
-            self._body = ft.ListView([], spacing=8, scroll=ft.ScrollMode.AUTO,
-                                     height=420, cache_extent=320)
-            self._dialog = ft.AlertDialog(
-                modal=False, bgcolor=SURFACE,
-                title=ft.Text("Instances", color=TEXT, weight=ft.FontWeight.W_800),
-                content=ft.Container(width=560, content=self._body),
-                actions=[ft.TextButton("Close", on_click=lambda e: self._close())],
-            )
-        self._render()
-        if self._is_mounted():
-            # Already on screen (a second Manage click): the rows were just
-            # redrawn from the live listing, so all that's left is to flush.
-            self.page.update()
-        else:
-            cubeon_dialogs.open_dialog(self.page, self._dialog)
-
-    def refresh(self):
-        """Re-draw the rows of the manager dialog that is on screen.
-
-        Called after an action taken from one of those rows (Delete in
-        particular): the dialog stays mounted across the action, so without
-        this it kept showing the instance that had just been removed - its row
-        only went away when the dialog was closed and reopened. A no-op when
-        the dialog isn't open (open() always renders from the live listing,
-        and _close() drops the reference).
-        """
-        if self._dialog is None or not getattr(self._dialog, "open", False):
-            return
-        try:
-            self._render()
-        except Exception:
-            pass
-        self.page.update()
+                content=ft.Row([
+                    ft.ProgressRing(width=18, height=18, stroke_width=2, color=ACCENT),
+                    ft.Text("Loading Minecraft versions…", color=TEXT_DIM, size=12),
+                ], spacing=10), padding=12)]
+        if not rows:
+            msg = ("No versions match your search." if query else
+                   "Loading versions..." if self._online is False
+                   and not self.offline_notice.visible
+                   else "Nothing new to add.")
+            if self.offline_notice.visible:
+                msg = "Can't reach the version list right now."
+            rows.append(ft.Container(
+                content=ft.Text(msg, size=12, color=TEXT_DIM),
+                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16)))
+        with thread_safe_ui.TREE_LOCK:
+            self.list.controls[:] = rows
 
     @staticmethod
     def _fill_sizes(slots):
@@ -784,4 +837,4 @@ class InstancesManager:
                 pass
 
 
-__all__ = ["VersionBanner", "VersionPicker", "InstanceCards", "InstancesManager", "format_release"]
+__all__ = ["VersionBanner", "VersionPicker", "format_release"]

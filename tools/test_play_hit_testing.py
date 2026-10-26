@@ -59,11 +59,14 @@ ok(m2 is not None,
 # 2026-10-23, so the button now sits directly in the footer Row. If a Stack
 # ever comes back around it, the sheen-inside rule above still has to hold.
 footer = re.search(
-    r"ft\.Row\(\s*\[\s*ft\.Container\(expand=True\),\s*"
-    r"ft\.Container\(width=280, content=play_button\),\s*\],",
+    r"ft\.Row\(\s*\[\s*(?:fix_crash_button,\s*)?"
+    r"(?:ft\.Container\(expand=True\),\s*)?"
+    r"ft\.Container\(width=\d+, content=play_button\),\s*\],",
     src, re.S)
 ok(footer is not None,
    "the footer mounts the button directly (no painted layer behind/above it)")
+ok("fix_crash_button" in src and 'data="play-fix-crash"' in src,
+   "Fix crash sits in the Play footer, left of PLAY (2026-10-25)")
 footer_block = footer.group(0) if footer else ""
 ok("play_sheen" not in footer_block,
    "the footer no longer paints play_sheen ON TOP of the button")

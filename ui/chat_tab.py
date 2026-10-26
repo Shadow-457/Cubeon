@@ -185,7 +185,22 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     if service is None:
         notice = ft.Column(
             [
-                ft.Text("Chat", size=28, color=TEXT, font_family=FONT_DISPLAY),
+                ft.Row(
+                    [
+                        ft.Text("Chat", size=28, color=TEXT,
+                                font_family=FONT_DISPLAY),
+                        ft.Container(
+                            content=ft.Text("BETA", size=9, color=ACCENT,
+                                            weight=ft.FontWeight.W_800,
+                                            font_family=FONT_MONO),
+                            bgcolor=ACCENT_TINT, border_radius=RADIUS,
+                            padding=ft.padding.Padding.symmetric(
+                                horizontal=6, vertical=2),
+                        ),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
                 ft.Text("Chat is disabled in this build.", size=13,
                         color=TEXT_DIM),
                 ft.Text("It's only available in development builds.",
@@ -202,6 +217,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     cursor = {"v": -1}     # events cursor; -1 = first sync (no backlog)
     _last_roster = {"v": None}
     _roster_sig = {"v": None}
+    _face_sig = {"key": None, "v": ()}
     _identity_sig = {"v": None}
     _header_sig = {"v": None}
     _friend_rows = {}
@@ -896,16 +912,32 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         # instead meant the sig never flipped when the real face landed on
         # disk, so rows kept their initial chip until some unrelated roster
         # change - "I downloaded faces but never see them".
-        face_sig = tuple(
-            _faces.get_face_b64(_peer_identity(f.get("name"), f)[0])
-            for f in friend_rows) + tuple(
-            _faces.get_face_b64(_peer_identity(n)[0]) for n in requests)
+        #
+        # Resolving those labels is cheap; get_face_b64() is a stat + lock per
+        # avatar. Cache the tokens by (identities, faces.revision()) so a poll
+        # that only changes presence/unread reuses them, while a face download
+        # or a rename still flips the signature and repaints.
+        friend_identities = tuple(
+            _peer_identity(f.get("name"), f) for f in friend_rows)
+        request_identities = tuple(_peer_identity(n) for n in requests)
+        face_key = (friend_identities, request_identities,
+                    _faces.revision())
+        if face_key == _face_sig["key"]:
+            face_sig = _face_sig["v"]
+        else:
+            face_sig = tuple(
+                _faces.get_face_b64(label)
+                for label, _uid in friend_identities) + tuple(
+                _faces.get_face_b64(label)
+                for label, _uid in request_identities)
+            _face_sig["key"] = face_key
+            _face_sig["v"] = face_sig
         sig = (roster.get("friends") or [],
                roster.get("requests_in") or [],
                roster.get("requests_out") or [],
                roster.get("requests_in_details") or [],
                roster.get("requests_out_details") or [],
-               tuple((n, _peer_identity(n)) for n in requests),
+               tuple(zip(requests, request_identities)),
                face_sig,
                tuple(sorted(_canceled)),
                selected["name"])
@@ -1424,6 +1456,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     [
                         ft.Text("Chat", size=24, color=TEXT,
                                 font_family=FONT_DISPLAY),
+                        ft.Container(
+                            content=ft.Text("BETA", size=9, color=ACCENT,
+                                            weight=ft.FontWeight.W_800,
+                                            font_family=FONT_MONO),
+                            bgcolor=ACCENT_TINT, border_radius=RADIUS,
+                            padding=ft.padding.Padding.symmetric(
+                                horizontal=6, vertical=2),
+                        ),
                         ft.Container(expand=True),
                         conn_dot,
                         conn_text,

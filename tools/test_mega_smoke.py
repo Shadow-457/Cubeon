@@ -540,10 +540,11 @@ def section_runtime():
                 for c in app_driver.every_control(d3.page)]
         check("the Windows custom frame builds when the policy says yes",
               "WindowDragArea" in names
+              # 8 window resize hot-zones.
               and names.count("GestureDetector") == 8
               and all(t in tips for t in ("Minimize", "Maximize", "Close")),
               f"drag-area={names.count('WindowDragArea')} "
-              f"hot-zones={names.count('GestureDetector')} "
+              f"gestures={names.count('GestureDetector')} "
               f"buttons={[t for t in ('Minimize', 'Maximize', 'Close') if t not in tips]}")
         check("...and the window really went frameless",
               getattr(d3.page.window, "frameless", None) is True,
@@ -581,6 +582,8 @@ SUITES = [
     "test_scrolling.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",
     "test_mod_ui_stability.py",
+    "test_mod_search.py",
+    "test_doctor_consent.py",
     "test_repository_hygiene.py",
 ]
 

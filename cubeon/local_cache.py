@@ -56,9 +56,9 @@ def _mem_get(kk: tuple):
         return _MEM[kk]
 
 
-def _mem_put(kk: tuple, expires_at: float, value) -> None:
+def _mem_put(kk: tuple, stored_at: float, value) -> None:
     with _MEM_LOCK:
-        _MEM[kk] = (expires_at, value)
+        _MEM[kk] = (stored_at, value)
         _MEM.move_to_end(kk)
         while len(_MEM) > _MEM_MAX:
             _MEM.popitem(last=False)
@@ -68,7 +68,7 @@ def get(namespace: str, key: object, max_age: int = 86400):
     """Fresh-only read: memory first, then disk. None when missing OR stale."""
     kk = (namespace, _path(namespace, key))
     hit = _mem_get(kk)
-    if hit is not None and time.time() <= hit[0]:
+    if hit is not None and (not max_age or time.time() - hit[0] <= max_age):
         return hit[1]
 
     path = kk[1]
@@ -81,7 +81,7 @@ def get(namespace: str, key: object, max_age: int = 86400):
     value = payload.get("value")
     if max_age and time.time() - stored > max_age:
         return None  # stale: don't serve as fresh (cached_call handles the rest)
-    _mem_put(kk, stored + (max_age or 0), value)
+    _mem_put(kk, stored, value)
     return value
 
 
@@ -98,23 +98,24 @@ def get_stale(namespace: str, key: object):
     except Exception:
         return None
     value = payload.get("value")
-    _mem_put(kk, payload.get("time", 0) + 86400 * 365, value)
+    _mem_put(kk, payload.get("time", 0), value)
     return value
 
 
 def set(namespace: str, key: object, value):
     path = _path(namespace, key)
+    stored_at = time.time()
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"time": time.time(), "value": value}, f)
+            json.dump({"time": stored_at, "value": value}, f)
         # Atomic-ish swap: a launcher killed mid-write can never leave a
         # half-written cache file that poisons every later read.
         os.replace(tmp, path)
     except Exception:
         pass
-    _mem_put((namespace, path), time.time() + 86400, value)
+    _mem_put((namespace, path), stored_at, value)
     return value
 
 

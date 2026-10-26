@@ -208,22 +208,22 @@ mods.delete_mod(MC, LOADER, "disabled-dep.jar")
 # ---------------------------------------------------------------------------
 print("\n3. doctor: duplicate copies are resolved (newest wins)")
 # ---------------------------------------------------------------------------
-# Strong duplicate: same Modrinth project id -> older one DELETED.
 write_jar(PROFILE, "sodium-fabric-0.5.0.jar", project_id="AANobbMI", slug="sodium")
 write_jar(PROFILE, "sodium-fabric-0.6.0.jar", project_id="AANobbMI", slug="sodium")
-rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False)
+rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False, approve_cb=lambda change: True)
 dups = [p for p in rep["problems"] if p["kind"] == "duplicate"]
 check("duplicate reported", len(dups) == 1, f"{rep!r}")
 check("duplicate fixed", dups and dups[0]["fixed"], f"{dups!r}")
-check("older copy deleted",
-      not os.path.exists(os.path.join(PROFILE, "sodium-fabric-0.5.0.jar")))
+check("older copy disabled and retained after approval",
+      not os.path.exists(os.path.join(PROFILE, "sodium-fabric-0.5.0.jar"))
+      and os.path.exists(os.path.join(PROFILE, "sodium-fabric-0.5.0.jar.disabled")))
 check("newest copy kept",
       os.path.exists(os.path.join(PROFILE, "sodium-fabric-0.6.0.jar")))
 
 # Stem-only duplicate (no meta) -> older one DISABLED, recoverable.
 write_jar(PROFILE, "coolmod-1.0.jar")
 write_jar(PROFILE, "coolmod-2.0.jar")
-rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False)
+rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False, approve_cb=lambda change: True)
 check("stem duplicate fixed",
       any(p["kind"] == "duplicate" and p["fixed"] for p in rep["problems"]),
       f"{rep!r}")
@@ -241,7 +241,7 @@ mods.get_mod_download = lambda ref, mc_version=None, loader=None: {
 mods._required_deps_cached = lambda ref, mc, ld: [
     {"project_id": "fabric-api", "filename": "fabric-api-0.9.jar",
      "url": "dep-url", "hashes": {}}]
-mods.installed_project_ids = lambda mc, ld: set()
+mods.installed_project_ids = lambda mc, ld, version_id=None: set()
 downloaded = []
 mods.download_mod = lambda url, filename, **kw: downloaded.append((url, filename))
 rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=True)
@@ -259,8 +259,8 @@ mods.get_mod_download = lambda ref, mc_version=None, loader=None: (
     None if ref == "oldPID" else {"filename": "x.jar", "url": "u", "hashes": {}})
 mods._required_deps_cached = lambda ref, mc, ld: []
 toggled = []
-mods.toggle_mod = lambda mc, ld, fn: toggled.append(fn)
-rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=True)
+mods.toggle_mod = lambda mc, ld, fn, **kw: toggled.append(fn)
+rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=True, approve_cb=lambda change: True)
 bad = [p for p in rep["problems"] if p["kind"] == "incompatible"]
 check("incompatible reported", any(p["mod"].startswith("oldmod") for p in bad),
       f"{rep!r}")
@@ -351,7 +351,7 @@ mods._read_remote_mod_metadata = lambda url: {
 _replaced = []
 mods.download_mod = lambda url, filename, **kw: _replaced.append((url, filename))
 
-rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False)
+rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False, approve_cb=lambda change: True)
 conflict = [p for p in rep["problems"] if p["kind"] == "conflict"]
 check("conflict still reported on the fix run",
       len(conflict) == 1, f"{rep!r}")
@@ -624,8 +624,8 @@ write_fabric_jar(PROFILE, "sodium-y-0.8.13.jar", "sodiumy", "0.8.13",
 write_fabric_jar(PROFILE, "iris-x-1.10.7.jar", "irisx", "1.10.7",
                  project_id="IRISX", slug="irisx")
 _toggled2 = []
-mods.toggle_mod = lambda mc, ld, fn: _toggled2.append(fn)
-rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False)
+mods.toggle_mod = lambda mc, ld, fn, **kw: _toggled2.append(fn)
+rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False, approve_cb=lambda change: True)
 _conflict = [p for p in rep["problems"] if p["kind"] == "conflict"]
 check("conflict with no replacement is still reported",
       len(_conflict) == 1, f"{rep!r}")
@@ -644,17 +644,15 @@ for _j in ("sodium-x-0.8.14.jar", "sodium-y-0.8.13.jar", "iris-x-1.10.7.jar"):
 # ---------------------------------------------------------------------------
 print("\n10. doctor: a duplicate it couldn't move is not reported as fixed")
 # ---------------------------------------------------------------------------
-# `fixed` is per loser now, not group-level: if supersede_older_copies does not
-# actually clear a copy, the report must not claim success.
 write_jar(PROFILE, "dupx-1.0.jar", project_id="DUPX", slug="dupx")
 write_jar(PROFILE, "dupx-2.0.jar", project_id="DUPX", slug="dupx")
-_real_super = mods.supersede_older_copies
-mods.supersede_older_copies = lambda *a, **k: []
-rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False)
+_real_disable = mods._doctor_disable
+mods._doctor_disable = lambda *args, **kwargs: None
+rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=False, approve_cb=lambda change: True)
 _dups = [p for p in rep["problems"] if p["kind"] == "duplicate"]
 check("duplicate reported but not falsely marked fixed",
       len(_dups) == 1 and _dups[0]["fixed"] is False, f"{_dups!r}")
-mods.supersede_older_copies = _real_super
+mods._doctor_disable = _real_disable
 for _j in ("dupx-1.0.jar", "dupx-2.0.jar"):
     for _p in (os.path.join(PROFILE, _j),
                os.path.join(PROFILE, _j + ".cubeon.json")):
@@ -755,6 +753,72 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
         old_recommend()
         check("stale search and recommendation completions cannot replace newer results",
               [r["title"] for r in browse["results"]] == ["newer"])
+    QueuedThread.queue.clear()
+    scope = closure_env(fns["_browse_key"])["search_scope"]
+    category = closure_env(fns["_browse_key"])["active_category"]
+    scope_label = closure_env(fns["_refresh_browse_scope"])["browse_scope_text"]
+    results_view = closure_env(fns["_render_browse_page"])["browse_results_view"]
+    checkbox = closure_env(fns["_change_search_scope"])["compatible_only"]
+    scope_row = next(control for control in _walk(root)
+                     if isinstance(control, ft.Row) and any(child is checkbox for child in control.controls))
+    check("the compatibility row uses flex layout, never a wrapped expanding spacer",
+          not scope_row.wrap and any(child.expand for child in scope_row.controls))
+    check("the compatibility checkbox follows the active theme",
+          checkbox.active_color == _theme.THEME["ACCENT"]
+          and checkbox.label_style.color == _theme.THEME["TEXT_DIM"])
+    check("mod discovery defaults to compatible-only", scope["compatible"] and checkbox.value)
+    search.value = "durabilitywarner"
+    category["value"] = "utility"
+    with patch.object(_core, "search_mods", return_value=[]) as searching:
+        fns["run_mod_search"]()
+        QueuedThread.queue.pop(0)()
+        check("empty compatible search offers an explicit all-Modrinth action",
+              any(isinstance(control, ft.Text) and control.value == "Search all Modrinth"
+                  for control in _walk(results_view)))
+        check("active version, loader, and category are visible",
+              "1.20.1" in scope_label.value and "Fabric" in scope_label.value and "Utility" in scope_label.value)
+        old_token = browse["token"]
+        fns["_search_all_modrinth"]()
+        QueuedThread.queue.pop(0)()
+        check("all-Modrinth action removes compatibility and category filters",
+              searching.call_args.kwargs["mc_version"] is None
+              and searching.call_args.kwargs["loader"] is None
+              and searching.call_args.kwargs["categories"] is None
+              and not checkbox.value)
+        check("scope changes invalidate in-flight searches", old_token != browse["token"])
+        check("broader discovery does not change the active instance",
+              state == {"selected_mc_version": "1.20.1", "mod_loader": "fabric"} and drop.value == "1.20.1")
+        check("broader scope is clearly labeled", "all loaders" in scope_label.value)
+        fns["_change_search_scope"](True)
+        QueuedThread.queue.pop(0)()
+        check("compatible-only can be restored without changing the instance",
+              searching.call_args.kwargs["mc_version"] == "1.20.1"
+              and searching.call_args.kwargs["loader"] == "fabric" and checkbox.value)
+    search.value = "armor durability warner"
+    with patch.object(_core, "search_mods", return_value=[{
+            "project_id": "related", "title": "DurabilityWarner", "search_query": "durability warner"}]):
+        fns["run_mod_search"]()
+        QueuedThread.queue.pop(0)()
+        status_label = closure_env(fns["_render_browse_page"])["browse_status_text"]
+        check("shorter-name fallback is disclosed as related matches",
+              status_label.value == 'Related matches for "durability warner"')
+    unsupported = rowbuild({"project_id": "unsupported", "title": "Unsupported",
+                            "game_versions": ["1.21.11"], "loaders": ["fabric"]})
+    unsupported_button = unsupported.content.controls[-1]
+    check("unsupported mods remain inspectable but their direct download is disabled",
+          unsupported.on_click is not None and unsupported_button.disabled
+          and "1.20.1" in unsupported_button.tooltip)
+    with patch.object(_core, "get_mod_download") as download:
+        unsupported_button.on_click(None)
+        check("unsupported download handler cannot bypass the disabled control",
+              not QueuedThread.queue and not download.called)
+    with patch.object(_core, "search_mods", side_effect=RuntimeError("offline")):
+        fns["run_mod_search"]()
+        QueuedThread.queue.pop(0)()
+        check("failed searches stop loading and provide a retry action",
+              not results_view.disabled
+              and not any(isinstance(control, ft.ProgressRing) for control in _walk(results_view))
+              and any(isinstance(control, ft.Text) and control.value == "Retry" for control in _walk(results_view)))
     QueuedThread.queue.clear()
     row = rowbuild({"project_id": "progress", "title": "Progress"})
     counts = []

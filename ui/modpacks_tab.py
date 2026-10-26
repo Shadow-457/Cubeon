@@ -457,7 +457,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 page.update()
                 return
             try:
-                mods = core.list_mods(p["mc_version"], p["loader"])
+                mods = core.list_mods(p["mc_version"], p["loader"],
+                                      profile_key=p["key"])
             except Exception as ex:
                 mods_column.controls.append(ft.Text(f"Couldn't read mods: {ex}", size=12, color=DANGER))
                 page.update()
@@ -521,7 +522,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                     out = modpacks_backend.export_mrpack(
                         name, version, p["mc_version"], p["loader"], picked, dest,
                         description=(desc_field.value or "").strip(),
-                        summarize_cb=cb_status,
+                        summarize_cb=cb_status, profile=p["key"],
                     )
                     create_status.value = f"Saved to {out} ✓"
                     create_status.color = ACCENT

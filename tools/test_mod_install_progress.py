@@ -101,7 +101,8 @@ def run_install(*, deps=None, installed=(), fail=(), meta_project=None,
         return list(deps or [])
 
     mods.required_dependencies = _fake_required_deps
-    mods.installed_project_ids = lambda mc_version=None, loader=None: set(installed)
+    mods.installed_project_ids = (
+        lambda mc_version=None, loader=None, version_id=None: set(installed))
 
     if meta_project:
         # The sidecar download_mod would normally have written, so the install

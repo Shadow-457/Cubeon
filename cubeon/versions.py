@@ -8,7 +8,9 @@ import os
 import re
 import shutil
 import threading
+import sys
 import time
+from contextlib import contextmanager
 
 log = logging.getLogger(__name__)
 
@@ -20,10 +22,46 @@ mll = LazyModule("minecraft_launcher_lib")
 
 from . import local_cache
 from . import net
-from .paths import MINECRAFT_DIR
+from .paths import MINECRAFT_DIR, INSTANCE_META_FILENAME
 
 
 _MAX_INHERITS_DEPTH = 10
+
+# Version ids whose install is running in THIS process. A folder being written
+# must never be reported as an incomplete install: the seed step writes the
+# version json before the client jar arrives, so a rescan during that window
+# used to paint "incomplete install" over a download that was working fine.
+# The registry also keeps startup cleanup from deleting a live download (belt
+# and braces with the mtime grace period in unfinished_install_reason()).
+_active_installs: set[str] = set()
+_active_installs_lock = threading.Lock()
+
+
+def active_installs() -> set[str]:
+    """Snapshot of version ids currently being installed in this process."""
+    with _active_installs_lock:
+        return set(_active_installs)
+
+
+def install_in_progress(version_id: "str | None") -> bool:
+    """True while install_version() is writing this version's folder."""
+    if not version_id:
+        return False
+    with _active_installs_lock:
+        return version_id in _active_installs
+
+
+@contextmanager
+def _active_install(version_id: str):
+    with _active_installs_lock:
+        if version_id in _active_installs:
+            raise RuntimeError(f"Minecraft {version_id} is already installing.")
+        _active_installs.add(version_id)
+    try:
+        yield
+    finally:
+        with _active_installs_lock:
+            _active_installs.discard(version_id)
 
 
 def _plain_filename(name: str) -> bool:
@@ -192,9 +230,17 @@ def get_installed_versions() -> list[dict]:
     # including ones that are only partially installed (missing the jar,
     # missing libraries, etc.) - those get surfaced as "incomplete" rather
     # than silently hidden, so it's clear why they won't launch yet.
+    active = active_installs()
     for folder in os.listdir(versions_dir):
         folder_path = os.path.join(versions_dir, folder)
         if not os.path.isdir(folder_path):
+            continue
+        if folder in active:
+            # This folder belongs to an install running right now. It is not
+            # installed yet, and the json that _seed_version_json writes
+            # before the jar is not a broken install either - surfacing it as
+            # "(incomplete)" mid-download is the 2026-10-26 report. The
+            # install worker rescans when it actually finishes.
             continue
 
         json_files = sorted(f for f in os.listdir(folder_path)
@@ -292,19 +338,43 @@ def get_installed_versions() -> list[dict]:
                        if f.endswith(".json")) \
             if os.path.isdir(folder_path) else []
         if not jsons:
-            found[vid] = _demote_incomplete(
-                entry, "This version's metadata is missing.")
+            if vid in active or entry.get("folder") in active:
+                found.pop(vid, None)  # mid-install, not a broken install
+            else:
+                found[vid] = _demote_incomplete(
+                    entry, "This version's metadata is missing.")
             continue
         canonical_json = entry["folder"] + ".json"
         json_name = canonical_json if canonical_json in jsons else jsons[0]
         data = _load_version_json(folder_path, json_name)
         if data is None:
-            found[vid] = _demote_incomplete(
-                entry, "This version's metadata is unreadable.")
+            if vid in active or entry.get("folder") in active:
+                found.pop(vid, None)
+            else:
+                found[vid] = _demote_incomplete(
+                    entry, "This version's metadata is unreadable.")
             continue
         problem = _client_jar_problem(folder_path, data)
         if problem:
-            found[vid] = _demote_incomplete(entry, problem)
+            if vid in active or entry.get("folder") in active:
+                # The install is still writing this folder; keep it out of the
+                # list until it either finishes or cleans itself up.
+                found.pop(vid, None)
+            else:
+                found[vid] = _demote_incomplete(entry, problem)
+
+    # Instance sidecars: a cloned pack instance carries its own display name
+    # and profile. Without this every clone read as "1.21.11 (Fabric)" and
+    # looked like a duplicate of the loader row it was cloned from.
+    for vid, entry in found.items():
+        folder = entry.get("folder") or vid
+        sidecar = _read_instance_sidecar(folder)
+        if not sidecar:
+            continue
+        entry["instance"] = sidecar
+        name = sidecar.get("name")
+        if isinstance(name, str) and name.strip():
+            entry["display_name"] = name.strip()
 
     # Display order: newest game version first, so vanilla "1.21.11" and
     # "1.21.11 (Fabric)" sit next to each other instead of being scattered
@@ -403,6 +473,8 @@ def unfinished_install_reason(folder: str) -> "str | None":
     """
     if not _plain_filename(folder):
         return None
+    if install_in_progress(folder):
+        return None  # a live download, never a leftover to sweep
     folder_path = os.path.join(MINECRAFT_DIR, "versions", folder)
     if not os.path.isdir(folder_path):
         return None
@@ -589,6 +661,23 @@ def extract_mc_version(version_id: str) -> str:
     return match.group(1) if match else raw
 
 
+def _read_instance_sidecar(folder: str) -> dict | None:
+    """The `_cubeon_instance.json` record inside a version folder, or None.
+
+    Read directly (not through mods.py) so this scan stays free of the mod
+    stack; a bad sidecar just means "legacy install"."""
+    if not folder or os.path.basename(folder) != folder:
+        return None
+    path = os.path.join(MINECRAFT_DIR, "versions", folder,
+                        INSTANCE_META_FILENAME)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def suggest_friendly_name(version_id: str, folder_name: str) -> str:
     """Builds a readable label like '1.21.1 (Fabric)' or '1.20.4 (TLauncher)'
     from whatever messy id/folder name we found.
@@ -754,6 +843,10 @@ class _DownloadCancelled(Exception):
 
 _live_cancel_bridges: "list[_InstallCancelBridge]" = []
 _bridges_lock = threading.Lock()
+# mll imports mutable globals into several modules. Keep patch lifetimes
+# serial (and reentrant for a loader's base install), so one worker cannot
+# restore another worker's downloader while it is still using it.
+_mll_patch_lock = threading.RLock()
 
 _MIRROR_TIMEOUT = (15, 60)  # (connect, read-between-bytes) - a stalled
 # connection must never hang the install forever, but a slow one that keeps
@@ -804,7 +897,7 @@ def _install_session():
 #: for an answer we already have. Size+mtime is the same evidence the instance
 #: list trusts between launches, and rewriting a file changes its mtime, so a
 #: stale entry can never vouch for new bytes.
-_VERIFIED_FILES: "dict[str, tuple[int, int]]" = {}
+_VERIFIED_FILES: "dict[str, tuple[int, int, str | None]]" = {}
 _verified_lock = threading.Lock()
 
 
@@ -831,6 +924,14 @@ def _mll_modules() -> list:
             continue
         if (hasattr(mod, "download_file")
                 or hasattr(mod, "install_minecraft_version")):
+            mods.append(mod)
+    # mll 8's unified loaders use _internal.mod_loader.* modules rather
+    # than the deprecated top-level fabric/forge functions.
+    for name, mod in tuple(sys.modules.items()):
+        if (name.startswith("minecraft_launcher_lib.") and mod is not None
+                and (hasattr(mod, "download_file")
+                     or hasattr(mod, "install_minecraft_version"))
+                and mod not in mods):
             mods.append(mod)
     return mods
 
@@ -868,22 +969,22 @@ def _make_resilient_download_file():
                 return True
         return False
 
-    def _remember(path) -> None:
+    def _remember(path, sha1) -> None:
         try:
             stat = os.stat(path)
         except OSError:
             return
         with _verified_lock:
-            _VERIFIED_FILES[str(path)] = (stat.st_size, stat.st_mtime_ns)
+            _VERIFIED_FILES[str(path)] = (stat.st_size, stat.st_mtime_ns, sha1)
 
-    def _verified(path) -> bool:
+    def _verified(path, sha1) -> bool:
         try:
             stat = os.stat(path)
         except OSError:
             return False
         with _verified_lock:
             return _VERIFIED_FILES.get(str(path)) == (stat.st_size,
-                                                      stat.st_mtime_ns)
+                                                      stat.st_mtime_ns, sha1)
 
     def _wait(attempt, retry_after=None) -> None:
         """Backoff between attempts. Retry-After wins when the server sends one
@@ -898,7 +999,11 @@ def _make_resilient_download_file():
                             min(float(retry_after), _DOWNLOAD_RETRY_AFTER_CAP))
         except (TypeError, ValueError):
             pass
-        time.sleep(delay)
+        deadline = time.monotonic() + delay
+        while time.monotonic() < deadline:
+            if _stopped():
+                raise _DownloadCancelled()
+            time.sleep(min(0.1, max(0, deadline - time.monotonic())))
 
     def download_file(url, path, callback=None, sha1=None, lzma_compressed=False,
                       session=None, minecraft_directory=None, overwrite=False):
@@ -906,11 +1011,13 @@ def _make_resilient_download_file():
             callback = {}
         if minecraft_directory is not None:
             check_path_inside_minecraft_directory(minecraft_directory, path)
+        if _stopped():
+            raise _DownloadCancelled()
         if os.path.isfile(path) and not overwrite:
             if sha1 is None:
                 return False
-            if _verified(path) or get_sha1_hash(path) == sha1:
-                _remember(path)
+            if _verified(path, sha1) or get_sha1_hash(path) == sha1:
+                _remember(path, sha1)
                 return False
         try:
             os.makedirs(os.path.dirname(path))
@@ -921,18 +1028,18 @@ def _make_resilient_download_file():
         headers = {"user-agent": get_user_agent()}
         http = _install_session()
         clean = os.path.basename(path)
+        part_path = str(path) + ".part"
         last_err = None
         for attempt in range(_DOWNLOAD_ATTEMPTS):
             if _stopped():
                 raise _DownloadCancelled()
-            # Resume: bytes already in the target are a prefix of the body, so
-            # ask for the rest. An lzma body is decompressed whole in memory,
-            # and an overwrite means the caller wants a fresh copy.
+            # Only staged bytes are resumable. A checksum-invalid final file
+            # is never assumed to be a prefix, and remains intact on failure.
             offset = 0
             if not lzma_compressed and not overwrite:
                 try:
-                    if os.path.isfile(path):
-                        offset = os.path.getsize(path)
+                    if os.path.isfile(part_path):
+                        offset = os.path.getsize(part_path)
                 except OSError:
                     offset = 0
             req_headers = dict(headers)
@@ -959,7 +1066,7 @@ def _make_resilient_download_file():
                     # bad guess. Deleting means the retry sends no Range, so
                     # this can only ever happen once per download.
                     try:
-                        os.remove(path)
+                        os.remove(part_path)
                     except OSError:
                         pass
                     last_err = _MllDownloadError(
@@ -972,9 +1079,20 @@ def _make_resilient_download_file():
                     # function exists to close.
                     raise _MllDownloadError(
                         f"{clean} is not on the server (HTTP {status})")
-                if status == 206 and not offset:
-                    status = 200  # a range we never asked for: take it whole
-                with open(path, "ab" if status == 206 else "wb") as fh:
+                if status == 206:
+                    match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)",
+                                         resp.headers.get("Content-Range", ""))
+                    if (not match or int(match[1]) != offset
+                            or int(match[2]) + 1 != int(match[3])):
+                        # Appending the wrong range corrupts a file even when
+                        # the server returns a superficially successful 206.
+                        try:
+                            os.remove(part_path)
+                        except OSError:
+                            pass
+                        raise ValueError("Invalid download range")
+                written = 0
+                with open(part_path, "ab" if status == 206 else "wb") as fh:
                     if lzma_compressed:
                         fh.write(lzma.decompress(resp.content))
                     else:
@@ -986,6 +1104,13 @@ def _make_resilient_download_file():
                             if not chunk:
                                 break
                             fh.write(chunk)
+                            written += len(chunk)
+                if not lzma_compressed and not resp.headers.get("Content-Encoding"):
+                    length = resp.headers.get("Content-Length")
+                    if length is not None and written != int(length):
+                        raise ValueError("Download ended before all bytes arrived")
+                    if status == 206 and os.path.getsize(part_path) != int(match[3]):
+                        raise ValueError("Incomplete download range")
             except _DownloadCancelled:
                 raise
             except _MllDownloadError:
@@ -1000,18 +1125,21 @@ def _make_resilient_download_file():
                 except Exception:
                     pass
             if sha1 is not None:
-                checksum = get_sha1_hash(path)
+                checksum = get_sha1_hash(part_path)
                 if checksum != sha1:
                     # A resumed file that still does not match is not a prefix
                     # of this body: throw it away and take the whole file.
                     try:
-                        os.remove(path)
+                        os.remove(part_path)
                     except OSError:
                         pass
                     last_err = InvalidChecksum(url, path, sha1, checksum)
                     _wait(attempt)
                     continue
-            _remember(path)
+            if _stopped():
+                raise _DownloadCancelled()
+            os.replace(part_path, path)
+            _remember(path, sha1)
             return True
         if isinstance(last_err, _MllDownloadError):
             raise last_err
@@ -1062,6 +1190,16 @@ class _PatchedMllDownloads:
             setattr(mod, name, replacement)
 
     def __enter__(self):
+        while not _mll_patch_lock.acquire(timeout=0.1):
+            if self._bridge is not None and self._bridge.should_stop():
+                raise _DownloadCancelled()
+        try:
+            return self._enter_locked()
+        except BaseException:
+            self.__exit__()
+            raise
+
+    def _enter_locked(self):
         with _bridges_lock:
             if self._bridge is not None:
                 _live_cancel_bridges.append(self._bridge)
@@ -1095,6 +1233,8 @@ class _PatchedMllDownloads:
                     setattr(mod, name, original)
                 except Exception:
                     pass  # a fake mll that rejects rebinding - nothing to undo
+            self._saved.clear()
+        _mll_patch_lock.release()
         return False
 
 
@@ -1299,24 +1439,20 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
         bridge = None
     folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
     json_path = os.path.join(folder, version_id + ".json")
-    # Seed the version json ourselves (see _seed_version_json) - without this,
-    # mll answers the missing json with a silent, un-timed 4 MB manifest fetch
-    # before its first progress callback, which is the "it prepares for a long
-    # time" the user sees on a first install. It carries the same cancel
-    # bridge as the mll call below, so Cancel works during this step too.
-    try:
-        _seed_version_json(version_id, folder, json_path, status_cb, _maximum,
-                           _progress, bridge)
-    except _DownloadCancelled as ex:
-        raise RuntimeError(
-            "The download was cancelled.") from ex
+    # Did this attempt create the version folder, or is it re-installing over
+    # one that was already there? A failed FRESH install must leave nothing
+    # behind: the seeded json alone would otherwise sit in the list wearing
+    # "(incomplete)" until the next startup sweep (2026-10-26 report).
+    folder_existed = os.path.isdir(folder)
     jar_sizes_before = _jar_sizes(folder)
 
     def _drop_attempt_jars() -> None:
         """Removes only the jar files THIS failed attempt is responsible for:
         new files, or a known name whose size changed (mll overwrote it with
         a partial download - the pre-attempt bytes are gone either way).
-        Anything pre-existing and size-unchanged survives."""
+        Anything pre-existing and size-unchanged survives. A folder this
+        attempt created is removed entirely, so a failed fresh install never
+        lingers as an "(incomplete)" instance."""
         if not os.path.isdir(folder):
             return
         for name in os.listdir(folder):
@@ -1333,54 +1469,75 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
                 os.remove(path)
             except OSError:
                 pass  # the scan's integrity pass will still flag it
+        if not folder_existed:
+            shutil.rmtree(folder, ignore_errors=True)
         status_cb("Download interrupted - partial files cleaned up. "
                   "Reconnect and try again.")
 
-    try:
+    with _active_install(version_id):
+        # Seed the version json ourselves (see _seed_version_json) - without
+        # this, mll answers the missing json with a silent, un-timed 4 MB
+        # manifest fetch before its first progress callback, which is the "it
+        # prepares for a long time" the user sees on a first install. It
+        # carries the same cancel bridge as the mll call below, so Cancel works
+        # during this step too.
         try:
-            # Always patched - a cancellable install is not the only one that
-            # needs timeouts, retries, resume and a checksum, and the repeated
-            # base pass of a loader install is skipped for every caller.
-            with _PatchedMllDownloads(bridge,
-                                      explicit_java=explicit_java):
-                mll.install.install_minecraft_version(
-                    version_id, MINECRAFT_DIR, callback=callback)
-        finally:
-            if bridge is not None:
-                bridge.release()
-    except _DownloadCancelled as ex:
-        # Same cleanup as any other failure: a half-written client jar left in
-        # the version folder is a version the list would call installed and the
-        # launcher would then try to run (the 2026-09-17 report). Assets and
-        # libraries are NOT dropped - those resume from where they stopped.
-        _drop_attempt_jars()
-        raise RuntimeError("The download was cancelled.") from ex
-    except Exception as ex:
-        _drop_attempt_jars()
-        if isinstance(ex, _MllDownloadError):
-            # Our downloader writes for the user ("client.jar is not on the
-            # server (HTTP 404)"); that text is the whole point of it.
-            raise RuntimeError(f"The download failed: {ex}.") from ex
-        raise RuntimeError(
-            f"The download was interrupted ({ex.__class__.__name__}). "
-            "Your files were cleaned up - reconnect and install again.") from ex
+            _seed_version_json(version_id, folder, json_path, status_cb,
+                               _maximum, _progress, bridge)
+        except _DownloadCancelled as ex:
+            _drop_attempt_jars()
+            raise RuntimeError(
+                "The download was cancelled.") from ex
 
-    # mll "succeeded" - prove it. The version json it wrote lists the exact
-    # size and sha1 of the client jar; anything else is a corrupted download.
-    if not os.path.isfile(json_path):
-        _drop_attempt_jars()
-        raise RuntimeError(
-            "The installer finished but didn't write the version metadata. "
-            "Try installing again.")
-    try:
-        with open(json_path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (json.JSONDecodeError, OSError, UnicodeError) as ex:
-        _drop_attempt_jars()
-        raise RuntimeError(
-            f"The version metadata it downloaded is unreadable ({ex}). "
-            "Delete this version and install again.") from ex
-    problem = _client_jar_problem(folder, data, want_sha1=True)
-    if problem:
-        _drop_attempt_jars()
-        raise RuntimeError(problem)
+        try:
+            try:
+                # Always patched - a cancellable install is not the only one
+                # that needs timeouts, retries, resume and a checksum, and the
+                # repeated base pass of a loader install is skipped for every
+                # caller.
+                with _PatchedMllDownloads(bridge,
+                                          explicit_java=explicit_java):
+                    mll.install.install_minecraft_version(
+                        version_id, MINECRAFT_DIR, callback=callback)
+            finally:
+                if bridge is not None:
+                    bridge.release()
+        except _DownloadCancelled as ex:
+            # Same cleanup as any other failure: a half-written client jar left
+            # in the version folder is a version the list would call installed
+            # and the launcher would then try to run (the 2026-09-17 report).
+            # Assets and libraries are NOT dropped - those resume from where
+            # they stopped.
+            _drop_attempt_jars()
+            raise RuntimeError("The download was cancelled.") from ex
+        except Exception as ex:
+            _drop_attempt_jars()
+            if isinstance(ex, _MllDownloadError):
+                # Our downloader writes for the user ("client.jar is not on the
+                # server (HTTP 404)"); that text is the whole point of it.
+                raise RuntimeError(f"The download failed: {ex}.") from ex
+            raise RuntimeError(
+                f"The download was interrupted ({ex.__class__.__name__}). "
+                "Your files were cleaned up - reconnect and install again."
+            ) from ex
+
+        # mll "succeeded" - prove it. The version json it wrote lists the exact
+        # size and sha1 of the client jar; anything else is a corrupted
+        # download.
+        if not os.path.isfile(json_path):
+            _drop_attempt_jars()
+            raise RuntimeError(
+                "The installer finished but didn't write the version metadata. "
+                "Try installing again.")
+        try:
+            with open(json_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError, UnicodeError) as ex:
+            _drop_attempt_jars()
+            raise RuntimeError(
+                f"The version metadata it downloaded is unreadable ({ex}). "
+                "Delete this version and install again.") from ex
+        problem = _client_jar_problem(folder, data, want_sha1=True)
+        if problem:
+            _drop_attempt_jars()
+            raise RuntimeError(problem)

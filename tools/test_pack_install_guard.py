@@ -77,7 +77,7 @@ def main():
     modpacks.MINECRAFT_DIR = game_dir
     modpacks.install_version = lambda *a, **k: None
     modpacks.install_mod_loader = lambda lid, mc, *a, **k: f"{lid}-loader-{mc}"
-    modpacks.get_profile_dir = lambda mc, loader: profile_dir
+    modpacks.get_profile_dir = lambda mc, loader, version_id=None: profile_dir
 
     pack = os.path.join(scratch, "guard.mrpack")
     _minimal_mrpack(pack)
@@ -251,11 +251,9 @@ def main():
           "core.pack_install_for(\n                    core.extract_mc_version(version_id))"
           in main_src,
           "_begin_install_and_launch is reached directly from the Java dialog")
-    check("prefetch: stands down while a pack owns the version",
-          "if core.pack_install_for(_prefetch_mc):" in main_src
-          and "cancel.is_set() or core.pack_install_for(_prefetch_mc)"
-          in main_src,
-          "two mll installers on one version folder race on the same jars")
+    check("selection starts no hidden download that could race a pack install",
+          "prefetch_version(" not in main_src,
+          "downloads start only through the explicit main action")
     check("doctor: skips a profile a pack is still writing",
           "if core.pack_install_for(mc):" in main_src
           and "Skip WITHOUT" in main_src,
@@ -263,9 +261,11 @@ def main():
     check("wiring: the button repaints when the claim changes",
           "core.add_pack_install_listener(_sync_play_button)" in main_src,
           "otherwise INSTALLING... outlives a cancel or lingers after success")
+    _play_branch = main_src.split('elif key == "play":', 1)[-1].split(
+        "except Exception", 1)[0]
     check("wiring: Play-tab entry re-derives the button",
-          "_reconcile_running_button()\n            # Also re-derive the big button"
-          in main_src,
+          "_reconcile_running_button()" in _play_branch
+          and "_sync_play_button()" in _play_branch,
           "a claim made while the Play tab was hidden must be visible on return")
 
     print(f"\n{_passed} passed, {_failed} failed")

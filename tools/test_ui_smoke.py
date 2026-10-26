@@ -239,9 +239,17 @@ check("legacy toggle not on the play tab", "show snapshots" not in text)
 print("\n3. the Play tab is wired")
 check("username field present", "username" in text)
 check("version selector present", "version" in text)
-for loader in ("fabric", "quilt", "forge", "neoforge"):
-    check(f"loader segment {loader!r} present", loader in text)
-check("the vanilla loader segment is back", "vanilla" in text.lower())
+# The loader is chosen when an instance is DOWNLOADED and fixed afterwards
+# (2026-10-26 user ask). The Play card therefore shows a read-only instance
+# type, never a row of loader segments to switch between.
+check("the Play card shows a read-only instance type",
+      "instance type" in text)
+check("the current loader is named", "vanilla" in text.lower()
+      or "fabric" in text.lower())
+check("no loader segmented switcher is mounted",
+      not any(type(c).__name__ == "CupertinoSlidingSegmentedButton"
+              for c in walk(page.controls[0])),
+      "the Play card must not let the loader be changed after install")
 check("play button present", "play" in text)
 
 print("\n4. crash explanations (pure logic, no UI)")
@@ -1170,8 +1178,18 @@ check("a buried dialog closes without popping the one above",
       not _d1.open and _d2.open and _d2 in _dlgpage._dialogs.controls)
 
 _cd.show_snack(_dlgpage, "toast test", bgcolor="#123456")
-check("show_snack mounts a SnackBar via the same stack",
-      len(_dlgpage.snackbars) == 1 and _dlgpage.snackbars[0].open)
+# 2026-10-25: the bottom SnackBar was replaced by the top-right toast stack.
+# `ui.toast.install(page)` swaps cubeon.dialogs.show_snack for the toast, so
+# the durable contract is: the module function is the toast, and the page got
+# its single toast host in the overlay (cards are appended by a worker thread).
+import ui.toast as _toast
+_hosts = [c for c in _dlgpage.overlay
+          if getattr(c, "data", None) == "toast-host"]
+check("show_snack routes through the top-right toast",
+      _cd.show_snack is _toast.show and len(_hosts) == 1
+      and not _dlgpage.snackbars,
+      f"patched={_cd.show_snack is _toast.show} hosts={len(_hosts)} "
+      f"snackbars={len(_dlgpage.snackbars)}")
 
 # And the app must not call the removed APIs anywhere.
 _src_all = ""
@@ -1369,6 +1387,18 @@ check("icon worker repaints the list region only",
 # --- Stats tab (2026-09-09) ----------------------------------------------------
 _stats_src = open(os.path.join(_app_root, "ui", "stats_tab.py"), encoding="utf-8").read()
 _main_src = open(os.path.join(_app_root, "main.py"), encoding="utf-8").read()
+
+# --- the doctor's visible entry point lives on the Play card (2026-10-25) ------
+# It used to be a "Fix problems" button in Mods/Texture/Shader -> Installed. The
+# user asked for it next to PLAY as "Fix crash", and for it to check everything.
+check("Fix crash sits on the Play card, not in the Mods installed header",
+      'data="play-fix-crash"' in _main_src
+      and "fix_crash_button" in _main_src
+      and "repair_btn" not in _mods_src,
+      "the doctor action must move next to PLAY; the Mods header keeps the status line")
+check("Fix crash checks every doctor section",
+      "include=None" in _main_src,
+      "Fix crash must run mods + resource packs + shaders + modpacks + plugins")
 check("stats tab exists and is wired into nav + lazy builders",
       "def build_stats_tab" in _stats_src
       and '("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats")' in _main_src
@@ -1662,10 +1692,12 @@ try:
                        profile_username_field=_right, friends_service=None,
                        refresh_avatars=lambda: None, set_status=lambda value: None,
                        time=time, logging=app.logging,
-                       thread_safe_ui=types.SimpleNamespace(refresh=_refreshed.append),
+                       thread_safe_ui=types.SimpleNamespace(refresh=_refreshed.append,
+                                                            TREE_LOCK=threading.RLock()),
                        threading=types.SimpleNamespace(Timer=_ManualTimer, Thread=_QueuedThread,
                                                        Lock=threading.Lock, RLock=threading.RLock))
     _name_probe = _ui_functions(_main_src, ["_name_validate_into", "_publish_username",
+        "_commit_launch_username",
         "_cancel_pending_name", "_fire_pending_name", "on_name_keystroke"], _name_scope,
         '_name_state = {"timer": None, "pending": None, "field": None, "generation": 0}\n'
         '_name_lock = threading.RLock()\n_name_sync_lock = threading.Lock()')
@@ -1681,6 +1713,14 @@ try:
           and _name_probe["_name_state"]["timer"] is _new_timer)
     _new_timer.fire()
     check("newest username timer commits and mirrors", _names["username"] == _left.value == "Bobby")
+    _right.value = "pnl"
+    _name_probe["on_name_keystroke"](_right)
+    _stale_name_timer = _name_probe["_name_state"]["timer"]
+    _name_probe["_commit_launch_username"]("Shadoww__")
+    _stale_name_timer.fire()
+    check("Play retires a stale Account username timer",
+          _names["username"] == _left.value == _right.value == "Shadoww__"
+          and _name_probe["_name_state"]["field"] is None)
     _entered, _release, _committed = threading.Event(), threading.Event(), threading.Event()
     def _slow_sync(value):
         if value["username"] == "Carol":
@@ -1743,7 +1783,9 @@ try:
 
     from ui.appearance_preview import AppearancePreview
     _orbit = AppearancePreview({"active_skin": None})
-    check("the 3D preview supports dragging in both axes", callable(_orbit.gesture.on_pan_update))
+    check("the 3D preview rotates through buttons only",
+          type(_orbit.gesture).__name__ == "Container"
+          and not hasattr(_orbit.gesture, "on_pan_update"))
     check("preview keeps a native scene mounted rather than swapping frames",
           isinstance(_orbit.scene, ft.Stack) and _orbit.gesture.content is _orbit.scene)
 
@@ -1985,7 +2027,7 @@ check("the FPS boost switch is built in main.py",
       "main.py lost the Play-menu switch")
 check("the boost switch sits in the PLAY card, defined before play_tab",
       _src_main.index("fps_boost_switch = ft.Switch(")
-      < _src_main.index("play_tab = ft.Column("),
+      < _src_main.index("play_tab = ft.Stack("),
       "the switch must exist before the Play tab builds (UnboundLocalError)")
 check("OFF actively restores vanilla graphics at launch",
       "restore_vanilla_look" in open(os.path.join(_app_root, "cubeon", "launch.py"),
@@ -2074,15 +2116,24 @@ def _probe_toggle(vid, installed, support_map, installed_loaders):
         install_version=_rec("install_version"),
         list_installed_modpacks=lambda: [],
     )
+    import cubeon.instances as _instance_info
     scope = {
         "core": _core,
+        "instance_info": _instance_info,
         "state": {"mod_loader": "vanilla", "installed": set(installed),
+                  "installed_meta": {i: {"id": i} for i in installed},
                   "pending_loader_install": None},
         "LOADER_IDS": list(cubeon.mod_loaders.SUPPORTED_LOADERS),
         "loader_check_cache": {vid: dict(support_map)},
         "version_dropdown": _Ctrl(value=vid),
         "loader_toggle": _Ctrl(selected_index=0, disabled=False),
         "loader_status_text": _Ctrl(value="", visible=False),
+        # The Play card shows a READ-ONLY loader readout instead of the
+        # switcher (2026-10-26); lock_loader_to_installed repaints it.
+        "loader_readout": _Ctrl(value=""),
+        "loader_note": _Ctrl(value=""),
+        "thread_safe_ui": types.SimpleNamespace(
+            refresh=lambda *a, **k: None),
         "style_loader_segments": _rec("style_loader_segments"),
         "refresh_mods_list": _rec("refresh_mods_list"),
         "update_hero": _rec("update_hero"),
@@ -2109,7 +2160,8 @@ def _probe_toggle(vid, installed, support_map, installed_loaders):
     )
     probe = _ui_functions(
         _src_main,
-        ["lock_loader_to_installed", "on_loader_toggle_change"],
+        ["lock_loader_to_installed", "on_loader_toggle_change",
+         "_paint_loader_readout"],
         scope,
         prelude=prelude)
     # The probe's locals() carry the prelude's `_calls`; the closures' globals
@@ -2153,6 +2205,27 @@ check("switching back to Vanilla disarms the pending install",
       and _scope["state"]["mod_loader"] == "vanilla",
       str(_scope["state"]))
 
+# Regression (2026-10-25): a vanilla install and a fabric-loader sibling share
+# one base version. Selecting the vanilla id while the switcher happened to say
+# Fabric used to keep Fabric ("it is installed for this version"), so the Mods
+# tab showed the Fabric profile and accepted mods for a vanilla folder. The
+# selected id's own descriptor must win.
+_sibling = "fabric-loader-0.19.5-1.21.11"
+_probe2, _calls2, _scope2 = _probe_toggle(
+    "1.21.11", installed={"1.21.11", _sibling},
+    support_map={"fabric": (True, True), "quilt": (True, False),
+                 "forge": (True, False), "neoforge": (True, False)},
+    installed_loaders=[_sibling])
+_scope2["state"]["mod_loader"] = "fabric"
+_scope2["loader_toggle"].selected_index = _scope2["LOADER_IDS"].index("fabric")
+_probe2["lock_loader_to_installed"]("1.21.11", _scope2["loader_check_cache"]["1.21.11"])
+check("a vanilla install keeps Vanilla even with a Fabric sibling installed",
+      _scope2["state"]["mod_loader"] == "vanilla"
+      and _scope2["loader_toggle"].selected_index
+      == _scope2["LOADER_IDS"].index("vanilla"),
+      f"mod_loader={_scope2['state']['mod_loader']!r} "
+      f"idx={_scope2['loader_toggle'].selected_index}")
+
 # Regression (2026-10-15): with NOTHING installed the dropdown value is None and
 # state["running_version"] is None, so a bare == in on_version_selected matched
 # None == None and painted QUIT GAME out of nowhere - the user saw it appear the
@@ -2190,26 +2263,27 @@ check("the Play root builds its background through the picker",
       "background_image_name(getattr(theme, \"ACTIVE_TEMPLATE\", None)"
       in _main_src)
 
-# --- custom window frame (Windows prototype, 2026-10-17) ---------------------
+# --- custom title bar (Windows + Linux, 2026-10-17 / 2026-10-26) -----------
 # User report with a screenshot from the Windows VM: the OS title bar is a
 # second, off-design-system "Cubeon" header stacked above the branded top bar,
-# so the window reads as unfinished. The fix is opt-in (`custom_window_chrome`)
-# and Windows-only: a frameless window whose own top bar becomes the title bar.
+# so the window reads as unfinished. The fix is a frameless window whose own
+# top bar becomes the title bar. Supported on Windows and Linux (Linux defaults
+# ON since 2026-10-26), macOS excluded - see cubeon/winchrome.py.
 #
-# This block exists because main()'s chrome branch NEVER runs on the Linux dev
-# box or in CI (the flag is Windows-only), so without building the widgets here
-# an AttributeError in them would only ever surface on a user's machine.
+# This block builds the widgets FOR REAL so an AttributeError in them cannot
+# only ever surface on a user's machine.
 from ui.window_chrome import (  # noqa: E402
     build_window_controls, build_resize_edges, set_maximized_glyph,
     set_resize_edges_visible,
 )
 
-print("\n13b. custom window frame (Windows): opt-in, gated, and buildable")
+print("\n13b. custom title bar (Windows + Linux): gated, and buildable")
 
-check("the custom frame is opt-in and defaults to the native one",
+check("the custom frame has a persisted config key",
       '"custom_window_chrome": False' in
       open(os.path.join(_app_root, "cubeon", "config.py"), encoding="utf-8").read(),
-      "a prototype must ship OFF")
+      "the Windows default stays the native frame; Linux defaults ON via "
+      "winchrome.custom_chrome_enabled")
 check("the frame is enabled by one policy call, not a raw platform test in main",
       "winchrome.custom_chrome_enabled(cfg)" in _src_main
       and "_custom_chrome = winchrome.custom_chrome_enabled(cfg)" in _src_main,
@@ -2324,16 +2398,20 @@ set_resize_edges_visible(_edges, False)
 check("the hot-zones can be parked (a maximized window cannot be resized)",
       all(e.visible is False for e in _edges))
 
-check("the Settings row exists but is Windows-gated",
+check("the Settings row exists on every supported platform",
       "custom_chrome_cb" in _src_main and "custom_chrome_cb=custom_chrome_cb" in _src_main
       and "custom_chrome_cb" in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read()
-      and "custom_chrome_cb is not None else []" in open(
+      and "if custom_chrome_cb is not None:" in open(
           os.path.join(_app_root, "ui", "settings_tab.py"), encoding="utf-8").read(),
-      "off Windows there is no checkbox and no row")
-check("off Windows the row is absent from the built UI",
-      not any("custom window frame" in t for t in all_text(page.controls[0])),
-      "a toggle that can never do anything is worse than no toggle")
+      "macOS keeps the native frame, so the row is absent there")
+_overlay_text = []
+for _o in getattr(page, "overlay", []) or []:
+    _overlay_text.extend(all_text(_o))
+check("the Linux build mounts the Custom title bar row",
+      sys.platform.startswith("linux")
+      and any("custom title bar" in t for t in _overlay_text),
+      "the toggle is in the Account+Settings popup, not the Play tab")
 
 print(f"\n{passed} passed, {failed} failed")
 print("Smoke test complete: " + ("FAIL" if failed else "PASS"))

@@ -1,4 +1,4 @@
-"""Windows-only custom window decoration: the policy half (no Flet here).
+"""Custom window decoration (Windows + Linux): the policy half (no Flet here).
 
 WHY THIS EXISTS
 ---------------
@@ -7,25 +7,25 @@ carries TWO headers stacked: the system bar (app icon + "Cubeon" + min/max/
 close) and Cubeon's own branded top bar (cube mark, wordmark, nav icons).
 Reported from the Windows VM on 2026-10-17 with a screenshot: the native bar
 sits outside the design system and duplicates the brand, so the window reads as
-"unfinished" instead of as Cubeon.
+"unfinished" instead of as Cubeon. The same double header shows on Linux/GTK
+under most desktops, and the user asked for the branded frame there too
+(2026-10-26).
 
 The fix is a FRAMELESS window whose EXISTING top bar becomes the title bar:
 `ft.WindowDragArea` for move + double-click-maximize, our own min/max/close
 buttons painted on the Cubeon palette (`ui/window_chrome.py`), and explicit
 edge hot-zones wired to `Window.start_resizing` for resize.
 
-WHY IT IS OPT-IN, AND WHY WINDOWS ONLY
+WHY IT IS A FLAG
 - The flag is `custom_window_chrome` (Settings > "Custom window frame"), and
-  the env var ``CUBEON_CUSTOM_CHROME`` overrides it either way so the VM can
-  flip it without touching config.json. Default OFF: the native path stays the
-  safe default until the frameless window has been verified on real Windows.
-- Windows only, deliberately. The window lifecycle on Linux/GTK in this repo is
-  load-bearing and fragile (see agents/docs/module-map.md - the hidden start,
-  the three-way reveal, the OpenGL-frame timeout), and a custom frame buys
-  nothing there.
-- It cannot be verified from the Linux dev box: Wine does not honour flet's
-  hidden start, so the reveal path under a frameless window is a real-Windows
-  question. That is exactly why this is a flag and not a rewrite.
+  the env var ``CUBEON_CUSTOM_CHROME`` overrides it either way so a machine can
+  flip it without touching config.json.
+- Default ON for Linux (the desktop the user runs, 2026-10-26 ask) and OFF for
+  Windows (the frameless reveal still needs a real-Windows check). An explicit
+  config value always wins, and ``CUBEON_CUSTOM_CHROME=0`` is the escape hatch
+  if a frameless window ever misbehaves on a user's machine.
+- macOS is excluded: the window lifecycle there is untested and the app has no
+  Mac-specific reveal work.
 
 WHAT LIVES HERE
 Everything decidable without a display: the enablement policy, the geometry of
@@ -100,14 +100,18 @@ RESIZE_EDGES = (
 def custom_chrome_enabled(cfg, *, platform=None, env=None) -> bool:
     """Whether the frameless custom frame should be used.
 
-    True only when the platform is Windows AND the user asked for it - via the
-    ``CUBEON_CUSTOM_CHROME`` env var (truthy OR falsy, it wins outright) or the
-    ``custom_window_chrome`` config key.
+    Supported on Windows and Linux (macOS is excluded). The
+    ``CUBEON_CUSTOM_CHROME`` env var wins outright in both directions; an
+    explicit ``custom_window_chrome`` config value is next; otherwise Linux
+    defaults ON (2026-10-26 user ask) and Windows defaults OFF until the
+    frameless reveal is verified there.
 
     Never raises: a malformed config (or a cfg-like object with no .get) must
-    fall back to the native frame rather than take the launcher down with it.
+    fall back to the platform default rather than take the launcher down.
     """
-    if (sys.platform if platform is None else platform) != "win32":
+    plat = sys.platform if platform is None else platform
+    supported = plat == "win32" or str(plat).startswith("linux")
+    if not supported:
         return False
     env = os.environ if env is None else env
     try:
@@ -122,9 +126,14 @@ def custom_chrome_enabled(cfg, *, platform=None, env=None) -> bool:
             return False
         # An unparseable value is not an instruction - fall through to config.
     try:
-        return bool(cfg.get(CONFIG_KEY, False))
+        configured = cfg.get(CONFIG_KEY, None)
     except Exception:
-        return False
+        configured = None
+    if configured is not None:
+        return bool(configured)
+    # No explicit choice: Linux gets the branded frame by default, Windows
+    # keeps the native one until its reveal path has been checked on a VM.
+    return str(plat).startswith("linux")
 
 
 def maximize_state(event_name, current):

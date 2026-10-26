@@ -247,6 +247,12 @@ class FriendsService:
         self._lock = threading.RLock()
         self._metadata_lock = threading.RLock()
         self._peer_metadata = {}
+        # whitelist.json is polled with the roster. Cache the parsed set by
+        # the file's stat signature so a 30-friend roster does not re-read and
+        # re-parse the same JSON twice a second. Keyed by version because a
+        # server can be switched while the launcher is open.
+        self._whitelist_lock = threading.Lock()
+        self._whitelist_cache = {}
         self._username_lock = threading.RLock()
         self._minecraft_username = None
         # Active P2P world session, or None.
@@ -766,12 +772,27 @@ class FriendsService:
                     self._remember_metadata(row, handle)
 
     def peer_metadata(self, handle) -> dict:
+        if isinstance(handle, str):
+            canon = friends.canonical_name(handle) or ""
+            if canon:
+                self._remember_roster(self.client.roster)
+        return self._peer_metadata_now(handle)
+
+    def _peer_metadata_now(self, handle, metadata=None, *,
+                           self_canon=None, self_uid=None,
+                           self_username=None) -> dict:
+        """Resolve one peer against an already-refreshed metadata snapshot.
+
+        `roster_payload` refreshes `_peer_metadata` once and then resolves
+        every friend; going through `peer_metadata()` for each row made the
+        same snapshot get re-scanned O(n) times per poll. This variant does
+        no disk/roster work: the caller owns the snapshot and the self
+        identity (which otherwise re-reads identity.json per friend)."""
         name = handle if isinstance(handle, str) else ""
         canon = friends.canonical_name(name) or ""
-        if not canon and not isinstance(handle, dict):
-            data = {}
+        if metadata is not None:
+            data = dict(metadata.get(canon, {}))
         else:
-            self._remember_roster(self.client.roster)
             with self._metadata_lock:
                 data = dict(self._peer_metadata.get(canon, {}))
         if isinstance(handle, dict):
@@ -780,9 +801,12 @@ class FriendsService:
         else:
             uid = friends.canonical_uid(data.get("uid")) or ""
             username = friends.minecraft_username(data.get("minecraft_username"))
-        if canon and canon == friends.canonical_name(self._my_name()):
-            uid = self._my_uid()
-            username = self._effective_username()
+        if self_canon is None:
+            self_canon = friends.canonical_name(self._my_name()) or ""
+        if canon and canon == self_canon:
+            uid = self._my_uid() if self_uid is None else self_uid
+            username = (self._effective_username()
+                        if self_username is None else self_username)
         return {"name": name, "uid": uid, "minecraft_username": username,
                 "display_name": username or (f"Cubeon ID {uid}" if uid else "Player")}
 
@@ -817,8 +841,20 @@ class FriendsService:
         bridge."""
         roster = self.client.roster or {}
         self._remember_roster(roster)
+        # Resolve the whole roster against ONE metadata snapshot and ONE read
+        # of our own identity. peer_metadata() would re-run _remember_roster
+        # and identity.json for every friend, which is O(n^2) disk work on the
+        # 1-2s poll the mod drives.
+        with self._metadata_lock:
+            metadata = dict(self._peer_metadata)
+        my_name = self._my_name()
+        my_canon = friends.canonical_name(my_name) or ""
+        my_uid = self._my_uid()
+        my_username = self._effective_username()
         you = friends.current_name() or ""
-        you_metadata = self.peer_metadata(you)
+        you_metadata = self._peer_metadata_now(
+            you, metadata, self_canon=my_canon,
+            self_uid=my_uid, self_username=my_username)
         requests = {key: [r for r in (roster.get(key) or [])
                           if isinstance(r, str) and r]
                     for key in ("requests_in", "requests_out")}
@@ -842,7 +878,9 @@ class FriendsService:
                 msgs = list(room["msgs"]) if room else []
                 read = self._chat_read.get(conv, 0)
             last = msgs[-1] if msgs else None
-            meta = self.peer_metadata(name)
+            meta = self._peer_metadata_now(
+                name, metadata, self_canon=my_canon,
+                self_uid=my_uid, self_username=my_username)
             out.append({
                 **meta,
                 "online": bool(f.get("online")),
@@ -863,15 +901,23 @@ class FriendsService:
             })
         return {
             "you": you,
-            "you_uid": self._my_uid(),
+            "you_uid": my_uid,
             "you_minecraft_username": you_metadata["minecraft_username"],
             "you_display_name": you_metadata["display_name"],
             "connected": bool(self.client.is_connected),
             "available": bool(self.client.is_available),
             "friends": out,
             **requests,
-            "requests_in_details": [self.peer_metadata(r) for r in requests["requests_in"]],
-            "requests_out_details": [self.peer_metadata(r) for r in requests["requests_out"]],
+            "requests_in_details": [
+                self._peer_metadata_now(r, metadata, self_canon=my_canon,
+                                        self_uid=my_uid,
+                                        self_username=my_username)
+                for r in requests["requests_in"]],
+            "requests_out_details": [
+                self._peer_metadata_now(r, metadata, self_canon=my_canon,
+                                        self_uid=my_uid,
+                                        self_username=my_username)
+                for r in requests["requests_out"]],
             # Freshness fingerprint of the jar this launcher WOULD install.
             # The running mod hashes its own jar and compares; a mismatch
             # means the game is running an old mod and needs a relaunch.
@@ -893,6 +939,12 @@ class FriendsService:
         list - the mod treats fewer rows as "nothing known", never an error.
         """
         roster = self.client.roster or {}
+        self._remember_roster(roster)
+        with self._metadata_lock:
+            metadata = dict(self._peer_metadata)
+        my_canon = friends.canonical_name(self._my_name()) or ""
+        my_uid = self._my_uid()
+        my_username = self._effective_username()
         you = friends.current_name() or ""
         version_id = self.state.get("selected_version") or ""
 
@@ -903,7 +955,9 @@ class FriendsService:
         players = []
         if you:
             players.append({
-                **self.peer_metadata(you),
+                **self._peer_metadata_now(
+                    you, metadata, self_canon=my_canon,
+                    self_uid=my_uid, self_username=my_username),
                 "online": True,
                 "skin": _local_skin_name(self.cfg),
                 "cape": _local_cape_name(self.cfg),
@@ -914,7 +968,9 @@ class FriendsService:
             if you and f["name"].strip().lower() == you.lower():
                 continue
             players.append({
-                **self.peer_metadata(f["name"]),
+                **self._peer_metadata_now(
+                    f["name"], metadata, self_canon=my_canon,
+                    self_uid=my_uid, self_username=my_username),
                 "online": bool(f.get("online")),
                 # A friend's skin/cape lives on their launcher; the shared
                 # backend serves the pixels to the game itself (CSL), so the
@@ -942,10 +998,33 @@ class FriendsService:
         """
         if not version_id:
             return set()
+        core = _core()
         try:
-            return {str(n).strip().lower() for n in _core().get_whitelist(version_id)}
+            path = os.path.join(core.get_server_dir(version_id), "whitelist.json")
+            stat = os.stat(path)
+            signature = (stat.st_dev, stat.st_ino, stat.st_size,
+                         stat.st_mtime_ns)
+        except Exception:
+            # No server, no whitelist file, or a core without get_server_dir
+            # (test doubles): read uncached. The parse guard below still
+            # turns an unreadable file into an empty set.
+            try:
+                return {str(n).strip().lower()
+                        for n in core.get_whitelist(version_id)}
+            except Exception:
+                return set()
+        with self._whitelist_lock:
+            cached = self._whitelist_cache.get(version_id)
+            if cached and cached[0] == signature:
+                return set(cached[1])
+        try:
+            names = frozenset(str(n).strip().lower()
+                              for n in core.get_whitelist(version_id))
         except Exception:
             return set()
+        with self._whitelist_lock:
+            self._whitelist_cache[version_id] = (signature, names)
+        return set(names)
 
     @staticmethod
     def _quality_line(p: dict) -> str:

@@ -225,8 +225,9 @@ def is_registered() -> bool:
     return ENTRY_NAMES <= (registered_names() | pending_names())
 
 
-def is_installed(mc_version: str | None, loader: str | None) -> bool:
-    """Whether the CSL jar is in the (mc_version, loader) mod profile.
+def is_installed(mc_version: str | None, loader: str | None,
+                 version_id: str | None = None) -> bool:
+    """Whether the CSL jar is in this instance's mod profile.
 
     Matches on the recorded Modrinth slug or the filename, so a jar the user
     dropped in by hand still counts - re-downloading over someone's manual
@@ -234,7 +235,7 @@ def is_installed(mc_version: str | None, loader: str | None) -> bool:
     """
     if not mc_version or loader not in MOD_CAPABLE_LOADERS:
         return False
-    for mod in list_mods(mc_version, loader):
+    for mod in list_mods(mc_version, loader, version_id=version_id):
         slug = (mod.get("slug") or "").lower()
         name = (mod.get("display_name") or "").lower()
         if CSL_MODRINTH_SLUG in slug or CSL_MODRINTH_SLUG in name:
@@ -484,8 +485,9 @@ def remove_pending_entries() -> list[str]:
     return removed
 
 
-def install(mc_version: str, loader: str, progress_cb=None) -> str:
-    """Downloads the CSL jar into the (mc_version, loader) profile.
+def install(mc_version: str, loader: str, progress_cb=None,
+            version_id: str | None = None) -> str:
+    """Downloads the CSL jar into this instance's mod profile.
 
     Returns a short status string. Raises nothing the caller has to handle -
     a missing build or a dead network is reported, not thrown, because this
@@ -503,7 +505,7 @@ def install(mc_version: str, loader: str, progress_cb=None) -> str:
         download_mod(
             file_info["url"], file_info["filename"], progress_cb=progress_cb,
             slug=CSL_MODRINTH_SLUG, mc_version=mc_version, loader=loader,
-            hashes=file_info.get("hashes"),
+            hashes=file_info.get("hashes"), version_id=version_id,
         )
     except Exception as ex:
         return f"download failed ({ex.__class__.__name__})"
@@ -512,7 +514,8 @@ def install(mc_version: str, loader: str, progress_cb=None) -> str:
 
 
 def ensure_ready(mc_version: str | None, loader: str | None,
-                  *, manage: bool = True, status_cb=None) -> dict:
+                  *, manage: bool = True, status_cb=None,
+                  version_id: str | None = None) -> dict:
     """Everything needed for skins and capes to work on the next launch.
 
     Called from launch_game() before mods are synced into the game folder, so
@@ -532,7 +535,7 @@ def ensure_ready(mc_version: str | None, loader: str | None,
     if not manage:
         withdrawn = remove_pending_entries()
         result["registered"] = bool(registered_names())
-        result["installed"] = is_installed(mc_version, loader)
+        result["installed"] = is_installed(mc_version, loader, version_id)
         result["detail"] = "skin-mod management is off"
         if withdrawn:
             result["detail"] += f"; withdrew queued {', '.join(sorted(withdrawn))}"
@@ -548,14 +551,14 @@ def ensure_ready(mc_version: str | None, loader: str | None,
         result["detail"] = "no mod loader selected - skins and capes need one"
         return result
 
-    if is_installed(mc_version, loader):
+    if is_installed(mc_version, loader, version_id):
         result["installed"] = True
         result["detail"] = "CustomSkinLoader already installed"
     else:
         if status_cb:
             status_cb("Installing CustomSkinLoader")
-        detail = install(mc_version, loader)
-        result["installed"] = is_installed(mc_version, loader)
+        detail = install(mc_version, loader, version_id=version_id)
+        result["installed"] = is_installed(mc_version, loader, version_id)
         result["detail"] = detail
 
     if written:

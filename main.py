@@ -14,7 +14,6 @@ The code uses Flet for UI and relies on launcher_core.py for backend logic
 # Standard library imports
 import logging
 
-import base64    # The Account panel's skin/cape previews are inlined as base64 (no file: src)
 import os          # For file path/mtime handling (used for avatar cache-busting)
 import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
 import subprocess  # Detached launcher fallback when execv cannot replace us
@@ -206,8 +205,9 @@ from cubeon import eta as cubeon_eta  # Measured "time left" for downloads
 from cubeon import status_text as cubeon_status  # strips "<... at 0x...>" from labels
 from cubeon import version_art  # Per-version wiki banners for the Play tab
 from cubeon import dialogs as cubeon_dialogs  # Cross-Flet open/close/snackbar plumbing
-from ui.skin_tab import build_skin_section, DEFAULT_CAPE_PREVIEW_SRC  # Imports the skin section builder, now embedded in the Profile dialog
+from ui.skin_tab import build_skin_section  # Imports the skin section builder, now embedded in the Profile dialog
 from ui.mods_tab import build_mods_tab  # Imports the mods_tab builder function
+from ui import toast as cubeon_toast  # Top-right slide-in notifications (replaces bottom snackbars)
 from ui.modpacks_tab import build_modpacks_tab  # Imports the modpacks_tab builder function
 from ui.server_tab import build_server_tab  # Imports the server_tab builder function
 from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetics counters
@@ -229,8 +229,8 @@ from cubeon.friends_service import FriendsService  # Headless owner of friends/P
 from cubeon.features import friends_enabled  # Development vs. public (no-Friends) builds
 from ui.chat_tab import build_chat_tab  # Chat tab: friends list, requests, encrypted chat
 from ui.screenshot_gallery import build_screenshot_gallery_tab
-from ui.versions import (  # Play tab version management: picker, cards, instances manager
-    VersionBanner, VersionPicker, InstanceCards, InstancesManager,
+from ui.versions import (  # Play tab version management: picker + side panel
+    VersionBanner, VersionPicker,
 )
 from ui.window_chrome import (  # Windows-only custom frame widgets (policy: cubeon/winchrome.py)
     build_window_controls, set_maximized_glyph,
@@ -257,7 +257,7 @@ from cubeon.theme import (  # noqa: E402  (kept with the other token setup)
     TEXT, TEXT_DIM, TEXT_FAINT, DANGER, ON_DANGER, INFO, WARNING,
     FONT_DISPLAY, FONT_BODY, FONT_MONO,
     FONT_URLS, THEME, RADIUS, RADIUS_LG,
-    CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT, ACCENT_DEEP,
+    CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT, ACCENT_TINT_HI, ACCENT_DEEP,
     card as glass_card,
 )
 from cubeon import theme  # for theme.pixel_divider / theme.section_label
@@ -390,9 +390,11 @@ def _explain_exit(code: int, lines=None) -> str:
         # The JVM names the offending option on its own line, then exits with
         # "Could not create the Java Virtual Machine" - so the option evidence
         # and the failure evidence are two different lines.
-        if any("unrecognized option" in ln.lower() for ln in lines):
-            return ("Crashed: Java rejected one of the launch options. Reset "
-                    "the JVM arguments in Settings.")
+        rejected = next((ln.split(":", 1)[-1].strip() for ln in lines
+                         if "unrecognized option" in ln.lower()), None)
+        if rejected:
+            return (f"Crashed: Java rejected launch option {rejected[:80]}. "
+                    "The instance may need a newer Java runtime. Check Java in Settings.")
         return ("Crashed: Java couldn't be started. Install Java, or set its "
                 "path in Settings.")
     # A missing loader entrypoint means the classpath was wrong, so Fabric
@@ -1295,6 +1297,11 @@ async def main(page: ft.Page):
         "installed_meta": {v["id"]: v for v in _initial_versions},  # Full info per installed version
         "process": None,                                     # Will hold the subprocess when game is running
         "mod_loader": "fabric",  # fabric | quilt | forge | neoforge - which mod loader is selected
+        # An EXPLICIT switcher choice for one version. lock_loader_to_installed
+        # honours it so a user can launch a Fabric instance as Vanilla (or on a
+        # sibling loader) without the next refresh snapping it back. Cleared
+        # when the selected version changes.
+        "loader_choice": None,
         "running_version": None,  # launch id currently running, or None - guards instance delete
         "installing_version": None,  # launch id with a cancellable install in flight, or None
     }
@@ -1338,8 +1345,8 @@ async def main(page: ft.Page):
         ("mods", ft.Icons.EXTENSION_ROUNDED, "Mods"),
         ("modpacks", ft.Icons.INVENTORY_2_ROUNDED, "Modpacks"),
         ("profile", ft.Icons.CHECKROOM_ROUNDED, "Cosmetics"),
-        ("server", ft.Icons.DNS_ROUNDED, "Servers"),
         ("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats"),
+        ("server", ft.Icons.DNS_ROUNDED, "Servers"),
     ]
     # The Chat tab only exists in builds that ship the social layer; a public
     # no-Friends build stays a plain launcher with no dead nav entry.
@@ -1368,33 +1375,24 @@ async def main(page: ft.Page):
         """Restyles a nav button for the active/inactive state.
 
         Two shapes live in nav_buttons: top-bar ICON buttons (marker
-        `cubeon_top_icon`: an icon over an underline bar) and the server
+        `cubeon_top_icon`: an icon over a label) and the server
         sub-tab CHIPS (icon + label rows, the old sidebar style). The marker
         attribute is set at build time; Flet controls are plain Python
         objects, so a private attribute survives page.update() just fine.
         """
         if getattr(btn, "cubeon_top_icon", False):
+            # Rail tile: icon over a label. The sliding nav_blob is the
+            # highlight; the tile only carries a faint wash and brighter
+            # text (2026-10-26: the underline bar and the BETA chip are gone).
             btn.data = is_active
-            # A faint green wash behind the icon plus the underline - the
-            # active tab reads at a glance without a bright slab. The width
-            # (not just the colour) changes, which is what lets the bar GROW
-            # out from under the icon instead of blinking: animate_size on the
-            # underline, animate_scale on the icon, and the tint fades through
-            # the button's own `animate`.
             btn.bgcolor = ACCENT_TINT if is_active else "transparent"
             icon_ctrl = btn.content.controls[0]
-            underline = btn.content.controls[1]
+            label_ctrl = btn.content.controls[1]
             icon_ctrl.animate_scale = NAV_ANIM if motion.transforms() else None
-            underline.animate_scale = NAV_ANIM if motion.transforms() else None
-            icon_ctrl.color = ACCENT if is_active else TEXT_DIM
+            icon_ctrl.color = TEXT if is_active else TEXT_DIM
+            label_ctrl.color = TEXT if is_active else TEXT_DIM
+            label_ctrl.weight = ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500
             icon_ctrl.scale = 1.0 if is_active else 0.94
-            underline.bgcolor = ACCENT if is_active else "transparent"
-            # Grow/shrink from the middle. The width stays 24 (see
-            # build_top_nav_button): a scale is a transform, so nothing
-            # reflows and the nav row never shifts under the cursor.
-            underline.scale = ft.Scale(scale_x=1 if is_active else 0,
-                                       scale_y=1,
-                                       alignment=ft.Alignment.CENTER)
             return
         # The active state is a *quiet* one: a faint green wash and a small
         # accent bar on the left edge - not a solid green slab.
@@ -1415,57 +1413,47 @@ async def main(page: ft.Page):
         hovering = e.data == "true"
         btn.bgcolor = ROW_HOVER if hovering else "transparent"
         btn.content.controls[0].color = TEXT if hovering else TEXT_DIM
-        if not getattr(btn, "cubeon_top_icon", False):
-            btn.content.controls[1].color = TEXT if hovering else TEXT_DIM
+        # Chips: controls[1] is the label. Top buttons: controls[1] is also
+        # the label (icon, label, underline), so the rule is the same.
+        btn.content.controls[1].color = TEXT if hovering else TEXT_DIM
         btn.update()
 
     def build_top_nav_button(key, icon, label):
-        """An icon-only top-bar button: the icon, and the small green
-        underline that marks the active tab (the mockup's active affordance -
-        a bar under the icon, not a filled slab).
+        """One rail tile: an icon over a small label, nothing else.
 
-        ALL THREE parts of the affordance animate rather than snapping
-        (2026-10-16): the underline GROWS out from under the icon (its width
-        changes, so `animate_size` has something to interpolate), the icon
-        itself lifts a hair (`animate_scale`), and the tint behind the button
-        fades (`animate`). One curve and one duration for all three, so the
-        switch reads as a single gesture instead of three separate jumps."""
+        The tile has exactly two children (icon, label) - `_style_nav_button`
+        and the hover handler only read [0] and [1].
+        """
         is_active = key == active_tab["value"]
+        icon_ctrl = ft.Icon(icon, size=22, color=TEXT if is_active else TEXT_DIM,
+                            scale=1.0 if is_active else 0.94,
+                            animate_scale=NAV_ANIM)
+        label_ctrl = ft.Text(
+            label, size=11, max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            text_align=ft.TextAlign.CENTER,
+            weight=ft.FontWeight.W_700 if is_active else ft.FontWeight.W_500,
+            color=TEXT if is_active else TEXT_DIM,
+        )
         btn = ft.Container(
             content=ft.Column(
-                [
-                    ft.Icon(icon, size=21, color=ACCENT if is_active else TEXT_DIM,
-                            scale=1.0 if is_active else 0.94,
-                            animate_scale=NAV_ANIM),
-                    # The underline. ITS WIDTH IS ALWAYS 24: the bar grows via
-                    # `scale_x` (0 -> 1, anchored at the icon's centre), which
-                    # is a paint-only transform. Animating the real width was
-                    # the first attempt and it was visibly janky - the column
-                    # sizes to max(icon, underline), so a width that changes
-                    # 0<->24 resized every button and shifted the whole centred
-                    # nav row by a pixel or two every frame.
-                    ft.Container(width=24, height=3, border_radius=RADIUS,
-                                 bgcolor=ACCENT if is_active else "transparent",
-                                 scale=ft.Scale(scale_x=1 if is_active else 0,
-                                                scale_y=1,
-                                                alignment=ft.Alignment.CENTER),
-                                 animate_scale=NAV_ANIM),
-                ],
-                spacing=5,
+                [icon_ctrl, label_ctrl],
+                spacing=3,
+                alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
             ),
             bgcolor=ACCENT_TINT if is_active else "transparent",
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=13, vertical=7),
+            border_radius=RADIUS_LG,
+            width=NAV_BTN_W, height=NAV_BTN_H,
+            alignment=ft.Alignment.CENTER,
+            padding=ft.padding.Padding.symmetric(horizontal=4, vertical=4),
             data=is_active,
             on_click=lambda e, k=key: switch_tab(k),
             on_hover=_on_nav_hover,
             animate=NAV_ANIM,
-            # EXACTLY the label, no "· Ctrl+3" suffix: an icon-only nav button
-            # has no visible Text, so every test/tool that navigates by name
-            # reads THIS string as the button's label (tools/_fuzz_common.py
-            # ctrl_text + goto, tools/ux_capture.py). Hints live in F1's list.
+            # EXACTLY the label, no suffix: tests/tools navigate by this
+            # string (tools/_fuzz_common.py ctrl_text + goto, ux_capture).
             tooltip=label,
         )
         btn.cubeon_top_icon = True
@@ -1473,19 +1461,20 @@ async def main(page: ft.Page):
         return btn
 
     # ------------------------------------------------------------------
-    # Geometry is fixed by construction: every top icon is an icon (21) over a
-    # 24-wide underline with 13px side padding, so each button is 50x43 and
-    # the row spacing is 6. Nothing here measures live controls, which keeps
-    # the animation independent of layout timing.
-    NAV_BTN_W, NAV_BTN_H, NAV_GAP = 50, 43, 6
-    NAV_ROW_WIDTH = (len(top_nav_items) * (NAV_BTN_W + NAV_GAP)) - NAV_GAP
+    # Geometry is fixed by construction: every sidebar row is a fixed
+    # 190x40 box with 4px gaps, so the sliding highlight is positioned by
+    # arithmetic alone (no live measuring, no layout-timing race).
+    # Compact rail tiles: one icon over a small uppercase label. Sized from
+    # the (fixed) sidebar width in _build_sidebar.
+    NAV_BTN_W, NAV_BTN_H, NAV_GAP = 76, 58, 4
+    NAV_COL_HEIGHT = (len(top_nav_items) * (NAV_BTN_H + NAV_GAP)) - NAV_GAP
     nav_blob = ft.Container(
         width=NAV_BTN_W,
         height=NAV_BTN_H,
         left=0,
         top=0,
         bgcolor=ACCENT_TINT,
-        border_radius=RADIUS,
+        border_radius=RADIUS_LG,
         offset=ft.Offset(0, 0),
         animate_offset=NAV_ANIM,
         animate_opacity=NAV_ANIM,
@@ -1503,7 +1492,11 @@ async def main(page: ft.Page):
             return None
 
     def _move_nav_blob(old_key, new_key):
-        """Move the fixed-size highlight with one client-side transform."""
+        """Move the fixed-size highlight with one client-side transform.
+
+        Vertical now that the nav is a sidebar column: the blob slides down a
+        fixed (height + gap) pitch, so no measuring and no reflow.
+        """
         old_idx, new_idx = _nav_index(old_key), _nav_index(new_key)
         if new_idx is None:
             nav_blob.opacity = 0
@@ -1512,7 +1505,8 @@ async def main(page: ft.Page):
             return False
         nav_blob.opacity = 1
         nav_blob.animate_offset = NAV_ANIM if motion.transforms() else None
-        nav_blob.offset = ft.Offset(new_idx * (NAV_BTN_W + NAV_GAP) / NAV_BTN_W, 0)
+        nav_blob.offset = ft.Offset(
+            0, new_idx * (NAV_BTN_H + NAV_GAP) / NAV_BTN_H)
         return True
 
     def build_nav_button(key, icon, label, *, icon_size=18, indent=0):
@@ -1588,14 +1582,13 @@ async def main(page: ft.Page):
     season_perch.visible = bool(cfg.get("season_pet", False)) and season_info.seasonal
 
     # -----------------------------------------------------------------
-    # CUSTOM WINDOW FRAME (Windows prototype) - the title-bar buttons
+    # CUSTOM WINDOW FRAME (Windows + Linux) - the title-bar buttons
     # -----------------------------------------------------------------
     # A frameless window has no OS buttons, so the app draws them. They are only
-    # built when the frame is actually custom (Windows + the flag); otherwise
-    # `chrome_row` is an empty placeholder and the native buttons do the job.
+    # built when the frame is actually custom (see winchrome's platform policy);
+    # otherwise `chrome_row` is None and the native buttons do the job.
     # The widgets live in ui/window_chrome.py so the smoke test can build and
-    # inspect them without a window (this branch never runs on the Linux dev box
-    # or in CI).
+    # inspect them without a window.
     _chrome_state = {"maximized": False}
     # Fullscreen (F11) is a SEPARATE claim from maximized: fullscreen hides the
     # taskbar/panels and the frame, maximize keeps the frame. Both are tracked
@@ -1810,62 +1803,145 @@ async def main(page: ft.Page):
         # gaps, so the native frame's layout stays byte-identical to before.
         chrome_row = None
 
-    def _build_top_bar():
-        """The bar itself: brand mark on the left, the five nav icons dead
-        center, Account and Settings on the right. Account opens the identity
-        card (avatar, username, profile picture) in a dialog - the click
-        target is filled in later, once the card is built, via the
-        _account_open holder defined just below."""
-        nav_row = ft.Row(
+    # Sidebar: a FIXED-width icon rail (2026-10-26: the drag-to-resize edge,
+    # SIDEBAR_MIN/MAX and the double-click reset are gone - a rail that can be
+    # any width is a rail nobody designs for). The rail carries the nav tiles
+    # and Settings; the account chip lives in the top bar.
+    SIDEBAR_W = 92
+    sidebar_ui = {"width": SIDEBAR_W}
+
+    def _build_sidebar():
+        """The left rail: nav tiles in the middle, Settings pinned at the foot.
+
+        Every tile is a fixed-size box on a fixed pitch, so the sliding
+        highlight blob is positioned by arithmetic alone.
+        """
+        inner = SIDEBAR_W - 16
+        nav_column = ft.Column(
             [build_top_nav_button(key, icon, label)
              for key, icon, label in top_nav_items],
             spacing=NAV_GAP,
+            tight=True,
         )
-        # The blob is the first child so it paints BEHIND the icons; the row is
-        # the second. Both are fixed-size, so the Stack's size is stable and
-        # the blob's left offset is measured from the row's own origin.
+        # Blob first so it paints behind the tiles; both are fixed size, so
+        # the Stack never resizes while the highlight moves.
+        nav_blob.width = inner
         nav_stack = ft.Stack(
-            [nav_blob, nav_row],
-            width=NAV_ROW_WIDTH,
-            height=NAV_BTN_H,
+            [nav_blob, nav_column],
+            width=inner,
+            height=NAV_COL_HEIGHT,
         )
-        account_btn = ft.IconButton(
-            icon=ft.Icons.PERSON_ROUNDED, icon_size=22, icon_color=TEXT_DIM,
-            tooltip="Account",
-            # Late-bound on purpose: _open_account_panel is defined further
-            # down (after its controls), and the click resolves it then.
-            on_click=lambda e: _open_account_panel(),
-            style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
-        )
-        settings_btn = ft.IconButton(
-            icon=ft.Icons.TUNE_ROUNDED, icon_size=22, icon_color=TEXT_DIM,
-            tooltip="Settings",
-            on_click=lambda e: switch_tab("settings"),
-            style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
-        )
-        return ft.Container(
-            content=ft.Row(
-                [
-                    ft.Container(width=8),
-                    sidebar_brand,
-                    # The companion's perch lane sits with the wordmark, like a
-                    # mascot strolling a shop sign - not in the right-hand
-                    # cluster where the account/settings icons live.
-                    season_perch,
-                    ft.Row([ft.Container(expand=True), nav_stack,
-                            ft.Container(expand=True)], expand=True),
-                    account_btn,
-                    settings_btn,
-                    # Custom window frame (Windows): our own min/max/close,
-                    # because a frameless window has no OS buttons. Absent
-                    # entirely when the native frame is in charge.
-                    *([chrome_row] if chrome_row is not None else []),
-                    ft.Container(width=10),
-                ],
-                spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        # Only the rail tiles: nav_buttons also holds the server sub-tab chips,
+        # which must keep their natural width.
+        for key, _icon, _label in top_nav_items:
+            nav_buttons[key].width = inner
+
+        # Settings: the same tile shape as the nav, pinned to the bottom.
+        # (The account chip moved to the top bar; both open the same popup.)
+        settings_btn = theme.attach_hover(
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Icon(ft.Icons.TUNE_ROUNDED, size=22, color=TEXT_DIM),
+                        ft.Text("Settings", size=11, color=TEXT_DIM,
+                                weight=ft.FontWeight.W_500),
+                    ],
+                    spacing=3, tight=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                width=inner, height=NAV_BTN_H,
+                border_radius=RADIUS_LG,
+                alignment=ft.Alignment.CENTER,
+                ink=False,
+                tooltip="Settings",
+                # Late-bound: _open_account_panel is defined further down.
+                on_click=lambda e: _open_account_panel(),
             ),
-            padding=ft.padding.Padding.only(left=14, right=6, top=8, bottom=2),
+            None, ROW_HOVER,
+        )
+
+        foot = [settings_btn]
+        if _inspector_enabled:
+            # Dev-only UI inspector (CUBEON_INSPECT=1).
+            foot.append(ft.IconButton(
+                icon=ft.Icons.BUG_REPORT, icon_size=16, icon_color=TEXT_FAINT,
+                tooltip="Inspect UI",
+                size_constraints=ft.BoxConstraints(min_width=0, min_height=0),
+                width=30, height=30,
+                on_click=lambda e: _open_inspector(),
+                style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
+            ))
+
+        box = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Container(height=6),
+                    # The nav takes the flexible middle and scrolls when the
+                    # window is short; Settings stays pinned at the bottom.
+                    ft.Column(
+                        [nav_stack],
+                        spacing=0,
+                        expand=True,
+                        scroll=ft.ScrollMode.AUTO,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    # The seasonal companion (off unless enabled in Settings).
+                    ft.Row([season_perch], alignment=ft.MainAxisAlignment.CENTER),
+                    *foot,
+                ],
+                spacing=6,
+                expand=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            width=SIDEBAR_W,
+            padding=ft.padding.Padding.only(left=8, right=8, top=8, bottom=10),
+            bgcolor=SURFACE,
+            border=ft.border.Border.only(right=ft.BorderSide(1, BORDER)),
+        )
+        sidebar_ui.update({"box": box, "stack": nav_stack})
+        return box
+
+    def _build_top_bar():
+        """The slim bar above the content: brand on the left, account chip and
+        the window buttons on the right.
+
+        With the custom frame this strip is also the title bar -
+        ``WindowDragArea`` gives it move / double-click-maximize - so the
+        min/max/close cluster rides the same row. The account chip is a plain
+        tap target inside it (the drag area's pan recognizer does not consume
+        taps, same as the chrome buttons).
+        """
+        brand = ft.Container(
+            content=sidebar_brand,
+            padding=ft.padding.Padding.only(left=16),
+            alignment=ft.Alignment.CENTER_LEFT,
+        )
+        account_chip = theme.attach_hover(
+            ft.Container(
+                content=ft.Row(
+                    [sidebar_avatar, sidebar_username_text],
+                    spacing=8, tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.padding.Padding.only(left=6, right=12, top=4, bottom=4),
+                border_radius=RADIUS_LG,
+                ink=False,
+                tooltip="Account",
+                on_click=lambda e: _open_account_panel(),
+            ),
+            None, ROW_HOVER,
+        )
+        children = [brand, ft.Container(expand=True), account_chip]
+        if chrome_row is not None:
+            children += [ft.Container(width=8), chrome_row]
+        return ft.Container(
+            content=ft.Row(children, spacing=0,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            height=44,
+            bgcolor=SURFACE,
+            border=ft.border.Border.only(bottom=ft.BorderSide(1, BORDER)),
+            padding=ft.padding.Padding.only(right=6),
         )
 
     # "Signed in as" widgets - pulled out as named variables so the
@@ -1894,15 +1970,17 @@ async def main(page: ft.Page):
         bgcolor=SURFACE_HI,
     )
     sidebar_username_text = ft.Text(
-        cfg["username"], size=14, weight=ft.FontWeight.W_600,
+        cfg["username"], size=13, weight=ft.FontWeight.W_600,
         color=TEXT, font_family=FONT_MONO,
+        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
     )
 
-    # --- Profile tab: bigger avatar, upload/remove picture, username ---
-
+    # --- Account popup: compact avatar, upload/remove picture, username ---
+    # Ultra-compact on purpose (2026-10-26 user ask): the popup's top section
+    # is a single short strip now, so the settings below get the height.
     profile_dialog_avatar = ft.CircleAvatar(
         foreground_image_src=_current_avatar_src(cfg["username"]),
-        radius=48,
+        radius=24,
         bgcolor=SURFACE_HI,
     )
     # Little animated companion perched on the avatar's shoulder - pure
@@ -1910,20 +1988,21 @@ async def main(page: ft.Page):
     # Stack rather than threaded through refresh_avatars()/cfg like the
     # actual profile picture is.
     profile_parrot = ft.Image(
-        src="parrot.gif", width=40, height=46, fit=ft.BoxFit.CONTAIN,
+        src="parrot.gif", width=20, height=23, fit=ft.BoxFit.CONTAIN,
     )
     profile_avatar_with_parrot = ft.Stack(
         [
-            ft.Container(content=profile_dialog_avatar, width=96, height=96),
+            ft.Container(content=profile_dialog_avatar, width=48, height=48),
             ft.Container(
                 content=profile_parrot,
-                left=62, top=-6,  # perched over the avatar's top-right edge
+                left=31, top=-4,  # perched over the avatar's top-right edge
             ),
         ],
-        width=104, height=100,
+        width=54, height=52,
     )
     profile_dialog_username = ft.Text(
-        cfg["username"], size=20, color=TEXT, font_family=FONT_DISPLAY,
+        cfg["username"], size=16, color=TEXT, font_family=FONT_DISPLAY,
+        weight=ft.FontWeight.W_600,
     )
     profile_pfp_status = ft.Text("", size=12, color=TEXT_DIM)
 
@@ -2111,7 +2190,7 @@ async def main(page: ft.Page):
         text_style=ft.TextStyle(font_family=FONT_MONO),
         bgcolor=SURFACE_HI,
         border_radius=RADIUS,
-        height=52,
+        height=44,
         # Pencil affordance inside the field (right edge) - the field is
         # directly editable, the icon just signals "this is editable" the
         # way the target layout shows it.
@@ -2139,7 +2218,7 @@ async def main(page: ft.Page):
         return ok, name
 
     def _publish_username(generation=None):
-        with _name_lock:
+        with thread_safe_ui.TREE_LOCK, _name_lock:
             if generation is None:
                 generation = _name_state["generation"]
             if generation != _name_state["generation"]:
@@ -2199,6 +2278,17 @@ async def main(page: ft.Page):
             _name_state["pending"] = None
             _name_state["generation"] += 1
 
+    def _commit_launch_username(name):
+        """A Play click commits the latest name and retires older field edits."""
+        with thread_safe_ui.TREE_LOCK, _name_lock:
+            _cancel_pending_name()
+            _name_state["field"] = None
+            cfg["username"] = name
+            for field in (username_field, profile_username_field):
+                field.value = name
+                field.error_text = None
+                thread_safe_ui.refresh(field)
+
     def _fire_pending_name(e=None, generation=None):
         with _name_lock:
             if generation is not None and generation != _name_state["generation"]:
@@ -2215,7 +2305,7 @@ async def main(page: ft.Page):
         pub(generation)
 
     def on_name_keystroke(field):
-        with _name_lock:
+        with thread_safe_ui.TREE_LOCK, _name_lock:
             _name_validate_into(field)
             _cancel_pending_name()
             _name_state["field"] = field
@@ -2275,19 +2365,19 @@ async def main(page: ft.Page):
     profile_pfp_upload_btn = ft.Container(
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.UPLOAD_ROUNDED, color=ON_ACCENT, size=16),
-                ft.Text("Upload", color=ON_ACCENT, weight=ft.FontWeight.W_700, size=13),
+                ft.Icon(ft.Icons.UPLOAD_ROUNDED, color=ON_ACCENT, size=14),
+                ft.Text("Upload", color=ON_ACCENT, weight=ft.FontWeight.W_700, size=12),
             ],
-            alignment=ft.MainAxisAlignment.CENTER, spacing=6, tight=True,
+            alignment=ft.MainAxisAlignment.CENTER, spacing=5, tight=True,
         ),
         bgcolor=ACCENT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=11, horizontal=18),
+        padding=ft.padding.Padding.symmetric(vertical=7, horizontal=12),
         ink=False, on_click=open_pfp_picker,
     )
     profile_pfp_remove_btn = ft.Container(
-        content=ft.Text("Remove", color=DANGER, weight=ft.FontWeight.W_700, size=13),
+        content=ft.Text("Remove", color=DANGER, weight=ft.FontWeight.W_700, size=12),
         border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=11, horizontal=18),
+        padding=ft.padding.Padding.symmetric(vertical=7, horizontal=12),
         ink=False, on_click=on_remove_pfp, alignment=ft.Alignment.CENTER,
     )
 
@@ -2310,249 +2400,165 @@ async def main(page: ft.Page):
     )
 
     # -----------------------------------------------------------------
-    # WEARING (2026-10-16 user ask: "show skin and cape" in the profile
-    # sidebar). The Cosmetics tab is where you CHANGE them; this is the "what
-    # am I wearing right now" answer inside the Account panel, which covers
-    # the whole launcher and is therefore where people actually look.
-    #
-    # Same core renderers the Cosmetics tab uses, and the same rule: the PIL
-    # work NEVER runs on the UI thread (it is a full body composite). The
-    # previews are only re-rendered when the panel opens, which is exactly
-    # when they can have gone stale.
+    # The old "Wearing" previews (skin + cape) were REMOVED on 2026-10-26
+    # (user ask: "remove the currently wear thing"). They duplicated the
+    # Cosmetics tab and ate half of the Account popup's height. refresh_wearing
+    # stays as a no-op because the open path still calls it.
     # -----------------------------------------------------------------
-    wear_skin_img = ft.Image(src="icon.svg", width=62, height=100,
-                             fit=ft.BoxFit.CONTAIN, opacity=0.35)
-    wear_skin_name = ft.Text("Default skin", size=12.5, color=TEXT,
-                             weight=ft.FontWeight.W_600)
-    wear_skin_meta = ft.Text("Not wearing a custom skin", size=10,
-                             color=TEXT_DIM)
-    wear_cape_img = ft.Image(src=DEFAULT_CAPE_PREVIEW_SRC, width=62, height=100,
-                             fit=ft.BoxFit.CONTAIN)
-    wear_cape_name = ft.Text("Cubeon Cape", size=12.5, color=TEXT,
-                             weight=ft.FontWeight.W_600)
-    wear_cape_meta = ft.Text("Shared with other players", size=10,
-                             color=TEXT_DIM)
-
-    def _wearing_png(kind, filename):
-        """Renders one preview and returns it as base64 - WORKER THREAD ONLY.
-
-        Deliberately mirrors ui/skin_tab.py: src must be base64 bytes, because
-        ft.Image.src resolves a relative string against assets_dir and these
-        files live under ~/.cubeon_launcher, nowhere near the app's assets.
-        """
-        if kind == "skin":
-            out_path = os.path.join(core.SKINS_DIR, "_account_panel_skin.png")
-            core.render_local_skin_preview(filename, out_path, scale=6)
-        else:
-            out_path = os.path.join(core.CAPES_DIR, "_account_panel_cape.png")
-            core.render_cape_preview(filename, out_path, scale=6)
-        with open(out_path, "rb") as fh:
-            return base64.b64encode(fh.read()).decode("ascii")
-
     def refresh_wearing():
-        """Repaint the two previews from the CURRENT config. Called when the
-        Account panel opens, so a change made on the Cosmetics tab is already
-        there by the time the panel finishes sliding in."""
-        skin_fn = cfg.get("active_skin")
-        cape_fn = cfg.get("active_cape")
-
-        # Captions and the no-custom-fallbacks are decided synchronously (no
-        # PIL), so the panel is never briefly wrong - only the images are late.
-        wear_skin_name.value = "Custom skin" if skin_fn else "Default skin"
-        wear_skin_meta.value = ("In use in-game" if skin_fn
-                                else "Not wearing a custom skin")
-        if not skin_fn:
-            wear_skin_img.src = "icon.svg"
-            wear_skin_img.opacity = 0.35
-        wear_cape_name.value = "Custom cape" if cape_fn else "Cubeon Cape"
-        wear_cape_meta.value = ("In use in-game" if cape_fn
-                                else "Shared with other players")
-        if not cape_fn:
-            wear_cape_img.src = DEFAULT_CAPE_PREVIEW_SRC
-
-        def _work():
-            try:
-                updates = []
-                if skin_fn and os.path.exists(core.get_custom_skin_path(skin_fn)):
-                    updates.append((wear_skin_img, _wearing_png("skin", skin_fn), 1))
-                if cape_fn and os.path.exists(core.get_custom_cape_path(cape_fn)):
-                    updates.append((wear_cape_img, _wearing_png("cape", cape_fn), None))
-                for control, src, opacity in updates:
-                    control.src = src
-                    if opacity is not None:
-                        control.opacity = opacity
-                    thread_safe_ui.refresh(control)
-            except Exception:
-                # A missing/corrupt skin file must leave the placeholder,
-                # never take the Account panel (or startup) down.
-                logging.getLogger(__name__).debug(
-                    "account panel wearing preview failed", exc_info=True)
-
-        threading.Thread(target=_work, daemon=True,
-                         name="ux-wearing-preview").start()
+        """No-op: the Wearing block is gone. Kept for the open path."""
+        return
 
     # -----------------------------------------------------------------
-    # ACCOUNT PANEL — slides in from the right edge over a dimmed scrim.
+    # ACCOUNT & SETTINGS — ONE centered popup over a dimmed scrim.
     #
-    # Flet 0.86 has no Drawer control, so it is two overlay Containers:
-    #   account_panel  animates `right` between -ACCOUNT_PANEL_W (parked
-    #                  off-screen) and 0 (open)
-    #   account_scrim  full-window dim that fades in/out and eats clicks
+    # This used to be a right-hand slide-over (a "sidebar" in the user's
+    # words). It is now a true modal popup: a fixed-size rounded card in the
+    # middle of the window, exactly like a dialog, with the account summary
+    # on top and the compacted settings below.
     #
-    #   Open:  _open_account_panel()   (wired to the top bar's person icon)
-    #   Close: _close_account_panel()  (scrim click and the ✕ button)
+    # Two overlay Containers:
+    #   account_scrim  full-window dim; fades in/out, a click closes
+    #   account_panel  full-window transparent wrapper with
+    #                  `alignment=CENTER`; the actual card is its content, so
+    #                  the popup stays centered at any window size without
+    #                  reading page.width (which is not available at build
+    #                  time and is None on the headless driver).
     #
-    # Close detail: the scrim fades out (200ms) and is hidden by a timer
-    # just after the fade ends. Hiding it instantly reads as a flicker;
-    # leaving it visible at opacity 0 would keep it swallowing every click
-    # on the launcher - so the timer matters. Its update goes through
-    # thread_safe_ui because it fires on a timer thread.
+    #   Open:  _open_account_panel()   (sidebar Account/Settings, deep links)
+    #   Close: _close_account_panel()  (scrim click, ✕, Escape)
+    #
+    # Close detail: the scrim fades out (200ms) and is hidden by a timer just
+    # after the fade ends. Leaving it visible at opacity 0 would keep it
+    # swallowing every click on the launcher - so the timer matters. Its
+    # update goes through thread_safe_ui because it fires on a timer thread.
     # -----------------------------------------------------------------
-    ACCOUNT_PANEL_W = 390
+    # The popup fills most of the window instead of being a fixed small card
+    # (user ask, 2026-10-26: "why the fuck is settings pop up have a fixed
+    # size? its so small even if my window is big"). These are the maximums;
+    # _account_panel_size() scales them to the live window and caps them so
+    # the card never touches an edge.
+    ACCOUNT_PANEL_W = 980
+    ACCOUNT_PANEL_H = 720
+    ACCOUNT_PANEL_MIN_W = 640
+    ACCOUNT_PANEL_MIN_H = 480
+    # Fraction of the window the card may use, and the gap it keeps from the
+    # window edge.
+    ACCOUNT_PANEL_W_RATIO = 0.88
+    ACCOUNT_PANEL_H_RATIO = 0.90
+    ACCOUNT_PANEL_MARGIN = 28
+    # A popup reads as a floating sheet, so it gets a slightly softer corner
+    # than the in-page cards (RADIUS_LG) and a deep shadow.
+    ACCOUNT_PANEL_RADIUS = 20
     account_badges = ft.Row(spacing=4, tight=True, visible=False)
     account_badge_state = {"generation": 0, "counts": None}
-    # The open/close choreography. ONE duration for the slide and the stretch:
-    # two different durations end at visibly different times, which reads as
-    # two things happening instead of one sheet being pulled out.
-    ACCOUNT_ANIM_MS = 260
-    # The resting squash. The panel is MOUNTED at this scale (see
-    # account_panel's `scale=`), not squashed when it opens: Flet animates from
-    # the value the client already holds, so setting the start value at open
-    # time needs a second flush on a timer - the first attempt did exactly
-    # that, and the extra frame was part of the "stucky" complaint.
-    ACCOUNT_PANEL_SQUASH = 0.04
+
+    def _account_panel_is_open():
+        return bool(account_panel.visible)
+
+    def _account_panel_size():
+        """Fit the card inside the live window, with sane fallbacks.
+
+        The headless driver has no page.width/height, so the defaults above
+        are used there; on a real page the card takes ~88% of the width and
+        ~90% of the height, capped by the maximums. That is what makes it feel
+        like a real settings window on a big monitor instead of a tiny fixed
+        box.
+        """
+        try:
+            win_w = int(getattr(page, "width", 0) or 0)
+            win_h = int(getattr(page, "height", 0) or 0)
+        except Exception:
+            win_w = win_h = 0
+        width = ACCOUNT_PANEL_W
+        height = ACCOUNT_PANEL_H
+        if win_w > 0:
+            width = min(ACCOUNT_PANEL_W,
+                        max(ACCOUNT_PANEL_MIN_W,
+                            int(win_w * ACCOUNT_PANEL_W_RATIO)))
+            width = min(width, max(ACCOUNT_PANEL_MIN_W,
+                                   win_w - ACCOUNT_PANEL_MARGIN * 2))
+        if win_h > 0:
+            height = min(ACCOUNT_PANEL_H,
+                         max(ACCOUNT_PANEL_MIN_H,
+                             int(win_h * ACCOUNT_PANEL_H_RATIO)))
+            height = min(height, max(ACCOUNT_PANEL_MIN_H,
+                                     win_h - ACCOUNT_PANEL_MARGIN * 2))
+        return width, height
 
     def _close_account_panel(e=None):
-        account_panel.right = -ACCOUNT_PANEL_W
-        # Rolls back up on the way out, mirroring the open, and leaves the
-        # panel in the exact state it is mounted in so the next open animates.
-        account_panel.scale = ft.Scale(scale_x=1, scale_y=ACCOUNT_PANEL_SQUASH,
-                                       alignment=ft.Alignment.TOP_RIGHT)
+        # Fade the card out with the scrim, then unmount it so it cannot eat
+        # clicks while invisible (the same failure mode the scrim had).
+        account_panel.opacity = 0
         account_scrim.opacity = 0
 
         def _retire_scrim():
-            # BUG this fixes: this used to call final_update(page), which only
-            # repaints when a THROTTLED update is pending - here nothing is,
-            # so the visible=False below never reached the client. The scrim
-            # (a full-window click-catcher) then stayed mounted at opacity 0
-            # forever and swallowed every click on the launcher.
-            #
-            # Guard: if the panel was REOPENED inside the 0.25s window, the
-            # scrim is legitimately visible again - hiding it now would leave
-            # an open panel with no dim and no click-catcher.
-            if account_panel.right != -ACCOUNT_PANEL_W:
+            # Guard: if the popup was REOPENED inside the 0.25s window, the
+            # scrim/panel are legitimately visible again - hiding them now
+            # would leave an open popup with no dim and no click-catcher.
+            if account_panel.opacity != 0:
                 return
             try:
+                account_panel.visible = False
                 account_scrim.visible = False
+                thread_safe_ui.refresh(account_panel)
                 thread_safe_ui.refresh(account_scrim)
             except Exception:
-                pass  # a late scrim hide must never surface as an error
+                pass  # a late hide must never surface as an error
 
         threading.Timer(0.25, _retire_scrim).start()
         # Per-control diff, NOT page.update(): a whole-page update re-syncs
         # every control in the tree (all tabs, the console, everything) -
         # visually a full-app reload and the direct cause of the jank when
-        # toggling the panel. Diffing just these two overlays paints the
-        # slide/fade animation alone.
+        # toggling the popup. Diffing just these two overlays paints the
+        # fade alone.
         thread_safe_ui.refresh(account_scrim)
         thread_safe_ui.refresh(account_panel)
 
     account_scrim = ft.Container(
-        bgcolor=ft.Colors.with_opacity(0.55, "#000000"),
+        bgcolor=ft.Colors.with_opacity(0.62, "#000000"),
         left=0, top=0, right=0, bottom=0,
         opacity=0,
         visible=False,
         ink=False,
         on_click=_close_account_panel,
-        animate_opacity=ft.Animation(200),
+        animate_opacity=ft.Animation(180),
     )
 
-    account_panel = ft.Container(
+    # The card itself. Its width/height are refreshed on every open (see
+    # _open_account_panel) so it fits the current window.
+    account_card = ft.Container(
         bgcolor=SURFACE,
         width=ACCOUNT_PANEL_W,
-        top=0,
-        bottom=0,
-        right=-ACCOUNT_PANEL_W,
-        animate_position=ft.Animation(ACCOUNT_ANIM_MS, ft.AnimationCurve.EASE_OUT_CUBIC),
-        # The "sheet of paper" half of the animation (2026-10-16 user ask:
-        # "opens like a stretched sheet of paper"). Mounted SQUASHED - see
-        # ACCOUNT_PANEL_SQUASH - so a single write inside _open_account_panel
-        # both slides and unfurls it.
-        animate_scale=ft.Animation(ACCOUNT_ANIM_MS, ft.AnimationCurve.EASE_OUT_CUBIC),
-        scale=ft.Scale(scale_x=1, scale_y=ACCOUNT_PANEL_SQUASH,
-                       alignment=ft.Alignment.TOP_RIGHT),
-        # It is docked to the right edge, so only the free (left) edge is
-        # rounded, and one soft shadow lifts it off the scrim - a sheet
-        # resting on the window rather than a slab cut into it. The blur is
-        # deliberately small: a wide blur is re-rasterised on every frame of
-        # the unfurl.
-        border_radius=ft.BorderRadius(top_left=RADIUS, top_right=0,
-                                      bottom_left=RADIUS, bottom_right=0),
+        height=ACCOUNT_PANEL_H,
+        border=ft.border.Border.all(1, BORDER),
+        border_radius=ft.BorderRadius(
+            top_left=ACCOUNT_PANEL_RADIUS, top_right=ACCOUNT_PANEL_RADIUS,
+            bottom_left=ACCOUNT_PANEL_RADIUS, bottom_right=ACCOUNT_PANEL_RADIUS),
         shadow=ft.BoxShadow(
-            blur_radius=16,
-            color=ft.Colors.with_opacity(0.45, "#000000"),
-            offset=ft.Offset(-8, 0),
+            blur_radius=36,
+            spread_radius=2,
+            color=ft.Colors.with_opacity(0.55, "#000000"),
+            offset=ft.Offset(0, 14),
         ),
-        padding=ft.padding.Padding.only(left=24, right=24, top=28, bottom=24),
-        content=ft.Column(
-            [
-                ft.Row(
-                    [
-                        ft.Text("Account", size=22, color=TEXT, font_family=FONT_DISPLAY,
-                                expand=True),
-                        ft.IconButton(
-                            icon=ft.Icons.CLOSE_ROUNDED, icon_size=20,
-                            icon_color=TEXT_DIM, tooltip="Close",
-                            on_click=_close_account_panel,
-                        ),
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                ft.Container(height=18),
-                ft.Row([profile_avatar_with_parrot], alignment=ft.MainAxisAlignment.CENTER),
-                ft.Container(height=14),
-                profile_dialog_username,
-                account_badges,
-                ft.Container(height=10),
-                profile_username_field,
-                ft.Container(height=18),
-                pixel_divider(),
-                ft.Container(height=10),
-                section_label("Profile picture"),
-                ft.Container(height=8),
-                ft.Row([profile_pfp_upload_btn, profile_pfp_remove_btn], spacing=10),
-                ft.Container(height=6),
-                profile_pfp_status,
-                ft.Container(height=18),
-                pixel_divider(),
-                ft.Container(height=10),
-                section_label("Wearing"),
-                ft.Container(height=12),
-                # Skin beside cape, the way they sit on the player in-game.
-                ft.Row(
-                    [
-                        ft.Column(
-                            [wear_skin_img, wear_skin_name, wear_skin_meta],
-                            spacing=4, tight=True,
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                        ft.Column(
-                            [wear_cape_img, wear_cape_name, wear_cape_meta],
-                            spacing=4, tight=True,
-                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        ),
-                    ],
-                    spacing=24,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                ),
-                ft.Container(height=8),
-                ft.Text("Change them on the Cosmetics tab.", size=10.5,
-                        color=TEXT_DIM),
-            ],
-            spacing=2,
-            scroll=ft.ScrollMode.AUTO,
-            expand=True,
-        ),
+        padding=ft.padding.Padding.only(left=24, right=24, top=20, bottom=18),
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        # Filled in once the Settings control tree exists (see
+        # _build_account_settings_body below): account on top, settings below.
+        content=ft.Column([], spacing=0, expand=True),
+    )
+
+    # Full-window, transparent wrapper. A non-positioned child in Flet's
+    # overlay Stack would use the Stack's own alignment; explicitly anchoring
+    # the wrapper to all four edges and centering its content is unambiguous
+    # and works on every Flet build this repo supports.
+    account_panel = ft.Container(
+        left=0, top=0, right=0, bottom=0,
+        alignment=ft.Alignment.CENTER,
+        visible=False,
+        opacity=1,
+        animate_opacity=ft.Animation(180),
+        content=account_card,
     )
     page.overlay.extend([account_scrim, account_panel])
 
@@ -2571,22 +2577,37 @@ async def main(page: ft.Page):
         thread_safe_ui.refresh(account_badges)
 
     def _open_account_panel(e=None):
-        # "Opens like a stretched sheet of paper" (user ask, 2026-10-16): the
-        # panel is MOUNTED squashed, so this ONE write unfurls it - `right`
-        # slides it in and `scale_y` stretches it down from the top-right
-        # corner, on one shared duration. No timers, one flush.
+        # Only one overlay at a time: opening the popup folds Versions away.
+        try:
+            if picker.is_open():
+                picker.close()
+        except NameError:
+            pass  # picker is built later in main(); the button can't be hit yet
+        # Fit the card to the current window before showing it. The wrapper
+        # centers it, so this is the only geometry write the popup needs.
+        card_w, card_h = _account_panel_size()
+        account_card.width = card_w
+        account_card.height = card_h
         #
-        # refresh_wearing() runs first so its caption changes ride the same
-        # refresh (its image composites are a worker thread and land later).
+        # The Wearing previews are gone (2026-10-26); refresh_wearing is a
+        # no-op kept for this open path.
         refresh_wearing()
         account_badges.controls[:] = build_badges(cubeon_milestones.load_state(), account_badge_state["counts"])
         account_badges.visible = bool(account_badges.controls)
         account_badge_state["generation"] += 1
         account_scrim.visible = True
         account_scrim.opacity = 1
-        account_panel.right = 0
-        account_panel.scale = ft.Scale(scale_x=1, scale_y=1,
-                                       alignment=ft.Alignment.TOP_RIGHT)
+        # Reopening during the close fade: cancel the fade target so the
+        # retire timer sees an open popup and leaves it mounted.
+        account_panel.visible = True
+        account_panel.opacity = 1
+        # The account fields are shared with the old panel; sync them so a
+        # rename done on the Play tab shows up here too.
+        profile_dialog_username.value = cfg["username"]
+        profile_username_field.value = cfg["username"]
+        profile_username_field.error_text = None
+        sidebar_username_text.value = cfg["username"]
+        profile_pfp_status.value = ""
         # Per-control diff (see _close_account_panel): a page.update() here
         # was the "whole app reloads" jank - it re-synced every mounted tab.
         thread_safe_ui.refresh(account_scrim)
@@ -2594,6 +2615,28 @@ async def main(page: ft.Page):
         threading.Thread(target=_scan_account_badges,
                          args=(account_badge_state["generation"],), daemon=True,
                          name="ux-account-badges").start()
+
+    def _on_page_resize(e=None):
+        """Keep the popup fitted to the window while it is open.
+
+        The card is sized on open, but a maximized window (or a drag-resize)
+        must not leave it small - that was the user's complaint about the
+        fixed size. Only the card geometry changes; no rebuild, no page.update.
+        """
+        if not _account_panel_is_open():
+            return
+        try:
+            card_w, card_h = _account_panel_size()
+            account_card.width = card_w
+            account_card.height = card_h
+            thread_safe_ui.refresh(account_card)
+        except Exception:
+            pass
+
+    try:
+        page.on_resize = _on_page_resize
+    except Exception:
+        pass  # a driver/stub page without the event still works
 
     def refresh_profile_tab():
         """Called whenever the Profile tab becomes active, so its fields
@@ -2604,31 +2647,24 @@ async def main(page: ft.Page):
         profile_username_field.error_text = None
         rebuild_skin_section()
 
-    # Brand mark - the cube icon and wordmark. Mounted at the left edge of
-    # the top bar. (The Minecraft-style nametag that used to ride after the
+    # Brand mark - the cube icon and wordmark, mounted at the top bar above the
+    # content (2026-10-26: it used to sit in the sidebar, which is a compact
+    # icon rail now). (The Minecraft-style nametag that used to ride after the
     # wordmark is gone - the player's name lives in the Account dialog.)
     sidebar_brand = ft.Row(
         [
-            ft.Image(src="cube.svg", width=32, height=32, fit=ft.BoxFit.CONTAIN),
-            ft.Text("Cubeon", size=19, color=TEXT, font_family=FONT_DISPLAY),
+            ft.Image(src="cube.svg", width=24, height=24, fit=ft.BoxFit.CONTAIN),
+            ft.Text("Cubeon", size=17, color=TEXT, font_family=FONT_DISPLAY),
         ],
         spacing=10,
     )
 
-    # The sidebar is gone (top navigation now). The brand mark mounts in the
-    # top bar; the dev-only UI inspector toggle keeps a home in the top bar's
-    # right cluster via the same _inspector_enabled flag.
+    # Compact left icon rail (nav + Account/Settings) and the branded top bar
+    # above the content. The top bar is always drawn now (the logo lives there,
+    # 2026-10-26) and doubles as the title bar under the custom frame. The
+    # dev-only UI inspector toggle is built into the sidebar.
+    sidebar = _build_sidebar()
     top_bar = _build_top_bar()
-    if _inspector_enabled:
-        # Dev-only UI inspector toggle (CUBEON_INSPECT=1): opens the live
-        # text/property editor. Sits left of the Account icon.
-        try:
-            top_bar.content.controls.insert(3, ft.IconButton(
-                icon=ft.Icons.BUG_REPORT, icon_size=18, icon_color=TEXT_FAINT,
-                tooltip="Inspect UI", on_click=lambda e: _open_inspector(),
-            ))
-        except Exception:
-            pass  # a missing dev toggle must never break the layout
 
     # -----------------------------------------------------------------
     # PLAY TAB - the main "Play" tab content
@@ -2639,7 +2675,7 @@ async def main(page: ft.Page):
     # Username input field - pre-filled with the stored username from config
     username_field = ft.TextField(
         value=cfg["username"],
-        label="Username",
+        hint_text="Username",
         border_color=BORDER,
         focused_border_color=ACCENT,
         color=TEXT,
@@ -2690,8 +2726,8 @@ async def main(page: ft.Page):
     # actually know (installed / available / unsupported) for the currently
     # selected version, instead of a static row of plain text.
     loader_segment_labels = [
-        ft.Text(core.SUPPORTED_LOADERS[lid], color=ACCENT if i == 0 else TEXT_DIM,
-                 size=12.5, weight=ft.FontWeight.W_600)
+        ft.Text(core.SUPPORTED_LOADERS[lid], color=TEXT if i == 0 else TEXT_DIM,
+                 size=12.5, weight=ft.FontWeight.W_700 if i == 0 else ft.FontWeight.W_500)
         for i, lid in enumerate(LOADER_IDS)
     ]
     # Small dot under each label - green once we've confirmed that loader is
@@ -2708,6 +2744,31 @@ async def main(page: ft.Page):
 
     loader_status_text = ft.Text("", size=11, color=TEXT_DIM, visible=False,
                                  max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+
+    # READ-ONLY loader readout (2026-10-26 user ask: "we cannot change the
+    # modloader on startup... when downloading we select a modloader and we
+    # have to stick with it on the installation"). The switcher below is kept
+    # only as an internal mirror of state["mod_loader"] for the launch path;
+    # it is NOT mounted. This label is what the Play card shows.
+    loader_readout = ft.Text("Vanilla", size=14, color=TEXT,
+                             weight=ft.FontWeight.W_700)
+    loader_note = ft.Text(
+        "Chosen when this instance was installed.",
+        size=11, color=TEXT_DIM, max_lines=2,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
+
+    def _paint_loader_readout():
+        """Show the selected INSTANCE's real loader, never a switchable choice."""
+        loader = state.get("mod_loader") or "vanilla"
+        label = core.SUPPORTED_LOADERS.get(loader, "Vanilla")
+        loader_readout.value = label
+        loader_note.value = (
+            "Vanilla instance - create a new Fabric instance for mods."
+            if loader == "vanilla" else
+            f"{label} instance - the loader is fixed at install time.")
+        thread_safe_ui.refresh(loader_readout)
+        thread_safe_ui.refresh(loader_note)
 
     # FPS boost: the Play-menu toggle (moved out of Settings on 2026-10-15).
     # ON = the launcher sets Minecraft's own speed-only graphics options at
@@ -2768,19 +2829,34 @@ async def main(page: ft.Page):
             label = loader_segment_labels[i]
             dot = loader_segment_dots[i]
             is_selected = (i == loader_toggle.selected_index)
-            base_color = ACCENT if is_selected else TEXT_DIM
-            label.color = base_color
+            # ONE selected style: bright bold text on the thumb. Everything
+            # else is dim. (The old accent-coloured selection + a separate
+            # "installed" dot made it unclear which one was actually chosen.)
+            label.color = TEXT if is_selected else TEXT_DIM
+            label.weight = ft.FontWeight.W_700 if is_selected else ft.FontWeight.W_500
+            dot.bgcolor = ft.Colors.with_opacity(0, ACCENT)   # dot retired
+            name = core.SUPPORTED_LOADERS[lid]
             if support is None or lid == "vanilla":
                 label.opacity = 1
-                dot.bgcolor = ft.Colors.with_opacity(0, ACCENT)
+                label.value = name
                 continue
             supported, installed = support.get(lid, (True, False))
             label.opacity = 1 if (supported or installed) else 0.45
-            # Green dot = already installed for this version, so switching
-            # to it will jump straight to Play instead of downloading.
-            dot_color = ACCENT if is_selected else ACCENT_DIM
-            dot.bgcolor = ft.Colors.with_opacity(1 if installed else 0, dot_color)
-        page.update()
+            # A check after the name = already installed for this version, so
+            # switching to it goes straight to Play instead of downloading.
+            label.value = f"{name} \u2713" if installed else name
+        # The switcher is one control; repaint just it instead of diffing the
+        # whole page (this runs on every version selection).
+        thread_safe_ui.refresh(loader_toggle)
+
+    def _paint_loader_region():
+        """Repaint the loader readout and its one-line status slot only.
+
+        The selection path used to call ``page.update()`` here, re-diffing the
+        whole tree two or three times per instance-row click.
+        """
+        _paint_loader_readout()
+        thread_safe_ui.refresh(loader_status_text)
 
     def refresh_loader_support(version_id):
         """Runs in the background: checks every loader's support + installed
@@ -2801,7 +2877,7 @@ async def main(page: ft.Page):
         if not version_id:
             style_loader_segments(None)
             loader_status_text.visible = False
-            page.update()
+            _paint_loader_region()
             return
 
         already_installed = version_id in state["installed"]
@@ -2814,13 +2890,13 @@ async def main(page: ft.Page):
                 loader_toggle.disabled = False
             style_loader_segments(cached)
             loader_status_text.visible = False
-            page.update()
+            _paint_loader_region()
             return
 
         loader_toggle.disabled = True
         loader_status_text.value = "Checking loader availability..."
         loader_status_text.visible = True
-        page.update()
+        _paint_loader_region()
 
         # Loader support/installed checks key off the numeric MC version, not
         # the raw dropdown id: when the selection is a loader-install row
@@ -2877,29 +2953,18 @@ async def main(page: ft.Page):
                 # Detect which one and lock the switcher to it.
                 lock_loader_to_installed(version_id, support)
                 style_loader_segments(support)
-                page.update()
+                thread_safe_ui.refresh(loader_status_text)
                 return
 
             loader_toggle.disabled = False
             style_loader_segments(support)
-            # If the currently-selected loader turned out to be unsupported
-            # for this version, fall back to the first supported one rather
-            # than silently letting the user hit "unsupported" at launch.
+            # Keep the user's install-time choice; show unsupported explicitly.
             selected_id = LOADER_IDS[loader_toggle.selected_index]
             if not support.get(selected_id, (True, False))[0]:
-                fallback = next((lid for lid in LOADER_IDS
-                                 if support.get(lid, (False, False))[0]), None)
-                if fallback and fallback != selected_id:
-                    loader_status_text.value = (
-                        f"{core.SUPPORTED_LOADERS[selected_id]} isn't available "
-                        f"for this version, switched to {core.SUPPORTED_LOADERS[fallback]}.")
-                    loader_status_text.visible = True
-                    loader_toggle.selected_index = LOADER_IDS.index(fallback)
-                    state["mod_loader"] = fallback
-                    style_loader_segments(support)
-                    refresh_mods_list()
-                    refresh_browse_for_new_profile()
-            page.update()
+                loader_status_text.value = (
+                    f"{core.SUPPORTED_LOADERS[selected_id]} isn't available for this version.")
+                loader_status_text.visible = True
+            _paint_loader_region()
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2909,13 +2974,13 @@ async def main(page: ft.Page):
         switcher stays clickable (the handler allows a switch to Vanilla and
         a re-switch): only the SELECTION is pinned to the install truth, not
         the whole control. See on_loader_toggle_change."""
-        # Prefer the loader that's already selected when it's genuinely
-        # installed for this version. A version can have more than one loader
-        # installed at once (e.g. a modpack's Fabric install plus a manual
-        # Forge one), and blindly taking the first installed loader in list
-        # order would then lock to the wrong one - clobbering the loader a
-        # modpack handoff just set. Falling back to first-installed only when
-        # the current pick isn't installed keeps old single-loader behaviour.
+        # The selected version id (and, for an isolated pack, its sidecar) names
+        # the loader this install actually runs. Do NOT inherit the switcher's
+        # current value just because SOME loader is installed for the same base
+        # version: a vanilla install and a `fabric-loader-...` sibling share a
+        # base, and preferring "fabric" made the vanilla instance look modded -
+        # the Mods tab then showed the Fabric profile and accepted installs for
+        # a folder that cannot load them (2026-10-25 report).
         current = state.get("mod_loader")
         detected = None
         # A PENDING loader install (user armed Play to add Fabric/Quilt/Forge
@@ -2926,12 +2991,27 @@ async def main(page: ft.Page):
         if (pending.get("version_id") == version_id
                 and pending.get("loader") in LOADER_IDS):
             detected = pending["loader"]
+        # An explicit switcher choice for THIS version (e.g. launch a Fabric
+        # instance as Vanilla) also outranks the on-disk default.
+        choice = state.get("loader_choice") or {}
+        if (detected is None and choice.get("version_id") == version_id
+                and choice.get("loader") in LOADER_IDS):
+            detected = choice["loader"]
+        if detected is None:
+            try:
+                meta = (state.get("installed_meta") or {}).get(version_id) or {}
+                detected = instance_info.describe(
+                    version_id, meta, None, with_mods=False, play_store={}
+                ).get("loader")
+            except Exception:
+                detected = None
+        # Safety net if the descriptor could not be read: only then fall back
+        # to the currently selected loader when it is genuinely installed.
         if detected is None and current and support.get(current, (False, False))[1]:
             detected = current
-        # Also check vanilla: a bare mc_version in installed_ids means
-        # a vanilla (loader-less) install. Vanilla is always supported
-        # and appears in LOADER_IDS, so check it explicitly if no mod
-        # loader was detected above.
+        # Last resort: a bare mc_version in installed_ids means a vanilla
+        # (loader-less) install. Vanilla is always supported and appears in
+        # LOADER_IDS, so check it explicitly if nothing was detected above.
         if detected is None and "vanilla" in LOADER_IDS:
             if core.find_installed_loader_version(state["installed"], "vanilla", version_id):
                 detected = "vanilla"
@@ -2945,12 +3025,17 @@ async def main(page: ft.Page):
         if detected in LOADER_IDS:
             loader_toggle.selected_index = LOADER_IDS.index(detected)
         else:
-            # Fallback: keep the switcher on the first option.
+            # Fallback: keep the switcher on the first option. The state must
+            # follow the switcher - assigning None here used to make the Mods
+            # tab crash while formatting "None.title()" and dropped the loader
+            # facet from Modrinth searches.
             loader_toggle.selected_index = 0
+            detected = LOADER_IDS[0]
         state["mod_loader"] = detected
         # Keep the switcher clickable: the handler allows a one-way switch
         # back to Vanilla for an installed version, and snaps anything else.
         loader_toggle.disabled = False
+        _paint_loader_readout()
         update_hero()
         update_pack_badge()
 
@@ -2975,6 +3060,8 @@ async def main(page: ft.Page):
             # pick, so a vanilla install could never gain Fabric.
             if new_loader == "vanilla":
                 state["pending_loader_install"] = None
+                state["loader_choice"] = {"version_id": version_id,
+                                          "loader": "vanilla"}
                 if state["mod_loader"] != "vanilla":
                     state["mod_loader"] = "vanilla"
                     loader_status_text.value = "Switched to Vanilla - mods won't load for this version."
@@ -2990,6 +3077,8 @@ async def main(page: ft.Page):
                 core.extract_mc_version(version_id) or version_id)
             if installed_loader:
                 state["pending_loader_install"] = None
+                state["loader_choice"] = {"version_id": version_id,
+                                          "loader": new_loader}
                 state["mod_loader"] = new_loader
                 loader_status_text.visible = False
                 style_loader_segments(cached_support)
@@ -3014,6 +3103,8 @@ async def main(page: ft.Page):
                 return
             state["pending_loader_install"] = {"version_id": version_id,
                                                "loader": new_loader}
+            state["loader_choice"] = {"version_id": version_id,
+                                      "loader": new_loader}
             state["mod_loader"] = new_loader
             loader_status_text.value = (f"{core.SUPPORTED_LOADERS[new_loader]} will be "
                                         f"installed when you press Play.")
@@ -3037,6 +3128,8 @@ async def main(page: ft.Page):
             return
         loader_status_text.visible = False
         state["mod_loader"] = new_loader
+        state["loader_choice"] = {"version_id": version_id,
+                                  "loader": new_loader}
         style_loader_segments(cached)
         refresh_mods_list()
         on_version_selected()
@@ -3046,9 +3139,8 @@ async def main(page: ft.Page):
     # online fetch includes, and toggling it re-fetches immediately).
     browse_online_row = ft.Row(
         [
-            ft.Checkbox(
-                label="Show snapshots", value=False, check_color=BG, active_color=ACCENT,
-                label_style=ft.TextStyle(color=TEXT_DIM, size=12),
+            ft.Switch(
+                value=False, active_color=ACCENT, scale=0.85,
                 on_change=lambda e: refresh_version_list(online=True),  # Reload versions when toggled
             ),
         ],
@@ -3188,7 +3280,7 @@ async def main(page: ft.Page):
         value is set).
 
         An installed loader row ("fabric-loader-0.19.5-26.1.2") is a real
-        instance the user can select from "Jump back in", but it is not always
+        instance the user can select from the version panel, but it is not always
         in the dropdown's option list - the online list is Mojang's, and a
         version installed after that list was built is missing from it too.
         Neither Flet nor the picker's label has a label to render then, so both
@@ -3225,18 +3317,39 @@ async def main(page: ft.Page):
             ft.dropdown.Option(key=version_id, text=f"{name}  {mark}")]
         thread_safe_ui.refresh(version_dropdown)
 
-    def _pick_version(key):
-        """Select a version, using an installed instance's own loader."""
+    def _pick_version(key, loader=None):
+        """Select an installed instance, or download a new one with `loader`.
+
+        The loader is chosen HERE, at download time, and then belongs to that
+        installation (2026-10-26 user ask). Installed instances ignore
+        `loader`: their loader comes from their own sidecar/id and is not
+        switchable from the Play card any more.
+        """
         _ensure_version_option(key)
         version_dropdown.value = key
-        if key in state["installed"]:
+        # Picking an instance is a fresh start: any explicit loader override
+        # from a previous visit to this version no longer applies.
+        state["loader_choice"] = None
+        if key in state["installed"] and loader in (None, "vanilla"):
             meta = (state.get("installed_meta") or {}).get(key) or {}
-            loader = instance_info.detect_loader(key, meta.get("folder"))
-            if loader in LOADER_IDS:
-                state["pending_loader_install"] = None
-                state["mod_loader"] = loader
-                loader_toggle.selected_index = LOADER_IDS.index(loader)
-        on_version_selected()
+            detected = instance_info.describe(
+                key, meta, (cfg.get("version_labels") or {}).get(key),
+                with_mods=False, play_store={})["loader"]
+            state["pending_loader_install"] = None
+            if detected in LOADER_IDS:
+                state["mod_loader"] = detected
+                loader_toggle.selected_index = LOADER_IDS.index(detected)
+        else:
+            # A not-yet-installed version: the chosen loader is armed for THIS
+            # install. Vanilla needs no loader step; any other loader is
+            # installed by do_install_and_launch after the base download.
+            chosen = loader if loader in LOADER_IDS else "vanilla"
+            state["mod_loader"] = chosen
+            loader_toggle.selected_index = LOADER_IDS.index(chosen)
+            state["pending_loader_install"] = (
+                {"version_id": key, "loader": chosen}
+                if chosen != "vanilla" else None)
+        _select_version_ui()
 
     picker = VersionPicker(
         page,
@@ -3244,19 +3357,39 @@ async def main(page: ft.Page):
         label_for=_dropdown_label,
         on_pick=_pick_version,
         on_browse_online=lambda: refresh_version_list(online=True),
-        # Bound lazily: instances_manager is built further down, and this only
-        # runs on a click. "Manage installed versions" lives in the picker now,
-        # not in the Jump back in header.
-        on_manage=lambda: instances_manager.open(),
+        # Install-time loader choice: the only place a loader can be picked
+        # (2026-10-26). The Play card's switcher is gone.
+        loaders=[(lid, core.SUPPORTED_LOADERS[lid]) for lid in LOADER_IDS],
+        instance_exists=lambda lid, mc: (
+            mc in state["installed"] if lid == "vanilla" else
+            bool(core.find_installed_loader_version(state["installed"], lid, mc))),
+        # Installed rows live in the same slide-in panel (Play / Rename /
+        # Delete), so there is no second "Instances" dialog any more. These
+        # callbacks are bound lazily: the handlers are defined further down.
+        get_instances=lambda: instance_info.list_installed(
+            list((state.get("installed_meta") or {}).values()),
+            cfg.get("version_labels") or {}),
+        # The card subtitle names the pack when the instance is a modpack:
+        # "FastClient + Fabric 1.21.11" (ui/versions.py). Read lazily because
+        # _refresh_pack_index is defined further down.
+        get_pack_name=lambda vid: (
+            state.get("pack_index_by_version") or {}).get(vid),
+        # Only one side sheet at a time: opening Versions folds Account away.
+        on_open=lambda: _close_account_panel() if _account_panel_is_open() else None,
     )
     version_dropdown_button = picker.button
 
     # Progress bar and label shown during installation/launch
     progress_bar = ft.ProgressBar(
-        value=0, bgcolor=SURFACE_HI, color=ACCENT, bar_height=6, border_radius=RADIUS,
+        value=0, bgcolor=SURFACE_HI, color=ACCENT, bar_height=8, border_radius=RADIUS,
         visible=False,
     )
-    progress_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO, visible=False)
+    progress_label = ft.Text("", size=12, color=TEXT_DIM, visible=False,
+                             expand=True, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
+    # Live "42%" at the right end of the label row (only while the bar is
+    # determinate - a pulse has no percentage).
+    progress_percent = ft.Text("", size=12, color=ACCENT, font_family=FONT_MONO,
+                               weight=ft.FontWeight.W_700, visible=False)
 
     # Small native spinner next to the progress label during installs/launches
     # - a crisp, animated ProgressRing (no image asset), so "something's
@@ -3272,9 +3405,95 @@ async def main(page: ft.Page):
     # pill next to the progress bar used to compete with the big button and
     # was easy to miss - the row now carries only progress.
     progress_row = ft.Row(
-        [progress_spinner, progress_label], spacing=8,
+        [progress_spinner, progress_label, progress_percent], spacing=8,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
+    progress_title = ft.Text("Installation", size=12, color=TEXT,
+                             weight=ft.FontWeight.W_700, expand=True)
+    progress_stage = ft.Text("PREPARING", size=10, color=ACCENT,
+                             font_family=FONT_MONO)
+    progress_card = ft.Container(
+        data="instance-install-progress", visible=False,
+        bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER),
+        border_radius=RADIUS, padding=12,
+        content=ft.Column([
+            ft.Row([progress_title, progress_stage], spacing=8),
+            progress_row, progress_bar,
+        ], spacing=7),
+    )
+
+    # ------------------------------------------------------------------
+    # SMOOTH BAR. Install progress arrives in bursts (one callback per file,
+    # coalesced to 10 repaints/s), so the bar used to jump in visible steps and
+    # looked slower than the download really was. Callers now hand the TARGET
+    # to set_bar(); one light ticker eases the drawn value toward it at ~30 fps
+    # and repaints ONLY the bar and its percentage - never the label row or the
+    # tree. It is honest: it only ever trails the real value, never runs ahead
+    # of it, and a phase that restarts at 0 snaps back instead of sliding.
+    # ------------------------------------------------------------------
+    _bar = {"target": 0.0, "shown": 0.0, "pct": -1}
+    _bar_lock = threading.Lock()
+
+    def _paint_percent(value):
+        with thread_safe_ui.TREE_LOCK, _bar_lock:
+            pct = int(value * 100)
+            if pct != _bar["pct"]:
+                _bar["pct"] = pct
+                progress_percent.value = f"{pct}%"
+                progress_percent.visible = progress_bar.visible
+                thread_safe_ui.refresh(progress_percent)
+
+    def set_bar(value, *, instant=False):
+        """None = indeterminate pulse; 0..1 = real progress (eased on screen)."""
+        with thread_safe_ui.TREE_LOCK, _bar_lock:
+            if value is None:
+                _bar.update(target=None, shown=0.0, pct=-1)
+                progress_bar.value = None
+                progress_percent.visible = False
+                thread_safe_ui.refresh(progress_bar)
+                thread_safe_ui.refresh(progress_percent)
+                return
+            value = min(1.0, max(0.0, float(value)))
+            _bar["target"] = value
+            if progress_bar.value is None:
+                progress_bar.value = 0
+                thread_safe_ui.refresh(progress_bar)
+            if instant:
+                _bar["shown"] = value
+                progress_bar.value = value
+        if instant:
+            _paint_percent(value)
+            thread_safe_ui.refresh(progress_bar)
+
+    def _bar_loop():
+        while True:
+            if not progress_bar.visible:
+                if progress_percent.visible:
+                    progress_percent.visible = False
+                    _bar["pct"] = -1
+                    thread_safe_ui.refresh(progress_percent)
+                time.sleep(0.1)
+                continue
+            with thread_safe_ui.TREE_LOCK, _bar_lock:
+                target, shown = _bar["target"], _bar["shown"]
+                if target is None:
+                    nxt = None
+                elif target < shown:
+                    nxt = target                      # restarted scale: snap, don't slide back
+                else:
+                    gap = target - shown
+                    nxt = target if gap < 0.002 else shown + gap * 0.3
+                if nxt is not None and nxt != shown:
+                    _bar["shown"] = nxt
+                    progress_bar.value = nxt
+            if nxt is None or nxt == shown:
+                time.sleep(0.1 if nxt is None else 1 / 30)
+                continue
+            thread_safe_ui.refresh(progress_bar)
+            _paint_percent(nxt)
+            time.sleep(1 / 30)
+
+    threading.Thread(target=_bar_loop, daemon=True, name="ux-progress-bar").start()
 
     # The main play button - its appearance changes based on state (play/download/busy)
     play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=18)
@@ -3288,6 +3507,14 @@ async def main(page: ft.Page):
     _STOP_BG = ft.Colors.with_opacity(0.16, DANGER)
     _STOP_BG_HI = ft.Colors.with_opacity(0.28, DANGER)
 
+    # A rapid double-press used to run the whole Play pipeline twice (username
+    # validation, config save, a Java probe subprocess) before the first press
+    # had even claimed the install slot - enough synchronous work on the UI
+    # thread to feel like a freeze. Absorb repeat presses inside this window;
+    # the real state guard still decides what a later press means.
+    _play_click_gate = {"at": 0.0}
+    _PLAY_CLICK_COOLDOWN = 0.35  # seconds
+
     def _main_action_click(e=None):
         """The one big button, three meanings: while an install is in flight
         it is Cancel, while a game is live it is Quit Game, otherwise it
@@ -3299,6 +3526,10 @@ async def main(page: ft.Page):
         if state.get("running_version"):
             _quit_running_game()
             return
+        now = time.monotonic()
+        if now - _play_click_gate["at"] < _PLAY_CLICK_COOLDOWN:
+            return
+        _play_click_gate["at"] = now
         on_play_click()
 
     def _on_play_hover(hovering: bool):
@@ -3376,6 +3607,31 @@ async def main(page: ft.Page):
 
     # Text to show any issues with the selected version (e.g., incomplete install)
     version_issue_text = ft.Text("", size=12, color=DANGER, visible=False)
+
+    # "Fix crash" - the doctor used to be a small button inside Mods -> Installed
+    # (one per content tab). It now sits next to PLAY, where people look when a
+    # launch just failed, and it runs the FULL doctor for everything Cubeon
+    # installed - this instance's mods plus the shared resource packs, shaders,
+    # modpacks and server plugins - because any of them can crash a launch.
+    # The click handler is bound further down, once the approver exists.
+    fix_crash_icon = ft.Icon(ft.Icons.BUILD_ROUNDED, size=16, color=TEXT_DIM)
+    fix_crash_label = ft.Text("Fix crash", size=13, color=TEXT,
+                              weight=ft.FontWeight.W_600)
+    fix_crash_button = theme.attach_hover(
+        ft.Container(
+            content=ft.Row([fix_crash_icon, fix_crash_label], spacing=8, tight=True),
+            bgcolor=ft.Colors.with_opacity(0.35, SURFACE_HI),
+            border=ft.border.Border.all(1, CARD_BORDER),
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=14),
+            alignment=ft.Alignment.CENTER,
+            ink=False,
+            tooltip=("Check everything Cubeon installed: this instance's mods, "
+                     "resource packs, shaders, modpacks and server plugins."),
+            data="play-fix-crash",
+        ),
+        ft.Colors.with_opacity(0.35, SURFACE_HI), ROW_HOVER,
+    )
 
     # When the selected version+loader is one an installed modpack owns, show
     # the pack's real name here. Without it a pack reads only as its bare MC
@@ -3614,9 +3870,14 @@ async def main(page: ft.Page):
             set_button_mode("play")
 
     def _refresh_pack_index():
-        """Rebuild the (mc_version, loader) -> modpack-name lookup from disk.
-        Cheap (reads a handful of small _modpack.json files); called whenever
-        the version list is rebuilt so the Play tab can name an installed pack.
+        """Rebuild the pack-name lookups from disk.
+
+        Two keys on purpose: the legacy shared profile is identified by
+        ``(mc_version, loader)``, but instance isolation lets two packs share
+        that pair while owning separate launch ids. Preferring the launch id
+        keeps the Play tab naming the pack the user actually selected.
+        Cheap (a handful of small ``_modpack.json`` files); called whenever the
+        version list is rebuilt so the Play tab can name an installed pack.
         """
         try:
             packs = core.list_installed_modpacks()
@@ -3626,22 +3887,24 @@ async def main(page: ft.Page):
             (p.get("mc_version"), p.get("loader")): p.get("name")
             for p in packs if p.get("mc_version")
         }
+        state["pack_index_by_version"] = {
+            p.get("version_id"): p.get("name")
+            for p in packs if p.get("version_id") and p.get("name")
+        }
 
     def _rescan_installed():
         """Re-read what is on disk into the shared state and repaint the
         surfaces that render it.
 
         The install worker adds each stage to ``state["installed"]`` as it
-        lands, but "Jump back in", the Instances manager and the hero's meta
-        chips render ``state["installed_meta"]`` - a different mapping that
-        only a full refresh_version_list() rebuilt. So a version that was just
-        installed did not show up as an instance card until something
-        unrelated refreshed the list (reported 2026-10-16: "after install the
-        instance doesn't come inside jump back in"). Deliberately NOT
-        refresh_version_list(): that also re-runs the selection, the mods /
-        server refreshes and the doctor, which would fight the install worker
-        mid-flight. This is one directory listing plus a restyle of the
-        existing cards (InstanceCards.rebuild builds only what is new).
+        lands, but the version panel and the hero's meta chips render
+        ``state["installed_meta"]`` - a different mapping that only a full
+        refresh_version_list() rebuilt. So a version that was just installed
+        did not show up in the panel until something unrelated refreshed it.
+        Deliberately NOT refresh_version_list(): that
+        also re-runs the selection, the mods / server refreshes and the doctor,
+        which would fight the install worker mid-flight. This is one directory
+        listing plus a cheap rebuild of the (imageless) rows.
         """
         try:
             versions = core.get_installed_versions()
@@ -3655,23 +3918,34 @@ async def main(page: ft.Page):
         state["installed_meta"] = {v["id"]: v for v in versions}
         _refresh_pack_index()
         try:
-            update_hero()   # rebuilds the "Jump back in" cards (new ones included)
+            update_hero()   # rebuilds the instance list (new rows included)
         except Exception:
             logging.getLogger(__name__).warning("instance repaint failed",
                                                exc_info=True)
 
     def update_pack_badge():
-        """Show the pack name badge iff the current version+loader is a modpack
-        install. Keyed on (version, loader) because that pair is the profile a
-        pack's mods live in - the same identity launch uses."""
-        name = state.get("pack_index", {}).get(
-            (state.get("selected_mc_version"), state.get("mod_loader")))
+        """Show the pack name badge iff the selected version is a modpack.
+
+        Prefer the launch id: two isolated packs can share one
+        ``(mc_version, loader)`` profile pair, and the old pair-only lookup
+        named the wrong pack for whichever one was not the first. The pair is
+        still the fallback for packs installed before instance isolation.
+
+        Scoped repaint only. This runs on every version selection (including
+        every instance-row click); the old whole-page ``page.update()``
+        re-diffed the entire ~9,000-line tree to change one badge.
+        """
+        vid = version_dropdown.value
+        name = (state.get("pack_index_by_version") or {}).get(vid) if vid else None
+        if not name:
+            name = state.get("pack_index", {}).get(
+                (state.get("selected_mc_version"), state.get("mod_loader")))
         if name:
             pack_name_text.value = name
             pack_name_badge.visible = True
         else:
             pack_name_badge.visible = False
-        page.update()
+        thread_safe_ui.refresh(pack_name_badge)
 
     _install_locks: dict[str, threading.Lock] = {}
 
@@ -3685,14 +3959,8 @@ async def main(page: ft.Page):
             _install_locks[version_id] = lock
         return lock
 
-    _prefetched: set[str] = set()
-
-    # Live progress of the invisible prefetch, per version id. A Play click has
-    # to wait for that prefetch (they share the per-version install lock), and
-    # it used to wait behind a frozen "Preparing" for however long the
-    # invisible download had left. It paints from here instead, so the bar and
-    # the label keep moving while it waits. Keys: status / value / max.
-    _prefetch_view: dict[str, dict] = {}
+    # Selection is read-only. Downloads start only through the main action.
+    _deleted_versions: set[str] = set()
 
     class _InstallCancelled(Exception):
         """Raised from an install progress callback to abort a cancelled
@@ -3713,99 +3981,6 @@ async def main(page: ft.Page):
             _install_cancels[version_id] = ev
         return ev
 
-    def prefetch_version(version_id: str | None) -> None:
-        """Starts downloading the selected version in the background the
-        moment it's chosen, so by the time the user clicks Play the assets,
-        libraries and jar are already on disk and the launch begins
-        immediately instead of behind a progress bar. Safe to call often:
-        each version is prefetched at most once per session, and the per-
-        version install lock keeps it from racing the real installer."""
-        if not version_id or version_id in _prefetched:
-            return
-        _prefetched.add(version_id)
-
-        def _work():
-            cancel = _cancel_event(version_id)
-            cancel.clear()  # a fresh attempt always starts uncancelled
-            try:
-                with _install_lock(version_id):
-                    if version_id in state["installed"]:
-                        return  # someone beat us to it
-
-                    # A pack install is writing this same version folder (it
-                    # installs the base version itself). Two mll installers on
-                    # one folder race on the same jars, so stand down - the
-                    # pack install leaves the version ready anyway, so there is
-                    # nothing left for the prefetch to do.
-                    _prefetch_mc = core.extract_mc_version(version_id)
-                    if core.pack_install_for(_prefetch_mc):
-                        return
-
-                    def _guard(*_a):
-                        # A prefetch is invisible, but a Play click can block on
-                        # access to the install lock while it runs - so the
-                        # prefetch has to honor the same cancel flag or a
-                        # cancelled click would just hang behind it. It also
-                        # stands down the moment a pack install claims this
-                        # version mid-flight (its per-file callbacks land here).
-                        if cancel.is_set() or core.pack_install_for(_prefetch_mc):
-                            raise _InstallCancelled()
-
-                    # Publish progress into the shared view as well as honoring
-                    # cancel: a click waiting on the lock paints from it.
-                    view = _prefetch_view.setdefault(version_id, {})
-                    view.clear()
-
-                    def _note_status(text):
-                        _guard()
-                        view["status"] = text
-
-                    def _note_progress(value):
-                        _guard()
-                        view["value"] = value
-
-                    def _note_max(value):
-                        _guard()
-                        view["max"] = value
-
-                    core.install_version(
-                        version_id,
-                        progress_cb=_note_progress,
-                        status_cb=_note_status,
-                        max_cb=_note_max,
-                        cancel_event=cancel,
-                        explicit_java=bool(cfg.get("java_path")),
-                    )
-                    state["installed"].add(version_id)
-                    _rescan_installed()  # the new instance must show up in the row
-                    # Phase 7: an OS toast, because this install is INVISIBLE -
-                    # it runs in the background while the user browses, and
-                    # without this the only evidence it ever happened is the
-                    # hero button quietly changing from DOWNLOAD to PLAY.
-                    # Best-effort by construction (see cubeon/osnotify.py).
-                    try:
-                        from cubeon import osnotify
-                        osnotify.install_finished("instance", version_id, cfg=cfg)
-                    except Exception:
-                        pass
-                    try:
-                        # The version is on disk now, so the hero button must
-                        # stop saying DOWNLOAD. page.update() alone repaints
-                        # the old label - the mode has to be recomputed.
-                        # Never steal the button from an install in flight -
-                        # it is the cancel affordance then (clicks route by
-                        # installing_version, so a PLAY paint here would lie).
-                        if (version_dropdown.value == version_id
-                                and not state.get("installing_version")):
-                            _sync_play_button()
-                        page.update()
-                    except Exception:
-                        pass
-            except Exception:
-                _prefetched.discard(version_id)  # allow a retry
-
-        threading.Thread(target=_work, name="version-prefetch", daemon=True).start()
-
     def on_version_selected():
         """
         Called when the user selects a version from the dropdown.
@@ -3821,6 +3996,10 @@ async def main(page: ft.Page):
         # Fabric (etc.) onto whatever version is now selected.
         if (state.get("pending_loader_install") or {}).get("version_id") != version_id:
             state["pending_loader_install"] = None
+        # Same for an explicit loader choice: it belongs to the version it was
+        # made on, so switching versions must not carry it over.
+        if (state.get("loader_choice") or {}).get("version_id") != version_id:
+            state["loader_choice"] = None
         # Separate "clean" numeric version for anything that keys off a mods
         # profile folder. version_id is the raw launch id and for
         # TLauncher/manually-installed instances that's frequently something
@@ -3832,14 +4011,29 @@ async def main(page: ft.Page):
         # Rename/Delete only apply to a version that's actually installed
         # (an online-only entry has nothing on disk to manage yet).
         _sync_instance_actions(version_id)
-        refresh_mods_list()
-        refresh_browse_for_new_profile()
-        refresh_loader_support(version_id)
-        refresh_server_status_panel()
-        update_pack_badge()
-        update_hero()               # hero title/meta follow the selection
-        if active_tab["value"] in {"server_console", "server_plugins", "server_settings"}:
-            refresh_server_tab()
+        # Each entry repaints a different surface from the SAME selection. One
+        # failing surface (a stale mods profile, a tab that is not built yet)
+        # must not abort the rest - especially update_hero() and the Play button
+        # below. Letting an exception escape here is what could leave the Play
+        # card showing the PREVIOUS instance after a delete, and then make
+        # every later selection look like it did nothing.
+        for _paint_label, _paint in (
+            ("mods", refresh_mods_list),
+            ("browse", refresh_browse_for_new_profile),
+            ("loader", lambda: refresh_loader_support(version_id)),
+            ("servers", refresh_server_status_panel),
+            ("pack badge", update_pack_badge),
+            ("hero", update_hero),   # hero title/meta follow the selection
+            ("server tab", lambda: (
+                refresh_server_tab()
+                if active_tab["value"] in {"server_console", "server_plugins",
+                                           "server_settings"} else None)),
+        ):
+            try:
+                _paint()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "selection repaint (%s) failed", _paint_label, exc_info=True)
         meta = state["installed_meta"].get(version_id)
         if meta and meta.get("incomplete"):
             # The version exists but is missing files - show error and disable play
@@ -3857,12 +4051,10 @@ async def main(page: ft.Page):
             else:
                 set_button_mode("play")
         else:
-            # Not installed - offer to download, and quietly start the
-            # download in the background so Play is instant when clicked.
+            # Selecting a version only prepares the visible download action.
             version_issue_text.visible = False
             if version_id:
                 set_button_mode("download")
-                prefetch_version(version_id)
             else:
                 # No instance at all ("No versions installed yet"): there is
                 # nothing to download, so keep the neutral PLAY the empty
@@ -3890,9 +4082,28 @@ async def main(page: ft.Page):
         # Fix any existing mod problems for this profile in the background now,
         # rather than waiting for the launch-time pass (which is filesystem-only
         # for speed). Best-effort and off the critical path.
-        _proactive_mod_repair(version_id)
+        try:
+            _proactive_mod_repair(version_id)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "proactive mod repair did not start", exc_info=True)
 
-    def refresh_version_list(online=False):
+    def _select_version_ui():
+        """Repaint everything that follows the selected version, safely.
+
+        `on_version_selected` is the single selection entry point used by the
+        dropdown, the instance panel and the post-delete refresh. A repaint
+        failure inside it must not escape into a click handler: the caller
+        still has to run its own page.update(), or the dropdown/panel keeps
+        showing the old instance and every later click looks dead.
+        """
+        try:
+            on_version_selected()
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "version selection repaint failed", exc_info=True)
+
+    def refresh_version_list(online=False, _available_versions=None, _latest_release=None):
         """
         Populates the version dropdown with available versions.
 
@@ -3902,6 +4113,23 @@ async def main(page: ft.Page):
         This function is called at startup, when the user clicks "Browse online versions",
         or when the "Show snapshots" checkbox changes.
         """
+        if online and _available_versions is None:
+            # Network requests must not hold up the picker's click handler.
+            def _fetch():
+                try:
+                    versions = core.get_available_versions(
+                        include_snapshots=show_snapshots.value)
+                    latest = core.get_latest_release()
+                except Exception:
+                    with thread_safe_ui.TREE_LOCK:
+                        picker.set_offline()
+                    return
+                with thread_safe_ui.TREE_LOCK:
+                    refresh_version_list(True, versions, latest)
+            threading.Thread(target=_fetch, daemon=True,
+                             name="instance-version-list").start()
+            return
+
         # First, get the currently installed versions (might have changed since last time)
         installed = core.get_installed_versions()
         state["installed"] = {v["id"] for v in installed}
@@ -3922,7 +4150,8 @@ async def main(page: ft.Page):
                 # The dropdown option keeps the plain "name ⚠/●" text (other
                 # code mirrors it onto the button label); the picker gets the
                 # richer descriptor it groups and tags rows with.
-                info = instance_info.describe(vid, v, _labels.get(vid), with_mods=False)
+                info = instance_info.describe(vid, v, _labels.get(vid),
+                                              with_mods=False, play_store={})
                 mark = "⚠" if info["incomplete"] else "●"
                 options.append(ft.dropdown.Option(key=vid, text=f"{info['display_name']}  {mark}"))
                 entries.append({
@@ -3930,9 +4159,32 @@ async def main(page: ft.Page):
                     "loader": info["loader"], "loader_label": info["loader_label"],
                     "incomplete": info["incomplete"], "type": "", "release_time": None,
                 })
+            # If EVERYTHING installed is below the legacy cutoff, the filter
+            # above hid the entire list: the Play tab then said "No versions
+            # installed yet" while the instance panel still listed them, and
+            # picking one from the panel made the label disagree again on the
+            # next refresh. Deleting the last modern instance exposed exactly
+            # that. Show the hidden versions (with the legacy note) rather than
+            # claim nothing is installed.
+            showing_legacy_only = bool(installed) and not options
+            if showing_legacy_only:
+                for v in installed:
+                    vid = v["id"]
+                    info = instance_info.describe(vid, v, _labels.get(vid),
+                                                  with_mods=False, play_store={})
+                    mark = "⚠" if info["incomplete"] else "●"
+                    options.append(ft.dropdown.Option(
+                        key=vid, text=f"{info['display_name']}  {mark}"))
+                    entries.append({
+                        "id": vid, "text": info["display_name"], "installed": True,
+                        "loader": info["loader"], "loader_label": info["loader_label"],
+                        "incomplete": info["incomplete"], "type": "",
+                        "release_time": None,
+                    })
             version_dropdown.options = options
             picker.set_source(entries, online=False)
-            legacy_note.visible = state.get("legacy_ok", False)
+            legacy_note.visible = (state.get("legacy_ok", False)
+                                   or showing_legacy_only)
 
             # Select the first option or the previously selected version
             if options:
@@ -3940,7 +4192,7 @@ async def main(page: ft.Page):
                     version_dropdown.value = state["selected_version"]
                 else:
                     version_dropdown.value = options[0].key
-                on_version_selected()
+                _select_version_ui()
             else:
                 version_dropdown.value = None
                 version_dropdown.hint_text = "No versions installed yet"
@@ -3967,20 +4219,20 @@ async def main(page: ft.Page):
                 update_pack_badge()
                 refresh_mods_list()
                 refresh_browse_for_new_profile()
+                # The loader switcher and the big button belong to the
+                # selection that just disappeared too. Without this the status
+                # line could stay on "Checking loader availability..." forever
+                # (its worker had been started for the deleted version) and the
+                # button could stay INCOMPLETE INSTALL / INSTALL FABRIC & PLAY.
+                loader_toggle.disabled = False
+                refresh_loader_support(None)
                 update_hero()
+                _sync_play_button()
             page.update()
             return
 
         # Online mode: fetch versions from Mojang
-        set_status("Checking for versions", busy=True)
-        try:
-            versions = core.get_available_versions(include_snapshots=show_snapshots.value)
-        except Exception:
-            # If network fails, show the offline notice
-            picker.set_offline()
-            set_status("Offline")
-            page.update()
-            return
+        versions = _available_versions
 
         # Build options: show installed versions with a "●" marker. Legacy
         # (below 1.20) entries are skipped unless the user opted in. The
@@ -4002,18 +4254,51 @@ async def main(page: ft.Page):
             if not label and is_installed:
                 label = (state.get("installed_meta") or {}).get(vid, {}).get("display_name")
             options.append(ft.dropdown.Option(key=vid, text=f"{label or vid}{tag}"))
-            info = instance_info.describe(vid, v, _labels.get(vid), with_mods=False)
+            if is_installed:
+                info = instance_info.describe(
+                    vid, (state.get("installed_meta") or {}).get(vid, v),
+                    _labels.get(vid), with_mods=False, play_store={})
+                loader = info["loader"]
+                loader_label = info["loader_label"]
+                incomplete = info["incomplete"]
+            else:
+                # A Mojang row that isn't on disk cannot carry a loader tag or
+                # a broken-install warning. Calling describe() for all ~800
+                # manifest entries meant a version-folder stat per row on the
+                # UI thread for no information.
+                loader, loader_label, incomplete = "vanilla", "Vanilla", False
             entries.append({
                 "id": vid, "text": label or vid, "installed": is_installed,
-                "loader": info["loader"], "loader_label": info["loader_label"],
-                "incomplete": info["incomplete"], "type": v.get("type") or "",
+                "loader": loader, "loader_label": loader_label,
+                "incomplete": incomplete, "type": v.get("type") or "",
                 "release_time": v.get("releaseTime"),
             })
+
+        # Mojang's manifest does not know about loader installs, isolated
+        # modpack clones, or foreign-launcher ids. Without this merge, opening
+        # "New instance" dropped the selected instance from the dropdown and
+        # silently moved the selection (and the instance-list highlight) to the
+        # latest release. Installed-only rows go first so they read as the
+        # user's own list; the picker hides them from its "new" view anyway.
+        listed = {e["id"] for e in entries}
+        for v in installed:
+            vid = v.get("id")
+            if not vid or vid in listed:
+                continue
+            if not state.get("legacy_ok") and _is_legacy_version(vid):
+                continue
+            info = instance_info.describe(vid, v, _labels.get(vid),
+                                          with_mods=False, play_store={})
+            options.insert(0, ft.dropdown.Option(
+                key=vid, text=f"{info['display_name']}  {'⚠' if info['incomplete'] else '●'}"))
+            entries.insert(0, {
+                "id": vid, "text": info["display_name"], "installed": True,
+                "loader": info["loader"], "loader_label": info["loader_label"],
+                "incomplete": info["incomplete"], "type": "", "release_time": None,
+            })
+
         version_dropdown.options = options
-        try:
-            latest = core.get_latest_release()
-        except Exception:
-            latest = None
+        latest = _latest_release
         picker.set_source(entries, online=True, latest=latest)
         legacy_note.visible = state.get("legacy_ok", False)
 
@@ -4021,14 +4306,10 @@ async def main(page: ft.Page):
         if state["selected_version"] and any(o.key == state["selected_version"] for o in options):
             version_dropdown.value = state["selected_version"]
         elif options:
-            try:
-                latest = core.get_latest_release()
-                version_dropdown.value = latest if any(o.key == latest for o in options) else options[0].key
-            except Exception:
-                version_dropdown.value = options[0].key
-        on_version_selected()
-        set_status("Ready")
-        page.update()
+            version_dropdown.value = latest if any(o.key == latest for o in options) else options[0].key
+        _select_version_ui()
+        thread_safe_ui.refresh(picker.panel)
+        thread_safe_ui.refresh(version_dropdown)
 
     def set_status(text, busy=False):
         """Updates the status text and dot in the sidebar's brand block.
@@ -4072,6 +4353,8 @@ async def main(page: ft.Page):
         # the honest mode once the abort lands.
         set_button_mode("cancelling")
         progress_label.value = "Cancelling..."
+        progress_stage.value = "CANCELLING"
+        thread_safe_ui.refresh(progress_stage)
         thread_safe_ui.refresh(progress_row)
         thread_safe_ui.refresh(progress_bar)
 
@@ -4130,13 +4413,11 @@ async def main(page: ft.Page):
         # starts a second worker that races the first on the install lock,
         # double-downloads, and repaints over the first one's progress.
         #
-        # Different versions are deliberately NOT refused: they are separate
-        # folders and the install lock already serialises the disk work. This
-        # only refuses the exact same instance twice, and it claims under the
-        # launch lock so two clicks in the same instant cannot both win.
+        # The progress card and cancel button describe one attempt. Claim
+        # their slot atomically, including requests from the Java prompt.
         with _launch_state_lock:
-            if state.get("installing_version") == version_id:
-                _show_snack("That version is already installing", duration=4000)
+            if state.get("installing_version"):
+                _show_snack("An installation is already in progress", duration=4000)
                 return
             # A pack install (Modpacks tab / Import) is writing this version
             # right now. This is the second way in - on_play_click checks it
@@ -4153,6 +4434,9 @@ async def main(page: ft.Page):
                 _show_snack(f"{_pack_name} is still installing - wait for it "
                             "to finish, then press Play", duration=5000)
                 return
+            _deleted_versions.discard(version_id)  # explicit reinstall
+            install_loader = state.get("mod_loader") or "vanilla"
+            _cancel_event(version_id).clear()
             state["installing_version"] = version_id
 
         # Update UI to "busy" state. progress_label is reset explicitly: it may
@@ -4168,12 +4452,14 @@ async def main(page: ft.Page):
         # work at all - an already-installed version reports no progress. A
         # determinate bar pinned at 0% through that reads as frozen; the pulse
         # says "working", and the first real progress_cb makes it determinate.
-        # A click that has to wait for a background prefetch gets there the same
-        # way - see _adopt_prefetch, which paints that prefetch's own progress
-        # instead of leaving the pulse up for the whole download.
-        progress_bar.value = None
+        set_bar(None)
         progress_bar.data = 1
         progress_label.value = "Preparing"
+        progress_title.value = (
+            f"Minecraft {core.extract_mc_version(version_id)}"
+            f" · {core.SUPPORTED_LOADERS.get(install_loader, install_loader)}")
+        progress_stage.value = "PREPARING"
+        progress_card.visible = True
         progress_label.visible = True
         progress_spinner.visible = True
         set_status("Preparing", busy=True)
@@ -4186,11 +4472,18 @@ async def main(page: ft.Page):
         try:
             threading.Thread(
                 target=lambda: do_install_and_launch(version_id, username,
-                                                     ensure_java_major),
+                                                     ensure_java_major,
+                                                     install_loader),
                 daemon=True).start()
         except Exception:
             if state.get("installing_version") == version_id:
                 state["installing_version"] = None
+            progress_bar.visible = False
+            progress_spinner.visible = False
+            progress_stage.value = "FAILED"
+            progress_label.value = "Couldn't start installation. Try again."
+            _sync_play_button()
+            thread_safe_ui.refresh(progress_card)
             raise
 
     def _prompt_for_java(version_id, username, mc_version, jstatus):
@@ -4264,6 +4557,20 @@ async def main(page: ft.Page):
         if not version_id:
             return
 
+        # The version panel's Play button calls straight into here, so the
+        # disabled "INCOMPLETE INSTALL" state on the hero is not a guard by
+        # itself. A version folder missing its client jar cannot launch; say so
+        # instead of handing a broken install to the launcher.
+        _meta = (state.get("installed_meta") or {}).get(version_id)
+        if _meta and _meta.get("incomplete"):
+            version_issue_text.value = _meta.get(
+                "issue", "This install is missing files.")
+            version_issue_text.visible = True
+            set_button_mode("incomplete")
+            _show_snack("This instance is incomplete - reinstall it before playing",
+                        duration=5000)
+            return
+
         # A pack install (Modpacks tab / Settings > Import) is writing this
         # version's folder and its (mc, loader) profile right now. Its disk
         # state only LOOKS complete - the base version and loader land first,
@@ -4302,7 +4609,7 @@ async def main(page: ft.Page):
             state["running_version"] = None  # stale claim - clear and proceed
 
         # Save config with current username and last selected version
-        cfg["username"] = username
+        _commit_launch_username(username)
         cfg["last_version"] = version_id
         core.save_config(cfg)
         if friends_service is not None:
@@ -4323,18 +4630,7 @@ async def main(page: ft.Page):
         # the numeric base is what the Java requirement is keyed off - same
         # reason the loader checks further down use it.
         mc_version = core.extract_mc_version(version_id)
-        try:
-            needs_install = version_id not in state["installed"]
-        except Exception:
-            needs_install = True
-        # A pending loader install (e.g. adding Fabric to an already-installed
-        # vanilla version) still needs the Java check: the loader installer
-        # runs even though the base Minecraft version is present.
-        if not needs_install:
-            pending = state.get("pending_loader_install") or {}
-            if pending.get("version_id") == version_id and pending.get("loader"):
-                needs_install = True
-        if needs_install:
+        if mc_version:
             try:
                 jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
             except Exception:
@@ -4362,7 +4658,8 @@ async def main(page: ft.Page):
             except Exception:
                 _sync_play_button()
 
-    def do_install_and_launch(version_id, username, ensure_java_major=None):
+    def do_install_and_launch(version_id, username, ensure_java_major=None,
+                              install_loader=None):
         """
         This runs in a background thread. It handles:
           - Installing a managed Java runtime first, if the user agreed to one
@@ -4375,8 +4672,6 @@ async def main(page: ft.Page):
         # always clean it up. Registered on state so on_cancel_install finds
         # the right version even if the user changes the dropdown mid-install.
         cancel = _cancel_event(version_id)
-        cancel.clear()
-        was_installed = version_id in state["installed"]
         cancellable = {"on": True}  # disarmed once the launch phase begins
 
         def _check_cancel():
@@ -4387,10 +4682,18 @@ async def main(page: ft.Page):
             if cancellable["on"] and cancel.is_set():
                 raise _InstallCancelled()
 
+        _deleted_versions.discard(version_id)  # explicit reinstall
         state["installing_version"] = version_id
 
         try:
             target_version = version_id
+            loader_id = install_loader or state["mod_loader"]
+            if loader_id != "vanilla" and not core.is_loader_supported(
+                    loader_id, core.extract_mc_version(version_id)):
+                raise RuntimeError(
+                    f"{core.SUPPORTED_LOADERS.get(loader_id, loader_id)} does not support "
+                    f"Minecraft {core.extract_mc_version(version_id)}. "
+                    "Choose another version or loader in New instance.")
 
             # Define callback functions that update UI elements from the
             # background thread. Progress repaints are control-level:
@@ -4411,7 +4714,6 @@ async def main(page: ft.Page):
                     return
                 _repaint_at["t"] = now
                 thread_safe_ui.refresh(progress_row)
-                thread_safe_ui.refresh(progress_bar)
 
             # "Time left" is measured, never assumed: the estimator watches how
             # fast the fraction has actually moved (see cubeon/eta.py). The
@@ -4429,7 +4731,8 @@ async def main(page: ft.Page):
                 # Third-party status text can carry an object repr (requests
                 # does - see cubeon/status_text.py); it never reaches the UI.
                 _status_line["text"] = cubeon_status.human(text)
-                progress_label.value = _status_text()
+                with thread_safe_ui.TREE_LOCK:
+                    progress_label.value = _status_text()
                 _paint_progress()
 
             def progress_cb(val):
@@ -4438,14 +4741,18 @@ async def main(page: ft.Page):
                 # Clamped: each install phase reports its own max, and a phase
                 # that emits progress before its setMax lands would otherwise
                 # divide by the previous phase's (smaller) max and overshoot.
-                progress_bar.value = min(1.0, max(0.0, val / mx)) if mx else 0
+                set_bar(val / mx if mx else 0)
                 _eta.note(val, mx)
-                progress_label.value = _status_text()
+                with thread_safe_ui.TREE_LOCK:
+                    progress_label.value = _status_text()
                 _paint_progress()
 
             def max_cb(val):
                 _check_cancel()
-                progress_bar.data = val
+                with thread_safe_ui.TREE_LOCK:
+                    progress_bar.data = val
+                _eta.reset()
+                set_bar(None)
                 _paint_progress()
 
             # --- The Java the user agreed to have fetched ---------------------
@@ -4458,6 +4765,8 @@ async def main(page: ft.Page):
             # with that text instead of a traceback.
             if ensure_java_major:
                 _check_cancel()
+                progress_stage.value = "JAVA"
+                thread_safe_ui.refresh(progress_stage)
                 progress_bar.data = 1
                 core.jre.install_jre(
                     int(ensure_java_major),
@@ -4465,48 +4774,18 @@ async def main(page: ft.Page):
                         done / (total or 1)),
                     status_cb=status_cb)
 
-            def _adopt_prefetch(version_id):
-                """Paint the waiting click with the prefetch's own progress.
-
-                The version selected before the click is prefetched in the
-                background, invisibly, and both share one install lock - so a
-                click can wait seconds to minutes on that lock. Painting from
-                the prefetch's live view means the user watches the download
-                they are actually waiting for instead of a frozen "Preparing".
-                """
-                view = _prefetch_view.get(version_id)
-                if not view:
-                    return
-                if view.get("status"):
-                    _status_line["text"] = cubeon_status.human(view["status"])
-                mx = view.get("max")
-                if mx:
-                    val = view.get("value") or 0
-                    progress_bar.data = mx
-                    progress_bar.value = min(1.0, max(0.0, val / mx))
-                    _eta.note(val, mx)
-                progress_label.value = _status_text()
-                _paint_progress()
-
-            # If the version is not installed, install it. The per-version
-            # lock also covers the background prefetch (on_version_selected),
-            # so a click during a prefetch waits for it instead of racing it,
-            # and an install completed by the prefetch is not repeated.
+            # Serialize filesystem writes for this version, with cancellable waits.
             _check_cancel()
             if version_id not in state["installed"]:
+                progress_stage.value = "GAME FILES"
+                thread_safe_ui.refresh(progress_stage)
                 lock = _install_lock(version_id)
-                # Acquire in short slices rather than blocking outright: while
-                # the prefetch holds the lock this loop keeps the progress row
-                # showing ITS progress (see _adopt_prefetch), and it keeps
-                # honoring Cancel - the prefetch checks the same flag, so
-                # cancelling here stops whichever of the two is running.
+                # Wait in short slices so cancellation remains responsive.
                 while not lock.acquire(timeout=0.25):
                     _check_cancel()
-                    _adopt_prefetch(version_id)
+                    status_cb("Waiting for another installation to finish")
                 try:
-                    # Re-check after the lock: a cancel can land while waiting
-                    # behind the background prefetch (which honors the same
-                    # flag), and starting a fresh install then would ignore it.
+                    # A cancel may have arrived while waiting for the lock.
                     _check_cancel()
                     if version_id not in state["installed"]:
                         core.install_version(version_id, progress_cb, status_cb,
@@ -4519,7 +4798,7 @@ async def main(page: ft.Page):
                                                  cfg.get("java_path")))
                         state["installed"].add(version_id)
                         # Publish it immediately: a fresh install is a new
-                        # instance, and "Jump back in" is keyed on the full
+                        # instance, and the version panel is keyed on the full
                         # metadata map, not on state["installed"].
                         _rescan_installed()
                         _paint_progress(force=True)  # never coalesce the end
@@ -4529,8 +4808,13 @@ async def main(page: ft.Page):
             # If a mod loader is selected, install it if supported - but only
             # if it isn't already installed for this version, otherwise every
             # single launch re-downloads/reinstalls it for no reason.
-            loader_id = state["mod_loader"]
+            loader_id = install_loader or state["mod_loader"]
             launch_mc = core.extract_mc_version(version_id)
+            selected_instance = instance_info.describe(
+                version_id, state.get("installed_meta", {}).get(version_id), with_mods=False)
+            if version_id in state["installed"] and selected_instance["loader"] != "vanilla":
+                loader_id = selected_instance["loader"]
+                launch_mc = selected_instance["base_version"]
             try:
                 for pack in core.list_installed_modpacks():
                     if pack.get("version_id") == version_id:
@@ -4546,16 +4830,33 @@ async def main(page: ft.Page):
             # that raw id would report "unsupported" and point the existing-
             # install lookup at an empty profile even though the loader is
             # right there. The numeric base is what those checks mean.
-            base_version = core.extract_mc_version(version_id)
+            base_version = launch_mc
             if loader_id != "vanilla":
                 loader_label = core.SUPPORTED_LOADERS.get(loader_id, loader_id)
-                if core.is_loader_supported(loader_id, base_version):
+                keep_selected = (version_id in state["installed"]
+                                 and not selected_instance["incomplete"]
+                                 and selected_instance["loader"] == loader_id)
+                if keep_selected or core.is_loader_supported(loader_id, base_version):
+                    # If the selected row IS already a launchable install of
+                    # this loader (a cloned pack instance, the canonical
+                    # fabric-loader-... row, an imported TLauncher id), launch
+                    # that exact id. Replacing it with the canonical lookup
+                    # would silently launch a different instance - and, after
+                    # instance isolation, a different mod profile.
                     existing_id = core.find_installed_loader_version(state["installed"], loader_id, base_version)
-                    if existing_id:
+                    if keep_selected:
+                        target_version = version_id
+                    elif existing_id:
                         target_version = existing_id
                     else:
                         status_cb(f"Installing {loader_label} loader")
-                        target_version = core.install_mod_loader(loader_id, base_version, progress_cb, status_cb, max_cb)
+                        progress_stage.value = "MOD LOADER"
+                        set_bar(None)
+                        thread_safe_ui.refresh(progress_stage)
+                        target_version = core.install_mod_loader(
+                            loader_id, base_version, progress_cb, status_cb,
+                            max_cb, cancel_event=cancel)
+                        _check_cancel()
                         state["installed"].add(target_version)
                         # The loader install is its own launchable instance row
                         # (e.g. "fabric-loader-0.19.5-26.1.2") - without this it
@@ -4563,7 +4864,9 @@ async def main(page: ft.Page):
                         _rescan_installed()
                         _paint_progress(force=True)  # never coalesce the end
                 else:
-                    status_cb(f"{loader_label} unsupported for this version, using vanilla")
+                    raise RuntimeError(
+                        f"{loader_label} does not support Minecraft {base_version}. "
+                        "Choose another version or loader in New instance.")
 
             # The loader install is done (or was skipped) - the pending arm
             # that put Play into "INSTALL FABRIC & PLAY" mode has served its
@@ -4595,13 +4898,16 @@ async def main(page: ft.Page):
             # safely - disarm cancellation and flip the button to the honest
             # disabled state so it stops promising an abort that is no longer
             # possible.
+            _check_cancel()
             cancellable["on"] = False
             state["installing_version"] = None
             set_button_mode("launching")
 
             # Launch the game
             progress_label.value = "Launching"
-            page.update()
+            progress_stage.value = "LAUNCHING"
+            set_bar(None)
+            thread_safe_ui.refresh(progress_card)
             set_status("Running", busy=True)
 
             # Has the game already exited? launch_game() is non-blocking, so a
@@ -4707,7 +5013,7 @@ async def main(page: ft.Page):
                             state["running_version"] = None
                         if version_dropdown.value == version_id:
                             _sync_play_button()
-                        page.update()
+                        thread_safe_ui.refresh(progress_card)
                     except Exception:
                         pass  # window gone or repaint machinery dead - nothing left
 
@@ -4742,6 +5048,7 @@ async def main(page: ft.Page):
                         progress_bar.visible = False
                         progress_label.visible = False
                         progress_spinner.visible = False
+                        progress_card.visible = False
                         set_status("Ready")
                     # Put the play button back: on_exit is the ONLY place that
                     # owns the "running" mode, but it never reset it - a closed
@@ -4751,7 +5058,7 @@ async def main(page: ft.Page):
                     # (otherwise the selection handler owns the button).
                     if version_dropdown.value == version_id:
                         _sync_play_button()
-                    page.update()
+                    thread_safe_ui.refresh(progress_card)
                 except Exception:
                     # Never let a repaint/presence hiccup strand the "running"
                     # claim or the button: the fallback is the minimal honest
@@ -4784,7 +5091,7 @@ async def main(page: ft.Page):
                     return
             set_button_mode("running")
             state["running_version"] = version_id  # block deleting it mid-game
-            page.update()
+            thread_safe_ui.refresh(progress_card)
 
             # Belt-and-braces liveness watch: on_exit() is the normal path,
             # but a single callback must never be a single point of failure -
@@ -4900,11 +5207,21 @@ async def main(page: ft.Page):
                 # always-empty profile every launch, so mods never applied.
                 mc_version=launch_mc, loader=launch_loader,
                 cfg=cfg, status_cb=status_cb, log_cb=_game_log_cb,
+                approve_mod_changes=_approve_mod_change,
             )
 
-            # Remember this launch for the Play tab's "last played" label (see
-            # cubeon/instances.py). Best-effort - never blocks the launch.
-            instance_info.mark_played(version_id)
+            # Remember this launch for the instance panel's "played" label (see
+            # cubeon/instances.py). `target_version` is what actually launched,
+            # not `version_id`: selecting vanilla can redirect to an installed
+            # loader sibling, and the old call stamped the wrong card with
+            # "just now". Best-effort - never blocks the launch.
+            instance_info.mark_played(target_version)
+            try:
+                # The panel's rows carry "played <time>"; if it is open, keep
+                # that label live instead of waiting for the next reopen.
+                picker.refresh_rows()
+            except Exception:
+                pass
 
             # Session id from the watchdog record (mirrored on the Popen
             # object): on_exit compares against the live session so an older
@@ -4945,11 +5262,12 @@ async def main(page: ft.Page):
             with _exit_lock:
                 if not exited["done"]:
                     progress_bar.visible = False  # loading is over - no more bar
-                    progress_bar.value = 0
+                    set_bar(0, instant=True)
                     progress_label.value = "Minecraft is running - this launcher stays open"
                     progress_label.visible = True
                     progress_spinner.visible = False
-                    page.update()
+                    progress_stage.value = "RUNNING"
+                    thread_safe_ui.refresh(progress_card)
 
         except Exception as ex:
             # A cancel arrives here as a generic error: install_version wraps
@@ -4957,23 +5275,18 @@ async def main(page: ft.Page):
             # type - is the source of truth for "user chose to stop". A cancel
             # is a choice, not a failure, so it gets its own message and no
             # scary traceback.
-            if cancel.is_set():
-                # Remove a version folder this attempt created from scratch so
-                # it can't resurface as a puzzling "(incomplete)" entry. A
-                # pre-existing install is left alone - install_version already
-                # dropped only the jars it clobbered.
-                if not was_installed:
-                    try:
-                        core.delete_version(version_id)
-                    except Exception:
-                        pass  # never created, or already gone - nothing to undo
+            if cancel.is_set() and cancellable["on"]:
+                # The installer owns cleanup. Keep a verified base version if
+                # cancellation happened later, while adding the loader.
+                _rescan_installed()
                 progress_label.value = "Install cancelled"
                 progress_label.visible = True
                 progress_spinner.visible = False
                 progress_bar.visible = False
-                _reset_button_after_worker(version_id)
+                progress_percent.visible = False
+                progress_stage.value = "CANCELLED"
                 set_status("Ready")
-                page.update()
+                thread_safe_ui.refresh(progress_card)
                 return
             # If anything goes wrong, show error and reset button. The message
             # has to stay on screen - this is the only report the user ever
@@ -4990,13 +5303,15 @@ async def main(page: ft.Page):
                     "needs has moved or been removed. Reinstall Java, or point "
                     "Cubeon at it in Settings, then try again.")[:180]
             else:
-                progress_label.value = f"Error: {type(ex).__name__}: {ex}"[:180]
+                progress_label.value = cubeon_status.human(str(ex))[:300]
             progress_label.visible = True
             progress_spinner.visible = False
             progress_bar.visible = False
-            _reset_button_after_worker(version_id)
+            progress_percent.visible = False
+            progress_stage.value = "FAILED"
+            _rescan_installed()
             set_status("Error")
-            page.update()
+            thread_safe_ui.refresh(progress_card)
             traceback.print_exc()  # full trace to the console for bug reports
         finally:
             # Whatever happened - success, crash, cancel, or the early return
@@ -5006,6 +5321,7 @@ async def main(page: ft.Page):
             cancellable["on"] = False
             if state.get("installing_version") == version_id:
                 state["installing_version"] = None
+            _reset_button_after_worker(version_id)
 
     # --- Server status panel - the right column below the grass block was
     # dead space, and "is my server running" is a genuinely useful thing to
@@ -5040,7 +5356,9 @@ async def main(page: ft.Page):
             server_status_dot.bgcolor = TEXT_DIM
             server_status_text.value = "Server not running"
             server_status_open_console.visible = True
-        page.update()
+        # Three tiny controls changed - a whole-page diff here ran on every
+        # version selection / instance-row click for no reason.
+        thread_safe_ui.refresh(server_status_panel)
 
     server_status_panel = ft.Container(
         content=ft.Column(
@@ -5071,6 +5389,9 @@ async def main(page: ft.Page):
 
     def _close_dialog(dlg):
         cubeon_dialogs.close_dialog(page, dlg)
+
+    # Every dialogs.show_snack(...) in the app now slides in top-right.
+    cubeon_toast.install(page)
 
     def _show_snack(msg, *, duration=4000, action=None, action_label=None):
         """Toast popup used everywhere (thread-safe, never raises).
@@ -5117,10 +5438,37 @@ async def main(page: ft.Page):
             cfg["version_labels"] = labels
             core.save_config(cfg)
             _close_dialog(dlg)
+            # Optimistically carry the new name into the live state FIRST, so
+            # the hero title and the panel label can never disagree with the
+            # dropdown while refresh_version_list() re-scans disk. (The
+            # 2026-10-26 report: a renamed instance kept its old name after
+            # switching until some unrelated refresh rebuilt everything.)
+            meta = state.get("installed_meta", {}).get(vid)
+            if isinstance(meta, dict):
+                meta["display_name"] = new_name or default_name
+            version_dropdown.options = [
+                ft.dropdown.Option(
+                    key=o.key,
+                    text=(f"{(new_name or default_name)}  "
+                          f"{'⚠' if (state.get('installed_meta') or {}).get(o.key, {}).get('incomplete') else '●'}")
+                    if o.key == vid else o.text)
+                for o in (version_dropdown.options or [])
+            ]
             refresh_version_list()
-            # The rename may have come from a row of the open Instances
-            # manager - re-draw its rows so the new name shows there too.
-            instances_manager.refresh()
+            # Redraw the panel unconditionally (not only while open): a stale
+            # row left in the closed sheet could be clicked later and would
+            # switch to the OLD name.
+            try:
+                picker.rebuild()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "instance panel repaint after rename failed", exc_info=True)
+            try:
+                picker.sync_label()
+                update_hero()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "rename repaint failed", exc_info=True)
             set_status("Instance renamed")
 
         name_field.on_submit = save
@@ -5145,6 +5493,46 @@ async def main(page: ft.Page):
         )
         _open_dialog(dlg)
 
+    def _loader_installs_for(vid):
+        """Installed loader instances that inherit from the vanilla `vid`.
+
+        Deleting a vanilla version used to leave its Fabric/Forge/... installs
+        behind: the folder still existed but could no longer launch (its base
+        client jar was gone), and the Play tab kept offering a dead instance.
+        The user asked for the cascade explicitly (2026-10-26).
+
+        Only ever returns OTHER installed ids whose extracted Minecraft base
+        matches `vid`'s and whose detected loader is not vanilla. Never raises.
+        """
+        try:
+            base = core.extract_mc_version(vid)
+        except Exception:
+            base = None
+        if not base:
+            return []
+        try:
+            installed = core.get_installed_versions()
+        except Exception:
+            installed = list((state.get("installed_meta") or {}).values())
+        out = []
+        for v in installed or []:
+            other = v.get("id") or v.get("version_id")
+            if not other or other == vid:
+                continue
+            if other not in (state.get("installed") or set()):
+                continue
+            try:
+                if core.extract_mc_version(other) != base:
+                    continue
+                loader = instance_info.describe(
+                    other, v, None, with_mods=False,
+                    play_store={}).get("loader")
+            except Exception:
+                continue
+            if loader and loader != "vanilla":
+                out.append(other)
+        return out
+
     def on_delete_instance(e=None, vid=None):
         vid = vid or _selected_installed_id()
         if not vid:
@@ -5153,44 +5541,159 @@ async def main(page: ft.Page):
         if state.get("running_version") == vid:
             set_status("Can't delete a version while it's running")
             return
+        if state.get("installing_version") == vid:
+            set_status("Can't delete a version while it's installing")
+            return
+        try:
+            if core.pack_install_for(core.extract_mc_version(vid)):
+                set_status("Can't delete a version while a modpack is installing it")
+                return
+        except Exception:
+            pass
         meta = state["installed_meta"].get(vid, {})
         label = (cfg.get("version_labels") or {}).get(vid) or meta.get("display_name", vid)
+        # A vanilla base owns its loader installs: deleting "1.21.11" must also
+        # remove "fabric-loader-0.19.5-1.21.11" (they share the client jar and
+        # the loader folder is dead without it). Only computed for vanilla -
+        # deleting a loader instance must never touch its base.
+        try:
+            is_vanilla = instance_info.describe(
+                vid, meta, None, with_mods=False,
+                play_store={}).get("loader") in (None, "vanilla")
+        except Exception:
+            is_vanilla = False
+        dependents = _loader_installs_for(vid) if is_vanilla else []
+
+        def _forget_one(dead):
+            """Drop a deleted id from every in-memory/config surface."""
+            _deleted_versions.add(dead)
+            state["installed"].discard(dead)
+            (state.get("installed_meta") or {}).pop(dead, None)
+            if version_dropdown.value == dead:
+                version_dropdown.value = None
+            version_dropdown.options = [
+                o for o in (version_dropdown.options or []) if o.key != dead]
+            try:
+                core.forget_modpack_for_version(dead)
+            except Exception:
+                pass
+            labels = dict(cfg.get("version_labels") or {})
+            if labels.pop(dead, None) is not None:
+                cfg["version_labels"] = labels
+            if cfg.get("last_version") == dead:
+                cfg["last_version"] = None
+            if state.get("selected_version") == dead:
+                state["selected_version"] = None
 
         def confirm(e=None):
             _close_dialog(dlg)
+            # Re-check the live claims: a background prefetch or a pack install
+            # can start between opening this dialog and confirming it, and
+            # rmtree() racing an installer writes a half-deleted folder.
+            if state.get("installing_version") == vid:
+                set_status("Can't delete a version while it's installing")
+                return
+            try:
+                if core.pack_install_for(core.extract_mc_version(vid)):
+                    set_status("Can't delete a version while a modpack is installing it")
+                    return
+            except Exception:
+                pass
+            # Delete the vanilla base first; if THAT fails for a real reason,
+            # its loader installs are left intact too (nothing half-cascaded).
             try:
                 core.delete_version(vid)
             except ValueError as ve:
-                set_status(str(ve))
+                # "That version folder no longer exists" means the folder is
+                # already gone (a previous delete half-finished, or the user
+                # removed it outside the app). The only useful thing left to do
+                # is forget it in the UI - raising here is what left a deleted
+                # instance stuck on screen forever, unable to be cleared.
+                if "no longer exists" not in str(ve):
+                    set_status(str(ve))
+                    return
+            except OSError as ex:
+                set_status(f"Couldn't delete {label}: {ex}")
                 return
-            # If this version was a modpack install, stop the Modpacks tab
-            # from still listing it as installed. Only removes the small
-            # tracking record (_modpack.json) - the mod profile itself
-            # (mod_profiles/<mc_version>-<loader>) is left alone, same as
-            # delete_version() already leaves it alone, since mod profiles
-            # are shared/reusable across reinstalls by design. Without
-            # this, "Installed packs" kept showing packs whose version had
-            # already been deleted here, with a Play button that led
-            # nowhere useful.
+            # Cascade: a vanilla install's loader folders cannot launch once
+            # the base client jar is gone, so remove them with it. Re-derive
+            # the list here (the dialog may have been open a while) and skip
+            # anything currently running/installing.
+            if is_vanilla:
+                for dep in _loader_installs_for(vid):
+                    if dep in (state.get("running_version"),
+                               state.get("installing_version")):
+                        logging.getLogger(__name__).info(
+                            "cascade: keeping %s (in use)", dep)
+                        continue
+                    try:
+                        core.delete_version(dep)
+                    except ValueError as ve:
+                        if "no longer exists" not in str(ve):
+                            logging.getLogger(__name__).warning(
+                                "cascade: could not delete %s: %s", dep, ve)
+                            continue
+                    except OSError as ex:
+                        logging.getLogger(__name__).warning(
+                            "cascade: could not delete %s: %s", dep, ex)
+                        continue
+                    _forget_one(dep)
+            # Remove the deleted id from every selection/config surface.
+            _forget_one(vid)
             try:
-                core.forget_modpack_for_version(vid)
                 refresh_installed_packs()
             except Exception:
                 pass
-            # Forget any nickname and stop last_version/selection pointing at it.
-            labels = dict(cfg.get("version_labels") or {})
-            if labels.pop(vid, None) is not None:
-                cfg["version_labels"] = labels
-            if cfg.get("last_version") == vid:
-                cfg["last_version"] = None
-            if state.get("selected_version") == vid:
-                state["selected_version"] = None
-            core.save_config(cfg)
-            refresh_version_list()
-            # A delete performed from a row of the open Instances manager: the
-            # dialog stays mounted across the action, so re-draw its rows or it
-            # keeps listing the instance that was just deleted.
-            instances_manager.refresh()
+            try:
+                core.save_config(cfg)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "could not save config after delete", exc_info=True)
+            try:
+                refresh_version_list()
+            except Exception:
+                # The scan/repaint must never leave the Play tab pointing at
+                # the deleted instance. Pick whatever is still installed.
+                logging.getLogger(__name__).warning(
+                    "refresh after delete failed", exc_info=True)
+                remaining = [i for i in (state.get("installed_meta") or {})
+                             if i != vid]
+                if remaining:
+                    try:
+                        _pick_version(remaining[0])
+                    except Exception:
+                        logging.getLogger(__name__).warning(
+                            "fallback selection after delete failed",
+                            exc_info=True)
+                        try:
+                            update_hero()
+                        except Exception:
+                            pass
+                        try:
+                            page.update()
+                        except Exception:
+                            pass
+                else:
+                    version_dropdown.value = None
+                    state["selected_version"] = None
+                    _sync_instance_actions(None)
+                    try:
+                        update_hero()
+                    except Exception:
+                        pass
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
+            # Re-draw the panel rows unconditionally. When the sheet is closed
+            # this clears the old children, so a stale row can never be clicked
+            # later (that click used to select - and silently re-download - the
+            # instance that had just been deleted).
+            try:
+                picker.rebuild()
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "instance panel repaint after delete failed", exc_info=True)
             set_status(f"Deleted {label}")
 
         dlg = ft.AlertDialog(
@@ -5201,6 +5704,12 @@ async def main(page: ft.Page):
                     [
                         ft.Text(f"This permanently deletes '{label}' and its files from "
                                 "your versions folder.", size=13, color=TEXT),
+                        *([ft.Text(
+                            "Its loader install"
+                            + ("s" if len(dependents) != 1 else "")
+                            + " will be removed too: "
+                            + ", ".join(dependents),
+                            size=12, color=DANGER)] if dependents else []),
                         ft.Text("Your mods, skins, and worlds are not affected.",
                                 size=12, color=TEXT_DIM),
                     ],
@@ -5265,14 +5774,12 @@ async def main(page: ft.Page):
                 ],
                 spacing=6,
             ),
-            bgcolor=ft.Colors.with_opacity(0.35, SURFACE_HI),
-            border=ft.border.Border.all(1, CARD_BORDER),
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
             tooltip=("Open the Minecraft game folder "
                      "(versions, mods, saves, screenshots)"),
         ),
-        ft.Colors.with_opacity(0.35, SURFACE_HI), ROW_HOVER,
+        None, ROW_HOVER,
     )
     folder_instance_btn.on_click = _open_minecraft_folder
 
@@ -5285,14 +5792,14 @@ async def main(page: ft.Page):
     #                 account/version controls side by side, loader switcher
     #                 left and a right-aligned PLAY button (~340px) so the
     #                 primary action has weight without becoming a runway.
-    #   JUMP BACK IN / INSTALLED VERSIONS - real content under the hero so
-    #                 the page doesn't end a third of the way down.
+    # The page ends with the hero card: switching, renaming, and removing
+    # instances all live in the right-hand version panel (ui/versions.py).
     # -----------------------------------------------------------------
 
     # Hero panel widgets -----------------------------------------------------
-    hero_title = ft.Text("Minecraft", size=22, color=TEXT, font_family=FONT_DISPLAY,
+    hero_title = ft.Text("Minecraft", size=38, color=TEXT, font_family=FONT_DISPLAY,
                          max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
-    hero_version_text = ft.Text("", size=11, color=TEXT_FAINT, font_family=FONT_MONO,
+    hero_version_text = ft.Text("", size=11.5, color=ft.Colors.with_opacity(0.75, TEXT), font_family=FONT_MONO,
                                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     hero_loader_chip_text = ft.Text("Vanilla", size=10.5, color=ACCENT,
                                     weight=ft.FontWeight.W_700, font_family=FONT_MONO)
@@ -5313,10 +5820,11 @@ async def main(page: ft.Page):
     # version has art, the bundled OG key art (titleimg.jpg) stands in, so the
     # page is never a blank box.
     #
-    # The banner tracks the SELECTED version; the "Jump back in" cards give
-    # each INSTALLED version its own art. Both download off the UI thread and
-    # repaint via thread_safe_ui, and both guard against a late download
-    # landing after the user already switched away.
+    # The banner tracks the SELECTED version and downloads off the UI thread,
+    # repainting via thread_safe_ui. It guards against a late download landing
+    # after the user already switched away. (The Play tab no longer carries an
+    # instance list at all - the version panel is the one place to switch,
+    # rename, or remove an install. 2026-10-26.)
     #
     # One fetch per version serves every interested control (_art_watchers), so
     # update_hero running on every selection change doesn't re-spawn the fetch.
@@ -5335,11 +5843,12 @@ async def main(page: ft.Page):
             begin=ft.Alignment.TOP_CENTER,
             end=ft.Alignment.BOTTOM_CENTER,
             colors=[
-                ft.Colors.with_opacity(0.34, BG),
-                ft.Colors.with_opacity(0.78, BG),
-                ft.Colors.with_opacity(0.96, BG),
+                ft.Colors.with_opacity(0.50, BG),
+                ft.Colors.with_opacity(0.12, BG),
+                ft.Colors.with_opacity(0.62, BG),
+                ft.Colors.with_opacity(0.94, BG),
             ],
-            stops=[0.0, 0.34, 1.0],
+            stops=[0.0, 0.28, 0.62, 1.0],
         ),
     )
     hero_art_layer = ft.Container(
@@ -5394,48 +5903,6 @@ async def main(page: ft.Page):
 
         _request_art(base, _ready)
 
-    # "Jump back in": one art card per installed version. The row lives in
-    # ui/versions.py (InstanceCards) - it builds each card ONCE and afterwards
-    # only restyles the selection / refreshes the (imageless) chip row, so Flet
-    # never re-sends a card's base64 thumbnail payload on a selection change
-    # (the invariant tools/test_version_art_cache.py pins).
-    def _select_instance(version_id):
-        if version_id not in state["installed"]:
-            return
-        _pick_version(version_id)
-
-    instance_cards = InstanceCards(
-        page,
-        get_metas=lambda: state.get("installed_meta") or {},
-        get_labels=lambda: cfg.get("version_labels") or {},
-        get_selected=lambda: version_dropdown.value,
-        on_select=_select_instance,
-        art_src=version_art.src,
-        request_art=_request_art,
-    )
-    instance_cards_row = instance_cards.row
-    instance_cards_empty = instance_cards.empty
-
-    def _play_instance(version_id):
-        """Play one specific installed instance (from the Instances manager)."""
-        if version_id not in state["installed"]:
-            set_status("That version isn't installed")
-            return
-        if state.get("installing_version"):
-            set_status("Wait for the current install to finish")
-            return
-        if core.pack_install_for(core.extract_mc_version(version_id)):
-            # A pack install is still writing this very instance (base
-            # version + its profile). Launching now is the half-installed
-            # "everything broke" path - refuse until it finishes.
-            set_status("Wait for this instance to finish installing")
-            return
-        if state.get("running_version"):
-            set_status("A game is already running")
-            return
-        _pick_version(version_id)
-        on_play_click()
-
     # Repaint the big button the moment a pack install claims or releases an
     # instance (Modpacks tab / Import). Without this a disabled "INSTALLING..."
     # could outlive a cancelled install, or a finished one would keep saying it
@@ -5447,19 +5914,6 @@ async def main(page: ft.Page):
         logging.getLogger(__name__).warning("pack install listener not wired",
                                             exc_info=True)
 
-    # Instances manager - one dialog to see and manage every install (see
-    # ui/versions.py). It re-reads the live installed set on each open.
-    instances_manager = InstancesManager(
-        page,
-        get_instances=lambda: instance_info.list_installed(
-            list((state.get("installed_meta") or {}).values()),
-            cfg.get("version_labels") or {}),
-        get_selected=lambda: version_dropdown.value,
-        on_play=_play_instance,
-        on_rename=lambda vid: on_rename_instance(vid=vid),
-        on_delete=lambda vid: on_delete_instance(vid=vid),
-    )
-
     def update_hero():
         """Syncs the hero's big title / meta chips with the current version +
         loader selection. Called wherever those change (version pick, loader
@@ -5467,7 +5921,18 @@ async def main(page: ft.Page):
         vid = version_dropdown.value
         meta = state["installed_meta"].get(vid) if vid else None
         custom = (cfg.get("version_labels") or {}).get(vid) if vid else None
-        display = (meta or {}).get("display_name")
+        # describe() is the one source of truth: it merges the user's nickname,
+        # the instance sidecar and the scanned display name. Reading the raw
+        # installed_meta here is what could leave the hero on the PREVIOUS
+        # name after a rename + switch.
+        display = None
+        if vid:
+            try:
+                display = instance_info.describe(
+                    vid, meta, custom, with_mods=False,
+                    play_store={})["display_name"]
+            except Exception:
+                display = (meta or {}).get("display_name")
         # A renamed/customised instance leads with its own name; otherwise the
         # title is the game itself: "Minecraft 1.21.11".
         if custom or (display and display != vid):
@@ -5478,9 +5943,8 @@ async def main(page: ft.Page):
             hero_title.value = "Minecraft"
         hero_version_text.value = vid or "no version selected"
         hero_loader_chip_text.value = core.SUPPORTED_LOADERS.get(
-            LOADER_IDS[loader_toggle.selected_index], "Vanilla")
+            state.get("mod_loader") or "vanilla", "Vanilla")
         _refresh_hero_banner(vid)
-        instance_cards.rebuild()
 
     # Now assemble the actual Play tab UI. Hierarchy is deliberate:
     #   PAGE HEADING  -> INSTANCE CARD
@@ -5490,182 +5954,146 @@ async def main(page: ft.Page):
     # The card is compact and top-aligned; it is never stretched to fill the
     # viewport just because there is room below it.
 
-    play_tab = ft.Column(
+    # ------------------------------------------------------------------
+    # PLAY SCREEN (rewritten 2026-10-26)
+    #
+    # One idea: the version art IS the screen, the instance name sits top-left,
+    # and the only things near the bottom are the two inputs you actually need
+    # (version, username) and PLAY. Everything else is demoted:
+    #   - the loader is one chip next to the version text (the old "Instance
+    #     type" block repeated it and could not be edited anyway);
+    #   - FPS boost and Fix crash are small quiet controls under the row;
+    #   - the page heading and its tagline are gone.
+    # ------------------------------------------------------------------
+    fps_boost_switch.scale = 0.8
+    fps_boost_tile = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.BOLT_ROUNDED, size=16, color=ACCENT),
+                ft.Text("FPS boost", size=12.5, color=TEXT,
+                        weight=ft.FontWeight.W_600),
+                fps_boost_switch,
+            ],
+            spacing=8, tight=True,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=ft.Colors.with_opacity(0.55, BG),
+        border=ft.border.Border.all(1, CARD_BORDER),
+        border_radius=RADIUS,
+        padding=ft.padding.Padding.only(left=12, right=4, top=2, bottom=2),
+        tooltip=("Max FPS at launch. Off restores vanilla graphics (fancy, "
+                 "smooth lighting, shadows) on the next launch."),
+        data="play-fps-tile",
+    )
+
+    # Fix crash: same control, smaller and quieter.
+    fix_crash_button.padding = ft.padding.Padding.symmetric(horizontal=12, vertical=8)
+    fix_crash_label.size = 12.5
+
+    # PLAY: taller and wider than anything else on the screen.
+    play_button.padding = ft.padding.Padding.symmetric(vertical=20, horizontal=20)
+
+    # The readout shows the selected instance's loader, with a reserved
+    # one-line slot for loader availability notices.
+    config_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Container(content=loader_status_text, height=18,
+                             data="play-loader-status"),
+                ft.Container(
+                    content=ft.Column([section_label("Instance type"), loader_readout,
+                                       loader_note], spacing=2),
+                    visible=True, data="play-loader-readout"),
+            ],
+            spacing=0, tight=True,
+        ),
+        data="play-config-panel",
+    )
+
+    play_tab = ft.Stack(
         [
-            ft.Column(
-                [
-                    ft.Text("Play", size=24, color=TEXT, font_family=FONT_DISPLAY),
-                    ft.Text("Launch Minecraft your way.", size=13, color=TEXT_DIM),
-                ],
-                spacing=2,
-                tight=True,
-            ),
-            ft.Container(height=16),  # heading -> card
-
-            # --- HERO PANEL: the instance card ---
-            # The selected version's art is the card's BACKGROUND (see
-            # hero_art above), under a bottom-heavy scrim so every control and
-            # label stays readable. The old version-spotlight card below the
-            # hero is gone - the art now belongs to the main card itself.
+            hero_art_layer,
+            hero_art_scrim,
             ft.Container(
-                content=ft.Stack(
+                left=0, top=0, right=0, bottom=0,
+                padding=32,
+                content=ft.Column(
                     [
-                        hero_art_layer,
-                        hero_art_scrim,
-                        ft.Container(
-                            content=ft.Column(
-                                [
-                                    # INSTANCE HEADER: emblem, instance name + meta line,
-                                    # contextual rename/delete.
-                                    ft.Row(
-                                        [
-                                            # Rotating grass-block GIF (assets/grass_block.gif),
-                                            # generated in-house - the instance's emblem.
-                                            ft.Image(src="grass_block.gif", width=56, height=56, fit=ft.BoxFit.CONTAIN),
-                                            ft.Container(width=12),
-                                            ft.Column(
-                                                [
-                                                    ft.Row(
-                                                        [
-                                                            hero_title,
-                                                            ft.Container(width=4),
-                                                            folder_instance_btn,
-                                                            rename_instance_btn,
-                                                            delete_instance_btn,
-                                                        ],
-                                                        spacing=4,
-                                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                                    ),
-                                                    ft.Row(
-                                                        [
-                                                            hero_loader_chip,
-                                                            pack_name_badge,
-                                                            hero_version_text,
-                                                        ],
-                                                        spacing=10,
-                                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                                    ),
-                                                    version_issue_text,
-                                                ],
-                                                spacing=6,
-                                                expand=True,
-                                            ),
-                                        ],
+                        # --- TOP: who am I launching -----------------------
+                        ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        ft.Row([hero_title], spacing=0),
+                                        ft.Row(
+                                            [hero_loader_chip, pack_name_badge,
+                                             hero_version_text],
+                                            spacing=10,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        ),
+                                        version_issue_text,
+                                    ],
+                                    spacing=8, expand=True,
+                                ),
+                                # A solid dark backing so the actions never
+                                # dissolve into bright art.
+                                ft.Container(
+                                    content=ft.Row(
+                                        [folder_instance_btn, rename_instance_btn,
+                                         delete_instance_btn],
+                                        spacing=2, tight=True,
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
-
-                                    ft.Container(height=16),
-
-                                    # CONFIGURATION: two related fields on one row - game
-                                    # version (a dropdown) and account (an account field) -
-                                    # then the mod loader choice below them.
-                                    ft.Row(
-                                        [
-                                            ft.Column(
-                                                [
-                                                    section_label("Game version"),
-                                                    ft.Container(height=6),
-                                                    version_dropdown_button,
-                                                ],
-                                                spacing=0,
-                                                expand=True,
-                                            ),
-                                            ft.Container(width=16),
-                                            ft.Column(
-                                                [
-                                                    section_label("Account"),
-                                                    ft.Container(height=6),
-                                                    username_field,
-                                                ],
-                                                spacing=0,
-                                                expand=True,
-                                            ),
-                                        ],
-                                    ),
-                                    ft.Container(height=14),
-                                    ft.Column(
-                                        [
-                                            section_label("Mod loader"),
-                                            ft.Container(height=6),
-                                            loader_toggle,
-                                            ft.Container(content=loader_status_text, height=18,
-                                                         data="play-loader-status"),
-                                        ],
-                                        spacing=0,
-                                    ),
-
-                                    ft.Container(height=4),
-
-                                    # FPS BOOST: the toggle that actually helps. Sits in
-                                    # the Play menu (not Settings) because it changes what
-                                    # THIS launch looks and feels like, right next to the
-                                    # loader choice it rides on. See the fps_boost_switch
-                                    # builder above.
-                                    ft.Row(
-                                        [
-                                            ft.Column(
-                                                [
-                                                    section_label("FPS boost"),
-                                                    ft.Container(height=2),
-                                                    ft.Text(
-                                                        "Max FPS at launch. Off restores vanilla graphics "
-                                                        "(fancy, smooth lighting, shadows) on the next launch.",
-                                                        size=11, color=TEXT_DIM,
-                                                    ),
-                                                ],
-                                                spacing=0,
-                                                expand=True,
-                                            ),
-                                            fps_boost_switch,
-                                        ],
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-
-                                    ft.Container(height=18),
-
-                                    # ACTION FOOTER: the primary PLAY action on the
-                                    # right. No aura/glow behind it (user ask,
-                                    # 2026-10-23): the seasonal accent made the
-                                    # bloom read as a red halo around QUIT GAME.
-                                    # The sheen stays INSIDE play_button (see its
-                                    # creation) - as a sibling it absorbed every
-                                    # real-window tap that followed a hover.
-                                    ft.Row(
-                                        [
-                                            ft.Container(expand=True),
-                                            ft.Container(width=280, content=play_button),
-                                        ],
-                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                    ),
-
-                                    ft.Container(height=12),
-                                    progress_row,
-                                    progress_bar,
-                                ],
-                                spacing=0,
-                            ),
-                            padding=20,
+                                    bgcolor=ft.Colors.with_opacity(0.72, BG),
+                                    border=ft.border.Border.all(1, CARD_BORDER),
+                                    border_radius=RADIUS_LG,
+                                    padding=ft.padding.Padding.symmetric(
+                                        horizontal=6, vertical=4),
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.START,
                         ),
+
+                        # The art breathes here.
+                        ft.Container(expand=True),
+
+                        config_panel,
+
+                        # --- BOTTOM: version, username, PLAY ----------------
+                        ft.Row(
+                            [
+                                ft.Column(
+                                    [section_label("Version"), ft.Container(height=6),
+                                     ft.Container(content=version_dropdown_button,
+                                                  width=300)],
+                                    spacing=0),
+                                ft.Column(
+                                    [section_label("Username"), ft.Container(height=6),
+                                     ft.Container(content=username_field, width=220)],
+                                    spacing=0),
+                                ft.Container(expand=True),
+                                ft.Container(content=play_button, width=300),
+                            ],
+                            spacing=14,
+                            vertical_alignment=ft.CrossAxisAlignment.END,
+                        ),
+
+                        ft.Container(height=14),
+                        ft.Row(
+                            [fps_boost_tile, fix_crash_button],
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+
+                        ft.Container(height=10),
+                        ft.Container(content=progress_card, height=100),
                     ],
+                    spacing=0,
+                    expand=True,
                 ),
-                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                **glass_card(hero=True, padding=0),
             ),
-
-            ft.Container(height=24),
-
-            # JUMP BACK IN - one art-headed card per installed version, so
-            # the page has real content under the hero instead of ending a
-            # third of the way down. Clicking a card selects that instance.
-            # (The old "Manage" button that sat here is gone - the instances
-            # manager now opens from the version picker's manage link.)
-            theme.section_label("Jump back in"),
-            ft.Container(height=10),
-            instance_cards_row,
-            instance_cards_empty,
         ],
-        spacing=4,
-        scroll=ft.ScrollMode.AUTO,
+        expand=True,
     )
 
     # -----------------------------------------------------------------
@@ -5726,7 +6154,99 @@ async def main(page: ft.Page):
     # dependencies and version clashes are fixed before Play is ever clicked.
     # Once per profile per session; silent unless it actually changed
     # something. Never blocks or raises into the UI.
+    from cubeon.doctor_ui import make_mod_change_approver, open_repair_review
+    _approve_mod_change = make_mod_change_approver(page)
     _repair_state = {"done": set(), "lock": threading.Lock()}
+
+    # --- Fix crash (Play tab) ------------------------------------------------
+    # The doctor's visible action moved out of Mods -> Installed and onto the
+    # Play card, to the left of PLAY (2026-10-25): a failed launch is exactly
+    # when someone looks for it. It opens the same review dialog with the FULL
+    # doctor (include=None -> every section): this instance's mods, the shared
+    # resource packs, shaders, every installed modpack's profile, and server
+    # plugins. The user asked for "everything, not just mods".
+    fix_crash_state = {"busy": False}
+
+    def _set_fix_crash_busy(busy):
+        fix_crash_state["busy"] = busy
+        # `done()` arrives from the review dialog's worker thread.
+        with thread_safe_ui.TREE_LOCK:
+            fix_crash_button.disabled = busy
+            fix_crash_label.value = "Checking…" if busy else "Fix crash"
+            fix_crash_icon.name = (ft.Icons.SYNC_ROUNDED if busy
+                                   else ft.Icons.BUILD_ROUNDED)
+            thread_safe_ui.refresh(fix_crash_button)
+
+    def _run_fix_crash(e=None):
+        if fix_crash_state["busy"]:
+            return
+        vid = version_dropdown.value
+        if not vid:
+            set_status("Pick an instance first")
+            return
+        if state.get("running_version"):
+            set_status("Close the game before repairing it")
+            return
+        if state.get("installing_version"):
+            set_status("Wait for the install to finish")
+            return
+        if state.get("fixing_mods"):
+            set_status("Cubeon is already checking this instance")
+            return
+        meta = (state.get("installed_meta") or {}).get(vid) or {}
+        info = instance_info.describe(
+            vid, meta, (cfg.get("version_labels") or {}).get(vid),
+            with_mods=False, play_store={})
+        mc = info.get("base_version") or state.get("selected_mc_version")
+        loader = info.get("loader") or state.get("mod_loader") or "vanilla"
+        if not mc:
+            set_status("Pick an instance first")
+            return
+
+        _set_fix_crash_busy(True)
+
+        def done():
+            _set_fix_crash_busy(False)
+            # The doctor's "launch" section may have repaired config.json
+            # (cleared a crashing custom_jvm_flags / dead java_path). The live
+            # `cfg` dict is what launch_game reads, so refresh it - otherwise
+            # the fix would only take effect after a launcher restart.
+            try:
+                # update() rather than clear()+update(): a launch on another
+                # thread must never observe an empty cfg dict.
+                repaired = core.load_config()
+                for key in ("java_path", "custom_jvm_flags"):
+                    if key in repaired:
+                        cfg[key] = repaired[key]
+                java_path_field.value = cfg.get("java_path") or ""
+                custom_jvm_field.value = cfg.get("custom_jvm_flags") or ""
+                thread_safe_ui.refresh(java_path_field)
+                thread_safe_ui.refresh(custom_jvm_field)
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "config reload after repair failed", exc_info=True)
+            # The doctor may have disabled/replaced jars: keep the Mods list
+            # honest if that tab has ever been built.
+            refresh = (_tab_cbs.get("mods") or {}).get("refresh")
+            if callable(refresh):
+                try:
+                    refresh()
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "mods refresh after repair failed", exc_info=True)
+
+        try:
+            open_repair_review(
+                page, mc_version=mc, loader=loader, version_id=vid,
+                include=None,  # every doctor section: mods, packs, shaders, ...
+                run_doctor=core.run_doctor,
+                on_status=lambda text: None, on_done=done)
+        except Exception as error:
+            _set_fix_crash_busy(False)
+            set_status(f"Could not open the repair check: {error}")
+
+    fix_crash_button.on_click = _run_fix_crash
+
     # Hard ceiling on how long the repair claim (see _fixing_selected) may keep
     # the Play button in "FIXING MODS...". The doctor's own calls are all
     # timeout-bounded, so this only ever fires if something truly wedges - and
@@ -5734,13 +6254,27 @@ async def main(page: ft.Page):
     _REPAIR_CLAIM_MAX = 120.0
 
     def _proactive_mod_repair(version_id):
-        if not version_id or state["mod_loader"] == "vanilla":
+        """Verify/repair the selected INSTANCE's own profile in the background.
+
+        Must not run for an online-only row (nothing is installed to repair),
+        and must pass ``version_id`` to the doctor: an isolated pack clone owns
+        a private profile, so the old ``(mc_version, loader)`` call repaired
+        the legacy shared profile instead - and could prune jars that belong to
+        a different instance. The done-key includes the launch id for the same
+        reason: two isolated packs on one base version are two profiles.
+        """
+        if not version_id or version_id not in state["installed"]:
             return
-        mc = state.get("selected_mc_version")
-        loader = state["mod_loader"]
+        meta = (state.get("installed_meta") or {}).get(version_id) or {}
+        info = instance_info.describe(
+            version_id, meta,
+            (cfg.get("version_labels") or {}).get(version_id),
+            with_mods=False, play_store={})
+        mc = info["base_version"]
+        loader = info["loader"]
         if not mc or loader not in core.MOD_CAPABLE_LOADERS:
             return
-        key = (mc, loader)
+        key = (version_id, mc, loader)
         if core.pack_install_for(mc):
             # A pack install owns this profile right now and is still writing
             # mods into it. Running the doctor here would race those downloads
@@ -5779,18 +6313,35 @@ async def main(page: ft.Page):
                 # server plugins (cubeon/doctor.py). This runs after an install,
                 # which is exactly when new content lands on disk and needs to
                 # be verified against the versions that will read it.
+                # SCOPED + SILENT. This runs by itself the moment an instance is
+                # selected, so it must never interrupt: (1) only the sections
+                # that concern THIS instance - the "modpacks" section runs a
+                # full mod check on EVERY other installed pack's profile and
+                # "plugins" covers every server, which is what produced ~10
+                # review popups (2 mods each) right after installing a pack;
+                # (2) it only PROPOSES mod changes (approve_cb declines), so
+                # nothing is ever disabled behind the user's back. Whatever it
+                # finds is reviewed - once, in one dialog - from "Fix crash".
                 report = core.run_doctor(mc, loader, auto_fix=True,
-                                         check_online=True)
+                                         check_online=True, version_id=version_id,
+                                         include=("launch", "mods", "resourcepacks", "shaders"),
+                                         approve_cb=lambda change: False)
             except Exception:
                 return
             finally:
                 guard.cancel()
                 _release_claim()
-            if not (report.get("fixed") or []):
+            proposed = len({tuple(sorted(str((m or {}).get("filename")) for m in (c.get("mods") or [])))
+                            for c in (report.get("changes") or []) if isinstance(c, dict)})
+            fixed = len(report.get("fixed") or [])
+            if not (fixed or proposed):
                 return
-            fixed = len(report["fixed"])
             try:
-                set_status(f"Fixed {fixed} mod problem(s)")
+                if proposed:
+                    set_status(f"Cubeon spotted {proposed} possible mod problem(s) - "
+                               "press Fix crash to review them")
+                else:
+                    set_status(f"Fixed {fixed} problem(s)")
             except Exception:
                 logging.getLogger(__name__).warning("background worker error", exc_info=True)
             refresh = (_tab_cbs.get("mods") or {}).get("refresh")
@@ -5802,10 +6353,27 @@ async def main(page: ft.Page):
 
         threading.Thread(target=worker, name="mod-repair", daemon=True).start()
 
+    def _switch_loader_for_mods(loader_id):
+        """The loader is fixed at install time (2026-10-26 user ask).
+
+        The Shaders tab used to flip the Play tab's loader behind the user's
+        back. That is exactly the "change the modloader on startup" behaviour
+        that was removed: a Vanilla instance stays Vanilla, and a loader is
+        only chosen when a new instance is downloaded. Tell the user what to
+        do instead and leave the selection alone.
+        """
+        if state.get("mod_loader") == loader_id:
+            return True
+        set_status("This instance's loader is fixed. Create a new "
+                   f"{core.SUPPORTED_LOADERS.get(loader_id, loader_id)} "
+                   "instance to use it.")
+        return False
+
     def _build_mods_tab():
         content, refresh, recommend, browse = build_mods_tab(
             page, cfg, state, version_dropdown,
             section_label=section_label,
+            switch_loader=_switch_loader_for_mods,
             **THEME,
         )
         mods_tab.content = content
@@ -5862,20 +6430,13 @@ async def main(page: ft.Page):
         user taps an installed pack's Play), make it the active version on the
         Play tab and jump there.
 
-        Once installed, a modpack is just a normal (mc_version, loader) install:
-        its mods live in mod_profiles/<mc_version>-<loader> - the exact folder
-        CustomSkinLoader is installed into and sync_mods_to_game copies from at
-        launch. So we select the pack's NUMERIC mc_version (e.g. "1.20.1") and
-        flip the loader toggle to the pack's loader, precisely as if the user
-        had chosen them by hand. That makes the launch pass
-        mc_version="1.20.1"/loader="fabric", so the pack's mods AND the skin/cape
-        mod actually load, and the version reads as "1.20.1 (Fabric)" instead of
-        a bare loader id.
-
-        (The old code selected the launchable "fabric-loader-...-1.20.1" id, which
-        launch then forwarded verbatim as the mc_version - pointing the sync and
-        CSL install at an empty "fabric_loader_..." profile: no mods, no skin, and
-        a "Fabric Loader" label instead of the pack's name.)"""
+        Once installed, a modpack is a normal launchable instance. Packs
+        installed before instance isolation share the (mc_version, loader)
+        profile; new packs own a cloned version folder with a private profile
+        recorded in its sidecar. Selecting the pack's own launch id is what
+        makes the launch sync read that exact profile, so the pack's mods AND
+        the skin/cape mod load. The numeric MC version is only a fallback for
+        legacy installs whose version row disappeared."""
         refresh_version_list()
         mc = meta.get("mc_version")
         loader = meta.get("loader") or "vanilla"
@@ -5886,11 +6447,20 @@ async def main(page: ft.Page):
         if loader in LOADER_IDS:
             state["mod_loader"] = loader
             loader_toggle.selected_index = LOADER_IDS.index(loader)
-        # Prefer the numeric MC version; fall back to the launchable id only if
-        # the base version somehow isn't listed (e.g. user deleted it).
-        target = mc if (mc and any(o.key == mc for o in (version_dropdown.options or []))) \
-            else meta.get("version_id")
-        if target and any(o.key == target for o in (version_dropdown.options or [])):
+        # Prefer the pack's own launchable id. An isolated pack owns a cloned
+        # version folder and a private mod profile; selecting the bare numeric
+        # version would point Play (and the launch sync) at a different
+        # instance. Fall back to the numeric version only for legacy installs
+        # whose version_id row is gone, then to the raw id as a last resort.
+        options = {o.key for o in (version_dropdown.options or [])}
+        pack_id = meta.get("version_id")
+        if pack_id and pack_id in options:
+            target = pack_id
+        elif mc and mc in options:
+            target = mc
+        else:
+            target = pack_id
+        if target and target in options:
             version_dropdown.value = target
             state["selected_version"] = target
             on_version_selected()  # also derives/sets state["selected_mc_version"]
@@ -6185,10 +6755,9 @@ async def main(page: ft.Page):
     # The in-game Cubeon Client mod (Friends button, in-game menu) is injected
     # into Fabric/Quilt profiles at launch. This is the user's off switch:
     # unchecking launches a clean mod setup (the launcher itself is unaffected).
-    client_mod_cb = ft.Checkbox(
-        label="",
+    client_mod_cb = ft.Switch(
         value=bool(cfg.get("client_mod_enabled", True)),
-        active_color=ACCENT,
+        active_color=ACCENT, scale=0.85,
     )
 
     def on_client_mod_change(e):
@@ -6202,10 +6771,9 @@ async def main(page: ft.Page):
 
     # Glass background: translucent window so the desktop shows through
     # faintly. Restart-to-apply (the window alpha is set once at startup).
-    glass_cb = ft.Checkbox(
-        label="",
+    glass_cb = ft.Switch(
         value=bool(cfg.get("glass_mode_enabled", True)),
-        active_color=ACCENT,
+        active_color=ACCENT, scale=0.85,
     )
 
     def on_glass_change(e):
@@ -6217,21 +6785,22 @@ async def main(page: ft.Page):
 
     glass_cb.on_change = on_glass_change
 
-    # Custom window frame (Windows only, prototype). The frame is applied while
-    # the window is still HIDDEN at startup, so this needs a relaunch - the same
-    # contract as the glass background above. Built only on Windows: a toggle
-    # that can never do anything is worse than no toggle. See
-    # cubeon/winchrome.py for why this is opt-in and Windows-only.
+    # Custom window frame (Windows + Linux, 2026-10-26: the user asked for the
+    # branded frame on Linux too). The frame is applied while the window is
+    # still HIDDEN at startup, so this needs a relaunch - the same contract as
+    # the glass background above. Built only on the platforms that support it:
+    # a toggle that can never do anything is worse than no toggle. See
+    # cubeon/winchrome.py for the platform policy.
     custom_chrome_cb = None
-    if sys.platform == "win32":
-        custom_chrome_cb = ft.Checkbox(
-            label="",
-            value=bool(cfg.get(winchrome.CONFIG_KEY, False)),
-            active_color=ACCENT,
+    if sys.platform == "win32" or sys.platform.startswith("linux"):
+        custom_chrome_cb = ft.Switch(
+            value=bool(winchrome.custom_chrome_enabled(cfg)),
+            active_color=ACCENT, scale=0.85,
         )
 
         def on_custom_chrome_change(e):
             cfg[winchrome.CONFIG_KEY] = bool(custom_chrome_cb.value)
+            cfg["custom_window_chrome_chosen"] = True
             core.save_config(cfg)
             set_status("Custom window frame " +
                        ("on - restart Cubeon to apply"
@@ -7074,11 +7643,46 @@ async def main(page: ft.Page):
         **THEME,
     )
 
+    # The Account section of Settings: avatar + name + badges, the username
+    # field, and the picture actions. It used to be a strip ABOVE the settings
+    # rail; as a section it stops eating the popup's height.
+    account_pane = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        profile_avatar_with_parrot,
+                        ft.Column(
+                            [profile_dialog_username, account_badges],
+                            spacing=4, tight=True,
+                        ),
+                    ],
+                    spacing=14,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Container(height=14),
+                profile_username_field,
+                ft.Container(height=10),
+                ft.Row(
+                    [profile_pfp_upload_btn, profile_pfp_remove_btn,
+                     profile_pfp_status],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=0,
+        ),
+        bgcolor=SURFACE_HI, border_radius=RADIUS_LG,
+        padding=ft.padding.Padding.all(20),
+    )
+
     # Build the Settings tab UI - two panes (section rail + content), all
     # controls prebuilt above, arranged by ui/settings_tab.py. Every field
     # saves instantly on blur/submit; there is no Save button anymore.
     settings_tab = build_settings_tab(
         page, cfg,
+        on_replay_onboarding=lambda: _show_onboarding(replay=True),
+        account_pane=account_pane,
         section_label=section_label, pixel_divider=pixel_divider,
         set_status=set_status,
         save_width_height_java=save_settings,
@@ -7113,6 +7717,42 @@ async def main(page: ft.Page):
         season_ambience_switch=season_ambience_switch,
         **THEME,
     )
+
+    # -----------------------------------------------------------------
+    # ACCOUNT & SETTINGS - ONE centered popup (user ask, 2026-10-26)
+    #
+    # The account slide-over and the Settings tab used to be two separate
+    # places. They are now one rounded card in the middle of the window:
+    # account summary on top, the compacted settings sections underneath.
+    # Both the sidebar's account button and the Settings nav entry open it.
+    # -----------------------------------------------------------------
+    def _build_account_settings_body():
+        # One slim header (title + close), then the Settings tab, whose rail
+        # starts with the Account section. No profile strip above the rail.
+        return ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text("Settings", size=18, color=TEXT,
+                                font_family=FONT_DISPLAY, expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE_ROUNDED, icon_size=18,
+                            icon_color=TEXT_DIM, tooltip="Close",
+                            on_click=_close_account_panel,
+                            style=ft.ButtonStyle(
+                                bgcolor={ft.ControlState.HOVERED: SURFACE_HI}),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Container(height=8),
+                settings_tab,
+            ],
+            spacing=0,
+            expand=True,
+        )
+
+    account_card.content = _build_account_settings_body()
 
     # -----------------------------------------------------------------
     # TAB SWITCHING LOGIC
@@ -7177,80 +7817,119 @@ async def main(page: ft.Page):
         Also triggers a refresh of the mods list when switching to the Mods
         tab, and of the Servers tab (with its Console/Plugins/Settings chip
         row) when switching to any of its keys.
+
+        Two invariants, both learned from the "click fast and the tabs overlap"
+        report (2026-10-25):
+
+        * The whole mutation runs under ``thread_safe_ui.TREE_LOCK``. Tab
+          switches can come from a worker thread too (a modpack install calls
+          ``go_to_pack`` -> ``switch_tab``), and without the lock Flet could
+          diff the pane stack while the UI thread was changing it - producing
+          a patch that showed two panes at once.
+        * Visibility is EXCLUSIVE: every cached pane except the target is
+          hidden, not just the previous one. One missed/raced transition used
+          to leave an old pane visible forever, so the next switch painted the
+          new tab on top of it (the Play + Modpacks screenshot).
         """
+        # Settings is not a tab any more: it lives in the combined
+        # Account & Settings popup. The nav entry (and every deep link) opens
+        # that popup, so the previous tab stays visible behind the scrim.
+        if key == "settings":
+            _open_account_panel()
+            return
         # The top-bar Servers icon is an entry point, not a tab of its own:
         # it opens the Console (the chips then switch between the three).
         if key == SERVER_TOP_KEY:
             key = "server_console"
-        previous_tab = active_tab["value"]
-        if key not in tabs or key == previous_tab:
+        if key not in tabs:
             return
-        active_tab["value"] = key
-        switch_controls = []
-        # Update nav button styles
-        for k, btn in nav_buttons.items():
-            is_active = k == key or (k == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS)
-            if btn.data != is_active:
-                _style_nav_button(btn, is_active)
-                switch_controls.append(btn)
-        if _move_nav_blob(previous_tab, key):
-            switch_controls.append(nav_blob)
-        # The server chip row lives under the top bar and is visible only
-        # while a server tab is active. The top-bar "Servers" icon itself is
-        # just an entry point - it opens the Console.
-        show_subnav = key in SERVER_GROUP_KEYS
-        if subnav_bar.visible != show_subnav:
-            subnav_bar.visible = show_subnav
-            switch_controls.append(subnav_bar)
-        previous_view = _tab_views[previous_tab]
-        previous_view.visible = False
-        view = _tab_views.get(key)
-        if view is None:
-            view = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
-                horizontal=28, vertical=24), expand=True)
-            _tab_views[key] = view
-            tab_switcher.controls.append(view)
-            switch_controls.append(tab_switcher)
-        else:
-            view.visible = True
-            switch_controls.extend((previous_view, view))
-        # If switching to Mods, refresh the list and load recommendations if not yet loaded
-        if key == "mods":
-            _ensure_tab("mods")
-            refresh_mods_list()
-            if not state.get("mods_recommendations_loaded"):
-                state["mods_recommendations_loaded"] = True
-                load_recommended_mods()
-        elif key == "modpacks":
-            _ensure_tab("modpacks")
-            refresh_installed_packs()
-            if not state.get("modpacks_loaded"):
-                state["modpacks_loaded"] = True
-                load_popular_modpacks()
-        elif key == "profile":
-            refresh_profile_tab()
-        elif key in SERVER_GROUP_KEYS:
-            _ensure_tab("server")
-            refresh_server_tab()
-        elif key == "stats":
-            _ensure_tab("stats")
-            _cb("stats", "refresh")()
-        elif key == "chat":
-            _ensure_tab("chat")
-            _cb("chat", "refresh")()
-        elif key == "play":
-            refresh_server_status_panel()
-            _reconcile_running_button()
-            # Also re-derive the big button on every entry: a pack install
-            # elsewhere (Modpacks tab) can have claimed or released this
-            # instance while the Play tab was hidden, and the button must
-            # never be the stale one.
-            _sync_play_button()
-        page.update(*switch_controls)
+        with thread_safe_ui.TREE_LOCK:
+            previous_tab = active_tab["value"]
+            if key == previous_tab:
+                return
+            active_tab["value"] = key
+            switch_controls = []
+            # Update nav button styles
+            for k, btn in nav_buttons.items():
+                is_active = k == key or (k == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS)
+                if btn.data != is_active:
+                    _style_nav_button(btn, is_active)
+                    switch_controls.append(btn)
+            if _move_nav_blob(previous_tab, key):
+                switch_controls.append(nav_blob)
+            # The server chip row lives under the top bar and is visible only
+            # while a server tab is active. The top-bar "Servers" icon itself
+            # is just an entry point - it opens the Console.
+            show_subnav = key in SERVER_GROUP_KEYS
+            if subnav_bar.visible != show_subnav:
+                subnav_bar.visible = show_subnav
+                switch_controls.append(subnav_bar)
+            # Build a lazy tab BEFORE it is mounted, so the first paint already
+            # carries its content. (Building after the pane swap left the host
+            # container empty on screen - a scoped refresh of an inner list
+            # does not re-send the parent's new content.)
+            _ensure_tab("server" if key in SERVER_GROUP_KEYS else key)
+            view = _tab_views.get(key)
+            if view is None:
+                view = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
+                    horizontal=28, vertical=24), expand=True)
+                _tab_views[key] = view
+                tab_switcher.controls.append(view)
+                switch_controls.append(tab_switcher)
+            # Hide every other pane and show exactly this one. This is the
+            # repair for any pane a previous interrupted switch left visible.
+            for k, pane in _tab_views.items():
+                want = k == key
+                if pane.visible != want:
+                    pane.visible = want
+                    switch_controls.append(pane)
+            # Paint the shell FIRST: the pane swap must land before any of the
+            # refreshes below (which can scan disk or hit the network). Holding
+            # the switch behind that work is what made rapid navigation look
+            # frozen, and a refresh that raised could strand the visibility
+            # change entirely.
+            page.update(*switch_controls)
+
+        # Per-tab refreshes run after the shell is on screen. Each one repaints
+        # only its own region (thread_safe_ui.refresh), so none of them needs
+        # the full tree lock for the whole scan.
+        try:
+            # If switching to Mods, refresh the list and load recommendations
+            # if not yet loaded
+            if key == "mods":
+                refresh_mods_list()
+                if not state.get("mods_recommendations_loaded"):
+                    state["mods_recommendations_loaded"] = True
+                    load_recommended_mods()
+            elif key == "modpacks":
+                refresh_installed_packs()
+                if not state.get("modpacks_loaded"):
+                    state["modpacks_loaded"] = True
+                    load_popular_modpacks()
+            elif key == "profile":
+                refresh_profile_tab()
+            elif key in SERVER_GROUP_KEYS:
+                refresh_server_tab()
+            elif key == "stats":
+                _cb("stats", "refresh")()
+            elif key == "chat":
+                _cb("chat", "refresh")()
+            elif key == "play":
+                refresh_server_status_panel()
+                _reconcile_running_button()
+                # Also re-derive the big button on every entry: a pack install
+                # elsewhere (Modpacks tab) can have claimed or released this
+                # instance while the Play tab was hidden, and the button must
+                # never be the stale one.
+                _sync_play_button()
+        except Exception:
+            # A refresh failure must never take navigation down (the old code
+            # could leave the pane swap half-applied). The empty/previous
+            # content is still better than a dead sidebar.
+            traceback.print_exc()
 
     # Initialize content area with the Play tab
-    _tab_views["play"] = ft.Container(play_tab, padding=ft.padding.Padding.symmetric(
-        horizontal=28, vertical=24), expand=True)
+    _tab_views["play"] = ft.Container(play_tab, padding=0, expand=True)
     tab_switcher.controls.append(_tab_views["play"])
 
     # -----------------------------------------------------------------
@@ -7270,7 +7949,8 @@ async def main(page: ft.Page):
         bgcolor=CARD_FILL,
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS_LG,
-        margin=ft.margin.Margin.only(left=12, top=4, right=12, bottom=12),
+        margin=ft.margin.Margin.only(left=12, top=8, right=12, bottom=12),
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         expand=True,
     )
 
@@ -7415,14 +8095,14 @@ async def main(page: ft.Page):
             src=_bg_path, fit=ft.BoxFit.COVER, opacity=1.0,
             filter_quality=ft.FilterQuality.MEDIUM,
         )
-    # The window's content: the branded top bar over the rest of the shell.
-    # With the custom frame (Windows) two things change here:
-    #   1. the top bar IS the title bar - WindowDragArea gives it the native
-    #      behaviours (drag to move, double-click to maximize/restore, and,
-    #      because a drag is a WM_NCLBUTTONDOWN/HTCAPTION under the hood, Snap
-    #      Layouts, drag-to-restore and Win+arrow). Its pan recognizer does not
-    #      consume taps, so the nav icons and buttons still take their clicks;
-    #   2. the same column is wrapped in a Stack with the eight resize hot-zones,
+    # The window's content: the compact left sidebar beside the rest of the
+    # shell. With the custom frame (Windows) two things change here:
+    #   1. the slim top strip IS the title bar - WindowDragArea gives it the
+    #      native behaviours (drag to move, double-click to maximize/restore,
+    #      and, because a drag is a WM_NCLBUTTONDOWN/HTCAPTION under the hood,
+    #      Snap Layouts, drag-to-restore and Win+arrow). Its pan recognizer does
+    #      not consume taps, so the chrome buttons still take their clicks;
+    #   2. the same row is wrapped in a Stack with the eight resize hot-zones,
     #      which are positioned against the WINDOW's own edges and so must sit at
     #      the outermost layer.
     _top_region = top_bar
@@ -7431,8 +8111,11 @@ async def main(page: ft.Page):
             _top_region = ft.WindowDragArea(content=top_bar, maximizable=True)
         except Exception:
             _top_region = top_bar  # a frame that can't be dragged beats none
-    _root_content = ft.Column([_top_region, subnav_bar, season_band, content_surface],
-                              expand=True, spacing=0)
+    _main_column = ft.Column([_top_region, subnav_bar, season_band, content_surface],
+                             expand=True, spacing=0)
+    _root_content = ft.Row([sidebar, _main_column], expand=True,
+                           spacing=0,
+                           vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     if _custom_chrome:
         try:
             _resize_edges = build_resize_edges(_on_resize_edge)
@@ -7592,7 +8275,12 @@ async def main(page: ft.Page):
     # `season_seen` - otherwise the once-per-season card would land on top of
     # the screen that just explained the season.
     # -----------------------------------------------------------------
-    if "onboarded" not in cfg:
+    def _show_onboarding(*, replay=False):
+        nonlocal _onboard_overlay
+        if replay:
+            _close_account_panel()
+            if _onboard_overlay is not None and _onboard_overlay in page.overlay:
+                page.overlay.remove(_onboard_overlay)
 
         def _finish_onboarding(name):
             ok, err = core.validate_username(name)
@@ -7653,12 +8341,18 @@ async def main(page: ft.Page):
                 on_finish=_finish_onboarding,
             )
             page.overlay.append(_onboard_overlay)
+            if replay:
+                _onboard_overlay.opacity = 1
+                _onboard_overlay.scale = ft.Scale(1)
             # Mount it transparent; the fade-in is fired right after the
             # window's own reveal (see below), so the two fades don't overlap
             # into one flash.
             page.update()
         except Exception:
             traceback.print_exc()  # a missed welcome must not break startup
+
+    if "onboarded" not in cfg:
+        _show_onboarding()
 
 
 
@@ -8203,7 +8897,7 @@ async def main(page: ft.Page):
 
         Membership, not `.open`: flet removes a barrier-dismissed dialog from
         its stack WITHOUT clearing the flag, and show_dialog() RAISES for one
-        that is still mounted (see InstancesManager._is_mounted, ui/versions.py).
+        that is still mounted (see cubeon/dialogs.py).
         """
         if dlg is None:
             return False
@@ -8301,7 +8995,9 @@ async def main(page: ft.Page):
                     cubeon_dialogs.close_dialog(page, _shortcuts_dlg["dlg"])
                 elif _fullscreen["active"]:
                     _set_fullscreen(False)
-                elif account_panel.right == 0:
+                elif picker.is_open():
+                    picker.close()
+                elif _account_panel_is_open():
                     _close_account_panel()
             elif action == cubeon_shortcuts.FULLSCREEN:
                 _toggle_fullscreen()

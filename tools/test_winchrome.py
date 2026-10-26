@@ -36,29 +36,38 @@ def check(label, cond, detail=""):
         print(f"FAIL  {label}  {detail}")
 
 
-print("\n1. the frame is Windows-only, whatever the config says")
-check("Linux never gets the custom frame",
+print("\n1. the frame is available on Windows and Linux, never macOS")
+check("Linux gets the custom frame BY DEFAULT (2026-10-26 user ask)",
       winchrome.custom_chrome_enabled({"custom_window_chrome": True},
-                                      platform="linux", env={}) is False)
-check("macOS never either",
+                                      platform="linux", env={}) is True)
+check("...and even with no config key at all",
+      winchrome.custom_chrome_enabled({}, platform="linux", env={}) is True,
+      "the compact branded frame is the Linux default")
+check("macOS never gets it",
       winchrome.custom_chrome_enabled({"custom_window_chrome": True},
                                       platform="darwin", env={}) is False)
-check("even a bare Windows install is OFF by default",
+check("a bare Windows install is still OFF by default",
       winchrome.custom_chrome_enabled({}, platform="win32", env={}) is False,
       "the native frame must stay the default until a VM has verified this")
 check("Windows + the config key turns it on",
       winchrome.custom_chrome_enabled({"custom_window_chrome": True},
                                       platform="win32", env={}) is True)
+check("an explicit OFF wins on Linux too",
+      winchrome.custom_chrome_enabled({"custom_window_chrome": False},
+                                      platform="linux", env={}) is False)
 
 print("\n2. the env var is the escape hatch, and it wins outright")
 check("CUBEON_CUSTOM_CHROME=1 forces it on",
       winchrome.custom_chrome_enabled(
           {"custom_window_chrome": False}, platform="win32",
           env={winchrome.ENV_FLAG: "1"}) is True)
-check("...on any platform? No - Windows is still required",
+check("...on any supported platform",
       winchrome.custom_chrome_enabled(
-          {}, platform="linux", env={winchrome.ENV_FLAG: "1"}) is False,
-      "the flag is an override of the CONFIG, not of the platform")
+          {}, platform="linux", env={winchrome.ENV_FLAG: "1"}) is True,
+      "the flag overrides the CONFIG, not the platform support")
+check("but macOS is still excluded",
+      winchrome.custom_chrome_enabled(
+          {}, platform="darwin", env={winchrome.ENV_FLAG: "1"}) is False)
 check("CUBEON_CUSTOM_CHROME=0 forces it back off",
       winchrome.custom_chrome_enabled(
           {"custom_window_chrome": True}, platform="win32",
