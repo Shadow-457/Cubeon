@@ -181,28 +181,34 @@ def main():
           modpacks.pack_install_for("1.20.1") is None,
           str(modpacks.active_pack_installs()))
 
-    # --- overlapping installs of one version stay claimed until the last ---
+    # --- a second install of one base version is refused -------------------
+    # Two workers writing the same versions/<mc> + loader + profile is how a
+    # user got two half-installs with different mod counts. The second claim
+    # must fail immediately, and the first must keep its claim until it ends.
     real_body = modpacks._install_from_zip_body
     calls = {"n": 0}
+    refused = {"value": False}
 
     def reentrant_body(zip_path, *, progress_cb=None, status_cb=None,
                        max_cb=None, icon_url=None):
         calls["n"] += 1
         if calls["n"] == 1:
-            # A second install of the SAME version starts while this one runs
-            # (a reinstall racing an import). The claim must survive the first
-            # one finishing.
-            modpacks._install_from_zip(zip_path)
+            try:
+                modpacks._install_from_zip(zip_path)
+            except modpacks.ModpackError:
+                refused["value"] = True
         return {"mc_version": "1.20.1", "name": "Guard Pack"}
 
     modpacks._install_from_zip_body = reentrant_body
     try:
         modpacks._install_from_zip(pack)
-        check("overlap: the inner install ran",
-              calls["n"] == 2, str(calls))
+        check("overlap: a second install of the same version is refused",
+              refused["value"], str(refused))
+        check("overlap: the running install is not replaced", calls["n"] == 1,
+              str(calls))
     finally:
         modpacks._install_from_zip_body = real_body
-    check("overlap: the claim is cleared only after the LAST install",
+    check("overlap: the claim is cleared after the install ends",
           modpacks.pack_install_for("1.20.1") is None,
           str(modpacks.active_pack_installs()))
 
@@ -244,20 +250,17 @@ def main():
           and 'tooltip = ("Cubeon is still installing' in main_src,
           "the Modpacks tab owns that install and its cancel")
     check("click: on_play_click refuses a version a pack is writing",
-          "core.pack_install_for(\n                core.extract_mc_version(version_id))"
-          in main_src,
+          "core.pack_install_for_instance(version_id)" in main_src,
           "PLAY must not launch a half-installed profile")
     check("click: the Java-prompt entry point is guarded too",
-          "core.pack_install_for(\n                    core.extract_mc_version(version_id))"
-          in main_src,
+          main_src.count("core.pack_install_for_instance(version_id)") >= 2,
           "_begin_install_and_launch is reached directly from the Java dialog")
     check("selection starts no hidden download that could race a pack install",
           "prefetch_version(" not in main_src,
           "downloads start only through the explicit main action")
-    check("doctor: skips a profile a pack is still writing",
-          "if core.pack_install_for(mc):" in main_src
-          and "Skip WITHOUT" in main_src,
-          "auto_fix could prune jars whose downloads are still in flight")
+    check("instance guard: the button is scoped to the exact instance",
+          "core.pack_install_for_instance(vid)" in main_src,
+          "installing 26.2 must not lock an unrelated 26.3 instance")
     check("wiring: the button repaints when the claim changes",
           "core.add_pack_install_listener(_sync_play_button)" in main_src,
           "otherwise INSTALLING... outlives a cancel or lingers after success")

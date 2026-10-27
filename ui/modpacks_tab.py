@@ -57,6 +57,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # One install at a time - the whole thing writes to a shared game dir, and
     # two packs installing at once would race each other's version/loader.
     busy = {"value": False}
+    # A browse-row click spends a moment resolving the pack file over the
+    # network BEFORE run_install() can set `busy`. That window used to let a
+    # second click (or a re-render handing out a fresh row) start a second
+    # install worker. `preparing` claims the slot synchronously, on the click
+    # thread, so the second click is refused before it touches the network.
+    preparing = {"value": False}
     browse_rows = {}
     installed_rows = {}
 
@@ -203,6 +209,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         thread_safe_ui.refresh(install_bar)
 
     def _begin_install():
+        preparing["value"] = False
         busy["value"] = True
         installed_refresh_done["done"] = False
         install_cancel.clear()
@@ -218,6 +225,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         page.update()
 
     def _end_install_ok(meta):
+        preparing["value"] = False
         busy["value"] = False
         install_cancel_btn.visible = False
         install_status.value = f"Installed {meta.get('name', 'modpack')} ✓"
@@ -241,6 +249,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             pass
 
     def _end_install_err(message):
+        preparing["value"] = False
         busy["value"] = False
         install_cancel_btn.visible = False
         install_status.value = status_text.human(message)
@@ -253,6 +262,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         The pack's _modpack.json marker was dropped when the install began (a
         partially downloaded pack must never look installed), so it simply
         won't appear in the list until a completed install writes it back."""
+        preparing["value"] = False
         busy["value"] = False
         install_cancel_btn.visible = False
         install_status.value = "Install cancelled - nothing was marked as installed."
@@ -260,13 +270,21 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         install_bar.value = 0
         page.update()
 
-    def run_install(*, url=None, file_path=None, cf_file=None, icon_url=None):
+    def run_install(*, url=None, file_path=None, cf_file=None, icon_url=None,
+                    preclaimed=False):
         """cf_file: a get_modpack_file() result with source='curseforge' -
         installed through the CF->mrpack converter instead of the raw-mrpack
         path (a CurseForge zip isn't an .mrpack). icon_url: the browse hit's
-        thumbnail, saved into the pack meta for the installed list."""
-        if busy["value"]:
-            return
+        thumbnail, saved into the pack meta for the installed list.
+
+        ``preclaimed`` means the caller already claimed the install slot
+        synchronously (the browse row does, before its network lookup) so this
+        call must not refuse itself.
+        """
+        if not preclaimed:
+            if busy["value"] or preparing["value"]:
+                return False
+            preparing["value"] = True
         _begin_install()
 
         def worker():
@@ -876,8 +894,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         )
 
         def on_install(e):
-            if busy["value"]:
+            # Claim the install slot HERE, on the click thread, before any
+            # network work. The old order (look up the pack file, then set
+            # busy) let a second click - or a re-rendered row with a fresh
+            # button - start a second worker for the same pack. That is the
+            # "it installed twice with different mod counts" report.
+            if busy["value"] or preparing["value"]:
                 return
+            preparing["value"] = True
             install_btn.disabled = True
             install_btn_text.value = "Preparing..."
             page.update()
@@ -905,16 +929,17 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                         # asks for by name could never be installed.
                         file_info = core.get_modpack_file(pack["project_id"])
                     if not file_info or not file_info.get("url"):
+                        preparing["value"] = False
                         _end_install_err(f"{pack['title']} has no installable version.")
-                        install_btn.disabled = False
-                        install_btn_text.value = "Install"
-                        page.update()
                         return
                     if file_info.get("source") == "curseforge":
-                        run_install(cf_file=file_info, icon_url=pack.get("icon_url"))
+                        run_install(cf_file=file_info, icon_url=pack.get("icon_url"),
+                                    preclaimed=True)
                     else:
-                        run_install(url=file_info["url"], icon_url=pack.get("icon_url"))
+                        run_install(url=file_info["url"], icon_url=pack.get("icon_url"),
+                                    preclaimed=True)
                 except Exception as ex:
+                    preparing["value"] = False
                     _end_install_err(f"Couldn't start install: {ex}"[:200])
                 finally:
                     install_btn.disabled = False

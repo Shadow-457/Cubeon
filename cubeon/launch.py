@@ -810,6 +810,15 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         if cfg.get("csl_synced_cape_name") != cape_before:
             save_config(cfg)
 
+        # Shoulder/back cosmetics: the client mod reads this file, so a
+        # selection made in the Cosmetics tab is live on the next join.
+        try:
+            from . import cosmetics as _cosmetics
+            _cosmetics.sync_to_game(cfg)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "cosmetics sync failed", exc_info=True)
+
         # Best-effort: never let a skin-mod problem stop the game launching.
         try:
             csl.ensure_ready(
@@ -1019,60 +1028,32 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     popen_kwargs["env"] = _game_env
 
     from . import watchdog
-    # First launch after an install gets the FULL doctor (network checks on):
-    # the fast offline pass below has always run before every launch, but it
-    # skips the dependency and loader/version passes - so a fresh install with
-    # a missing dependency or an incompatible jar launched broken, and only
-    # the Mods tab's "Fix problems" (which IS online) repaired it. The first
-    # launch is exactly when a fresh profile most needs the full check, and
-    # it is a one-time cost per profile: a marker in the cache records that
-    # this launch already did it. Every later launch goes back to the fast
-    # offline pass. Never raises into the spawn path.
-    _full_doctor_done = False
-    pending_mod_changes = []
+    # Launch-time checks are deliberately NON-INTERACTIVE and tiny.
+    #
+    # This used to run the full doctor (first launch online, every launch
+    # offline) with the interactive approver attached. Each proposed mod
+    # change opened a modal that waited up to two minutes, so "ignore the
+    # doctor and just play" actually meant "wait for every dialog to time
+    # out" - the launch was blocked by the very thing the user dismissed.
+    #
+    # A launch must never wait on a question. All this pass does now is
+    # repair launcher-owned settings that make Java die before Minecraft
+    # starts (a bare token in custom JVM flags, a deleted Java path). It
+    # never touches installed content and never prompts. Mod dependency /
+    # conflict repair belongs to an explicit install or "Fix crash" action,
+    # not to the Play button.
     try:
-        from . import local_cache
-        _doctor_key = (str(mc_version), str(loader), str(version_id))
-        _full_doctor_done = local_cache.get(
-            "first_launch_doctor", _doctor_key, max_age=30 * 86400) is not None
+        from .doctor import run_doctor
+        report = run_doctor(mc_version, loader, auto_fix=True,
+                            check_online=False, version_id=version_id,
+                            include=("launch",))
+        fixed = len(report.get("fixed") or [])
+        if fixed and status_cb:
+            status_cb("Fixed the launch settings")
     except Exception:
-        pass
-    if not _full_doctor_done:
-        try:
-            from .doctor import run_doctor as _full_doctor
-            from . import local_cache as _lc
-            _rep = _full_doctor(mc_version, loader, auto_fix=True,
-                                check_online=True, version_id=version_id,
-                                include=("mods",), approve_cb=approve_mod_changes)
-            pending_mod_changes = [change for change in _rep.get("changes") or []
-                                   if not change.get("approved")]
-            _fixed = len(_rep.get("fixed") or [])
-            if _fixed and status_cb:
-                status_cb(f"Fixed {_fixed} mod problem(s)")
-            # Recorded even when offline broke the check: retrying the full
-            # pass on every launch of a permanently-offline machine would
-            # turn a one-time cost into a launch-time stall. The offline
-            # pass and the doctor's filesystem checks still run every launch.
-            _lc.set("first_launch_doctor", _doctor_key, True)
-        except Exception:
-            logging.getLogger(__name__).warning(
-                "first-launch doctor failed", exc_info=True)
+        logging.getLogger(__name__).warning(
+            "launch config check failed", exc_info=True)
     try:
-        report = {}
-        try:
-            from .doctor import run_doctor
-            report = run_doctor(mc_version, loader, auto_fix=True,
-                                check_online=False, version_id=version_id,
-                                include=("mods", "resourcepacks", "shaders"),
-                                approve_cb=approve_mod_changes)
-            fixed = len(report.get("fixed") or [])
-            if fixed and status_cb:
-                status_cb(f"Fixed {fixed} content problem(s)")
-        except Exception:
-            logging.getLogger(__name__).warning("launch doctor failed", exc_info=True)
-        if pending_mod_changes or any(not change.get("approved") for change in report.get("changes") or []):
-            if status_cb:
-                status_cb("Keeping your mods and starting Minecraft")
         with _spawn_lock:
             try:
                 from .content import sync_content_to_game

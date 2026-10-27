@@ -85,7 +85,8 @@ from cubeon.modpacks import (
     list_installed_modpacks, export_mrpack, forget_modpack_for_version,
     # in-flight pack installs: the Play button must not offer PLAY for an
     # instance a pack installer is still writing (see modpacks' registry)
-    active_pack_installs, pack_install_for, add_pack_install_listener,
+    active_pack_installs, pack_install_for, pack_install_for_instance,
+    add_pack_install_listener,
 )
 
 # --- resource packs & shaders (PER INSTANCE: store + profile links, staged
@@ -122,6 +123,15 @@ from cubeon.capes import (
     validate_cape_file, list_custom_capes, add_custom_cape, delete_custom_cape,
     get_custom_cape_path, set_active_cape, sync_local_cape_to_csl,
     render_cape_preview,
+)
+
+# --- original shoulder/back cosmetics (catalogue + <game>/config sync) ---
+from cubeon.cosmetics import (
+    SLOTS as COSMETIC_SLOTS,
+    items as cosmetic_items,
+    get as get_cosmetic,
+    set_active as set_active_cosmetic,
+    sync_to_game as sync_cosmetics_to_game,
 )
 
 # --- gallery (LOCAL skins/capes library; see cubeon/gallery.py) ---

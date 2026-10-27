@@ -72,7 +72,8 @@ def _pill(text: str) -> ft.Container:
 
 def build_crash_dialog(page, *, reason: str, log_text: str,
                        version_label: str = "", log_path: "str | None" = None,
-                       show_snack=None, on_close=None) -> ft.AlertDialog:
+                       show_snack=None, on_close=None,
+                       on_fix_crash=None) -> ft.AlertDialog:
     """Build (but do not open) the crash report. See ``show_crash_dialog``."""
     log_text = (log_text or "").strip()
     trimmed = False
@@ -115,6 +116,22 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                 on_close()
             except Exception:
                 pass
+
+    def _fix_crash(e=None):
+        if not callable(on_fix_crash):
+            return
+        # The repair has its own review dialog; leaving the crash report
+        # mounted would stack two dialogs and bury the one that shows progress.
+        try:
+            cubeon_dialogs.close_dialog(page, dlg)
+        except Exception:
+            pass
+        try:
+            on_fix_crash()
+        except Exception:
+            if callable(show_snack):
+                show_snack("Couldn't start the crash repair - the log is "
+                           "still available above.", duration=6000)
 
     log_field = ft.TextField(
         value=log_text,
@@ -203,6 +220,12 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                 on_click=_discord,
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
             ),
+            *([ft.TextButton(
+                "Fix crash", icon=ft.Icons.BUILD_ROUNDED,
+                on_click=_fix_crash,
+                tooltip="Read this crash log and repair what it proves",
+                style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
+            )] if callable(on_fix_crash) else []),
             ft.FilledButton(
                 "Close",
                 on_click=_close,
@@ -221,7 +244,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
 
 def show_crash_dialog(page, *, reason: str, log_text: str,
                       version_label: str = "", log_path: "str | None" = None,
-                      show_snack=None, on_close=None):
+                      show_snack=None, on_close=None, on_fix_crash=None):
     """Build + mount the crash report. Returns the dialog, or None.
 
     Safe from any thread: mounting goes through ``cubeon.dialogs``, the same
@@ -232,7 +255,8 @@ def show_crash_dialog(page, *, reason: str, log_text: str,
         dlg = build_crash_dialog(
             page, reason=reason, log_text=log_text,
             version_label=version_label, log_path=log_path,
-            show_snack=show_snack, on_close=on_close)
+            show_snack=show_snack, on_close=on_close,
+            on_fix_crash=on_fix_crash)
         cubeon_dialogs.open_dialog(page, dlg)
         return dlg
     except Exception:

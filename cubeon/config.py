@@ -96,6 +96,11 @@ DEFAULT_CONFIG = {
     # filename (in CAPES_DIR) of the uploaded cape to use, or None = the shared
     # Cubeon cape (the Worker serves that to everyone; see worker/cubeon-skins.js).
     "active_cape": None,
+    # Original Cubeon shoulder/back cosmetics (see cubeon/cosmetics.py).
+    # The launcher writes the active ids to <game>/config/cubeon-cosmetics.json
+    # and the client mod draws them as textured boxes on the player.
+    "active_shoulder_item": None,
+    "active_back_item": None,
     # Username the active skin was last mirrored to CustomSkinLoader under, so a
     # rename can clean up the stale <OLDNAME>.png instead of leaving it behind.
     "csl_synced_name": None,

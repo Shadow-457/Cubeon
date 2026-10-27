@@ -13,6 +13,7 @@ What this protects:
 import json
 import os
 import sys
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -251,10 +252,33 @@ check("dependency installed", deps and deps[0]["fixed"], f"{deps!r}")
 check("download called with the dep file",
       downloaded == [("dep-url", "fabric-api-0.9.jar")], f"{downloaded!r}")
 
+def write_fabric_jar(profile_dir, filename, mod_id, version, *, breaks=None,
+                     depends=None, project_id=None, slug=None):
+    """A real, readable jar with a fabric.mod.json - unlike write_jar() above,
+    this one can be parsed for `breaks`/`depends`."""
+    os.makedirs(profile_dir, exist_ok=True)
+    manifest = {"schemaVersion": 1, "id": mod_id, "version": version,
+                "name": mod_id}
+    if breaks:
+        manifest["breaks"] = breaks
+    if depends:
+        manifest["depends"] = depends
+    with zipfile.ZipFile(os.path.join(profile_dir, filename), "w") as z:
+        z.writestr("fabric.mod.json", json.dumps(manifest))
+    if project_id or slug:
+        mods.record_mod_source(profile_dir, filename, slug=slug,
+                               project_id=project_id)
+
 # ---------------------------------------------------------------------------
-print("\n5. doctor: a jar with no build for this loader/version is disabled")
+print("\n5. doctor: a jar built for the wrong Minecraft version is disabled")
 # ---------------------------------------------------------------------------
-write_jar(PROFILE, "oldmod-3.0.jar", project_id="oldPID", slug="oldmod")
+# This check is LOCAL: the jar's own fabric.mod.json `depends.minecraft` is
+# what the loader enforces, so no network answer is needed to know the build
+# cannot load here. A missing Modrinth release is NOT proof of anything (see
+# the second half of this section) and must never disable a working mod.
+write_fabric_jar(PROFILE, "oldmod-3.0.jar", "oldmod", "3.0",
+                 depends={"minecraft": "1.19.x"},
+                 project_id="oldPID", slug="oldmod")
 mods.get_mod_download = lambda ref, mc_version=None, loader=None: (
     None if ref == "oldPID" else {"filename": "x.jar", "url": "u", "hashes": {}})
 mods._required_deps_cached = lambda ref, mc, ld: []
@@ -267,6 +291,27 @@ check("incompatible reported", any(p["mod"].startswith("oldmod") for p in bad),
 check("incompatible disabled",
       any(p["mod"].startswith("oldmod") and p["fixed"] for p in bad), f"{bad!r}")
 check("toggle_mod called", "oldmod-3.0.jar" in toggled, f"{toggled!r}")
+
+# A project Modrinth has no downloadable build for is reported as
+# "couldn't verify", and left ALONE - the old behaviour disabled it, which is
+# how a working Sodium ended up switched off by "Fix problems".
+write_jar(PROFILE, "unlisted-1.0.jar", project_id="UNLISTED", slug="unlisted")
+mods.get_mod_download = lambda ref, mc_version=None, loader=None: None
+toggled.clear()
+rep = mods.mod_doctor(MC, LOADER, auto_fix=True, check_online=True, approve_cb=lambda change: True)
+check("an unverifiable build is reported honestly, not called incompatible",
+      any(p["kind"] == "verification-unavailable" for p in rep["problems"]),
+      f"{rep!r}")
+check("an unverifiable build is never disabled",
+      "unlisted-1.0.jar" not in toggled
+      and os.path.exists(os.path.join(PROFILE, "unlisted-1.0.jar")), f"{toggled!r}")
+for _j in ("unlisted-1.0.jar", "oldmod-3.0.jar"):
+    for _p in (os.path.join(PROFILE, _j),
+               os.path.join(PROFILE, _j + ".cubeon.json")):
+        try:
+            os.remove(_p)
+        except OSError:
+            pass
 
 # ---------------------------------------------------------------------------
 print("\n6. doctor is a clean no-op with no version/loader and never raises")
@@ -281,24 +326,6 @@ check("a second run on a fixed profile finds no duplicates",
 # ---------------------------------------------------------------------------
 print("\n6b. doctor: a Fabric `breaks` version conflict is detected and fixed")
 # ---------------------------------------------------------------------------
-import zipfile  # noqa: E402
-
-
-def write_fabric_jar(profile_dir, filename, mod_id, version, *, breaks=None,
-                     project_id=None, slug=None):
-    """A real, readable jar with a fabric.mod.json - unlike write_jar() above,
-    this one can be parsed for `breaks`/`depends`."""
-    os.makedirs(profile_dir, exist_ok=True)
-    manifest = {"schemaVersion": 1, "id": mod_id, "version": version,
-                "name": mod_id}
-    if breaks:
-        manifest["breaks"] = breaks
-    with zipfile.ZipFile(os.path.join(profile_dir, filename), "w") as z:
-        z.writestr("fabric.mod.json", json.dumps(manifest))
-    if project_id or slug:
-        mods.record_mod_source(profile_dir, filename, slug=slug,
-                               project_id=project_id)
-
 
 # Predicate parsing, the heart of conflict detection.
 for _v, _expr, _want in [
@@ -345,7 +372,7 @@ _INCOMPAT = [dict(_GOOD, id=f"v-new-{i}", version_number=f"0.9.{i}",
              for i in range(30)]
 mods.get_mod_versions = lambda ref, mc_version=None, loader=None, **kw: (
     _INCOMPAT + [_GOOD] if ref in ("sodiumtest", "SODIUMTEST") else [])
-mods._read_remote_mod_metadata = lambda url: {
+mods._read_remote_mod_metadata = lambda url, loader=None: {
     "id": "sodiumtest", "version": "0.8.12", "name": "sodiumtest",
     "depends": {}, "breaks": {"iristest": "<=1.10.6"}}
 _replaced = []
@@ -601,11 +628,17 @@ print("\n8. launch runs a fast, network-free repair before the game starts")
 _launch_src = open(os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "cubeon", "launch.py"), encoding="utf-8").read()
-check("launch calls the unified doctor (mods + packs + shaders)",
-      "run_doctor(" in _launch_src and
-      '"mods", "resourcepacks", "shaders"' in _launch_src)
+# The Play button must not block on mod questions. It runs ONLY the launcher
+# config checks (broken JVM flags, a missing Java path) and never scans or
+# changes installed content - that belongs to install and "Fix crash".
+check("launch runs the config-only doctor scope",
+      "run_doctor(" in _launch_src and 'include=("launch",)' in _launch_src)
+check("launch never scans mods/resource packs/shaders",
+      '"mods", "resourcepacks", "shaders"' not in _launch_src)
 check("launch repair is filesystem-only (check_online=False)",
       "check_online=False" in _launch_src)
+check("launch hands the doctor no approval dialog",
+      "approve_cb=" not in _launch_src)
 
 # ---------------------------------------------------------------------------
 print("\n9. doctor: a conflict with no possible replacement turns one mod off")
@@ -667,12 +700,11 @@ print("\n11. selecting a profile repairs mods in the background")
 _main_src = open(os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "main.py"), encoding="utf-8").read()
-check("on_version_selected kicks off a proactive repair",
-      "_proactive_mod_repair(version_id)" in _main_src)
-check("the proactive pass is the full online doctor",
-      "check_online=True" in _main_src)
-check("proactive repair is once per profile per session",
-      '_repair_state = {"done": set()' in _main_src)
+check("selecting a profile starts NO hidden mod scan/repair",
+      "_proactive_mod_repair" not in _main_src
+      and "not consent to scan or change its mods" in _main_src)
+check("the Play path never hands the doctor an approval dialog",
+      "approve_mod_changes=" not in _main_src)
 
 import types
 from ui import mods_tab as ui_mods, modpacks_tab as ui_packs
@@ -741,6 +773,10 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
             patch.object(_core, "get_recommended_mods", return_value=[{"project_id": "old", "title": "old"}]):
         search.value = ""
         load()
+        # open_hook() kicks off BOTH the recommendation fetch and the
+        # background auto-check. The auto-check is a separate concern (and
+        # would hit the network), so drop it and order the fetch itself.
+        QueuedThread.queue.pop()
         old_recommend = QueuedThread.queue.pop()
         search.value = "older"
         fns["run_mod_search"]()

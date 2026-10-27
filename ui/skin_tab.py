@@ -1,13 +1,17 @@
-"""Cosmetics: shared native 3D preview and local Skin / Cape libraries.
+"""Cosmetics: shared native 3D preview and local Skin / Cape / Shoulder / Back
+libraries.
 
 Uploads are stored locally and applied in-game when the corresponding
-skin/cape mod is installed for the current profile. Screenshots live in Settings.
+skin/cape mod is installed for the current profile. Shoulder and back items
+are original Cubeon art drawn by the Cubeon Client itself (see
+cubeon/cosmetics.py). Screenshots live in Settings.
 """
 
 # Standard library imports
 import base64
 import os
 import threading
+from io import BytesIO
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
@@ -22,6 +26,7 @@ from cubeon.theme import (
     SURFACE_MAX, TEXT_FAINT,
 )
 from cubeon import thread_safe_ui  # control-level refresh() (thread-safe)
+from cubeon import cosmetics
 from ui.appearance_preview import AppearancePreview
 
 # Our own launcher core module - contains logic for skin storage/rendering
@@ -164,7 +169,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # (see _grid_scroll below) instead of paging. Each card shows a real
     # preview; the active item is highlighted, and hover reveals Use/Delete.
     def _owned_card(*, label, sublabel, active, on_use, on_delete,
-                    src=None, lazy_thumb=None, preview_w=76, preview_h=112):
+                    src=None, lazy_thumb=None, preview_w=76, preview_h=112,
+                    icon=None):
         """A selectable installed item: preview on top, name below, hover
         actions at the bottom. The active card swaps the Use button for an
         outlined ACTIVE pill and gets the accent border.
@@ -191,7 +197,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                     lazy_thumb[0], lazy_thumb[1]))
         else:
             preview_img, placeholder = None, ft.Icon(
-                ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED, color=TEXT_DIM, size=22)
+                icon or ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED, color=TEXT_DIM,
+                size=22)
         preview_stack = [c for c in (preview_img, placeholder) if c is not None]
         actions = [
             ft.Container(
@@ -673,6 +680,84 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         [_cape_label_with_note(), _grid_scroll(capes_list_col), cape_preview_name,
          cape_preview_meta, cape_upload_button, cape_status], spacing=8)
 
+    # --- Shoulder / Back cosmetics ----------------------------------------
+    # These are not uploads: the art ships with the Cubeon Client, and the
+    # launcher only records which id is worn. The cards therefore have no
+    # Delete action - the honest actions are "use" and "empty slot".
+    _COSMETIC_MEMO = {}
+
+    def _cosmetic_thumb(item):
+        hit = _COSMETIC_MEMO.get(item["id"])
+        if hit is not None:
+            return hit
+        try:
+            image = cosmetics.render_thumbnail(item, appearance.cosmetics_dir,
+                                               size=(76, 76))
+            buffer = BytesIO()
+            image.save(buffer, format="PNG", compress_level=3)
+            hit = base64.b64encode(buffer.getvalue()).decode("ascii")
+        except Exception:
+            return None
+        _COSMETIC_MEMO[item["id"]] = hit
+        return hit
+
+    def _cosmetic_visibility_note():
+        if mc_loader not in core.MOD_CAPABLE_LOADERS or not mc_version:
+            return ("Pick Fabric or Quilt on the Play tab: the Cubeon Client "
+                    "draws these in-game, and vanilla Minecraft cannot load it.")
+        if not cfg.get("client_mod_enabled", True):
+            return ("Cubeon Client is switched off in Settings, so this item "
+                    "shows in the preview but not in-game.")
+        return ("Drawn by Cubeon Client in-game, attached to your body so it "
+                "follows sneaking, swimming and elytra flight.")
+
+    def _cosmetic_pane(slot, title):
+        grid = ft.Row(spacing=10, wrap=True, run_spacing=10)
+        status = ft.Text("", size=12, color=TEXT_DIM)
+        key = "active_shoulder_item" if slot == "shoulder" else "active_back_item"
+
+        def refresh():
+            active_id = cfg.get(key)
+            grid.controls.clear()
+            grid.controls.append(_owned_card(
+                src=None, icon=ft.Icons.BLOCK_ROUNDED, label="None",
+                sublabel="Empty slot", active=active_id is None,
+                on_use=lambda e: choose(None), on_delete=None,
+                preview_w=76, preview_h=76))
+            for item in cosmetics.items(slot, appearance.cosmetics_dir):
+                card = _owned_card(
+                    src=_cosmetic_thumb(item), label=item["name"],
+                    sublabel="", active=active_id == item["id"],
+                    on_use=lambda e, i=item["id"]: choose(i), on_delete=None,
+                    preview_w=76, preview_h=76)
+                card.tooltip = item["blurb"]
+                grid.controls.append(card)
+
+        def choose(item_id):
+            try:
+                core.set_active_cosmetic(cfg, slot, item_id)
+            except Exception as ex:
+                status.value = f"Couldn't change this cosmetic: {ex}"
+                thread_safe_ui.refresh(status)
+                return
+            appearance.refresh(invalidate=True)
+            if item_id is None:
+                status.value = f"Cleared your {slot} item."
+            else:
+                status.value = f"Wearing {cosmetics.get(item_id)['name']} in-game."
+            refresh()
+            thread_safe_ui.refresh(grid)
+            thread_safe_ui.refresh(status)
+            page.update()
+
+        label = section_label("Your " + title)
+        label.tooltip = _cosmetic_visibility_note()
+        refresh()
+        return ft.Column([label, _grid_scroll(grid), status], spacing=8)
+
+    shoulder_pane = _cosmetic_pane("shoulder", "Shoulder Items")
+    back_pane = _cosmetic_pane("back", "Back Items")
+
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for
     # active_content) so closures mutate without rebinding.
@@ -681,6 +766,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     PANES = [
         ("skin", "Skin", skin_pane),
         ("cape", "Cape", cape_pane),
+        ("shoulder", "Shoulder", shoulder_pane),
+        ("back", "Back", back_pane),
     ]
     pane_holder = ft.Container(content=skin_pane)
     tab_row = ft.Row(spacing=18)
@@ -702,6 +789,15 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         build_pane_tabs()
         if pid == "cape":
             appearance.turn(180 - appearance.yaw)
+        elif pid == "back":
+            # Back items are behind the player; the default front view hides
+            # them almost completely. Turn the model round so the choice is
+            # visible the moment the pane opens.
+            appearance.turn(180 - appearance.yaw)
+        elif pid == "shoulder":
+            # Right shoulder is on the viewer's left in the front view; a
+            # slight turn shows the pet and the face together.
+            appearance.turn(25 - appearance.yaw)
         thread_safe_ui.refresh(tab_row)
         thread_safe_ui.refresh(pane_holder)
 

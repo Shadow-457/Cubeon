@@ -5,7 +5,7 @@ import os
 
 from PIL import Image, ImageChops, ImageEnhance, ImageMath
 
-from cubeon import skins, capes
+from cubeon import skins, capes, cosmetics
 
 
 @dataclass
@@ -73,7 +73,7 @@ def _box(sheet, origin, dimensions, bounds, inflate=0, mirrored=False, cape=Fals
 
 
 class CharacterModel:
-    def __init__(self, sheet, *, slim=False, cape=None):
+    def __init__(self, sheet, *, slim=False, cape=None, cosmetics_faces=()):
         sheet = sheet.convert("RGBA")
         legacy = sheet.height == 32
         arm_width = 3 if slim and not legacy else 4
@@ -97,9 +97,11 @@ class CharacterModel:
         if cape is not None:
             cape = cape.convert("RGBA").resize((64, 32), Image.Resampling.NEAREST)
             self.faces.extend(_box(cape, (0, 0), (10, 16, 1), (-5, 7, -3.5, 5, 23, -2.5), cape=True))
+        for vertices, normal, texture in cosmetics_faces:
+            self.faces.append(Face(vertices, normal, texture))
 
     @classmethod
-    def from_config(cls, cfg, default_cape_path=None):
+    def from_config(cls, cfg, default_cape_path=None, cosmetics_dir=None):
         sheet = skins.compose_skin(cfg)
         slim = False
         if cfg.get("active_skin"):
@@ -110,7 +112,12 @@ class CharacterModel:
         if cape_path and os.path.isfile(cape_path):
             with Image.open(cape_path) as source:
                 cape = source.convert("RGBA")
-        return cls(sheet, slim=slim, cape=cape)
+        worn = []
+        for key in ("active_back_item", "active_shoulder_item"):
+            item = cosmetics.get(cfg.get(key), cosmetics_dir)
+            if item is not None:
+                worn.extend(cosmetics.preview_faces(item, cosmetics_dir))
+        return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn)
 
     def project(self, yaw=25, pitch=10, size=(320, 440)):
         yaw, pitch = math.radians(yaw), math.radians(pitch)

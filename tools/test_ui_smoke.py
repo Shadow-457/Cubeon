@@ -1396,9 +1396,9 @@ check("Fix crash sits on the Play card, not in the Mods installed header",
       and "fix_crash_button" in _main_src
       and "repair_btn" not in _mods_src,
       "the doctor action must move next to PLAY; the Mods header keeps the status line")
-check("Fix crash checks every doctor section",
-      "include=None" in _main_src,
-      "Fix crash must run mods + resource packs + shaders + modpacks + plugins")
+check("Fix crash reads the crash log, then falls back to the mod doctor",
+      "crash_doctor" in _main_src and 'include=("mods",)' in _main_src,
+      "Fix crash must diagnose the log first; only mod deps/conflicts are its fallback")
 check("stats tab exists and is wired into nav + lazy builders",
       "def build_stats_tab" in _stats_src
       and '("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats")' in _main_src

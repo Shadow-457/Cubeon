@@ -3659,19 +3659,19 @@ async def main(page: ft.Page):
         return bool(claim) and claim == version_dropdown.value
 
     def _pack_installing_selected():
-        """Is a modpack install writing the selected version right now?
+        """Is a modpack install writing the selected INSTANCE right now?
 
         The claim comes from cubeon.modpacks' in-flight registry, not a UI
         flag, so it is true whichever surface started the install (Modpacks
-        tab, Settings > Import). Keyed by the BASE Minecraft version: a pack
-        install rewrites versions/<mc> and its (mc, loader) profile, so every
-        instance on that version is unsafe to launch until it finishes. Never
-        raises - a transient backend hiccup must not wedge the button.
+        tab, Settings > Import). It is deliberately scoped to the exact
+        version id / profile being written: installing a 26.2 pack must never
+        disable the Play button on an unrelated 26.3 instance that shares
+        nothing but a version number prefix. Never raises - a transient
+        backend hiccup must not wedge the button.
         """
         try:
             vid = version_dropdown.value
-            return bool(vid and core.pack_install_for(
-                core.extract_mc_version(vid)))
+            return bool(vid and core.pack_install_for_instance(vid))
         except Exception:
             return False
 
@@ -4079,14 +4079,12 @@ async def main(page: ft.Page):
         if state.get("installing_version"):
             set_button_mode("busy")
 
-        # Fix any existing mod problems for this profile in the background now,
-        # rather than waiting for the launch-time pass (which is filesystem-only
-        # for speed). Best-effort and off the critical path.
-        try:
-            _proactive_mod_repair(version_id)
-        except Exception:
-            logging.getLogger(__name__).warning(
-                "proactive mod repair did not start", exc_info=True)
+        # No automatic doctor pass here. Selecting an instance used to start a
+        # full online mod check in the background, which could disable the Play
+        # button ("FIXING MODS…") for up to two minutes and pop review dialogs
+        # the user never asked for. Dependency/conflict repair belongs to an
+        # explicit install or the "Fix crash" action; picking an instance is
+        # not consent to scan or change its mods.
 
     def _select_version_ui():
         """Repaint everything that follows the selected version, safely.
@@ -4426,8 +4424,7 @@ async def main(page: ft.Page):
             # claim, so the two can't interleave).
             _pack_name = None
             try:
-                _pack_name = core.pack_install_for(
-                    core.extract_mc_version(version_id))
+                _pack_name = core.pack_install_for_instance(version_id)
             except Exception:
                 pass
             if _pack_name:
@@ -4580,8 +4577,7 @@ async def main(page: ft.Page):
         # leaving a PLAY that silently does nothing.
         _installing_pack = None
         try:
-            _installing_pack = core.pack_install_for(
-                core.extract_mc_version(version_id))
+            _installing_pack = core.pack_install_for_instance(version_id)
         except Exception:
             pass
         if _installing_pack:
@@ -4954,12 +4950,25 @@ async def main(page: ft.Page):
                         except OSError:
                             pass  # keep the in-memory tail
                 label = f"Minecraft {core.extract_mc_version(version_id) or version_id}"
+                try:
+                    state["last_crash"] = {
+                        "version_id": version_id,
+                        "reason": reason,
+                        "log_text": log_text,
+                        "log_path": log_path,
+                    }
+                except Exception:
+                    pass
 
                 def _open():
                     show_crash_dialog(
                         page, reason=reason, log_text=log_text,
                         version_label=label, log_path=log_path,
-                        show_snack=_show_snack)
+                        show_snack=_show_snack,
+                        on_fix_crash=lambda: _run_fix_crash(
+                            version_id=version_id,
+                            crash_text=(log_text or None),
+                            crash_path=log_path))
 
                 # Mounting a dialog from the watcher thread must happen on the
                 # UI loop; fall back to a direct call on harnesses without one
@@ -5207,7 +5216,6 @@ async def main(page: ft.Page):
                 # always-empty profile every launch, so mods never applied.
                 mc_version=launch_mc, loader=launch_loader,
                 cfg=cfg, status_cb=status_cb, log_cb=_game_log_cb,
-                approve_mod_changes=_approve_mod_change,
             )
 
             # Remember this launch for the instance panel's "played" label (see
@@ -5545,7 +5553,7 @@ async def main(page: ft.Page):
             set_status("Can't delete a version while it's installing")
             return
         try:
-            if core.pack_install_for(core.extract_mc_version(vid)):
+            if core.pack_install_for_instance(vid):
                 set_status("Can't delete a version while a modpack is installing it")
                 return
         except Exception:
@@ -5594,7 +5602,7 @@ async def main(page: ft.Page):
                 set_status("Can't delete a version while it's installing")
                 return
             try:
-                if core.pack_install_for(core.extract_mc_version(vid)):
+                if core.pack_install_for_instance(vid):
                     set_status("Can't delete a version while a modpack is installing it")
                     return
             except Exception:
@@ -6147,24 +6155,13 @@ async def main(page: ft.Page):
     load_popular_modpacks = _cb("modpacks", "popular")
     refresh_server_tab = _cb("server", "refresh")
 
-    # Proactive, best-effort mod repair. When the user settles on an
-    # (mc_version, loader) profile we run the FULL doctor in the background -
-    # including the network-dependent dependency and loader/version passes the
-    # launch-time check skips for speed - so leftover duplicate copies, missing
-    # dependencies and version clashes are fixed before Play is ever clicked.
-    # Once per profile per session; silent unless it actually changed
-    # something. Never blocks or raises into the UI.
-    from cubeon.doctor_ui import make_mod_change_approver, open_repair_review
-    _approve_mod_change = make_mod_change_approver(page)
-    _repair_state = {"done": set(), "lock": threading.Lock()}
-
     # --- Fix crash (Play tab) ------------------------------------------------
     # The doctor's visible action moved out of Mods -> Installed and onto the
     # Play card, to the left of PLAY (2026-10-25): a failed launch is exactly
-    # when someone looks for it. It opens the same review dialog with the FULL
-    # doctor (include=None -> every section): this instance's mods, the shared
-    # resource packs, shaders, every installed modpack's profile, and server
-    # plugins. The user asked for "everything, not just mods".
+    # when someone looks for it. "Fix crash" reads the NEWEST crash log and
+    # repairs the cause that log proves (cubeon/crash_doctor.py); the doctor's
+    # dependency/conflict pass is the fallback for mod-set crashes.
+    from cubeon.doctor_ui import open_crash_review
     fix_crash_state = {"busy": False}
 
     def _set_fix_crash_busy(busy):
@@ -6177,10 +6174,19 @@ async def main(page: ft.Page):
                                    else ft.Icons.BUILD_ROUNDED)
             thread_safe_ui.refresh(fix_crash_button)
 
-    def _run_fix_crash(e=None):
+    def _run_fix_crash(e=None, *, version_id=None, crash_text=None,
+                       crash_path=None):
+        """Read the newest crash evidence and repair what it proves.
+
+        Called both from the Play card's Fix crash button (no explicit
+        evidence) and from the crash popup (which passes the exact log text
+        and path it just showed). The latter is why the dialog can fix the
+        crash the user is actually looking at instead of whichever file is
+        newest by the time they click.
+        """
         if fix_crash_state["busy"]:
             return
-        vid = version_dropdown.value
+        vid = version_id or version_dropdown.value
         if not vid:
             set_status("Pick an instance first")
             return
@@ -6207,21 +6213,38 @@ async def main(page: ft.Page):
 
         def done():
             _set_fix_crash_busy(False)
-            # The doctor's "launch" section may have repaired config.json
-            # (cleared a crashing custom_jvm_flags / dead java_path). The live
-            # `cfg` dict is what launch_game reads, so refresh it - otherwise
-            # the fix would only take effect after a launcher restart.
+            # Crash repair may have rewritten launcher-owned settings: RAM
+            # (OutOfMemoryError), the Java path (wrong runtime) and the custom
+            # JVM flags (an option Java rejected). The live `cfg` dict is what
+            # launch_game reads, so refresh it - otherwise the fix would only
+            # take effect after a launcher restart.
             try:
                 # update() rather than clear()+update(): a launch on another
                 # thread must never observe an empty cfg dict.
                 repaired = core.load_config()
-                for key in ("java_path", "custom_jvm_flags"):
+                for key in ("java_path", "custom_jvm_flags", "ram_mb"):
                     if key in repaired:
                         cfg[key] = repaired[key]
                 java_path_field.value = cfg.get("java_path") or ""
                 custom_jvm_field.value = cfg.get("custom_jvm_flags") or ""
                 thread_safe_ui.refresh(java_path_field)
                 thread_safe_ui.refresh(custom_jvm_field)
+                # The RAM slider/label are built later in this function than
+                # this closure, but the callback only runs after the window is
+                # live - guard anyway so a partially-built UI cannot break it.
+                try:
+                    value = int(cfg.get("ram_mb") or ram_slider.value or 0)
+                    if value:
+                        ram_slider.value = value
+                        ram_slider.active_color = _ram_color(value)
+                        ram_slider.thumb_color = _ram_color(value)
+                        ram_label.value = f"{value} MB allocated"
+                        _update_ram_warning(value)
+                        thread_safe_ui.refresh(ram_slider)
+                        thread_safe_ui.refresh(ram_label)
+                        thread_safe_ui.refresh(ram_warning)
+                except Exception:
+                    pass
             except Exception:
                 logging.getLogger(__name__).debug(
                     "config reload after repair failed", exc_info=True)
@@ -6235,123 +6258,36 @@ async def main(page: ft.Page):
                     logging.getLogger(__name__).warning(
                         "mods refresh after repair failed", exc_info=True)
 
+        def repair_crash(mc_version, crash_loader, *, version_id, status_cb=None,
+                         **_kwargs):
+            """Adapter from the review dialog to cubeon/crash_doctor.py.
+
+            ``crash_text``/``crash_path`` pin the diagnosis to the log the
+            crash popup showed. Without them the engine picks the newest
+            crash report on disk, which is the right thing for the Play card
+            button. ``approve_cb`` is always True here: clicking "Fix crash"
+            *is* the consent, and every mod change it makes is reversible
+            (jars are renamed, never deleted).
+            """
+            from cubeon import crash_doctor
+            return crash_doctor.repair(
+                mc_version, crash_loader, version_id=version_id,
+                text=crash_text, path=crash_path,
+                status_cb=status_cb, approve_cb=lambda change: True)
+
         try:
-            open_repair_review(
+            open_crash_review(
                 page, mc_version=mc, loader=loader, version_id=vid,
-                include=None,  # every doctor section: mods, packs, shaders, ...
+                repair_crash=repair_crash,
                 run_doctor=core.run_doctor,
+                include=("mods",),  # dependencies / conflicts / duplicates only
                 on_status=lambda text: None, on_done=done)
         except Exception as error:
             _set_fix_crash_busy(False)
-            set_status(f"Could not open the repair check: {error}")
+            set_status(f"Could not open the crash check: {error}")
 
     fix_crash_button.on_click = _run_fix_crash
 
-    # Hard ceiling on how long the repair claim (see _fixing_selected) may keep
-    # the Play button in "FIXING MODS...". The doctor's own calls are all
-    # timeout-bounded, so this only ever fires if something truly wedges - and
-    # then the button must come back rather than stay disabled forever.
-    _REPAIR_CLAIM_MAX = 120.0
-
-    def _proactive_mod_repair(version_id):
-        """Verify/repair the selected INSTANCE's own profile in the background.
-
-        Must not run for an online-only row (nothing is installed to repair),
-        and must pass ``version_id`` to the doctor: an isolated pack clone owns
-        a private profile, so the old ``(mc_version, loader)`` call repaired
-        the legacy shared profile instead - and could prune jars that belong to
-        a different instance. The done-key includes the launch id for the same
-        reason: two isolated packs on one base version are two profiles.
-        """
-        if not version_id or version_id not in state["installed"]:
-            return
-        meta = (state.get("installed_meta") or {}).get(version_id) or {}
-        info = instance_info.describe(
-            version_id, meta,
-            (cfg.get("version_labels") or {}).get(version_id),
-            with_mods=False, play_store={})
-        mc = info["base_version"]
-        loader = info["loader"]
-        if not mc or loader not in core.MOD_CAPABLE_LOADERS:
-            return
-        key = (version_id, mc, loader)
-        if core.pack_install_for(mc):
-            # A pack install owns this profile right now and is still writing
-            # mods into it. Running the doctor here would race those downloads
-            # (auto_fix can prune jars it can't verify yet). Skip WITHOUT
-            # marking the profile done, so the repair still happens on the
-            # next selection/launch after the install has finished.
-            return
-        with _repair_state["lock"]:
-            if key in _repair_state["done"]:
-                return
-            _repair_state["done"].add(key)
-
-        def worker():
-            # Publish a busy claim for this profile while the doctor runs. The
-            # big button reads it (see _fixing_selected / set_button_mode's
-            # "working" mode) so it cannot claim PLAY while Cubeon is still
-            # repairing mods - the user reported PLAY showing up during exactly
-            # that phase (2026-10-16). Released by the finally, and by a timer,
-            # so a wedged doctor can never leave the button stuck disabled.
-            def _release_claim():
-                try:
-                    if state.get("fixing_mods") == version_id:
-                        state["fixing_mods"] = None
-                    _sync_play_button()
-                except Exception:
-                    logging.getLogger(__name__).warning("background worker error",
-                                                        exc_info=True)
-
-            state["fixing_mods"] = version_id
-            _sync_play_button()
-            guard = threading.Timer(_REPAIR_CLAIM_MAX, _release_claim)
-            guard.daemon = True
-            guard.start()
-            try:
-                # The full doctor: mods + resource packs + shaders + modpacks +
-                # server plugins (cubeon/doctor.py). This runs after an install,
-                # which is exactly when new content lands on disk and needs to
-                # be verified against the versions that will read it.
-                # SCOPED + SILENT. This runs by itself the moment an instance is
-                # selected, so it must never interrupt: (1) only the sections
-                # that concern THIS instance - the "modpacks" section runs a
-                # full mod check on EVERY other installed pack's profile and
-                # "plugins" covers every server, which is what produced ~10
-                # review popups (2 mods each) right after installing a pack;
-                # (2) it only PROPOSES mod changes (approve_cb declines), so
-                # nothing is ever disabled behind the user's back. Whatever it
-                # finds is reviewed - once, in one dialog - from "Fix crash".
-                report = core.run_doctor(mc, loader, auto_fix=True,
-                                         check_online=True, version_id=version_id,
-                                         include=("launch", "mods", "resourcepacks", "shaders"),
-                                         approve_cb=lambda change: False)
-            except Exception:
-                return
-            finally:
-                guard.cancel()
-                _release_claim()
-            proposed = len({tuple(sorted(str((m or {}).get("filename")) for m in (c.get("mods") or [])))
-                            for c in (report.get("changes") or []) if isinstance(c, dict)})
-            fixed = len(report.get("fixed") or [])
-            if not (fixed or proposed):
-                return
-            try:
-                if proposed:
-                    set_status(f"Cubeon spotted {proposed} possible mod problem(s) - "
-                               "press Fix crash to review them")
-                else:
-                    set_status(f"Fixed {fixed} problem(s)")
-            except Exception:
-                logging.getLogger(__name__).warning("background worker error", exc_info=True)
-            refresh = (_tab_cbs.get("mods") or {}).get("refresh")
-            if callable(refresh):
-                try:
-                    refresh()
-                except Exception:
-                    logging.getLogger(__name__).warning("background worker error", exc_info=True)
-
-        threading.Thread(target=worker, name="mod-repair", daemon=True).start()
 
     def _switch_loader_for_mods(loader_id):
         """The loader is fixed at install time (2026-10-26 user ask).

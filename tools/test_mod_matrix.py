@@ -496,11 +496,11 @@ def test_fabric_api_install():
             {"display_name": "sodium-fabric-0.9.2-alpha.4.jar"}),
            "but not another mod that merely mentions fabric")
 
-        cubeonfriends.fabric_api_installed = lambda mc, loader: True
+        cubeonfriends.fabric_api_installed = lambda mc, loader, version_id=None: True
         ok("already installed" in cubeonfriends.ensure_fabric_api("1.20.1", "fabric"),
            "an existing copy is left alone, with no download at all")
 
-        cubeonfriends.fabric_api_installed = lambda mc, loader: False
+        cubeonfriends.fabric_api_installed = lambda mc, loader, version_id=None: False
         mods_module.get_mod_download = lambda slug, mc_version=None, loader=None: {
             "url": "https://cdn.example/fabric-api.jar",
             "filename": "fabric-api-0.92.2+1.20.1.jar",

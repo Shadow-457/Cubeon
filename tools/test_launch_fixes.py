@@ -848,12 +848,13 @@ check(_jre_src.count("_probe_version(") >= 3,
 check("did not install correctly (verification failed)" in _jre_src,
       "a failed final verification removes the runtime and says so")
 
-# --- The FIRST launch after an install runs the FULL doctor (online) --------
-# The launch-time doctor used to run check_online=False only, so a fresh
-# install with a missing dependency or an incompatible jar launched broken
-# and only the Mods tab's "Fix problems" (online) repaired it. The first
-# launch per profile now runs the full pass once (a cache marker), then
-# every later launch goes back to the fast offline pass.
+# --- Launch-time doctor is config-only and NON-INTERACTIVE -----------------
+# The launch path used to run the full doctor (first launch online, every
+# launch offline) with the interactive approver attached. Each proposed mod
+# change opened a modal that waited up to two minutes, so "ignore the doctor
+# and just play" meant "wait for every dialog to time out". The launch pass
+# now only repairs launcher-owned config (bad JVM flags / dead Java path) and
+# never asks a question.
 from cubeon import local_cache  # noqa: E402
 
 with patch.object(content, "sync_content_to_game", lambda *a: None), \
@@ -867,59 +868,57 @@ with patch.object(content, "sync_content_to_game", lambda *a: None), \
             patch.object(local_cache, "CACHE_DIR", _ctmp), \
             patch.object(local_cache, "_MEM", OrderedDict()):
         def fake_doctor(mc, loader, *, auto_fix, check_online, **kw):
-            seen.append(check_online)
+            seen.append({
+                "online": check_online,
+                "include": kw.get("include"),
+                "approve_cb": kw.get("approve_cb"),
+            })
             return {"fixed": []}
         with patch.object(doctor, "run_doctor", side_effect=fake_doctor):
             local_cache._MEM.clear()
-            launch.launch_game("1.20.1", "A", 800, 600, 400, None,
-                               mc_version="1.20.1", loader="fabric")
-            launch.launch_game("1.20.1", "A", 800, 600, 400, None,
-                               mc_version="1.20.1", loader="fabric")
-            launch.launch_game("1.20.1", "A", 800, 600, 400, None,
-                               mc_version="1.20.1", loader="fabric")
-    check(seen[:1] == [True],
-          "the first launch after an install runs the doctor ONLINE",
-          f"got {seen!r}")
-    check(all(not c for c in seen[1:]),
-          "later launches go back to the fast offline pass",
-          f"got {seen!r}")
-    # The pre-spawn offline doctor also runs every launch (by design), so
-    # the marker's win is measured in ONLINE calls: exactly one.
-    check(sum(1 for c in seen if c) == 1,
-          "the marker makes the full pass a ONE-TIME cost per profile",
-          f"{sum(1 for c in seen if c)} online passes across {len(seen)} doctor calls")
+            for _ in range(3):
+                launch.launch_game("1.20.1", "A", 800, 600, 400, None,
+                                   mc_version="1.20.1", loader="fabric",
+                                   approve_mod_changes=lambda change: False)
+    check(len(seen) == 3,
+          "every launch runs one small doctor pass",
+          f"got {len(seen)} calls")
+    check(all(not s["online"] for s in seen),
+          "the launch pass never goes online",
+          f"got {[s['online'] for s in seen]!r}")
+    check(all(s["include"] == ("launch",) for s in seen),
+          "the launch pass only checks launch config, not mods/packs/shaders",
+          f"got {[s['include'] for s in seen]!r}")
+    check(all(s["approve_cb"] is None for s in seen),
+          "the launch pass never asks for mod-change approval",
+          f"got {[s['approve_cb'] for s in seen]!r}")
 
 # ---------------------------------------------------------------------- scrub
-print("\nM2. declined Doctor changes keep mods and allow Minecraft to launch")
+print("\nM2. ignoring Doctor never blocks Minecraft from launching")
 with patch.object(content, "sync_content_to_game", lambda *args: None), \
         patch.object(launch, "sync_mods_to_game", lambda *args: None), \
         patch.object(launch, "build_launch_command", lambda *args, **kwargs: ["java", "game"]), \
         patch.object(launch.subprocess, "Popen") as spawn:
-    for first_launch in (True, False):
-        spawn.reset_mock()
-        local_cache.invalidate("first_launch_doctor")
-        if not first_launch:
-            local_cache.set("first_launch_doctor", ("1.20.1", "fabric", "1.20.1"), True)
-        approver = lambda change: False
-        approvals = []
-        def declined_doctor(*args, **kwargs):
-            change = {"action": "disable", "mods": [{"filename": "demo.jar"}]}
-            approvals.append(kwargs.get("approve_cb") is approver and not launch._spawn_lock.locked())
-            change["approved"] = kwargs["approve_cb"](change)
-            return {"fixed": [], "changes": [change]}
-        with patch.object(doctor, "run_doctor", side_effect=declined_doctor):
-            try:
-                launch.launch_game("1.20.1", "A", 800, 600, 400, None,
-                                   mc_version="1.20.1", loader="fabric", approve_mod_changes=approver)
-                cancelled = False
-            except RuntimeError as error:
-                cancelled = "Launch" in str(error)
-        check(not cancelled and spawn.called,
-              f"declined repair still spawns Minecraft (first launch={first_launch})")
-        check(approvals and all(approvals), "Doctor gets approval callback outside the spawn lock")
-        if first_launch:
-            check(local_cache.get("first_launch_doctor", ("1.20.1", "fabric", "1.20.1")) is not None,
-                  "declined first-launch review does not repeat on every Play click")
+    spawn.reset_mock()
+    approver = lambda change: False
+    approvals = []
+
+    def declined_doctor(*args, **kwargs):
+        approvals.append(kwargs.get("approve_cb"))
+        return {"fixed": [], "changes": []}
+
+    with patch.object(doctor, "run_doctor", side_effect=declined_doctor):
+        try:
+            launch.launch_game("1.20.1", "A", 800, 600, 400, None,
+                               mc_version="1.20.1", loader="fabric",
+                               approve_mod_changes=approver)
+            cancelled = False
+        except RuntimeError as error:
+            cancelled = "Launch" in str(error)
+    check(not cancelled and spawn.called,
+          "a declined/ignored Doctor still spawns Minecraft")
+    check(all(cb is None for cb in approvals),
+          "the launch path never hands the approver to the doctor")
 
 print("\nN. unresolved ${...} placeholders scrubbed from the launch argv (offline)")
 # minecraft_launcher_lib 8.0 does not substitute ${clientid}/${auth_xuid}

@@ -85,6 +85,7 @@ class AppearancePreview:
         self.cfg = cfg
         assets_dir = assets_dir or os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
         self.default_cape_path = os.path.join(assets_dir, "capes", "cubeon_cape.png")
+        self.cosmetics_dir = os.path.join(assets_dir, "cosmetics")
         self.yaw, self.pitch = HOME_YAW, PITCH
         self._lock = threading.RLock()
         self._generation = 0
@@ -197,7 +198,7 @@ class AppearancePreview:
                     return
             generation, cfg = request
             try:
-                model = CharacterModel.from_config(cfg, self.default_cape_path)
+                model = CharacterModel.from_config(cfg, self.default_cape_path, self.cosmetics_dir)
                 textures = {}
                 for index, face in enumerate(model.faces):
                     if face.texture.getbbox():

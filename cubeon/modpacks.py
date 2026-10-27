@@ -78,6 +78,7 @@ import re
 import shutil
 import tempfile
 import threading
+import time
 import zipfile
 from urllib.parse import urlparse
 
@@ -168,11 +169,26 @@ class ModpackError(Exception):
 # true no matter WHICH surface started the install (Modpacks tab, Settings >
 # Import, tests/CLI) and because several UI paths read it (button paint, click
 # guard, prefetch, doctor). Keyed by mc_version: the base version's folder is
-# being (re)written for every loader, so every instance on that version is
-# unsafe to launch. Process-local - the UI and the installers share it.
-_ACTIVE_INSTALLS: dict[str, dict] = {}   # mc_version -> {"name", "count"}
+# being (re)written for every loader, so two pack installs for one base version
+# must not overlap. Each record also remembers the exact version id / profile
+# it is writing, so the Play button can lock the pack's OWN instance instead of
+# every instance that happens to share a Minecraft version number.
+_ACTIVE_INSTALLS: dict[str, dict] = {}   # mc_version -> claim record
 _ACTIVE_INSTALLS_LOCK = threading.Lock()
 _INSTALL_LISTENERS: list = []            # no-arg callbacks, fired on change
+
+# A claim is touched on every progress/status callback. If an install thread
+# dies in a way that skips its `finally` (a hard interpreter teardown, a
+# frozen worker), the stale claim must not disable Play forever.
+_CLAIM_IDLE_TIMEOUT = 15 * 60  # seconds without any install progress
+
+
+def _prune_stale_claims_locked(now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    for key, rec in list(_ACTIVE_INSTALLS.items()):
+        touched = rec.get("touched") or rec.get("started") or 0
+        if now - touched > _CLAIM_IDLE_TIMEOUT:
+            _ACTIVE_INSTALLS.pop(key, None)
 
 
 def active_pack_installs() -> dict[str, str]:
@@ -182,17 +198,60 @@ def active_pack_installs() -> dict[str, str]:
     instance from being offered as playable.
     """
     with _ACTIVE_INSTALLS_LOCK:
+        _prune_stale_claims_locked()
         return {mc: rec.get("name") or "modpack"
                 for mc, rec in _ACTIVE_INSTALLS.items() if rec.get("count")}
 
 
 def pack_install_for(mc_version: str) -> "str | None":
-    """The pack currently installing `mc_version`, or None."""
+    """The pack currently installing `mc_version`, or None.
+
+    This is the BASE-VERSION view. UI code that guards one instance must use
+    ``pack_install_for_instance`` instead - a 26.2 pack install is not writing
+    a 26.3 instance, and must not disable its Play button.
+    """
     if not mc_version:
         return None
     with _ACTIVE_INSTALLS_LOCK:
+        _prune_stale_claims_locked()
         rec = _ACTIVE_INSTALLS.get(str(mc_version))
         return (rec.get("name") or "modpack") if rec and rec.get("count") else None
+
+
+def pack_install_for_instance(version_id: str) -> "str | None":
+    """The pack currently writing THIS exact instance, or None.
+
+    A claim matches when it already recorded this launch id, when the selected
+    version's instance sidecar names the same pack, or when that sidecar points
+    at the profile the install owns. A bare vanilla instance with no sidecar is
+    deliberately NOT matched: the pack writes a separate clone/profile, so
+    locking it would be the 2026-10-26 report ("installing 26.2 blocked my real
+    26.3 instance"). Never raises.
+    """
+    if not version_id:
+        return None
+    with _ACTIVE_INSTALLS_LOCK:
+        _prune_stale_claims_locked()
+        claims = [dict(rec) for rec in _ACTIVE_INSTALLS.values()
+                  if rec.get("count")]
+    if not claims:
+        return None
+    for rec in claims:
+        if rec.get("version_id") == version_id:
+            return rec.get("name") or "modpack"
+    try:
+        sidecar = read_instance_meta(version_id) or {}
+    except Exception:
+        sidecar = {}
+    sidecar_name = str(sidecar.get("name") or "").strip().lower()
+    sidecar_profile = sidecar.get("profile")
+    for rec in claims:
+        rec_name = str(rec.get("name") or "").strip().lower()
+        if sidecar_name and rec_name and sidecar_name == rec_name:
+            return rec.get("name") or "modpack"
+        if sidecar_profile and rec.get("profile") == sidecar_profile:
+            return rec.get("name") or "modpack"
+    return None
 
 
 def add_pack_install_listener(callback) -> None:
@@ -208,14 +267,56 @@ def add_pack_install_listener(callback) -> None:
         _INSTALL_LISTENERS.append(callback)
 
 
-def _mark_pack_install(mc_version: str, name: str, *, exclusive: bool = False) -> None:
+def _mark_pack_install(mc_version: str, name: str, *, exclusive: bool = False,
+                       profile: str | None = None,
+                       version_id: str | None = None) -> None:
     with _ACTIVE_INSTALLS_LOCK:
+        _prune_stale_claims_locked()
         if exclusive and str(mc_version) in _ACTIVE_INSTALLS:
             raise ModpackError("Another modpack is already installing for this Minecraft version. Wait for it to finish.")
-        rec = _ACTIVE_INSTALLS.setdefault(str(mc_version), {"name": "", "count": 0})
+        rec = _ACTIVE_INSTALLS.setdefault(str(mc_version), {
+            "name": "", "count": 0, "started": time.time(), "touched": 0.0,
+            "profile": None, "version_id": None,
+        })
         rec["count"] += 1
         rec["name"] = name or rec["name"] or "modpack"
+        rec["touched"] = time.time()
+        if profile:
+            rec["profile"] = profile
+        if version_id:
+            rec["version_id"] = version_id
     _notify_install_listeners()
+
+
+def _update_pack_install(mc_version: str, name: str | None = None, *,
+                         profile: str | None = None,
+                         version_id: str | None = None) -> None:
+    """Record the exact instance/profile a running claim is writing.
+
+    Called once the install body knows them (after the loader folder exists),
+    so ``pack_install_for_instance`` can match the pack's own clone while the
+    mods are still downloading.
+    """
+    with _ACTIVE_INSTALLS_LOCK:
+        rec = _ACTIVE_INSTALLS.get(str(mc_version))
+        if rec is None:
+            return
+        rec["touched"] = time.time()
+        if name:
+            rec["name"] = name
+        if profile:
+            rec["profile"] = profile
+        if version_id:
+            rec["version_id"] = version_id
+    # No listener notification: the claim's start/end edges are what the Play
+    # button repaints on, and this is still the same running install.
+
+
+def _touch_pack_install(mc_version: str) -> None:
+    with _ACTIVE_INSTALLS_LOCK:
+        rec = _ACTIVE_INSTALLS.get(str(mc_version))
+        if rec is not None:
+            rec["touched"] = time.time()
 
 
 def _unmark_pack_install(mc_version: str) -> None:
@@ -436,7 +537,8 @@ def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None
     except Exception:
         return None
     for meta in installed:
-        if (meta.get("name") == name
+        if (str(meta.get("name") or "").strip().lower()
+                == str(name or "").strip().lower()
                 and str(meta.get("mc_version")) == str(mc_version)
                 and meta.get("loader") == loader):
             return meta
@@ -445,7 +547,9 @@ def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None
     try:
         for version_id in sorted(os.listdir(os.path.join(MINECRAFT_DIR, "versions"))):
             meta = read_instance_meta(version_id) or {}
-            if (meta.get("name") == name and meta.get("mc_version") == mc_version
+            if (str(meta.get("name") or "").strip().lower()
+                    == str(name or "").strip().lower()
+                    and meta.get("mc_version") == mc_version
                     and meta.get("loader") == loader and meta.get("profile")
                     and ("pack_version" in meta or meta.get("pack"))):
                 return {**meta, "version_id": version_id}
@@ -692,7 +796,21 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             marker_dir = get_profile_dir(mc_version, loader_id)
         else:
             marker_dir = profile_dir_for_key(profile)
+        # Remember exactly which jars the PREVIOUS install of this pack owned,
+        # so a reinstall can remove ones the new pack version dropped instead
+        # of letting old and new builds pile up (the "30 mods then 70 mods"
+        # report: every reinstall only ever added).
+        old_pack_jars = []
         if marker_dir:
+            try:
+                with open(os.path.join(marker_dir, MODPACK_META_FILENAME),
+                          "r", encoding="utf-8") as fh:
+                    _old_meta = json.load(fh)
+                if isinstance(_old_meta, dict):
+                    old_pack_jars = [str(n) for n in (_old_meta.get("jars") or [])
+                                     if isinstance(n, str)]
+            except (OSError, json.JSONDecodeError):
+                old_pack_jars = []
             try:
                 os.remove(os.path.join(marker_dir, MODPACK_META_FILENAME))
             except OSError:
@@ -750,6 +868,34 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             "loader_version": info.get("loader_version"),
         })
         profile_dir = get_profile_dir(mc_version, loader_id, version_id)
+
+        # The claim now knows the exact instance it is writing, so the Play
+        # button can lock this clone (and only this clone) for the rest of the
+        # download.
+        _update_pack_install(mc_version, info["name"],
+                             profile=profile, version_id=version_id)
+
+        # A reinstall must REPLACE the pack's mod set, not add to it. Remove
+        # the jars the previous install recorded as pack-owned; a jar the user
+        # added by hand was never in that list, so it survives. (Installs made
+        # before this field existed have no list and simply keep their files
+        # once; the next install writes the list and future updates prune.)
+        for _old_name in old_pack_jars:
+            if os.path.basename(_old_name) != _old_name:
+                continue
+            try:
+                os.remove(os.path.join(profile_dir, _old_name))
+            except OSError:
+                pass
+
+        def _profile_jars() -> set:
+            try:
+                return {name for name in os.listdir(profile_dir)
+                        if name.endswith((".jar", ".jar.disabled"))}
+            except OSError:
+                return set()
+
+        jars_before = _profile_jars()
 
         # 3) The pack's declared mod files, into the matching profile folder.
         client_files = [f for f in files if _wanted_on_client(f)]
@@ -830,26 +976,14 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         _extract_overrides(zf, profile_dir, status_cb, mc_version, loader_id,
                            version_id)
 
-        # 6) Record the pack so the tab can list it and Play can select it.
-        meta = {
-            "name": info["name"],
-            "pack_version": info["pack_version"],
-            "summary": info["summary"],
-            "mc_version": mc_version,
-            "loader": loader_id,
-            "version_id": version_id,
-            "profile": profile,
-            "mod_count": len(mod_files),
-        }
-        # The browse hit's thumbnail, kept so "Installed packs" can show real
-        # art instead of a placeholder. Absent for a pack imported from disk.
-        if icon_url:
-            meta["icon_url"] = icon_url
-        try:
-            with open(os.path.join(profile_dir, MODPACK_META_FILENAME), "w", encoding="utf-8") as fh:
-                json.dump(meta, fh)
-        except OSError:
-            pass
+        # 6) Remember which jars belong to the pack itself (manifest downloads
+        #    plus bundled override jars). This is the list a future reinstall
+        #    prunes; Cubeon's own injected client mods are added AFTER this
+        #    snapshot, so they are never mistaken for pack content. The marker
+        #    is written at the very end, once the real jar count is known.
+        pack_jars = {os.path.basename(f.get("path", "")) for f in mod_files}
+        pack_jars |= (_profile_jars() - jars_before)
+        pack_jars = {name for name in pack_jars if name}
 
         # 7) Cubeon's own client mods into THIS pack's profile, using the
         #    PACK's loader. Injection used to happen only at launch, where it
@@ -881,6 +1015,34 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 status_cb("Cubeon Friends mod not built for Minecraft "
                           f"{mc_version} - the in-game button will be missing")
         except Exception:
+            pass
+
+        # 8) Record the pack so the tab can list it and Play can select it.
+        #    mod_count is the REAL number of jars in the profile (the same
+        #    number the Play tab and instances.mod_count() report), not just
+        #    the manifest's file list - the 30-vs-70 report was one install
+        #    showing two different counts from two different definitions.
+        all_jars = _profile_jars()
+        meta = {
+            "name": info["name"],
+            "pack_version": info["pack_version"],
+            "summary": info["summary"],
+            "mc_version": mc_version,
+            "loader": loader_id,
+            "version_id": version_id,
+            "profile": profile,
+            "mod_count": len(all_jars),
+            "jars": sorted(pack_jars),
+        }
+        # The browse hit's thumbnail, kept so "Installed packs" can show real
+        # art instead of a placeholder. Absent for a pack imported from disk.
+        if icon_url:
+            meta["icon_url"] = icon_url
+        try:
+            with open(os.path.join(profile_dir, MODPACK_META_FILENAME),
+                      "w", encoding="utf-8") as fh:
+                json.dump(meta, fh)
+        except OSError:
             pass
 
         # Self-check: an install that produced zero mods AND zero override
@@ -918,6 +1080,36 @@ def _peek_pack_identity(zip_path: str) -> tuple[str, str]:
         return "", ""
 
 
+def _peek_pack_claim_target(zip_path: str) -> dict | None:
+    """Everything the in-flight claim needs to scope itself to one instance.
+
+    Reads the manifest and, for a reinstall, the existing pack record. A fresh
+    install has no version id yet (the clone is created after the loader is
+    installed); the body calls ``_update_pack_install`` once it knows it.
+    """
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            info = summarize(_read_index(zf))
+    except Exception:
+        return None
+    mc_version = str(info.get("mc_version") or "")
+    if not mc_version:
+        return None
+    name = str(info.get("name") or "")
+    loader = info.get("loader") or "vanilla"
+    try:
+        existing = _find_installed_pack(name, mc_version, loader) or {}
+    except Exception:
+        existing = {}
+    return {
+        "mc_version": mc_version,
+        "name": name,
+        "loader": loader,
+        "profile": existing.get("profile"),
+        "version_id": existing.get("version_id"),
+    }
+
+
 def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
                       icon_url: str | None = None) -> dict:
     """`_install_from_zip_body` with the in-flight claim around it.
@@ -926,18 +1118,47 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
     must never survive an exception or a cancel - otherwise the instance would
     stay unplayable for the rest of the session. That is why it lives here as
     a wrapper instead of a try/finally indenting the long install body.
+
+    The claim is EXCLUSIVE per base Minecraft version. Two pack installs for
+    one base version would both rewrite ``versions/<mc>`` and its loader
+    folder, which is exactly how a user ended up with two half-installs and
+    two different mod counts. A second click now fails immediately with a
+    readable message instead of racing the first.
     """
-    mc_version, name = _peek_pack_identity(zip_path)
-    if not mc_version:
+    target = _peek_pack_claim_target(zip_path)
+    if not target:
         # Unreadable archive: let the body raise its own user-facing error.
         return _install_from_zip_body(zip_path, progress_cb=progress_cb,
                                       status_cb=status_cb, max_cb=max_cb,
                                       icon_url=icon_url)
 
-    _mark_pack_install(mc_version, name, exclusive=True)
+    mc_version = target["mc_version"]
+    name = target["name"]
+    _mark_pack_install(mc_version, name, exclusive=True,
+                       profile=target.get("profile"),
+                       version_id=target.get("version_id"))
+
+    def _touch():
+        _touch_pack_install(mc_version)
+
+    def _status(text):
+        _touch()
+        if status_cb:
+            status_cb(text)
+
+    def _progress(value):
+        _touch()
+        if progress_cb:
+            progress_cb(value)
+
+    def _maximum(value):
+        _touch()
+        if max_cb:
+            max_cb(value)
+
     try:
-        return _install_from_zip_body(zip_path, progress_cb=progress_cb,
-                                      status_cb=status_cb, max_cb=max_cb,
+        return _install_from_zip_body(zip_path, progress_cb=_progress,
+                                      status_cb=_status, max_cb=_maximum,
                                       icon_url=icon_url)
     finally:
         _unmark_pack_install(mc_version)
@@ -2144,10 +2365,18 @@ def get_modpack_file(project_id_or_slug: str, mc_version: str | None = None) -> 
 
 def list_installed_modpacks() -> list[dict]:
     """Every profile that was created by installing a modpack, newest scan
-    order. Used to show 'Installed packs' and let Play jump to one."""
-    packs = []
+    order. Used to show 'Installed packs' and let Play jump to one.
+
+    De-duplicated by pack identity (name + Minecraft version + loader). A
+    profile can end up with two markers for one pack - a legacy shared profile
+    and an isolated clone from a later reinstall - and listing both is exactly
+    the "it installed the pack twice, with different mod counts" report. The
+    surviving entry is the one whose version folder still exists, then the
+    newest marker.
+    """
+    packs: dict[tuple, dict] = {}
     if not os.path.isdir(PROFILES_DIR):
-        return packs
+        return []
     for key in sorted(os.listdir(PROFILES_DIR)):
         meta_path = os.path.join(PROFILES_DIR, key, MODPACK_META_FILENAME)
         if not os.path.isfile(meta_path):
@@ -2155,6 +2384,7 @@ def list_installed_modpacks() -> list[dict]:
         try:
             with open(meta_path, "r", encoding="utf-8") as fh:
                 meta = json.load(fh)
+            mtime = os.path.getmtime(meta_path)
         except (OSError, json.JSONDecodeError):
             continue
         if not isinstance(meta, dict):
@@ -2162,8 +2392,21 @@ def list_installed_modpacks() -> list[dict]:
         # Installs made before instance isolation have no recorded profile
         # key; the folder they sit in IS the key.
         meta.setdefault("profile", key)
-        packs.append(meta)
-    return packs
+        identity = (str(meta.get("name") or "").strip().lower(),
+                    str(meta.get("mc_version") or ""),
+                    str(meta.get("loader") or "vanilla"))
+
+        def _rank(item):
+            candidate, stamp = item
+            vid = candidate.get("version_id")
+            exists = bool(vid and os.path.isdir(
+                os.path.join(MINECRAFT_DIR, "versions", str(vid))))
+            return (exists, stamp)
+
+        previous = packs.get(identity)
+        if previous is None or _rank((meta, mtime)) > _rank(previous):
+            packs[identity] = (meta, mtime)
+    return [meta for meta, _mtime in packs.values()]
 
 
 def forget_modpack_for_version(version_id: str) -> bool:

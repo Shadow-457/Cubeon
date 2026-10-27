@@ -1,0 +1,777 @@
+{
+  "version": 1,
+  "anchors": {
+    "shoulder": [
+      -6.0,
+      0.0,
+      0.0
+    ],
+    "back": [
+      0.0,
+      2.0,
+      2.2
+    ]
+  },
+  "items": [
+    {
+      "id": "shoulder_ember_fox",
+      "slot": "shoulder",
+      "name": "Ember Fox",
+      "blurb": "A warm little fox that curls up on your shoulder.",
+      "texture": "shoulder_ember_fox.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_moss_frog",
+      "slot": "shoulder",
+      "name": "Moss Frog",
+      "blurb": "A pond-green frog with a very serious expression.",
+      "texture": "shoulder_moss_frog.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_lantern_moth",
+      "slot": "shoulder",
+      "name": "Lantern Moth",
+      "blurb": "Its lantern tail glows softly in the dark.",
+      "texture": "shoulder_lantern_moth.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_frost_cub",
+      "slot": "shoulder",
+      "name": "Frost Cub",
+      "blurb": "A snow-pale cub that never seems to feel the cold.",
+      "texture": "shoulder_frost_cub.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_cloud_serpent",
+      "slot": "shoulder",
+      "name": "Cloud Serpent",
+      "blurb": "A tiny sky serpent coiled into a comfortable knot.",
+      "texture": "shoulder_cloud_serpent.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_gear_imp",
+      "slot": "shoulder",
+      "name": "Gear Imp",
+      "blurb": "A workshop imp wearing brass goggles and a red scarf.",
+      "texture": "shoulder_gear_imp.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_spore_sprite",
+      "slot": "shoulder",
+      "name": "Spore Sprite",
+      "blurb": "A mushroom-cap friend with a tiny, curious face.",
+      "texture": "shoulder_spore_sprite.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_star_owl",
+      "slot": "shoulder",
+      "name": "Star Owl",
+      "blurb": "A night owl whose feathers hold a small constellation.",
+      "texture": "shoulder_star_owl.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_tide_turtle",
+      "slot": "shoulder",
+      "name": "Tide Turtle",
+      "blurb": "A pocket-sized turtle with a wave-worn shell.",
+      "texture": "shoulder_tide_turtle.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "shoulder_pumpkin_pal",
+      "slot": "shoulder",
+      "name": "Pumpkin Pal",
+      "blurb": "A grinning pumpkin companion for the harvest season.",
+      "texture": "shoulder_pumpkin_pal.png",
+      "tex_w": 48,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            -8.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        },
+        {
+          "origin": [
+            -8.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            20
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "back_ember_wings",
+      "slot": "back",
+      "name": "Ember Wings",
+      "blurb": "Feathers that smoulder orange at the tips.",
+      "texture": "back_ember_wings.png",
+      "tex_w": 68,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            1.0,
+            0.0,
+            2.2
+          ],
+          "size": [
+            10,
+            13,
+            1
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": true
+        }
+      ]
+    },
+    {
+      "id": "back_frost_wings",
+      "slot": "back",
+      "name": "Frost Wings",
+      "blurb": "Pale wings edged in fresh snow.",
+      "texture": "back_frost_wings.png",
+      "tex_w": 68,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            1.0,
+            0.0,
+            2.2
+          ],
+          "size": [
+            10,
+            13,
+            1
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": true
+        }
+      ]
+    },
+    {
+      "id": "back_leaf_wings",
+      "slot": "back",
+      "name": "Leaf Wings",
+      "blurb": "Grown from a single, very ambitious seed.",
+      "texture": "back_leaf_wings.png",
+      "tex_w": 68,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            1.0,
+            0.0,
+            2.2
+          ],
+          "size": [
+            10,
+            13,
+            1
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": true
+        }
+      ]
+    },
+    {
+      "id": "back_void_wings",
+      "slot": "back",
+      "name": "Void Wings",
+      "blurb": "Dark wings scattered with distant violet stars.",
+      "texture": "back_void_wings.png",
+      "tex_w": 68,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            1.0,
+            0.0,
+            2.2
+          ],
+          "size": [
+            10,
+            13,
+            1
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": true
+        }
+      ]
+    },
+    {
+      "id": "back_aurora_wings",
+      "slot": "back",
+      "name": "Aurora Wings",
+      "blurb": "Wings that carry a piece of the northern lights.",
+      "texture": "back_aurora_wings.png",
+      "tex_w": 68,
+      "tex_h": 44,
+      "boxes": [
+        {
+          "origin": [
+            1.0,
+            0.0,
+            2.2
+          ],
+          "size": [
+            10,
+            13,
+            1
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": true
+        }
+      ]
+    },
+    {
+      "id": "back_gear_pack",
+      "slot": "back",
+      "name": "Gear Pack",
+      "blurb": "A sturdy pack with a brass gear clasp.",
+      "texture": "back_gear_pack.png",
+      "tex_w": 72,
+      "tex_h": 40,
+      "boxes": [
+        {
+          "origin": [
+            -4.0,
+            2.0,
+            2.2
+          ],
+          "size": [
+            8,
+            9,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "back_scholar_pack",
+      "slot": "back",
+      "name": "Scholar Pack",
+      "blurb": "A leather pack with room for one more book.",
+      "texture": "back_scholar_pack.png",
+      "tex_w": 72,
+      "tex_h": 40,
+      "boxes": [
+        {
+          "origin": [
+            -4.0,
+            2.0,
+            2.2
+          ],
+          "size": [
+            8,
+            9,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "back_lantern_pack",
+      "slot": "back",
+      "name": "Lantern Pack",
+      "blurb": "A dark travel pack with a warm lantern.",
+      "texture": "back_lantern_pack.png",
+      "tex_w": 72,
+      "tex_h": 40,
+      "boxes": [
+        {
+          "origin": [
+            -4.0,
+            2.0,
+            2.2
+          ],
+          "size": [
+            8,
+            9,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "back_shell_pack",
+      "slot": "back",
+      "name": "Shell Pack",
+      "blurb": "A shell-backed pack, waterproof and steady.",
+      "texture": "back_shell_pack.png",
+      "tex_w": 72,
+      "tex_h": 40,
+      "boxes": [
+        {
+          "origin": [
+            -4.0,
+            2.0,
+            2.2
+          ],
+          "size": [
+            8,
+            9,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        }
+      ]
+    },
+    {
+      "id": "back_banner_pack",
+      "slot": "back",
+      "name": "Banner Pack",
+      "blurb": "A travel pack flying a small Cubeon banner.",
+      "texture": "back_banner_pack.png",
+      "tex_w": 72,
+      "tex_h": 40,
+      "boxes": [
+        {
+          "origin": [
+            -4.0,
+            2.0,
+            2.2
+          ],
+          "size": [
+            8,
+            9,
+            4
+          ],
+          "px": 3,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false
+        }
+      ]
+    }
+  ]
+}

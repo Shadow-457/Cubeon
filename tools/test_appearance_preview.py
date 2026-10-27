@@ -109,7 +109,7 @@ class InlinePool:
         return map(fn, values)
 
 
-def load_model(cfg, default_cape_path):
+def load_model(cfg, default_cape_path, cosmetics_dir=None):
     loads.append(dict(cfg))
     if cfg.get("active_skin") == "older.png":
         stage.cfg["active_skin"] = "newest.png"
