@@ -34,7 +34,10 @@ Two separate mechanisms, and the difference matters:
 So the LocalSkin sync here still runs - it's what shows a player their OWN
 skin instantly and offline, even before any upload lands - and the composed
 sheet is ALSO published to the network so friends see it too. The LocalSkin
-filename must be exactly <USERNAME>.png or CSL ignores it.
+filename must be exactly <USERNAME>.png or CSL ignores it. Choosing "None"
+writes the built-in Steve sheet (not an empty file) so it also overrides a
+previously published Worker skin on this screen; the Worker copy is left
+untouched because it has no delete route.
 
 One thing to know if you touch this: writing the file is necessary but not
 sufficient. CSL queries Mojang (priority 100) *before* LocalSkin (710), and
@@ -418,16 +421,16 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
         return
 
     # Clean up the file we last wrote if the name changed (otherwise a rename
-    # leaves <OLDNAME>.png behind) or there's nothing left to show (no skin). Only ever delete a name this launcher recorded writing, so
-    # a skin the user dropped into LocalSkin by hand is never clobbered.
-    if previous and (previous != username or not filename):
+    # leaves <OLDNAME>.png behind). Only ever delete a name this launcher
+    # recorded writing, so a skin the user dropped into LocalSkin by hand is
+    # never clobbered.
+    if previous and previous != username:
         _remove_local_skin(previous)
         cfg["csl_synced_name"] = None
 
-    # --- LocalSkin mirror: only when there IS custom content to mirror -------
-    # With no skin we deliberately write nothing: vanilla Steve
-    # stays vanilla locally. The network half below still runs, though -
-    # that's what puts the shared Cubeon cape on an otherwise-vanilla player.
+    target = os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png")
+    wrote_local = False
+
     if filename:
         src = get_custom_skin_path(filename) if filename else None
         if src is not None and not os.path.isfile(src):
@@ -438,11 +441,32 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
                 # The composed sheet is what lands in CSL: the active skin
                 # (or the built-in default when none is set).
                 sheet = compose_skin(cfg)
-                target = os.path.join(CSL_LOCAL_SKINS_DIR, f"{username}.png")
                 tmp = target + ".uploading"
                 sheet.save(tmp, format="PNG")
                 os.replace(tmp, target)
                 cfg["csl_synced_name"] = username
+                wrote_local = True
+            except OSError:
+                try:
+                    os.remove(os.path.join(CSL_LOCAL_SKINS_DIR,
+                                           f"{username}.png.uploading"))
+                except OSError:
+                    pass
+    else:
+        # Skin "None" must actually look like vanilla Steve/Alex. Removing the
+        # LocalSkin file is not enough: if this machine ever published a skin,
+        # CSL would fall through to the Worker and show that old skin again.
+        # Write the built-in Steve sheet instead - visually the vanilla model -
+        # unless the file was hand-dropped and never ours (respect that).
+        ours = previous == username or not os.path.isfile(target)
+        if ours:
+            try:
+                os.makedirs(CSL_LOCAL_SKINS_DIR, exist_ok=True)
+                tmp = target + ".uploading"
+                default_base_skin().save(tmp, format="PNG")
+                os.replace(tmp, target)
+                cfg["csl_synced_name"] = username
+                wrote_local = True
             except OSError:
                 try:
                     os.remove(os.path.join(CSL_LOCAL_SKINS_DIR,
@@ -452,11 +476,13 @@ def sync_local_skin_to_csl(cfg: dict) -> None:
 
     # CSL's model="auto" is unreliable for edited skins with opaque spare
     # arm columns. Write the active skin's explicit model into Cubeon's own
-    # load-list entry before Minecraft starts.
-    if filename and cfg.get("manage_skin_mod", True):
+    # load-list entry before Minecraft starts. "None" is classic Steve, so it
+    # must not inherit a slim model left over from the previous skin.
+    if wrote_local and cfg.get("manage_skin_mod", True):
         try:
             csl.set_localskin_model(
-                "slim" if _active_skin_is_slim(filename) else "default")
+                "slim" if filename and _active_skin_is_slim(filename)
+                else "default")
         except Exception:
             logging.getLogger(__name__).debug("could not set local skin model", exc_info=True)
 

@@ -52,8 +52,10 @@ Microsoft/Mojang account.
   or Oculus. Downloading a shader ZIP alone does not enable shaders.
 - **Modpacks:** carry their own Minecraft and loader requirements. Review
   the pack's requirements before installing it.
-- **Cosmetics:** manage skins and capes in Cosmetics; drag the 3D preview to
-  inspect the model. In-game visibility depends on compatible skin support.
+- **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; drag
+  the 3D preview to inspect the model. Shoulder and back items are drawn in
+  game by Cubeon Client and are visible to you; skins and capes need compatible
+  skin support.
 
 Screenshots have a separate section in Settings. Stats shows playtime and
 activity comparisons; it does not measure the game's frame rate.

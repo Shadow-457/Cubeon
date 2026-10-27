@@ -642,12 +642,14 @@ def _noop(*_a, **_k):
 
 def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
                        mc_version: str = "", loader: str = "",
-                       version_id: str | None = None) -> int:
+                       version_id: str | None = None,
+                       written: "set[str] | None" = None) -> int:
     """Copy the pack's override files into place: anything under mods/ goes to
     the profile (so sync_mods_to_game picks it up), bundled resource
     packs/shaders go to the profile's content folders (so they follow THIS
     instance), and everything else (config/, options.txt, ...) into the shared
-    game dir. Returns how many override mod jars were written."""
+    game dir. Returns how many override mod jars were written; pass `written`
+    to also collect their basenames."""
     override_mods = 0
     for info in zf.infolist():
         if info.is_dir():
@@ -667,6 +669,8 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
         if _dest_is_mod(rel):
             dest = _safe_relpath(profile_dir, os.path.basename(rel))
             override_mods += 1
+            if written is not None:
+                written.add(os.path.basename(rel))
         else:
             # A bundled pack/shader belongs to this instance; everything else
             # (configs, options.txt, ...) keeps its existing shared location.
@@ -819,6 +823,14 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # 1) Minecraft version
         status_cb(f"Installing Minecraft {mc_version}")
         from .config import launch_java_path
+        # Snapshot the versions folder so the sidecar can record which build
+        # inputs THIS install created. The Instances sheet hides those, so a
+        # pack shows up as one instance instead of "vanilla + loader + pack".
+        versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+        try:
+            versions_before = set(os.listdir(versions_dir))
+        except OSError:
+            versions_before = set()
         install_version(mc_version, progress_cb, status_cb, max_cb,
                         explicit_java=bool(launch_java_path()))
 
@@ -859,14 +871,30 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # Record the ownership in the version folder. This is what every
         # launch/UI lookup uses to find the pack's private profile; without it
         # the same (mc_version, loader) pair would resolve to the shared one.
-        write_instance_meta(version_id, {
+        previous_meta = read_instance_meta(version_id) or {}
+        built_from = [str(src) for src in (previous_meta.get("built_from") or [])
+                      if isinstance(src, str) and src]
+        for candidate in (mc_version, loader_version_id):
+            if (candidate and candidate != version_id
+                    and candidate not in versions_before
+                    and candidate not in built_from):
+                built_from.append(candidate)
+        instance_meta = {
             "profile": profile,
             "name": info["name"],
             "mc_version": mc_version,
             "loader": loader_id,
             "pack_version": info["pack_version"],
             "loader_version": info.get("loader_version"),
-        })
+        }
+        source = previous_meta.get("source_version_id")
+        if not source and loader_version_id != version_id:
+            source = loader_version_id
+        if source and source != version_id:
+            instance_meta["source_version_id"] = source
+        if built_from:
+            instance_meta["built_from"] = built_from
+        write_instance_meta(version_id, instance_meta)
         profile_dir = get_profile_dir(mc_version, loader_id, version_id)
 
         # The claim now knows the exact instance it is writing, so the Play
@@ -875,18 +903,10 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         _update_pack_install(mc_version, info["name"],
                              profile=profile, version_id=version_id)
 
-        # A reinstall must REPLACE the pack's mod set, not add to it. Remove
-        # the jars the previous install recorded as pack-owned; a jar the user
-        # added by hand was never in that list, so it survives. (Installs made
-        # before this field existed have no list and simply keep their files
-        # once; the next install writes the list and future updates prune.)
-        for _old_name in old_pack_jars:
-            if os.path.basename(_old_name) != _old_name:
-                continue
-            try:
-                os.remove(os.path.join(profile_dir, _old_name))
-            except OSError:
-                pass
+        # A reinstall must REPLACE the pack's mod set, not add to it. The
+        # actual removal happens after the new jars are in (see step 6): doing
+        # it here destroyed a working pack's mods when a later download failed
+        # or the user cancelled.
 
         def _profile_jars() -> set:
             try:
@@ -894,8 +914,6 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                         if name.endswith((".jar", ".jar.disabled"))}
             except OSError:
                 return set()
-
-        jars_before = _profile_jars()
 
         # 3) The pack's declared mod files, into the matching profile folder.
         client_files = [f for f in files if _wanted_on_client(f)]
@@ -973,8 +991,10 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
 
         # 5) Overrides (bundled configs + any non-Modrinth-hosted jars).
         status_cb("Applying pack config")
-        _extract_overrides(zf, profile_dir, status_cb, mc_version, loader_id,
-                           version_id)
+        override_jars: set[str] = set()
+        _extract_overrides(
+            zf, profile_dir, status_cb, mc_version, loader_id, version_id,
+            written=override_jars)
 
         # 6) Remember which jars belong to the pack itself (manifest downloads
         #    plus bundled override jars). This is the list a future reinstall
@@ -982,8 +1002,24 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         #    snapshot, so they are never mistaken for pack content. The marker
         #    is written at the very end, once the real jar count is known.
         pack_jars = {os.path.basename(f.get("path", "")) for f in mod_files}
-        pack_jars |= (_profile_jars() - jars_before)
+        pack_jars |= override_jars
         pack_jars = {name for name in pack_jars if name}
+
+        # Now that the NEW set is safely on disk, remove the jars the PREVIOUS
+        # install recorded as pack-owned and this pack version no longer ships.
+        # Only "old minus new" is deleted, so same-named jars are not churned;
+        # a jar the user added by hand was never in that list, so it survives.
+        # (Installs made before this field existed have no list and simply keep
+        # their files once; the next install writes the list and future
+        # updates prune.)
+        for _old_name in old_pack_jars:
+            if (os.path.basename(_old_name) != _old_name
+                    or _old_name in pack_jars):
+                continue
+            try:
+                os.remove(os.path.join(profile_dir, _old_name))
+            except OSError:
+                pass
 
         # 7) Cubeon's own client mods into THIS pack's profile, using the
         #    PACK's loader. Injection used to happen only at launch, where it

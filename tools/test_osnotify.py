@@ -311,14 +311,12 @@ print("\n10. the Settings toggles are wired to these kinds")
 _settings = open(os.path.join(_ROOT, "ui", "settings_tab.py"), encoding="utf-8").read()
 _main = open(os.path.join(_ROOT, "main.py"), encoding="utf-8").read()
 check("Settings has a Notifications section",
-      '"notifications"' in _settings and "notifications_pane" in _settings,
+      'block("Notifications"' in _settings and "notification_rows" in _settings,
       "the user asked for a toggle per type")
 check("the toggle rows come from osnotify.KINDS, not a copied list",
       "osnotify.KINDS" in _settings)
 check("the switches save instantly",
-      "save_config" in _settings and "notifications_pane" in _settings)
-check("main.py notifies on a finished version install",
-      "osnotify" in _main and "install_finished(" in _main)
+      "save_config" in _settings and "notification_rows" in _settings)
 check("main.py pings for a new Cubeon version",
       "update_available(" in _main)
 _mods = open(os.path.join(_ROOT, "ui", "mods_tab.py"), encoding="utf-8").read()

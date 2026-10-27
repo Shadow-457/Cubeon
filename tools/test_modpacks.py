@@ -211,6 +211,10 @@ def main():
           meta.get("version_id") == "fabric-loader-0.15.7-1.20.1", meta.get("version_id"))
     check("install: meta name/loader/mc",
           meta["name"] == "Test Pack" and meta["loader"] == "fabric" and meta["mc_version"] == "1.20.1")
+    from cubeon.mods import read_instance_meta
+    sidecar = read_instance_meta(meta["version_id"]) or {}
+    check("install: records the vanilla build input for the Instances filter",
+          "1.20.1" in (sidecar.get("built_from") or []), str(sidecar))
 
     sodium = os.path.join(profile_dir, "sodium.jar")
     check("route: declared mod -> profile", os.path.isfile(sodium))

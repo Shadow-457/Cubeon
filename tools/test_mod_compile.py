@@ -61,6 +61,9 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/Json.java",
     "mod/src/main/java/com/cubeon/client/Bridge.java",
     "mod/src/main/java/com/cubeon/client/BadgeNames.java",
+    "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticCatalog.java",
+    "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticGeometry.java",
+    "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticSelection.java",
     "mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/CubeonClient.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/TabListTag.java",
@@ -1084,6 +1087,29 @@ STUBS = {
             }
 
             public void setReturnValue(T value) {
+            }
+        }
+        """,
+
+    "com/cubeon/client/cosmetics/CosmeticsClient.java": """
+        package com.cubeon.client.cosmetics;
+
+        /*
+         * The mod's own cosmetics registration seam, NOT Minecraft API.
+         *
+         * CubeonClient calls register() inside a try/catch(Throwable), so the
+         * entrypoint must compile even when the renderer overlay is absent (a
+         * missing Fabric API costs cosmetics only). The real class lives in
+         * src/main/java-overlay-cosmetics-* and is era-specific - 1.20's
+         * VertexConsumer.next() and 26.x's queued SubmitNodeCollector cannot
+         * share one stub - so it is excluded here for the same reason the HUD
+         * is: the 24 real Gradle builds in mod/brackets.json validate it.
+         *
+         * The signature is copied from the real overlays. If register() ever
+         * changes shape, update this seam too; a mismatch fails the real build.
+         */
+        public final class CosmeticsClient {
+            public static void register() {
             }
         }
         """,

@@ -584,4 +584,8 @@ class SeasonalAnimator:
         scale = pet["ctrl"].scale
         cur = scale.scale_x if scale is not None else 1
         if cur != want:
-            pet["ctrl"].scale = ft.Scale(scale_x=want)
+            # BOTH axes, always. Flet serialises a Scale with the unset axis as
+            # null, and the Flutter client turns that into a NaN matrix ->
+            # "TransformLayer is constructed with an invalid matrix" spam on
+            # every animation tick. scale_y=1 is a pure horizontal mirror.
+            pet["ctrl"].scale = ft.Scale(scale_x=want, scale_y=1)

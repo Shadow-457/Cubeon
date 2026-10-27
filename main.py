@@ -1304,6 +1304,10 @@ async def main(page: ft.Page):
         "loader_choice": None,
         "running_version": None,  # launch id currently running, or None - guards instance delete
         "installing_version": None,  # launch id with a cancellable install in flight, or None
+        # Install phase is over but the game is not spawned yet (doctor, mod
+        # repair, spawn). Without this the button had no claim to honour and a
+        # second Play started a second game - see do_install_and_launch.
+        "launching_version": None,
     }
 
     # -----------------------------------------------------------------
@@ -3523,14 +3527,41 @@ async def main(page: ft.Page):
         if state.get("installing_version"):
             on_cancel_install()
             return
+        if state.get("launching_version"):
+            # The install is done and the game is spawning. Nothing to cancel
+            # and nothing to start - ignoring the press is the honest answer.
+            return
         if state.get("running_version"):
             _quit_running_game()
             return
         now = time.monotonic()
         if now - _play_click_gate["at"] < _PLAY_CLICK_COOLDOWN:
+            logging.getLogger(__name__).info(
+                "play: click ignored (%.2fs cooldown)", _PLAY_CLICK_COOLDOWN)
             return
         _play_click_gate["at"] = now
-        on_play_click()
+        # Only a click that actually STARTED something keeps the cooldown.
+        # Previously every click armed it, so a click that merely showed a
+        # validation error / "still installing" notice also swallowed the
+        # user's corrected retry 0.3 s later - the intermittent "Play does
+        # nothing" report. An early return releases the gate immediately.
+        try:
+            started = on_play_click()
+        except Exception as ex:
+            _play_click_gate["at"] = 0.0
+            logging.getLogger(__name__).exception("play: click handler failed")
+            # Flet swallows handler exceptions, which is exactly how a failed
+            # click used to look like a dead button. Say something instead.
+            try:
+                _show_snack(f"Couldn't start: {ex}", duration=6000)
+            except Exception:
+                pass
+            return
+        if started is False:
+            _play_click_gate["at"] = 0.0
+        logging.getLogger(__name__).info(
+            "play: click version=%s started=%s",
+            version_dropdown.value, started is not False)
 
     def _on_play_hover(hovering: bool):
         """Brighten the hero button on hover so it reads as the obvious next
@@ -3720,6 +3751,10 @@ async def main(page: ft.Page):
                 mode = "running"
             elif state.get("installing_version"):
                 mode = "busy"
+            elif state.get("launching_version"):
+                # Install phase done, game not spawned yet: neither cancellable
+                # nor ready to play, so a stray repaint must not offer PLAY.
+                mode = "launching"
             elif _pack_installing_selected():
                 mode = "installing"
             elif _fixing_selected():
@@ -4416,7 +4451,11 @@ async def main(page: ft.Page):
         with _launch_state_lock:
             if state.get("installing_version"):
                 _show_snack("An installation is already in progress", duration=4000)
-                return
+                return False
+            if state.get("launching_version"):
+                _show_snack("An instance is still launching - wait for it to "
+                            "finish", duration=4000)
+                return False
             # A pack install (Modpacks tab / Import) is writing this version
             # right now. This is the second way in - on_play_click checks it
             # too, but the Java prompt calls this function directly, so the
@@ -4426,11 +4465,17 @@ async def main(page: ft.Page):
             try:
                 _pack_name = core.pack_install_for_instance(version_id)
             except Exception:
-                pass
+                # Fail CLOSED. If the in-flight registry cannot be read, we
+                # cannot prove no pack is writing this instance - and launching
+                # a half-written profile breaks it. Refuse, and say so.
+                logging.getLogger(__name__).warning(
+                    "pack-install guard could not read the registry; "
+                    "refusing the launch", exc_info=True)
+                _pack_name = "A modpack"
             if _pack_name:
                 _show_snack(f"{_pack_name} is still installing - wait for it "
                             "to finish, then press Play", duration=5000)
-                return
+                return False
             _deleted_versions.discard(version_id)  # explicit reinstall
             install_loader = state.get("mod_loader") or "vanilla"
             _cancel_event(version_id).clear()
@@ -4482,6 +4527,8 @@ async def main(page: ft.Page):
             _sync_play_button()
             thread_safe_ui.refresh(progress_card)
             raise
+
+        return True
 
     def _prompt_for_java(version_id, username, mc_version, jstatus):
         """Asks whether Cubeon may download the Java this version needs.
@@ -4547,12 +4594,24 @@ async def main(page: ft.Page):
         if not ok:
             username_field.error_text = err
             page.update()
-            return
+            return False
         username_field.error_text = None
 
         version_id = version_dropdown.value
         if not version_id:
-            return
+            # A silent no-op here reads as a dead button. Say what is missing.
+            _show_snack("Pick an instance first, then press Play", duration=4000)
+            return False
+
+        # Between the end of the install phase and the game actually spawning
+        # there is no install to cancel and no process to quit, but the launch
+        # is already committed: a second press here used to start a second
+        # game (double playtime, profile lock contention).
+        if state.get("launching_version"):
+            set_button_mode("launching")
+            _show_snack("An instance is still launching - wait for it to "
+                        "finish", duration=4000)
+            return False
 
         # The version panel's Play button calls straight into here, so the
         # disabled "INCOMPLETE INSTALL" state on the hero is not a guard by
@@ -4566,7 +4625,7 @@ async def main(page: ft.Page):
             set_button_mode("incomplete")
             _show_snack("This instance is incomplete - reinstall it before playing",
                         duration=5000)
-            return
+            return False
 
         # A pack install (Modpacks tab / Settings > Import) is writing this
         # version's folder and its (mc, loader) profile right now. Its disk
@@ -4579,12 +4638,18 @@ async def main(page: ft.Page):
         try:
             _installing_pack = core.pack_install_for_instance(version_id)
         except Exception:
-            pass
+            # Same fail-closed rule as _begin_install_and_launch: an unreadable
+            # registry is not permission to launch a possibly half-written
+            # instance (the old `pass` here was the guard silently failing open).
+            logging.getLogger(__name__).warning(
+                "pack-install guard could not read the registry; "
+                "refusing the launch", exc_info=True)
+            _installing_pack = "A modpack"
         if _installing_pack:
             _sync_play_button()
             _show_snack(f"{_installing_pack} is still installing - wait for "
                         "it to finish, then press Play", duration=5000)
-            return
+            return False
 
         # Bulletproof double-launch guard. The button's "running" paint can in
         # principle be stale for a beat (a background repaint racing this
@@ -4601,7 +4666,7 @@ async def main(page: ft.Page):
             if live is not None:
                 set_button_mode("running")
                 _show_snack("That version is already running", duration=4000)
-                return
+                return False
             state["running_version"] = None  # stale claim - clear and proceed
 
         # Save config with current username and last selected version
@@ -4633,8 +4698,8 @@ async def main(page: ft.Page):
                 jstatus = {"ok": True, "required": 0, "found": None}
             if not jstatus.get("ok") and jstatus.get("required"):
                 _prompt_for_java(version_id, username, mc_version, jstatus)
-                return  # the dialog's action calls back into the install
-        _begin_install_and_launch(version_id, username)
+                return True  # the dialog's action calls back into the install
+        return _begin_install_and_launch(version_id, username)
 
     _launch_state_lock = threading.RLock()
 
@@ -4896,7 +4961,9 @@ async def main(page: ft.Page):
             # possible.
             _check_cancel()
             cancellable["on"] = False
-            state["installing_version"] = None
+            with _launch_state_lock:
+                state["installing_version"] = None
+                state["launching_version"] = version_id
             set_button_mode("launching")
 
             # Launch the game
@@ -5099,7 +5166,9 @@ async def main(page: ft.Page):
                 if exited["done"]:
                     return
             set_button_mode("running")
-            state["running_version"] = version_id  # block deleting it mid-game
+            with _launch_state_lock:
+                state["launching_version"] = None
+                state["running_version"] = version_id  # block deleting it mid-game
             thread_safe_ui.refresh(progress_card)
 
             # Belt-and-braces liveness watch: on_exit() is the normal path,
@@ -5327,8 +5396,14 @@ async def main(page: ft.Page):
             # any more. The button's paint is owned by the paths above (the
             # cancel/error resets, or the running state on success).
             cancellable["on"] = False
-            if state.get("installing_version") == version_id:
-                state["installing_version"] = None
+            with _launch_state_lock:
+                if state.get("installing_version") == version_id:
+                    state["installing_version"] = None
+                # On the successful path running_version took over before this
+                # (see above); any other exit - cancel, error, or a game that
+                # died before the spawn - must release the launch claim here.
+                if state.get("launching_version") == version_id:
+                    state["launching_version"] = None
             _reset_button_after_worker(version_id)
 
     # --- Server status panel - the right column below the grass block was
@@ -5953,6 +6028,14 @@ async def main(page: ft.Page):
         hero_loader_chip_text.value = core.SUPPORTED_LOADERS.get(
             state.get("mod_loader") or "vanilla", "Vanilla")
         _refresh_hero_banner(vid)
+        # Plain ft.Text controls only repaint when updated. The selection path
+        # deliberately avoids page.update() (it diffs every mounted tab), so
+        # without these the new instance name stayed invisible until some
+        # unrelated full repaint - the user saw it only after switching to
+        # another tab and back. One control-level patch each.
+        for _painted in (hero_title, hero_version_text,
+                         hero_loader_chip_text, version_issue_text):
+            thread_safe_ui.refresh(_painted)
 
     # Now assemble the actual Play tab UI. Hierarchy is deliberate:
     #   PAGE HEADING  -> INSTANCE CARD
@@ -6158,10 +6241,11 @@ async def main(page: ft.Page):
     # --- Fix crash (Play tab) ------------------------------------------------
     # The doctor's visible action moved out of Mods -> Installed and onto the
     # Play card, to the left of PLAY (2026-10-25): a failed launch is exactly
-    # when someone looks for it. "Fix crash" reads the NEWEST crash log and
-    # repairs the cause that log proves (cubeon/crash_doctor.py); the doctor's
-    # dependency/conflict pass is the fallback for mod-set crashes.
-    from cubeon.doctor_ui import open_crash_review
+    # when someone looks for it. "Fix crash" reads the NEWEST crash log, says
+    # what happened in one sentence, then runs the existing dependency /
+    # conflict / launch-config checks and fixes what they can
+    # (cubeon/crash.py). There is no separate crash-diagnosis engine.
+    from cubeon.doctor_ui import open_crash_check
     fix_crash_state = {"busy": False}
 
     def _set_fix_crash_busy(busy):
@@ -6176,7 +6260,7 @@ async def main(page: ft.Page):
 
     def _run_fix_crash(e=None, *, version_id=None, crash_text=None,
                        crash_path=None):
-        """Read the newest crash evidence and repair what it proves.
+        """Read the newest crash evidence, explain it, and fix what we can.
 
         Called both from the Play card's Fix crash button (no explicit
         evidence) and from the crash popup (which passes the exact log text
@@ -6258,29 +6342,25 @@ async def main(page: ft.Page):
                     logging.getLogger(__name__).warning(
                         "mods refresh after repair failed", exc_info=True)
 
-        def repair_crash(mc_version, crash_loader, *, version_id, status_cb=None,
-                         **_kwargs):
-            """Adapter from the review dialog to cubeon/crash_doctor.py.
+        def diagnose(mc_version, crash_loader, *, version_id, status_cb=None,
+                     **_kwargs):
+            """Adapter from the dialog to cubeon/crash.py.
 
-            ``crash_text``/``crash_path`` pin the diagnosis to the log the
-            crash popup showed. Without them the engine picks the newest
-            crash report on disk, which is the right thing for the Play card
-            button. ``approve_cb`` is always True here: clicking "Fix crash"
-            *is* the consent, and every mod change it makes is reversible
-            (jars are renamed, never deleted).
+            ``crash_text``/``crash_path`` pin the check to the log the crash
+            popup showed. Without them it reads the newest crash report on
+            disk, which is right for the Play card button. Clicking "Fix
+            crash" is the consent for the reversible mod changes (jars are
+            renamed, never deleted).
             """
-            from cubeon import crash_doctor
-            return crash_doctor.repair(
+            from cubeon import crash
+            return crash.diagnose_and_fix(
                 mc_version, crash_loader, version_id=version_id,
-                text=crash_text, path=crash_path,
-                status_cb=status_cb, approve_cb=lambda change: True)
+                text=crash_text, path=crash_path, status_cb=status_cb)
 
         try:
-            open_crash_review(
+            open_crash_check(
                 page, mc_version=mc, loader=loader, version_id=vid,
-                repair_crash=repair_crash,
-                run_doctor=core.run_doctor,
-                include=("mods",),  # dependencies / conflicts / duplicates only
+                diagnose=diagnose,
                 on_status=lambda text: None, on_done=done)
         except Exception as error:
             _set_fix_crash_busy(False)
@@ -8279,7 +8359,7 @@ async def main(page: ft.Page):
             page.overlay.append(_onboard_overlay)
             if replay:
                 _onboard_overlay.opacity = 1
-                _onboard_overlay.scale = ft.Scale(1)
+                _onboard_overlay.scale = ft.Scale(scale_x=1, scale_y=1)
             # Mount it transparent; the fade-in is fired right after the
             # window's own reveal (see below), so the two fades don't overlap
             # into one flash.
@@ -8312,7 +8392,7 @@ async def main(page: ft.Page):
     if _onboard_overlay is not None:
         try:
             _onboard_overlay.opacity = 1
-            _onboard_overlay.scale = ft.Scale(1)
+            _onboard_overlay.scale = ft.Scale(scale_x=1, scale_y=1)
             thread_safe_ui.refresh(_onboard_overlay)
         except Exception:
             pass

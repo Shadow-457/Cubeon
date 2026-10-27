@@ -696,6 +696,8 @@ try:
     _cape_txt = " | ".join(all_text(_cape_section))
     check("uploaded cape row renders its name",
           "regress cape" in _cape_txt, _cape_txt[:200])
+    check("the Cape pane offers a real None card",
+          "no cape on your screen" in _cape_txt, _cape_txt[:200])
     check("installed lists no longer paginate (no page indicator)",
           not any("/" in (_lbl.value or "")
                   for _c in walk(_cape_section) if isinstance(_c, ft.Row)
@@ -1396,9 +1398,11 @@ check("Fix crash sits on the Play card, not in the Mods installed header",
       and "fix_crash_button" in _main_src
       and "repair_btn" not in _mods_src,
       "the doctor action must move next to PLAY; the Mods header keeps the status line")
-check("Fix crash reads the crash log, then falls back to the mod doctor",
-      "crash_doctor" in _main_src and 'include=("mods",)' in _main_src,
-      "Fix crash must diagnose the log first; only mod deps/conflicts are its fallback")
+check("Fix crash reads the crash log and checks deps/conflicts",
+      "from cubeon import crash" in _main_src
+      and "diagnose_and_fix" in _main_src
+      and "open_crash_check" in _main_src,
+      "Fix crash must explain the log, then run the mod/launch checks")
 check("stats tab exists and is wired into nav + lazy builders",
       "def build_stats_tab" in _stats_src
       and '("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats")' in _main_src

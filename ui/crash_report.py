@@ -223,7 +223,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
             *([ft.TextButton(
                 "Fix crash", icon=ft.Icons.BUILD_ROUNDED,
                 on_click=_fix_crash,
-                tooltip="Read this crash log and repair what it proves",
+                tooltip="Read this crash log, explain it, and fix what it can",
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
             )] if callable(on_fix_crash) else []),
             ft.FilledButton(

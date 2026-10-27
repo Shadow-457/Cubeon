@@ -4,16 +4,26 @@ FilePicker helper shared by every tab that lets the user pick a file.
 """
 import inspect
 import json
+import logging
 import os
 import re
 import secrets
+import shutil
 import sys
+import tempfile
 import threading
+import time
 import uuid
 
 from .paths import CONFIG_PATH, CUBEON_HOME
 
 _SAVE_LOCK = threading.Lock()
+# A config.json that exists but cannot be read (antivirus lock, bad sector,
+# half-synced cloud file) must not turn into "all defaults" for this session -
+# the next save would overwrite the user's real settings. Keep the last good
+# dict around; only an actually missing file may seed defaults.
+_LOAD_LOCK = threading.RLock()
+_LAST_GOOD_CONFIG: "dict | None" = None
 
 
 def get_system_ram_mb() -> int:
@@ -96,6 +106,11 @@ DEFAULT_CONFIG = {
     # filename (in CAPES_DIR) of the uploaded cape to use, or None = the shared
     # Cubeon cape (the Worker serves that to everyone; see worker/cubeon-skins.js).
     "active_cape": None,
+    # The Cape pane's "None": hide the shared Cubeon cape on THIS player's
+    # screen. Other players still see the shared cape, because the Worker
+    # assigns it server-side - the local CustomSkinLoader source only wins the
+    # slot on this machine. Ignored while a custom cape is selected.
+    "hide_cubeon_cape": False,
     # Original Cubeon shoulder/back cosmetics (see cubeon/cosmetics.py).
     # The launcher writes the active ids to <game>/config/cubeon-cosmetics.json
     # and the client mod draws them as textured boxes on the player.
@@ -267,11 +282,74 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config() -> dict:
+def _backup_corrupt_config() -> None:
+    """Copy a readable-but-broken config.json aside before defaults replace it.
+
+    Keeps at most three `.corrupt-<time>` copies, so repeated launches with a
+    broken file cannot fill the home directory.
+    """
+    if not os.path.exists(CONFIG_PATH):
+        return
+    dest = f"{CONFIG_PATH}.corrupt-{int(time.time())}"
     try:
-        with open(CONFIG_PATH, "r") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
+        if os.path.exists(dest):
+            n = 1
+            while os.path.exists(f"{dest}-{n}"):
+                n += 1
+            dest = f"{dest}-{n}"
+        shutil.copy2(CONFIG_PATH, dest)
+        backups = sorted(
+            (p for p in _sibling_paths(CONFIG_PATH, ".corrupt-")),
+            key=lambda p: os.path.getmtime(p))
+        for stale in backups[:-3]:
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+    except OSError:
+        pass  # best-effort: a warning below still tells the user what happened
+
+
+def _sibling_paths(path: str, marker: str) -> list:
+    directory = os.path.dirname(path) or "."
+    prefix = os.path.basename(path) + marker
+    try:
+        return [os.path.join(directory, name)
+                for name in os.listdir(directory)
+                if name.startswith(prefix)]
+    except OSError:
+        return []
+
+
+def load_config() -> dict:
+    global _LAST_GOOD_CONFIG
+    with _LOAD_LOCK:
+        data = None
+        status = "missing"
+        for attempt in range(3):
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    parsed = json.load(f)
+            except FileNotFoundError:
+                status = "missing"
+                break
+            except (json.JSONDecodeError, ValueError):
+                status = "invalid"
+                break
+            except OSError:
+                status = "unreadable"
+                if attempt < 2:
+                    time.sleep(0.05)
+                    continue
+                break
+            if isinstance(parsed, dict):
+                data = parsed
+                status = "ok"
+            else:
+                status = "invalid"
+            break
+
+        if status == "ok":
             cfg = {**DEFAULT_CONFIG, **data}
             # Key migration: max_fps_enabled -> fps_boost_enabled (2026-10-15,
             # the toggle moved from Settings to the Play menu and gained the
@@ -287,9 +365,24 @@ def load_config() -> dict:
                     and not data.get("custom_window_chrome_chosen")
                     and data.get("custom_window_chrome") is False):
                 cfg["custom_window_chrome"] = True
+            _LAST_GOOD_CONFIG = dict(cfg)
             return cfg
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        pass
+
+        if status == "invalid":
+            _backup_corrupt_config()
+            logging.getLogger(__name__).warning(
+                "config.json is not a JSON object; copied it aside as "
+                "%s.corrupt-* and starting from defaults", CONFIG_PATH)
+        elif status == "unreadable":
+            if _LAST_GOOD_CONFIG is not None:
+                logging.getLogger(__name__).warning(
+                    "config.json could not be read; using the last good "
+                    "settings for this session")
+                return dict(_LAST_GOOD_CONFIG)
+            logging.getLogger(__name__).warning(
+                "config.json could not be read; using defaults for this "
+                "session (the file was not modified)")
+
     # Brand-new install (or a config whose JSON is not an object - never a
     # reason to crash startup): seed ram_mb with half of *this machine's* RAM
     # instead of the static 4096 fallback in DEFAULT_CONFIG, so a low-RAM
@@ -331,8 +424,11 @@ def save_config(cfg: dict) -> None:
     # config.json behind, and load_config() then silently reset every setting
     # to defaults. Same guarantee _write_auth_key() gives auth_key.json.
     from .atomicio import write_json
+    global _LAST_GOOD_CONFIG
     with _SAVE_LOCK:
         write_json(CONFIG_PATH, cfg)
+    with _LOAD_LOCK:
+        _LAST_GOOD_CONFIG = dict(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +520,15 @@ def offline_uuid(username: str) -> str:
 
 AUTH_KEY_PATH = os.path.join(CUBEON_HOME, "auth_key.json")
 
+# Two threads on a first start must not each mint a different identity before
+# either has written the file. The cache is also the session fallback when the
+# file exists but cannot be READ (antivirus/sync lock on Windows): refusing to
+# overwrite it is the only way to keep the player's uuid.
+_AUTH_LOCK = threading.RLock()
+_AUTH_CACHE_PATH: "str | None" = None
+_AUTH_CACHE_IDENTITY: "dict | None" = None
+_AUTH_CACHE_PERSISTED = False
+
 # A canonical v4 UUID string (8-4-4-4-12 hex). Used to validate what we read
 # back before trusting it as the launch/identity UUID.
 _UUID_RE = re.compile(
@@ -442,69 +547,157 @@ def ensure_auth_key() -> dict:
     """Loads the stable identity, creating or repairing auth_key.json as needed.
 
     Returns {"public_uuid": <v4 uuid str>, "secret_token": <sec_... token>}.
-    Guaranteed to always return a usable identity: on any read/parse failure
-    it regenerates the missing half rather than raising, so callers never have
-    to handle "no identity yet". Self-healing - valid halves already on disk
-    are preserved; only the missing/invalid field is minted. Legacy files
-    keyed {uuid, secret} are migrated to the new names without regenerating
-    either value (the uuid MUST survive migration or every server the player
-    has ever joined would treat them as a brand-new player).
+    Guaranteed to always return a usable identity: on parse failure it
+    regenerates the missing half rather than raising, so callers never have to
+    handle "no identity yet". Self-healing - valid halves already on disk are
+    preserved; only the missing/invalid field is minted. Legacy files keyed
+    {uuid, secret} are migrated to the new names without regenerating either
+    value (the uuid MUST survive migration or every server the player has ever
+    joined would treat them as a brand-new player).
+
+    A file that exists but cannot be READ is not treated as corrupt: the read
+    is retried briefly (Windows antivirus/sync locks) and then the identity
+    this process already holds is returned WITHOUT writing the file. A
+    damaged file that IS readable is copied to auth_key.json.corrupt-<time>
+    before being rewritten.
 
     Written 0600 (best-effort; a no-op on filesystems that don't support it
     must not break identity creation).
     """
-    data = {}
-    try:
-        with open(AUTH_KEY_PATH, "r", encoding="utf-8") as f:
-            loaded = json.load(f)
-        if isinstance(loaded, dict):
-            data = loaded
-    except (OSError, json.JSONDecodeError, ValueError):
+    with _AUTH_LOCK:
         data = {}
+        status = "ok"
+        for attempt in range(3):
+            try:
+                with open(AUTH_KEY_PATH, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+            except FileNotFoundError:
+                status = "missing"
+                break
+            except (json.JSONDecodeError, ValueError):
+                status = "invalid"
+                break
+            except OSError:
+                if attempt < 2:
+                    time.sleep(0.05)
+                    continue
+                status = "unreadable"
+                break
+            if isinstance(loaded, dict):
+                data = loaded
+            else:
+                status = "invalid"
+            break
 
-    uid = data.get("public_uuid")
-    secret = data.get("secret_token")
-    if uid is None:
-        uid = data.get("uuid")          # pre-rename file: keep the value
-    if secret is None:
-        secret = data.get("secret")     # ditto
+        if status == "unreadable":
+            # A transient read failure is NOT permission to mint a new
+            # identity - that would silently change who the player is (server
+            # data, skins, friends). Never overwrite a file we could not read.
+            if _AUTH_CACHE_PATH == AUTH_KEY_PATH and _AUTH_CACHE_IDENTITY:
+                return dict(_AUTH_CACHE_IDENTITY)
+            identity = {"public_uuid": str(uuid.uuid4()),
+                        "secret_token": _new_secret()}
+            _cache_identity(identity, persisted=False)
+            return identity
 
-    # Keep what's valid, mint what isn't. uuid4() is the "bullet-proof" part:
-    # 122 random bits, so it never collides with anyone else's identity and,
-    # unlike offline_uuid(name), never changes when the username does.
-    dirty = False
-    if not (isinstance(uid, str) and _UUID_RE.match(uid)):
-        uid = str(uuid.uuid4())
-        dirty = True
-    if not (isinstance(secret, str) and len(secret) >= 16):
-        secret = _new_secret()
-        dirty = True
+        if status == "invalid":
+            _backup_corrupt_auth_file()
+            if _AUTH_CACHE_PATH == AUTH_KEY_PATH and _AUTH_CACHE_IDENTITY:
+                # This session already knows the identity; repair the damaged
+                # file from it instead of inventing a new account.
+                identity = dict(_AUTH_CACHE_IDENTITY)
+                _cache_identity(identity, persisted=_write_auth_key(identity))
+                return identity
 
-    identity = {"public_uuid": uid, "secret_token": secret}
-    if dirty or data != identity:
-        _write_auth_key(identity)
-    return identity
+        if (status == "missing"
+                and _AUTH_CACHE_PATH == AUTH_KEY_PATH
+                and _AUTH_CACHE_IDENTITY and not _AUTH_CACHE_PERSISTED):
+            # A write failed earlier in this session, so the identity we minted
+            # never reached disk. Keep using it (and retry the write) instead of
+            # minting a new one on every call.
+            identity = dict(_AUTH_CACHE_IDENTITY)
+            _cache_identity(identity, persisted=_write_auth_key(identity))
+            return identity
+
+        uid = data.get("public_uuid")
+        secret = data.get("secret_token")
+        if uid is None:
+            uid = data.get("uuid")          # pre-rename file: keep the value
+        if secret is None:
+            secret = data.get("secret")     # ditto
+
+        # Keep what's valid, mint what isn't. uuid4() is the "bullet-proof" part:
+        # 122 random bits, so it never collides with anyone else's identity and,
+        # unlike offline_uuid(name), never changes when the username does.
+        dirty = False
+        if not (isinstance(uid, str) and _UUID_RE.match(uid)):
+            uid = str(uuid.uuid4())
+            dirty = True
+        if not (isinstance(secret, str) and len(secret) >= 16):
+            secret = _new_secret()
+            dirty = True
+
+        identity = {"public_uuid": uid, "secret_token": secret}
+        persisted = True
+        if dirty or data != identity:
+            persisted = _write_auth_key(identity)
+        _cache_identity(identity, persisted=persisted)
+        return identity
 
 
-def _write_auth_key(identity: dict) -> None:
-    """Atomically persist auth_key.json with 0600. Best-effort: a write
-    failure leaves the previous file intact and is non-fatal (the in-memory
-    identity is still returned to the caller for this session)."""
+def _cache_identity(identity: dict, *, persisted: bool) -> None:
+    """Remember this process's identity (for unreadable-file fallback)."""
+    global _AUTH_CACHE_PATH, _AUTH_CACHE_IDENTITY, _AUTH_CACHE_PERSISTED
+    _AUTH_CACHE_PATH = AUTH_KEY_PATH
+    _AUTH_CACHE_IDENTITY = dict(identity)
+    _AUTH_CACHE_PERSISTED = bool(persisted)
+
+
+def _backup_corrupt_auth_file() -> None:
+    """Copy a damaged auth_key.json aside before it is rewritten."""
+    if not os.path.exists(AUTH_KEY_PATH):
+        return
+    dest = f"{AUTH_KEY_PATH}.corrupt-{int(time.time())}"
     try:
-        os.makedirs(CUBEON_HOME, exist_ok=True)
-        tmp = AUTH_KEY_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        if os.path.exists(dest):
+            n = 1
+            while os.path.exists(f"{dest}-{n}"):
+                n += 1
+            dest = f"{dest}-{n}"
+        shutil.copy2(AUTH_KEY_PATH, dest)
+    except OSError:
+        pass  # keeping the old bytes is best-effort; repairing still matters
+
+
+def _write_auth_key(identity: dict) -> bool:
+    """Atomically persist auth_key.json with 0600. Returns False on failure.
+
+    Best-effort: a failed write leaves the previous file intact and is
+    non-fatal (the in-memory identity is still returned to the caller for this
+    session). The temp name is unique so two writers can never collide.
+    """
+    directory = os.path.dirname(AUTH_KEY_PATH) or "."
+    try:
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".auth-", suffix=".tmp",
+                                   dir=directory)
+    except OSError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(identity, f, indent=2)
         try:
             os.chmod(tmp, 0o600)  # tighten before the rename, never world-readable
         except OSError:
             pass
         os.replace(tmp, AUTH_KEY_PATH)  # atomic; a crash can't truncate it
+        return True
     except OSError:
         try:
-            os.unlink(AUTH_KEY_PATH + ".tmp")
+            os.unlink(tmp)
         except OSError:
             pass
+        return False
 
 
 def stable_uuid() -> str:

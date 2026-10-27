@@ -63,7 +63,18 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class",
                     "com/cubeon/client/hud/CubeonHudClient.class",
                     "com/cubeon/client/hud/CubeonHudConfig.class",
-                    "com/cubeon/client/hud/CubeonHud.class")
+                    "com/cubeon/client/hud/CubeonHud.class",
+                    # Cosmetics: the shared catalogue/selection/geometry plus the
+                    # era overlay's registration class. A bracket whose overlays
+                    # list lost the cosmetics entry still builds - it just ships
+                    # no renderer - so the class and the bundled catalogue are
+                    # the cheap way to catch that here.
+                    "com/cubeon/client/cosmetics/CosmeticCatalog.class",
+                    "com/cubeon/client/cosmetics/CosmeticGeometry.class",
+                    "com/cubeon/client/cosmetics/CosmeticSelection.class",
+                    "com/cubeon/client/cosmetics/CosmeticsClient.class",
+                    "assets/cubeon-client/cosmetics/catalog.json",
+                    "assets/cubeon-client/textures/cosmetics/shoulder_ember_fox.png")
 
 # The 26.x brackets only. The HUD there measures ping through a mixin of its own,
 # and a mixin that is compiled but not registered by a config silently does
@@ -182,6 +193,20 @@ def verify(jar_path, bracket=None):
     return None
 
 
+def regenerate_cosmetics():
+    """Redraw the cosmetic art and both catalogue copies before building.
+
+    The mod jar's catalogue and textures are generated, not hand-maintained
+    (tools/gen_cosmetics.py writes the launcher bundle and the mod bundle from
+    one source). Building without regenerating would ship a jar whose art
+    disagrees with the Skin tab - the exact divergence the shared generator
+    exists to prevent.
+    """
+    script = os.path.join(ROOT, "tools", "gen_cosmetics.py")
+    run = subprocess.run([sys.executable, script], cwd=ROOT)
+    return run.returncode == 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument("brackets", nargs="*", help="bracket keys to build; default all")
@@ -208,6 +233,11 @@ def main(argv=None):
         print("unknown bracket(s): " + ", ".join(unknown))
         print("known: " + ", ".join(known))
         return 2
+
+    if not regenerate_cosmetics():
+        print("could not regenerate the cosmetics bundle; refusing to build "
+              "a jar whose art disagrees with the launcher preview")
+        return 1
 
     gradle = gradle_command()
     jvm_feature, jvm_home = find_gradle_jvm()

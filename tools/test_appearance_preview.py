@@ -47,6 +47,23 @@ check("slim skins use narrower arm geometry", slim.getbbox()[2] - slim.getbbox()
 legacy = CharacterModel(skins.default_base_skin().crop((0, 0, 64, 32))).render(180, 0)
 check("legacy 64x32 skins have a complete rear view", legacy.getbbox()[3] > 380)
 
+# Cape "None" hides the shared Cubeon cape in the preview too, so the 3D box
+# and the game agree (offline shows vanilla Steve/Alex with no cape).
+import tempfile
+with tempfile.TemporaryDirectory() as _cape_dir:
+    _default_cape = os.path.join(_cape_dir, "cubeon-cape.png")
+    Image.new("RGBA", (64, 32), (0, 0, 0, 0)).save(_default_cape)
+    _bare = CharacterModel(skins.default_base_skin())
+    _shown = CharacterModel.from_config(
+        {"username": "tester"}, default_cape_path=_default_cape)
+    _hidden = CharacterModel.from_config(
+        {"username": "tester", "hide_cubeon_cape": True},
+        default_cape_path=_default_cape)
+    check("the shared cape is in the preview by default",
+          len(_shown.faces) == len(_bare.faces) + 6)
+    check("Cape None removes the shared cape from the preview",
+          len(_hidden.faces) == len(_bare.faces))
+
 crossing = CharacterModel(skins.default_base_skin())
 crossing.faces = [
     Face(((-4, 20, -3), (4, 20, 3), (-4, 12, -3)), (0, 0, 1), Image.new("RGBA", (8, 8), "red")),

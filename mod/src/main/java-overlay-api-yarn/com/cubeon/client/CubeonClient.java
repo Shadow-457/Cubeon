@@ -40,6 +40,15 @@ public class CubeonClient implements ClientModInitializer {
         Bridge bridge = Bridge.get();
         bridge.setToastSink(CubeonClient::announce);
         bridge.start();
+        // Cosmetics are built on Fabric API's renderer registration event. Fabric
+        // API is a recommended dependency, not a required one (see
+        // CubeonHudClient's guard): without it the player must lose the
+        // cosmetics, never the Cubeon button or the bridge.
+        try {
+            com.cubeon.client.cosmetics.CosmeticsClient.register();
+        } catch (Throwable missingApi) {
+            // No Fabric API, no renderer event. Nothing else depends on this.
+        }
     }
 
     /**

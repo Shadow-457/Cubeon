@@ -16,7 +16,7 @@
 8. [skins.py - Skin Upload & Network Publishing](#skinspy)
 9. [csl.py - CustomSkinLoader Setup](#cslpy)
 10. [capes.py - Cape Management](#capespy)
-11. [cosmetics.py - Pixel Hats](#cosmeticspy)
+11. [cosmetics.py - Shoulder and Back Items](#cosmeticspy)
 12. [server.py - Local Server Hosting](#serverpy)
 13. [friends.py - Social Layer Client](#friendspy)
 14. [invites.py - Invite Codes](#invitespy)
@@ -255,15 +255,25 @@ Capes work identically to skins: stored in `~/.cubeon_launcher/capes/`, synced t
 
 ## cosmetics.py
 
-**Purpose:** Pixel hats baked into the skin's hat layer.
+**Purpose:** Original shoulder and back items (10 each) drawn as real 3D boxes
+in game by the Cubeon Client mod.
 
 **How it works:**
-1. A hat is a 32x16 pixel template that maps to Minecraft's hat layer region
-2. `apply_hat_layer(skin, hat_id)` composites the hat over the skin
-3. `compose_skin_with_hat(cfg)` builds the full composed sheet (active skin + hat)
-4. The composed sheet is what gets synced to CSL and published to the network
+1. `tools/gen_cosmetics.py` is the only art source. It paints each item's
+   atlas and writes both `assets/cosmetics/` (launcher preview) and the
+   identical bundle under `mod/src/main/resources/assets/cubeon-client/`.
+2. `preview_faces(item)` returns the same quads the Java renderer
+   (`CosmeticGeometry.java`) emits; `tools/test_cosmetics.py` compiles the Java
+   side and compares every quad and texture tile.
+3. Selecting an item in Cosmetics -> Skin stores
+   `active_shoulder_item` / `active_back_item` in the launcher config and writes
+   `<game>/config/cubeon-cosmetics.json` atomically, only when it changes.
+4. The mod polls that file, validates the ids against its own bundled
+   catalogue, and draws the items on the local player. Unknown ids mean "no
+   cosmetic", never a crash.
 
-No extra mods needed - the hat layer is a built-in Minecraft feature.
+Hats are no longer composited into the skin; that feature was removed on
+2026-09-16 and must not be reintroduced.
 
 ---
 

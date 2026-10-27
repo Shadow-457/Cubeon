@@ -584,6 +584,7 @@ SUITES = [
     "test_mod_ui_stability.py",
     "test_mod_search.py",
     "test_doctor_consent.py",
+    "test_crash.py",
     "test_repository_hygiene.py",
 ]
 

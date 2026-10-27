@@ -76,7 +76,8 @@
       "fabric_api": "0.83.0+1.20",
       "overlays": [
         "api-yarn",
-        "hud-1.20"
+        "hud-1.20",
+        "cosmetics-1.20"
       ],
       "java": ">=17",
       "min": "1.20",
@@ -92,7 +93,8 @@
       "fabric_api": "0.92.12+1.20.1",
       "overlays": [
         "api-yarn",
-        "hud-1.20.1"
+        "hud-1.20.1",
+        "cosmetics-1.20"
       ],
       "java": ">=17",
       "min": "1.20.1",
@@ -108,7 +110,8 @@
       "fabric_api": "0.91.6+1.20.2",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.20"
       ],
       "java": ">=17",
       "min": "1.20.2",
@@ -124,7 +127,8 @@
       "fabric_api": "0.91.1+1.20.3",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.20"
       ],
       "java": ">=17",
       "min": "1.20.3",
@@ -140,7 +144,8 @@
       "fabric_api": "0.97.3+1.20.4",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.20"
       ],
       "java": ">=17",
       "min": "1.20.4",
@@ -156,7 +161,8 @@
       "fabric_api": "0.97.8+1.20.5",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.20.5"
       ],
       "java": ">=17",
       "min": "1.20.5",
@@ -172,7 +178,8 @@
       "fabric_api": "0.100.8+1.20.6",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.20.5"
       ],
       "java": ">=17",
       "min": "1.20.6",
@@ -188,7 +195,8 @@
       "fabric_api": "0.102.0+1.21",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.21"
       ],
       "java": ">=21",
       "min": "1.21",
@@ -204,7 +212,8 @@
       "fabric_api": "0.116.17+1.21.1",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.21"
       ],
       "java": ">=21",
       "min": "1.21.1",
@@ -220,7 +229,8 @@
       "fabric_api": "0.106.1+1.21.2",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.21.2"
       ],
       "java": ">=21",
       "min": "1.21.2",
@@ -236,7 +246,8 @@
       "fabric_api": "0.114.1+1.21.3",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.21.2"
       ],
       "java": ">=21",
       "min": "1.21.3",
@@ -252,7 +263,8 @@
       "fabric_api": "0.119.4+1.21.4",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.21.2"
       ],
       "java": ">=21",
       "min": "1.21.4",
@@ -268,7 +280,8 @@
       "fabric_api": "0.128.2+1.21.5",
       "overlays": [
         "api-yarn",
-        "hud-1.20.2"
+        "hud-1.20.2",
+        "cosmetics-1.21.5"
       ],
       "java": ">=21",
       "min": "1.21.5",
@@ -284,7 +297,8 @@
       "fabric_api": "0.128.2+1.21.6",
       "overlays": [
         "api-yarn",
-        "hud-1.21.6"
+        "hud-1.21.6",
+        "cosmetics-1.21.5"
       ],
       "java": ">=21",
       "min": "1.21.6",
@@ -300,7 +314,8 @@
       "fabric_api": "0.129.0+1.21.7",
       "overlays": [
         "api-yarn",
-        "hud-1.21.6"
+        "hud-1.21.6",
+        "cosmetics-1.21.5"
       ],
       "java": ">=21",
       "min": "1.21.7",
@@ -316,7 +331,8 @@
       "fabric_api": "0.136.1+1.21.8",
       "overlays": [
         "api-yarn",
-        "hud-1.21.6"
+        "hud-1.21.6",
+        "cosmetics-1.21.5"
       ],
       "java": ">=21",
       "min": "1.21.8",
@@ -332,7 +348,8 @@
       "fabric_api": "0.134.1+1.21.9",
       "overlays": [
         "api-yarn",
-        "hud-1.21.9"
+        "hud-1.21.9",
+        "cosmetics-1.21.9"
       ],
       "java": ">=21",
       "min": "1.21.9",
@@ -348,7 +365,8 @@
       "fabric_api": "0.138.4+1.21.10",
       "overlays": [
         "api-yarn",
-        "hud-1.21.9"
+        "hud-1.21.9",
+        "cosmetics-1.21.9"
       ],
       "java": ">=21",
       "min": "1.21.10",
@@ -364,7 +382,8 @@
       "fabric_api": "0.141.6+1.21.11",
       "overlays": [
         "api-yarn",
-        "hud-1.21.9"
+        "hud-1.21.9",
+        "cosmetics-1.21.11"
       ],
       "java": ">=21",
       "min": "1.21.11",
@@ -379,7 +398,8 @@
       "fabric_api": "0.155.3+26.1.2",
       "overlays": [
         "api-mojang",
-        "hud-26.1"
+        "hud-26.1",
+        "cosmetics-26"
       ],
       "java": ">=25",
       "min": "26.1",
@@ -394,7 +414,8 @@
       "fabric_api": "0.155.3+26.1.2",
       "overlays": [
         "api-mojang",
-        "hud-26.1"
+        "hud-26.1",
+        "cosmetics-26"
       ],
       "java": ">=25",
       "min": "26.1.1",
@@ -409,7 +430,8 @@
       "fabric_api": "0.155.3+26.1.2",
       "overlays": [
         "api-mojang",
-        "hud-26.1"
+        "hud-26.1",
+        "cosmetics-26"
       ],
       "java": ">=25",
       "min": "26.1.2",
@@ -424,7 +446,8 @@
       "fabric_api": "0.161.0+26.2",
       "overlays": [
         "api-mojang",
-        "hud-26.2"
+        "hud-26.2",
+        "cosmetics-26"
       ],
       "java": ">=25",
       "min": "26.2",
@@ -439,7 +462,8 @@
       "fabric_api": "0.160.7+26.3",
       "overlays": [
         "api-mojang",
-        "hud-26.3"
+        "hud-26.3",
+        "cosmetics-26"
       ],
       "java": ">=25",
       "min": "26.3",

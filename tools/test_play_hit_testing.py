@@ -55,21 +55,17 @@ ok(m2 is not None,
    "(a descendant, so taps reach on_click)")
 
 # ...and the sheen must NOT be a sibling painted after the button anywhere.
-# The footer used to be a Stack (glow + button); the glow was removed on
-# 2026-10-23, so the button now sits directly in the footer Row. If a Stack
-# ever comes back around it, the sheen-inside rule above still has to hold.
-footer = re.search(
-    r"ft\.Row\(\s*\[\s*(?:fix_crash_button,\s*)?"
-    r"(?:ft\.Container\(expand=True\),\s*)?"
-    r"ft\.Container\(width=\d+, content=play_button\),\s*\],",
-    src, re.S)
-ok(footer is not None,
+# The Play tab mounts the button directly in a footer Row (next to the
+# instance picker and Fix crash); look at that mount window instead of pinning
+# the exact row order, which changes whenever the Play card is rearranged.
+mount_at = src.find("ft.Container(content=play_button")
+ok(mount_at != -1,
    "the footer mounts the button directly (no painted layer behind/above it)")
-ok("fix_crash_button" in src and 'data="play-fix-crash"' in src,
-   "Fix crash sits in the Play footer, left of PLAY (2026-10-25)")
-footer_block = footer.group(0) if footer else ""
+footer_block = src[max(0, mount_at - 1200):mount_at + 200]
 ok("play_sheen" not in footer_block,
    "the footer no longer paints play_sheen ON TOP of the button")
+ok("fix_crash_button" in src and 'data="play-fix-crash"' in src,
+   "Fix crash sits in the Play footer, left of PLAY (2026-10-25)")
 ok("hero_glow" not in src,
    "the Play/QUIT aura is gone (2026-10-23 user ask)")
 

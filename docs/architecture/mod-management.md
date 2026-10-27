@@ -178,7 +178,7 @@ Header ("Mods" / "Resource Packs" / "Shaders")
 - **Content type switching:** The same UI works for Mods, Resource Packs, and Shaders. Mods use per-profile folders; resource packs/shaders go into shared game folders.
 - **Mod icons:** Installed mods only store their Modrinth slug, not the icon URL. A bulk slug→icon lookup fetches real art after the list renders.
 - **Mod detail menu (2026-09-12):** clicking any mod row (browse or installed, except protected/system files) opens `open_mod_detail()`, all screenshots in a scrollable strip, a compact meta line, a one-click **"Install latest"** (or "You're up to date"), the description collapsed behind **"Read more"**, and versions grouped so only ~8 compatible builds show with a **"Show all N versions"** toggle. Uses `cubeon/dialogs.py` + `thread_safe_ui.refresh`.
-- **Automatic repair:** `cubeon/mods.py:mod_doctor()` fixes leftover duplicate copies, missing required dependencies, jars built for the wrong loader/version, and mods that declare a version conflict via Fabric's `breaks` (read from each jar's own `fabric.mod.json`: Modrinth doesn't expose it). A clash with no compatible replacement on either side turns the clashing mod off (reversible) so the game still launches. Runs automatically after installs (browse, detail, install-from-file), at launch (duplicate + conflict repair), and proactively in the background when an (mc_version, loader) profile is selected (`main.py:_proactive_mod_repair`, once per profile per session, full online check); the Installed pane also has a "Fix problems" button. User-facing wording stays "Fix problems" / "Fixed N of M problem(s)", the word "doctor" never reaches the UI.
+- **Automatic repair:** `cubeon/mods.py:mod_doctor()` fixes leftover duplicate copies, missing required dependencies, jars built for the wrong loader/version, and mods that declare a version conflict via Fabric's `breaks` (read from each jar's own `fabric.mod.json`: Modrinth doesn't expose it). A clash with no compatible replacement on either side turns the clashing mod off (reversible) so the game still launches. It runs after installs (browse, detail, install-from-file) and on the Installed pane's explicit "Fix problems" review. It no longer runs proactively when an instance is selected, and the launch path runs only the config-only `include=("launch",)` pass, so ignoring or declining the doctor can never block a launch. Crash repair is a small, evidence-first flow in `cubeon/crash.py`: Fix crash reads the newest crash log, says what happened in one sentence, then runs the same dependency/conflict/launch-config checks and fixes what they can (RAM, a rejected JVM option, a corrupt jar, mod deps/conflicts). There is no separate crash-diagnosis engine. User-facing wording stays "Fix problems" / "Fixed N of M problem(s)", the word "doctor" never reaches the UI.
 
 ---
 
@@ -261,29 +261,31 @@ reads the mod's source and fails if the launcher doesn't serve what it calls.
 
 ## ui/skin_tab.py
 
-**Purpose:** Skin/cape/hat management. Embedded inside the Profile tab.
+**Purpose:** Skin, cape, shoulder-item and back-item management. Embedded in
+the Profile tab. Hats were removed on 2026-09-16; do not reintroduce them.
 
-**Structure:**
+**Structure:** one preview, four panes switched by `text_tab` tabs.
 ```
-In-Game Skin
-  ├── Preview (160x260, rendered from actual pixels)
-  ├── Your Skins list (each with Use/Delete menu)
-  └── Upload skin button
-
-Cosmetics - hat
-  ├── Hat tiles (None + 8 hats, each with preview)
-  └── Status text
-
-Cape
-  ├── Preview (150x232)
-  ├── Your Capes list (Cubeon Cape default + custom)
-  └── Upload cape button
+In-Game Skin   Your Skins (None + uploads, each Use/Delete) + Upload
+Cape           Your Capes (None + shared Cubeon cape + uploads) + Upload
+Shoulder       Shoulder item tiles (None + 10 items) from cubeon.cosmetics
+Back           Back item tiles (None + 10 items) from cubeon.cosmetics
 ```
 
 **Key behaviors:**
-- Previews are rendered from the actual skin pixels using PIL (no external API)
-- The skin section rebuilds every time the Profile tab opens to reflect the current version/loader
-- Uses a shared FilePicker passed in from main.py (not creating its own each rebuild)
+- Previews render from the actual skin pixels using PIL (no external API); the
+  3D body in the pane is the shared native-client preview.
+- Skin "None" writes the built-in Steve sheet to CSL LocalSkin and forces the
+  classic model, so a previously published Worker skin does not win locally.
+- Cape "None" writes a transparent LocalSkin cape and sets `hide_cubeon_cape`,
+  which also hides the shared cape in the preview. Friends still see the
+  published skin and shared cape; there is no delete route for those.
+- Switching pane turns the model (cape/back face away, shoulder at 25 degrees)
+  so the choice is visible immediately.
+- The skin section rebuilds every time the Profile tab opens to reflect the
+  current version/loader.
+- Uses a shared FilePicker passed in from main.py (not creating its own each
+  rebuild).
 
 ---
 

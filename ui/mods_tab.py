@@ -1082,7 +1082,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         # Green dot-on-button: an applied filter must stay visible even while
         # the chip strip itself is folded away.
         filters_button.icon_color = ACCENT if active_category["value"] else TEXT_DIM
-        page.update()
+        thread_safe_ui.refresh(category_chips_container)
+        thread_safe_ui.refresh(filters_button)
 
     category_chips_container = ft.Container(content=ft.Row())
     category_chips_container.visible = False  # folded behind the "..." button
@@ -1138,7 +1139,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         for tid, label in CONTENT_TABS:
             content_segment_row.controls.append(
                 _content_tab(tid, label, _ct() == tid))
-        page.update()
+        thread_safe_ui.refresh(content_segment_row)
 
     def _apply_type_labels():
         """Refreshes the header/search/notice text to match the active type.
@@ -1171,7 +1172,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         _apply_type_labels()
         refresh_mods_list()
         load_recommended_mods()
-        page.update()
+        # Repaint the handful of controls _apply_type_labels just rewrote,
+        # instead of diffing every mounted tab while the new section loads.
+        for _painted in (header_title, header_subtitle, mod_search_field,
+                         compatible_only):
+            thread_safe_ui.refresh(_painted)
 
     def current_mc_version_for_search() -> str | None:
         """
@@ -1380,7 +1385,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             browse_results_view.controls[:] = [loading_row]
         browse_results_view.disabled = True
         browse_pager_row.visible = False
-        page.update()
+        # Scoped: a full page.update() here re-synced every mounted tab right
+        # after switch_tab had already painted the shell - that double diff is
+        # part of the "click Mods and everything lags at once" report.
+        thread_safe_ui.refresh(browse_results_view)
+        thread_safe_ui.refresh(browse_pager_row)
 
     def _render_browse_page():
         """Renders the current page from the cache, fetching it if this is the
@@ -1461,7 +1470,15 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         browse_pager_row.visible = total_pages > 1
         browse_pager_prev.disabled = page_num <= 0
         browse_pager_next.disabled = page_num >= total_pages - 1
-        page.update()
+        # Results often land moments after the tab switch, while the user is
+        # already moving. Repaint only the browse region instead of diffing
+        # the whole page in that moment.
+        thread_safe_ui.refresh(browse_results_view)
+        thread_safe_ui.refresh(browse_status_text)
+        thread_safe_ui.refresh(browse_pager_label)
+        thread_safe_ui.refresh(browse_pager_row)
+        thread_safe_ui.refresh(browse_pager_prev)
+        thread_safe_ui.refresh(browse_pager_next)
 
     # --- Mod detail menu ----------------------------------------------------
     # Clicking a mod (browse or installed) opens this: cover art, the full

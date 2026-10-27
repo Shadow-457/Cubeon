@@ -72,6 +72,12 @@ def _scale_value(control):
     s = control.scale
     if s is None:
         return None
+    # Flet 1.0.3's Scale is a two-axis dataclass; older builds exposed a
+    # single `.scale`. Either way, compare against the horizontal axis.
+    if hasattr(s, "scale_x"):
+        if getattr(s, "scale", None) is not None:
+            return s.scale
+        return s.scale_x
     return getattr(s, "scale", s)
 
 
@@ -517,7 +523,7 @@ check("... and loading uses a native spinner without a pulse worker",
       "ft.ProgressRing(" in _mods_src and "motion.shimmer(" not in _mods_src)
 
 _set_src = open(os.path.join(REPO, "ui", "settings_tab.py")).read()
-check("the Settings row exists", '"Motion",' in _set_src)
+check("the Settings row exists", '"Animations",' in _set_src)
 check("and is a Switch wired through on_change (a dropdown here would trip "
       "tools/test_seasonal.py's dead-dropdown guard)",
       "motion_switch.on_change = _on_motion_change" in _set_src
@@ -531,7 +537,7 @@ check("it applies the level live and persists the key",
 check("the switch reflects the level that was actually applied",
       "sw.value = motion.transforms()" in _set_src)
 check("the row explains what the level does",
-      "Hover lifts, list cascades and the pulse behind Play." in _set_src)
+      "Hover lifts and list motion. Off leaves fades only." in _set_src)
 
 # ------------------------------------------------------------------ done ----
 _reset()

@@ -185,8 +185,27 @@ def get_custom_cape_path(filename: str) -> str:
 
 def set_active_cape(cfg: dict, filename: str | None) -> None:
     cfg["active_cape"] = filename
+    # Picking any cape (a custom one, or the shared Cubeon cape via None) means
+    # "wear a cape", so it also lifts the Cape pane's None/hide choice.
+    cfg["hide_cubeon_cape"] = False
     # Sync before saving so the recorded "name we wrote under" lands in the
     # same save - mirrors skins.set_active_skin().
+    sync_local_cape_to_csl(cfg)
+    save_config(cfg)
+
+
+def set_hide_cubeon_cape(cfg: dict, hide: bool) -> None:
+    """The Cape pane's "None": hide the shared cape on THIS player's screen.
+
+    A custom cape always wins when one is selected, so choosing None clears it.
+    Other players still see the shared Cubeon cape - the Worker assigns that
+    server-side, and a LocalSkin texture can only replace what this client
+    renders. Implemented as a fully transparent LocalSkin cape, which beats the
+    Worker's cape in CSL's load order (see the ORDER CONTRACT in cubeon/csl.py).
+    """
+    cfg["hide_cubeon_cape"] = bool(hide)
+    if hide:
+        cfg["active_cape"] = None
     sync_local_cape_to_csl(cfg)
     save_config(cfg)
 
@@ -200,31 +219,48 @@ def sync_local_cape_to_csl(cfg: dict) -> None:
     different file. Best-effort - a failure here must never block an upload.
     Uses its own cfg bookkeeping key (csl_synced_cape_name) so it never
     collides with the skin sync's csl_synced_name.
+
+    When ``hide_cubeon_cape`` is on (and no custom cape is selected) this writes
+    a fully transparent cape instead. CSL's LocalSkin source is ahead of the
+    Worker source, so the transparent cape wins the slot and the shared Cubeon
+    cape disappears from this player's screen only.
     """
     username = (cfg.get("username") or "").strip()
     filename = cfg.get("active_cape")
+    hide = bool(cfg.get("hide_cubeon_cape"))
     previous = cfg.get("csl_synced_cape_name")
 
     # Clean up the file we last wrote if the name changed (a rename would
-    # otherwise strand <OLDNAME>.png) or there's no active cape anymore. Only
+    # otherwise strand <OLDNAME>.png) or there's nothing to wear anymore. Only
     # ever remove a name this launcher recorded writing, so a cape the user
     # dropped into LocalSkin by hand is never clobbered.
-    if previous and (previous != username or not filename):
+    if previous and (previous != username or not (filename or hide)):
         _remove_local_cape(previous)
         cfg["csl_synced_cape_name"] = None
 
-    if not (username and filename):
+    if not username:
         return
 
-    src = get_custom_cape_path(filename)
-    if not os.path.isfile(src):
-        return
     try:
         os.makedirs(CSL_LOCAL_CAPES_DIR, exist_ok=True)
-        shutil.copyfile(src, os.path.join(CSL_LOCAL_CAPES_DIR, f"{username}.png"))
+        dest = os.path.join(CSL_LOCAL_CAPES_DIR, f"{username}.png")
+        if filename:
+            src = get_custom_cape_path(filename)
+            if not os.path.isfile(src):
+                return
+            shutil.copyfile(src, dest)
+        elif hide:
+            _transparent_cape_sheet().save(dest, "PNG")
+        else:
+            return
         cfg["csl_synced_cape_name"] = username
     except OSError:
         pass
+
+
+def _transparent_cape_sheet() -> Image.Image:
+    """A vanilla-sized, fully transparent cape sheet: the "no cape" texture."""
+    return Image.new("RGBA", (64, 32), (0, 0, 0, 0))
 
 
 def _remove_local_cape(username: str) -> None:

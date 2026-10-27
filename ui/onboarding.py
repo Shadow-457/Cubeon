@@ -556,7 +556,7 @@ def build_onboarding(page, *, initial_name: str, info, friends_on: bool,
         left=0, top=0, right=0, bottom=0,
         visible=True,
         opacity=0.0,
-        scale=ft.Scale(0.985),
+        scale=ft.Scale(scale_x=0.985, scale_y=0.985),
         ink=False,
         # Catch taps on empty space so the Play tab behind the tour can't be
         # clicked through. Children still win their own hits.
@@ -637,7 +637,7 @@ def build_onboarding(page, *, initial_name: str, info, friends_on: bool,
             return
         state["done"] = True
         overlay.opacity = 0
-        overlay.scale = ft.Scale(0.99)
+        overlay.scale = ft.Scale(scale_x=0.99, scale_y=0.99)
         thread_safe_ui.refresh(overlay)
 
         def _retire():

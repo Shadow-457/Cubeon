@@ -17,6 +17,7 @@ Backed entirely by cubeon/modpacks.py via the launcher_core facade - see that
 module for how CurseForge packs are converted into the one install pipeline.
 """
 
+import logging
 import os
 import re
 import subprocess
@@ -240,13 +241,29 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             osnotify.install_finished("modpack", meta.get("name", "modpack"))
         except Exception:
             pass
-        refresh_installed_packs()
-        _render_page()  # so its Install button flips to "Installed"
+        # The pack IS installed at this point. A UI refresh failure (stale
+        # control, unreadable pack meta) must not travel back to worker()'s
+        # broad except and relabel this success as "Install failed". Each
+        # refresh is independent: one failing must not skip the other.
+        try:
+            refresh_installed_packs()
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "modpack installed, but the installed-packs list refresh "
+                "failed", exc_info=True)
+        try:
+            _render_page()  # so its Install button flips to "Installed"
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "modpack installed, but the browse list refresh failed",
+                exc_info=True)
         # Hand off to the Play tab so the pack is immediately playable.
         try:
             go_to_pack(meta)
         except Exception:
-            pass
+            logging.getLogger(__name__).warning(
+                "modpack installed, but the Play-tab handoff failed",
+                exc_info=True)
 
     def _end_install_err(message):
         preparing["value"] = False
@@ -705,7 +722,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 if gen != search_gen["v"]:
                     return
                 browse_status.value = "Search failed - check your internet."
-                page.update()
+                thread_safe_ui.refresh(browse_status)
                 return
             publish("modrinth", hits)
 
@@ -737,9 +754,13 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         name instead of another Install button. Installing a pack doesn't
         persist its Modrinth project id, so this matches by name - best-effort,
         the same way the resource-pack/shader tabs match on filename. A miss
-        only leaves the Install button in place."""
+        only leaves the Install button in place.
+
+        Uses the tab's cached scan (refresh_installed_packs invalidates it):
+        the browse repaints once per provider, and re-walking every profile's
+        marker on each of those was more disk work on the UI thread."""
         tokens = set()
-        for p in core.list_installed_modpacks():
+        for p in _scan_installed_packs():
             token = re.sub(r"[^a-z0-9]+", "", (p.get("name") or "").lower())
             if token:
                 tokens.add(token)
@@ -759,7 +780,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                      ft.Text("Loading...", size=13, color=TEXT_DIM)], spacing=10)]
             results_view.disabled = True
             pager_row.visible = False
-            page.update()
+            # Scoped paint: switch_tab already sent the shell. A full diff here
+            # made the first Modpacks visit do two whole-tree passes back to
+            # back (the reported tab-switch hitch).
+            thread_safe_ui.refresh(results_view)
+            thread_safe_ui.refresh(pager_row)
             _load_page(page_num, browse_state.get("gen"))
             return
         results = browse_state["pages"][page_num]
@@ -800,7 +825,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         pager_row.visible = total_pages > 1
         pager_prev.disabled = page_num <= 0
         pager_next.disabled = page_num >= total_pages - 1
-        page.update()
+        # The fetch usually lands after the user has already switched tabs or
+        # started scrolling. Repaint this tab's result region only.
+        thread_safe_ui.refresh(results_view)
+        thread_safe_ui.refresh(browse_status)
+        thread_safe_ui.refresh(pager_label)
+        thread_safe_ui.refresh(pager_row)
+        thread_safe_ui.refresh(pager_prev)
+        thread_safe_ui.refresh(pager_next)
 
     def _prev(e=None):
         if browse_state["page"] > 0:
@@ -1221,13 +1253,24 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         _remember_row(installed_rows, key, (meta, row))
         return row
 
-    def refresh_installed_packs():
-        try:
-            packs = core.list_installed_modpacks()
-        except Exception:
-            packs = []
+    # One scan of the installed packs per refresh, shared by the list, the
+    # "Installed (N)" tab count and the browse rows' "Installed" badges. The
+    # ROWS are built only when the Installed pane is actually shown: entering
+    # the Modpacks tab lands on Browse, so building a full row (icon read or
+    # prefetch, delete dialog, hover handlers) for every installed pack there
+    # was pure stall - measured at ~43 ms for 40 packs before this.
+    installed_cache = {"packs": None}
+
+    def _scan_installed_packs():
+        if installed_cache["packs"] is None:
+            try:
+                installed_cache["packs"] = core.list_installed_modpacks()
+            except Exception:
+                installed_cache["packs"] = []
+        return installed_cache["packs"]
+
+    def _render_installed_rows(packs):
         rows = []
-        installed_count.value = f"{len(packs)} installed" if packs else ""
         if not packs:
             rows.append(
                 ft.Container(
@@ -1250,8 +1293,15 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         # modpacks used to re-sync every mounted tab over the wire - the
         # frame hitch on each tab switch).
         thread_safe_ui.refresh(installed_view)
+
+    def refresh_installed_packs():
+        installed_cache["packs"] = None  # force a fresh scan
+        packs = _scan_installed_packs()
+        installed_count.value = f"{len(packs)} installed" if packs else ""
+        if active_view["value"] == "installed":
+            _render_installed_rows(packs)
         thread_safe_ui.refresh(installed_count)
-        _build_view_segment()  # keep "Installed (N)" tab count fresh
+        _build_view_segment(len(packs))  # keep "Installed (N)" tab count fresh
 
     # --- Browse / Installed view tabs ---------------------------------------
     # Same pattern as the Mods tab: the catalog and the installed list each
@@ -1289,12 +1339,10 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     view_segment_row = ft.Row(spacing=18)
 
-    def _build_view_segment():
+    def _build_view_segment(n_packs=None):
         view_segment_row.controls.clear()
-        try:
-            n_packs = len(core.list_installed_modpacks())
-        except Exception:
-            n_packs = 0
+        if n_packs is None:
+            n_packs = len(_scan_installed_packs())
         for vid, vlabel in (("browse", "Browse"), ("installed", "Installed")):
             count_note = f" ({n_packs})" if (vid == "installed" and n_packs) else ""
             view_segment_row.controls.append(

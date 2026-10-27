@@ -596,7 +596,7 @@ def mushroom_faces(pal):
 # ---------------------------------------------------------------------------
 
 
-def wing_faces(pal):
+def wing_faces(pal, box):
     """One folded wing slab; the renderer mirrors it for the other side.
 
     The tile is a transparent cut-out, not a filled rectangle: the root sits
@@ -639,35 +639,51 @@ def wing_faces(pal):
     back = feather_face(flip=True)
 
     # The slab's EDGE faces must follow the cut-out, not the full rectangle.
-    # A solid 10x1 top strip is exactly the "bar floating over the shoulders"
-    # bug: the front face is transparent there, but the box's top face still
-    # painted a full-width bar. Each edge tile therefore only paints the
-    # columns/rows where the silhouette actually reaches that edge.
+    # A solid top strip is exactly the "bar floating over the shoulders" bug:
+    # the front face is transparent there, but the box's top face still painted
+    # a full-width bar.
+    #
+    # These tiles are built at their FINAL atlas size (depth*px wide, height*px
+    # tall) instead of 16x16. The atlas resizer samples a 16x16 tile down to
+    # 3px with NEAREST, which skips the one-pixel edge line entirely - the wing
+    # then renders as a zero-thickness plane. Painting the thickness at the
+    # target resolution makes it survive.
     mask = Image.new("L", (16, 16), 0)
     ImageDraw.Draw(mask).polygon([(0, 0), (5, 0), (9, 1), (13, 2), (15, 5),
                                   (12, 6), (14, 9), (10, 8), (11, 12), (7, 10),
                                   (7, 14), (3, 11), (2, 15), (0, 9)], fill=255)
     alpha = mask.load()
 
-    def edge_tile(hits, vertical):
-        t = Tile()
-        for index, hit in enumerate(hits):
-            if hit:
-                if vertical:
-                    t.p(0, index, dark)
-                    t.p(1, index, shade(dark, -0.2))
-                else:
-                    t.p(index, 0, dark)
-                    t.p(index, 1, shade(dark, -0.2))
-        return t.im
+    def edge_face(profile, length, depth, vertical):
+        """A thickness face sized exactly like its atlas slot.
 
-    # Only the pixels where the cut-out actually touches the box edge get a
-    # thickness face. Anything else is a hole in the middle of the wing, and
-    # painting it would draw the bar straight across empty space.
-    top_im = edge_tile([alpha[x, 0] for x in range(16)], vertical=False)
-    bottom_im = edge_tile([alpha[x, 15] for x in range(16)], vertical=False)
-    left_im = edge_tile([alpha[0, y] for y in range(16)], vertical=True)
-    right_im = edge_tile([alpha[15, y] for y in range(16)], vertical=True)
+        profile[i] says whether the silhouette touches the edge at source
+        column/row i. length is the atlas length (height for a side face,
+        width for a top/bottom face); depth is the slab's px thickness.
+        """
+        size = (depth, length) if vertical else (length, depth)
+        t = Image.new("RGBA", size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(t)
+        for index in range(length):
+            source = min(15, int((index + 0.5) * 16 / length))
+            if not profile[source]:
+                continue
+            if vertical:
+                draw.rectangle([0, index, depth - 1, index], fill=C(dark))
+            else:
+                draw.rectangle([index, 0, index, depth - 1], fill=C(dark))
+        return t
+
+    width, height, thickness = box["size"]
+    px = box["px"]
+    top_im = edge_face([alpha[x, 0] for x in range(16)], width * px,
+                       thickness * px, vertical=False)
+    bottom_im = edge_face([alpha[x, 15] for x in range(16)], width * px,
+                          thickness * px, vertical=False)
+    left_im = edge_face([alpha[0, y] for y in range(16)], height * px,
+                        thickness * px, vertical=True)
+    right_im = edge_face([alpha[15, y] for y in range(16)], height * px,
+                         thickness * px, vertical=True)
     return faces(main, back, left_im, right_im, top_im, bottom_im)
 
 
@@ -806,13 +822,12 @@ def _special(item_id, name, blurb, pal, painter):
 
 def _wings(item_id, name, blurb, pal):
     p = PALETTES[pal]
+    box = dict(origin=[1.0, 0.0, 2.2], size=[10, 13, 1], px=3,
+               part=0, mirror=True)
     return dict(
         id=item_id, slot="back", name=name, blurb=blurb,
-        boxes=[
-            dict(origin=[1.0, 0.0, 2.2], size=[10, 13, 1], px=3,
-                 part=0, mirror=True),
-        ],
-        _faces=[wing_faces(p)],
+        boxes=[box],
+        _faces=[wing_faces(p, box)],
     )
 
 

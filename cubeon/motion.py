@@ -312,7 +312,7 @@ def polish(container, base_bg=None, hover_bg=None, *,
     owns_scale = container.scale is None
     if owns_scale:
         try:
-            container.scale = ft.Scale(scale, alignment=anchor)
+            container.scale = ft.Scale(scale_x=scale, scale_y=scale, alignment=anchor)
         except Exception:
             owns_scale = False
     if container.animate is None:
@@ -367,7 +367,8 @@ def polish(container, base_bg=None, hover_bg=None, *,
             elif st["hover"]:
                 target = scale * lift
             try:
-                container.scale = ft.Scale(target, alignment=anchor)
+                container.scale = ft.Scale(scale_x=target, scale_y=target,
+                                           alignment=anchor)
             except Exception:
                 pass
         _refresh(container)

@@ -129,5 +129,60 @@ check("each entry has the render keys",
           ("id", "base_version", "loader", "loader_label", "display_name",
            "incomplete", "issue", "mod_count", "last_played")))
 
+print("\n8. a modpack shows as ONE instance, not its build inputs")
+from cubeon.mods import write_instance_meta  # noqa: E402
+# New installs record built_from; the vanilla + loader folders are hidden.
+write_instance_meta("1.21.11-fabric-pack", {
+    "profile": "1.21.11-fabric-pack",
+    "name": "Pack",
+    "mc_version": "1.21.11",
+    "loader": "fabric",
+    "pack_version": "1.0",
+    "built_from": ["1.21.11", "fabric-loader-0.19.5-1.21.11"],
+})
+pack_scan = [
+    {"id": "1.21.11", "display_name": "1.21.11"},
+    {"id": "fabric-loader-0.19.5-1.21.11", "display_name": "1.21.11 Fabric"},
+    {"id": "1.21.11-fabric-pack", "display_name": "Pack"},
+]
+pack_ids = [x["id"] for x in instances.list_installed(pack_scan)]
+check("pack is listed once", pack_ids == ["1.21.11-fabric-pack"], str(pack_ids))
+# A user label keeps a build input visible (it is the user's own install).
+labelled = [x["id"] for x in instances.list_installed(
+    pack_scan, {"1.21.11": "My Vanilla"})]
+check("a labelled build input stays visible",
+      labelled == ["1.21.11", "1.21.11-fabric-pack"], str(labelled))
+
+# Legacy isolated packs (no built_from) infer their loader/vanilla inputs.
+write_instance_meta("1.20.1-forge-legacy-pack", {
+    "profile": "1.20.1-forge-legacy-pack-2",
+    "name": "Legacy Pack",
+    "mc_version": "1.20.1",
+    "loader": "forge",
+    "pack_version": "1.0",
+})
+legacy_scan = [
+    {"id": "1.20.1", "display_name": "1.20.1"},
+    {"id": "1.20.1-forge-47.4.10", "display_name": "1.20.1 Forge"},
+    {"id": "1.20.1-forge-legacy-pack", "display_name": "Legacy Pack"},
+]
+legacy_ids = [x["id"] for x in instances.list_installed(legacy_scan)]
+check("legacy pack hides inferred build inputs",
+      legacy_ids == ["1.20.1-forge-legacy-pack"], str(legacy_ids))
+# A pack that stays on the shared loader profile IS that loader install.
+write_instance_meta("1.20.1-forge-shared-pack", {
+    "profile": "1.20.1-forge",
+    "name": "Shared Pack",
+    "mc_version": "1.20.1",
+    "loader": "forge",
+    "pack_version": "1.0",
+})
+shared_ids = [x["id"] for x in instances.list_installed([
+    {"id": "1.20.1", "display_name": "1.20.1"},
+    {"id": "1.20.1-forge-shared-pack", "display_name": "Shared Pack"},
+])]
+check("shared-profile pack stays visible",
+      shared_ids == ["1.20.1", "1.20.1-forge-shared-pack"], str(shared_ids))
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

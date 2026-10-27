@@ -127,7 +127,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     def render_preview_for(filename):
         appearance.refresh(invalidate=True)
 
-    def set_active(filename: str):
+    def set_active(filename: str | None):
         try:
             core.set_active_skin(cfg, filename)
         except Exception as ex:
@@ -135,13 +135,21 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             thread_safe_ui.refresh(upload_status)
             return
         render_preview_for(filename)
-        entry = next((s for s in core.list_custom_skins()
-                      if s.get("filename") == filename), None)
-        skin_preview_name.value = (entry or {}).get("name") or "Custom skin"
-        skin_preview_meta.value = "Active · local preview"
+        if filename is None:
+            # Clearing the skin is the "None" card: offline Minecraft falls
+            # back to its own default model (Steve or Alex), which is exactly
+            # what the preview now shows.
+            skin_preview_name.value = "Default Minecraft skin"
+            skin_preview_meta.value = "Not wearing a custom skin"
+            upload_status.value = "Showing the default Minecraft skin (Steve or Alex)."
+        else:
+            entry = next((s for s in core.list_custom_skins()
+                          if s.get("filename") == filename), None)
+            skin_preview_name.value = (entry or {}).get("name") or "Custom skin"
+            skin_preview_meta.value = "Active · local preview"
+            upload_status.value = "Active skin set to this one."
         thread_safe_ui.refresh(skin_preview_name)
         thread_safe_ui.refresh(skin_preview_meta)
-        upload_status.value = "Active skin set to this one."
         refresh_skins_list()
         page.update()
 
@@ -349,6 +357,16 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     def refresh_skins_list():
         skins = core.list_custom_skins()
         skins_list_col.controls.clear()
+        # "None" is a real choice, not a missing feature: it clears the custom
+        # skin so offline Minecraft shows its own default model (Steve/Alex).
+        skins_list_col.controls.append(_owned_card(
+            icon=ft.Icons.BLOCK_ROUNDED,
+            label="None",
+            sublabel="Default Minecraft skin",
+            active=not cfg.get("active_skin"),
+            on_use=lambda e: set_active(None),
+            on_delete=None,
+        ))
         if not skins:
             skins_list_col.controls.append(
                 ft.Text("No uploaded skins yet.", size=12, color=TEXT_DIM)
@@ -513,6 +531,26 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         refresh_capes_list()
         page.update()
 
+    def hide_cape():
+        """The Cape pane's None card: no cape on this player's screen."""
+        try:
+            core.set_hide_cubeon_cape(cfg, True)
+        except Exception as ex:
+            cape_status.value = f"Couldn't hide the cape: {ex}"
+            thread_safe_ui.refresh(cape_status)
+            return
+        appearance.refresh(invalidate=True)
+        cape_preview_name.value = "No cape"
+        cape_preview_meta.value = "Hidden on your screen"
+        # Be honest: the shared cape is assigned server-side, so this hides it
+        # locally rather than telling friends you have no cape.
+        cape_status.value = ("Cape hidden on your screen. Friends still see "
+                             "your shared Cubeon cape.")
+        thread_safe_ui.refresh(cape_preview_name)
+        thread_safe_ui.refresh(cape_preview_meta)
+        refresh_capes_list()
+        page.update()
+
     def delete_cape(filename):
         # Same guarded shape as delete_skin: silent handler exceptions made
         # a failed delete look like a dead button.
@@ -534,11 +572,25 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         capes = core.list_custom_capes()
         capes_list_col.controls.clear()
 
+        # "None" is a real choice here too. The shared cape is assigned by the
+        # Worker, so this hides it locally (a transparent LocalSkin cape) -
+        # friends still see the shared one. Picking any cape lifts the hide.
+        hidden_active = bool(cfg.get("hide_cubeon_cape"))
+        capes_list_col.controls.append(_owned_card(
+            icon=ft.Icons.BLOCK_ROUNDED,
+            label="None",
+            sublabel="No cape on your screen",
+            active=hidden_active,
+            on_use=lambda e: hide_cape(),
+            on_delete=None,
+            preview_w=64, preview_h=84,
+        ))
+
         # The built-in Cubeon cape leads the grid as a real, selectable card.
         # It's ACTIVE whenever no custom cape is set (that's what the Worker
         # serves to everyone); picking it just clears the custom cape via
         # set_active_cape(None). No delete - it's the shipped default.
-        default_active = not cfg.get("active_cape")
+        default_active = not cfg.get("active_cape") and not hidden_active
         capes_list_col.controls.append(_owned_card(
             src=DEFAULT_CAPE_PREVIEW_SRC,
             label="Cubeon Cape",
@@ -646,8 +698,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         cape_preview_meta.value = "Active · local preview"
     else:
         # No custom cape == the shared Cubeon cape is what's worn, so seed the
-        # preview with it rather than leaving the box hidden on first paint.
-        show_default_cape_preview()
+        # preview with it rather than leaving the box hidden on first paint -
+        # unless the user chose None, which hides it locally.
+        if cfg.get("hide_cubeon_cape"):
+            appearance.refresh(invalidate=True)
+            cape_preview_name.value = "No cape"
+            cape_preview_meta.value = "Hidden on your screen"
+        else:
+            show_default_cape_preview()
 
     # --- Build the skin section layout. ---
     #

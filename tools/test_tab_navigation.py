@@ -212,22 +212,24 @@ for key in ("profile", "stats", "chat", "server_settings"):
                or views[key].content.content is not None))
 check("Servers has no Browse navigation entry", "server_browse" not in driver.tabs())
 
-# Chat is labelled BETA in the sidebar (and in the tab heading). The chip must
-# sit before the active indicator, not replace it: _style_nav_button reads
-# controls[-1] as the indicator.
+# Chat is a first-class sidebar entry. The BETA chip that used to sit before
+# the active indicator was removed on 2026-10-26; the indicator must still be
+# the last child because _style_nav_button reads controls[-1].
 _chat_btn = nav_buttons.get("chat")
 if _chat_btn is not None:
     _chat_texts = [getattr(control, "value", "")
                    for control in walk(_chat_btn)]
-    check("Chat is marked BETA in the sidebar", "BETA" in _chat_texts,
+    check("Chat is a first-class sidebar entry", "Chat" in _chat_texts,
           str(_chat_texts))
-    check("the BETA chip does not replace the active indicator",
-          _chat_btn.content.controls[-1].height == 3,
-          str([type(c).__name__ for c in _chat_btn.content.controls]))
+    check("the sidebar BETA chip stays gone",
+          "BETA" not in _chat_texts, str(_chat_texts))
     switch("chat")
-    check("Chat still styles as active with the BETA chip",
+    check("the active indicator is the rail tile itself",
+          getattr(_chat_btn, "cubeon_top_icon", False) and _chat_btn.data is True,
+          str([type(c).__name__ for c in _chat_btn.content.controls]))
+    check("Chat still styles as active",
           _chat_btn.data is True
-          and _chat_btn.content.controls[-1].opacity == 1)
+          and _chat_btn.content.controls[1].weight == ft.FontWeight.W_700)
 check("server browser UI and backend are removed",
       all(not os.path.exists(os.path.join(app_driver.REPO, filename))
           for filename in ("ui/server_browse_tab.py", "cubeon/server_browse.py")))
@@ -241,73 +243,24 @@ for key, view in views.items():
             duplicates.append((previous_owner, key, type(control).__name__))
 check("cached panes never mount the same control in two parents", not duplicates, str(duplicates[:3]))
 
-print("\n5. the sidebar edge resizes between a readable minimum and a maximum")
+print("\n5. the sidebar is a fixed-width icon rail")
 
+main_src = open(os.path.join(app_driver.REPO, "main.py"), encoding="utf-8").read()
 splitter = next((control for control in walk(driver.page)
                  if type(control).__name__ == "GestureDetector"
                  and getattr(control, "mouse_cursor", None)
                  == ft.MouseCursor.RESIZE_LEFT_RIGHT), None)
-check("the sidebar edge is a drag handle", splitter is not None)
-if splitter is not None:
-    sidebar_ui = inspect.getclosurevars(
-        splitter.on_horizontal_drag_update).nonlocals["sidebar_ui"]
-    box = sidebar_ui["box"]
-    mods_label = nav_buttons["mods"].content.controls[1]
-    _width_scope = inspect.getclosurevars(
-        inspect.getclosurevars(splitter.on_horizontal_drag_update)
-        .nonlocals["_set_sidebar_width"]).nonlocals
-    sidebar_min = _width_scope["SIDEBAR_MIN"]
-    sidebar_max = _width_scope["SIDEBAR_MAX"]
-    sidebar_default = inspect.getclosurevars(
-        splitter.on_double_tap).nonlocals["SIDEBAR_DEFAULT"]
-
-    def drag_to(dx, start=220.0):
-        splitter.on_horizontal_drag_start(ft.DragStartEvent(
-            name="horizontal_drag_start", control=splitter,
-            kind=ft.PointerDeviceType.MOUSE,
-            local_position=ft.Offset(5, 300),
-            global_position=ft.Offset(start, 300)))
-        splitter.on_horizontal_drag_update(ft.DragUpdateEvent(
-            name="horizontal_drag_update", control=splitter,
-            local_position=ft.Offset(5, 300),
-            global_position=ft.Offset(start + dx, 300)))
-        splitter.on_horizontal_drag_end(ft.DragEndEvent(
-            name="horizontal_drag_end", control=splitter,
-            local_position=ft.Offset(5, 300),
-            global_position=ft.Offset(start + dx, 300),
-            velocity=ft.Offset(0, 0)))
-
-    drag_to(-300)
-    check("dragging the edge left stops at a readable minimum, not a tiny rail",
-          box.width == sidebar_min, f"width={box.width}")
-    check("the labels survive the minimum width", mods_label.visible is True)
-    check("nav rows stay clickable", callable(nav_buttons["mods"].on_click))
-    drag_to(300)
-    check("dragging right widens up to the maximum",
-          box.width == sidebar_max, f"width={box.width}")
-    check("labels stay visible at the maximum", mods_label.visible is True)
-
-    # A real mouse drag is a STREAM of small per-event deltas (and a pan
-    # recogniser sends no primary_delta at all). Every step must move the
-    # rail; anchoring each step back to the drag-start width made the sidebar
-    # look like it could not be resized at all.
-    before = box.width
-    splitter.on_horizontal_drag_start(SimpleNamespace(global_position=None))
-    for _ in range(10):
-        splitter.on_horizontal_drag_update(SimpleNamespace(
-            global_position=None, primary_delta=None,
-            local_delta=ft.Offset(-3, 0)))
-    splitter.on_horizontal_drag_end(SimpleNamespace())
-    check("small drag steps accumulate instead of snapping back",
-          box.width == before - 30, f"{before} -> {box.width}")
-
-    splitter.on_double_tap(SimpleNamespace())
-    check("double-clicking the edge resets the default width",
-          box.width == sidebar_default, f"width={box.width}")
-    check("the edge is the only collapse affordance (no toggle button)",
-          not any((getattr(control, "tooltip", "") or "").lower().startswith(
-                      ("collapse sidebar", "expand sidebar", "toggle sidebar"))
-                  for control in walk(driver.page)))
+check("the drag-to-resize edge is gone", splitter is None)
+check("the rail has one designed width",
+      "SIDEBAR_W = 92" in main_src
+      and "def _set_sidebar_width" not in main_src)
+check("nav tiles are icon-over-label rail tiles",
+      getattr(nav_buttons["mods"], "cubeon_top_icon", False)
+      and len(nav_buttons["mods"].content.controls) == 2)
+check("the old collapse affordance stays gone",
+      not any((getattr(control, "tooltip", "") or "").lower().startswith(
+                  ("collapse sidebar", "expand sidebar", "toggle sidebar"))
+              for control in walk(driver.page)))
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

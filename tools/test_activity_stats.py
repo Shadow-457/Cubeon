@@ -128,17 +128,12 @@ check("Library and Cosmetics sections are gone from Stats",
       not any(getattr(control, "value", None) in ("LIBRARY", "COSMETICS", "Library", "Cosmetics") for control in stats_controls))
 check("Stats has no period dropdowns or collection progress bars",
       not any(isinstance(control, (ft.Dropdown, ft.ProgressBar)) for control in stats_controls))
-toggle = next(control for control in controls if isinstance(control, ft.Checkbox) and control.label == "Compare with previous week")
-check("comparison is off by default", toggle.value is False)
-toggle.value = True
-toggle.on_change(None)
-check("optional comparison uses the same histogram, not another dashboard", len(histogram.cubeon_series) == 2)
-bars = {shape.data: shape for shape in histogram.shapes if type(shape).__name__ == "Rect" and shape.data}
-check("previous-week comparison uses proportional paired bars",
-      abs(bars["Last 7 days"].height - 2 * bars["Previous 7 days"].height) < 0.001)
-toggle.value = False
-toggle.on_change(None)
-check("turning comparison off restores the simple seven-day view", len(histogram.cubeon_series) == 1)
+toggle = next((control for control in controls
+               if isinstance(control, ft.Checkbox)
+               and "previous" in (control.label or "").lower()), None)
+check("the old previous-week comparison toggle stays gone", toggle is None)
+check("the simple seven-day histogram is the only series",
+      len(histogram.cubeon_series) == 1)
 
 collections = {"versions": 4, "mods": 93, "packs": 0, "content": 0, "plugins": 6, "skins": 1, "capes": 6}
 collection_badges = activity.earned_badges(fixture, collections)

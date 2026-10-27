@@ -127,6 +127,35 @@ capes.set_active_cape(cfg2, capeB["filename"])
 synced2 = os.path.join(capes.CSL_LOCAL_CAPES_DIR, "Tester.png")
 check("re-sync writes new sheet", os.path.isfile(synced2))
 
+# --------------------------------------------------------------------------
+# 3. The Cape pane's None: a transparent LocalSkin cape hides the shared
+#    Cubeon cape locally, and picking any cape again lifts the hide.
+# --------------------------------------------------------------------------
+cfg3 = {"username": "Tester"}
+capes.set_hide_cubeon_cape(cfg3, True)
+check("None sets hide_cubeon_cape", cfg3.get("hide_cubeon_cape") is True)
+check("None clears a custom cape", cfg3.get("active_cape") is None)
+check("None writes a LocalSkin cape", os.path.isfile(synced))
+with Image.open(synced) as im:
+    check("the hiding cape is fully transparent", im.getbbox() is None,
+          f"bbox={im.getbbox()}")
+check("None records the synced username", cfg3.get("csl_synced_cape_name") == "Tester")
+
+cfg4 = {"username": "Tester", "hide_cubeon_cape": True}
+capes.set_active_cape(cfg4, capeA["filename"])
+check("picking a custom cape lifts the hide",
+      cfg4.get("hide_cubeon_cape") is False)
+with Image.open(synced) as im:
+    check("picking a custom cape rewrites the LocalSkin cape",
+          im.getpixel((5, 5))[:3] == (200, 30, 30), f"got {im.getpixel((5, 5))}")
+
+cfg5 = {"username": "Tester"}
+capes.set_hide_cubeon_cape(cfg5, True)
+check("hide can be turned on again", os.path.isfile(synced))
+capes.set_hide_cubeon_cape(cfg5, False)
+check("turning None off removes the hiding cape",
+      not os.path.exists(synced))
+
 # Delete removes the stored file and drops the entry.
 capes.delete_custom_cape(capeB["filename"])
 check("deleted cape file removed",

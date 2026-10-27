@@ -56,11 +56,52 @@ from .paths import (
     modrinth_headers,
 )
 from .mod_loaders import MOD_CAPABLE_LOADERS
+from .atomicio import write_json
 from . import local_cache
 from . import global_mod_cache
 from . import net
 
 MODRINTH_API = "https://api.modrinth.com/v2"
+
+# The jars sync_mods_to_game linked on the last run. Only these may be
+# removed from the shared mods/ folder; anything else there is the user's own
+# file and is moved to MINECRAFT_DIR/mods_user_backup instead of deleted.
+_SYNC_MANIFEST = ".cubeon-synced.json"
+
+
+def _read_synced_manifest() -> set[str]:
+    """Filenames this launcher linked into MODS_DIR last time (empty on first
+    run or an unreadable manifest)."""
+    path = os.path.join(MODS_DIR, _SYNC_MANIFEST)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return set()
+    if isinstance(data, dict):
+        data = data.get("files")
+    if not isinstance(data, list):
+        return set()
+    return {name for name in data if isinstance(name, str)}
+
+
+def _backup_user_jar(fname: str) -> None:
+    """Move a jar Cubeon did not put in mods/ to mods_user_backup/.
+
+    Never delete it: it may be the user's only copy. A same-named backup from
+    an earlier run gets a numeric suffix rather than being overwritten.
+    """
+    backup_dir = os.path.join(MINECRAFT_DIR, "mods_user_backup")
+    os.makedirs(backup_dir, exist_ok=True)
+    dest = os.path.join(backup_dir, fname)
+    if os.path.exists(dest):
+        stem, ext = os.path.splitext(fname)
+        n = 1
+        while os.path.exists(dest):
+            dest = os.path.join(backup_dir, f"{stem}.{n}{ext}")
+            n += 1
+    os.replace(os.path.join(MODS_DIR, fname), dest)
+
 
 
 
@@ -529,18 +570,44 @@ def name_stem(filename: str) -> str:
     return "-".join(parts).lower()
 
 
-def _version_key(filename: str) -> tuple:
-    """A sortable version for a jar filename: the longest dotted-number run in
-    it, as a tuple of ints. Used only to answer "of these two copies of the
-    same mod, which would Fabric have picked?" - Fabric takes the highest
-    declared version, so mirroring that keeps our choice and its choice the
-    same instead of introducing a third behaviour."""
-    best: tuple = ()
-    for token in re.findall(r"\d+(?:\.\d+)+", filename):
-        parts = tuple(int(p) for p in token.split("."))
-        if len(parts) > len(best) or (len(parts) == len(best) and parts > best):
-            best = parts
-    return best
+def _version_key(filename: str, mc_version: str | None = None) -> tuple:
+    """A sortable version for a jar filename: its MOD version as a tuple of ints.
+
+    The old implementation returned the longest dotted-number run, which for
+    "sodium-fabric-0.5.3+mc1.20.1.jar" was the Minecraft version
+    "(1, 20, 1)" - for BOTH builds of the mod. They tied, and sync_mods_to_game
+    linked whichever came first in sorted() order, i.e. the older one.
+
+    Strip the parts that are not the mod's own version first: the "+mc1.20.1"
+    build tail, any "mc<ver>" token, and the instance's literal MC version.
+    The first remaining dotted run is the mod version. Used to answer "of these
+    two copies of the same mod, which would Fabric have picked?" - Fabric takes
+    the highest declared version, so mirroring that keeps our choice and its
+    choice the same instead of introducing a third behaviour."""
+    base = filename
+    for suffix in (".disabled", ".jar"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+    base = base.split("+", 1)[0]                     # drop "+mc1.20.1" tails
+    base = re.sub(r"mc\d+(?:\.\d+)*", "", base, flags=re.IGNORECASE)
+    if mc_version:
+        # Bounded by non-digits/non-dots so "1.20" cannot eat the start of
+        # "1.20.1" (a mod version) in a filename with no other marker.
+        base = re.sub(
+            r"(?<![\d.])" + re.escape(str(mc_version)) + r"(?![\d.])",
+            "", base)
+    match = re.search(r"\d+(?:\.\d+)+", base)
+    if not match:
+        return ()
+    return tuple(int(p) for p in match.group(0).split("."))
+
+
+def _jar_mtime(profile_dir: str, filename: str) -> float:
+    """Modification time of a profile jar, 0.0 if it vanished mid-scan."""
+    try:
+        return os.path.getmtime(os.path.join(profile_dir, filename))
+    except OSError:
+        return 0.0
 
 
 def mod_identity(profile_dir: str, filename: str) -> tuple:
@@ -846,13 +913,34 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
     require_loader_and_version(mc_version, loader, "sync mods to the game")
 
     os.makedirs(MODS_DIR, exist_ok=True)
+    previously_synced = _read_synced_manifest()
     for fname in os.listdir(MODS_DIR):
         full = os.path.join(MODS_DIR, fname)
-        if os.path.isfile(full) and fname.endswith(".jar"):
-            os.remove(full)
+        if not os.path.isfile(full) or not fname.endswith(".jar"):
+            continue
+        if fname in previously_synced:
+            # Ours: safe to remove and replace with this launch's profile.
+            try:
+                os.remove(full)
+            except FileNotFoundError:
+                pass
+            except PermissionError as ex:
+                # Windows keeps jars open while the game runs. Deleting one is
+                # not optional (it would let the old profile leak into this
+                # launch), so say exactly what to do instead of crashing with
+                # a raw PermissionError.
+                raise RuntimeError(
+                    "Another Minecraft window is using these mods - close it "
+                    "and try again") from ex
+        else:
+            # Not ours: the user dropped it in by hand. Keep it, out of the
+            # way, instead of wiping it on every launch.
+            _backup_user_jar(fname)
 
     if loader not in MOD_CAPABLE_LOADERS:
-        # Vanilla (or an unrecognized loader) doesn't load mods - leave MODS_DIR empty.
+        # Vanilla (or an unrecognized loader) doesn't load mods - leave MODS_DIR
+        # empty, and record that we linked nothing.
+        write_json(os.path.join(MODS_DIR, _SYNC_MANIFEST), {"files": []})
         return
 
     profile_dir = get_profile_dir(mc_version, loader, version_id)
@@ -886,11 +974,22 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
             continue
         slug, pid, stem = mod_identity(profile_dir, fname)
         key = ("id", pid) if pid else ("slug", slug) if slug else ("stem", stem)
-        if key[1] and (key not in chosen or _version_key(fname) > _version_key(chosen[key])):
-            chosen[key] = fname
-        elif not key[1]:
+        if key[1]:
+            previous = chosen.get(key)
+            if previous is None:
+                chosen[key] = fname
+            else:
+                # Highest MOD version wins; the mtime only breaks an exact tie
+                # (two builds that report the same version) so a rename/rebuild
+                # cannot make the older file win on sorted() order alone.
+                chosen[key] = max(
+                    (previous, fname),
+                    key=lambda name: (_version_key(name, mc_version),
+                                      _jar_mtime(profile_dir, name)))
+        else:
             chosen[("file", fname)] = fname
 
+    synced: list[str] = []
     for fname in sorted(chosen.values()):
         src = os.path.join(profile_dir, fname)
         dst = os.path.join(MODS_DIR, fname)
@@ -903,6 +1002,12 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
             os.link(src, dst)
         except OSError:
             shutil.copyfile(src, dst)
+        synced.append(fname)
+
+    # Remember exactly what we linked, so the NEXT launch can tell our jars
+    # from files the user added by hand.
+    write_json(os.path.join(MODS_DIR, _SYNC_MANIFEST),
+               {"files": sorted(synced)})
 
 
 def copy_mods_between_profiles(

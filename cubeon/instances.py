@@ -276,17 +276,81 @@ def list_installed(installed: "list[dict] | None" = None,
     ``installed`` defaults to a fresh scan; pass the already-scanned list to
     avoid a second directory walk on a repaint. Order follows the scan (which
     already sorts newest-first), so this is stable across calls.
+
+    Build inputs of an installed modpack (the vanilla jar and the bare loader
+    profile the pack's private clone was built from) are skipped: one pack is
+    ONE instance in this list, not three. They still exist on disk and stay
+    selectable elsewhere - this is a display filter, not a deletion.
     """
     if installed is None:
         from .versions import get_installed_versions
         installed = get_installed_versions()
     labels = labels or {}
     play_store = _read_play_store()
+    hidden = _hidden_build_sources(installed)
     out = []
     for v in installed:
         vid = v.get("id")
         if not vid:
             continue
+        if vid in hidden and not labels.get(vid):
+            # A labelled install is the user's own; never hide it even if a
+            # pack happened to be built from the same folder.
+            continue
         out.append(describe(vid, v, labels.get(vid),
                             play_store=play_store, with_mods=with_mods))
     return out
+
+
+def _hidden_build_sources(installed: "list[dict]") -> "set[str]":
+    """Version ids that exist only as inputs to an installed modpack.
+
+    New installs record ``built_from`` in the pack instance's sidecar (the
+    vanilla + loader folders THIS install created). Installs made before that
+    field existed are inferred from the pack's sidecar: an isolated pack owns
+    a clone, so the loader build it was cloned from - and the vanilla jar it
+    needs - are not separate instances. A version that has its own sidecar or
+    a user label is never treated as a build input (see ``list_installed``).
+    """
+    try:
+        from .mods import read_instance_meta, profile_key
+        from .mod_loaders import find_installed_loader_version
+    except Exception:
+        return set()
+    ids = {v.get("id") for v in installed if v.get("id")}
+    metas: dict[str, dict] = {}
+    for vid in ids:
+        try:
+            metas[vid] = read_instance_meta(vid) or {}
+        except Exception:
+            metas[vid] = {}
+    # A version with its own sidecar is an instance, never a build input.
+    plain_ids = {vid for vid, meta in metas.items() if not meta}
+    hidden: set[str] = set()
+    for vid, meta in metas.items():
+        if not meta:
+            continue
+        for src in meta.get("built_from") or ():
+            if isinstance(src, str) and src and src != vid:
+                hidden.add(src)
+        if not (meta.get("pack_version") or meta.get("pack")):
+            continue
+        # Legacy isolated pack: no built_from list, so derive the clone source.
+        try:
+            legacy = profile_key(meta.get("mc_version"), meta.get("loader"))
+        except Exception:
+            legacy = None
+        if not legacy or meta.get("profile") == legacy:
+            continue  # the pack itself is the shared loader install
+        loader_src = None
+        try:
+            loader_src = find_installed_loader_version(
+                plain_ids, meta.get("loader"), meta.get("mc_version"))
+        except Exception:
+            loader_src = None
+        if loader_src and loader_src != vid:
+            hidden.add(loader_src)
+        base = meta.get("mc_version")
+        if base and base in ids and base not in (vid, loader_src):
+            hidden.add(base)
+    return hidden

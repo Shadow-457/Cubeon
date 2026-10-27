@@ -133,63 +133,49 @@ def mod_change_key(change):
     )}, sort_keys=True)
 
 
-def open_crash_review(page, *, mc_version, loader, version_id,
-                      repair_crash, run_doctor, include=("mods",),
-                      on_status=None, on_done=None):
-    """The Play card's **Fix crash** flow: read the crash log, repair it.
+def open_crash_check(page, *, mc_version, loader, version_id, diagnose,
+                     on_status=None, on_done=None):
+    """The Play card's **Fix crash** flow: explain the crash, fix what we can.
 
-    Unlike the general repair review, this is a one-click action: the user
-    already told us the game crashed, so the fixes that are safe and
-    reversible are applied without a second wall of checkboxes. Every change
-    is still listed, and old mod jars are renamed rather than deleted.
-
-    The flow is deliberately two-stage:
-
-    1. ``repair_crash`` diagnoses the newest crash log and applies the fix it
-       proves (RAM, Java, JVM flags, corrupt jar, or a dependency/conflict
-       pass).
-    2. If that pass did not already run the mod doctor, ``run_doctor`` does a
-       dependency/conflict pass so a crash caused by a mod set that the log
-       only hinted at still gets cleaned up.
-
-    Both callbacks are injected by ``main.py``; this module owns only the UI.
+    ``diagnose`` is injected by main.py (``cubeon/crash.diagnose_and_fix``);
+    this module owns only the small result dialog. Clicking Fix crash is the
+    consent for the reversible mod repairs, so there is no second review wall.
     """
-    cancelled = threading.Event()
     session = {"closed": False, "working": False, "last_status": 0.0}
-    status = ft.Text("Reading the latest crash log…", size=13, color=TEXT_DIM)
-    summary = ft.Text("", size=13, color=TEXT)
+    status = ft.Text("Reading the latest crash log\u2026", size=13, color=TEXT_DIM)
     cause = ft.Text("", size=14, color=TEXT, weight=ft.FontWeight.W_600)
-    evidence = ft.Text("", size=11, color=TEXT_DIM, font_family="monospace",
-                       selectable=True)
+    advice = ft.Text("", size=12, color=TEXT_DIM, selectable=True)
     spinner = ft.ProgressRing(width=18, height=18, stroke_width=2, color=ACCENT)
-    results = ft.ListView(spacing=10, height=330)
-    close_button = ft.TextButton("Stop")
-    rescan_button = ft.TextButton("Check again", visible=False)
+    results = ft.ListView(spacing=10, height=260)
+    log_path = ft.Text("", size=10, color=TEXT_DIM, font_family="monospace",
+                       max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
+    evidence = ft.Text("", size=10.5, color=TEXT_DIM, font_family="monospace",
+                       selectable=True)
     dialog = ft.AlertDialog(
         modal=False,
         title=ft.Text("Fix crash", color=TEXT),
         content=ft.Container(ft.Column([
-            ft.Text(f"{loader.title()} · Minecraft {mc_version}", size=12,
+            ft.Text(f"{loader.title()} \u00b7 Minecraft {mc_version}", size=12,
                     color=TEXT_DIM),
             ft.Row([spinner, status], spacing=10),
-            cause, summary, results,
+            cause, advice, results, log_path,
             ft.ExpansionTile(
-                title=ft.Text("What the log said", size=12, color=TEXT),
+                title=ft.Text("Show log", size=12, color=TEXT),
                 controls=[ft.Container(evidence, padding=8)],
                 visible=False,
             ),
-        ], spacing=10, tight=True), width=640),
-        actions=[close_button, rescan_button],
+        ], spacing=10, tight=True), width=620),
+        actions=[ft.TextButton("Stop"),
+                 ft.TextButton("Check again", visible=False)],
     )
     evidence_tile = dialog.content.content.controls[-1]
+    close_button, rescan_button = dialog.actions
 
     def close(event=None):
-        cancelled.set()
         session["closed"] = True
         dialogs.close_dialog(page, dialog)
 
     def dismissed(event=None):
-        cancelled.set()
         session["closed"] = True
 
     def progress(text):
@@ -200,67 +186,38 @@ def open_crash_review(page, *, mc_version, loader, version_id,
         status.value = text
         thread_safe_ui.refresh(status)
 
-    def _row(title, detail, color=TEXT, icon=None):
-        controls = []
-        if icon is not None:
-            controls.append(ft.Icon(icon, size=15, color=color))
-        controls.append(ft.Text(title, size=12.5, color=color,
-                                weight=ft.FontWeight.W_600))
-        return ft.Column([
-            ft.Row(controls, spacing=6, tight=True),
-            ft.Text(detail, size=12, color=TEXT_DIM, selectable=True),
-        ], spacing=2)
+    def _row(text, color, icon):
+        return ft.Row([
+            ft.Icon(icon, size=15, color=color),
+            ft.Text(text, size=12, color=color, selectable=True, expand=True),
+        ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.START)
 
-    def render(crash, report):
+    def render(result):
         if session["closed"]:
             return
-        recognised = bool((crash or {}).get("recognised"))
-        cause.value = (crash or {}).get("cause") or "No crash cause identified."
-        cause.color = ACCENT if recognised else DANGER
-        confidence = float((crash or {}).get("confidence") or 0.0)
-        summary.value = (f"Identified with {int(round(confidence * 100))}% "
-                         f"confidence · {len((crash or {}).get('fixed') or [])} fix(es) applied")
-        if not recognised:
-            summary.value = "Couldn't identify this crash from the log"
-        rows = []
-        for item in (crash or {}).get("fixed") or []:
-            rows.append(_row("Fixed", item, ACCENT, ft.Icons.CHECK_CIRCLE_ROUNDED))
-        for item in (crash or {}).get("unfixed") or []:
-            rows.append(_row("Needs attention", item, DANGER,
-                             ft.Icons.ERROR_OUTLINE_ROUNDED))
-        for problem in (report or {}).get("fixed") or []:
-            label = problem.get("mod") or problem.get("item") or "Mod"
-            detail = problem.get("fix") or problem.get("detail") or "fixed"
-            rows.append(_row(f"Fixed: {label}", detail, ACCENT,
-                             ft.Icons.CHECK_CIRCLE_ROUNDED))
-        for problem in (report or {}).get("unfixed") or []:
-            if problem.get("kind") == "verification-unavailable":
-                continue
-            label = problem.get("mod") or problem.get("item") or "Mod"
-            detail = problem.get("detail") or "needs attention"
-            rows.append(_row(f"Needs attention: {label}", detail, DANGER,
-                             ft.Icons.ERROR_OUTLINE_ROUNDED))
+        cause.value = result.get("cause") or "No crash cause identified."
+        cause.color = (DANGER if result.get("kind") in ("unknown", "none")
+                       else ACCENT)
+        advice.value = result.get("advice") or ""
+        rows = [_row(item, ACCENT, ft.Icons.CHECK_CIRCLE_ROUNDED)
+                for item in result.get("fixed") or []]
+        rows.extend(_row(item, DANGER, ft.Icons.ERROR_OUTLINE_ROUNDED)
+                    for item in result.get("unfixed") or [])
         if not rows:
-            rows.append(ft.Text(
-                "No repairs were needed, or nothing could be fixed from this "
-                "log. The evidence below is what Minecraft reported.",
-                size=12, color=TEXT_DIM))
-        log_path = (crash or {}).get("log_path")
-        if log_path:
-            rows.append(ft.Text(f"Log: {log_path}", size=10, color=TEXT_DIM,
-                                font_family="monospace", max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS))
-        ev = (crash or {}).get("evidence") or ""
-        evidence.value = ev or "No log lines were captured."
+            rows.append(ft.Text("Nothing needed changing.", size=12,
+                                color=TEXT_DIM))
+        results.controls[:] = rows
+        path = result.get("log_path")
+        log_path.value = f"Log: {path}" if path else ""
+        ev = result.get("evidence") or ""
+        evidence.value = ev
         evidence_tile.visible = bool(ev)
-        with thread_safe_ui.TREE_LOCK:
-            results.controls[:] = rows
-            spinner.visible = False
-            rescan_button.visible = True
-            close_button.content = ft.Text("Close")
+        spinner.visible = False
+        rescan_button.visible = True
+        close_button.content = ft.Text("Close")
         if callable(on_status):
             try:
-                on_status(summary.value)
+                on_status(cause.value)
             except Exception:
                 pass
         thread_safe_ui.refresh(dialog)
@@ -269,56 +226,35 @@ def open_crash_review(page, *, mc_version, loader, version_id,
         if session["working"]:
             return
         session["working"] = True
-        cancelled.clear()
         spinner.visible = True
         rescan_button.visible = False
         close_button.content = ft.Text("Stop")
-        status.value = "Reading the latest crash log…"
+        status.value = "Reading the latest crash log\u2026"
         thread_safe_ui.refresh(dialog)
 
         def worker():
-            crash = {}
-            report = None
+            result = {}
             try:
-                crash = repair_crash(
-                    mc_version, loader, version_id=version_id,
-                    status_cb=progress) or {}
-                # Only fall back to the dependency/conflict pass when the crash
-                # could plausibly be a mod-set problem. Running it after an
-                # OutOfMemoryError or a bad JVM option would add a long scan
-                # that cannot help - and could change mods the log never
-                # implicated.
-                signature = crash.get("signature")
-                mod_related = signature in (
-                    "unknown", "duplicate-mods", "missing-dependency",
-                    "incompatible-mods", "mod-conflict", "corrupt-jar")
-                if (not crash.get("report") and run_doctor is not None
-                        and mod_related):
-                    progress("Checking mod dependencies and conflicts…")
-                    report = run_doctor(
-                        mc_version, loader, auto_fix=True, check_online=True,
-                        version_id=version_id, include=include,
-                        status_cb=progress,
-                        approve_cb=lambda change: not cancelled.is_set(),
-                        cancel_event=cancelled)
+                result = diagnose(mc_version, loader, version_id=version_id,
+                                  status_cb=progress) or {}
             except Exception as error:
-                crash.setdefault("unfixed", []).append(
-                    f"the crash check failed: {error}")
+                result = {"kind": "unknown", "cause": "The crash check failed.",
+                          "advice": str(error), "fixed": [], "unfixed": []}
             finally:
                 session["working"] = False
                 if not session["closed"]:
-                    render(crash, report)
+                    render(result)
                 if callable(on_done):
                     try:
                         on_done()
                     except Exception:
                         pass
 
-        threading.Thread(target=worker, name="cubeon-crash-review",
+        threading.Thread(target=worker, name="cubeon-crash-check",
                          daemon=True).start()
 
-    rescan_button.on_click = run
     close_button.on_click = close
+    rescan_button.on_click = run
     dialog.on_dismiss = dismissed
     dialogs.open_dialog(page, dialog)
     run()

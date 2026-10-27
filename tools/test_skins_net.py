@@ -423,6 +423,34 @@ skins.sync_local_skin_to_csl({"username": "Empty", "active_skin": None,
 check("sync DOES publish for a vanilla player too (heartbeat -> pointer -> cape)",
       len(published) == 1, len(published))
 
+# Skin "None" must beat a previously published Worker skin locally: CSL falls
+# through to the Worker when the LocalSkin file is absent, so None writes the
+# built-in Steve sheet instead of deleting ours.
+_empty_local = os.path.join(skins.CSL_LOCAL_SKINS_DIR, "Empty.png")
+check("Skin None writes a LocalSkin default sheet",
+      os.path.isfile(_empty_local), _empty_local)
+with skins.Image.open(_empty_local) as _im:
+    check("the Skin None sheet is the built-in Steve model",
+          _im.size == skins.default_base_skin().size, _im.size)
+
+# Our own previous file is replaced by the default; a hand-dropped LocalSkin
+# file (never recorded by this launcher) is left alone.
+skins.Image.new("RGBA", (64, 64), (200, 10, 10, 255)).save(_empty_local, "PNG")
+skins.sync_local_skin_to_csl({"username": "Empty", "active_skin": None,
+                              "csl_synced_name": "Empty",
+                              "manage_skin_mod": False})
+with skins.Image.open(_empty_local) as _im:
+    check("Skin None replaces the launcher's own previous LocalSkin sheet",
+          _im.getpixel((8, 8))[:3] != (200, 10, 10), _im.getpixel((8, 8)))
+_hand = os.path.join(skins.CSL_LOCAL_SKINS_DIR, "Hand.png")
+os.makedirs(skins.CSL_LOCAL_SKINS_DIR, exist_ok=True)
+skins.Image.new("RGBA", (64, 64), (10, 10, 200, 255)).save(_hand, "PNG")
+skins.sync_local_skin_to_csl({"username": "Hand", "active_skin": None,
+                              "manage_skin_mod": False})
+with skins.Image.open(_hand) as _im:
+    check("Skin None never clobbers a hand-dropped LocalSkin file",
+          _im.getpixel((8, 8))[:3] == (10, 10, 200), _im.getpixel((8, 8)))
+
 published.clear()
 skins.sync_local_skin_to_csl({"username": "", "active_skin": None,
                               "manage_skin_mod": True})

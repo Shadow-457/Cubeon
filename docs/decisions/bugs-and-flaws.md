@@ -422,6 +422,12 @@ A listener (`add_pack_install_listener`) repaints the button the moment the clai
 changes, so it can neither outlive a cancel nor linger after success. Regression:
 `tools/test_pack_install_guard.py`.
 
+**Later change (2026-10-27):** the background `_proactive_mod_repair` was
+removed, so selecting an instance no longer starts a full mod scan. The claim
+is also keyed by the exact instance now (`pack_install_for_instance`), not only
+by base Minecraft version, so installing a pack for 26.2 cannot lock an
+unrelated 26.3 instance. The guard's purpose is unchanged.
+
 ---
 
 ## High: "A new Cubeon is available" nagged on every launch: FIXED (2026-10-18)
