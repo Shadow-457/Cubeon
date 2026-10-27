@@ -20,6 +20,7 @@ the game simply doesn't show the Friends button - the launcher is unaffected.
 """
 
 import json
+import logging
 import os
 import secrets
 import threading
@@ -29,6 +30,8 @@ from urllib.parse import parse_qs, urlsplit
 from .paths import CUBEON_HOME  # ~/.cubeon_launcher
 
 _TOKEN_FILE = os.path.join(CUBEON_HOME, "local_api.json")
+
+log = logging.getLogger(__name__)
 
 # Handlers cubeon/friends_service.py registers on startup. Everything that takes
 # a name takes the raw string the player typed; the service validates it and
@@ -241,6 +244,20 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             self._json({"error": "unauthorized"}, 401)
             return
+        # A provider raising used to kill this request thread with no body at
+        # all; the mod reads a null response as "Cubeon launcher isn't
+        # running". Answer 500 with the reason instead (do_POST already does
+        # the same through _call).
+        try:
+            self._dispatch_get()
+        except Exception as ex:
+            log.warning("local API GET %s failed", self.path, exc_info=True)
+            try:
+                self._json({"error": str(ex)}, 500)
+            except Exception:
+                pass
+
+    def _dispatch_get(self):
         # /events carries a query string, so route on the path alone.
         parts = urlsplit(self.path)
         if parts.path == "/friends":

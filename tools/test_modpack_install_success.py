@@ -80,8 +80,14 @@ busy = scope["busy"]
 preparing = scope["preparing"]
 refresh_packs = scope["refresh_installed_packs"]
 render_page = scope["_render_page"]
-installed_view = inspect.getclosurevars(refresh_packs).nonlocals["installed_view"]
+render_rows = inspect.getclosurevars(refresh_packs).nonlocals["_render_installed_rows"]
+installed_view = inspect.getclosurevars(render_rows).nonlocals["installed_view"]
+active_view = inspect.getclosurevars(refresh_packs).nonlocals["active_view"]
 results_view = inspect.getclosurevars(render_page).nonlocals["results_view"]
+
+# The Installed rows are built lazily (only while that pane is shown), so put
+# the tab on the Installed view to exercise that repaint too.
+active_view["value"] = "installed"
 
 # Simulate the two refreshes failing the way a stale control / bad meta does.
 # Record the attempts so we can prove both paths were exercised.

@@ -192,6 +192,19 @@ consistent with the shared `THEME` contract.
   `_extract_overrides(..., written=set)` basenames. Deleting earlier loses a working pack when a
   download fails. `_extract_overrides` returns the int count (tested); the basenames come via the
   `written` out-param.
+- Modpacks tab lag: `refresh_installed_packs()` only builds the Installed rows while the Installed pane
+  is showing; rows live in `_render_installed_rows()`. One cached
+  `_scan_installed_packs()` feeds the list, the tab count and the browse badges. Do not reintroduce a
+  per-render `list_installed_modpacks()` call.
+- A pack rebuild HIDES the marker (`_modpack.json` → `.bak`, `_hide_pack_marker`) instead of deleting
+  it; `_install_from_zip` restores it on any failure/cancel and a successful install deletes the
+  `.bak`. Never delete the marker up front again: that is what made a failed update "uninstall" a
+  working pack. Marker backups are keyed by thread id.
+- A failed pack download must leave the working pack's jars alone (8.1's prune runs only after the new
+  set is on disk), and the restored marker keeps the old `jars` list so a retry can prune.
+- `cubeon/local_api.py` `do_GET` must keep the top-level `try/except` around `_dispatch_get`:
+  a provider that raises has to answer 500, never die with the socket. A bodiless reply is what the
+  in-game mod reports as "Cubeon launcher isn't running".
 - **Fix crash** (`play-fix-crash`) opens `open_crash_check`: read the NEWEST crash log, say what happened,
   then run the existing dependency/conflict/launch-config checks and fix what they can (`cubeon/crash.py`).
   No separate crash engine; clicking it is consent for safe reversible repairs. Mods -> Installed's

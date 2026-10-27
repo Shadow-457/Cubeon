@@ -181,11 +181,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         _check_cancel()
         install_status.value = _status_with_eta(text)
         install_status.color = TEXT
-        # The core installer deletes the target profile's _modpack.json marker
-        # the instant its rebuild starts (before downloading the MC version).
-        # Refresh the list at that first destructive step so a pack being
-        # reinstalled stops showing as "Installed" while the bar runs; it
-        # reappears when _end_install_ok refreshes again on success.
+        # The core installer HIDES the target profile's _modpack.json marker
+        # (renames it to .bak) the instant its rebuild starts, before
+        # downloading the MC version. Refresh the list at that first step so a
+        # pack being reinstalled stops showing as "Installed" while the bar
+        # runs; it reappears when _end_install_ok refreshes again on success
+        # (and on failure, when the core restores the .bak).
         if (busy["value"] and not installed_refresh_done["done"]
                 and (text.startswith("Installing Minecraft")
                      or text.startswith("Downloading mods"))):

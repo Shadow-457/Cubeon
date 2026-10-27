@@ -542,8 +542,9 @@ def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None
                 and str(meta.get("mc_version")) == str(mc_version)
                 and meta.get("loader") == loader):
             return meta
-    # A failed/cancelled reinstall drops _modpack.json, but its ownership
-    # sidecar remains. Retry that profile instead of allocating pack-2.
+    # A failed/cancelled reinstall of an OLDER Cubeon build dropped
+    # _modpack.json while its ownership sidecar remained. Retry that profile
+    # instead of allocating pack-2.
     try:
         for version_id in sorted(os.listdir(os.path.join(MINECRAFT_DIR, "versions"))):
             meta = read_instance_meta(version_id) or {}
@@ -712,6 +713,51 @@ def _modrinth_project_id(urls) -> "str | None":
     return None
 
 
+_marker_backups: dict[int, tuple[str, str]] = {}
+
+
+def _hide_pack_marker(marker_file: str) -> None:
+    """Hide the current install marker while its profile is being rebuilt.
+
+    `_modpack.json` -> `_modpack.json.bak`, so the pack stops listing as ready
+    the moment the rebuild starts - but a failed or cancelled UPDATE restores
+    it (see `_restore_pack_marker`) instead of making a working pack vanish.
+    Keyed by the installing thread: two packs for different Minecraft versions
+    may install at the same time.
+    """
+    if not marker_file:
+        return
+    backup = marker_file + ".bak"
+    try:
+        os.replace(marker_file, backup)
+    except OSError:
+        return  # nothing there (first install) or unreadable
+    _marker_backups[threading.get_ident()] = (backup, marker_file)
+
+
+def _restore_pack_marker() -> None:
+    """Put a hidden marker back after a failed/cancelled install."""
+    entry = _marker_backups.pop(threading.get_ident(), None)
+    if not entry:
+        return
+    backup, marker = entry
+    try:
+        os.replace(backup, marker)
+    except OSError:
+        pass
+
+
+def _drop_pack_marker_backup() -> None:
+    """A successful install wrote its new marker; the old one is not needed."""
+    entry = _marker_backups.pop(threading.get_ident(), None)
+    if not entry:
+        return
+    try:
+        os.remove(entry[0])
+    except OSError:
+        pass
+
+
 def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
                            icon_url: str | None = None) -> dict:
     progress_cb = progress_cb or _noop
@@ -789,11 +835,11 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # _modpack.json marker is still sitting there and would keep listing it
         # as "Installed" - with a working Play button - for the whole duration
         # of the rebuild, even though the version and mods on disk are being
-        # replaced underneath it. Drop the stale marker BEFORE any of the long
+        # replaced underneath it. Hide that marker BEFORE any of the long
         # download steps so the pack stops showing as installed the moment its
-        # rebuild begins; it's re-written at the end of THIS install (step 6),
-        # so a success puts it back and a failure correctly leaves it gone
-        # instead of presenting a half-finished pack as ready to play.
+        # rebuild begins; it's re-written at the end of THIS install (step 6).
+        # The hidden copy is restored if the install fails or is cancelled, so
+        # a failed UPDATE cannot make a working pack disappear.
         if version_id:
             marker_dir = get_profile_dir(mc_version, loader_id, version_id)
         elif profile == legacy_key:
@@ -815,10 +861,7 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                                      if isinstance(n, str)]
             except (OSError, json.JSONDecodeError):
                 old_pack_jars = []
-            try:
-                os.remove(os.path.join(marker_dir, MODPACK_META_FILENAME))
-            except OSError:
-                pass
+            _hide_pack_marker(os.path.join(marker_dir, MODPACK_META_FILENAME))
 
         # 1) Minecraft version
         status_cb(f"Installing Minecraft {mc_version}")
@@ -1080,6 +1123,9 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 json.dump(meta, fh)
         except OSError:
             pass
+        if os.path.isfile(os.path.join(profile_dir, MODPACK_META_FILENAME)):
+            # The new marker is on disk: the hidden old one is obsolete.
+            _drop_pack_marker_backup()
 
         # Self-check: an install that produced zero mods AND zero override
         # files produced nothing playable. Warn loudly instead of reporting
@@ -1196,6 +1242,11 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
         return _install_from_zip_body(zip_path, progress_cb=_progress,
                                       status_cb=_status, max_cb=_maximum,
                                       icon_url=icon_url)
+    except BaseException:
+        # A failed/cancelled UPDATE must leave the previous, working pack
+        # listed and playable: put its hidden _modpack.json back.
+        _restore_pack_marker()
+        raise
     finally:
         _unmark_pack_install(mc_version)
 
