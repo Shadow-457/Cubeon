@@ -202,9 +202,19 @@ consistent with the shared `THEME` contract.
   working pack. Marker backups are keyed by thread id.
 - A failed pack download must leave the working pack's jars alone (8.1's prune runs only after the new
   set is on disk), and the restored marker keeps the old `jars` list so a retry can prune.
+- Marker reads must catch `(OSError, ValueError)` (invalid UTF-8 is a `ValueError`, not a
+  `JSONDecodeError`) and skip non-dict JSON. The marker is written with `atomicio.write_json`; a
+  failed write raises `ModpackError` - never report an unlisted pack as installed.
 - `cubeon/local_api.py` `do_GET` must keep the top-level `try/except` around `_dispatch_get`:
   a provider that raises has to answer 500, never die with the socket. A bodiless reply is what the
   in-game mod reports as "Cubeon launcher isn't running".
+- `Bridge.java` only treats a refused connection or a 401 as "launcher gone"; a timeout (5 s for
+  `/friends`) or a 5xx keeps the last snapshot and reports down after `DOWN_STREAK_FOR_DOWN` (3)
+  polls. The three follow-up polls run through `quietly(...)` so one malformed body cannot publish
+  "bridge error" or skip the rest of the poll.
+- `build_launch_command` honours a `-XX:+Use*GC` collector from the player's custom JVM flags: no
+  forced G1 and no `-XX:G1*` tuning in that case. Default (no user collector) still gets exactly one
+  `-XX:+UseG1GC` plus tuning.
 - **Fix crash** (`play-fix-crash`) opens `open_crash_check`: read the NEWEST crash log, say what happened,
   then run the existing dependency/conflict/launch-config checks and fix what they can (`cubeon/crash.py`).
   No separate crash engine; clicking it is consent for safe reversible repairs. Mods -> Installed's

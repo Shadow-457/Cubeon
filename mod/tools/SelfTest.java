@@ -42,6 +42,7 @@ public final class SelfTest {
         playersParsing();
         badgeNames();
         resultReading();
+        replyClassification();
         uidAndPortRules();
         nameChecking();
         presenceText();
@@ -336,8 +337,40 @@ public final class SelfTest {
         ok(!Bridge.readResult(200, "").ok(), "an empty 200 is not success");
     }
 
+    private static void replyClassification() {
+        section("Bridge: launcher up vs busy");
+        ok(Bridge.provesLauncherGone(Bridge.Reply.refused()),
+                "connection refused proves the launcher is gone");
+        ok(Bridge.provesLauncherGone(Bridge.Reply.status(401)),
+                "a rejected token proves the launcher is gone");
+        ok(!Bridge.provesLauncherGone(Bridge.Reply.status(500)),
+                "a 5xx is 'busy', not 'gone'");
+        ok(!Bridge.provesLauncherGone(Bridge.Reply.timeout()),
+                "a timeout is 'busy', not 'gone'");
+        ok(!Bridge.provesLauncherGone(Bridge.Reply.ok("{}")),
+                "an answered request is up");
+        ok(Bridge.DOWN_STREAK_FOR_DOWN == 3,
+                "three unanswered polls in a row before reporting down");
+
+        ok(Bridge.classifyFailure(new java.net.ConnectException("refused")).refused,
+                "ConnectException classifies as refused");
+        ok(Bridge.classifyFailure(
+                new java.net.http.HttpTimeoutException("slow")).timedOut,
+                "HttpTimeoutException classifies as a timeout");
+        Bridge.Reply other = Bridge.classifyFailure(new java.io.IOException("boom"));
+        ok(!other.refused && !other.timedOut && !other.isOk(),
+                "anything else is an unknown failure, not 'gone'");
+
+        // A failing sub-poll must not take the rest of the poll down with it.
+        boolean[] ran = {false};
+        Bridge.quietly("boom", () -> {
+            throw new RuntimeException("malformed body");
+        });
+        Bridge.quietly("after", () -> ran[0] = true);
+        ok(ran[0], "a failing sub-step does not stop the next one");
+    }
+
     private static void uidAndPortRules() {
-        section("Bridge: UID and port rules");
         ok(Bridge.canonicalUid("42").equals("00000042"), "short IDs are padded to eight digits");
         ok(Bridge.canonicalUid("12345678").equals("12345678"), "eight-digit IDs stay stable");
         ok(Bridge.canonicalUid("123456789012").isEmpty(), "old twelve-digit IDs are rejected");

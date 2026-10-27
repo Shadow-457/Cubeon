@@ -1118,11 +1118,14 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         if icon_url:
             meta["icon_url"] = icon_url
         try:
-            with open(os.path.join(profile_dir, MODPACK_META_FILENAME),
-                      "w", encoding="utf-8") as fh:
-                json.dump(meta, fh)
-        except OSError:
-            pass
+            from .atomicio import write_json as _write_json
+            _write_json(os.path.join(profile_dir, MODPACK_META_FILENAME), meta)
+        except OSError as ex:
+            # A pack whose marker cannot be saved is not playable/listed, so
+            # this must not be reported as a success. The atomic write leaves
+            # any previous marker intact.
+            raise ModpackError(
+                f"Couldn't save the modpack record: {ex}") from ex
         if os.path.isfile(os.path.join(profile_dir, MODPACK_META_FILENAME)):
             # The new marker is on disk: the hidden old one is obsolete.
             _drop_pack_marker_backup()
@@ -2472,7 +2475,10 @@ def list_installed_modpacks() -> list[dict]:
             with open(meta_path, "r", encoding="utf-8") as fh:
                 meta = json.load(fh)
             mtime = os.path.getmtime(meta_path)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
+            # ValueError covers both a bad JSON body and invalid UTF-8
+            # (UnicodeDecodeError). One corrupt marker must not break the
+            # whole "Installed packs" list.
             continue
         if not isinstance(meta, dict):
             continue
@@ -2526,7 +2532,9 @@ def forget_modpack_for_version(version_id: str) -> bool:
         try:
             with open(meta_path, "r", encoding="utf-8") as fh:
                 meta = json.load(fh)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
+            continue
+        if not isinstance(meta, dict):
             continue
         if meta.get("version_id") != version_id:
             continue

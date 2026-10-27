@@ -45,6 +45,15 @@ public final class Bridge {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofMillis(900);
     private static final Duration READ_TIMEOUT = Duration.ofMillis(2_000);
+    // A big download or a pack install can keep the launcher's HTTP thread
+    // busy past the normal 2 s; the friends screen must not flicker offline
+    // for that. Only /friends gets this longer read (it is the poll that
+    // decides "is the launcher up").
+    private static final Duration FRIENDS_READ_TIMEOUT = Duration.ofSeconds(5);
+
+    /** Consecutive unanswered polls before the UI is told the launcher is
+     *  down. One slow or failed reply keeps the last snapshot. */
+    static final int DOWN_STREAK_FOR_DOWN = 3;
     /**
      * POST /invite etc. can block on a launcher REST round trip, so they get
      * a generous budget.
@@ -417,20 +426,64 @@ public final class Bridge {
             publish(down("Cubeon launcher isn't running."));
             return;
         }
-        String friendsBody = get("/friends");
-        if (friendsBody == null) {
-            // The token file exists but nobody answered: it is stale, left by a
-            // launcher that has since quit. Force a re-read next time round.
-            invalidateToken();
-            publish(down("Cubeon launcher isn't running."));
+        Reply friends = getReply("/friends");
+        if (!friends.isOk()) {
+            // Only a refused connection (or a rejected token) proves the
+            // launcher is gone. A timeout or a 5xx while it is busy just means
+            // "no answer yet": keep the last snapshot and retry, and only tell
+            // the player it is down after several polls in a row. Treating
+            // every slow reply as "down" is what made the Friends screen
+            // flicker offline during a download and reset its backoff.
+            downStreak += 1;
+            if (provesLauncherGone(friends) || downStreak >= DOWN_STREAK_FOR_DOWN) {
+                if (provesLauncherGone(friends)) {
+                    // The token file exists but nobody is listening (or it was
+                    // rejected): force a re-read next poll.
+                    invalidateToken();
+                }
+                publish(down("Cubeon launcher isn't running."));
+            }
             return;
         }
         downStreak = 0;
-        Snapshot snap = parseSnapshot(friendsBody);
+        Snapshot snap = parseSnapshot(friends.body);
         publish(snap);
-        checkModFreshness(snap);
-        drainEvents();
-        refreshPlayers();
+        // Each follow-up poll is independent. A malformed /events or /players
+        // body used to propagate to pollLoop and publish "Cubeon bridge error"
+        // for a launcher that had just answered /friends, and skipped the rest
+        // of that poll; keep the last data and retry next round instead.
+        quietly("mod freshness", () -> checkModFreshness(snap));
+        quietly("event drain", this::drainEvents);
+        quietly("player refresh", this::refreshPlayers);
+    }
+
+    /** Runs one sub-step of a poll; a failure keeps the last data. */
+    static void quietly(String what, Runnable step) {
+        try {
+            step.run();
+        } catch (RuntimeException ex) {
+            // Deliberately silent: the poll loop logs nothing, and the next
+            // poll retries with the still-valid snapshot in place.
+        }
+    }
+
+    /** True only when this reply proves nothing is listening any more.
+     *  A timeout or a 5xx is "busy", not "gone". */
+    static boolean provesLauncherGone(Reply reply) {
+        return reply.refused || reply.status == 401;
+    }
+
+    /** Which transport failure this was, for {@link #provesLauncherGone}. */
+    static Reply classifyFailure(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof java.net.http.HttpTimeoutException) {
+                return Reply.timeout();
+            }
+            if (t instanceof java.net.ConnectException) {
+                return Reply.refused();
+            }
+        }
+        return Reply.failed();
     }
 
     /**
@@ -729,16 +782,64 @@ public final class Bridge {
         return body != null && body.length() <= MAX_RESPONSE_CHARS;
     }
 
+    /**
+     * One GET outcome. {@code body} is null unless the request really answered;
+     * {@code status} is the HTTP code (0 when there was no answer at all), so
+     * "refused" and "busy" can be told apart instead of collapsing into null.
+     */
+    static final class Reply {
+        final String body;
+        final int status;
+        final boolean refused;
+        final boolean timedOut;
+
+        private Reply(String body, int status, boolean refused, boolean timedOut) {
+            this.body = body;
+            this.status = status;
+            this.refused = refused;
+            this.timedOut = timedOut;
+        }
+
+        static Reply ok(String body) {
+            return new Reply(body, 200, false, false);
+        }
+
+        static Reply status(int code) {
+            return new Reply(null, code, false, false);
+        }
+
+        static Reply refused() {
+            return new Reply(null, 0, true, false);
+        }
+
+        static Reply timeout() {
+            return new Reply(null, 0, false, true);
+        }
+
+        static Reply failed() {
+            return new Reply(null, 0, false, false);
+        }
+
+        boolean isOk() {
+            return body != null;
+        }
+    }
+
     /** Response body, or null for any failure at all. */
     private String get(String path) {
+        return getReply(path).body;
+    }
+
+    /** One GET with the failure kind preserved (see {@link Reply}). */
+    private Reply getReply(String path) {
         String currentBaseUrl = baseUrl;
         String currentToken = token;
         if (currentBaseUrl == null || currentToken == null) {
-            return null;
+            return Reply.refused();   // nothing to talk to yet
         }
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(currentBaseUrl + path))
-                    .timeout(READ_TIMEOUT)
+                    .timeout(path.startsWith("/friends") ? FRIENDS_READ_TIMEOUT : READ_TIMEOUT)
                     .header("X-Cubeon-Token", currentToken)
                     .GET()
                     .build();
@@ -746,15 +847,18 @@ public final class Bridge {
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() == 401) {
                 invalidateToken();
-                return null;
+                return Reply.status(401);
             }
-            return response.statusCode() >= 200 && response.statusCode() < 300
-                    && usableBody(response.body()) ? response.body() : null;
+            if (response.statusCode() >= 200 && response.statusCode() < 300
+                    && usableBody(response.body())) {
+                return Reply.ok(response.body());
+            }
+            return Reply.status(response.statusCode());
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            return null;
+            return Reply.failed();
         } catch (Exception ex) {
-            return null;
+            return classifyFailure(ex);
         }
     }
 

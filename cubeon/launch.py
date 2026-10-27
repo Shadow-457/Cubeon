@@ -676,9 +676,10 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     # User flags ride along AFTER the tuned defaults so they can override them
     # (the JVM honors the last of a repeated flag). mll places everything in
     # jvmArguments before the main class, so they land in the right spot.
+    user_flags = _parse_custom_jvm_flags(custom_jvm_flags)
     jvm_args = [f"-Xmx{ram_mb}M", f"-Xms{_initial_heap_mb(ram_mb)}M",
                 *client_jvm_flags(),
-                *_parse_custom_jvm_flags(custom_jvm_flags)]
+                *user_flags]
     try:
         pretouch = _pretouch_flag(ram_mb, get_system_ram_mb())
     except Exception:
@@ -737,8 +738,21 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         ) from e
 
     collector = re.compile(r"-XX:[+-]Use(?:G1|Parallel|ParallelOld|Serial|ConcMarkSweep|ParNew|Z|Shenandoah|Epsilon)GC$")
-    command = [arg for arg in command if not collector.fullmatch(arg)]
-    command.insert(1, "-XX:+UseG1GC")
+    # A collector the player typed in Settings is a deliberate choice, not a
+    # stale default: forcing G1 over it made ZGC/Shenandoah/Parallel silently
+    # do nothing. Keep theirs, and drop Cubeon's G1 choice AND its G1-only
+    # tuning flags (they are not valid for another collector). With no user
+    # collector the old behaviour stands: strip whatever the profile carried
+    # and put exactly one G1 in.
+    user_collector = next((flag for flag in user_flags if collector.fullmatch(flag)),
+                          None)
+    if user_collector and user_collector != "-XX:+UseG1GC":
+        command = [arg for arg in command
+                   if not (collector.fullmatch(arg) and arg != user_collector)
+                   and not arg.startswith("-XX:G1")]
+    else:
+        command = [arg for arg in command if not collector.fullmatch(arg)]
+        command.insert(1, "-XX:+UseG1GC")
 
     # minecraft_launcher_lib 8.0's replace_arguments() does NOT know
     # ${clientid} / ${auth_xuid} (vanilla placeholders tied to Microsoft

@@ -790,7 +790,15 @@ def toggle_mod(mc_version: str | None, loader: str | None, filename: str,
             "That mod is managed by Cubeon and can't be disabled. "
             "Skins/capes and the Friends button depend on it.")
     new_name = filename[:-len(".disabled")] if filename.endswith(".disabled") else filename + ".disabled"
-    os.rename(full, os.path.join(profile_dir, new_name))
+    # Both states can be on disk at once (a re-download while the old copy is
+    # disabled). os.rename would silently REPLACE one on Linux/macOS (data
+    # loss) and raise FileExistsError on Windows, uncaught inside a click
+    # handler. Refuse instead and let the UI show the reason.
+    target = os.path.join(profile_dir, new_name)
+    if os.path.lexists(target):
+        raise ValueError(
+            "A copy of this mod with that state already exists - delete one first")
+    os.rename(full, target)
 
 
 def delete_mod(mc_version: str | None, loader: str | None, filename: str,
