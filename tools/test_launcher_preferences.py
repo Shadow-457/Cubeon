@@ -113,7 +113,7 @@ class FlagsTests(unittest.TestCase):
         panel = _java_defaults_panel(ram_slider=slider, custom_jvm_field=custom,
             **{key: getattr(theme, key) for key in
                ('BORDER','ACCENT','ACCENT_TINT','TEXT','TEXT_DIM','TEXT_FAINT','FONT_MONO')})
-        header, rows = panel.content.controls
+        toggle, header, rows = panel.content.controls
         header.on_click(None)
         self.assertTrue(rows.visible)
         self.assertIn('-Xmx2048M', [c.content.controls[0].value for c in rows.controls])
@@ -125,6 +125,57 @@ class FlagsTests(unittest.TestCase):
         custom.on_change(None)
         g1 = next(c for c in rows.controls if c.content.controls[0].value == '-XX:+UseG1GC')
         self.assertEqual(len(g1.content.controls[1].controls), 2)
+
+    def test_disable_defaults_preserves_custom_and_required_arguments(self):
+        for custom in ['', '-Xmx6144M -XX:+UseZGC -Dexample=true', '-XX:+UseG1GC']:
+            with self.subTest(custom=custom), \
+                 patch.object(launch, '_sanitize_client_json'), \
+                 patch.object(launch, '_restore_emptied_arguments'), \
+                 patch.object(launch, 'stable_uuid', return_value='test'), \
+                 patch.object(launch, 'find_java_for_version', return_value=None), \
+                 patch.object(launch.mll.command, 'get_minecraft_command', side_effect=lambda _v,_p,opts:
+                    ['java', *opts['jvmArguments'], '-XX:+UseParallelGC', '-Djava.library.path=natives',
+                     '-cp', 'game.jar', 'game.Main', '--gameDir', opts['gameDirectory']]) as generated:
+                argv = launch.build_launch_command('test', 'Alex', 4096, 854, 480,
+                    custom_jvm_flags=custom, game_dir='/tmp/example-instance', default_jvm_flags_enabled=False)
+                self.assertEqual(generated.call_args.args[2]['jvmArguments'], launch._parse_custom_jvm_flags(custom))
+                self.assertIn('-Djava.library.path=natives', argv)
+                self.assertIn('game.jar', argv)
+                self.assertIn('/tmp/example-instance', argv)
+                self.assertNotIn('-Xmx4096M', argv)
+                self.assertNotIn('-XX:+AlwaysPreTouch', argv)
+                self.assertFalse(any(arg.startswith('-XX:G1') for arg in argv))
+                if not custom:
+                    self.assertIn('-XX:+UseParallelGC', argv)
+                    self.assertNotIn('-XX:+UseG1GC', argv)
+                if 'UseZGC' in custom:
+                    self.assertIn('-XX:+UseZGC', argv)
+                    self.assertNotIn('-XX:+UseParallelGC', argv)
+                if 'UseG1GC' in custom:
+                    self.assertEqual(argv.count('-XX:+UseG1GC'), 1)
+                report=launch.default_jvm_flags_report(4096, default_jvm_flags_enabled=False)
+                self.assertTrue(report)
+                self.assertTrue(all(row['source']=='dropped' for row in report))
+
+    def test_default_switch_saves_and_rolls_back_failed_save(self):
+        cfg={'custom_jvm_flags':'-Xmx6144M'}
+        panel=_java_defaults_panel(ram_slider=ft.Slider(value=4096),custom_jvm_field=ft.TextField(value=''),cfg=cfg,
+            **{key:getattr(theme,key) for key in ('BORDER','ACCENT','ACCENT_TINT','TEXT','TEXT_DIM','TEXT_FAINT','FONT_MONO')})
+        toggle, header, rows=panel.content.controls
+        switch=toggle.content.controls[1]
+        header.on_click(None)
+        switch.value=False
+        with patch.object(config,'save_config') as save:
+            switch.on_change(None)
+            save.assert_called_once_with(cfg)
+        self.assertFalse(cfg['default_jvm_flags_enabled'])
+        self.assertEqual(cfg['custom_jvm_flags'],'-Xmx6144M')
+        self.assertTrue(all(len(c.content.controls[1].controls)==2 for c in rows.controls))
+        switch.value=True
+        with patch.object(config,'save_config',side_effect=OSError('disk full')):
+            switch.on_change(None)
+        self.assertFalse(switch.value)
+        self.assertFalse(cfg['default_jvm_flags_enabled'])
 
 class WindowsTests(unittest.TestCase):
     def test_legacy_and_explicit_choices(self):

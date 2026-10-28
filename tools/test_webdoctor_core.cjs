@@ -141,12 +141,18 @@ async function main() {
   assert.equal(calls[0].options.headers.Authorization,undefined);
   await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:429})}),/rate_limited/);
   await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:503})}),/ai_unavailable/);
-  for(const reason of ['ai_not_configured','ai_credentials_invalid','ai_quota_exhausted','ai_timeout','ai_bad_response','ai_provider_unavailable','ai_request_rejected']) {
+  for(const reason of ['ai_not_configured','ai_credentials_invalid','ai_quota_exhausted','ai_timeout','ai_bad_response','ai_provider_unavailable','ai_request_rejected','ai_busy']) {
     await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:503,json:async()=>({error:reason})})}),new RegExp(reason));
   }
   await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:503,json:async()=>({error:'secret-provider-text'})})}),/ai_unavailable/);
   await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:503,json:async()=>({error:'ai_credentials_invalid',provider:'groq'})})}),
     error=>error.provider==='groq' && error.message==='ai_credentials_invalid');
+  await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:429,json:async()=>({error:'rate_limited',scope:'visitor',retry_after:61.2})})}),
+    error=>error.scope==='visitor' && error.retryAfter===62 && error.status===429);
+  for (const seconds of [-1,0,1801,'secret',Infinity]) {
+    await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:429,json:async()=>({error:'rate_limited',scope:'untrusted',retry_after:seconds})})}),
+      error=>error.scope===undefined && error.retryAfter===undefined);
+  }
   let aborted=false;
   await assert.rejects(D.withTimeout(signal=>new Promise(()=>signal.addEventListener('abort',()=>{aborted=true;})),10),/request_timeout/);
   assert.ok(aborted);

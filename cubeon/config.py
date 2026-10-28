@@ -106,6 +106,7 @@ DEFAULT_CONFIG = {
     # string, split on whitespace (quotes respected). A custom collector wins
     # over G1; other repeated options use the last value supplied.
     "custom_jvm_flags": "",
+    "default_jvm_flags_enabled": True,
     "width": 1280,
     "height": 720,
     "active_skin": None,  # filename (in SKINS_DIR) of the uploaded skin to use, or None

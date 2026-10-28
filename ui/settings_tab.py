@@ -264,10 +264,11 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
 
 
 def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
-                         ACCENT_TINT, TEXT, TEXT_DIM, TEXT_FAINT, FONT_MONO):
-    """The read-only "these are Cubeon's default JVM flags" disclosure.
+                         ACCENT_TINT, TEXT, TEXT_DIM, TEXT_FAINT, FONT_MONO,
+                         cfg=None, set_status=None):
+    """Default JVM flags, with a saved opt-out and shared launch readout.
 
-    Deliberately COLLAPSED and deliberately a readout: nobody needs twenty GC
+    The flag list is COLLAPSED, while the opt-out stays visible: nobody needs twenty GC
     flags in their face, but "what is Cubeon actually passing to Java?" is a
     fair question the moment a mod misbehaves or a friend suggests a flag.
 
@@ -280,6 +281,12 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
     """
     from cubeon import launch
     from cubeon import thread_safe_ui
+    from cubeon import config
+
+    settings = cfg if cfg is not None else {}
+    enabled_key = "default_jvm_flags_enabled"
+    enabled = ft.Switch(value=settings.get(enabled_key, True), active_color=ACCENT,
+                        data="default-jvm-flags-enabled")
 
     rows = ft.ListView(spacing=1, height=288, visible=False)
     chevron = ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT_DIM)
@@ -298,7 +305,8 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
             user_flags = ""
         try:
             report = launch.default_jvm_flags_report(
-                ram or None, custom_jvm_flags=user_flags)
+                ram or None, custom_jvm_flags=user_flags,
+                default_jvm_flags_enabled=bool(enabled.value))
         except Exception:
             report = []
         rows.controls.clear()
@@ -318,7 +326,8 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                                 width=232, selectable=True, rtl=False),
                         ft.Column(
                             [ft.Text(note, size=11, color=TEXT_DIM),
-                             *([ft.Text(i18n.t("Not added on this machine"),
+                             *([ft.Text(i18n.t("Disabled in Settings") if not enabled.value
+                                        else i18n.t("Not added on this machine"),
                                         size=10, color=TEXT_FAINT)]
                                if dropped else [])],
                             spacing=1, expand=True, tight=True),
@@ -332,6 +341,8 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
         skipped = len(report) - applied
         if not report:
             summary.value = i18n.t("Unavailable right now")
+        elif not enabled.value:
+            summary.value = i18n.t("Default flags disabled")
         else:
             # The count leads, the translated phrase follows, so a language
             # that puts its noun first still reads correctly.
@@ -340,6 +351,38 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
         # Repaint only this panel: the rest of Settings is untouched.
         thread_safe_ui.refresh(rows)
         thread_safe_ui.refresh(summary)
+
+    def _save_enabled(event=None):
+        with thread_safe_ui.TREE_LOCK:
+            previous = settings.get(enabled_key, True)
+            existed = enabled_key in settings
+            settings[enabled_key] = bool(enabled.value)
+            try:
+                config.save_config(settings)
+            except Exception:
+                if existed:
+                    settings[enabled_key] = previous
+                else:
+                    settings.pop(enabled_key, None)
+                enabled.value = previous
+                if set_status:
+                    set_status(i18n.t("Could not save Java settings"))
+            else:
+                if set_status:
+                    set_status(i18n.t("Java settings saved. Applies on the next launch."))
+            _rebuild()
+            thread_safe_ui.refresh(enabled)
+
+    enabled.on_change = _save_enabled
+    toggle_row = ft.Container(
+        content=ft.Row([
+            ft.Column([
+                ft.Text(i18n.t("Use Cubeon's default Java flags"), size=13, color=TEXT),
+                ft.Text(i18n.t("Turn off to use only your custom flags. The RAM slider then stops setting the Java heap."),
+                        size=11.5, color=TEXT_DIM),
+            ], spacing=3, expand=True), enabled,
+        ], spacing=12),
+        padding=ft.padding.Padding.symmetric(horizontal=18, vertical=12))
 
     def _toggle(e=None):
         with thread_safe_ui.TREE_LOCK:
@@ -383,7 +426,7 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
         control.on_change = changed
 
     return ft.Container(
-        content=ft.Column([header, rows], spacing=0, tight=True),
+        content=ft.Column([toggle_row, header, rows], spacing=0, tight=True),
         bgcolor=ft.Colors.with_opacity(0.35, ACCENT_TINT),
         border=ft.border.Border.all(1, BORDER),
         border_radius=RADIUS,
@@ -604,6 +647,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     _java_defaults_panel(
                         ram_slider=ram_slider,
                         custom_jvm_field=custom_jvm_field,
+                        cfg=cfg, set_status=set_status,
                         BORDER=BORDER, ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
                         TEXT=TEXT, TEXT_DIM=TEXT_DIM, TEXT_FAINT=TEXT_FAINT,
                         FONT_MONO=FONT_MONO),

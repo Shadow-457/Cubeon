@@ -8,7 +8,7 @@
   const MAX_LOG = 64000;
   const GROQ_MODELS = Object.freeze(['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b']);
   const AI_ERRORS = ['ai_not_configured','ai_credentials_invalid','ai_quota_exhausted',
-    'ai_request_rejected','ai_timeout','ai_bad_response','ai_provider_unavailable','ai_unavailable','rate_limited'];
+    'ai_request_rejected','ai_timeout','ai_bad_response','ai_provider_unavailable','ai_unavailable','ai_busy','rate_limited'];
   const ACTIONS = {
     memory: {path: ['Settings', 'Performance', 'Memory'], label: 'Allocated RAM',
       detail: 'Raise the RAM slider a little, while leaving memory for Windows or Linux.', kind: 'slider'},
@@ -371,16 +371,22 @@
     if (!response.ok) {
       let code = response.status === 429 ? 'rate_limited' : response.status === 503 ? 'ai_unavailable' : 'request_failed';
       let provider;
+      let scope, retryAfter;
       try {
         const body = await response.json();
         if (body && AI_ERRORS.includes(body.error)) code = body.error;
         if (body && ['groq','kilo'].includes(body.provider)) provider = body.provider;
+        if (body && body.scope === 'visitor') scope = 'visitor';
+        const seconds = Number(body && body.retry_after);
+        if (Number.isFinite(seconds) && seconds > 0 && seconds <= 1800) retryAfter = Math.ceil(seconds);
       } catch (_) { /* Static/misrouted endpoints may return HTML. */ }
       const error = new Error(code);
       error.status = response.status;
       // Provider identity is only an allowlisted display hint, never a client
       // routing choice. Older deployments can omit it.
       error.provider = provider;
+      error.scope = scope;
+      error.retryAfter = retryAfter;
       throw error;
     }
     const data = await response.json();

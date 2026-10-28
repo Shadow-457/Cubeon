@@ -58,10 +58,33 @@ async function main() {
   const timedOut = await call(slow);
   assert.equal(timedOut.statusCode,503);assert.equal(aborted,2);
   assert.equal(timedOut.body.error,'ai_timeout');
-  const limited=createHandler({env:{KILO_API_KEY:'test'},now:()=>100,fetch:async()=>Response.json({choices:[{message:{content:JSON.stringify(guide)}}]})});
+  let quotaTime=100,quotaCalls=0;
+  const limited=createHandler({env:{KILO_API_KEY:'test'},now:()=>quotaTime,fetch:async()=>{quotaCalls++;return Response.json({choices:[{message:{content:JSON.stringify(guide)}}]});}});
   const fixed=req({log},{'x-vercel-forwarded-for':'rate-test'});
-  for(let i=0;i<5;i++) assert.equal((await call(limited,fixed)).statusCode,200);
-  assert.equal((await call(limited,fixed)).statusCode,429);
+  for(let i=0;i<3;i++) {quotaTime=100+i*1000;assert.equal((await call(limited,fixed)).statusCode,200);}
+  let quotaResult=await call(limited,fixed);
+  assert.equal(quotaResult.statusCode,429);assert.equal(quotaResult.body.scope,'visitor');
+  assert.equal(quotaResult.headers['Retry-After'],'1798');assert.equal(quotaCalls,3);
+  quotaTime=100+1800000-1;
+  quotaResult=await call(limited,fixed);
+  assert.equal(quotaResult.statusCode,429);assert.equal(quotaResult.headers['Retry-After'],'1');
+  quotaTime=100+1800000;
+  assert.equal((await call(limited,fixed)).statusCode,200,'Oldest request expires at exactly 30 minutes');
+  assert.equal((await call(limited,fixed)).statusCode,429,'Rolling window retains the other two requests');
+  assert.equal((await call(limited,req({log},{'x-vercel-forwarded-for':'another-visitor'}))).statusCode,200);
+  // Saturation must not spend the waiting visitor's three analysis slots.
+  const release=[];
+  const congested=createHandler({env:{KILO_API_KEY:'test'},timeout:1000,
+    fetch:()=>new Promise(resolve=>release.push(()=>resolve(Response.json({choices:[{message:{content:JSON.stringify(guide)}}]}))))});
+  const pendingCalls=Array.from({length:8},()=>call(congested));
+  while(release.length<8) await new Promise(resolve=>setTimeout(resolve,1));
+  const waiting=req({log},{'x-vercel-forwarded-for':'capacity-test'});
+  const busy=await call(congested,waiting);
+  assert.equal(busy.statusCode,503);assert.equal(busy.body.error,'ai_busy');
+  assert.equal(busy.headers['Retry-After'],'60');assert.equal(release.length,8);
+  release.forEach(finish=>finish());await Promise.all(pendingCalls);
+  for(let i=0;i<3;i++) assert.equal((await call(limited,waiting)).statusCode,200);
+  assert.equal((await call(limited,waiting)).statusCode,429);
   assert.equal(require('../api/doctor.js'),require('../web/api/doctor.js'));
   for (let index=0;index<GROQ_MODELS.length;index++) {
     const calls=[];

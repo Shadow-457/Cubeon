@@ -811,8 +811,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
         label = section_label("Your " + title)
         label.tooltip = _cosmetic_visibility_note()
+        heading = ft.Row([label, ft.Container(
+            content=ft.Text("BETA", size=9, color=ACCENT, weight=ft.FontWeight.W_800),
+            bgcolor=ACCENT_TINT, border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=6, vertical=2),
+            data="cosmetic-beta-" + slot)], spacing=8)
         refresh()
-        return ft.Column([label, _grid_scroll(grid), status], spacing=8)
+        return ft.Column([heading, _grid_scroll(grid), status], spacing=8)
 
     shoulder_pane = _cosmetic_pane("shoulder", "Shoulder Items")
     back_pane = _cosmetic_pane("back", "Back Items")

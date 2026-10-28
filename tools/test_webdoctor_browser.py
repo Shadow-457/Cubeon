@@ -44,6 +44,8 @@ def main():
                 body = request.request.post_data_json; ai_calls.append(body)
                 assert 'model' not in body and 'messages' not in body
                 if ai_mode[0] == 'fail': request.fulfill(status=503,body='{}',content_type='application/json')
+                elif ai_mode[0] == 'visitor_limit': request.fulfill(status=429,body=json.dumps({'error':'rate_limited','scope':'visitor','retry_after':61}),content_type='application/json')
+                elif ai_mode[0] == 'provider_limit': request.fulfill(status=429,body=json.dumps({'error':'rate_limited','provider':'groq'}),content_type='application/json')
                 elif ai_mode[0].startswith('ai_'): request.fulfill(status=503,body=json.dumps({'error':ai_mode[0]}),content_type='application/json')
                 else: request.fulfill(body=json.dumps(guide(body['log'])),content_type='application/json')
                 return
@@ -107,6 +109,16 @@ def main():
             expect(page.locator('#doctor-status')).to_contain_text('On-device instructions')
             expect(page.locator('#result-source')).to_have_text('On-device check')
         print('PASS distinct configuration, credential, quota, timeout and invalid-response messages')
+
+        for mode,message in [('visitor_limit','3 AI requests'),('ai_busy','AI is busy'),('provider_limit','AI is busy')]:
+            ai_mode[0]=mode
+            page.locator('#ai-check').click()
+            expect(page.locator('#doctor-status')).to_contain_text(message)
+            expect(page.locator('#result-source')).to_have_text('On-device check')
+            expect(page.locator('#guide-steps')).to_contain_text('bogus')
+            if mode=='visitor_limit': expect(page.locator('#doctor-status')).to_contain_text('2 minutes')
+            else: expect(page.locator('#doctor-status')).not_to_contain_text('3 AI requests')
+        print('PASS visitor rolling quota, accurate wait and separate capacity/provider limits with local guide retained')
 
         ai_mode[0]='ok'
         page.locator('#log-text').fill('java.lang.OutOfMemoryError: Java heap space')

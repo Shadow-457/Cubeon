@@ -6,6 +6,8 @@ const MODEL = 'kilo-auto/free';
 const GATEWAY = 'https://ai-gateway.kilo.ai/api/v1/chat/completions';
 const GROQ_GATEWAY = 'https://api.groq.com/openai/v1/chat/completions';
 const MAX_BODY = 300000;
+const RATE_LIMIT = 3;
+const RATE_WINDOW_MS = 30 * 60 * 1000;
 const windows = new Map();
 let inflight = 0;
 
@@ -32,13 +34,19 @@ function throttled(req, now) {
   // limits configure the hosting firewall; instances do not share this map.
   const raw = String(req.headers['x-vercel-forwarded-for'] || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
   const key = createHash('sha256').update(raw).digest('hex');
-  for (const [k,v] of windows) if (now - v.start >= 60000) windows.delete(k);
-  let value = windows.get(key);
-  if (!value) {
-    if (windows.size >= 2000) return true;
-    value = {start:now,count:0}; windows.set(key,value);
+  for (const [k,times] of windows) {
+    const recent = times.filter(time => now - time < RATE_WINDOW_MS);
+    if (!recent.length) windows.delete(k);
+    else windows.set(k,recent);
   }
-  return ++value.count > 5 || inflight >= 8;
+  const times = windows.get(key) || [];
+  if (times.length >= RATE_LIMIT) return {error:'rate_limited',scope:'visitor',
+    retry_after:Math.max(1,Math.ceil((times[0] + RATE_WINDOW_MS - now)/1000))};
+  if (inflight >= 8 || (!windows.has(key) && windows.size >= 2000))
+    return {error:'ai_busy',retry_after:60};
+  times.push(now);
+  windows.set(key,times);
+  return null;
 }
 async function input(req) {
   const declared = Number(req.headers['content-length']);
@@ -79,7 +87,11 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
     catch (error) { return reply(res,error.status || 400,{error:error.status === 413 ? 'log_too_large' : 'invalid_report'}); }
     if (!data || Array.isArray(data) || typeof data.log !== 'string' || !data.log.trim() || data.log.length > D.MAX_LOG ||
         (data.version !== undefined && (typeof data.version !== 'string' || data.version.length > 240))) return reply(res,400,{error:'invalid_report'});
-    if (throttled(req,now())) { res.setHeader('Retry-After','60'); return reply(res,429,{error:'rate_limited'}); }
+    const limited = throttled(req,now());
+    if (limited) {
+      res.setHeader('Retry-After',String(limited.retry_after));
+      return reply(res,limited.error === 'rate_limited' ? 429 : 503,limited);
+    }
     const groqKey = (env.GROQ_API_KEY || '').trim();
     const kiloKey = (env.KILO_API_KEY || '').trim();
     if (!groqKey && !kiloKey) return reply(res,503,{error:'ai_not_configured'});

@@ -495,7 +495,8 @@ def _jvm_flag_note(flag: str) -> str:
 def default_jvm_flags_report(ram_mb: int | None = None, *,
                              system_ram_mb: int | None = None,
                              cores: int | None = None,
-                             custom_jvm_flags: str | None = None) -> list[dict]:
+                             custom_jvm_flags: str | None = None,
+                             default_jvm_flags_enabled: bool = True) -> list[dict]:
     """The default JVM flags Cubeon adds to a launch, with why each is there.
 
     Built from the SAME functions `build_launch_command` uses
@@ -567,13 +568,19 @@ def default_jvm_flags_report(ram_mb: int | None = None, *,
         except Exception:
             logging.getLogger(__name__).debug(
                 "could not resolve the AlwaysPreTouch default", exc_info=True)
+    if not default_jvm_flags_enabled:
+        for entry in out:
+            entry["source"] = "dropped"
+            entry["note"] += " Not added: Cubeon's default flags are switched off."
     return out
 
 
-def _default_client_jvm_arguments(ram_mb: int, user_flags: list[str]) -> list[str]:
+def _default_client_jvm_arguments(ram_mb: int, user_flags: list[str], *,
+                                  enabled: bool = True) -> list[str]:
     """Launch and Settings share the same default flag assembly."""
     return [entry["flag"] for entry in default_jvm_flags_report(
-        ram_mb, custom_jvm_flags=shlex.join(user_flags))
+        ram_mb, custom_jvm_flags=shlex.join(user_flags),
+        default_jvm_flags_enabled=enabled)
         if entry["source"] != "dropped"]
 
 
@@ -830,7 +837,8 @@ def _parse_custom_jvm_flags(raw: str | None) -> list[str]:
 def build_launch_command(version_id: str, username: str, ram_mb: int,
                           width: int, height: int, java_path: str | None = None,
                           custom_jvm_flags: str | None = None,
-                          game_dir: str | None = None) -> list[str]:
+                          game_dir: str | None = None,
+                          default_jvm_flags_enabled: bool = True) -> list[str]:
     """The full java command. `game_dir` is the instance's own folder (see
     paths.game_dir_for); omitted -> the shared root, which is what every
     non-launch caller and the tests still want."""
@@ -843,7 +851,8 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     # (the JVM honors the last of a repeated flag). mll places everything in
     # jvmArguments before the main class, so they land in the right spot.
     user_flags = _parse_custom_jvm_flags(custom_jvm_flags)
-    jvm_args = [*_default_client_jvm_arguments(ram_mb, user_flags), *user_flags]
+    jvm_args = [*_default_client_jvm_arguments(ram_mb, user_flags,
+                                             enabled=default_jvm_flags_enabled), *user_flags]
 
     options = {
         "username": username,
@@ -911,9 +920,12 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         command = [arg for arg in command
                    if not (collector.fullmatch(arg) and arg != user_collector)
                    and not arg.startswith("-XX:G1")]
-    else:
+    elif default_jvm_flags_enabled:
         command = [arg for arg in command if not collector.fullmatch(arg)]
         command.insert(1, "-XX:+UseG1GC")
+    elif user_collector:
+        command = [arg for arg in command
+                   if not collector.fullmatch(arg) or arg == user_collector]
 
     # minecraft_launcher_lib 8.0's replace_arguments() does NOT know
     # ${clientid} / ${auth_xuid} (vanilla placeholders tied to Microsoft
@@ -1147,6 +1159,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
 
     command = build_launch_command(version_id, username, ram_mb, width, height,
                                    java_path, game_dir=game_dir,
+                                   default_jvm_flags_enabled=(cfg or {}).get("default_jvm_flags_enabled", True),
                                    custom_jvm_flags=(cfg or {}).get("custom_jvm_flags"))
 
     # Optional direct-connect arguments. Minecraft's client accepts these as

@@ -136,8 +136,10 @@
     } catch (error) {
       if (run !== revision) return;
       const code = String(error && error.message || '');
+      const waitMinutes = Math.ceil((error.retryAfter || 1800)/60);
       const provider = error.provider === 'groq' ? 'Groq' : error.provider === 'kilo' ? 'Kilo' : 'The AI provider';
       const reasons = {
+        ai_busy:'AI is busy right now. Try again shortly.',
         ai_not_configured:'AI is not configured on this server. The site owner needs to enable it for this deployment.',
         ai_credentials_invalid:provider + ' rejected the server’s API key. The site owner needs to check the server credential.',
         ai_quota_exhausted:provider + ' refused the request because account credits or quota are unavailable.',
@@ -149,6 +151,7 @@
         request_failed:'The AI endpoint could not be reached on this site. The site owner needs to check the deployment.'
       };
       status(/cancelled/i.test(code) ? 'Analysis stopped. The on-device instructions are still below.'
+        : code === 'rate_limited' && error.scope === 'visitor' ? 'You’ve used your 3 AI requests for this 30-minute window. Try again in ' + waitMinutes + ' minute' + (waitMinutes === 1 ? '' : 's') + '. On-device instructions are still available.'
         : /rate_limited/i.test(code) ? 'AI is busy. On-device instructions are below; try AI again later.'
         : Object.hasOwn(reasons,code) ? reasons[code] + ' On-device instructions are still below.'
         : 'AI is unavailable. On-device instructions are below; try AI again later.');
