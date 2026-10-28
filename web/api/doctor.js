@@ -1,9 +1,10 @@
-/* Vercel Node function. The browser never receives the Kilo credential. */
+/* Vercel Node function. Provider credentials stay on the server. */
 'use strict';
-const {createHash} = require('node:crypto');
+const {createHash,randomInt} = require('node:crypto');
 const D = require('../assets/doctor-core.js');
 const MODEL = 'kilo-auto/free';
 const GATEWAY = 'https://ai-gateway.kilo.ai/api/v1/chat/completions';
+const GROQ_GATEWAY = 'https://api.groq.com/openai/v1/chat/completions';
 const MAX_BODY = 300000;
 const windows = new Map();
 let inflight = 0;
@@ -68,7 +69,7 @@ async function providerJson(response) {
   } finally { await reader.cancel().catch(()=>{}); }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
-function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.now,timeout=45000,budget=52000}={}) {
+function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.now,timeout=45000,groqTimeout=15000,budget=52000,chooseModel=randomInt}={}) {
   return async function doctor(req,res) {
     if (req.method !== 'POST') { res.setHeader('Allow','POST'); return reply(res,405,{error:'method_not_allowed'}); }
     if (!permitted(req,env)) return reply(res,403,{error:'origin_not_allowed'});
@@ -79,8 +80,13 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
     if (!data || Array.isArray(data) || typeof data.log !== 'string' || !data.log.trim() || data.log.length > D.MAX_LOG ||
         (data.version !== undefined && (typeof data.version !== 'string' || data.version.length > 240))) return reply(res,400,{error:'invalid_report'});
     if (throttled(req,now())) { res.setHeader('Retry-After','60'); return reply(res,429,{error:'rate_limited'}); }
-    const apiKey = env.KILO_API_KEY;
-    if (!apiKey) return reply(res,503,{error:'ai_not_configured'});
+    const groqKey = (env.GROQ_API_KEY || '').trim();
+    const kiloKey = (env.KILO_API_KEY || '').trim();
+    if (!groqKey && !kiloKey) return reply(res,503,{error:'ai_not_configured'});
+    const attempts = [];
+    if (groqKey) attempts.push({provider:'groq',key:groqKey,url:GROQ_GATEWAY,
+      model:D.GROQ_MODELS[chooseModel(D.GROQ_MODELS.length)],limit:groqTimeout});
+    if (kiloKey) for (let retry=0;retry<2;retry++) attempts.push({provider:'kilo',key:kiloKey,url:GATEWAY,model:MODEL,limit:timeout});
     const log = D.excerpt(data.log), context = {version:D.redactLog(data.version || '')};
     const cancel = new AbortController();
     const onClose = () => { if (!res.writableEnded) cancel.abort(); };
@@ -88,19 +94,25 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
     inflight++;
     const deadline = Date.now() + budget;
     let failure = 'ai_provider_unavailable';
+    let failureProvider;
+    let upstreamRateLimited = false;
     try {
-      // Kilo manages free-model routing. Retry once for transient errors or
-      // an invalid guide; never substitute a paid model or accept client prompts.
-      for (let attempt=0; attempt<2; attempt++) {
+      // One random Groq model first. Any failure advances to Kilo's free
+      // router, with one transient/invalid-guide retry inside the shared budget.
+      for (const attempt of attempts) {
         const remaining = deadline - Date.now();
         if (remaining <= 0) break;
         try {
           const result = await D.withTimeout(async signal => {
-            const response = await fetcher(GATEWAY,{
-              method:'POST',headers:{Authorization:'Bearer ' + apiKey,'Content-Type':'application/json'},signal,
-              body:JSON.stringify({model:MODEL,messages:D.prompt(log,context),max_tokens:2600,stream:false})
+            const tokens = attempt.provider === 'groq' ? {max_completion_tokens:3500,response_format:{type:'json_object'}} : {max_tokens:2600};
+            const response = await fetcher(attempt.url,{
+              method:'POST',headers:{Authorization:'Bearer ' + attempt.key,'Content-Type':'application/json'},signal,
+              body:JSON.stringify({model:attempt.model,messages:D.prompt(log,context),...tokens,stream:false})
             });
-            if (!response.ok) throw Object.assign(new Error('provider_error'),{status:response.status});
+            if (!response.ok) {
+              await response.body?.cancel().catch(()=>{});
+              throw Object.assign(new Error('provider_error'),{status:response.status});
+            }
             let diagnosis;
             try {
               const body = await providerJson(response);
@@ -108,21 +120,26 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
             } catch (error) {
               throw Object.assign(new Error('invalid_guide'),{kind:'ai_bad_response'});
             }
-            diagnosis.model = 'Kilo auto/free';
+            diagnosis.provider = attempt.provider;
+            diagnosis.model = attempt.provider === 'groq' ? attempt.model : 'Kilo auto/free';
             return diagnosis;
-          },Math.min(timeout,remaining),cancel.signal);
+          },Math.min(attempt.limit,remaining),cancel.signal);
           if (!cancel.signal.aborted) return reply(res,200,result);
         } catch (error) {
           if (cancel.signal.aborted) return;
-          if (error.status === 429) { res.setHeader('Retry-After','60'); return reply(res,429,{error:'rate_limited'}); }
-          if ([401,403].includes(error.status)) return reply(res,503,{error:'ai_credentials_invalid'});
-          if (error.status === 402) return reply(res,503,{error:'ai_quota_exhausted'});
-          if (error.status === 400) return reply(res,503,{error:'ai_request_rejected'});
-          failure = error.message === 'request_timeout' ? 'ai_timeout' : error.kind || 'ai_provider_unavailable';
+          failureProvider = attempt.provider;
+          upstreamRateLimited = error.status === 429;
+          failure = upstreamRateLimited ? 'rate_limited' : [401,403].includes(error.status) ? 'ai_credentials_invalid' :
+            error.status === 402 ? 'ai_quota_exhausted' : [400,404,413].includes(error.status) ? 'ai_request_rejected' :
+            error.message === 'request_timeout' ? 'ai_timeout' : error.kind || 'ai_provider_unavailable';
+          // Groq authentication, quota and missing-model errors still fall
+          // back to Kilo. Retrying these on the same provider cannot help.
+          if (attempt.provider === 'kilo' && [400,401,402,403,404,413,429].includes(error.status)) break;
           // No provider error text or request contents are logged/returned.
         }
       }
-      return reply(res,503,{error:failure});
+      if (upstreamRateLimited) res.setHeader('Retry-After','60');
+      return reply(res,upstreamRateLimited ? 429 : 503,{error:failure,provider:failureProvider});
     } finally { inflight--; res.off?.('close',onClose); }
   };
 }

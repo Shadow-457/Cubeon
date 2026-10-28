@@ -6,6 +6,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const MAX_LOG = 64000;
+  const GROQ_MODELS = Object.freeze(['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b']);
   const AI_ERRORS = ['ai_not_configured','ai_credentials_invalid','ai_quota_exhausted',
     'ai_request_rejected','ai_timeout','ai_bad_response','ai_provider_unavailable','ai_unavailable','rate_limited'];
   const ACTIONS = {
@@ -369,18 +370,24 @@
     }), options.timeout || 55000, options.signal);
     if (!response.ok) {
       let code = response.status === 429 ? 'rate_limited' : response.status === 503 ? 'ai_unavailable' : 'request_failed';
+      let provider;
       try {
         const body = await response.json();
         if (body && AI_ERRORS.includes(body.error)) code = body.error;
+        if (body && ['groq','kilo'].includes(body.provider)) provider = body.provider;
       } catch (_) { /* Static/misrouted endpoints may return HTML. */ }
       const error = new Error(code);
       error.status = response.status;
+      // Provider identity is only an allowlisted display hint, never a client
+      // routing choice. Older deployments can omit it.
+      error.provider = provider;
       throw error;
     }
     const data = await response.json();
     const result = parseDiagnosis(JSON.stringify(data),excerpt(log));
-    result.model = 'Kilo auto/free';
+    result.provider = data.provider === 'groq' && GROQ_MODELS.includes(data.model) ? 'groq' : 'kilo';
+    result.model = result.provider === 'groq' ? data.model : 'Kilo auto/free';
     return result;
   }
-  return {MAX_LOG,ACTIONS,redactLog,excerpt,localDiagnosis,parseDiagnosis,prompt,withTimeout,analyzeViaEndpoint};
+  return {MAX_LOG,GROQ_MODELS,ACTIONS,redactLog,excerpt,localDiagnosis,parseDiagnosis,prompt,withTimeout,analyzeViaEndpoint};
 });

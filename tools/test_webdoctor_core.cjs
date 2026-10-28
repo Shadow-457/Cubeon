@@ -132,6 +132,10 @@ async function main() {
   };
   const result = await D.analyzeViaEndpoint(log,{version:'1.21'}, {fetch:fetcher});
   assert.equal(result.model,'Kilo auto/free');
+  for (const model of D.GROQ_MODELS) {
+    const groq=await D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:true,json:async()=>({...data,provider:'groq',model})})});
+    assert.equal(groq.provider,'groq');assert.equal(groq.model,model);
+  }
   assert.equal(calls[0].url,'/api/doctor');
   assert.equal(JSON.parse(calls[0].options.body).version,'1.21');
   assert.equal(calls[0].options.headers.Authorization,undefined);
@@ -141,6 +145,8 @@ async function main() {
     await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:503,json:async()=>({error:reason})})}),new RegExp(reason));
   }
   await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:503,json:async()=>({error:'secret-provider-text'})})}),/ai_unavailable/);
+  await assert.rejects(D.analyzeViaEndpoint(log,{}, {fetch:async()=>({ok:false,status:503,json:async()=>({error:'ai_credentials_invalid',provider:'groq'})})}),
+    error=>error.provider==='groq' && error.message==='ai_credentials_invalid');
   let aborted=false;
   await assert.rejects(D.withTimeout(signal=>new Promise(()=>signal.addEventListener('abort',()=>{aborted=true;})),10),/request_timeout/);
   assert.ok(aborted);

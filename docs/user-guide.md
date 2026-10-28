@@ -122,7 +122,7 @@ list. Mod names, dependencies and settings are named when the log identifies
 them. Apply one change at a time and test a fresh launch. Expand **See the error
 lines** for the evidence, or save the instructions as a `.md` file.
 
-AI uses Kilo’s `kilo-auto/free` router through Cubeon’s server. No visitor sign-in
+AI tries Groq first and falls back to Kilo’s `kilo-auto/free` router through Cubeon’s server. No visitor sign-in
 is needed. If AI is unavailable, on-device instructions remain available; you
 can also choose **Check on this device instead** in the log editor.
 That check covers common mod, Java, memory, config, archive, graphics and
@@ -132,7 +132,8 @@ If ownership is unclear, Doctor asks for the full loading error instead of
 guessing from a class or mixin filename. Missing dependencies get installation
 instructions, rather than a suggestion to disable them.
 Automated redaction cannot catch every private detail. AI shares the excerpt
-with Kilo and its selected free provider, which may retain or use it. Remove
+with Groq and, if its analysis fails, Kilo and its selected free provider. Their
+data policies apply; Kilo's free providers may retain or use it. Remove
 private information before uploading, or paste and review it in the editor.
 Large logs are shortened; the original file stays on disk. **Clear** removes the
 log and instructions from the page.

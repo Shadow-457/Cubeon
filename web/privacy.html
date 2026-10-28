@@ -6,7 +6,7 @@
 <title>Cubeon privacy - what we keep, and how to delete it</title>
 <meta name="description" content="Cubeon keeps as little as possible: the name you pick, your skins, your friends list, and your IP while connected. No email, no advertising, no tracking - and you can have it all deleted." />
 <meta property="og:title" content="Cubeon privacy" />
-<meta property="og:description" content="No advertising or analytics profiles. Optional crash diagnosis uses Kilo; learn how logs are handled." />
+<meta property="og:description" content="No advertising or analytics profiles. Optional crash diagnosis uses Groq and Kilo; learn how logs are handled." />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
 <meta property="og:image:width" content="1200" />
@@ -40,7 +40,7 @@
   <div class="wrap">
     <p class="crumbs"><a href="index.html">Home</a> / Privacy</p>
     <h1>Privacy</h1>
-    <p class="lede">Cubeon has no advertising or analytics profiles. Optional Doctor AI uses Kilo’s free model gateway; review the details below.</p>
+    <p class="lede">Cubeon has no advertising or analytics profiles. Optional Doctor AI uses Groq with Kilo as a fallback; review the details below.</p>
     <p class="updated">Last updated 28 October 2026</p>
   </div>
 </header>
@@ -58,7 +58,7 @@
   <h2>What we don't do</h2>
   <ul>
     <li>No advertising and no ad networks, here or in the app.</li>
-    <li>No analytics profiles or Cubeon tracking cookies. Optional Kilo AI requests are described below - see <a href="cookies.html">Cookies</a>. The one statistic this website keeps is the download counter: a shared running total of distinct visitors who downloaded. Our download server keeps a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored and the hash is not used for anything else.</li>
+    <li>No analytics profiles or Cubeon tracking cookies. Optional Doctor AI requests are described below - see <a href="cookies.html">Cookies</a>. The one statistic this website keeps is the download counter: a shared running total of distinct visitors who downloaded. Our download server keeps a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored and the hash is not used for anything else.</li>
     <li>No selling, renting or swapping your information with anybody.</li>
     <li>No emails, so no newsletters and nothing to unsubscribe from.</li>
     <li>No asking who you are: there's no age, name or address to hand over.</li>
@@ -69,8 +69,8 @@
 
   <h2 id="doctor">Website Doctor and optional AI</h2>
   <p>Choosing or dropping a log file starts AI analysis after reading and redacting it in your browser. Pasting a log does not send it until you choose Analyze log. Check on this device instead runs local diagnosis without sending a log to a server. A launcher handoff carries a compressed, redacted excerpt in a URL fragment, which the browser does not send to the website host. Doctor removes that fragment from the address bar when it opens. Browser and operating-system history or clipboard tools may still retain a copied link.</p>
-  <p>Common credentials, email addresses and user-folder names are redacted, but automated redaction cannot identify every private detail. Remove private details before uploading, or paste and review the editable preview before choosing Analyze log. Large logs are reduced to a tail excerpt; the original file remains on your device. Cubeon Doctor keeps the preview and results in page memory. Uploading a file or choosing Analyze log sends the excerpt to our diagnostic endpoint, which forwards it to Kilo without intentionally storing or logging the report.</p>
-  <p>Uploading a file or choosing Analyze log sends the redacted excerpt through Cubeon's server to Kilo's <code>kilo-auto/free</code> gateway and the free model provider it selects. A failed request may be retried once. You do not need a Kilo account: our credential stays on the server. Kilo and its providers apply their own terms, privacy policies and retention rules. Auto Free providers may record prompts and responses and use them to improve their services; do not submit personal or confidential data. See <a href="https://kilo.ai/privacy" target="_blank" rel="noopener">Kilo privacy</a> and <a href="https://kilo.ai/docs/gateway/models-and-providers" target="_blank" rel="noopener">Auto Free data handling</a>. Cubeon cannot delete data held by these providers; contact them for requests about their services.</p>
+  <p>Common credentials, email addresses and user-folder names are redacted, but automated redaction cannot identify every private detail. Remove private details before uploading, or paste and review the editable preview before choosing Analyze log. Large logs are reduced to a tail excerpt; the original file remains on your device. Cubeon Doctor keeps the preview and results in page memory. Uploading a file or choosing Analyze log sends the excerpt to our diagnostic endpoint, which forwards it to Groq first and Kilo if Groq fails, without intentionally storing or logging the report.</p>
+  <p>Uploading a file or choosing Analyze log sends the redacted excerpt through Cubeon's server to Groq first. Doctor randomly selects one of three configured Groq models. If the request fails or returns an unusable guide, Doctor sends the excerpt to Kilo's <code>kilo-auto/free</code> gateway and the free model provider it selects. Kilo may be retried once within the same time limit. You do not need a provider account: our credentials stay on the server. Groq, Kilo and its providers apply their own terms, privacy policies and retention rules. See <a href="https://groq.com/privacy-policy/" target="_blank" rel="noopener">Groq privacy</a>. Auto Free providers may record prompts and responses and use them to improve their services; do not submit personal or confidential data. See <a href="https://kilo.ai/privacy" target="_blank" rel="noopener">Kilo privacy</a> and <a href="https://kilo.ai/docs/gateway/models-and-providers" target="_blank" rel="noopener">Auto Free data handling</a>. Cubeon cannot delete data held by these providers; contact them for requests about their services.</p>
   <p>The endpoint uses short-lived, one-way address hashes in server memory to limit repeated requests. Hosting providers may keep ordinary access metadata such as request time and address under their own retention policies. Doctor does not intentionally store report bodies or record them in application logs.</p>
   <p>Clear removes the log and guide from the page. Reloading also clears them. Saving a guide creates a local Markdown file containing the cited evidence and suggested steps.</p>
 

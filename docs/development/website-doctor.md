@@ -25,20 +25,26 @@ bounded, and informational/optional dependency warnings do not trigger fixes.
 projects rooted at `web/` discover the handler directly. Both Vercel configs set
 a 60-second function budget. A plain static server supports local checks only.
 
-Set **KILO_API_KEY** as a server environment secret in the Vercel project for
+Set **GROQ_API_KEY** and **KILO_API_KEY** as server environment secrets in the Vercel project for
 each intended environment. For local Vercel development, use an ignored `.env`
 or `.env.local` in the project root (`web/.env.example` shows the variable).
 Run `vercel dev` with `web/` as the local project root. Do not copy a key into
 HTML, browser JavaScript, a public environment variable or committed source.
 Publishing requires separate authorization.
 
-The server pins **`kilo-auto/free`** at
-`https://ai-gateway.kilo.ai/api/v1/chat/completions`. Kilo selects the underlying
-free model; the application never accepts a client-selected model or prompt.
-There are at most two attempts, each bounded to 45 seconds within a shared
-52-second budget, for temporary failures or an invalid result. Authentication,
-balance, policy and quota errors
-stop immediately. The client retains its local guide on failure and can cancel
+The server tries Groq first at `https://api.groq.com/openai/v1/chat/completions`.
+Each analysis uses `crypto.randomInt` to select uniformly from
+`openai/gpt-oss-120b`, `openai/gpt-oss-20b`, and `qwen/qwen3.8-27b`.
+The Groq attempt has a 15-second limit. Any failure, including invalid output,
+authentication, quota or a missing model, advances to Kilo's **`kilo-auto/free`**
+router at `https://ai-gateway.kilo.ai/api/v1/chat/completions`.
+Kilo gets up to two attempts, bounded to 45 seconds each and the remaining
+shared 52-second budget. Terminal Kilo authentication/request/quota errors stop
+its retry. Missing Groq configuration skips directly to Kilo; Groq alone can
+also serve a request, but both secrets are needed for the complete fallback.
+The application never accepts a client-selected provider, model or prompt.
+Both providers use the same evidence and safe-instruction validator. The
+client preserves the actual selected provider/model. It retains its local guide on failure and can cancel
 the request. Provider computation may continue after a disconnected client.
 
 The endpoint returns bounded failure codes distinguishing missing server
@@ -46,7 +52,7 @@ configuration, rejected credentials, unavailable credits/quota, rejected
 requests, timeouts, invalid guides and upstream failures. It never returns the
 provider's raw error text. The page explains those reasons while preserving
 the on-device guide. An ignored local `.env` does not configure production:
-set `KILO_API_KEY` in the hosting project's Production environment and redeploy
+set both provider secrets in the hosting project's Production environment and redeploy
 for the new environment values and error messages to take effect.
 
 Log bodies and model output are bounded; only supported guide actions and
@@ -81,5 +87,7 @@ The browser check needs Playwright and installed Chromium; optionally set
 `CUBEON_TEST_CHROMIUM`. It intercepts all network requests. Captures go under
 `archive/ui-captures/`. The launcher suite invokes Node core and endpoint checks.
 An opt-in `node tools/test_webdoctor_live.cjs` loads the local `.env` and sends
-one synthetic memory error to Kilo through the actual handler, without printing
+one synthetic memory error through the actual handler, without printing
 credentials or using personal logs.
+`node tools/test_webdoctor_live.cjs --groq-models` verifies each Groq model
+without hiding failures behind Kilo. Live checks are opt-in and use synthetic logs.

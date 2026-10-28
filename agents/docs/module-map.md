@@ -532,8 +532,11 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 ## Releases and hosted services
 
 - Website Doctor lives in `web/doctor.html`, with shared rules/evidence validation in
-  `web/assets/doctor-core.js` and a server-only Kilo `kilo-auto/free` endpoint in `web/api/doctor.js`
-  (root `api/doctor.js` wrapper). Set `KILO_API_KEY` in hosting secrets, never browser code.
+  `web/assets/doctor-core.js` and a server-only Groq → Kilo endpoint in `web/api/doctor.js`
+  (root `api/doctor.js` wrapper). Set `GROQ_API_KEY` and `KILO_API_KEY` in hosting secrets, never browser code.
+  Each request picks uniformly from `D.GROQ_MODELS`, with one 15s Groq attempt, then up to two
+  Kilo `kilo-auto/free` attempts inside a shared 52s deadline. Any Groq failure advances to Kilo;
+  terminal Kilo errors stop its retry. Missing Groq configuration keeps Kilo-only deployments working.
   File upload starts AI; paste requires Analyze. Launcher `/doctor#report=` transfers are redacted,
   compressed and consumed before requests, and stay local until Analyze. Instructions render as a
   safe Markdown subset, with no raw HTML or mock UI. Quotas/failures retain the on-device result.
