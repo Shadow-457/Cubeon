@@ -464,6 +464,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # a passive check never disables or replaces an existing mod.
     repair_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             font_family=FONT_MONO, visible=False)
+    repair_details = ft.Text("", size=12, color=TEXT_DIM, visible=False,
+                             data="mods-repair-details")
     repair_lock = threading.Lock()
     AUTO_CHECK_SECONDS = 15 * 60
     auto_check_state = {"last": {}}
@@ -473,7 +475,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             repair_status.value = i18n.t(text)
             repair_status.visible = bool(text)
             repair_status.tooltip = detail
+            repair_details.value = detail or ""
+            repair_details.visible = bool(detail)
             thread_safe_ui.refresh(repair_status)
+            thread_safe_ui.refresh(repair_details)
 
     def _repair_sections():
         return ["mods"] if _is_mod() else ["shaders" if _ct() == "shader" else "resourcepacks"]
@@ -502,15 +507,23 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     version_id=version_id, include=sections)
                 fixed = len((report or {}).get("fixed") or [])
                 unresolved = (report or {}).get("unfixed") or []
-                detail = "\n".join(str(p.get("detail") or p.get("reason") or p)
-                                   for p in unresolved[:8])
+                # Mod names are a separate report field; detail alone used to
+                # leave users with "requires X" and no mod to find in Installed.
+                # Explicit repairs also show exactly what changed, inline.
+                problems = unresolved + (list((report or {}).get("fixed") or []) if explicit else [])
+                detail = "\n".join(
+                    f"{p.get('item') or p.get('mod') or 'Content'}: "
+                    f"{(p.get('fix') if p.get('fixed') else None) or p.get('detail') or p.get('reason') or 'Needs attention'}"
+                    for p in problems[:8])
+                if len(problems) > 8:
+                    detail += f"\n{len(problems) - 8} more results; check the marked Installed rows."
                 if version_dropdown.value == version_id and _repair_sections() == sections:
                     if fixed:
                         refresh_mods_list()
                     if unresolved:
                         _set_repair_status(f"Fixed {fixed}; {len(unresolved)} need attention", detail)
                     elif fixed:
-                        _set_repair_status(f"Fixed {fixed} problem{'s' if fixed != 1 else ''}")
+                        _set_repair_status(f"Fixed {fixed} problem{'s' if fixed != 1 else ''}", detail)
                     else:
                         _set_repair_status("No problems found")
             except Exception as error:
@@ -2545,6 +2558,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 [section_label(i18n.t("Installed")), ft.Container(expand=True),
                  check_repair_btn, repair_status, installed_count_text],
                 spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            repair_details,
             installed_status,
             installed_filter_field,
             mods_list_view,

@@ -139,9 +139,9 @@
 
       <div class="docs-section" id="manual">
         <h2>Adding a jar by hand</h2>
-        <p>Some mods are only published as a file. You can drop the jar into the shared mods folder and Cubeon will use it:</p>
+        <p>Some mods are only published as a file. Put the jar in the folder the game reads for the instance you are about to launch:</p>
         <pre><code>~/.cubeon_minecraft/mods/</code></pre>
-        <p>On Windows that is <code>%USERPROFILE%\.cubeon_minecraft\mods\</code>. Close Minecraft first.</p>
+        <p>On Windows that is <code>%USERPROFILE%\.cubeon_minecraft\mods\</code>. Close Minecraft first. Cubeon rebuilds that folder at each launch from the instance you selected, so a jar you drop in is picked up for that instance and remembered as yours.</p>
         <p>Two things Cubeon does for you here, and one it cannot:</p>
         <ul>
           <li><strong>Your jars are yours.</strong> Cubeon only removes jars it installed itself. Anything else stays where it is; if a launcher-managed change needs the space, your jar is moved to <code>mods_user_backup/</code>, never deleted.</li>

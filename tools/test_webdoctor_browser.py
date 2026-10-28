@@ -44,6 +44,7 @@ def main():
                 body = request.request.post_data_json; ai_calls.append(body)
                 assert 'model' not in body and 'messages' not in body
                 if ai_mode[0] == 'fail': request.fulfill(status=503,body='{}',content_type='application/json')
+                elif ai_mode[0].startswith('ai_'): request.fulfill(status=503,body=json.dumps({'error':ai_mode[0]}),content_type='application/json')
                 else: request.fulfill(body=json.dumps(guide(body['log'])),content_type='application/json')
                 return
             path = urlsplit(url).path.lstrip('/')
@@ -95,6 +96,18 @@ def main():
         assert len(ai_calls[-1]['log'])<=64000
         print('PASS automatic upload analysis, local fallback, size/type bounds and precise flags')
 
+        for reason, message in [('ai_not_configured','not configured on this server'),
+                                ('ai_credentials_invalid','rejected the server’s API key'),
+                                ('ai_quota_exhausted','credits or quota'),
+                                ('ai_timeout','time limit'),
+                                ('ai_bad_response','reliable repair instructions')]:
+            ai_mode[0]=reason
+            page.locator('#ai-check').click()
+            expect(page.locator('#doctor-status')).to_contain_text(message)
+            expect(page.locator('#doctor-status')).to_contain_text('On-device instructions')
+            expect(page.locator('#result-source')).to_have_text('On-device check')
+        print('PASS distinct configuration, credential, quota, timeout and invalid-response messages')
+
         ai_mode[0]='ok'
         page.locator('#log-text').fill('java.lang.OutOfMemoryError: Java heap space')
         page.locator('#ai-check').click()
@@ -130,6 +143,20 @@ def main():
         assert page.locator('#log-text').input_value()==''
         expect(page.locator('#log-text')).to_be_hidden()
         print('PASS cancellation, editing during analysis and clearing')
+
+        page.locator('#log-editor summary').click()
+        page.locator('#log-text').fill("[main/INFO]: Loading innocentmod 1.0\nMixin apply for mod iris failed iris.mixins.json:GameRendererMixin\nCaused by: NoSuchMethodError: net.minecraft.GameRenderer.render()")
+        page.locator('#local-check').click()
+        expect(page.locator('#result-cause')).to_contain_text('iris')
+        expect(page.locator('#guide-steps')).to_contain_text('Switch off iris')
+        expect(page.locator('#guide-steps')).to_contain_text('re-enable')
+        expect(page.locator('#guide-steps')).not_to_contain_text('innocentmod')
+        expect(page.locator('#guide-steps strong')).to_contain_text(['Settings', 'Mods', 'iris', 'Play'])
+        page.locator('#log-text').fill('MixinApplyError: mixins.widgets.json:ExampleMixin')
+        page.locator('#local-check').click()
+        expect(page.locator('#guide-steps')).to_contain_text('no confirmed mod to disable')
+        expect(page.locator('#guide-steps code')).to_have_text('mixins.widgets.json')
+        print('PASS on-device named mod switch instructions and ambiguous mixin ownership')
 
         page.goto('https://cubeon.test/doctor#report=bad!')
         expect(page.locator('#doctor-status')).to_contain_text('could not be opened')

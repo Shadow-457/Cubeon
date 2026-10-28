@@ -136,8 +136,20 @@
     } catch (error) {
       if (run !== revision) return;
       const code = String(error && error.message || '');
+      const reasons = {
+        ai_not_configured:'AI is not configured on this server. The site owner needs to enable it for this deployment.',
+        ai_credentials_invalid:'Kilo rejected the server’s API key. The site owner needs to check the server credential.',
+        ai_quota_exhausted:'Kilo refused the request because account credits or quota are unavailable.',
+        ai_request_rejected:'Kilo rejected Doctor’s request. The site owner needs to check the AI integration.',
+        ai_timeout:'Kilo did not finish within the time limit. Try AI again later.',
+        request_timeout:'The AI request timed out. Try AI again later.',
+        ai_bad_response:'Kilo’s response could not be turned into reliable repair instructions. Try AI again later.',
+        ai_provider_unavailable:'Kilo’s service could not complete the request. Try AI again later.',
+        request_failed:'The AI endpoint could not be reached on this site. The site owner needs to check the deployment.'
+      };
       status(/cancelled/i.test(code) ? 'Analysis stopped. The on-device instructions are still below.'
         : /rate_limited/i.test(code) ? 'AI is busy. On-device instructions are below; try AI again later.'
+        : Object.hasOwn(reasons,code) ? reasons[code] + ' On-device instructions are still below.'
         : 'AI is unavailable. On-device instructions are below; try AI again later.');
       revealResult();
     } finally {

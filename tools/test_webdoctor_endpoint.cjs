@@ -34,18 +34,29 @@ async function main() {
   assert.equal((await call(handler,req('not json'))).statusCode,400);
   assert.equal((await call(handler,req({log},{'content-length':'400000'}))).statusCode,413);
   assert.equal((await call(handler,req({log:''}))).statusCode,400);
-  assert.equal((await call(createHandler({env:{}}))).statusCode,503);
-  for(const code of [401,402,403,429]) {
+  const missingKey = await call(createHandler({env:{}}));
+  assert.equal(missingKey.statusCode,503);
+  assert.equal(missingKey.body.error,'ai_not_configured');
+  const failures = {400:'ai_request_rejected',401:'ai_credentials_invalid',402:'ai_quota_exhausted',403:'ai_credentials_invalid',429:'rate_limited',502:'ai_provider_unavailable'};
+  for(const [status,reason] of Object.entries(failures)) {
+    const code = Number(status);
     let count=0;
     const fail=createHandler({env:{KILO_API_KEY:'test'},fetch:async()=>{count++;return new Response('{}',{status:code});}});
-    assert.equal((await call(fail)).statusCode,code===429?429:503);assert.equal(count,1);
+    const result = await call(fail);
+    assert.equal(result.statusCode,code===429?429:503);
+    assert.equal(result.body.error,reason);
+    assert.equal(count,code===502?2:1);
   }
   let count=0;
   const invalid=createHandler({env:{KILO_API_KEY:'test'},fetch:async()=>{count++;return Response.json({choices:[{message:{content:JSON.stringify({...guide,evidence:['invented']})}}]});}});
-  assert.equal((await call(invalid)).statusCode,503);assert.equal(count,2);
+  const invalidResponse = await call(invalid);
+  assert.equal(invalidResponse.statusCode,503);assert.equal(count,2);
+  assert.equal(invalidResponse.body.error,'ai_bad_response');
   let aborted=0;
   const slow=createHandler({env:{KILO_API_KEY:'test'},timeout:10,fetch:async(url,{signal})=>new Promise(()=>signal.addEventListener('abort',()=>aborted++))});
-  assert.equal((await call(slow)).statusCode,503);assert.equal(aborted,2);
+  const timedOut = await call(slow);
+  assert.equal(timedOut.statusCode,503);assert.equal(aborted,2);
+  assert.equal(timedOut.body.error,'ai_timeout');
   const limited=createHandler({env:{KILO_API_KEY:'test'},now:()=>100,fetch:async()=>Response.json({choices:[{message:{content:JSON.stringify(guide)}}]})});
   const fixed=req({log},{'x-vercel-forwarded-for':'rate-test'});
   for(let i=0;i<5;i++) assert.equal((await call(limited,fixed)).statusCode,200);

@@ -701,7 +701,9 @@ html.js .sign .dl .switch{gap:4px 14px;margin:0}
 .docs-divider{border:none;border-top:2px solid var(--line);margin:0 0 44px}
 /* paths and commands inside a guide: a small block, not coloured syntax */
 .docs-main code,.prose code{font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;font-size:13.5px;color:var(--ink);background:var(--paper);border:2px solid var(--line);padding:1px 6px}
-.docs-main pre{margin:0 0 18px;background:var(--paper);border:2px solid var(--line);padding:14px 16px;overflow-x:auto;max-width:70ch}
+/* A long path in a narrow window must scroll INSIDE the block, not widen the
+   page (70ch of monospace is ~590 px, which is wider than a phone). */
+.docs-main pre{margin:0 0 18px;background:var(--paper);border:2px solid var(--line);padding:14px 16px;overflow-x:auto;max-width:min(70ch,100%)}
 .docs-main pre code{border:none;padding:0;font-size:13px;line-height:1.7}
 /* symptom -> fix table */
 .docs-table-wrap{overflow-x:auto;margin:16px 0 24px}

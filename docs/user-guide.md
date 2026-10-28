@@ -97,7 +97,8 @@ views. It checks duplicate jars, required dependencies, loader/version compatibi
 declared Fabric conflicts, and supported pack structure issues. Clicking the button
 authorizes reversible repairs, including fetching missing dependencies and renaming
 incompatible or duplicate jars to disabled backups. Re-enable those jars in Installed.
-The result appears beside the button; hover it for details of unresolved issues.
+The result appears beside the button. Named details below it show unresolved
+issues and, after an explicit repair, which mods changed and how.
 
 Automatic checks stay local and quiet: no approval or result windows. They leave
 existing mods enabled unless you explicitly request repair. Install-time checks can
@@ -124,6 +125,12 @@ lines** for the evidence, or save the instructions as a `.md` file.
 AI uses Kilo’s `kilo-auto/free` router through Cubeon’s server. No visitor sign-in
 is needed. If AI is unavailable, on-device instructions remain available; you
 can also choose **Check on this device instead** in the log editor.
+That check covers common mod, Java, memory, config, archive, graphics and
+connection failures. When the error identifies a mod, the instructions name
+it and explain how to disable it for one test and re-enable it if needed.
+If ownership is unclear, Doctor asks for the full loading error instead of
+guessing from a class or mixin filename. Missing dependencies get installation
+instructions, rather than a suggestion to disable them.
 Automated redaction cannot catch every private detail. AI shares the excerpt
 with Kilo and its selected free provider, which may retain or use it. Remove
 private information before uploading, or paste and review it in the editor.

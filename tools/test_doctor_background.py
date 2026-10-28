@@ -28,7 +28,7 @@ class BackgroundDoctorTests(unittest.TestCase):
         state = {'selected_mc_version':'1.21.1', 'mod_loader':'fabric'}
         def doctor(*a, **kw):
             calls.append(kw)
-            return {'fixed': [], 'unfixed': [{'detail':'Needs Fabric API'}]}
+            return {'fixed': [], 'unfixed': [{'mod':'Example Mod', 'detail':'Needs Fabric API'}]}
         scope = dict(state=state, version_dropdown=types.SimpleNamespace(value='instance'),
                      check_repair_btn=types.SimpleNamespace(disabled=False),
                      repair_lock=threading.Lock(), auto_check_state={'last':{}},
@@ -48,6 +48,7 @@ class BackgroundDoctorTests(unittest.TestCase):
         self.assertIsNone(calls[-1]['approve_cb'])
         self.assertFalse(calls[-1]['check_online'])
         self.assertIn('need attention', statuses[-1][0])
+        self.assertIn('Example Mod: Needs Fabric API', statuses[-1][1])
         scope['run_mod_repair']()
         scope['run_mod_repair']()
         self.assertEqual(len(jobs), 1)
@@ -58,9 +59,35 @@ class BackgroundDoctorTests(unittest.TestCase):
         self.assertTrue(calls[-1]['check_online'])
         self.assertEqual(calls[-1]['include'], ['mods'])
         self.assertFalse(scope['check_repair_btn'].disabled)
+        scope['core'].run_doctor = lambda *a, **kw: {
+            'fixed':[{'mod':'Sodium', 'fixed':True, 'fix':'turned off duplicate sodium-older.jar'}],
+            'unfixed':[]}
+        scope['run_mod_repair']()
+        jobs.pop()()
+        self.assertIn('Sodium: turned off duplicate sodium-older.jar', statuses[-1][1])
         state['running_version'] = 'instance'
         scope['run_mod_repair']()
         self.assertFalse(jobs)
+
+    def test_named_results_are_visible_inline(self):
+        # Run the actual UI mutation closure, rather than just checking tooltip
+        # strings, and verify both regions repaint without opening a dialog.
+        source = (Path(__file__).resolve().parents[1] / 'ui/mods_tab.py').read_text()
+        setter = next(n for n in ast.walk(ast.parse(source))
+                      if isinstance(n, ast.FunctionDef) and n.name == '_set_repair_status')
+        status = types.SimpleNamespace(value='', visible=False, tooltip=None)
+        details = types.SimpleNamespace(value='', visible=False)
+        refreshed = []
+        scope = dict(repair_status=status, repair_details=details, i18n=i18n,
+                     thread_safe_ui=types.SimpleNamespace(TREE_LOCK=threading.RLock(), refresh=refreshed.append))
+        exec(compile(ast.Module(body=[setter], type_ignores=[]), '<doctor result>', 'exec'), scope)
+        scope['_set_repair_status']('Fixed 1; 1 need attention', 'Sodium: needs Fabric API')
+        self.assertTrue(details.visible)
+        self.assertEqual(details.value, 'Sodium: needs Fabric API')
+        self.assertEqual(refreshed, [status, details])
+        scope['_set_repair_status']('Checking…')
+        self.assertFalse(details.visible)
+        self.assertEqual(details.value, '')
 
     def test_arabic_launcher_build_and_picker_save(self):
         import os

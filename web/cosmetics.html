@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cubeon skins, capes and cosmetics - and why a skin won't show</title>
+<meta name="description" content="Upload a skin or cape, see who can actually see it, fix a skin that will not appear in game, and use the Cubeon Client HUD and zoom." />
+<meta property="og:title" content="Skins, capes and cosmetics in Cubeon" />
+<meta property="og:description" content="Upload, preview, and the honest list of reasons a custom skin does not show up in game." />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon launcher shown over a Minecraft world: a version picker, an account name and a big green Play button." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="assets/icon.svg" />
+<link rel="stylesheet" href="assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="download.html">Download</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="doctor.html">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="download.html">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Skins &amp; cosmetics</p>
+      <h1>Skins, capes and cosmetics</h1>
+      <p class="lede">Your skin is a file, your cape is shared with Cubeon players, and the things on your shoulders are drawn by Cubeon's own client. Here is what each one does - and why a skin sometimes does not appear.</p>
+      <p class="updated">Updated 28 October 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">Guides</span>
+          <a class="docs-nav-link" href="docs.html">All guides</a>
+          <a class="docs-nav-link" href="getting-started.html">Getting started</a>
+          <a class="docs-nav-link" href="mods.html">Mods &amp; content</a>
+          <a class="docs-nav-link" href="modpacks.html">Modpacks</a>
+          <a class="docs-nav-link" href="multiplayer.html">Playing together</a>
+          <a class="docs-nav-link" href="cosmetics.html" aria-current="page">Skins &amp; cosmetics</a>
+          <a class="docs-nav-link" href="troubleshooting.html">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="files.html">Files &amp; backups</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">On this page</span>
+          <a class="docs-nav-link" href="#skins">Uploading a skin</a>
+          <a class="docs-nav-link" href="#who-sees">Who can see it</a>
+          <a class="docs-nav-link" href="#capes">Capes</a>
+          <a class="docs-nav-link" href="#items">Shoulder and back items</a>
+          <a class="docs-nav-link" href="#not-showing">Skin not showing</a>
+          <a class="docs-nav-link" href="#hud">HUD and zoom</a>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="docs-main">
+
+      <div class="docs-section" id="skins">
+        <span class="docs-section-eyebrow">Cosmetics</span>
+        <h2>Uploading a skin</h2>
+        <ol>
+          <li>Open <strong>Cosmetics</strong> and find the <strong>Your Skins</strong> section.</li>
+          <li>Upload a skin file. It must be a PNG in the standard Minecraft layout: <strong>64&times;64</strong>, or the older <strong>64&times;32</strong> format.</li>
+          <li>The 3D preview updates with the real pixels from your file. Drag it to turn the model around before you commit.</li>
+          <li>Pick <strong>Use</strong> on the card to make it active. Everything you upload stays in your library, so switching back is one click.</li>
+        </ol>
+        <p>Cubeon reads the arm width from the image, so a slim (Alex-style) skin renders with slim arms without you choosing a model. A skin exported in the wrong model looks stretched rather than broken - that is a re-export, not a launcher fault.</p>
+        <p>Choosing <strong>None</strong> puts you back on Minecraft's own default model. That is a normal choice, not a failure: the preview shows Steve or Alex because that is exactly what the game will show.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="who-sees">
+        <h2>Who can see it</h2>
+        <p>This is the part that causes most "my skin is broken" messages, so it is worth being precise:</p>
+        <ul>
+          <li><strong>You, in game.</strong> Minecraft cannot fetch a skin for an offline name, so Cubeon installs a skin loader into the instance you launch. That is what makes your own skin appear. It needs a modded instance - vanilla cannot load it.</li>
+          <li><strong>Other Cubeon players.</strong> Your skin is also published to Cubeon's skin service, and Cubeon's client reads it from there. Two Cubeon players with skin support see each other's skins.</li>
+          <li><strong>Everyone else.</strong> A player on vanilla, on another launcher, or on a server that overrides skins sees the default model. There is no way around this: it is the price of playing without a Microsoft account.</li>
+          <li><strong>Your cape</strong> is served to every Cubeon player, which is why the launcher describes it as the part other people see. See <a href="#capes">Capes</a>.</li>
+        </ul>
+        <div class="note">
+          <b>First launch after uploading</b>
+          <p>Skin support is installed the next time you press Play on a modded instance. If the upload is minutes old and the game was already open, close the game and start it again.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="capes">
+        <h2>Capes</h2>
+        <p>Capes live in the same place as skins, in their own section. Upload a cape PNG (the standard cape layout) and pick it the same way.</p>
+        <ul>
+          <li>With nothing selected you wear the default Cubeon cape, so you are not left blank.</li>
+          <li><strong>None</strong> hides the cape entirely - including the default one. That is deliberate, and it is the only way to truly remove it.</li>
+          <li>Capes are visible to other Cubeon players. Like skins, they are invisible to a vanilla client.</li>
+        </ul>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="items">
+        <h2>Shoulder and back items</h2>
+        <p>The catalogue of shoulder and back items is Cubeon's own artwork. Pick one, drag the preview to check how it sits on the model, and it applies the next time you play.</p>
+        <ul>
+          <li>They are drawn by Cubeon Client, so the instance has to be running it - a modded instance.</li>
+          <li>They are local: they are your view of your character. Other players do not get a copy, and a vanilla client certainly does not.</li>
+          <li>The choice is stored per instance, so a pack can keep a different item from your vanilla world. If a selection seems to have vanished, check which instance you are launching.</li>
+          <li>An item that no longer exists simply does not draw. It never crashes the game.</li>
+        </ul>
+        <p>Cosmetics are a launcher feature, not a mod you install. If Cubeon Client is missing from an instance, everything else still works - you just do not see the item.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="not-showing">
+        <h2>Skin not showing</h2>
+        <p>Work down this list; it is ordered by how often each one is the answer.</p>
+        <ol>
+          <li><strong>You are launching a vanilla instance.</strong> Vanilla Minecraft cannot show a custom skin for an offline name. Switch the instance's loader to Fabric, Quilt, Forge or NeoForge, then press Play once so skin support installs.</li>
+          <li><strong>The game was already running.</strong> Skin support and cosmetic changes land on launch. Quit Minecraft completely and start it again - leaving the title screen does not count.</li>
+          <li><strong>The file is not a valid skin.</strong> It has to be a PNG in the 64&times;64 or 64&times;32 layout. A screenshot, a JPEG renamed to <code>.png</code>, or a resized image previews wrong or not at all. Re-export it from an editor.</li>
+          <li><strong>Slim and classic are swapped.</strong> Arms look doubled or stretched when the model does not match the file. Re-export with the model your skin was drawn for.</li>
+          <li><strong>You are looking for it on someone else's screen.</strong> Only Cubeon players see a Cubeon skin. Ask a friend who is also on Cubeon; a vanilla player will always see Steve or Alex.</li>
+          <li><strong>You are on a server with its own skin system.</strong> A server-side skin plugin wins over the launcher's file. Nothing in the launcher can override that.</li>
+          <li><strong>A friend sees an old version.</strong> Their launcher or game cached the previous skin. They should reopen Cubeon, or rejoin the server after you change it.</li>
+          <li><strong>You selected "None" at some point.</strong> The launcher writes the default model on purpose. Pick your skin card again and press Use.</li>
+          <li><strong>You tried a pack that replaced the skin mods.</strong> Installing a modpack can change what is installed for that instance. Press Play once so Cubeon installs what it needs, or use <a href="mods.html#repair">Check &amp; repair</a> in Installed.</li>
+        </ol>
+        <p>If none of that fits, it is usually the network side: the skin service needs to be reachable when you launch. It sorts itself out on a later launch, and it never stops you from playing.</p>
+        <div class="note tip">
+          <b>Do not reinstall the launcher for this</b>
+          <p>Reinstalling does not touch skin support; the app is not the part that is missing. The launcher's own status line above your skin library says which of these three situations you are in: no loader, support installs on next Play, or working.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="hud">
+        <h2>HUD and zoom</h2>
+        <p>Cubeon Client adds its own on-screen widgets and is installed into modded instances automatically.</p>
+        <ul>
+          <li>Press <strong>K</strong> in game to open the Cubeon Client menu.</li>
+          <li>Every overlay - FPS, keystrokes, armour, ping, CPS - has its own <strong>Move</strong> and <strong>Size</strong> controls, so making the keystrokes bigger does not resize the FPS counter. <strong>Reset Positions &amp; Sizes</strong> puts everything back.</li>
+          <li>The armour overlay shows the four worn pieces only - helmet, chestplate, leggings, boots. The held item is already on your hotbar.</li>
+          <li>Hold <strong>Z</strong> and scroll the mouse wheel to zoom smoothly; release to snap back. Rebinding is under <strong>Controls</strong> &gt; <strong>Key Binds</strong> &gt; <strong>Cubeon Client</strong>.</li>
+        </ul>
+        <p>Zoom is available on Minecraft 1.20 to 1.21.11. The 26.x releases moved the camera field of view to a different system and do not have it yet - the rest of the HUD still works there.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="next">
+        <h2>Next</h2>
+        <div class="docs-guide-links">
+          <a href="multiplayer.html">Play with friends</a>
+          <a href="mods.html">Mods and loaders</a>
+          <a href="troubleshooting.html">Something crashed</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="index.html">Home</a>
+        <a href="download.html">Download</a>
+        <a href="docs.html">Docs</a>
+        <a href="doctor.html">Doctor</a>
+      <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="refunds.html">Refunds</a>
+        <a href="cookies.html">Cookies</a>
+        <a href="licenses.html">Credits</a>
+        <a href="privacy.html#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+<script src="assets/world.js" defer></script>
+</body>
+</html>

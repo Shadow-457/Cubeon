@@ -204,7 +204,7 @@ consistent with the shared `THEME` contract.
 - `custom_jvm_flags` tokens go before the main class; a bare token becomes the main class
   (`ClassNotFoundException: 他他他`, 2026-10-25). `_parse_custom_jvm_flags` drops non-option tokens (keeping
   separate values of `--add-opens`-style options), and the doctor's `launch` section clears bad flags/a
-  dead `java_path`; Fix crash reloads `cfg` after repair.
+  dead `java_path`.
 - Mod discovery has explicit compatible/all-Modrinth scope; broadened searches and direct project links
   never bypass install-time version/loader validation. Related-name fallback is labeled and stays on the
   same query across pages. The project detail dialog still lists builds for other game versions/loaders as
@@ -219,7 +219,9 @@ consistent with the shared `THEME` contract.
   content or waits on a question. Selecting an instance starts no scan; the doctor can never block a launch.
 - Doctor runs without repair windows: Installed's "Check & repair" starts a scoped worker and the click
   authorizes reversible changes; passive checks use `check_online=False` and no approver, and install
-  checks use no approver. Old jars are renamed, never deleted. Results stay inline, and a failed or
+  checks use no approver. Old jars are renamed, never deleted. Results stay inline; `repair_details`
+  below the Installed header preserves each report's `item`/`mod` name and shows explicit fixes.
+  A failed or
   incomplete scan must never say "No problems found". Verified jars skip online checks; unavailable
   verification is one advisory, never a per-mod disable. The incompatible check is LOCAL (the jar's own
   `fabric.mod.json`), so a missing Modrinth release disables nothing.
@@ -351,12 +353,15 @@ consistent with the shared `THEME` contract.
 - `build_launch_command` honours a `-XX:+Use*GC` collector from the player's custom JVM flags: no
   forced G1 and no `-XX:G1*` tuning in that case. Default (no user collector) still gets exactly one
   `-XX:+UseG1GC` plus tuning.
-- Play has no permanent Fix crash button. The actual crash report's repair action runs
-  `crash.diagnose_and_fix` on a worker without opening a second dialog; `fixing_mods` prevents a
-  concurrent launch, and repaired Java/RAM settings are reloaded into the live config.
+- Play and crash reports have no Fix crash action. Crash reports expose Doctor, Copy log,
+  Discord and Close. Local dependency/conflict repair lives in Mods → Installed's Check & repair.
 - `i18n.py` owns language order, `ui_language`, locale detection and reading direction (`page.rtl`);
   `cubeon/lang/*.py` tables use English strings as keys and fall back to English. Changes apply after
   restart. Every PyInstaller build must collect `cubeon.lang` because tables import dynamically.
+  Settings uses `_language_picker`: a full-width inline list searchable by native/English name or
+  code, with a pending Restart button wired to `main._on_restart_click`. Failed saves roll back.
+  Picker script fonts are bundled in `theme.FONT_URLS`; CJK glyphs are regenerated with
+  `tools/subset_language_font.py` from Noto Sans CJK SC. Licenses live in `assets/fonts/Noto-LICENSE.txt`.
 - Settings' Java defaults panel and launch share `launch.default_jvm_flags_report`; user flags follow
   all defaults (including conditional pre-touch), so custom overrides win. Technical flag text stays LTR.
 - Incoming desktop message alerts run only after deduplicated live `_on_dm`, never history backfill or
@@ -532,6 +537,12 @@ The default smoke gate does not run all registered suites; `--suites` does. See
   File upload starts AI; paste requires Analyze. Launcher `/doctor#report=` transfers are redacted,
   compressed and consumed before requests, and stay local until Analyze. Instructions render as a
   safe Markdown subset, with no raw HTML or mock UI. Quotas/failures retain the on-device result.
+  Local mod attribution uses explicit loader ownership/failure sections or suspected mods,
+  never loaded-mod lists, class packages or mixin filename prefixes; ambiguous owners stay unknown.
+  Native allocation failures have separate advice from Java heap exhaustion. Dependency guides
+  include up to four conflicts, with Minecraft/Java/loader requirements treated as runtime changes.
+  AI failure codes distinguish configuration, credentials, quota, timeouts and invalid guides;
+  local `.env` secrets do not reach Production, which needs a hosting secret plus redeployment.
   See `docs/development/website-doctor.md` for size, timeout and instance-local throttling contracts.
 - A push to `main` starts the release workflow. Publishing, committing, deploying, and rewriting history
   require the user's explicit request.

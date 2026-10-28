@@ -80,13 +80,14 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
         (data.version !== undefined && (typeof data.version !== 'string' || data.version.length > 240))) return reply(res,400,{error:'invalid_report'});
     if (throttled(req,now())) { res.setHeader('Retry-After','60'); return reply(res,429,{error:'rate_limited'}); }
     const apiKey = env.KILO_API_KEY;
-    if (!apiKey) return reply(res,503,{error:'ai_unavailable'});
+    if (!apiKey) return reply(res,503,{error:'ai_not_configured'});
     const log = D.excerpt(data.log), context = {version:D.redactLog(data.version || '')};
     const cancel = new AbortController();
     const onClose = () => { if (!res.writableEnded) cancel.abort(); };
     res.on?.('close',onClose);
     inflight++;
     const deadline = Date.now() + budget;
+    let failure = 'ai_provider_unavailable';
     try {
       // Kilo manages free-model routing. Retry once for transient errors or
       // an invalid guide; never substitute a paid model or accept client prompts.
@@ -100,8 +101,13 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
               body:JSON.stringify({model:MODEL,messages:D.prompt(log,context),max_tokens:2600,stream:false})
             });
             if (!response.ok) throw Object.assign(new Error('provider_error'),{status:response.status});
-            const body = await providerJson(response);
-            const diagnosis = D.parseDiagnosis({message:body.choices?.[0]?.message},log);
+            let diagnosis;
+            try {
+              const body = await providerJson(response);
+              diagnosis = D.parseDiagnosis({message:body.choices?.[0]?.message},log);
+            } catch (error) {
+              throw Object.assign(new Error('invalid_guide'),{kind:'ai_bad_response'});
+            }
             diagnosis.model = 'Kilo auto/free';
             return diagnosis;
           },Math.min(timeout,remaining),cancel.signal);
@@ -109,11 +115,14 @@ function createHandler({fetch:fetcher=globalThis.fetch,env=process.env,now=Date.
         } catch (error) {
           if (cancel.signal.aborted) return;
           if (error.status === 429) { res.setHeader('Retry-After','60'); return reply(res,429,{error:'rate_limited'}); }
-          if ([400,401,402,403].includes(error.status)) return reply(res,503,{error:'ai_unavailable'});
+          if ([401,403].includes(error.status)) return reply(res,503,{error:'ai_credentials_invalid'});
+          if (error.status === 402) return reply(res,503,{error:'ai_quota_exhausted'});
+          if (error.status === 400) return reply(res,503,{error:'ai_request_rejected'});
+          failure = error.message === 'request_timeout' ? 'ai_timeout' : error.kind || 'ai_provider_unavailable';
           // No provider error text or request contents are logged/returned.
         }
       }
-      return reply(res,503,{error:'ai_unavailable'});
+      return reply(res,503,{error:failure});
     } finally { inflight--; res.off?.('close',onClose); }
   };
 }
