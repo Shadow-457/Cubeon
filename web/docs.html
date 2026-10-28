@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Cubeon docs - help, benchmarks and getting started</title>
-<meta name="description" content="Everything in one place: how to install Cubeon, play with friends, troubleshoot issues, and see the real FPS numbers against other launchers." />
+<title>Cubeon docs - guides for mods, modpacks, crashes and playing together</title>
+<meta name="description" content="Every Cubeon guide in one place: install it, add mods and modpacks, play with friends, fix a crash, make your skin show up, and find your files." />
 <meta property="og:title" content="Cubeon docs" />
-<meta property="og:description" content="Help, benchmarks and everything else in one place." />
+<meta property="og:description" content="Guides for mods, modpacks, playing together, skins and fixing crashes - in plain language." />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
 <meta property="og:image:width" content="1200" />
@@ -16,55 +16,6 @@
 <link rel="icon" href="assets/icon.svg" />
 <link rel="stylesheet" href="assets/site.css" />
 <script>document.documentElement.classList.add('js')</script>
-<style>
-/* ---- docs layout ---- */
-.docs-wrap{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 74px)}
-.docs-sidebar{position:sticky;top:74px;height:calc(100vh - 74px);overflow-y:auto;overflow-x:hidden;background:var(--nav-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border-right:3px solid var(--line);padding:20px 0 40px;flex-shrink:0}
-.docs-sidebar::-webkit-scrollbar{width:4px}
-.docs-sidebar::-webkit-scrollbar-thumb{background:var(--line)}
-/* search */
-.docs-search-wrap{padding:0 16px 16px;border-bottom:2px solid var(--line);margin-bottom:10px}
-.docs-search{position:relative;display:flex;align-items:center}
-.docs-search-icon{position:absolute;left:11px;pointer-events:none;color:var(--hint)}
-.docs-search-icon svg{width:14px;height:14px;display:block;fill:currentColor}
-.docs-search input{width:100%;background:var(--paper);border:2px solid var(--line);border-radius:var(--r-sm);font-family:'Inter',system-ui,sans-serif;font-size:14px;color:var(--ink);padding:9px 32px 9px 34px;outline:none;transition:border-color 80ms linear}
-.docs-search input::placeholder{color:var(--hint)}
-.docs-search input:focus{border-color:var(--grass)}
-.docs-search-clear{position:absolute;right:8px;background:none;border:none;color:var(--hint);font-size:16px;padding:2px 5px;cursor:pointer;display:none;line-height:1}
-.docs-search-clear.vis{display:block}
-.docs-search-clear:hover{color:var(--ink)}
-#docsNoResults{display:none;padding:10px 16px;font-size:13px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.03em}
-/* sidebar nav */
-.docs-nav-label{display:flex;align-items:center;gap:7px;padding:8px 16px 4px;font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:10.5px;color:var(--grass-dark);text-transform:uppercase;letter-spacing:.07em}
-.docs-nav-label svg{width:11px;height:11px;fill:currentColor;flex:none}
-.docs-nav-link{display:block;padding:7px 16px 7px 24px;font-weight:700;font-size:13px;color:var(--text-soft);border-left:3px solid transparent;transition:color 80ms linear,background 80ms linear,border-color 80ms linear;text-decoration:none;text-transform:none}
-.docs-nav-link:hover{color:var(--ink);background:var(--grass-soft)}
-.docs-nav-link.active{color:var(--ink);border-left-color:var(--grass);background:var(--grass-soft)}
-.docs-nav-link.hidden-by-search{display:none}
-/* main area */
-.docs-main{padding:44px 52px 88px}
-.docs-section{margin-bottom:56px;scroll-margin-top:96px}
-.docs-section:last-child{margin-bottom:0}
-.docs-section-eyebrow{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:2px solid var(--line);border-radius:var(--pill);font-weight:800;font-size:11px;letter-spacing:.06em;color:var(--grass-dark);padding:5px 13px;margin-bottom:10px;text-transform:uppercase}
-.docs-section-eyebrow svg{width:12px;height:12px;fill:currentColor}
-.docs-section h2{font-size:clamp(21px,2.8vw,29px);margin-bottom:14px}
-.docs-section h3{margin:22px 0 8px;text-transform:none;font-size:17px;font-family:'Minecraftia','Inter',sans-serif;font-weight:600;color:var(--ink)}
-.docs-section p,.docs-section li{color:var(--text-soft);font-size:15.5px}
-.docs-section p{margin-bottom:12px;max-width:70ch}
-.docs-section ul,.docs-section ol{margin:0 0 16px 22px}
-.docs-section li{margin-bottom:8px}
-.docs-section li::marker{color:var(--grass-dark)}
-.docs-section a{color:var(--grass-dark);text-decoration:underline;text-underline-offset:3px}
-.docs-section a:hover{color:var(--ink)}
-.docs-section strong{color:var(--ink)}
-.docs-divider{border:none;border-top:2px solid var(--line);margin:0 0 48px}
-@media(max-width:920px){
-  .docs-wrap{grid-template-columns:1fr}
-  .docs-sidebar{position:static;height:auto;border-right:none;border-bottom:3px solid var(--grass);padding:14px 0 8px}
-  .docs-main{padding:28px 22px 60px}
-}
-@media(max-width:660px){.docs-main{padding:20px 16px 48px}}
-</style>
 </head>
 <body>
 <a class="skip" href="#content">Skip to content</a>
@@ -89,7 +40,8 @@
     <div class="wrap">
       <p class="crumbs"><a href="index.html">Home</a> / Docs</p>
       <h1>Documentation</h1>
-      <p class="lede">Help, benchmarks, and everything in one place. Use the sidebar or the search bar to jump to exactly what you need.</p>
+      <p class="lede">Six guides, written for people who just want to play. Install it, add mods and modpacks, join your friends, get your skin to show up, and fix a crash without reading Java.</p>
+      <p class="updated">Updated 28 October 2026</p>
     </div>
   </header>
 
@@ -102,35 +54,36 @@
           <span class="docs-search-icon" aria-hidden="true">
             <svg viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
           </span>
-          <input type="search" id="docsSearch" placeholder="Search docs&#x2026;" autocomplete="off" aria-label="Search documentation" />
+          <input type="search" id="docsSearch" placeholder="Search the guides&#x2026;" autocomplete="off" aria-label="Search documentation" />
           <button class="docs-search-clear" id="docsSearchClear" type="button" aria-label="Clear search">&#215;</button>
         </div>
       </div>
       <p id="docsNoResults">No results found.</p>
 
-      <nav aria-label="Docs sections">
-        <div>
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
           <span class="docs-nav-label">
             <svg viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9zM4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z"/></svg>
-            Help
+            Guides
           </span>
-          <a class="docs-nav-link" href="#getting-started" data-section="getting-started">Getting started</a>
-          <a class="docs-nav-link" href="#playing-together" data-section="playing-together">Playing together</a>
-          <a class="docs-nav-link" href="#skins-mods" data-section="skins-mods">Skins, capes &amp; mods</a>
-          <a class="docs-nav-link" href="#troubleshooting" data-section="troubleshooting">Troubleshooting</a>
-          <a class="docs-nav-link" href="#faq" data-section="faq">FAQ</a>
+          <a class="docs-nav-link" href="#docs-start" data-section="docs-start">All guides</a>
+          <a class="docs-nav-link" href="#guide-getting-started" data-section="guide-getting-started">Getting started</a>
+          <a class="docs-nav-link" href="#guide-mods" data-section="guide-mods">Mods &amp; content</a>
+          <a class="docs-nav-link" href="#guide-modpacks" data-section="guide-modpacks">Modpacks</a>
+          <a class="docs-nav-link" href="#guide-multiplayer" data-section="guide-multiplayer">Playing together</a>
+          <a class="docs-nav-link" href="#guide-cosmetics" data-section="guide-cosmetics">Skins &amp; cosmetics</a>
+          <a class="docs-nav-link" href="#guide-troubleshooting" data-section="guide-troubleshooting">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="#guide-files" data-section="guide-files">Files &amp; backups</a>
         </div>
-        <div style="margin-top:10px">
+        <div class="docs-nav-group">
           <span class="docs-nav-label">
             <svg viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
-            Benchmarks
+            Also here
           </span>
-          <a class="docs-nav-link" href="#bm-summary" data-section="bm-summary">The short version</a>
-          <a class="docs-nav-link" href="#bm-method" data-section="bm-method">How it was measured</a>
-          <a class="docs-nav-link" href="#bm-results" data-section="bm-results">Results &amp; numbers</a>
-          <a class="docs-nav-link" href="#bm-caveats" data-section="bm-caveats">Caveats</a>
-          <a class="docs-nav-link" href="#bm-try" data-section="bm-try">Try it yourself</a>
-          <a class="docs-nav-link" href="#bm-report" data-section="bm-report">Full report (PDF)</a>
+          <a class="docs-nav-link" href="benchmarks.html">Benchmarks</a>
+          <a class="docs-nav-link" href="doctor.html">Crash Doctor</a>
+          <a class="docs-nav-link" href="help.html">Help &amp; FAQ</a>
+          <a class="docs-nav-link" href="download.html">Download</a>
         </div>
       </nav>
     </aside>
@@ -138,236 +91,147 @@
     <!-- =============== MAIN =============== -->
     <div class="docs-main" id="docsMain">
 
-      <!-- HELP SECTIONS -->
-
-      <div id="getting-started" class="docs-section">
+      <div id="docs-start" class="docs-section">
         <span class="docs-section-eyebrow">
           <svg viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/></svg>
-          Help
+          Start here
         </span>
-        <h2>Getting started</h2>
+        <h2>The three minutes version</h2>
         <ol>
-          <li><strong>Download Cubeon</strong> for your computer and open it &mdash; the <a href="download.html">download page</a> explains which file suits you.</li>
-          <li><strong>Pick a name.</strong> Three to sixteen characters. No account, no email, no password.</li>
-          <li><strong>Choose a Minecraft version</strong> and press play. The first launch takes a few minutes because the game downloads; after that it starts quickly.</li>
-          <li><strong>Add your friends</strong> by their Cubeon name and they&rsquo;ll appear in your list.</li>
+          <li><strong>Get the app.</strong> <a href="download.html">Download Cubeon</a> for Windows or Linux, open it, and pick a name - no account, no email, no password.</li>
+          <li><strong>Pick a version and press Play.</strong> The first launch downloads the game, which takes a few minutes. After that it starts in seconds.</li>
+          <li><strong>Add your friends</strong> by their Cubeon name, or install a mod, a pack or nothing at all. Everything else on this page is a guide for when you want to go further.</li>
         </ol>
+        <div class="note tip">
+          <b>Just want to play, nothing added?</b>
+          <p>You do not need any of the mod guides. Choose the version your friends play, press Play, and read <a href="multiplayer.html">playing together</a> when you want to host a world.</p>
+        </div>
       </div>
 
       <hr class="docs-divider">
 
-      <div id="playing-together" class="docs-section">
+      <div id="guide-getting-started" class="docs-section">
+        <h2>Getting started</h2>
+        <p>Which download to pick, what the launcher asks for on the first run, what an instance is, and how Java, memory and FPS boost are handled for you.</p>
+        <p><a href="getting-started.html">Read the getting started guide</a></p>
+        <div class="docs-guide-links">
+          <a href="getting-started.html#download">What to download</a>
+          <a href="getting-started.html#first-launch">Your first launch</a>
+          <a href="getting-started.html#instances">Instances explained</a>
+          <a href="getting-started.html#java-memory">Java and memory</a>
+          <a href="getting-started.html#fps-boost">FPS boost</a>
+          <a href="getting-started.html#updates">Updating</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-mods" class="docs-section">
+        <h2>Mods, resource packs and shaders</h2>
+        <p>How to find a mod that fits the version you actually launch, what happens to dependencies, how to turn a mod off without deleting it, and what Check &amp; repair does.</p>
+        <p><a href="mods.html">Read the mods guide</a></p>
+        <div class="docs-guide-links">
+          <a href="mods.html#before">Before you install</a>
+          <a href="mods.html#find">Finding a mod</a>
+          <a href="mods.html#install">Installing and dependencies</a>
+          <a href="mods.html#manage">Turning off, updating, removing</a>
+          <a href="mods.html#manual">Adding a jar by hand</a>
+          <a href="mods.html#repair">Check &amp; repair</a>
+          <a href="mods.html#resourcepacks">Resource packs</a>
+          <a href="mods.html#shaders">Shaders</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-modpacks" class="docs-section">
+        <h2>Modpacks</h2>
+        <p>What a pack actually installs, where packs come from, how updating one works, and why a failed install should not take your working pack with it.</p>
+        <p><a href="modpacks.html">Read the modpacks guide</a></p>
+        <div class="docs-guide-links">
+          <a href="modpacks.html#what">What a pack installs</a>
+          <a href="modpacks.html#browse">Installing a pack</a>
+          <a href="modpacks.html#import">Packs and worlds from an old setup</a>
+          <a href="modpacks.html#update">Updating a pack</a>
+          <a href="modpacks.html#remove">Removing a pack</a>
+          <a href="modpacks.html#failed">When an install fails</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-multiplayer" class="docs-section">
         <h2>Playing together</h2>
-        <p>Add friends by their Cubeon name and the launcher keeps the conversation: who&rsquo;s online, what version each of them is playing, and messages you can come back to. Cubeon also marks its players in Minecraft&rsquo;s own player list (hold Tab in game), so you can tell at a glance who else is on Cubeon.</p>
-        <p>To share an actual world, open <strong>Servers</strong>, install a server for the version you picked, and hand out the free public address it gives you. Set a join password and only the people you tell can get in. Nobody has to change anything on their computer, and nobody has to pay for a server.</p>
-      </div>
-
-      <hr class="docs-divider">
-
-      <div id="skins-mods" class="docs-section">
-        <h2>Skins, capes, mods and worlds</h2>
-        <p>Set a skin and a cape in the launcher and other Cubeon players see them wherever you play together. Mods, resource packs and ready-made modpacks install per version, so one messy setup can&rsquo;t spoil your clean one.</p>
-      </div>
-
-      <hr class="docs-divider">
-
-      <div id="troubleshooting" class="docs-section">
-        <h2>If something goes wrong</h2>
-
-        <h3>The game won&rsquo;t start</h3>
-        <p>Minecraft needs Java. Cubeon uses a Java it finds on your computer when it&rsquo;s new enough, and if there isn&rsquo;t one it offers to download a free one for you &mdash; so usually there&rsquo;s nothing to install yourself. If a launch still fails, you can install Java free from <a href="https://adoptium.net" target="_blank" rel="noopener">adoptium.net</a>, or paste the path to a Java you already have in <strong>Settings</strong> &gt; <strong>Java</strong>, and try again.</p>
-
-        <h3>Your computer warns you about the file</h3>
-        <p>That happens with small independent apps, because they aren&rsquo;t signed by a big company. Signing them properly would cost more than 359&euro; a year, so we don&rsquo;t. On Windows, choose <strong>Keep</strong>, then <strong>More info</strong>, then <strong>Run anyway</strong>. On Linux, if it asks about permissions, allow it to run.</p>
-
-        <h3>It feels slow, or the frame rate dips</h3>
-        <p>Cubeon&rsquo;s <strong>FPS boost</strong> is on by default. It installs Sodium and five companion mods into the profile you launch and sets the graphics options that cost frames to their fast values; turning it off restores vanilla graphics on the next launch, and the switch is in the Play menu. If it&rsquo;s already on and the game still stutters, lower the render distance first &mdash; that is almost always the biggest single setting. The <a href="#bm-summary">benchmarks section</a> shows what the boost is worth on a real PC, measured against two other launchers.</p>
-
-        <h3>A friend can&rsquo;t join your server</h3>
-        <p>Check you gave them the exact address from <strong>Servers</strong>, and the join password if you set one. They should be on the newest Cubeon &mdash; if in doubt, download the latest from the <a href="download.html">download page</a> &mdash; and on the same Minecraft version as the server.</p>
-
-        <h3>You can&rsquo;t find a friend by name</h3>
-        <p>They need to have opened Cubeon at least once before their name exists. Names are first come, first served.</p>
-
-        <h3>Something else entirely</h3>
-        <p>Tell us what happened at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>, and what you were doing at the time. Cubeon also leaves a small note of what went wrong in its own folder inside your user folder (it&rsquo;s called <strong>.cubeon_launcher</strong>) &mdash; sending that along makes a fix much faster.</p>
-      </div>
-
-      <hr class="docs-divider">
-
-      <div id="faq" class="docs-section">
-        <h2>Questions people ask</h2>
-        <div class="faq">
-          <div class="q">
-            <button class="q-a" type="button" aria-expanded="false">Is it really free?<span class="plus" aria-hidden="true">+</span></button>
-            <div class="q-body"><div><p>Yes. Every feature works without paying anything, and there are no adverts. We may add a completely optional way to chip in towards development one day, but playing with your friends will never sit behind a paywall.</p></div></div>
-          </div>
-          <div class="q">
-            <button class="q-a" type="button" aria-expanded="false">Do I need a Minecraft account?<span class="plus" aria-hidden="true">+</span></button>
-            <div class="q-body"><div><p>No. Cubeon is made for people who just want to pick a name and play. If you already own the game, just use the name you always use.</p></div></div>
-          </div>
-          <div class="q">
-            <button class="q-a" type="button" aria-expanded="false">What does my computer need?<span class="plus" aria-hidden="true">+</span></button>
-            <div class="q-body"><div><p>Windows 10 or 11, or a modern 64-bit Linux. There is no Mac version yet &mdash; when there is, it will be on the download page.</p></div></div>
-          </div>
-          <div class="q">
-            <button class="q-a" type="button" aria-expanded="false">Where does Cubeon keep my name and skins?<span class="plus" aria-hidden="true">+</span></button>
-            <div class="q-body"><div><p>On your computer, in the <strong>.cubeon_launcher</strong> folder in your user folder. Nothing about you is needed to install or use the app, and deleting that folder wipes what&rsquo;s there.</p></div></div>
-          </div>
-          <div class="q">
-            <button class="q-a" type="button" aria-expanded="false">Can other players see my skin?<span class="plus" aria-hidden="true">+</span></button>
-            <div class="q-body"><div><p>Yes &mdash; your skin and cape are shared so other Cubeon players see them when you play together. You can change or remove them whenever you like.</p></div></div>
-          </div>
-          <div class="q">
-            <button class="q-a" type="button" aria-expanded="false">Will you email me?<span class="plus" aria-hidden="true">+</span></button>
-            <div class="q-body"><div><p>No. Cubeon never asks for an email address, so there is no mailing list to be on and nothing to unsubscribe from.</p></div></div>
-          </div>
+        <p>Friends by name, a free server hosted on your own PC, the join password and whitelist, and what to check when someone cannot get in.</p>
+        <p><a href="multiplayer.html">Read the playing together guide</a></p>
+        <div class="docs-guide-links">
+          <a href="multiplayer.html#friends">Friends and chat</a>
+          <a href="multiplayer.html#host">Hosting a world</a>
+          <a href="multiplayer.html#join">Joining a server</a>
+          <a href="multiplayer.html#whitelist">Whitelist and password</a>
+          <a href="multiplayer.html#cant-join">"I can't join" checklist</a>
+          <a href="multiplayer.html#offline">Offline names and premium servers</a>
         </div>
       </div>
 
       <hr class="docs-divider">
 
-      <!-- BENCHMARKS SECTIONS -->
-
-      <div id="bm-summary" class="docs-section">
-        <span class="docs-section-eyebrow">
-          <svg viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
-          Benchmarks
-        </span>
-        <p class="updated" style="margin-bottom:16px">Measured 15 October 2026 &middot; Minecraft 1.21.11 &middot; Xeon E5-1650, Radeon RX 580</p>
-        <h2>Fastest in game, and the steadiest when it dips</h2>
-        <p>Three one-minute runs per launcher, one FPS sample for every second of video. In game, Cubeon averaged 206 FPS &mdash; about 35% above FastClient and 74% above SKLauncher. Its worst single second was 102 FPS; the other two dropped to 37 and 33.</p>
-        <div class="cards" style="margin-top:26px">
-          <div class="card rise"><h3>206 FPS average in game</h3><p>The highest of the three, and the highest average across the whole recording (233 FPS).</p></div>
-          <div class="card rise"><h3>102 FPS lowest second</h3><p>The gap that matters most: FastClient bottomed out at 37 FPS and SKLauncher at 33.</p></div>
-          <div class="card rise"><h3>+35% over FastClient</h3><p>152 FPS average in game &mdash; a performance-focused launcher, measured on the same machine.</p></div>
-          <div class="card rise"><h3>+74% over SKLauncher</h3><p>119 FPS average in game. It also ran with no mods at all &mdash; see the caveats below.</p></div>
+      <div id="guide-cosmetics" class="docs-section">
+        <h2>Skins, capes and cosmetics</h2>
+        <p>Uploading a skin, why the vanilla game will not show one, what other Cubeon players see, and the in-game HUD and zoom keys.</p>
+        <p><a href="cosmetics.html">Read the skins and cosmetics guide</a></p>
+        <div class="docs-guide-links">
+          <a href="cosmetics.html#skins">Uploading a skin</a>
+          <a href="cosmetics.html#capes">Capes</a>
+          <a href="cosmetics.html#items">Shoulder and back items</a>
+          <a href="cosmetics.html#not-showing">Skin not showing</a>
+          <a href="cosmetics.html#hud">HUD and zoom</a>
         </div>
       </div>
 
       <hr class="docs-divider">
 
-      <div id="bm-method" class="docs-section">
-        <h2>How it was measured</h2>
-        <p>Each launcher was recorded playing Minecraft 1.21.11 on the same PC, in three separate one-minute runs. The frame rate was then counted frame by frame out of the screen recordings &mdash; one sample per second of video &mdash; rather than trusting each launcher&rsquo;s own FPS display. &ldquo;In game&rdquo; means roughly 28&ndash;32 seconds of actual gameplay per launcher; &ldquo;menu&rdquo; is the pause screen.</p>
+      <div id="guide-troubleshooting" class="docs-section">
+        <h2>Crashes and fixes</h2>
+        <p>The launcher will not open, the game will not start, or it crashed mid-session. Includes the crash messages you are most likely to see and what each one usually means.</p>
+        <p><a href="troubleshooting.html">Read the troubleshooting guide</a></p>
+        <div class="docs-guide-links">
+          <a href="troubleshooting.html#quick">Quick triage</a>
+          <a href="troubleshooting.html#launcher">The launcher won't start</a>
+          <a href="troubleshooting.html#launch">The game won't start</a>
+          <a href="troubleshooting.html#messages">Common crash messages</a>
+          <a href="troubleshooting.html#doctor">Using the Crash Doctor</a>
+          <a href="troubleshooting.html#performance">Slow or stuttering</a>
+          <a href="troubleshooting.html#report">Reporting a bug</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-files" class="docs-section">
+        <h2>Files, folders and backups</h2>
+        <p>Where your worlds, mods, logs and settings actually live, what is safe to delete, how backups work, and how to move everything to a new PC.</p>
+        <p><a href="files.html">Read the files guide</a></p>
+        <div class="docs-guide-links">
+          <a href="files.html#where">Where things live</a>
+          <a href="files.html#instances">Inside an instance</a>
+          <a href="files.html#logs">Logs and crash reports</a>
+          <a href="files.html#backups">Backups</a>
+          <a href="files.html#move">Moving to a new PC</a>
+          <a href="files.html#reset">Resetting or uninstalling</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="docs-stuck" class="docs-section">
+        <h2>When none of this fits</h2>
+        <p>Open <a href="doctor.html">Cubeon Doctor</a> and drop the crash log in - it reads the report and writes a numbered list of things to try, without an account. The crash window in the launcher has a Doctor button that fills it in for you.</p>
+        <p>If it is not a crash, ask a person: the <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a> is the quickest answer, and <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a> reaches the developer. Include your operating system, the Cubeon version, and what you were doing when it broke - <a href="files.html#logs">the files guide</a> says which log to send and what to blank out first.</p>
         <div class="note">
-          <b>All three launched as-is</b>
-          <p>Nothing was added or changed by hand for any of them. On the SKLauncher side there was no Sodium and no mods at all &mdash; plain vanilla &mdash; so it is being compared against launchers that ship Sodium. That is the honest reading of its numbers: a big part of the gap is the performance mods Cubeon installs for you, not the launcher&rsquo;s own code.</p>
+          <b>Short answers live elsewhere</b>
+          <p><a href="help.html">Help &amp; FAQ</a> has the one-paragraph versions of the questions people ask most, and <a href="benchmarks.html">benchmarks</a> has the measured frame rates with the caveats attached.</p>
         </div>
-        <p>Cubeon&rsquo;s <strong>FPS boost</strong> is on by default, and it is the reason Cubeon ships Sodium. The switch installs Sodium plus five companion mods (Lithium, ImmediatelyFast, Entity Culling, FerriteCore and More Culling) into the profile you launch, and sets the graphics options that cost frames to their fast values. Turn it off and the next launch restores vanilla graphics &mdash; the switch is in the Play menu, and it says which way it is set.</p>
-      </div>
-
-      <hr class="docs-divider">
-
-      <div id="bm-results" class="docs-section">
-        <h2>The numbers</h2>
-        <p>Every figure is frames per second. Each bar is scaled to the fastest run in its own chart, and the exact value is printed beside it.</p>
-        <div class="bm-charts">
-          <div class="bm-card rise">
-            <h3>Average in game</h3><p class="bm-sub">Actual gameplay, ~28&ndash;32 s per launcher</p>
-            <div class="bm-chart">
-              <div class="bm-row win"><span class="who">Cubeon</span><span class="bm-bar"><i style="width:100%"></i></span><span class="bm-val">206</span></div>
-              <div class="bm-row"><span class="who">FastClient</span><span class="bm-bar"><i style="width:73.8%"></i></span><span class="bm-val">152</span></div>
-              <div class="bm-row"><span class="who">SKLauncher</span><span class="bm-bar"><i style="width:57.8%"></i></span><span class="bm-val">119</span></div>
-            </div>
-            <p class="bm-cap">Higher is better</p>
-          </div>
-          <div class="bm-card rise">
-            <h3>Lowest single second</h3><p class="bm-sub">The stutter floor &mdash; the worst moment in game</p>
-            <div class="bm-chart">
-              <div class="bm-row win"><span class="who">Cubeon</span><span class="bm-bar"><i style="width:100%"></i></span><span class="bm-val">102</span></div>
-              <div class="bm-row"><span class="who">FastClient</span><span class="bm-bar"><i style="width:36.3%"></i></span><span class="bm-val">37</span></div>
-              <div class="bm-row"><span class="who">SKLauncher</span><span class="bm-bar"><i style="width:32.4%"></i></span><span class="bm-val">33</span></div>
-            </div>
-            <p class="bm-cap">Higher is better &mdash; a low number here is a visible hitch</p>
-          </div>
-          <div class="bm-card rise">
-            <h3>Average on the pause menu</h3><p class="bm-sub">Nothing moving, so this is mostly a ceiling</p>
-            <div class="bm-chart">
-              <div class="bm-row win"><span class="who">Cubeon</span><span class="bm-bar"><i style="width:100%"></i></span><span class="bm-val">256</span></div>
-              <div class="bm-row"><span class="who">FastClient</span><span class="bm-bar"><i style="width:64.8%"></i></span><span class="bm-val">166</span></div>
-              <div class="bm-row"><span class="who">SKLauncher</span><span class="bm-bar"><i style="width:57.4%"></i></span><span class="bm-val">147</span></div>
-            </div>
-            <p class="bm-cap">SKLauncher sits flat at 147 &mdash; it looks frame-capped there</p>
-          </div>
-          <div class="bm-card rise">
-            <h3>Average over the whole recording</h3><p class="bm-sub">Menu and gameplay together</p>
-            <div class="bm-chart">
-              <div class="bm-row win"><span class="who">Cubeon</span><span class="bm-bar"><i style="width:100%"></i></span><span class="bm-val">233</span></div>
-              <div class="bm-row"><span class="who">FastClient</span><span class="bm-bar"><i style="width:68.7%"></i></span><span class="bm-val">160</span></div>
-              <div class="bm-row"><span class="who">SKLauncher</span><span class="bm-bar"><i style="width:57.1%"></i></span><span class="bm-val">133</span></div>
-            </div>
-            <p class="bm-cap">Higher is better</p>
-          </div>
-        </div>
-        <div class="bm-scroll" style="margin-top:38px">
-          <table class="bm-table">
-            <caption>Full stats, second recording &mdash; frames per second</caption>
-            <thead>
-              <tr>
-                <th scope="col">Launcher</th><th scope="col">In-game mean</th><th scope="col">Median</th>
-                <th scope="col">5th pct (lows)</th><th scope="col">Min</th><th scope="col">Max</th>
-                <th scope="col">Menu mean</th><th scope="col">Whole video</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="bm-best"><th scope="row">Cubeon</th><td>206</td><td>217</td><td>148</td><td>102</td><td>271</td><td>256</td><td>233</td></tr>
-              <tr><th scope="row">SKLauncher</th><td>119</td><td>123</td><td>70</td><td>33</td><td>165</td><td>147</td><td>133</td></tr>
-              <tr><th scope="row">FastClient</th><td>152</td><td>156</td><td>105</td><td>37</td><td>211</td><td>166</td><td>160</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="bm-cap">One sample per second of video &middot; in game &asymp; 28&ndash;32 s per launcher &middot; menu = pause screen</p>
-        <ul class="bm-list" style="margin-top:28px">
-          <li><b>Cubeon was fastest in game</b> &mdash; about 206 FPS on average, roughly 35% above FastClient (152) and 74% above SKLauncher (119).</li>
-          <li><b>Cubeon also had the best worst case.</b> Its lowest in-game second was 102 FPS, against 37 (FastClient) and 33 (SKLauncher). The average is the headline; this is the one you feel.</li>
-          <li><b>FastClient held up best between menu and game</b> &mdash; only about an 8% drop, where Cubeon and SKLauncher each lost about 19%. It is the most consistent of the three, just not the fastest.</li>
-          <li><b>SKLauncher looked frame-capped on the pause menu</b> at about 147 FPS, and was the slowest in game with the deepest dips.</li>
-        </ul>
-      </div>
-
-      <hr class="docs-divider">
-
-      <div id="bm-caveats" class="docs-section">
-        <h2>What this test is not</h2>
-        <p>A comparison like this is easy to make flattering. Here is everything that weakens it, in the order it matters.</p>
-        <ul class="bm-list">
-          <li><b>Not a lab test.</b> Each launcher was recorded in a different spot in the world, so the comparison is indicative rather than controlled. The same world, the same camera path and several runs per launcher would be a stronger test.</li>
-          <li><b>F3 was on for Cubeon and SKLauncher, off for FastClient</b> (it uses its own FPS display). The debug screen costs a little FPS, so this slightly favours FastClient &mdash; and the gap is still large.</li>
-          <li><b>Nothing was equalised.</b> SKLauncher ran vanilla with no Sodium and no mods, and its own defaults differed (fancy clouds, RGSS filtering, where Cubeon was on fast clouds with no filtering). Its numbers say &ldquo;a vanilla install on this PC&rdquo;, not &ldquo;this launcher&rsquo;s best&rdquo;.</li>
-          <li><b>FastClient&rsquo;s digits are blurry in the video.</b> A few of its menu readings may be off by about 5 FPS. Every reading was checked by eye, twice.</li>
-        </ul>
-        <div class="note">
-          <b>What we would like to do next</b>
-          <p>Run all three with identical settings, the same world and the same camera path, several times each, and publish that alongside this. If you want to help with a recording on your own hardware, the Discord is the place &mdash; more machines make this more useful.</p>
-        </div>
-      </div>
-
-      <hr class="docs-divider">
-
-      <div id="bm-try" class="docs-section">
-        <h2>You can check this yourself</h2>
-        <div class="steps">
-          <div class="step rise"><span class="num">1</span><h3>Install and pick a version</h3><p>Install Cubeon and choose the same Minecraft version the test used (1.21.11), or whatever you normally play. First launch downloads the game, so give it a minute.</p></div>
-          <div class="step rise"><span class="num">2</span><h3>Leave FPS boost on</h3><p>It is on by default. It installs Sodium and the five companion mods into the profile and sets the graphics options that cost frames to their fast values.</p></div>
-          <div class="step rise"><span class="num">3</span><h3>Watch the counter</h3><p>Press F3 in game for Minecraft&rsquo;s own FPS line, play for a minute, and compare it with your usual launcher. Same world, same settings, same time of day is the fair way.</p></div>
-        </div>
-        <div class="note tip rise" style="margin-top:22px">
-          <b>Fairer on both sides</b>
-          <p>Turn FPS boost on for Cubeon and give the other launcher its own performance mods before you judge it. A vanilla install against a boosted one mostly measures the mods, which is exactly what the caveats above say about SKLauncher.</p>
-        </div>
-      </div>
-
-      <hr class="docs-divider">
-
-      <div id="bm-report" class="docs-section">
-        <h2>Every chart from the measurement</h2>
-        <p>The PDF has the eight pages behind the numbers above: the distribution of in-game FPS, the per-second timeline with its rolling mean, a stats heatmap for all three launchers, the menu-versus-game drop, the percentiles that show the stutter floor, and a heat-strip timeline of every second of every run.</p>
-        <div class="hero-actions" style="margin-top:22px">
-          <a class="btn big" href="assets/Minecraft-FPS-Report.pdf" download>Download the report (PDF)</a>
-          <a class="btn quiet" href="assets/Minecraft-FPS-Report.pdf" target="_blank" rel="noopener">Open in new tab</a>
-        </div>
-        <p style="margin-top:16px;font-size:14.5px;color:var(--text-soft)">Both links are the same file &mdash; one saves it, one opens it. About 1 MB, the report exactly as written on 15 October 2026.</p>
       </div>
 
     </div><!-- /docs-main -->
@@ -378,7 +242,7 @@
   <div class="wrap foot">
     <div>
       <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-      <p>A free launcher that makes playing Minecraft with your friends easy &mdash; no account, no rented server, nothing complicated.</p>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
     </div>
     <div>
       <h4>Cubeon</h4>
@@ -403,7 +267,7 @@
     </div>
     <div class="foot-meta">
       <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
-      <span>Cubeon is an unofficial fan project &mdash; not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
     </div>
   </div>
 </footer>
@@ -417,7 +281,7 @@
   var none = document.getElementById('docsNoResults');
   var secs = document.querySelectorAll('.docs-section');
   var divs = document.querySelectorAll('.docs-divider');
-  var navs = document.querySelectorAll('.docs-nav-link');
+  var navs = document.querySelectorAll('.docs-nav-link[data-section]');
   if(!inp) return;
 
   function esc(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
@@ -446,8 +310,7 @@
       }
     });
     navs.forEach(function(a){
-      var id=a.getAttribute('data-section');
-      var t=id?document.getElementById(id):null;
+      var t=document.getElementById(a.getAttribute('data-section'));
       a.classList.toggle('hidden-by-search',!(t&&t.style.display!=='none'));
     });
     none.style.display=any?'none':'block';
@@ -461,7 +324,9 @@
   function tick(){
     var y=window.scrollY+110, cur='';
     arr.forEach(function(s){if(s.offsetTop<=y)cur=s.id;});
-    navs.forEach(function(a){a.classList.toggle('active',a.getAttribute('href')==='#'+cur);});
+    navs.forEach(function(a){
+      a.classList.toggle('active',a.getAttribute('href')==='#'+cur);
+    });
   }
   window.addEventListener('scroll',tick,{passive:true}); tick();
 

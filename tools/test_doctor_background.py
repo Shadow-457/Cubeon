@@ -73,11 +73,25 @@ class BackgroundDoctorTests(unittest.TestCase):
         self.assertFalse(driver.errors, driver.errors)
         driver.open_tab('settings')
         picker = next(c for c in app_driver.every_control(driver.page)
-                      if isinstance(getattr(c, 'options', None), list)
-                      and [getattr(o, 'key', None) for o in c.options[:4]] == ['ar','en','ru','es'])
-        picker.value = 'es'
-        picker.on_select(None)
+                      if getattr(c, 'data', None) == 'language-picker-toggle')
+        picker.on_click(None)
+        spanish = next(c for c in app_driver.every_control(driver.page)
+                       if getattr(c, 'data', None) == 'language-option-es')
+        spanish.on_click(None)
         self.assertEqual(i18n.current(), 'ar', 'language changes after restart')
+        notice = next(c for c in app_driver.every_control(driver.page)
+                      if getattr(c, 'data', None) == 'language-restart-notice')
+        self.assertTrue(notice.visible)
+        restart = next(c for c in app_driver.every_control(driver.page)
+                       if getattr(c, 'data', None) == 'language-restart')
+        previous_request = driver.app._relaunch['request']
+        request = threading.Event()
+        driver.app._relaunch['request'] = request
+        try:
+            restart.on_click(None)
+            self.assertTrue(request.is_set(), 'The language button must arm the real launcher restart')
+        finally:
+            driver.app._relaunch['request'] = previous_request
         self.assertFalse(driver.errors, driver.errors)
         self.assertFalse(any(getattr(c, 'data', None) == 'play-fix-crash'
                              for c in app_driver.every_control(driver.page)))

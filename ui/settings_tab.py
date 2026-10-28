@@ -21,10 +21,12 @@ arranges them. `build_settings_tab()` keeps its old signature (plus one
 optional `account_pane`), so nothing is rewired.
 """
 import flet as ft
+import unicodedata
 
 from cubeon import i18n
 from cubeon import motion
 from cubeon import osnotify
+from cubeon import thread_safe_ui
 from cubeon.theme import (
     RADIUS, RADIUS_LG, attach_hover, ROW_HOVER, ACCENT_TINT, TEXT_FAINT,
 )
@@ -119,6 +121,146 @@ def _body(control, *, pad_v=14):
         content=control,
         padding=ft.padding.Padding.symmetric(horizontal=18, vertical=pad_v),
     )
+
+
+def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
+                     TEXT, TEXT_DIM):
+    """Save a language from a searchable inline list; apply it on restart."""
+    from cubeon import config
+
+    def font(code):
+        if i18n.is_rtl(code):
+            return "Noto Arabic"
+        return {"hi":"Noto Devanagari", "bn":"Noto Bengali", "zh-cn":"Cubeon Language CJK",
+                "ja":"Cubeon Language CJK", "ko":"Cubeon Language CJK"}.get(code, "Inter")
+
+    ui_font = font(i18n.current())
+
+    def selected():
+        code = cfg.get(i18n.CONFIG_KEY)
+        return code if code in i18n.SUPPORTED else i18n.current()
+
+    native_text = ft.Text(size=14, color=TEXT, weight=ft.FontWeight.W_600)
+    english_text = ft.Text(size=11.5, color=TEXT_DIM, rtl=False, font_family="Inter")
+    chevron = ft.Icon(ft.Icons.EXPAND_MORE_ROUNDED, size=20, color=TEXT_DIM)
+    search = ft.TextField(
+        label=i18n.t("Search"), hint_text="English, العربية, es…",
+        prefix_icon=ft.Icons.SEARCH_ROUNDED, text_size=13, color=TEXT,
+        border_color=BORDER, focused_border_color=ACCENT, border_radius=RADIUS,
+        bgcolor=BG, data="language-search",
+        text_style=ft.TextStyle(font_family=ui_font, font_family_fallback=[
+            "Inter", "Noto Arabic", "Noto Devanagari", "Noto Bengali", "Cubeon Language CJK"]),
+        label_style=ft.TextStyle(font_family=ui_font, color=TEXT_DIM),
+    )
+    choices = ft.ListView(height=252, spacing=3, data="language-options")
+    no_results = ft.Text(i18n.t("No languages found"), color=TEXT_DIM,
+                         size=12, visible=False, font_family=ui_font)
+    dropdown = ft.Container(
+        content=ft.Column([search, choices, no_results], spacing=10,
+                          horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+        visible=False, padding=12, border=ft.border.Border.all(1, BORDER),
+        border_radius=RADIUS, bgcolor=BG,
+    )
+    def restart_click(e=None):
+        with thread_safe_ui.TREE_LOCK:
+            on_restart(e)
+
+    restart = ft.FilledButton(
+        i18n.t("Restart"), icon=ft.Icons.RESTART_ALT_ROUNDED,
+        on_click=restart_click, data="language-restart",
+        style=ft.ButtonStyle(color=BG, bgcolor=ACCENT,
+                             text_style=ft.TextStyle(font_family=ui_font),
+                             shape=ft.RoundedRectangleBorder(radius=RADIUS)),
+    )
+    notice = ft.Column([
+        ft.Text(i18n.t("Restart to apply"), size=12, color=TEXT_DIM, font_family=ui_font), restart,
+    ], spacing=8, visible=False, data="language-restart-notice")
+
+    def sync():
+        code = selected()
+        native_text.value = i18n.language_name(code)
+        native_text.rtl = i18n.is_rtl(code)
+        native_text.font_family = font(code)
+        english_text.value = i18n.language_name(code, english=True)
+        english_text.visible = english_text.value != native_text.value
+        notice.visible = code != i18n.current()
+
+    def choose(code):
+        with thread_safe_ui.TREE_LOCK:
+            previous = cfg.get(i18n.CONFIG_KEY)
+            had_key = i18n.CONFIG_KEY in cfg
+            cfg[i18n.CONFIG_KEY] = code
+            try:
+                config.save_config(cfg)
+            except Exception:
+                if had_key:
+                    cfg[i18n.CONFIG_KEY] = previous
+                else:
+                    cfg.pop(i18n.CONFIG_KEY, None)
+                set_status(i18n.t("Couldn't save the language"))
+                return
+            dropdown.visible = False
+            chevron.name = ft.Icons.EXPAND_MORE_ROUNDED
+            sync()
+            thread_safe_ui.refresh(panel)
+        set_status(i18n.t("Restart to apply") if notice.visible else native_text.value)
+
+    def normalized(value):
+        return ''.join(c for c in unicodedata.normalize('NFKD', value.casefold())
+                       if not unicodedata.combining(c))
+
+    def filter_choices(e=None):
+        with thread_safe_ui.TREE_LOCK:
+            query = normalized(search.value or '').strip()
+            rows = []
+            for code, native, english, rtl in i18n.LANGUAGES:
+                if query not in normalized(' '.join((code, native, english))):
+                    continue
+                labels = [ft.Text(native, size=14, color=TEXT, rtl=rtl, font_family=font(code))]
+                if native != english:
+                    labels.append(ft.Text(english, size=11.5, color=TEXT_DIM, rtl=False, font_family="Inter"))
+                rows.append(ft.Container(
+                    content=ft.Row([
+                        ft.Column(labels, spacing=2, expand=True),
+                        ft.Icon(ft.Icons.CHECK_ROUNDED, size=18, color=ACCENT,
+                                visible=code == selected()),
+                    ], spacing=10),
+                    padding=ft.padding.Padding.symmetric(horizontal=10, vertical=9),
+                    bgcolor=ACCENT_TINT if code == selected() else None,
+                    border_radius=RADIUS, ink=False,
+                    on_click=lambda e, code=code: choose(code),
+                    data="language-option-" + code,
+                ))
+            choices.controls = rows
+            choices.visible = bool(rows)
+            no_results.visible = not rows
+            thread_safe_ui.refresh(dropdown)
+
+    def toggle(e=None):
+        with thread_safe_ui.TREE_LOCK:
+            dropdown.visible = not dropdown.visible
+            chevron.name = ft.Icons.EXPAND_LESS_ROUNDED if dropdown.visible else ft.Icons.EXPAND_MORE_ROUNDED
+            if dropdown.visible:
+                search.value = ''
+                filter_choices()
+            thread_safe_ui.refresh(panel)
+
+    search.on_change = filter_choices
+    selector = ft.Container(
+        content=ft.Row([
+            ft.Icon(ft.Icons.LANGUAGE_ROUNDED, size=20, color=ACCENT),
+            ft.Column([native_text, english_text], spacing=2, expand=True), chevron,
+        ], spacing=12),
+        on_click=toggle, data="language-picker-toggle",
+        padding=12, bgcolor=ft.Colors.with_opacity(.35, BG),
+        border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, ink=False,
+    )
+    panel = ft.Column([
+        ft.Text(i18n.t("Language"), size=14, color=TEXT, weight=ft.FontWeight.W_600, font_family=ui_font),
+        selector, dropdown, notice,
+    ], spacing=12, data="language-picker")
+    sync()
+    return panel
 
 
 def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
@@ -474,66 +616,13 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     # DISPLAY
     # ======================================================================
-    # The language picker. Labels are shown in the language's OWN script
-    # first ("العربية - Arabic") so the list is usable by someone who cannot
-    # read English - that is the whole point of a language picker.
-    #
-    # The choice is SAVED, not applied: the chrome (nav rail, section labels,
-    # every cached tab) reads i18n.t() at build time, and Arabic also has to
-    # flip page.rtl. Applying half of that live would leave a mixed-language
-    # window with a half-mirrored layout, which is worse than one clean
-    # restart - so the row says "Restart to apply" like the other two here.
-    language_dropdown = ft.Dropdown(
-        value=i18n.current(),
-        width=260,
-        dense=True,
-        text_size=13,
-        bgcolor=ft.Colors.with_opacity(0.35, BG),
-        border_color=BORDER,
-        border_radius=RADIUS,
-        options=[
-            ft.dropdown.Option(
-                key=code,
-                text=(f"{native} — {english}" if code != "en" else english),
-            )
-            for code, native, english, _rtl in i18n.LANGUAGES
-        ],
+    language_picker = _language_picker(
+        cfg, on_restart=seasonal_restart_btn.on_click, set_status=set_status,
+        BG=BG, BORDER=BORDER, ACCENT=ACCENT, TEXT=TEXT, TEXT_DIM=TEXT_DIM,
     )
 
-    def _on_language_change(e=None):
-        code = str(language_dropdown.value or "").strip().lower()
-        if code not in i18n.SUPPORTED:
-            from cubeon import thread_safe_ui
-            language_dropdown.value = i18n.current()
-            thread_safe_ui.refresh(language_dropdown)
-            return
-        previous = cfg.get(i18n.CONFIG_KEY)
-        cfg[i18n.CONFIG_KEY] = code
-        try:
-            from cubeon import config as _config
-            _config.save_config(cfg)
-        except Exception:
-            cfg[i18n.CONFIG_KEY] = previous
-            language_dropdown.value = previous or i18n.current()
-            from cubeon import thread_safe_ui
-            thread_safe_ui.refresh(language_dropdown)
-            set_status("Couldn't save the language")
-            return
-        rtl = i18n.is_rtl(code)
-        set_status(f"Language set to {i18n.language_name(code, english=True)}"
-                   + (" (right-to-left)" if rtl else "")
-                   + " - restart Cubeon to apply")
-
-    # on_select, NOT on_change: Flet 0.86's Dropdown fires on_select and
-    # silently ignores on_change (the bug tools/test_seasonal.py guards - a
-    # picker whose handler never runs looks fine in every headless test
-    # because the test calls the handler itself).
-    language_dropdown.on_select = _on_language_change
-
     launcher_rows = [
-        row(i18n.t("Language"),
-            "The launcher's own language. Restart to apply.",
-            language_dropdown),
+        _body(language_picker),
         row(i18n.t("Glass background"),
             "Translucent window. Restart to apply.",
             glass_cb),
@@ -707,13 +796,16 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 ft.Row(
                     [ft.Icon(ft.Icons.HISTORY_ROUNDED, size=16,
                              color=TEXT_FAINT),
-                     backup_status_text],
+                     ft.Container(content=backup_status_text, expand=True)],
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Row([backup_now_btn, open_folder_btn, restore_btn],
-                       spacing=12, wrap=True),
+                # Expanded buttons need a bounded, unwrapped Row. Flutter's
+                # Wrap cannot lay out flex children and paints an error panel.
+                ft.Row([backup_now_btn, open_folder_btn], spacing=12),
+                restore_btn,
             ],
             spacing=10,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         ), pad_v=12),
     ]
 

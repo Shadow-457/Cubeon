@@ -103,4 +103,7 @@ TABLE = {
     'Pick a friend to start chatting.': 'Выберите друга, чтобы начать чат.',
     'Search mods…': 'Поиск модов…',
     'Search modpacks…': 'Поиск сборок…',
+    'No languages found': 'Языки не найдены',
+    "Couldn't save the language": 'Не удалось сохранить язык',
+    'Applying your settings.': 'Применяем ваши настройки.',
 }

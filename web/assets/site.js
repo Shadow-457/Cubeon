@@ -5,7 +5,7 @@
    scroll, a "this one's for your device" star on the right download, the
    global download counter, and the cookie banner (which only ever appears if
    a configured feature needs consent). Doctor separately requests optional Kilo
-   AI after a user click; cookies.html and privacy.html describe its storage.
+   AI after an upload or Analyze click; cookies.html and privacy.html describe its storage.
    Every block quits quietly when the page has none of the elements it drives,
    and everything works with JavaScript switched off.
    ========================================================================== */
@@ -251,6 +251,9 @@
      doesn't come back every visit. Runs on every page since it's injected
      here rather than pasted into each HTML file. ------------------------ */
   (function cookieNote(){
+    // Doctor already explains sharing beside its upload control. Keep the
+    // floating information badge from covering the repair instructions.
+    if (document.querySelector('.doctor-page')) return;
     var KEY = 'cubeon_cookie_note_dismissed';
     var dismissed = null;
     try { dismissed = localStorage.getItem(KEY); } catch (_) { dismissed = null; }

@@ -1,7 +1,6 @@
-"""Optional Playwright checks; all HTTP/AI requests are intercepted offline.
+"""Optional offline Playwright checks for Doctor upload and Markdown instructions.
 
-Run with a Python that has Playwright and an installed Chromium. Set
-CUBEON_TEST_CHROMIUM for an explicit browser executable. Not in mega smoke.
+Use an installed Chromium and Python with Playwright. All HTTP/AI is intercepted.
 """
 import base64
 import json
@@ -10,31 +9,33 @@ from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 import zlib
-
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from cubeon.webdoctor import doctor_url
 
+
 def guide(log):
-    return {'cause':'Heap exhausted <img src=x onerror=alert(1)>','confidence':'high',
-            'evidence':[log.split('\n')[-1]],'steps':[
-                {'action':'memory','title':'Raise memory','instruction':'Use the safe RAM slider.'},
-                {'action':'retry','title':'Try once','instruction':'Compare the fresh log.'}],
+    return {'cause':'Heap exhausted <img src=x onerror=alert(1)>', 'confidence':'high',
+            'evidence':[log.split('\n')[-1]], 'steps':[
+                {'action':'memory','title':'Raise memory',
+                 'instruction':'Open **Settings → Performance → Memory**. Raise **Allocated RAM** within the safe range.\n\nKeep `options.txt` unchanged. <img src=x onerror=alert(1)>'},
+                {'action':'retry','title':'Try once','instruction':'Launch the same instance and compare the fresh log.'}],
             'verify':'Launch once','rollback':'Restore the previous value','source':'ai','model':'Kilo auto/free'}
+
 
 def main():
     captures = ROOT / 'archive/ui-captures'
     captures.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
         executable = os.environ.get('CUBEON_TEST_CHROMIUM')
-        options = {'executable_path': executable} if executable else {}
-        browser = p.chromium.launch(headless=True, **options)
+        browser = p.chromium.launch(headless=True, **({'executable_path':executable} if executable else {}))
         page = browser.new_page(viewport={'width':1440,'height':1050})
         errors, external, ai_calls = [], [], []
-        ai_mode = ['ok']
+        ai_mode = ['fail']
         page.on('pageerror',lambda e: errors.append(str(e)))
+
         def route(request):
             url = request.request.url
             if not url.startswith('https://cubeon.test/'):
@@ -50,60 +51,66 @@ def main():
             file = ROOT / 'web' / path
             if file.is_file(): request.fulfill(path=str(file))
             else: request.fulfill(status=404,body='Not found')
+
         page.route('**/*',route)
         page.goto('https://cubeon.test/doctor')
         expect(page.locator('#doctor-empty')).to_be_visible()
-        expect(page.locator('#log-text')).to_have_attribute('aria-describedby','file-note')
-        expect(page.locator('.doc-ai-note')).to_contain_text('may retain and use')
-        assert len(ai_calls)==0
+        expect(page.locator('#log-text')).to_be_hidden()
+        expect(page.locator('#ai-privacy')).to_contain_text('Uploading starts AI analysis')
+        expect(page.locator('.cookie-note')).to_have_count(0)
+        assert not ai_calls
         page.screenshot(path=str(captures/'doctor-empty-desktop.png'),full_page=True)
+
         url = doctor_url('password=hidden\njava.lang.OutOfMemoryError: Java heap space',version_label='Test pack',base_url='https://cubeon.test')
         page.goto(url)
         expect(page.locator('#result-cause')).to_contain_text('heap memory')
-        assert '#' not in page.url
-        assert 'hidden' not in page.locator('#log-text').input_value()
-        assert len(ai_calls)==0, 'AI must not run automatically on a launcher handoff'
-        expect(page.locator('.doc-slider')).to_be_visible()
-        expect(page.locator('#guide-tabs button').first).to_be_visible()
-        expect(page.locator('#guide-tabs button').first).to_contain_text('Allocated RAM')
-        expect(page.locator('#guide-tabs button').first).to_have_attribute('aria-current','step')
+        assert '#' not in page.url and 'hidden' not in page.locator('#log-text').input_value()
+        assert not ai_calls, 'A launcher handoff stays local until Analyze is clicked'
+        expect(page.locator('#guide-steps > li')).to_have_count(2)
+        expect(page.locator('#guide-steps strong').first).to_contain_text('Settings')
+        expect(page.locator('.doc-mock')).to_have_count(0)
         page.locator('.doc-evidence summary').click()
         expect(page.locator('#result-evidence')).to_contain_text('OutOfMemoryError')
         page.locator('.doc-evidence summary').click()
-        page.locator('#step-next').click()
-        expect(page.locator('#guide-step h3')).to_have_text('Launch once more')
-        page.locator('#step-prev').click()
         page.evaluate('window.scrollTo(0,0)')
         page.screenshot(path=str(captures/'doctor-desktop.png'),full_page=True)
-        print('PASS launcher handoff, immediate redaction, local guide and step navigation')
+        print('PASS launcher redaction, no automatic sharing, all Markdown steps and error evidence')
 
-        page.locator('#log-file').set_input_files({'name':'crash.log','mimeType':'text/plain','buffer':b'GLFW error 65542: WGL: failed'})
+        page.locator('#log-file').set_input_files({'name':'crash.log','mimeType':'text/plain','buffer':b'password=hidden\nGLFW error 65542: WGL: failed'})
+        expect(page.locator('#doctor-status')).to_contain_text('AI is unavailable')
+        assert len(ai_calls)==1, 'File upload must analyze automatically'
+        assert 'hidden' not in ai_calls[-1]['log'], 'An uploaded log must be redacted before sharing'
         expect(page.locator('#result-cause')).to_contain_text('OpenGL')
         expect(page.locator('.doc-external-links a')).to_have_count(3)
+        expect(page.locator('#file-note')).to_contain_text('crash.log')
         page.locator('#log-file').set_input_files({'name':'bad.zip','mimeType':'application/zip','buffer':b'bad'})
         expect(page.locator('#doctor-status')).to_contain_text('plain .log or .txt')
         page.locator('#log-file').set_input_files({'name':'huge.log','mimeType':'text/plain','buffer':b'x'*2100000})
         expect(page.locator('#doctor-status')).to_contain_text('over 2 MB')
+        assert len(ai_calls)==1, 'Invalid uploads must not call AI'
         page.locator('#log-file').set_input_files({'name':'long.log','mimeType':'text/plain','buffer':b'x'*70000+b'\nUnrecognized VM option bogus'})
+        expect(page.locator('#doctor-status')).to_contain_text('AI is unavailable')
         expect(page.locator('#file-note')).to_contain_text('tail excerpt')
-        expect(page.locator('#result-cause')).to_contain_text('launch option')
-        print('PASS file types, size limits, truncation and graphics links')
+        expect(page.locator('#guide-steps')).to_contain_text('bogus')
+        assert len(ai_calls[-1]['log'])<=64000
+        print('PASS automatic upload analysis, local fallback, size/type bounds and precise flags')
 
+        ai_mode[0]='ok'
         page.locator('#log-text').fill('java.lang.OutOfMemoryError: Java heap space')
         page.locator('#ai-check').click()
-        expect(page.locator('#result-source')).to_contain_text('Kilo auto/free')
-        assert len(ai_calls)==1
-        expect(page.locator('#model-attempts .doc-attempt')).to_have_count(0)
+        expect(page.locator('#result-source')).to_have_text('AI analysis')
+        expect(page.locator('#guide-steps > li')).to_have_count(2)
+        expect(page.locator('#guide-steps code')).to_have_text('options.txt')
+        expect(page.locator('#guide-steps img')).to_have_count(0)
         expect(page.locator('#result-cause img')).to_have_count(0)
         expect(page.locator('#result-cause')).to_contain_text('<img')
         with page.expect_download() as info: page.locator('#download-result').click()
-        assert info.value.suggested_filename=='cubeon-doctor-guide.txt'
-        print('PASS same-origin Kilo requests, text rendering and saved guide')
+        download=info.value
+        assert download.suggested_filename=='cubeon-doctor-guide.md'
+        content=Path(download.path()).read_text()
+        assert '## How to fix it' in content and '1. **Raise memory**' in content
+        print('PASS Markdown bold/code, safe HTML handling, all steps and Markdown download')
 
-        ai_mode[0] = 'fail'
-        page.locator('#ai-check').click()
-        expect(page.locator('#doctor-status')).to_contain_text('local guide remains available')
-        expect(page.locator('#result-source')).to_have_text('Local check')
         page.evaluate("""() => {
             const realFetch = window.fetch;
             window.fetch = (url,options) => url === '/api/doctor' ? new Promise(()=>{}) : realFetch(url,options);
@@ -114,7 +121,6 @@ def main():
         expect(page.locator('#doctor-status')).to_contain_text('stopped')
         expect(page.locator('#ai-check')).to_be_enabled()
         page.locator('#ai-check').click()
-        expect(page.locator('#model-attempts .doc-attempt')).to_have_count(1)
         page.locator('#log-text').fill('UnknownHostException: unreachable')
         page.locator('#local-check').click()
         expect(page.locator('#result-cause')).to_contain_text('could not be reached')
@@ -122,7 +128,8 @@ def main():
         page.locator('#clear-log').click()
         expect(page.locator('#doctor-empty')).to_be_visible()
         assert page.locator('#log-text').input_value()==''
-        print('PASS AI outage fallback, cancellation, editing and clearing during a request')
+        expect(page.locator('#log-text')).to_be_hidden()
+        print('PASS cancellation, editing during analysis and clearing')
 
         page.goto('https://cubeon.test/doctor#report=bad!')
         expect(page.locator('#doctor-status')).to_contain_text('could not be opened')
@@ -132,24 +139,21 @@ def main():
         expect(page.locator('#doctor-status')).to_contain_text('could not be opened')
         page.set_viewport_size({'width':390,'height':844})
         page.locator('[data-example="mods"]').click()
-        expect(page.locator('#result-cause')).to_contain_text('dependency')
-        result_top = page.locator('#doctor-result').bounding_box()['y']
-        assert 70 <= result_top < 180, 'A mobile diagnosis should scroll into view below the navbar'
-        expect(page.locator('#guide-tabs button').nth(1)).to_contain_text('Check & repair')
-        page.locator('#step-next').click()
-        expect(page.locator('#guide-step')).to_contain_text('Check & repair')
-        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        expect(page.locator('#result-cause')).to_contain_text('Example Mod')
+        expect(page.locator('#guide-steps')).to_contain_text('fabric-api')
+        expect(page.locator('#guide-steps')).to_contain_text('Check & repair')
+        result_top=page.locator('#doctor-result').bounding_box()['y']
+        assert 70<=result_top<180, 'The diagnosis should scroll into view below the navbar'
         page.evaluate('window.scrollTo(0,0)')
         page.screenshot(path=str(captures/'doctor-mobile.png'),full_page=True)
         for width in [320,768,1024]:
             page.set_viewport_size({'width':width,'height':844})
-            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), width
-            expect(page.locator('#guide-tabs button').nth(1)).to_be_visible()
-        page.emulate_media(color_scheme='light', reduced_motion='reduce')
-        assert page.locator('#log-text').evaluate("el => getComputedStyle(el).color") == 'rgb(221, 246, 213)', 'Doctor should keep the restored site palette'
-        assert not errors, errors
-        assert not external, external
-        print('PASS invalid fragments, decompression bounds, mobile layout and no browser exceptions')
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),width
+        page.emulate_media(color_scheme='light',reduced_motion='reduce')
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        assert not errors,errors
+        assert not external,external
+        print('PASS corrupt reports, decompression limits, specific mod names and responsive default theme')
         browser.close()
 
 if __name__=='__main__': main()

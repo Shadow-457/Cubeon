@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Playing Minecraft with friends in Cubeon - servers, joining, fixes</title>
+<meta name="description" content="Add friends by name, host a free server from your own PC, hand out the address, and fix the usual reasons someone cannot join - whitelist, version, mods, firewall." />
+<meta property="og:title" content="Playing together in Cubeon" />
+<meta property="og:description" content="Friends by name, a free server on your own PC, and a checklist for every way a join can fail." />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon launcher shown over a Minecraft world: a version picker, an account name and a big green Play button." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="assets/icon.svg" />
+<link rel="stylesheet" href="assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="download.html">Download</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="doctor.html">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="download.html">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Playing together</p>
+      <h1>Playing together</h1>
+      <p class="lede">Add friends by name, open a server from your own computer, and give people an address they can type. This page also has the list to work through when someone cannot get in.</p>
+      <p class="updated">Updated 28 October 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">Guides</span>
+          <a class="docs-nav-link" href="docs.html">All guides</a>
+          <a class="docs-nav-link" href="getting-started.html">Getting started</a>
+          <a class="docs-nav-link" href="mods.html">Mods &amp; content</a>
+          <a class="docs-nav-link" href="modpacks.html">Modpacks</a>
+          <a class="docs-nav-link" href="multiplayer.html" aria-current="page">Playing together</a>
+          <a class="docs-nav-link" href="cosmetics.html">Skins &amp; cosmetics</a>
+          <a class="docs-nav-link" href="troubleshooting.html">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="files.html">Files &amp; backups</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">On this page</span>
+          <a class="docs-nav-link" href="#friends">Friends and chat</a>
+          <a class="docs-nav-link" href="#host">Hosting a world</a>
+          <a class="docs-nav-link" href="#join">Joining a server</a>
+          <a class="docs-nav-link" href="#whitelist">Whitelist and password</a>
+          <a class="docs-nav-link" href="#cant-join">"I can't join"</a>
+          <a class="docs-nav-link" href="#offline">Offline names and premium servers</a>
+          <a class="docs-nav-link" href="#skins">Skins while playing</a>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="docs-main">
+
+      <div class="docs-section" id="friends">
+        <span class="docs-section-eyebrow">Start here</span>
+        <h2>Friends and chat</h2>
+        <p>Friend requests go by <strong>Cubeon name</strong>, not by Minecraft account - there is no email to search for and no code to swap. Type the name in the friends list and send the request.</p>
+        <ul>
+          <li>The other person must have opened Cubeon at least once. Before that, the name does not exist yet.</li>
+          <li>Names are first come, first served. If the one you want is taken, it is taken.</li>
+          <li>Once you are friends, the launcher shows who is online and which Minecraft version they are playing, and keeps your conversation.</li>
+          <li>In game, Cubeon players are marked in Minecraft's own player list - hold <strong>Tab</strong>.</li>
+        </ul>
+        <p>Chat is marked BETA in the launcher. Messages are kept for the conversation, and an open conversation does not fire an incoming alert at you (you are already reading it).</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="host">
+        <h2>Hosting a world</h2>
+        <p>Cubeon can run a real Minecraft server on your own computer and give it a public address, so your friends do not need to change anything on their end and nobody pays for hosting.</p>
+        <ol>
+          <li>Open <strong>Servers</strong> and pick the Minecraft version to host.</li>
+          <li>Press <strong>Install</strong> for that version if it is not there yet.</li>
+          <li>Start it. Once it is up, the tab shows the <strong>public address</strong> - copy that and send it to your friends.</li>
+          <li>Optionally set a <strong>join password</strong>. Anyone without it does not get in, even with the address.</li>
+        </ol>
+        <p>Three things to know before you promise anyone a game:</p>
+        <ul>
+          <li><strong>Your computer is the server.</strong> It has to stay on and awake, and Cubeon (or at least the server) has to keep running. A sleeping laptop is a dead server.</li>
+          <li><strong>First start is slow.</strong> The server generates its world before it accepts players.</li>
+          <li><strong>The tunnel can be blocked.</strong> Some networks and firewalls interrupt the shared address. If it never comes up, try a different network, or ask on the <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a> with what the console says.</li>
+        </ul>
+        <p><strong>Console</strong>, <strong>Plugins</strong> and <strong>Settings</strong> sit under the server tab. Settings is where RAM lives - the default is fine for a few friends; raise it if the server is struggling, not by default.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="join">
+        <h2>Joining a server</h2>
+        <p>In Minecraft, open <strong>Multiplayer</strong> &gt; <strong>Add Server</strong>, paste the address, and join. The address from Cubeon already includes the port, so paste the whole thing rather than splitting it up.</p>
+        <p>If the address came with a join password, you will be asked for it on the way in.</p>
+        <p>To join, <strong>three</strong> things have to line up:</p>
+        <ul>
+          <li><strong>The Minecraft version</strong> - the same one the server runs.</li>
+          <li><strong>The loader</strong> - a Fabric server wants a Fabric client; vanilla wants vanilla.</li>
+          <li><strong>The mods</strong> - if the server requires mods, install the same ones. A vanilla client on a modded server is a mismatch even when the Minecraft version matches.</li>
+        </ul>
+        <p>The launcher shows the version a friend is playing, which is the fastest way to find out why you cannot meet in the middle.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="whitelist">
+        <h2>Whitelist and password</h2>
+        <p>Two different locks, and they fail differently:</p>
+        <ul>
+          <li><strong>Join password</strong> - set in Servers, checked before you reach the world. Wrong or missing password means the connection is refused.</li>
+          <li><strong>Whitelist</strong> - a list of names allowed in, managed in Servers. Anyone not on it is rejected <em>after</em> connecting, with "You are not white-listed on this server!".</li>
+        </ul>
+        <p>Add names exactly as they appear in game, capitalization and all, then restart the server so the list is written out. If you are the one being rejected, ask the owner to check the spelling - a trailing space is enough to fail.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="cant-join">
+        <h2>"I can't join"</h2>
+        <p>Find the message you got, or the point where it stopped, and start there:</p>
+        <div class="docs-table-wrap">
+          <table class="docs-table">
+            <thead>
+              <tr><th scope="col">Symptom</th><th scope="col">Usually means</th><th scope="col">Fix</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>You are not white-listed on this server</td><td>The name is not on the server's list</td><td>Owner adds the exact name in Servers, then restarts</td></tr>
+              <tr><td>Outdated client / Outdated server</td><td>Minecraft versions differ</td><td>Both sides move to the same version</td></tr>
+              <tr><td>Incompatible client</td><td>Loader or required mods differ</td><td>Match the loader and the server's mod list</td></tr>
+              <tr><td>Unknown host</td><td>The address is wrong, or no longer live</td><td>Re-paste it from Servers; the tunnel address changes if the server is restarted</td></tr>
+              <tr><td>Connection timed out / Connection refused</td><td>Server is off, still starting, or the owner's PC is asleep</td><td>Ask the owner to start it and wait for the address</td></tr>
+              <tr><td>Failed to verify username / Invalid session</td><td>The server requires a real Microsoft account</td><td>See <a href="#offline">offline names</a> - this one you cannot fix from the client</td></tr>
+              <tr><td>Connection drops a second after joining</td><td>Whitelist, a mod mismatch, or a server crash</td><td>Check the server console - it names the reason</td></tr>
+              <tr><td>It hangs on "Connecting to the server"</td><td>The tunnel or your network is blocking it</td><td>Retry, try another network, ask in Discord</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Still stuck? The person hosting can read the exact reason in the server <strong>Console</strong> tab - that line is worth more than guessing, so ask for it.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="offline">
+        <h2>Offline names and premium servers</h2>
+        <p>Cubeon plays with a local name, not a Microsoft sign-in. That is fine for your own servers and for anyone who joins you, but it means:</p>
+        <ul>
+          <li>big public servers that require a real Minecraft account will refuse you, with a session or verification error;</li>
+          <li>servers that check skins and capes against Mojang will not know your Cubeon skin - see <a href="#skins">below</a>;</li>
+          <li>a name that matches a real premium account is not yours to claim on those servers.</li>
+        </ul>
+        <p>This is a deliberate trade for "pick a name and play". If a specific public server is the only thing you want, that server is the thing that wants a paid account - not the launcher.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="skins">
+        <h2>Skins while playing</h2>
+        <p>Skins and capes are a Cubeon thing. Other Cubeon players see them; a player on vanilla, or on another launcher with no skin support, sees the default model. <a href="cosmetics.html#not-showing">Skin not showing</a> walks through the cases where even a Cubeon player does not see yours.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="next">
+        <h2>Next</h2>
+        <div class="docs-guide-links">
+          <a href="cosmetics.html">Skins and capes</a>
+          <a href="mods.html#if-broken">Mods on a server</a>
+          <a href="troubleshooting.html">The game crashes when joining</a>
+          <a href="files.html#logs">Which log to send</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="index.html">Home</a>
+        <a href="download.html">Download</a>
+        <a href="docs.html">Docs</a>
+        <a href="doctor.html">Doctor</a>
+      <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="refunds.html">Refunds</a>
+        <a href="cookies.html">Cookies</a>
+        <a href="licenses.html">Credits</a>
+        <a href="privacy.html#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+<script src="assets/world.js" defer></script>
+</body>
+</html>

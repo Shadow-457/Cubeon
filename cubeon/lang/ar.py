@@ -105,4 +105,7 @@ TABLE = {
     'Pick a friend to start chatting.': 'اختر صديقًا لبدء الدردشة.',
     'Search mods…': 'ابحث عن تعديلات…',
     'Search modpacks…': 'ابحث عن حزم تعديلات…',
+    'No languages found': 'لم يتم العثور على لغات',
+    "Couldn't save the language": 'تعذر حفظ اللغة',
+    'Applying your settings.': 'جارٍ تطبيق إعداداتك.',
 }

@@ -47,13 +47,13 @@
 
 <div class="prose">
   <h2>Why there's no banner</h2>
-  <p>Cubeon has no advertising or analytics trackers. Fonts and pictures come from this site. The shared download count uses our download server. Doctor sends a log to our Kilo endpoint only when you choose AI; local checks run in your browser.</p>
+  <p>Cubeon has no advertising or analytics trackers. Fonts and pictures come from this site. The shared download count uses our download server. Uploading a Doctor log or choosing Analyze log sends a redacted excerpt to our Kilo endpoint; on-device checks run in your browser.</p>
 
   <h2>The download counter</h2>
   <p>The download buttons keep a shared count of how many different people have downloaded - the same total for everyone, and one per visitor rather than one per click. Our download server records a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored, and the hash is not linked to any account, cookie or profile. If that request can't be made, the count simply doesn't appear.</p>
 
   <h2>Optional Doctor AI</h2>
-  <p>Doctor does not load an AI provider script, create a visitor account or use provider sign-in cookies. Choosing AI sends the excerpt to Cubeon's server, which calls Kilo auto/free. Local checks and file previews work without it. Logs and guides are kept in page memory, not Cubeon browser storage. See <a href="privacy.html#doctor">Doctor privacy details</a>.</p>
+  <p>Doctor does not load an AI provider script, create a visitor account or use provider sign-in cookies. Uploading a file or choosing Analyze log sends the excerpt to Cubeon's server, which calls Kilo auto/free. Local checks and file previews work without it. Logs and guides are kept in page memory, not Cubeon browser storage. See <a href="privacy.html#doctor">Doctor privacy details</a>.</p>
   <h2>Small interface preferences</h2>
   <p>The dismissal of our cookie information badge is remembered in localStorage on this browser. If a consent banner is enabled, its choice is also stored there. These preferences are not sent to an analytics service.</p>
 

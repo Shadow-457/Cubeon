@@ -97,6 +97,8 @@ consistent with the shared `THEME` contract.
   replay cascade/shimmer animations on refresh.
 - Rows with expanding spacers must not use `wrap=True`; Flutter's wrapped layout cannot host flex
   children. Check actual rendering, not only Python builds.
+  Settings' backup actions use two expanded buttons in an unwrapped Row and a separate restore row;
+  the history text has a flexible wrapper. Wrapping the expanded buttons caused the gray error panel.
 - Tab loads repaint their own region: `ui/mods_tab.py` and `ui/modpacks_tab.py` browse loading,
   cached-page render and content-type switches use `thread_safe_ui.refresh(...)`, not `page.update()`.
   A whole-tree diff in the same moment a tab is built/fetched was the "clicking Mods stalls the app"
@@ -146,12 +148,14 @@ consistent with the shared `THEME` contract.
 ### Play and content
 
 - **The version picker** is the one instance surface (2026-10-26): a right-hand slide-in panel
-  (`ui/versions.py`, in `page.overlay`) with a 2-column grid of square Mojang key-art cards
-  (`version_art.src`), title + subtitle below. Cards are **select-only** - Folder/Rename/Delete live on
-  the Play card. "New instance" is the same panel with install-time loader chips; `_pick` passes a loader
+  (`ui/versions.py`, in `page.overlay`) with a 2-column grid of bundled SVG block/mob icons,
+  title + subtitle below. The pencil chooses from 20 blocks and 20 mob heads in the same panel;
+  `cubeon/instance_icons.py` validates IDs and `cfg["instance_icons"]` persists them per instance.
+  `tools/gen_instance_icons.py` generates the 40 SVGs. Selection never changes when choosing an icon.
+  Folder/Rename/Delete live on the Play card. "New instance" uses install-time loader chips; `_pick` passes a loader
   only in `"new"` mode, never vanilla.
-- The Play card's loader control is a **read-only** `loader_readout` + `loader_note`
-  (`_paint_loader_readout`); `loader_toggle` survives only as an unmounted mirror of `state["mod_loader"]`
+- The Play card shows its loader as the compact hero tag; the bulky loader readout is unmounted.
+  `loader_readout` / `loader_note` and `loader_toggle` survive as internal mirrors of `state["mod_loader"]`
   for the launch path and the smoke/ version tests. The card always shows Folder / Rename / Delete; there
   is **no** Advanced disclosure and no "Play this instance".
 - `instances.describe()` is the single source of instance metadata (reads the last-played sidecar through
@@ -511,6 +515,7 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
 | Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_launch_fixes.py` |
+| Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Cosmetics | `test_cosmetics.py`, `test_appearance_preview.py`, `test_capes.py` |
@@ -521,6 +526,13 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 
 ## Releases and hosted services
 
+- Website Doctor lives in `web/doctor.html`, with shared rules/evidence validation in
+  `web/assets/doctor-core.js` and a server-only Kilo `kilo-auto/free` endpoint in `web/api/doctor.js`
+  (root `api/doctor.js` wrapper). Set `KILO_API_KEY` in hosting secrets, never browser code.
+  File upload starts AI; paste requires Analyze. Launcher `/doctor#report=` transfers are redacted,
+  compressed and consumed before requests, and stay local until Analyze. Instructions render as a
+  safe Markdown subset, with no raw HTML or mock UI. Quotas/failures retain the on-device result.
+  See `docs/development/website-doctor.md` for size, timeout and instance-local throttling contracts.
 - A push to `main` starts the release workflow. Publishing, committing, deploying, and rewriting history
   require the user's explicit request.
 - `tools/release_version.py` owns stamping/channel policy. Zero-patch versions are stable; nonzero-patch

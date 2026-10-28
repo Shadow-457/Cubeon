@@ -22,6 +22,12 @@ async function main() {
     result.evidence.forEach(e => assert.ok(log.includes(e)));
   }
   assert.equal(D.localDiagnosis('EXCEPTION_ACCESS_VIOLATION').category,'unknown');
+  const missing = D.localDiagnosis("Mod 'Example Mod' requires fabric-api, which is missing!");
+  assert.match(missing.cause,/Example Mod.*fabric-api/);
+  assert.match(missing.steps.find(s => s.action === 'repair').instruction,/\*\*fabric-api\*\*/);
+  const fabric = D.localDiagnosis("Mod 'Sodium' (sodium) 0.5 requires version 0.91 or later of mod 'Fabric API' (fabric-api), which is missing!");
+  assert.match(fabric.cause,/Sodium.*Fabric API/);
+  assert.match(D.localDiagnosis('Unrecognized VM option Bogus').steps[0].instruction,/\*\*Bogus\*\*/);
   const privateLog = '--accessToken hidden --username alice Authorization: Bearer xyz\nC:\\Users\\Alice\\file /home/bob/game a@b.com';
   assert.doesNotMatch(D.redactLog(privateLog),/hidden|alice|xyz|bob|a@b.com/i);
   assert.equal(D.excerpt('x'.repeat(70000)).length,64000);
@@ -33,7 +39,7 @@ async function main() {
   assert.throws(()=>D.parseDiagnosis(JSON.stringify({...data,evidence:['invented']}),log));
   assert.throws(()=>D.parseDiagnosis(JSON.stringify({...data,steps:[{action:'delete',title:'bad',instruction:'bad'}]}),log));
   assert.throws(()=>D.parseDiagnosis('not json',log));
-  for(const instruction of ['delete all worlds','powershell run','disable your firewall','Download https://evil.example']) {
+  for(const instruction of ['delete all worlds','**delete** all **worlds**','delete **auth_key**','powershell run','disable your firewall','**disable** your `firewall`','Download https://evil.example']) {
     assert.throws(()=>D.parseDiagnosis(JSON.stringify({...data,steps:[{action:'mods',title:'bad',instruction}]}),log));
   }
   const calls=[];

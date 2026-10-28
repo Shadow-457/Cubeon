@@ -8,14 +8,70 @@ import tempfile
 import threading
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import xml.etree.ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import _sandbox_home
 _sandbox_home.isolate()
 from cubeon import config, launch, osnotify, friends_service, theme
 from ui.settings_tab import _java_defaults_panel
+from ui.settings_tab import _language_picker
+from cubeon import atomicio, i18n
 import flet as ft
+
+class LanguagePickerTests(unittest.TestCase):
+    def tearDown(self):
+        i18n.set_language('en')
+
+    def build(self, cfg, restart):
+        return _language_picker(cfg, on_restart=restart, set_status=lambda _:None,
+            **{key:getattr(theme,key) for key in ('BG','BORDER','ACCENT','TEXT','TEXT_DIM')})
+
+    def test_search_save_restart_and_revert(self):
+        i18n.set_language('en')
+        cfg = {'ui_language':'en','version_labels':{'instance':'My world'}}
+        restart = Mock()
+        panel = self.build(cfg, restart)
+        selector, dropdown, notice = panel.controls[1:]
+        search, choices, empty = dropdown.content.controls
+        selector.on_click(None)
+        self.assertEqual([c.data for c in choices.controls[:4]],
+                         ['language-option-ar','language-option-en','language-option-ru','language-option-es'])
+        for query, expected in [('العربية','ar'),('russian','ru'),('espanol','es'),('pt-br','pt-br')]:
+            search.value=query; search.on_change(None)
+            self.assertEqual([c.data for c in choices.controls], ['language-option-'+expected])
+        search.value='no such language'; search.on_change(None)
+        self.assertTrue(empty.visible)
+        self.assertFalse(choices.visible)
+        search.value='es'; search.on_change(None)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'config.json'
+            with patch.object(config,'save_config',side_effect=lambda data:atomicio.write_json(str(path),data)):
+                next(c for c in choices.controls if c.data=='language-option-es').on_click(None)
+                saved=json.loads(path.read_text())
+                self.assertEqual(saved['ui_language'],'es')
+                self.assertEqual(saved['version_labels'],cfg['version_labels'])
+                self.assertEqual(i18n.current(),'en')
+                self.assertFalse(dropdown.visible)
+                self.assertTrue(notice.visible)
+                notice.controls[1].on_click(None)
+                restart.assert_called_once()
+                selector.on_click(None)
+                next(c for c in choices.controls if c.data=='language-option-en').on_click(None)
+                self.assertFalse(notice.visible)
+
+    def test_failed_save_keeps_choice_and_config_shape(self):
+        for cfg in [{'ui_language':'en'}, {}]:
+            with self.subTest(cfg=cfg):
+                original=cfg.copy()
+                panel=self.build(cfg,lambda _:None)
+                panel.controls[1].on_click(None)
+                choices=panel.controls[2].content.controls[1]
+                with patch.object(config,'save_config',side_effect=OSError('disk full')):
+                    next(c for c in choices.controls if c.data=='language-option-ar').on_click(None)
+                self.assertEqual(cfg,original)
+                self.assertTrue(panel.controls[2].visible)
+                self.assertFalse(panel.controls[3].visible)
 
 class FlagsTests(unittest.TestCase):
     def test_report_matches_actual_command(self):

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Getting started with Cubeon - install, first launch, versions</title>
+<meta name="description" content="Which Cubeon file to download, what the first launch asks for, how instances and Java work, and how to update the launcher." />
+<meta property="og:title" content="Getting started with Cubeon" />
+<meta property="og:description" content="Install it, pick a version, press Play - and the settings worth knowing on the way." />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon launcher shown over a Minecraft world: a version picker, an account name and a big green Play button." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="assets/icon.svg" />
+<link rel="stylesheet" href="assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="download.html">Download</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="doctor.html">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="download.html">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Getting started</p>
+      <h1>Getting started</h1>
+      <p class="lede">One download, one name, one Play button. This page covers the file to pick, what happens on the first run, and the handful of settings that are worth knowing about.</p>
+      <p class="updated">Updated 28 October 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">Guides</span>
+          <a class="docs-nav-link" href="docs.html">All guides</a>
+          <a class="docs-nav-link" href="getting-started.html" aria-current="page">Getting started</a>
+          <a class="docs-nav-link" href="mods.html">Mods &amp; content</a>
+          <a class="docs-nav-link" href="modpacks.html">Modpacks</a>
+          <a class="docs-nav-link" href="multiplayer.html">Playing together</a>
+          <a class="docs-nav-link" href="cosmetics.html">Skins &amp; cosmetics</a>
+          <a class="docs-nav-link" href="troubleshooting.html">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="files.html">Files &amp; backups</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">On this page</span>
+          <a class="docs-nav-link" href="#download">What to download</a>
+          <a class="docs-nav-link" href="#first-launch">Your first launch</a>
+          <a class="docs-nav-link" href="#versions">Versions and loaders</a>
+          <a class="docs-nav-link" href="#instances">Instances</a>
+          <a class="docs-nav-link" href="#java-memory">Java and memory</a>
+          <a class="docs-nav-link" href="#fps-boost">FPS boost</a>
+          <a class="docs-nav-link" href="#settings">Settings worth knowing</a>
+          <a class="docs-nav-link" href="#updates">Updating</a>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="docs-main">
+
+      <div class="docs-section" id="download">
+        <span class="docs-section-eyebrow">Step one</span>
+        <h2>What to download</h2>
+        <p>Everything is on the <a href="download.html">download page</a>, and every build is free with no account attached. Pick the file that matches your computer:</p>
+        <ul>
+          <li><strong>Windows - setup file.</strong> Double-click it, click through the installer, and launch Cubeon from the Start menu. This is the easiest option for most people.</li>
+          <li><strong>Windows - portable ZIP.</strong> Extract the <em>whole</em> folder somewhere you can write to (your user folder or another drive, not inside <code>Program Files</code>), then run <code>Cubeon.exe</code> from inside it. Keep the folder's files together: moving just the <code>.exe</code> will break it.</li>
+          <li><strong>Linux - installer or package.</strong> Use whichever your distribution handles best. If you take the AppImage, mark it executable once and run it.</li>
+        </ul>
+        <pre><code>chmod +x Cubeon-x86_64.AppImage
+./Cubeon-x86_64.AppImage</code></pre>
+        <p>There is no Mac build yet. When there is one, it will be on the download page.</p>
+
+        <h3>What the computer needs</h3>
+        <ul>
+          <li>Windows 10 or 11, or a modern 64-bit Linux.</li>
+          <li>At least 4&nbsp;GB of system memory for vanilla Minecraft; 8&nbsp;GB or more is comfortable once you add mods.</li>
+          <li>A graphics card that can already run Minecraft, and a little disk space per installed version.</li>
+        </ul>
+        <p>You do <strong>not</strong> need a Minecraft account, an email address, Java, or Python. Cubeon is a self-contained app, and it fetches the game files and a Java runtime itself.</p>
+
+        <h3>If Windows warns you about the file</h3>
+        <p>Small independent apps are not signed by a big publisher, so Windows SmartScreen shows a warning the first time. Choose <strong>More info</strong>, then <strong>Run anyway</strong> (or <strong>Keep</strong> if your browser asks first). Only do that for a file you downloaded from the download page - and never turn off Windows security as a whole to get an app running.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="first-launch">
+        <h2>Your first launch</h2>
+        <p>Cubeon opens on the Play tab. Three things happen, in this order:</p>
+        <ol>
+          <li><strong>Pick a name.</strong> Three to sixteen characters, no password, no email. The name is how friends find you, and names are first come, first served - so pick the one you want now rather than later.</li>
+          <li><strong>Choose a Minecraft version</strong> from the version picker. Leave the loader on <strong>Vanilla</strong> unless you already know you need mods.</li>
+          <li><strong>Press Play.</strong> The first launch downloads the game itself, so it takes a few minutes depending on your connection. A progress bar shows what is being fetched, and the button turns into Cancel while it works.</li>
+        </ol>
+        <p>Cancelling during that first download is safe: nothing is half-installed, and pressing Play again picks up where it stopped.</p>
+        <div class="note">
+          <b>Cubeon uses an offline profile</b>
+          <p>There is no Microsoft or Mojang sign-in. That is what makes "pick a name and play" possible, but it also means servers that require a real Minecraft account will reject you - see <a href="multiplayer.html#offline">offline names and premium servers</a>.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="versions">
+        <h2>Versions and loaders</h2>
+        <p>A "version" in Cubeon is a Minecraft release plus, optionally, a mod loader. The launcher can install these loaders for you:</p>
+        <ul>
+          <li><strong>Vanilla</strong> - the plain game. Resource packs work; mods and shaders do not.</li>
+          <li><strong>Fabric</strong> and <strong>Quilt</strong> - the usual choice for performance mods, cosmetic mods and most modern packs.</li>
+          <li><strong>Forge</strong> and <strong>NeoForge</strong> - needed by the mods and older packs that were built for them.</li>
+        </ul>
+        <p>The important rule: a mod only runs on the loader and the Minecraft version it was built for. A Fabric mod does not work because a Forge version is installed, and a 1.20.1 mod does not work on 1.21. The <a href="mods.html#before">mods guide</a> starts with that check for a reason.</p>
+        <p>Install as many versions as you like. Each one is downloaded once and then starts quickly.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="instances">
+        <h2>Instances</h2>
+        <p>An instance is one version in its own folder with its own settings. Your worlds, video settings, keybinds and server list belong to the instance you launch - a redstone test world and a shader-heavy world can live side by side without fighting over <code>options.txt</code>.</p>
+        <ul>
+          <li><strong>Play card</strong> - shows the instance you have selected and its loader. <strong>Folder</strong>, <strong>Rename</strong> and <strong>Delete</strong> live here.</li>
+          <li><strong>The pencil</strong> - opens the icon picker: 20 blocks and 20 mob heads. The icon is saved per instance; clicking the card still selects it.</li>
+          <li><strong>Shared content</strong> - installed mods, resource packs and shaders are kept once and shared by every instance, so a mod you add does not have to be added twice.</li>
+        </ul>
+        <p>Deleting an instance does <strong>not</strong> delete its world folder. If you want the world gone too, remove that folder yourself - <a href="files.html#instances">inside an instance</a> shows where it is.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="java-memory">
+        <h2>Java and memory</h2>
+        <h3>Java is handled for you</h3>
+        <p>Cubeon uses a Java it finds on your computer when that Java is new enough for the version you picked, and otherwise downloads a free one for you. You only need to touch this if you want a specific Java build.</p>
+        <p>In that case open <strong>Settings</strong> &gt; <strong>Java</strong> and point it at the <code>java</code> executable. Use a 64-bit build: 1.18 to 1.20.4 want Java 17, 1.20.5 and newer want Java 21, and the 26.x versions want Java 25. A path to a 32-bit Java, or to an old Java 8, is the most common reason a launch fails after someone changes this by hand.</p>
+        <h3>Memory</h3>
+        <p>Cubeon starts you at 4&nbsp;GB, which is right for vanilla and light modding. Raise it to 6-8&nbsp;GB for a heavy modpack. Going much higher on a 4&nbsp;GB or 8&nbsp;GB machine makes things worse, not better: the operating system and the rest of the game still need memory of their own.</p>
+        <p>In <strong>Settings</strong> &gt; <strong>Performance</strong> &gt; <strong>Java</strong>, expand <strong>Cubeon's default flags</strong> to see exactly what will be passed to the game, including which options were skipped on your hardware. Custom flags are added after the defaults.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="fps-boost">
+        <h2>FPS boost</h2>
+        <p>FPS boost is on by default. When you launch, it installs Sodium and five companion mods (Lithium, ImmediatelyFast, Entity Culling, FerriteCore and More Culling) into that profile and sets the graphics options that cost frames to their fast values.</p>
+        <p>Turning it off restores vanilla graphics on the next launch - the switch is in the Play menu and it always says which way it is set. The <a href="benchmarks.html">benchmarks page</a> has the measured numbers, and the caveats next to them.</p>
+        <div class="note tip">
+          <b>Already boosted and still stuttering?</b>
+          <p>Lower your render distance first. It is almost always the single biggest setting, and it costs far less than it looks. <a href="troubleshooting.html#performance">Slow or stuttering</a> has the rest.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="settings">
+        <h2>Settings worth knowing</h2>
+        <p>Settings sit inside the account panel, in a short rail down the left. The ones people actually change:</p>
+        <ul>
+          <li><strong>Language</strong> - 22 languages, searchable by native name, English name or code. Arabic, Urdu, Persian and Pashto switch the whole launcher to right-to-left. A language change applies after a restart, and detailed messages without a translation fall back to English.</li>
+          <li><strong>Custom title bar</strong> - on by default on Windows and Linux. Turn it off if your window manager draws its own title bar.</li>
+          <li><strong>Notifications</strong> - <strong>System</strong> &gt; <strong>Notifications</strong> &gt; <strong>Chat messages</strong> controls incoming message alerts. Open conversations do not alert you, and old history never does.</li>
+          <li><strong>Backups</strong> - save and restore your launcher settings and history. <a href="files.html#backups">Backups</a> explains what is covered.</li>
+          <li><strong>Screenshots</strong> - its own section, with the gallery of what you have captured in game.</li>
+          <li><strong>Import</strong> - scan an old <code>.minecraft</code> folder and pick up mods, packs and worlds from it. <a href="modpacks.html#import">Packs and worlds from an old setup</a> covers that.</li>
+        </ul>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="updates">
+        <h2>Updating</h2>
+        <p>When a new version is out, Cubeon tells you and points at the download page. It does not replace itself while it is running.</p>
+        <ol>
+          <li>Download the new build.</li>
+          <li>Close Cubeon completely - including the tray icon if your desktop keeps one.</li>
+          <li>Run the new installer, or replace the contents of your portable folder.</li>
+        </ol>
+        <p>Your name, skins, worlds and installed content are not touched by an update: they live in your user folder, not in the app folder (<a href="files.html#where">where things live</a>).</p>
+        <p><strong>Settings</strong> &gt; <strong>Updates</strong> also lets you pick the update channel. Stable gets releases; beta gets the test builds as well.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="next">
+        <h2>Next</h2>
+        <div class="docs-guide-links">
+          <a href="mods.html">Add a mod</a>
+          <a href="modpacks.html">Install a modpack</a>
+          <a href="multiplayer.html">Play with friends</a>
+          <a href="cosmetics.html">Set a skin</a>
+          <a href="troubleshooting.html">Something broke</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="index.html">Home</a>
+        <a href="download.html">Download</a>
+        <a href="docs.html">Docs</a>
+        <a href="doctor.html">Doctor</a>
+      <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="refunds.html">Refunds</a>
+        <a href="cookies.html">Cookies</a>
+        <a href="licenses.html">Credits</a>
+        <a href="privacy.html#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+<script src="assets/world.js" defer></script>
+</body>
+</html>

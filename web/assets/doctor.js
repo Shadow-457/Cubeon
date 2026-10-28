@@ -1,4 +1,4 @@
-/* Browser orchestration. Logs stay in memory; AI requests start only on a user click. */
+/* Logs stay in page memory. File upload or Analyze explicitly starts AI analysis. */
 (function () {
   'use strict';
   const D = window.CubeonDoctor;
@@ -17,7 +17,7 @@
   }
   function status(message) { $('doctor-status').textContent = message; }
   function revealResult() {
-    if (diagnosis && window.matchMedia('(max-width: 960px)').matches) {
+    if (diagnosis) {
       $('doctor-result').scrollIntoView({behavior:'instant', block:'start'});
     }
   }
@@ -44,7 +44,7 @@
     $('log-text').value = D.excerpt(redacted);
     $('file-note').textContent = label + (truncated || redacted.length > D.MAX_LOG
       ? ' · Showing a redacted tail excerpt; keep the full log for any missing context.'
-      : ' · Common private details redacted. Review the preview before AI.');
+      : ' · Common private details redacted.');
   }
   function local() {
     const log = D.excerpt($('log-text').value);
@@ -52,7 +52,7 @@
     preview($('log-text').value, 'Current log');
     const result = D.localDiagnosis(log);
     render(result);
-    status('Local check ready. Follow the guide, or ask AI to review this excerpt.');
+    status('On-device instructions are ready.');
     return log;
   }
   // Render the supported Markdown subset as DOM nodes, never raw HTML.
@@ -77,7 +77,7 @@
     diagnosis = result;
     $('doctor-empty').hidden = true;
     $('doctor-result').hidden = false;
-    $('result-source').textContent = result.source === 'ai' ? 'Kilo auto/free' : 'On-device check';
+    $('result-source').textContent = result.source === 'ai' ? 'AI analysis' : 'On-device check';
     $('result-cause').textContent = result.cause;
     $('result-evidence').replaceChildren(...(result.evidence.length
       ? result.evidence.map(line => node('pre', line))
@@ -105,6 +105,7 @@
     reading = false;
     invalidate(); empty(); context = {};
     const run = revision;
+    $('log-text').value = ''; $('file-note').textContent = '';
     if (file.size > 2 * 1024 * 1024) { status('This file is over 2 MB. Choose a smaller crash report or paste the error section.'); return; }
     if (!/\.(?:log|txt)$/i.test(file.name)) { status('Choose a plain .log or .txt file.'); return; }
     reading = true; busy(false); status('Reading the log on your device…');
@@ -115,14 +116,15 @@
       preview(value, file.name);
       const note = $('file-note').textContent;
       local(); $('file-note').textContent = note;
-      revealResult();
     } catch (_) { if (run === revision) status('This file could not be read as a text log. Try pasting the error.'); }
     finally { if (run === revision) { reading = false; busy(false); } }
     if (run === revision && diagnosis) await analyze();
   }
   async function analyze() {
     if (controller || reading) return;
+    const note = $('file-note').textContent;
     const log = local(); if (!log) return;
+    if (note) $('file-note').textContent = note;
     const run = revision;
     const current = new AbortController(); controller = current;
     busy(true); $('ai-check').textContent = 'Analyzing…';

@@ -259,6 +259,10 @@ FONT_MONO = "Inter"            # small labels, version ids, console - too small
 FONT_URLS = {
     "Minecraftia": "fonts/Minecraftia-Regular.ttf",
     "Inter": "fonts/Inter.ttf",
+    "Noto Arabic": "fonts/NotoSansArabicUI-Regular.ttf",
+    "Noto Devanagari": "fonts/NotoSansDevanagariUI-Regular.ttf",
+    "Noto Bengali": "fonts/NotoSansBengaliUI-Regular.ttf",
+    "Cubeon Language CJK": "fonts/CubeonLanguageCJK.otf",
 }
 
 # Every token name a tab builder currently accepts as a keyword argument.

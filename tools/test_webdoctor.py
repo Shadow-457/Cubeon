@@ -68,6 +68,9 @@ class WebDoctorTests(unittest.TestCase):
             show_crash_dialog(Page(), reason='Error', log_text='OutOfMemoryError',
                               version_label='1.21', show_snack=lambda *a, **k: snack.append(a))
             dlg = opened.call_args.args[1]
+            self.assertEqual(len(dlg.actions), 4, 'Crash report has Doctor, Copy, Discord and Close only')
+            import flet as ft
+            self.assertFalse(any(getattr(a, 'icon', None) == ft.Icons.BUILD_ROUNDED for a in dlg.actions))
             buttons = [a for a in dlg.actions if getattr(a,'data',None) == 'crash-web-doctor']
             self.assertEqual(len(buttons),1)
             self.assertEqual(buttons[0].content, 'الطبيب')

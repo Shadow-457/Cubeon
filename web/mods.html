@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Installing Minecraft mods in Cubeon - mods, resource packs, shaders</title>
+<meta name="description" content="How to find and install mods that fit your version and loader, what happens to dependencies, turning a mod off, adding a jar by hand, and what Check and repair fixes." />
+<meta property="og:title" content="Mods, resource packs and shaders in Cubeon" />
+<meta property="og:description" content="Compatible search, automatic dependencies, disabling instead of deleting, and the repair button that fixes what it safely can." />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon launcher shown over a Minecraft world: a version picker, an account name and a big green Play button." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="assets/icon.svg" />
+<link rel="stylesheet" href="assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="download.html">Download</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="doctor.html">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="download.html">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Mods</p>
+      <h1>Mods, resource packs and shaders</h1>
+      <p class="lede">Everything on this page follows one rule: match the version and the loader you actually launch. Get that right and the rest is mostly clicking Install.</p>
+      <p class="updated">Updated 28 October 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">Guides</span>
+          <a class="docs-nav-link" href="docs.html">All guides</a>
+          <a class="docs-nav-link" href="getting-started.html">Getting started</a>
+          <a class="docs-nav-link" href="mods.html" aria-current="page">Mods &amp; content</a>
+          <a class="docs-nav-link" href="modpacks.html">Modpacks</a>
+          <a class="docs-nav-link" href="multiplayer.html">Playing together</a>
+          <a class="docs-nav-link" href="cosmetics.html">Skins &amp; cosmetics</a>
+          <a class="docs-nav-link" href="troubleshooting.html">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="files.html">Files &amp; backups</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">On this page</span>
+          <a class="docs-nav-link" href="#before">Before you install</a>
+          <a class="docs-nav-link" href="#find">Finding a mod</a>
+          <a class="docs-nav-link" href="#install">Installing</a>
+          <a class="docs-nav-link" href="#manage">Turning off, updating, removing</a>
+          <a class="docs-nav-link" href="#manual">Adding a jar by hand</a>
+          <a class="docs-nav-link" href="#repair">Check &amp; repair</a>
+          <a class="docs-nav-link" href="#resourcepacks">Resource packs</a>
+          <a class="docs-nav-link" href="#shaders">Shaders</a>
+          <a class="docs-nav-link" href="#wont-load">Mods that don't load</a>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="docs-main">
+
+      <div class="docs-section" id="before">
+        <span class="docs-section-eyebrow">The rule</span>
+        <h2>Before you install anything</h2>
+        <p>Two things have to match, or the mod will not load:</p>
+        <ol>
+          <li><strong>The Minecraft version.</strong> A mod built for 1.20.1 does not work on 1.21 - and "1.21" and "1.21.4" are different versions to Minecraft too.</li>
+          <li><strong>The loader.</strong> Fabric mods need a Fabric instance, Forge mods need Forge, NeoForge mods need NeoForge. Vanilla cannot load mods at all.</li>
+        </ol>
+        <p>So the first step is always: select (or create) an instance with the loader you need, on the version the mod is built for. The Mods tab uses that instance's real version and loader for its filters, which is why the download button can be unavailable for a mod you can plainly see.</p>
+        <div class="note">
+          <b>Vanilla vs modded, in one line</b>
+          <p>Vanilla accepts resource packs. Mods and shaders need a modded loader, and shaders also need a shader runtime (<a href="#shaders">below</a>).</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="find">
+        <h2>Finding a mod</h2>
+        <p>Open <strong>Mods</strong> and pick the <strong>Mods</strong> content type. The search bar shows the Minecraft version, the loader and the category it is searching in, so you can see what "compatible" means before you type anything.</p>
+        <h3>The filters that matter</h3>
+        <ul>
+          <li><strong>Compatible only</strong> - on by default. Keep it on; it is the difference between a mod that starts and a mod that crashes your game.</li>
+          <li><strong>Search all Modrinth</strong> - a button that appears when a search comes back empty. It widens the search beyond the current version and loader, so you can confirm the mod exists at all.</li>
+          <li><strong>All categories</strong> - if a mod seems missing, clear the category filter. Plenty of good mods are filed somewhere unexpected.</li>
+        </ul>
+        <h3>Searching by name or by link</h3>
+        <p>Type a name, or paste a Modrinth project link straight into the field. A link resolves that exact project even when your filters would normally hide it - useful when a friend sends you one. Installing from it still requires a matching Minecraft version and loader, so a link is not a way around the compatibility check.</p>
+        <p>If a full name finds nothing, Cubeon retries with shorter searches and labels those results as related matches. They are worth a look, but check the version on each one before you install it.</p>
+        <p>Mods for other Minecraft versions or loaders are still shown in a project's detail view, marked as another version. Cubeon does not hide them - it just will not download one that does not fit the selected instance.</p>
+        <p>Cubeon's catalogue is Modrinth. A mod published only on another site will not appear in these results, though a jar you already have can be <a href="#manual">added by hand</a>.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="install">
+        <h2>Installing</h2>
+        <ol>
+          <li>Select the instance the mod is for.</li>
+          <li>Find the mod, open it, and press <strong>Download</strong> (or <strong>Install</strong>).</li>
+          <li>Wait for the button to read <strong>Installed</strong>. The mod is now in the instance's Installed list.</li>
+          <li>Start (or restart) the game. A mod that was installed while Minecraft was open is not in that running instance of the game.</li>
+        </ol>
+        <p><strong>Dependencies install with it.</strong> If a mod declares that it needs Fabric API, Cloth Config or something else, Cubeon fetches the matching build of that dependency too and tells you what it added. You do not have to hunt for them - and you should not install a different version of the same dependency by hand afterwards, because two copies of one library is a classic crash.</p>
+        <p>Cubeon keeps one build per mod per launch: if two versions of the same mod are on disk, the newest mod version that fits the running instance is the one that gets loaded.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="manage">
+        <h2>Turning off, updating, removing</h2>
+        <h3>Turning a mod off</h3>
+        <p>Switch it off in <strong>Installed</strong> instead of deleting it. Cubeon renames the jar rather than removing it, so switching it back on is instant and you keep the file if you want to try again.</p>
+        <h3>Updating</h3>
+        <p>Find the mod again and install the newer build; it replaces the old one in that instance. If a mod update breaks your game, switch the new jar off and you are back to a working setup - which is exactly why off is not the same as delete.</p>
+        <h3>Removing</h3>
+        <p><strong>Remove</strong> in Installed deletes Cubeon's copy of the jar. Jars you put in the mods folder yourself are treated differently - see the next section.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="manual">
+        <h2>Adding a jar by hand</h2>
+        <p>Some mods are only published as a file. You can drop the jar into the shared mods folder and Cubeon will use it:</p>
+        <pre><code>~/.cubeon_minecraft/mods/</code></pre>
+        <p>On Windows that is <code>%USERPROFILE%\.cubeon_minecraft\mods\</code>. Close Minecraft first.</p>
+        <p>Two things Cubeon does for you here, and one it cannot:</p>
+        <ul>
+          <li><strong>Your jars are yours.</strong> Cubeon only removes jars it installed itself. Anything else stays where it is; if a launcher-managed change needs the space, your jar is moved to <code>mods_user_backup/</code>, never deleted.</li>
+          <li><strong>The build still has to be right.</strong> The jar must be for that instance's Minecraft version and loader. Cubeon cannot rewrite a mod.</li>
+          <li><strong>Dependencies are on you.</strong> A hand-added mod does not get its dependencies resolved automatically. If it needs Fabric API, install that too.</li>
+        </ul>
+        <p>If a launcher-managed jar is locked by another running copy of the game, Cubeon stops with a "another Minecraft window is using these mods" message instead of skipping the file. Close the other window and press Play again.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="repair">
+        <h2>Check &amp; repair</h2>
+        <p><strong>Mods</strong> &gt; <strong>Installed</strong> has a <strong>Check &amp; repair</strong> button. The same button exists in the installed views for resource packs and shaders. It runs Cubeon's local Doctor in the background - no dialog, no upload - and looks for:</p>
+        <ul>
+          <li>the same mod installed twice, in two different files;</li>
+          <li>a missing required dependency;</li>
+          <li>a mod built for a different loader or Minecraft version;</li>
+          <li>conflicts the mods declare against each other;</li>
+          <li>structural problems in an installed pack.</li>
+        </ul>
+        <p>Pressing the button authorizes reversible repairs: it can fetch missing dependencies, and it renames duplicate or incompatible jars to disabled backups rather than deleting them. Re-enable anything you want back in Installed. The result appears next to the button, and hovering it explains anything it could not resolve.</p>
+        <div class="note">
+          <b>Automatic checks stay quiet</b>
+          <p>Checks at launch are limited to safe launcher settings and never wait on a question; installing content can also fetch dependencies without replacing a build you already have. Nothing gets disabled without you asking for a repair.</p>
+        </div>
+        <p>What it cannot do: fix a bug inside a mod, or make a mod support a Minecraft version it was not built for. Those need a different mod build, which is what the "<a href="#wont-load">it still doesn't load</a>" list is for.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="resourcepacks">
+        <h2>Resource packs</h2>
+        <p>Resource packs work on vanilla <em>and</em> modded instances, but they are still version-sensitive: a pack made for 1.16 usually looks broken on 1.21.</p>
+        <ol>
+          <li>In <strong>Mods</strong>, switch to <strong>Resource Packs</strong> and install the pack you want.</li>
+          <li>In game, open <strong>Options</strong> &gt; <strong>Resource Packs</strong> and move it to the selected column. Cubeon does not force a pack on for you.</li>
+        </ol>
+        <p>If a pack shows up but looks wrong (missing textures, pink blocks), it is almost always built for a different Minecraft version.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="shaders">
+        <h2>Shaders</h2>
+        <p>Shaders need three things at once, and the third is the one people miss:</p>
+        <ul>
+          <li>a modded instance - Fabric or Forge family, not Vanilla;</li>
+          <li>a shader runtime for that loader, such as <strong>Iris</strong> or <strong>Oculus</strong>;</li>
+          <li>the shader pack itself, installed from the <strong>Shaders</strong> view.</li>
+        </ul>
+        <p>Downloading a shader ZIP on its own changes nothing. Install the runtime first, then the pack, then choose it in game under <strong>Video Settings</strong> &gt; <strong>Shader Packs</strong>.</p>
+        <p>Shaders are the most expensive thing you can turn on. If the frame rate collapses, drop the shader preset before you touch anything else.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="wont-load">
+        <h2>Mods that don't load</h2>
+        <div class="docs-table-wrap">
+          <table class="docs-table">
+            <thead>
+              <tr><th scope="col">What you see</th><th scope="col">Usually means</th><th scope="col">Try</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Download is greyed out</td><td>The build is for another version or loader</td><td>Pick the instance that matches, or choose another mod build</td></tr>
+              <tr><td>Game starts, mod does nothing</td><td>Jar is in the wrong instance, or the game was already open</td><td>Check Installed, then fully restart the game</td></tr>
+              <tr><td>"Missing or unsupported mod" on start</td><td>A dependency is missing or the wrong version</td><td>Install the dependency, or press Check &amp; repair</td></tr>
+              <tr><td>"Duplicate mod" on start</td><td>Two jars of the same mod</td><td>Check &amp; repair renames the extra one; or switch one off</td></tr>
+              <tr><td>Crash naming a class or method</td><td>The mod is built for a different Minecraft version</td><td>Install the build for this version - see <a href="troubleshooting.html#messages">crash messages</a></td></tr>
+              <tr><td>Crash inside a mixin</td><td>Two mods change the same thing, or one is too old</td><td>Switch off the mods added most recently, then bisect</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>For anything that ends in a crash, the <a href="troubleshooting.html">troubleshooting guide</a> shows where the report is and how to have <a href="doctor.html">Cubeon Doctor</a> read it for you.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="next">
+        <h2>Next</h2>
+        <div class="docs-guide-links">
+          <a href="modpacks.html">Install a whole modpack</a>
+          <a href="troubleshooting.html#mods-crash">A mod is crashing the game</a>
+          <a href="files.html#mods-folder">Where the mods folder is</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="index.html">Home</a>
+        <a href="download.html">Download</a>
+        <a href="docs.html">Docs</a>
+        <a href="doctor.html">Doctor</a>
+      <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="refunds.html">Refunds</a>
+        <a href="cookies.html">Cookies</a>
+        <a href="licenses.html">Credits</a>
+        <a href="privacy.html#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+<script src="assets/world.js" defer></script>
+</body>
+</html>

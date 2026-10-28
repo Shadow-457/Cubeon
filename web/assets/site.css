@@ -647,3 +647,82 @@ html.js .sign .dl .switch{gap:4px 14px;margin:0}
 /* sun / moon pass in FRONT of the floating island (but behind headline, sign and nav) */
 .sun{z-index:3;width:84px;height:84px;pointer-events:none}
 @media(max-width:880px){.sun{width:52px;height:52px}}
+
+/* ============================================================================
+   Docs - ONE article layout for docs.html (the hub) and every guide beside it
+   (getting-started, mods, modpacks, multiplayer, cosmetics, troubleshooting,
+   files). It used to be an inline <style> block in docs.html; it lives here so
+   the guide pages share it instead of carrying a copy each.
+
+   Same language as the rest of the site: a glass rail on the left, one column
+   of reading text, zero radius, hard borders. Nothing here fetches anything.
+   ========================================================================== */
+.docs-wrap{display:grid;grid-template-columns:264px minmax(0,1fr);align-items:start}
+.docs-sidebar{position:sticky;top:74px;height:calc(100vh - 74px);overflow-y:auto;overflow-x:hidden;background:var(--nav-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border-right:3px solid var(--line);padding:22px 0 44px}
+.docs-sidebar::-webkit-scrollbar{width:6px}
+.docs-sidebar::-webkit-scrollbar-thumb{background:var(--line)}
+/* search (hub only; the guides are short enough to scan) */
+.docs-search-wrap{padding:0 16px 16px;border-bottom:2px solid var(--line);margin-bottom:12px}
+.docs-search{position:relative;display:flex;align-items:center}
+.docs-search-icon{position:absolute;left:11px;pointer-events:none;color:var(--hint)}
+.docs-search-icon svg{width:14px;height:14px;display:block;fill:currentColor}
+.docs-search input{width:100%;background:var(--paper);border:2px solid var(--line);border-radius:var(--r-sm);font-family:'Inter',system-ui,sans-serif;font-size:14px;color:var(--ink);padding:9px 32px 9px 34px;outline:none;transition:border-color 80ms linear}
+.docs-search input::placeholder{color:var(--hint)}
+.docs-search input:focus{border-color:var(--grass)}
+.docs-search-clear{position:absolute;right:8px;background:none;border:none;color:var(--hint);font-size:16px;padding:2px 5px;cursor:pointer;display:none;line-height:1}
+.docs-search-clear.vis{display:block}
+.docs-search-clear:hover{color:var(--ink)}
+#docsNoResults{display:none;padding:10px 16px;font-size:13px;font-weight:700;color:var(--hint);text-transform:uppercase;letter-spacing:.03em}
+/* rail links: a page list, then "on this page" anchors */
+.docs-nav-label{display:flex;align-items:center;gap:7px;padding:8px 16px 4px;font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:10.5px;color:var(--grass-dark);text-transform:uppercase;letter-spacing:.07em}
+.docs-nav-label svg{width:11px;height:11px;fill:currentColor;flex:none}
+.docs-nav-link{display:block;padding:7px 16px 7px 24px;font-weight:700;font-size:13px;color:var(--text-soft);border-left:3px solid transparent;transition:color 80ms linear,background 80ms linear,border-color 80ms linear;text-decoration:none}
+.docs-nav-link:hover{color:var(--ink);background:var(--grass-soft)}
+.docs-nav-link.active,.docs-nav-link[aria-current="page"]{color:var(--ink);border-left-color:var(--grass);background:var(--grass-soft)}
+.docs-nav-link.hidden-by-search{display:none}
+.docs-nav-group+.docs-nav-group{margin-top:14px;border-top:2px solid var(--line-soft);padding-top:8px}
+/* article */
+.docs-main{padding:44px 52px 96px;max-width:960px}
+.docs-section{margin-bottom:48px;scroll-margin-top:96px}
+.docs-section:last-child{margin-bottom:0}
+.docs-section-eyebrow{display:inline-flex;align-items:center;gap:8px;background:var(--card);border:2px solid var(--line);border-radius:var(--pill);font-weight:800;font-size:11px;letter-spacing:.06em;color:var(--grass-dark);padding:5px 13px;margin-bottom:10px;text-transform:uppercase}
+.docs-section-eyebrow svg{width:12px;height:12px;fill:currentColor}
+.docs-section h2{font-size:clamp(21px,2.8vw,29px);margin-bottom:14px}
+.docs-section h3{margin:24px 0 8px;text-transform:none;font-size:17px;font-family:'Minecraftia','Inter',sans-serif;font-weight:600;color:var(--ink)}
+.docs-section p,.docs-section li{color:var(--text-soft);font-size:15.5px}
+.docs-section p{margin-bottom:12px;max-width:70ch}
+.docs-section ul,.docs-section ol{margin:0 0 16px 22px}
+.docs-section li{margin-bottom:8px}
+.docs-section li::marker{color:var(--grass-dark)}
+.docs-section a{color:var(--grass-dark);text-decoration:underline;text-underline-offset:3px}
+.docs-section a:hover{color:var(--ink)}
+.docs-section strong{color:var(--ink)}
+.docs-section .note,.docs-section .note.tip{margin:20px 0}
+.docs-divider{border:none;border-top:2px solid var(--line);margin:0 0 44px}
+/* paths and commands inside a guide: a small block, not coloured syntax */
+.docs-main code,.prose code{font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;font-size:13.5px;color:var(--ink);background:var(--paper);border:2px solid var(--line);padding:1px 6px}
+.docs-main pre{margin:0 0 18px;background:var(--paper);border:2px solid var(--line);padding:14px 16px;overflow-x:auto;max-width:70ch}
+.docs-main pre code{border:none;padding:0;font-size:13px;line-height:1.7}
+/* symptom -> fix table */
+.docs-table-wrap{overflow-x:auto;margin:16px 0 24px}
+.docs-table{width:100%;border-collapse:collapse;font-size:15px;min-width:560px}
+.docs-table th,.docs-table td{border:2px solid var(--line);padding:10px 13px;text-align:left;vertical-align:top}
+.docs-table thead th{background:var(--grass-soft);font-family:'Minecraftia','Inter',sans-serif;font-weight:600;font-size:12px;color:var(--ink);text-transform:uppercase;letter-spacing:.02em}
+.docs-table td{color:var(--text-soft)}
+.docs-table td:first-child{color:var(--ink);font-weight:700}
+/* hub: one card per guide, plus a short start-here strip */
+.docs-guides{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:24px 0 8px}
+.docs-guide{background:var(--card-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:2px solid var(--line);border-left:6px solid var(--grass);box-shadow:var(--shadow-sm);padding:20px 22px;transition:border-color 90ms linear,transform 90ms linear,box-shadow 90ms linear}
+.docs-guide:hover{border-color:var(--grass);transform:translate(-2px,-2px);box-shadow:6px 6px 0 #0A0704}
+.docs-guide h3{font-size:17px;margin-bottom:6px}
+.docs-guide p{font-size:14.5px;color:var(--text-soft);margin-bottom:10px}
+.docs-guide-links{display:flex;flex-wrap:wrap;gap:6px 14px}
+.docs-guide-links a{font-size:13.5px;font-weight:700;color:var(--grass-dark);text-decoration:none;border-bottom:2px solid transparent}
+.docs-guide-links a:hover{color:var(--ink);border-bottom-color:var(--grass)}
+@media(max-width:920px){
+  .docs-wrap{grid-template-columns:1fr}
+  .docs-sidebar{position:static;height:auto;border-right:none;border-bottom:3px solid var(--grass);padding:16px 0 12px}
+  .docs-main{padding:28px 22px 64px;max-width:none}
+  .docs-guides{grid-template-columns:1fr}
+}
+@media(max-width:660px){.docs-main{padding:22px 18px 56px}}

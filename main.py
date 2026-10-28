@@ -3706,18 +3706,9 @@ async def main(page: ft.Page):
     # Text to show any issues with the selected version (e.g., incomplete install)
     version_issue_text = ft.Text("", size=12, color=DANGER, visible=False)
 
-    # The Play card's "Fix crash" button was REMOVED on 2026-10-28 (user ask).
-    # The doctor it opened is still here and still runs - just not from a
-    # permanent button on the Play screen:
-    #   - dependency / version-conflict / duplicate-jar repair: Mods ->
-    #     Installed's background "Check & repair",
-    #     plus the automatic pass on install and on opening Installed;
-    #   - launcher-config repair (a rejected JVM flag, a dead java_path, RAM):
-    #     the doctor's `launch` section, still run non-interactively at launch;
-    #   - the crash popup that appears after an ACTUAL crash keeps its own
-    #     contextual fix action (_run_fix_crash below), so a real crash is
-    #     still one click from a repair.
-    # What is gone is only the always-visible control next to PLAY.
+    # Repair actions live in Mods -> Installed's quiet Check & repair flow.
+    # Crash reports offer the website Doctor and log-copy/support actions.
+    # Launch-time configuration checks remain non-interactive.
 
     # When the selected version+loader is one an installed modpack owns, show
     # the pack's real name here. Without it a pack reads only as its bare MC
@@ -5086,11 +5077,7 @@ async def main(page: ft.Page):
                     show_crash_dialog(
                         page, reason=reason, log_text=log_text,
                         version_label=label, log_path=log_path,
-                        show_snack=_show_snack,
-                        on_fix_crash=lambda: _run_fix_crash(
-                            version_id=version_id,
-                            crash_text=(log_text or None),
-                            crash_path=log_path))
+                        show_snack=_show_snack)
 
                 # Mounting a dialog from the watcher thread must happen on the
                 # UI loop; fall back to a direct call on harnesses without one
@@ -6334,150 +6321,6 @@ async def main(page: ft.Page):
     load_popular_modpacks = _cb("modpacks", "popular")
     refresh_server_tab = _cb("server", "refresh")
 
-    # --- Crash repair (opened from the crash popup only) ---------------------
-    # There is no longer a permanent "Fix crash" button on the Play card
-    # (removed 2026-10-28, user ask). This flow survives because it is the
-    # contextual action inside the popup that appears after an ACTUAL crash:
-    # it reads the NEWEST crash log (or the exact log the popup is showing),
-    # says what happened in one sentence, then runs the existing dependency /
-    # conflict / launch-config checks and fixes what they can
-    # (cubeon/crash.py). There is no separate crash-diagnosis engine.
-    # Dependency and conflict repair for a healthy instance lives in Mods ->
-    # Installed ("Check & repair"), which this does not replace.
-    fix_crash_state = {"busy": False}
-
-    def _set_fix_crash_busy(busy):
-        """Re-entrancy guard only.
-
-        This used to also repaint the Play card's button (disabled + a
-        spinner glyph + "Checking…"). That button is gone, so the guard is now
-        a plain flag: without it, two crash popups could run two repair passes
-        over the same instance at once.
-        """
-        fix_crash_state["busy"] = busy
-
-    def _run_fix_crash(e=None, *, version_id=None, crash_text=None,
-                       crash_path=None):
-        """Read the newest crash evidence, explain it, and fix what we can.
-
-        Opened from the crash popup, which passes the exact log text and path
-        it just showed - that is why the worker can fix the crash the user is
-        actually looking at instead of whichever file is newest by the time
-        they click. With no explicit evidence it falls back to the newest
-        crash report on disk.
-        """
-        if fix_crash_state["busy"]:
-            return
-        vid = version_id or version_dropdown.value
-        if not vid:
-            set_status("Pick an instance first")
-            return
-        if state.get("running_version"):
-            set_status("Close the game before repairing it")
-            return
-        if state.get("installing_version"):
-            set_status("Wait for the install to finish")
-            return
-        if state.get("fixing_mods"):
-            set_status("Cubeon is already checking this instance")
-            return
-        meta = (state.get("installed_meta") or {}).get(vid) or {}
-        info = instance_info.describe(
-            vid, meta, (cfg.get("version_labels") or {}).get(vid),
-            with_mods=False, play_store={})
-        mc = info.get("base_version") or state.get("selected_mc_version")
-        loader = info.get("loader") or state.get("mod_loader") or "vanilla"
-        if not mc:
-            set_status("Pick an instance first")
-            return
-
-        _set_fix_crash_busy(True)
-        state["fixing_mods"] = vid
-
-        def done():
-            _set_fix_crash_busy(False)
-            if state.get("fixing_mods") == vid:
-                state["fixing_mods"] = None
-            # Crash repair may have rewritten launcher-owned settings: RAM
-            # (OutOfMemoryError), the Java path (wrong runtime) and the custom
-            # JVM flags (an option Java rejected). The live `cfg` dict is what
-            # launch_game reads, so refresh it - otherwise the fix would only
-            # take effect after a launcher restart.
-            try:
-                # update() rather than clear()+update(): a launch on another
-                # thread must never observe an empty cfg dict.
-                repaired = core.load_config()
-                for key in ("java_path", "custom_jvm_flags", "ram_mb"):
-                    if key in repaired:
-                        cfg[key] = repaired[key]
-                java_path_field.value = cfg.get("java_path") or ""
-                custom_jvm_field.value = cfg.get("custom_jvm_flags") or ""
-                thread_safe_ui.refresh(java_path_field)
-                thread_safe_ui.refresh(custom_jvm_field)
-                # The RAM slider/label are built later in this function than
-                # this closure, but the callback only runs after the window is
-                # live - guard anyway so a partially-built UI cannot break it.
-                try:
-                    value = int(cfg.get("ram_mb") or ram_slider.value or 0)
-                    if value:
-                        ram_slider.value = value
-                        ram_slider.active_color = _ram_color(value)
-                        ram_slider.thumb_color = _ram_color(value)
-                        ram_label.value = f"{value} MB allocated"
-                        _update_ram_warning(value)
-                        thread_safe_ui.refresh(ram_slider)
-                        thread_safe_ui.refresh(ram_label)
-                        thread_safe_ui.refresh(ram_warning)
-                except Exception:
-                    pass
-            except Exception:
-                logging.getLogger(__name__).debug(
-                    "config reload after repair failed", exc_info=True)
-            # The doctor may have disabled/replaced jars: keep the Mods list
-            # honest if that tab has ever been built.
-            refresh = (_tab_cbs.get("mods") or {}).get("refresh")
-            if callable(refresh):
-                try:
-                    refresh()
-                except Exception:
-                    logging.getLogger(__name__).warning(
-                        "mods refresh after repair failed", exc_info=True)
-
-        def diagnose(mc_version, crash_loader, *, version_id, status_cb=None,
-                     **_kwargs):
-            """Run cubeon/crash.py with the report's exact evidence.
-
-            ``crash_text``/``crash_path`` pin the check to the log the crash
-            popup showed. Without them it reads the newest crash report on
-            disk. Clicking the popup's "Fix crash" action is the consent for
-            the reversible mod changes (jars are renamed, never deleted).
-            """
-            from cubeon import crash
-            return crash.diagnose_and_fix(
-                mc_version, crash_loader, version_id=version_id,
-                text=crash_text, path=crash_path, status_cb=status_cb)
-
-        set_status("Checking this instance in the background…", busy=True)
-
-        def worker():
-            try:
-                result = diagnose(mc, loader, version_id=vid)
-                fixed = len(result.get("fixed") or [])
-                remaining = len(result.get("unfixed") or [])
-                set_status(f"Crash check: {fixed} fixed; {remaining} need attention")
-            except Exception as error:
-                set_status(f"Could not complete the crash check: {error}")
-            finally:
-                done()
-
-        try:
-            threading.Thread(target=worker, daemon=True, name="cubeon-crash-check").start()
-        except Exception as error:
-            _set_fix_crash_busy(False)
-            if state.get("fixing_mods") == vid:
-                state["fixing_mods"] = None
-            set_status(f"Could not start the crash check: {error}")
-
     def _switch_loader_for_mods(loader_id):
         """The loader is fixed at install time (2026-10-26 user ask).
 
@@ -7527,7 +7370,7 @@ async def main(page: ft.Page):
                 ft.Container(height=2),
                 ft.Text("Restarting Cubeon…", size=14, color=TEXT,
                         font_family=FONT_DISPLAY),
-                ft.Text("Applying your seasonal look.", size=11.5,
+                ft.Text(i18n.t("Applying your settings."), size=11.5,
                         color=TEXT_DIM),
             ],
             spacing=8, tight=True,
@@ -7573,8 +7416,8 @@ async def main(page: ft.Page):
         if _relaunch["request"] is None:
             # No request event (an unusual entry point): fall back to advice
             # rather than pretending to act.
-            _show_snack("Close Cubeon and open it again to apply the seasonal "
-                        "colors.", duration=6000)
+            _show_snack("Close Cubeon and open it again to apply your "
+                        "settings.", duration=6000)
             return
         # Idempotent: arming is the click's real effect. A click after a close
         # that raised must be able to try again, so this is NOT guarded by

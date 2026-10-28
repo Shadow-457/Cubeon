@@ -101,9 +101,8 @@ The result appears beside the button; hover it for details of unresolved issues.
 
 Automatic checks stay local and quiet: no approval or result windows. They leave
 existing mods enabled unless you explicitly request repair. Install-time checks can
-fetch missing dependencies without replacing an existing build. The permanent
-**Fix crash** button has been removed from Play. Repairs requested from an actual
-crash report also continue in the background.
+fetch missing dependencies without replacing an existing build. The **Fix crash** buttons have been removed from Play and crash reports.
+Crash reports offer the website Doctor, Copy log, and Discord support.
 
 Doctor cannot repair arbitrary bugs inside a mod or make it support an incompatible
 Minecraft version. Launch-time checks remain limited to safe launcher configuration
@@ -112,21 +111,24 @@ repairs and never wait on a dialog.
 ### Website crash Doctor
 
 Click **Doctor** in a crash report to open the website with a redacted log excerpt
-already filled in. You can also open [Cubeon Doctor](https://cubeon.ylet.online/doctor)
-and upload a `.log` or `.txt` file (up to 2 MB), or paste the error. The page shows
-the likely cause, supporting log lines, and numbered visual steps pointing to the
-relevant launcher controls. These are illustrations; apply each change in Cubeon
-and test a fresh launch.
+already filled in and on-device instructions ready. You can also open
+[Cubeon Doctor](https://cubeon.ylet.online/doctor) and upload a `.log` or `.txt`
+file (up to 2 MB). Uploading starts AI analysis automatically. To paste a log or
+review the uploaded text, expand the log editor and choose **Analyze log**.
 
-Local diagnosis works without an account. **Analyze with free AI** optionally uses
-Kilo’s `kilo-auto/free` router through Cubeon’s server, with one retry for a
-temporary failure. No visitor sign-in is needed. Quotas or outages can prevent
-AI results, in which case the local guide stays available. Review the preview before sharing: automated redaction cannot catch
-every private detail. AI sends the excerpt through Cubeon’s server to Kilo and its selected provider.
-Free providers may log prompts and responses or use them for improvement;
-remove personal or confidential information before sharing.
-Large logs are shortened; your original file stays on disk. **Clear** removes the
-log from the page, and **Save this guide** downloads a text copy.
+The result shows the likely cause and all repair steps as a numbered Markdown
+list. Mod names, dependencies and settings are named when the log identifies
+them. Apply one change at a time and test a fresh launch. Expand **See the error
+lines** for the evidence, or save the instructions as a `.md` file.
+
+AI uses Kilo’s `kilo-auto/free` router through Cubeon’s server. No visitor sign-in
+is needed. If AI is unavailable, on-device instructions remain available; you
+can also choose **Check on this device instead** in the log editor.
+Automated redaction cannot catch every private detail. AI shares the excerpt
+with Kilo and its selected free provider, which may retain or use it. Remove
+private information before uploading, or paste and review it in the editor.
+Large logs are shortened; the original file stays on disk. **Clear** removes the
+log and instructions from the page.
 
 ## Friends and servers
 
@@ -140,8 +142,9 @@ network settings.
 
 ## Launcher settings
 
-In **Settings → Display → Launcher**, choose **Language** and restart Cubeon to apply
-it. Arabic, English, Russian, and Spanish appear first, followed by Chinese, Hindi,
+In **Settings → Display → Launcher**, open **Language** and search by native name,
+English name, or language code. Select a language, then click the **Restart** button
+that appears below the saved choice to apply it. Arabic, English, Russian, and Spanish appear first, followed by Chinese, Hindi,
 Portuguese, French, German, Japanese, Turkish, Korean, Italian, Polish, Indonesian,
 Ukrainian, Urdu, Bengali, Persian, Malay, Pashto, and Roman Urdu. Core navigation and
 controls are translated; detailed messages without a translation fall back to English.

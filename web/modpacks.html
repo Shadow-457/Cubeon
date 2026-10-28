@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Installing Minecraft modpacks in Cubeon - install, update, remove</title>
+<meta name="description" content="What a modpack installs, how to install one from Modrinth or CurseForge, updating a pack safely, and what to do when a pack install fails." />
+<meta property="og:title" content="Modpacks in Cubeon" />
+<meta property="og:description" content="Packs bring their own Minecraft version, loader and mods. Here is how installing, updating and removing one actually behaves." />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon launcher shown over a Minecraft world: a version picker, an account name and a big green Play button." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="assets/icon.svg" />
+<link rel="stylesheet" href="assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="index.html" aria-label="Cubeon home"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="download.html">Download</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a href="doctor.html">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="download.html">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="index.html">Home</a> / <a href="docs.html">Docs</a> / Modpacks</p>
+      <h1>Modpacks</h1>
+      <p class="lede">A modpack is a whole game setup: its own Minecraft version, loader, mods and configs, installed in one go. Here is what that means in Cubeon.</p>
+      <p class="updated">Updated 28 October 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">Guides</span>
+          <a class="docs-nav-link" href="docs.html">All guides</a>
+          <a class="docs-nav-link" href="getting-started.html">Getting started</a>
+          <a class="docs-nav-link" href="mods.html">Mods &amp; content</a>
+          <a class="docs-nav-link" href="modpacks.html" aria-current="page">Modpacks</a>
+          <a class="docs-nav-link" href="multiplayer.html">Playing together</a>
+          <a class="docs-nav-link" href="cosmetics.html">Skins &amp; cosmetics</a>
+          <a class="docs-nav-link" href="troubleshooting.html">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="files.html">Files &amp; backups</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">On this page</span>
+          <a class="docs-nav-link" href="#what">What a pack installs</a>
+          <a class="docs-nav-link" href="#browse">Installing a pack</a>
+          <a class="docs-nav-link" href="#import">From an old setup</a>
+          <a class="docs-nav-link" href="#update">Updating a pack</a>
+          <a class="docs-nav-link" href="#remove">Removing a pack</a>
+          <a class="docs-nav-link" href="#failed">When an install fails</a>
+          <a class="docs-nav-link" href="#mix">Adding your own mods</a>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="docs-main">
+
+      <div class="docs-section" id="what">
+        <span class="docs-section-eyebrow">The short version</span>
+        <h2>What a pack installs</h2>
+        <p>Installing a pack does not sprinkle mods into your current setup. It builds a self-contained instance:</p>
+        <ul>
+          <li>the Minecraft version the pack asks for, installed if you do not have it;</li>
+          <li>the loader the pack uses - Fabric, NeoForge, Forge or Quilt;</li>
+          <li>its mods, its configs and its overrides;</li>
+          <li>and a Play card for the pack, with its own saves, options and server list.</li>
+        </ul>
+        <p>That isolation is the point: a 1.20.1 pack and a vanilla 1.21.4 world never share a config folder, and installing a pack cannot break a setup you already had.</p>
+        <p>Expect the download to be large. A pack plus its Minecraft version is often several hundred megabytes, so give it a few minutes on a slow connection and make sure there is room on the disk.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="browse">
+        <h2>Installing a pack</h2>
+        <ol>
+          <li>Open <strong>Modpacks</strong>. <strong>Browse</strong> lists packs, <strong>Installed</strong> shows what you already have.</li>
+          <li>Open a pack and read its requirements: the Minecraft version and the loader. Cubeon checks those before it starts.</li>
+          <li>Press <strong>Install</strong> and watch the progress. You can keep using the launcher; the install runs in the background and the tab tells you which step it is on.</li>
+          <li>When it finishes, the pack appears as an instance. Select it on Play and press Play.</li>
+        </ol>
+        <p>Only one install can run at a time for the same Minecraft version and loader. Starting a second one for the same pair waits for the first rather than corrupting both.</p>
+        <div class="note tip">
+          <b>Packs and your own worlds</b>
+          <p>A new pack starts with an empty save list. Its worlds live in the pack's own instance folder, so copy a world in only if you mean to - <a href="files.html#instances">inside an instance</a> shows the folder.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="import">
+        <h2>Packs and worlds from an old setup</h2>
+        <p>Cubeon reads the standard pack formats - Modrinth <code>.mrpack</code> and CurseForge packs - and it can pick things up from a Minecraft folder you already have.</p>
+        <p>Open <strong>Settings</strong> &gt; <strong>Import</strong>, choose a folder to scan (an old <code>.minecraft</code>, a backup drive, a downloads folder), and Cubeon lists what it found: mod jars, resource and shader pack ZIPs, modpacks, and world folders (any folder with a <code>level.dat</code>). Pick one and choose which instance to import it into.</p>
+        <p>Nothing is imported until you pick it, and anything it cannot read is counted and skipped rather than guessed at.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="update">
+        <h2>Updating a pack</h2>
+        <p>Install the newer version of the pack the same way you installed the first one. Cubeon:</p>
+        <ul>
+          <li>downloads the new version's files;</li>
+          <li>puts them in place <em>before</em> removing anything;</li>
+          <li>then removes the jars the old version owned and the new one does not.</li>
+        </ul>
+        <p>That order is deliberate. If the download fails halfway, you keep the pack you had - a failed update does not leave you with a half-updated, unplayable install.</p>
+        <p>Two more things it protects:</p>
+        <ul>
+          <li><strong>Your settings survive.</strong> Existing <code>options.txt</code> and <code>servers.dat</code> are kept rather than overwritten. Other files the pack replaces are backed up under <code>.cubeon-override-backup/</code> with a timestamp.</li>
+          <li><strong>Your own jars are not pack jars.</strong> Jars you added yourself are not part of the pack's list, so a prune does not touch them.</li>
+        </ul>
+        <p>Your worlds are never part of an update. They live in the instance's <code>saves/</code> folder and stay there.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="remove">
+        <h2>Removing a pack</h2>
+        <p>Delete the pack's instance from the Play card. Cubeon removes the version folder and the pack marker it owns.</p>
+        <p>The world folder is a separate thing and is <strong>not</strong> deleted with the instance. If you want the pack gone completely, delete its world folder too - after you have checked there is nothing in it you want.</p>
+        <p>Deleting the pack instance does not delete mods you installed yourself, and does not change your other instances.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="failed">
+        <h2>When an install fails</h2>
+        <p>"Install failed" is the message; the reason is in the log. The usual suspects, easiest first:</p>
+        <ul>
+          <li><strong>Disk space.</strong> Packs need a lot of it. Free some up and press Install again.</li>
+          <li><strong>The network dropped.</strong> Retry - Cubeon re-checks and re-downloads rather than resuming a corrupt file.</li>
+          <li><strong>The same version and loader are already installing.</strong> Wait for that one to finish.</li>
+          <li><strong>The pack file itself is broken.</strong> Try another version of the pack, or install its files by hand into a blank instance (jar in <code>mods/</code>, configs in <code>config/</code>).</li>
+        </ul>
+        <p>If the failure happened after the pack was working, you should still have the previous version: a rebuild hides the old pack marker and restores it when the install does not finish, and old jars are pruned only after the new ones are on disk.</p>
+        <p>For the actual error text, open <a href="troubleshooting.html#doctor">Cubeon Doctor</a> with the launcher log, or ask on the <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a> and paste the last few lines.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="mix">
+        <h2>Adding your own mods to a pack</h2>
+        <p>You can. It is the most common way people break a pack, so do it one mod at a time:</p>
+        <ol>
+          <li>Add a single mod that matches the pack's Minecraft version and loader.</li>
+          <li>Launch and play for a minute. If it works, keep it; if it crashes, switch it off again.</li>
+          <li>Repeat. When something breaks, the last mod you added is the one to blame.</li>
+        </ol>
+        <p>Two caveats worth knowing before you start: a pack update may change the mods your addition depended on, and adding a second copy of a library the pack already ships is a reliable crash. <a href="mods.html#repair">Check &amp; repair</a> finds the duplicate case.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="next">
+        <h2>Next</h2>
+        <div class="docs-guide-links">
+          <a href="mods.html">Mods and resource packs</a>
+          <a href="multiplayer.html">Play the pack with friends</a>
+          <a href="troubleshooting.html#mods-crash">The pack crashes</a>
+          <a href="files.html#backups">Back up a pack world</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="index.html"><img class="mark" src="assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="index.html">Home</a>
+        <a href="download.html">Download</a>
+        <a href="docs.html">Docs</a>
+        <a href="doctor.html">Doctor</a>
+      <a href="https://discord.gg/Vj7g7vVY8K" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="refunds.html">Refunds</a>
+        <a href="cookies.html">Cookies</a>
+        <a href="licenses.html">Credits</a>
+        <a href="privacy.html#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+<script src="assets/world.js" defer></script>
+</body>
+</html>

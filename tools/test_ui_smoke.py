@@ -1396,11 +1396,13 @@ check("Play has no Fix crash button; Installed has Check & repair",
       and "fix_crash_button" not in _main_src
       and 'data="mods-check-repair"' in _mods_src,
       "dependency/conflict repair must remain reachable")
-check("Fix crash reads the crash log and checks deps/conflicts",
-      "from cubeon import crash" in _main_src
-      and "diagnose_and_fix" in _main_src
-      and 'name="cubeon-crash-check"' in _main_src,
-      "Fix crash must explain the log, then run the mod/launch checks")
+_crash_report_src = open(os.path.join(_app_root, "ui", "crash_report.py"), encoding="utf-8").read()
+check("Crash report has Doctor and log copy, with no Fix crash action",
+      'data="crash-web-doctor"' in _crash_report_src
+      and '"Copy log"' in _crash_report_src
+      and "on_fix_crash" not in _crash_report_src
+      and "_run_fix_crash" not in _main_src,
+      "Crash repair is reached through Doctor or Installed's Check & repair")
 check("stats tab exists and is wired into nav + lazy builders",
       "def build_stats_tab" in _stats_src
       and '("stats", ft.Icons.QUERY_STATS_ROUNDED, i18n.t("Stats"))' in _main_src

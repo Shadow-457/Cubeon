@@ -1,8 +1,8 @@
 # Website Doctor
 
-`web/doctor.html` is the upload, diagnosis and visual guide page. Local checks
+`web/doctor.html` is the upload, diagnosis and Markdown instructions page. Local checks
 run in the browser. `web/assets/doctor-core.js` shares redaction, diagnosis,
-allowed visual actions and evidence validation with the server.
+allowed repair actions and evidence validation with the server.
 
 `POST /api/doctor` runs `web/api/doctor.js` as a Vercel Node function. The root
 `api/doctor.js` entry supports projects whose root directory is the repository;
@@ -26,13 +26,15 @@ stop immediately. The client retains its local guide on failure and can cancel
 the request. Provider computation may continue after a disconnected client.
 
 Log bodies and model output are bounded; only supported guide actions and
-matching evidence are accepted. Advice and logs render as text, never HTML.
+matching evidence are accepted. Instructions render as an ordered list with
+a limited Markdown subset (bold, inline code and paragraphs); raw HTML never renders.
 Origin checks, five requests per minute per address hash, and eight simultaneous
 requests per function instance limit repeated calls. The in-memory throttle is
 **not a global limit**; configure the hosting firewall for limits shared across
 instances. The endpoint does not intentionally persist/log request bodies or
 return provider error details. Free providers may retain/use prompts and output;
-the page discloses this before AI sharing.
+the page discloses this beside the upload area. File selection/drop starts AI;
+pasting requires an Analyze click, and launcher handoffs remain local until that click.
 
 The launcher transfers a redacted, zlib-compressed JSON excerpt in
 `/doctor#report=<base64url>`. Version 1 has `log`, `version`, `reason`,

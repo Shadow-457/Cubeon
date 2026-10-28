@@ -124,9 +124,11 @@
     // directions, then try another model or keep the controlled local guide.
     const advice = JSON.stringify({cause:data && data.cause, steps:data && data.steps,
       verify:data && data.verify, rollback:data && data.rollback});
-    if (/https?:\/\/|www\.|```|\b(?:sudo|powershell|cmd\.exe|curl|wget|chmod)\b|\brm\s+-|\bdel\s+\/|(?:disable|turn off)\s+(?:your\s+)?(?:antivirus|firewall|security)|(?:delete|erase|wipe)\s+(?:your\s+|the\s+|all\s+)*(?:worlds?|saves?|identity|auth_key|folders?)/i.test(advice)) throw new Error('Unsafe guide instructions.');
+    // Bold/code formatting must not hide a forbidden instruction.
+    const plainAdvice = advice.replace(/[*`]/g,'');
+    if (/https?:\/\/|www\.|```|\b(?:sudo|powershell|cmd\.exe|curl|wget|chmod)\b|\brm\s+-|\bdel\s+\/|(?:disable|turn off)\s+(?:your\s+)?(?:antivirus|firewall|security)|(?:delete|erase|wipe)\s+(?:your\s+|the\s+|all\s+)*(?:worlds?|saves?|identity|auth_key|folders?)/i.test(advice + '\n' + plainAdvice)) throw new Error('Unsafe guide instructions.');
     if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.cause !== 'string' || !data.cause.trim()) throw new Error('Incomplete diagnosis.');
-    if (!Array.isArray(data.steps) || !data.steps.length || data.steps.length > 6) throw new Error('Missing visual steps.');
+    if (!Array.isArray(data.steps) || !data.steps.length || data.steps.length > 6) throw new Error('Missing repair steps.');
     const steps = data.steps.map(s => {
       if (!s || !Object.hasOwn(ACTIONS,s.action) || typeof s.title !== 'string' || typeof s.instruction !== 'string' || !s.instruction.trim()) throw new Error('Unsupported guide action.');
       return step(s.action, s.title.slice(0,100), s.instruction.slice(0,900));
