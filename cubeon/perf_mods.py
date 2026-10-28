@@ -41,9 +41,10 @@ just mean there is no boost. Nothing here can stop the game from starting.
 import json
 import os
 
+from . import net
 from .mod_loaders import MOD_CAPABLE_LOADERS
-from .mods import (delete_mod, download_mod, get_mod_download, list_mods,
-                   name_stem)
+from .mods import (LAUNCH_LOOKUP_ATTEMPTS, LAUNCH_LOOKUP_TIMEOUT, delete_mod,
+                   download_mod, get_mod_download, list_mods, name_stem)
 
 # (Modrinth slug, Modrinth project id, display label), in install order.
 # Sodium first (biggest win, the one players recognise), then the companions.
@@ -88,9 +89,16 @@ _ENTITYCULLING_LISTS = (
 )
 
 
-def entityculling_config_path() -> str:
+def entityculling_config_path(game_dir: str | None = None) -> str:
+    """<game dir>/config/entityculling.json.
+
+    `game_dir` is an instance's own folder (paths.game_dir_for): mod configs
+    are per instance now, so a launch must name the instance it is starting.
+    Omitted -> the shared root, which is what a pre-instance-folder install
+    still uses.
+    """
     from .paths import MINECRAFT_DIR
-    return os.path.join(MINECRAFT_DIR, "config", "entityculling.json")
+    return os.path.join(game_dir or MINECRAFT_DIR, "config", "entityculling.json")
 
 
 def sanitize_entityculling_config(path: str | None = None) -> dict:
@@ -240,9 +248,9 @@ SODIUM_MAX_FPS_OPTIONS = {
 }
 
 
-def sodium_config_path() -> str:
+def sodium_config_path(game_dir: str | None = None) -> str:
     from .paths import MINECRAFT_DIR
-    return os.path.join(MINECRAFT_DIR, "config", "sodium-options.json")
+    return os.path.join(game_dir or MINECRAFT_DIR, "config", "sodium-options.json")
 
 
 def _same(a, b) -> bool:
@@ -398,12 +406,24 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         return result
 
     present = _present(mc_version, loader, version_id)
+    # Once a lookup fails at the connection level the route is down, and every
+    # remaining mod would pay the same timeout again before Minecraft starts
+    # (measured 3 s x 6 on a blackholed network). The answer for the rest of
+    # this launch is already known; the next launch retries. A server that
+    # *answered* (HTTP error) is not a dead route and does not trip this.
+    network_down = False
     for slug, project_id, label in PERF_MODS:
         if slug in present:
             result["kept"].append(slug)
             continue
+        if network_down:
+            result["failed"].append(slug)
+            continue
         try:
-            file_info = get_mod_download(slug, mc_version=mc_version, loader=loader)
+            file_info = get_mod_download(
+                slug, mc_version=mc_version, loader=loader,
+                timeout=LAUNCH_LOOKUP_TIMEOUT, attempts=LAUNCH_LOOKUP_ATTEMPTS,
+            )
             if not file_info:
                 result["failed"].append(slug)
                 continue
@@ -416,9 +436,12 @@ def ensure_installed(mc_version: str | None, loader: str | None,
                 hashes=file_info.get("hashes"), version_id=version_id,
             )
             result["installed"].append(slug)
-        except Exception:
+        except Exception as ex:
             # Network, disk, a version with no build - all the same answer:
             # the boost is smaller, the game still launches.
+            if isinstance(ex, net.DownloadError) and \
+                    not isinstance(ex, net.HTTPStatusError):
+                network_down = True
             result["failed"].append(slug)
 
     parts = []

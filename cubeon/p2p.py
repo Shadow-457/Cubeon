@@ -1962,11 +1962,15 @@ ASSET_ROOTS = {
 
 
 def _asset_root(kind: str) -> str:
-    from .paths import MINECRAFT_DIR
+    from .paths import MINECRAFT_DIR, active_game_dir
     try:
         rel, _ = ASSET_ROOTS[kind]
     except KeyError:
         raise P2PError(f"Unsupported P2P asset kind: {kind}") from None
+    if kind == "config":
+        # Mod configs are per instance (paths.INSTANCES_GAME_DIR). A session
+        # is always sharing the instance being played, so that is the one.
+        return os.path.join(active_game_dir(), rel)
     return os.path.join(MINECRAFT_DIR, rel)
 
 

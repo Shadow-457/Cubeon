@@ -90,7 +90,8 @@ requests = LazyModule("requests")
 
 from .paths import CSL_CONFIG_PATH, CSL_EXTRALIST_DIR
 from .mod_loaders import MOD_CAPABLE_LOADERS
-from .mods import list_mods, get_mod_download, download_mod
+from .mods import (list_mods, get_mod_download, download_mod,
+                   LAUNCH_LOOKUP_ATTEMPTS, LAUNCH_LOOKUP_TIMEOUT)
 
 # Cubeon's identity/skin Worker. Two forms on purpose:
 #
@@ -494,7 +495,10 @@ def install(mc_version: str, loader: str, progress_cb=None,
     runs inside the launch path and must never stop the game from starting.
     """
     try:
-        file_info = get_mod_download(CSL_MODRINTH_SLUG, mc_version=mc_version, loader=loader)
+        file_info = get_mod_download(
+            CSL_MODRINTH_SLUG, mc_version=mc_version, loader=loader,
+            timeout=LAUNCH_LOOKUP_TIMEOUT, attempts=LAUNCH_LOOKUP_ATTEMPTS,
+        )
     except Exception as ex:
         return f"couldn't reach Modrinth ({ex.__class__.__name__})"
 

@@ -129,6 +129,46 @@ SHADERPACKS_DIR = os.path.join(MINECRAFT_DIR, "shaderpacks")
 # above, for the same reason the mod store is: the launch sync rebuilds those.
 GLOBAL_CONTENT_DIR = os.path.join(MINECRAFT_DIR, "global_content")
 
+# ---------------------------------------------------------------------------
+# Per-instance game folders (what --gameDir points at)
+# ---------------------------------------------------------------------------
+# Minecraft keeps worlds (saves/), mod configs (config/, options.txt), the
+# server list and everything else the player changes relative to --gameDir.
+# Cubeon passed ONE game dir for every install, so every instance showed the
+# same world list and the same configs: changing a video setting in 1.21 also
+# changed it for 1.8.9, and a world created in one instance was "the" world in
+# all of them.
+#
+# Each install now gets its own folder under INSTANCES_GAME_DIR, created on
+# first launch (see game_dir_for). The folders that are deliberately SHARED -
+# the staged mods/, the staged resourcepacks/ and shaderpacks/, and the
+# CustomSkinLoader config plus the screenshot/crash folders the launcher reads
+# - are linked into it, so the launch sync, the skin setup, the gallery and
+# the crash report reader keep their single existing path. Everything the GAME
+# itself writes is per instance.
+#
+# If a link cannot be created (a filesystem with no symlink/junction support)
+# the launch falls back to the shared MINECRAFT_DIR: the old behaviour, never
+# a half-separated instance.
+INSTANCES_GAME_DIR = os.path.join(MINECRAFT_DIR, "instances")
+ACTIVE_INSTANCE_PATH = os.path.join(INSTANCES_GAME_DIR, "active.json")
+_INSTANCE_MARKER = ".cubeon-instance.json"
+_ADOPTED_MARKER = ".cubeon-adopted"
+
+# Linked from MINECRAFT_DIR into every instance folder. Not "config" or
+# "saves": those are exactly what must differ per instance.
+SHARED_GAME_LINKS = ("mods", "resourcepacks", "shaderpacks", "CustomSkinLoader",
+                     "screenshots", "crash-reports")
+
+# Moved out of the shared root into the first instance folder that is created,
+# so the world/config the player already had does not vanish on update.
+LEGACY_PER_INSTANCE = ("saves", "config", "options.txt", "servers.dat")
+
+# Real folders in every instance (never links): the things that must not be
+# shared. Created up front so the player sees them when browsing the folder.
+INSTANCE_ONLY_DIRS = ("saves", "config")
+
+
 CUBEON_HOME = str(Path.home() / ".cubeon_launcher")
 CONFIG_PATH = os.path.join(CUBEON_HOME, "config.json")
 CACHE_DIR = os.path.join(CUBEON_HOME, "cache")
@@ -247,3 +287,227 @@ def ensure_dirs() -> None:
 
 
 ensure_dirs()
+
+
+# ---------------------------------------------------------------------------
+# Per-instance game folders (see the INSTANCES_GAME_DIR comment above)
+# ---------------------------------------------------------------------------
+
+def _instance_slug(version_id: str) -> str:
+    """A folder name for an install id. Kept readable (the user browses it),
+    never empty, never a path separator, and never "." / ".."."""
+    raw = str(version_id or "").strip()
+    slug = "".join(c if (c.isalnum() or c in "._-") else "_" for c in raw)
+    slug = slug.strip("._-") or "default"
+    return slug[:80]
+
+
+def _read_marker(path: str) -> dict:
+    try:
+        import json
+        with open(os.path.join(path, _INSTANCE_MARKER), "r",
+                  encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _link_dir(name: str, target: str) -> bool:
+    """Make `target/name` point at `MINECRAFT_DIR/name`.
+
+    symlink first; on Windows a directory junction (mklink /J) needs no
+    administrator rights, which os.symlink does. A hardlink is impossible for
+    a directory, so a filesystem that supports neither gets False and the
+    caller falls back to the shared folder.
+    """
+    source = os.path.join(MINECRAFT_DIR, name)
+    link = os.path.join(target, name)
+    try:
+        os.makedirs(source, exist_ok=True)
+    except OSError:
+        return False
+    if os.path.islink(link):
+        if os.path.realpath(link) == os.path.realpath(source):
+            return True                  # idempotent: already linked
+        # A symlink holds no data, so re-pointing ours is safe even if a
+        # stale/broken one was left behind by an interrupted first run.
+        try:
+            os.unlink(link)
+        except OSError:
+            return False
+    elif os.path.isdir(link):
+        # A real folder can only be the user's own. Replace an empty one (an
+        # interrupted attempt); keep a populated one rather than delete it.
+        try:
+            if os.listdir(link):
+                log.warning("%s already exists as a real folder in the "
+                            "instance - leaving it", name)
+                return True
+            os.rmdir(link)
+        except OSError:
+            return False
+    try:
+        os.symlink(source, link, target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError, AttributeError):
+        pass
+    if os.name == "nt":
+        try:
+            import subprocess
+            completed = subprocess.run(
+                ["cmd", "/c", "mklink", "/J", link, source],
+                capture_output=True, timeout=15)
+            if completed.returncode == 0 and os.path.isdir(link):
+                return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+    log.warning("couldn't link %s into the instance game folder - using the "
+                "shared game folder for this instance", name)
+    return False
+
+
+def _adopt_legacy_state(target: str) -> None:
+    """Move the player's pre-instance-folder world/config into the FIRST
+    instance folder ever created.
+
+    Before this change every install shared MINECRAFT_DIR/saves, config,
+    options.txt and servers.dat. Leaving them there would make them invisible
+    to every instance (they'd each start empty), i.e. the update would look
+    like it deleted the player's world. Moving (not copying) keeps the
+    gigabytes single, and only the first install to launch adopts them - the
+    instance the player goes on to play, which is the same instance they were
+    playing before the update.
+    """
+    marker = os.path.join(INSTANCES_GAME_DIR, _ADOPTED_MARKER)
+    if os.path.exists(marker):
+        return
+    try:
+        os.makedirs(INSTANCES_GAME_DIR, exist_ok=True)
+    except OSError:
+        return
+    for name in LEGACY_PER_INSTANCE:
+        source = os.path.join(MINECRAFT_DIR, name)
+        dest = os.path.join(target, name)
+        if not os.path.exists(source):
+            continue
+        if os.path.exists(dest):
+            # The empty saves/ or config/ this instance was just given is not
+            # "the player's data" - only then may the old contents take its
+            # place. Anything already in it belongs to this instance.
+            try:
+                if not (os.path.isdir(dest) and not os.listdir(dest)):
+                    continue
+                os.rmdir(dest)
+            except OSError:
+                continue
+        try:
+            os.replace(source, dest)     # same volume: instant, atomic rename
+        except OSError:
+            try:
+                import shutil
+                if os.path.isdir(source):
+                    shutil.move(source, dest)
+                else:
+                    shutil.copy2(source, dest)
+                    os.remove(source)
+            except OSError:
+                # A locked options.txt (game still running) is not a reason to
+                # fail the launch: it simply stays shared for this one file.
+                log.warning("couldn't move the shared %s into the instance "
+                            "folder", name, exc_info=True)
+    # Written only once the pass is done: a crash mid-move must not mark the
+    # migration complete while files are still in the shared root. A retry is
+    # harmless - whatever already moved is skipped by the dest check above.
+    try:
+        with open(marker, "w", encoding="utf-8") as fh:
+            fh.write("legacy world/config moved into the first instance folder\n")
+    except OSError:
+        pass
+
+
+def game_dir_for(version_id: "str | None", *, create: bool = True) -> str:
+    """The --gameDir for one install.
+
+    Returns MINECRAFT_DIR when there is no install id or when the filesystem
+    refused the shared links - both mean "behave exactly like before this
+    feature". `create=False` returns where a launch WOULD put it and creates
+    nothing: a read-only caller (the import UI asking "is this world already
+    in that instance?") must not create folders or trigger the one-time
+    adoption, which would hand the player's world to an instance they never
+    launched. Never raises: a launch must not die over a folder.
+    """
+    if not version_id:
+        return MINECRAFT_DIR
+    slug = _instance_slug(version_id)
+    path = os.path.join(INSTANCES_GAME_DIR, slug)
+    if os.path.isdir(path):
+        marker = _read_marker(path)
+        known = marker.get("version_id")
+        if known and known != version_id:
+            # Two ids that sanitize the same ("a b" / "a_b"): keep them apart.
+            import hashlib
+            suffix = hashlib.sha1(str(version_id).encode("utf-8")).hexdigest()[:8]
+            path = os.path.join(INSTANCES_GAME_DIR, f"{slug}-{suffix}")
+        if os.path.isdir(path):
+            if create:
+                # Retry a migration an earlier crash left half-done; a
+                # completed one is a single existence check.
+                _adopt_legacy_state(path)
+                for name in INSTANCE_ONLY_DIRS:
+                    os.makedirs(os.path.join(path, name), exist_ok=True)
+            return path
+    if not create:
+        return path
+    try:
+        os.makedirs(path, exist_ok=True)
+        try:
+            from .atomicio import write_json
+            write_json(os.path.join(path, _INSTANCE_MARKER),
+                       {"version_id": version_id})
+        except OSError:
+            pass
+        for name in SHARED_GAME_LINKS:
+            if not _link_dir(name, path):
+                return MINECRAFT_DIR    # never launch half-separated
+        _adopt_legacy_state(path)
+        for name in INSTANCE_ONLY_DIRS:
+            os.makedirs(os.path.join(path, name), exist_ok=True)
+        return path
+    except OSError:
+        log.warning("couldn't create the game folder for %s - using the "
+                    "shared one", version_id, exc_info=True)
+        return MINECRAFT_DIR
+
+
+def set_active_game_dir(path: str) -> None:
+    """Remember the instance that is being played.
+
+    Launcher features that act on "your worlds/configs" (import, backup, P2P
+    asset sharing) have no version in hand; they mean the instance you are
+    playing, which is the last one launched.
+    """
+    try:
+        import json
+        os.makedirs(INSTANCES_GAME_DIR, exist_ok=True)
+        tmp = ACTIVE_INSTANCE_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"game_dir": os.path.abspath(path)}, fh)
+        os.replace(tmp, ACTIVE_INSTANCE_PATH)
+    except OSError:
+        log.debug("couldn't record the active instance", exc_info=True)
+
+
+def active_game_dir() -> str:
+    """The game folder of the instance being played (or MINECRAFT_DIR before
+    the first launch). Read-only and cheap: one small JSON."""
+    try:
+        import json
+        with open(ACTIVE_INSTANCE_PATH, "r", encoding="utf-8") as fh:
+            path = (json.load(fh) or {}).get("game_dir")
+        if path and os.path.isdir(path):
+            return path
+    except (OSError, ValueError):
+        pass
+    return MINECRAFT_DIR
+

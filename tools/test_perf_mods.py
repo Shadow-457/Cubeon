@@ -54,7 +54,8 @@ ALL_SLUGS = list(perf.PERF_MOD_SLUGS)
 
 def _wire(installed, download=None, download_raises=False):
     perf.list_mods = lambda mc, ld, **kwargs: list(installed)
-    perf.get_mod_download = lambda slug, mc_version=None, loader=None: dict(FILE, filename=slug + ".jar")
+    # **kw: the launch path passes its bounded timeout/attempts policy here.
+    perf.get_mod_download = lambda slug, mc_version=None, loader=None, **kw: dict(FILE, filename=slug + ".jar")
     calls = []
 
     def _dl(url, filename, **kw):
@@ -630,12 +631,18 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _launch_src = open(os.path.join(_REPO, "cubeon", "launch.py"), encoding="utf-8").read()
 check("the launch path enforces Sodium's options on every boosted launch",
       'if cfg.get("fps_boost_enabled", True):\n'
-      "                tuned = perf_mods.apply_max_fps_sodium()" in _launch_src,
+      "                tuned = perf_mods.apply_max_fps_sodium(\n"
+      "                    perf_mods.sodium_config_path(game_dir))" in _launch_src,
       "expected the call directly under the fps_boost_enabled check")
 check("it is not in the FPS-boost-OFF branch",
-      _launch_src.index("tuned = perf_mods.apply_max_fps_sodium()")
-      > _launch_src.index("restored = game_options.restore_vanilla_look()"),
+      _launch_src.index("tuned = perf_mods.apply_max_fps_sodium(")
+      > _launch_src.index("restored = game_options.restore_vanilla_look("),
       "Sodium's defaults are already the fast values - OFF must not rewrite it")
+# Configs are per instance now (paths.INSTANCES_GAME_DIR): the repair must
+# write the folder this launch is actually using, not the shared root.
+check("it tunes the instance's own Sodium config",
+      "perf_mods.sodium_config_path(game_dir)" in _launch_src,
+      "expected the per-instance game dir to be passed through")
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

@@ -92,7 +92,13 @@ _CONFIRM_WINDOW_S = 2.0
 # but only a bounded number per conversation, so a long session can't grow
 # them without limit.
 _MAX_PENDING = 64
-
+# The store keeps the last friends_service._MAX_CHAT (200) messages per peer, so
+# a rebuilt transcript can never be longer than that. A conversation left open
+# for a long session appended bubbles forever instead: measured 501 transcript
+# controls / 2650 tab controls after 500 messages, while a rebuild would have
+# shown 201. Cap it at twice the store bound, trimmed in ONE slice delete (like
+# the server console's 800-line cap) - never one pop(0) per message.
+_MAX_TRANSCRIPT = 400
 # Message bubbles measure themselves from their longest line so a "hi" is a
 # small chip and a paragraph wraps at a sane width, instead of every message
 # being the same fixed slab. _CHAR_PX is a rough Inter-13px average advance.
@@ -1054,6 +1060,18 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             margin=ft.Margin(0, gap, 0, 0),
         )
 
+    def _trim_transcript():
+        """Keep the transcript bounded to the newest bubbles, in one operation.
+
+        Called once per batch/render (both callers already hold TREE_LOCK), not
+        once per message. Everything downstream tolerates a bubble vanishing:
+        `_pending` entries whose wrap is gone fall into the existing
+        `except ValueError` path and the echo appends a fresh bubble.
+        """
+        extra = len(transcript.controls) - _MAX_TRANSCRIPT
+        if extra > 0:
+            del transcript.controls[:extra]
+
     def _append_optimistic(name, text):
         """Show an outgoing message BEFORE the relay confirms it, so pressing
         Enter feels instant. The real echo-filed line replaces this bubble
@@ -1077,6 +1095,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             # looks like: every send times out and stays as a red bubble).
             while len(q) > _MAX_PENDING:
                 q.pop(0)
+            _trim_transcript()
         thread_safe_ui.refresh(transcript)
         _stick_bottom()
 
@@ -1178,6 +1197,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _last_dir[name] = side
             transcript.controls.append(_bubble_row(
                 _make_bubble(text, mine, ts, with_time=with_time), mine, gap))
+        _trim_transcript()
         thread_safe_ui.refresh(transcript)
 
     def _append_messages(msgs, name):

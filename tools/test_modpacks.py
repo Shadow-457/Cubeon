@@ -146,6 +146,12 @@ def main():
 
     calls = {"version": None, "loader": None}
     modpacks.MINECRAFT_DIR = game_dir
+    # Configs/options.txt go into the pack's own game folder now
+    # (paths.INSTANCES_GAME_DIR), not the shared root every instance used to
+    # share - keep that whole tree inside the scratch dir too.
+    from cubeon import paths as _paths
+    _paths.MINECRAFT_DIR = game_dir
+    _paths.INSTANCES_GAME_DIR = os.path.join(game_dir, "instances")
     modpacks.requests.get = _fake_get
     modpacks.requests.head = _fake_head
     # net got a pooled-Session transport seam (net._do_get); route it through
@@ -233,12 +239,16 @@ def main():
     check("folder pack metadata remains under its pack folder",
           modpacks._content_profile_dest("resourcepacks/MyPack/pack.mcmeta", "1.20.1", "fabric")
           == os.path.join(os.path.dirname(content_pack), "MyPack", "pack.mcmeta"))
-    check("route: override config -> game dir",
-          os.path.isfile(os.path.join(game_dir, "config", "sodium-options.json")))
+    pack_game = modpacks._pack_game_dir(meta["version_id"])
+    check("route: override config -> the pack's own game dir",
+          os.path.isfile(os.path.join(pack_game, "config", "sodium-options.json")),
+          pack_game)
+    check("route: override config leaves the shared root alone",
+          not os.path.exists(os.path.join(game_dir, "config", "sodium-options.json")))
     check("route: override mod -> profile",
           os.path.isfile(os.path.join(profile_dir, "extra-bundled.jar")))
     check("route: server-overrides ignored",
-          not os.path.isfile(os.path.join(game_dir, "config", "server.txt")))
+          not os.path.isfile(os.path.join(pack_game, "config", "server.txt")))
     check("meta: modpack manifest written",
           os.path.isfile(os.path.join(profile_dir, modpacks.MODPACK_META_FILENAME)))
 

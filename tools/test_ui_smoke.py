@@ -1569,6 +1569,10 @@ try:
         # 2026-10-23 "maximized but it isn't / can't resize" fix). None means
         # "couldn't tell", which is what off-Windows always returns.
         "_native_maximized": lambda: None,
+        # Minimize/hide pauses the seasonal ticker (asserted in
+        # tools/test_seasonal_animator_pause.py). This probe is about the
+        # close/geometry contract, so the collaborator just has to exist.
+        "_season_animator_pause": lambda paused: None,
     }
     _window_probe = _ui_functions(_main_src, ["_on_window_event"], _window_scope,
                                  "_geometry_timer = None")

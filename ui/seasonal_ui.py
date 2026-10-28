@@ -374,6 +374,11 @@ class SeasonalAnimator:
 
     def __init__(self, on_error=None):
         self._stop = threading.Event()
+        # Pause gate: a Condition (not an Event - Event.wait() returns at
+        # once while the event is SET, which is the opposite of what "paused"
+        # needs, and was a 100%-CPU spin in the first cut).
+        self._gate = threading.Condition()
+        self._paused = False
         self._thread = None
         self._lifecycle_lock = threading.Lock()
         self._pets = []
@@ -434,9 +439,35 @@ class SeasonalAnimator:
         """Idempotent and silent: called from the session-end hook."""
         with self._lifecycle_lock:
             self._stop.set()
+            # A ticker blocked in the pause gate must still wake up and see the
+            # stop; otherwise stop() would join a thread that never returns.
+            with self._gate:
+                self._paused = False
+                self._gate.notify_all()
             previous = self._thread
         if previous is not None and previous is not threading.current_thread():
             previous.join()
+
+    def pause(self) -> None:
+        """Freeze the ticker while the window is minimized/hidden.
+
+        The window is invisible, so every frame this thread produces is a
+        repaint nobody can see (measured 8.2 frames/s with the window
+        minimized - the whole point of this). The pet's state machine simply
+        stops advancing; when the window comes back it resumes from the same
+        pose, so nothing about the animation changes on screen.
+
+        Idempotent and never raises. The thread blocks on a Condition, so a
+        paused animator costs zero wakeups (not a slower poll).
+        """
+        with self._gate:
+            self._paused = True
+
+    def resume(self) -> None:
+        """Un-pause the ticker (window restored/shown/focused)."""
+        with self._gate:
+            self._paused = False
+            self._gate.notify_all()
 
     def clear(self) -> None:
         """Drops every registration.
@@ -453,7 +484,16 @@ class SeasonalAnimator:
 
     # --- one frame --------------------------------------------------------
     def _run(self, stop) -> None:
-        while not stop.wait(TICK):
+        while not stop.is_set():
+            with self._gate:
+                while self._paused and not stop.is_set():
+                    # Minimized/hidden window: block here (zero wakeups) until
+                    # resume() or stop() notifies.
+                    self._gate.wait()
+            if stop.is_set():
+                return
+            if stop.wait(TICK):
+                return
             self._tick += 1
             try:
                 self._frame()

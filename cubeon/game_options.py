@@ -117,8 +117,11 @@ VANILLA_LOOK_OPTIONS = {
 # space heater on 2026-10-24.
 
 
-def options_path() -> str:
-    return os.path.join(MINECRAFT_DIR, "options.txt")
+def options_path(game_dir: str | None = None) -> str:
+    """<game dir>/options.txt. Per instance since the instance game folders
+    exist (paths.game_dir_for): video settings are the player's per-instance
+    state, not a launcher-wide constant. Omitted -> the shared root."""
+    return os.path.join(game_dir or MINECRAFT_DIR, "options.txt")
 
 
 def _set_options(target: str, wanted: dict, label: str) -> dict:

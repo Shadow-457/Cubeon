@@ -11,7 +11,9 @@ Checks:
   - the relay echo replaces the optimistic bubble (no dupe) in the normal path,
   - a LATE echo replaces the red timeout bubble in place (the regression),
   - identical texts sent twice still show twice (dedupe must not eat them),
-  - the poll cadence is adaptive and the pending queue is bounded.
+  - the poll cadence is adaptive and the pending queue is bounded,
+  - a long OPEN conversation keeps a bounded transcript (the store's 200-message
+    ring used to be the only bound, while the on-screen list grew forever).
 
 Headless: no display, no network, no flet runtime. The tab's own poll thread
 is suppressed so every step is synchronous.
@@ -34,6 +36,8 @@ from cubeon.theme import THEME, section_label  # noqa: E402
 import ui.chat_tab as chat  # noqa: E402
 
 _CHECKS = []
+
+_CHAT_SRC = open(os.path.join(REPO, "ui", "chat_tab.py"), encoding="utf-8").read()
 
 
 def check(label, ok, detail=""):
@@ -282,6 +286,32 @@ def main():
     check("the pending queue is bounded",
           isinstance(chat._MAX_PENDING, int) and 0 < chat._MAX_PENDING <= 128,
           str(chat._MAX_PENDING))
+
+    # --- the transcript stays bounded ------------------------------------
+    # The store keeps the last 200 messages per peer, so a rebuild can never
+    # show more than that; a long OPEN conversation used to append forever
+    # (measured 2001 bubbles / 10150 tab controls at 2000 messages).
+    transcript = [c for c in walk(root)
+                  if isinstance(c, ft.ListView) and c.expand][0]
+    for batch in range(10):        # 500 messages: well past the 400 cap
+        for _ in range(50):
+            svc.ring.append({"seq": svc.next_seq, "dir": "in", "name": "Alice",
+                             "text": f"line {svc.next_seq}",
+                             "ts": int(time.time() * 1000)})
+            svc.next_seq += 1
+        svc.ring = svc.ring[-200:]      # what the service's deque does
+        refresh()
+    check("a long open conversation stays capped",
+          len(transcript.controls) <= chat._MAX_TRANSCRIPT,
+          f"{len(transcript.controls)} controls after {svc.next_seq} messages")
+    check("... while still showing a full screen of history",
+          len(transcript.controls) >= 100, str(len(transcript.controls)))
+    check("the cap is one slice delete, not a pop(0) per message",
+          "del transcript.controls[:extra]" in _CHAT_SRC
+          and "controls.pop(0)" not in _CHAT_SRC)
+    check("both append paths trim (poll batch and optimistic send)",
+          _CHAT_SRC.count("_trim_transcript()") == 3,      # 1 def + 2 calls
+          str(_CHAT_SRC.count("_trim_transcript()")))
 
     print()
     total, failed = len(_CHECKS), _CHECKS.count(False)

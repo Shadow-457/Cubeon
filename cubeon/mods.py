@@ -1437,11 +1437,29 @@ def get_mod_icons(slugs: "list[str]") -> dict[str, "str | None"]:
     return {s: _icon_url_cache.get(s) for s in slugs if s}
 
 
+# The launch path must not hold the spawn hostage while the route is dead.
+# A version lookup is one small JSON: the UI/interactive policy (10 s per try,
+# 3 tries, 1.5 s + 3 s backoff) is right for a click the user is watching, and
+# measured 34.7 s on a blackholed route - before Minecraft even starts. One
+# 3 s connect attempt is enough to tell "Modrinth is up" from "no network";
+# a genuine success is unaffected because the first attempt is the only one.
+LAUNCH_LOOKUP_TIMEOUT = (3, 10)   # (connect, read); read stays generous
+LAUNCH_LOOKUP_ATTEMPTS = 1
+
+
 def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
-                      loader: str = "fabric") -> dict | None:
+                      loader: str = "fabric", *,
+                      timeout: int | tuple = 10,
+                      attempts: int | None = None) -> dict | None:
     """Finds the best matching version file for a mod, filtered by MC version
     and loader when given. Returns {filename, url, size} or None if no
-    matching version exists."""
+    matching version exists.
+
+    `timeout`/`attempts` exist for the launch path (see LAUNCH_LOOKUP_*):
+    they bound the wait on a dead route. Everything else - the cache key
+    included - is unchanged, so both callers share one cache."""
+    if attempts is None:
+        attempts = net.DEFAULT_ATTEMPTS
     params = {}
     if loader:
         params["loaders"] = json.dumps([loader])
@@ -1453,7 +1471,8 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     def _fetch():
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
-            params=params, headers=modrinth_headers(), timeout=10,
+            params=params, headers=modrinth_headers(), timeout=timeout,
+            attempts=attempts,
         )
         if not versions:
             return None

@@ -501,7 +501,7 @@ def test_fabric_api_install():
            "an existing copy is left alone, with no download at all")
 
         cubeonfriends.fabric_api_installed = lambda mc, loader, version_id=None: False
-        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None: {
+        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None, **kwargs: {
             "url": "https://cdn.example/fabric-api.jar",
             "filename": "fabric-api-0.92.2+1.20.1.jar",
             "version_number": "0.92.2+1.20.1",
@@ -523,7 +523,7 @@ def test_fabric_api_install():
         ok(any("Fabric API" in line for line in said),
            "and says so in the launch status")
 
-        def dead(slug, mc_version=None, loader=None):
+        def dead(slug, mc_version=None, loader=None, **kwargs):
             raise OSError("no network")
 
         mods_module.get_mod_download = dead
@@ -531,7 +531,7 @@ def test_fabric_api_install():
         ok("couldn't reach Modrinth" in detail,
            f"a dead network is reported, never raised ({detail})")
 
-        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None: None
+        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None, **kwargs: None
         detail = cubeonfriends.ensure_fabric_api("1.16.5", "fabric")
         ok("no Fabric API build" in detail,
            f"a Minecraft with no Fabric API build is reported too ({detail})")
@@ -539,7 +539,7 @@ def test_fabric_api_install():
         def exploding_download(url, filename, **kwargs):
             raise RuntimeError("sha mismatch")
 
-        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None: {
+        mods_module.get_mod_download = lambda slug, mc_version=None, loader=None, **kwargs: {
             "url": "u", "filename": "f", "version_number": "v", "hashes": {}}
         mods_module.download_mod = exploding_download
         detail = cubeonfriends.ensure_fabric_api("1.20.1", "fabric")

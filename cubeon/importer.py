@@ -40,8 +40,27 @@ import zipfile
 
 from cubeon.paths import MINECRAFT_DIR
 
-# Worlds are shared across every instance, so they land here - not per-profile.
+# Worlds are per INSTANCE now (each has its own --gameDir, see
+# paths.INSTANCES_GAME_DIR): importing a world puts it in the saves/ of the
+# instance being imported into, not in a folder every instance would share.
+# The constant stays for the shared/legacy root; `saves_dir()` is what the
+# import path uses.
 SAVES_DIR = os.path.join(MINECRAFT_DIR, "saves")
+
+
+def saves_dir(version_id=None, *, create=True) -> str:
+    """The saves/ folder the game will actually read for this instance.
+
+    `create=False` is for the read-only checks (is this world already in that
+    instance?): it names the folder without creating an instance folder or
+    triggering the one-time legacy adoption as a side effect of drawing a
+    list."""
+    from .paths import active_game_dir, game_dir_for
+    if version_id:
+        base = game_dir_for(version_id, create=create)
+    else:
+        base = active_game_dir()
+    return os.path.join(base, "saves")
 
 # Our category name -> content.py's content_type key (which is singular).
 CONTENT_KIND = {"resourcepacks": "resourcepack", "shaderpacks": "shader"}
@@ -432,9 +451,9 @@ def _profile_pack_stems(content_type, mc_version, loader):
         return set()
 
 
-def _saves_names():
+def _saves_names(version_id=None):
     try:
-        return set(os.listdir(SAVES_DIR))
+        return set(os.listdir(saves_dir(version_id, create=False)))
     except OSError:
         return set()
 
@@ -463,7 +482,7 @@ def mark_installed(result, *, mc_version, loader, version_id=None):
         except Exception:
             mod_hashes = set()
         try:
-            saves_names = _saves_names()
+            saves_names = _saves_names(version_id)
         except Exception:
             saves_names = set()
         for kind, ct in CONTENT_KIND.items():
@@ -616,7 +635,7 @@ def instance_compatibility(entry, mc_version, loader):
     return True, ""
 
 
-def already_in_profile(entry, mc_version, loader):
+def already_in_profile(entry, mc_version, loader, version_id=None):
     """Is this exact entry already in that instance (or saves/, which every
     instance shares, for worlds)? The same checks mark_installed uses, one
     entry at a time - the Import-to picker calls it once per instance row."""
@@ -647,7 +666,7 @@ def already_in_profile(entry, mc_version, loader):
         except Exception:
             return False
     if kind == "worlds":
-        return entry["name"] in _saves_names()
+        return entry["name"] in _saves_names(version_id)
     return False  # modpacks install/update in place - never a duplicate
 
 
@@ -767,23 +786,24 @@ def import_item(entry, *, mc_version, loader, version_id=None,
         return f"Installed modpack '{nm}'" + (f" as version {vid}." if vid else ".")
 
     if kind == "worlds":
-        return _import_world(path, entry["name"])
+        return _import_world(path, entry["name"], version_id)
 
     raise ValueError(f"Unknown content kind '{kind}'.")
 
 
-def _import_world(src_dir, name):
+def _import_world(src_dir, name, version_id=None):
     src = os.path.realpath(src_dir)
-    saves = os.path.realpath(SAVES_DIR)
+    target_dir = saves_dir(version_id)
+    saves = os.path.realpath(target_dir)
     # Never "import" a world onto itself (the user pointed us at saves/).
     try:
         if src == saves or src.startswith(saves + os.sep):
             return f"'{name}' is already in your worlds folder."
     except OSError:
         pass
-    os.makedirs(SAVES_DIR, exist_ok=True)
+    os.makedirs(target_dir, exist_ok=True)
     dest_name = _safe_name(name)
-    dest = os.path.join(SAVES_DIR, dest_name)
+    dest = os.path.join(target_dir, dest_name)
     # A world with this name is already there: importing again would just
     # create a MyWorld_xxxxxx twin, so treat it as the duplicate it is. (The
     # rare "different world, same name" case is fixed by renaming the source

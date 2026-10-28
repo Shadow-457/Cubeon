@@ -37,7 +37,8 @@ from .atomicio import write_json
 from .lazy import LazyModule
 mll = LazyModule("minecraft_launcher_lib")
 
-from .paths import MINECRAFT_DIR, APP_NAME, CUBEON_HOME
+from .paths import (MINECRAFT_DIR, APP_NAME, CUBEON_HOME, game_dir_for,
+                    set_active_game_dir)
 from .config import stable_uuid, save_config, get_system_ram_mb
 from .mods import sync_mods_to_game
 from . import csl
@@ -667,7 +668,11 @@ def _parse_custom_jvm_flags(raw: str | None) -> list[str]:
 
 def build_launch_command(version_id: str, username: str, ram_mb: int,
                           width: int, height: int, java_path: str | None = None,
-                          custom_jvm_flags: str | None = None) -> list[str]:
+                          custom_jvm_flags: str | None = None,
+                          game_dir: str | None = None) -> list[str]:
+    """The full java command. `game_dir` is the instance's own folder (see
+    paths.game_dir_for); omitted -> the shared root, which is what every
+    non-launch caller and the tests still want."""
     _sanitize_client_json(version_id)
     # Undo the damage done by the sanitizer Cubeon used to ship, for anyone
     # whose install it already emptied. No-op on healthy versions.
@@ -706,6 +711,9 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
         "customResolution": True,
         "resolutionWidth": str(width),
         "resolutionHeight": str(height),
+        # mll substitutes this into the profile's --gameDir. Without it every
+        # instance shared one saves/ and config/ (see paths.INSTANCES_GAME_DIR).
+        "gameDirectory": game_dir or MINECRAFT_DIR,
     }
     # Only hand mll a Java that actually exists. A typo'd / cleared Settings
     # path used to go straight into executablePath, and Popen then died with
@@ -882,6 +890,12 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     except Exception:
         logging.getLogger(__name__).warning("friends mod setup failed", exc_info=True)
 
+    # Each install plays in its OWN game folder (worlds, configs, options.txt),
+    # with the shared staging folders linked into it - see
+    # paths.INSTANCES_GAME_DIR. Falls back to the shared folder when the
+    # filesystem refuses a link, so this is never a new failure mode.
+    game_dir = game_dir_for(version_id) if cfg is not None else MINECRAFT_DIR
+
     # The Cubeon Client is a social mod and draws almost nothing; the actual
     # frame-rate win comes from the client performance mod suite (Sodium,
     # Lithium, ImmediatelyFast, EntityCulling, MoreCulling, ...) fetched here
@@ -924,11 +938,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             # fast values baked in, which is what made the old Settings
             # toggle feel useless on an installed instance).
             if cfg.get("fps_boost_enabled", True):
-                maxed = game_options.apply_max_fps()
+                maxed = game_options.apply_max_fps(
+                    game_options.options_path(game_dir))
                 if maxed["changed"] and status_cb:
                     status_cb("FPS boost applied")
             else:
-                restored = game_options.restore_vanilla_look()
+                restored = game_options.restore_vanilla_look(
+                    game_options.options_path(game_dir))
                 if restored["changed"] and status_cb:
                     status_cb("Vanilla graphics restored")
             # Sodium's own renderer options are the half of its settings that
@@ -940,7 +956,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             # an FPS guide that turned fog occlusion off, cannot keep the
             # renderer doing work it does not have to.
             if cfg.get("fps_boost_enabled", True):
-                tuned = perf_mods.apply_max_fps_sodium()
+                tuned = perf_mods.apply_max_fps_sodium(
+                    perf_mods.sodium_config_path(game_dir))
                 if tuned["changed"]:
                     logging.getLogger(__name__).info(
                         "sodium options tuned: %s", tuned["detail"])
@@ -954,7 +971,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # config would otherwise keep crashing an install the user already has.
     try:
         from . import perf_mods
-        repaired = perf_mods.sanitize_entityculling_config()
+        repaired = perf_mods.sanitize_entityculling_config(
+            perf_mods.entityculling_config_path(game_dir))
         if repaired["removed"]:
             logging.getLogger(__name__).warning(
                 "repaired EntityCulling config: %s", repaired["detail"])
@@ -962,7 +980,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         pass
 
     command = build_launch_command(version_id, username, ram_mb, width, height,
-                                   java_path,
+                                   java_path, game_dir=game_dir,
                                    custom_jvm_flags=(cfg or {}).get("custom_jvm_flags"))
 
     # Optional direct-connect arguments. Minecraft's client accepts these as
@@ -992,6 +1010,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # stdin is /dev/null for the same reason: an inherited terminal stdin
     # would make the game a background-job SIGTTIN casualty.
     session_id = uuid.uuid4().hex
+    set_active_game_dir(game_dir)
+
     log_path = os.path.join(CUBEON_HOME, f"game-{session_id}.log")
     try:
         os.makedirs(CUBEON_HOME, exist_ok=True)
@@ -1077,7 +1097,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             sync_mods_to_game(mc_version, loader, version_id)
             process = subprocess.Popen(
                 command,
-                cwd=MINECRAFT_DIR,
+                cwd=game_dir,
                 stdin=subprocess.DEVNULL,
                 stdout=(log_fh or subprocess.DEVNULL),
                 stderr=subprocess.STDOUT,

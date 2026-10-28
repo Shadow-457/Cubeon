@@ -7085,8 +7085,11 @@ async def main(page: ft.Page):
          lambda: _paths.RESOURCEPACKS_DIR),
         ("Shaders", "shaderpacks the game reads",
          lambda: _paths.SHADERPACKS_DIR),
+        # Worlds are per instance now (paths.INSTANCES_GAME_DIR): open the
+        # folder of the instance being played, not a shared saves/ that the
+        # game no longer writes to.
         ("Worlds (saves)", "your singleplayer worlds",
-         lambda: os.path.join(_paths.MINECRAFT_DIR, "saves")),
+         lambda: os.path.join(_paths.active_game_dir(), "saves")),
         ("Screenshots", "the game's screenshots folder",
          lambda: os.path.join(_paths.MINECRAFT_DIR, "screenshots")),
         ("Cubeon data", "config, logs and caches - not the game",
@@ -8810,10 +8813,40 @@ async def main(page: ft.Page):
         except Exception:
             pass
 
+    def _season_animator_pause(paused):
+        """Minimize/hide: freeze the seasonal ticker. Restore/show/focus: resume.
+
+        A minimized window is invisible, so every frame the ticker produces is
+        a repaint nobody can see - measured 8.2 frames/s with the window
+        minimized, for as long as it stays that way (the common case: the
+        launcher sits minimized while the game runs). The ticker blocks on a
+        Condition while paused, so this costs zero wakeups; on restore the pet
+        continues from the pose it was in, so nothing changes on screen.
+        """
+        animator = _season_rt.get("animator")
+        if animator is None:
+            return
+        try:
+            if paused:
+                animator.pause()
+            else:
+                animator.resume()
+        except Exception:
+            pass
+
     def _on_window_event(e):
         try:
             raw = getattr(e, "type", "") or getattr(e, "data", "")
             ev = str(getattr(raw, "value", raw)).split(".")[-1].lower()
+            # An invisible window must not animate. "hide" also means close on
+            # this build (see below): pausing there is harmless - the session
+            # is ending anyway - and it keeps a minimize from repainting for
+            # nobody. "focus" is the belt-and-braces resume: every restore ends
+            # focused, even on a WM that drops RESTORE.
+            if ev in ("minimize", "hide"):
+                _season_animator_pause(True)
+            elif ev in ("restore", "show", "focus"):
+                _season_animator_pause(False)
             if ev in ("close", "hide", "disconnect"):
                 # Flet 0.86 reality check: on this build the native X button
                 # tears the window down WITHOUT delivering a "close" event to
@@ -9098,6 +9131,26 @@ async def main(page: ft.Page):
 
 
 
+# Flet's desktop client cannot remove its implicit Flutter view. On EVERY
+# window close it asks the engine and the engine refuses:
+#   embedder.cc (2603): 'FlutterEngineRemoveView' returned
+#   'kInvalidArguments'. Remove view info was invalid. The implicit view
+#   cannot be removed.
+# On flet 0.86 the same teardown then emits, twice,
+#   ** (flet:N): WARNING **: Attempted to set message handler on an
+#   FlBinaryMessenger without an engine
+# Nothing has failed: the window is already gone, the engine refuses a
+# removal that was never possible, and Cubeon then ends the leftover client
+# (see _kill_flet_client, which documents the ghost window this leaves). The
+# line is client-side, so it cannot be prevented from Python - it is dropped
+# from the console like the atk-bridge noise, but still recorded in
+# _client_tail so a crash record keeps the evidence that a close happened.
+_CLIENT_TEARDOWN_NOISE = re.compile(
+    r"FlutterEngineRemoveView"
+    r"|[Tt]he implicit view cannot be removed"
+    r"|FlBinaryMessenger without an engine")
+
+
 def run_sync(page) -> None:
     """Build the launcher against `page` on a private event loop.
 
@@ -9362,6 +9415,12 @@ if __name__ == "__main__":
                     # looks at the line: the client's own last words are the
                     # only place a Mesa/GTK/wayland library name shows up.
                     _client_tail.add(line)
+                    if _CLIENT_TEARDOWN_NOISE.search(line):
+                        # Known-benign client shutdown chatter (see the
+                        # constant): the window is already closing, so it
+                        # must not read like a launcher failure in the
+                        # terminal. Recorded above, not echoed.
+                        continue
                     if _GL_FRAME_TIMEOUT.search(line):
                         # The client announces every OpenGL frame it failed
                         # to produce. A burst of these with no painted

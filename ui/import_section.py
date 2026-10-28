@@ -413,7 +413,8 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
             if ok:
                 try:
                     already = importer.already_in_profile(
-                        entry, inst["mc_version"], inst["loader"])
+                        entry, inst["mc_version"], inst["loader"],
+                        inst["version_id"])
                 except Exception:
                     already = False
             if already:

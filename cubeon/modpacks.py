@@ -9,7 +9,7 @@ knows how to do (versions.install_version, mod_loaders.install_mod_loader,
 the per-(version,loader) mod profiles in mods.py). So installing a pack here
 is orchestration, not new machinery: read the manifest, install the version,
 install the loader, drop the listed mods into the matching profile, copy the
-pack's config overrides into the shared game folder.
+pack's config overrides into that instance's own game folder.
 
 TWO INPUT FORMATS, ONE INSTALLER
 
@@ -46,8 +46,9 @@ A modpack install therefore:
   - writes the pack's `resourcepacks/` and `shaderpacks/` entries into that
     same profile (cubeon/content.py's per-instance content folders, staged
     into the game at launch like the mods),
-  - copies the rest of `overrides/` (configs, options.txt, ...) into the game
-    folder, where the game reads them regardless of instance.
+  - copies the rest of `overrides/` (configs, options.txt, ...) into the
+    pack instance's own game folder (paths.INSTANCES_GAME_DIR), so its
+    settings do not leak into every other instance.
 
 A pack brings its own Minecraft version, so it does NOT have to match whatever
 is selected on the Play tab - version-locked packs (RLCraft is 1.12.2-only)
@@ -731,6 +732,19 @@ def _noop(*_a, **_k):
     pass
 
 
+def _pack_game_dir(version_id: "str | None") -> str:
+    """The game folder a pack's configs/options.txt belong to.
+
+    Per instance since the instance folders exist (paths.INSTANCES_GAME_DIR):
+    installing a pack must not rewrite the settings of every other instance.
+    Omitted version (only direct callers) -> the shared root, which is the
+    old behaviour and what the module's MINECRAFT_DIR redirect follows."""
+    if not version_id:
+        return MINECRAFT_DIR
+    from .paths import game_dir_for
+    return game_dir_for(version_id)
+
+
 def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
                        mc_version: str = "", loader: str = "",
                        version_id: str | None = None,
@@ -738,13 +752,14 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
     """Copy the pack's override files into place: anything under mods/ goes to
     the profile (so sync_mods_to_game picks it up), bundled resource
     packs/shaders go to the profile's content folders (so they follow THIS
-    instance), and everything else (config/, options.txt, ...) into the shared
-    game dir. Returns how many override mod jars were written; pass `written`
-    to also collect their basenames.
+    instance), and everything else (config/, options.txt, ...) into the
+    instance's own game folder. Returns how many override mod jars were
+    written; pass `written` to also collect their basenames.
 
     Pack overrides must not silently replace the player's own settings for
     every instance: options/servers files are kept, and any other existing
     file is backed up before it is replaced."""
+    pack_game_dir = _pack_game_dir(version_id)
     override_mods = 0
     kept_user_files = 0
     backed_up = 0
@@ -770,10 +785,10 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
             if written is not None:
                 written.add(os.path.basename(rel))
         else:
-            # A bundled pack/shader belongs to this instance; everything else
-            # (configs, options.txt, ...) keeps its existing shared location.
+            # A bundled pack/shader belongs to this instance; configs,
+            # options.txt and the rest go into the same instance's game folder.
             content_dest = _content_profile_dest(rel, mc_version, loader, version_id)
-            dest = content_dest or _safe_relpath(MINECRAFT_DIR, rel)
+            dest = content_dest or _safe_relpath(pack_game_dir, rel)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".override-", dir=os.path.dirname(dest)) as tmpdir:
             payload = os.path.join(tmpdir, "payload")
@@ -786,9 +801,9 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
             else:
                 if content_dest is None and os.path.exists(dest):
                     # options.txt/servers.dat are the player's own keybinds,
-                    # video settings and server list, shared by every
-                    # instance; a pack replacing them silently changes all of
-                    # the user's games.
+                    # video settings and server list for this instance; a
+                    # pack replacing them silently changes the game they
+                    # already tuned.
                     if os.path.basename(dest).lower() in _USER_SETTINGS_FILES:
                         kept_user_files += 1
                         continue
@@ -1157,13 +1172,14 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
 
         # 4) Declared non-mod files (resourcepacks/shaders and the odd config).
         #    A declared pack/shader belongs to THIS instance (see
-        #    _content_profile_dest); anything else keeps the shared game dir.
+        #    _content_profile_dest); anything else goes into the same
+        #    instance's game folder, never the shared root.
         for f in other_files:
             n += 1
             path = f.get("path", "")
             status_cb("Downloading pack resources...")
             dest = _content_profile_dest(path, mc_version, loader_id, version_id) \
-                or _safe_relpath(MINECRAFT_DIR, path)
+                or _safe_relpath(_pack_game_dir(version_id), path)
             _download_to(dest, f.get("downloads") or [], f.get("hashes"))
             progress_cb(n)
 

@@ -357,11 +357,16 @@ def ensure_fabric_api(mc_version: str | None, loader: str | None,
         return "Fabric API already installed"
 
     try:
-        from .mods import download_mod, get_mod_download
+        from .mods import (LAUNCH_LOOKUP_ATTEMPTS, LAUNCH_LOOKUP_TIMEOUT,
+                           download_mod, get_mod_download)
         # Always ask Modrinth for the "fabric" build: it is what Quilt loads
-        # too, and Modrinth lists no separate quilt file for it.
+        # too, and Modrinth lists no separate quilt file for it. The launch
+        # path gets one short attempt (LAUNCH_LOOKUP_*), not the 3-try policy
+        # that costs 34 s before Minecraft starts when the route is dead.
         file_info = get_mod_download(FABRIC_API_SLUG, mc_version=mc_version,
-                                     loader="fabric")
+                                     loader="fabric",
+                                     timeout=LAUNCH_LOOKUP_TIMEOUT,
+                                     attempts=LAUNCH_LOOKUP_ATTEMPTS)
     except Exception as ex:
         return f"couldn't reach Modrinth ({ex.__class__.__name__})"
 

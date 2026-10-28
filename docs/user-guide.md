@@ -124,6 +124,14 @@ app is different from deleting its data folders.
 environment. Back up worlds before removing game files, and keep identity
 files private.
 
+Each installed version plays in its own folder under
+`~/.cubeon_minecraft/instances/<instance>/`. Its worlds (`saves/`), mod configs
+(`config/`) and `options.txt` live there, so a world or a video setting in one
+instance never shows up in another. The mod store, resource packs and shaders
+stay shared and are linked into every instance folder, so installed content
+still applies everywhere. Deleting an instance does not delete its world
+folder; remove that folder yourself once you are sure.
+
 If the app will not start, run it from a terminal and record the error.
 For a failed game launch, check the selected version, loader, Java path,
 and memory setting. For missing cosmetics, check the instance's skin support

@@ -99,17 +99,22 @@ def save_backup_settings(settings: dict) -> None:
         json.dump(settings, f, indent=2)
 
 
-def _iter_files(root: str):
+def _iter_files(root: str, arc_root: "str | None" = None):
     """Yield (absolute_path, arcname) for every file under root, or the
     single file itself if root isn't a directory. Silently skips anything
     that vanishes mid-walk (e.g. a mod being deleted concurrently) instead
-    of failing the whole backup over one file."""
+    of failing the whole backup over one file.
+
+    `arc_root` overrides the folder arcnames are relative to - used for the
+    per-instance world folders, which must restore to their own path under
+    instances/ rather than to the shared saves/ every one of them would
+    otherwise collide on."""
     if not os.path.exists(root):
         return
     if os.path.isfile(root):
         yield root, os.path.basename(root)
         return
-    root_parent = os.path.dirname(root.rstrip(os.sep))
+    root_parent = arc_root or os.path.dirname(root.rstrip(os.sep))
     for dirpath, _dirnames, filenames in os.walk(root):
         for fn in filenames:
             full = os.path.join(dirpath, fn)
@@ -152,6 +157,13 @@ def create_backup(include_saves: bool | None = None, dest_dir: str | None = None
     all_files = []
     for _key, _label, path, _always in sources:
         all_files.extend(_iter_files(path))
+    if include_saves:
+        # Worlds are per instance now: back up every instance's saves/ with
+        # the path it restores to, so one instance's world never overwrites
+        # another's on restore. The legacy shared saves/ (pre-instance
+        # folders) is still covered by the "saves" source above.
+        for instance in _instance_saves_dirs():
+            all_files.extend(_iter_files(instance, arc_root=MINECRAFT_DIR))
 
     if not all_files:
         return BackupResult(False, "Nothing to back up yet - no config, mods, skins, or servers found.")
@@ -186,6 +198,21 @@ def create_backup(include_saves: bool | None = None, dest_dir: str | None = None
     _rotate_old_backups(dest_dir, settings.get("keep_last", 5))
 
     return BackupResult(True, f"Backup saved ({_human_size(size)}).", out_path, size)
+
+
+def _instance_saves_dirs() -> list:
+    """Every per-instance saves/ folder that actually exists."""
+    from .paths import INSTANCES_GAME_DIR
+    try:
+        names = sorted(os.listdir(INSTANCES_GAME_DIR))
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        path = os.path.join(INSTANCES_GAME_DIR, name, "saves")
+        if os.path.isdir(path):
+            out.append(path)
+    return out
 
 
 def _rotate_old_backups(dest_dir: str, keep_last: int) -> None:
@@ -252,6 +279,9 @@ def restore_backup(zip_path: str, progress_cb=None) -> BackupResult:
         os.path.basename(PFP_DIR.rstrip(os.sep)): os.path.dirname(PFP_DIR.rstrip(os.sep)),
         os.path.basename(SERVERS_DIR.rstrip(os.sep)): os.path.dirname(SERVERS_DIR.rstrip(os.sep)),
         os.path.basename(SAVES_DIR.rstrip(os.sep)): os.path.dirname(SAVES_DIR.rstrip(os.sep)),
+        # Per-instance worlds: arcnames are instances/<slug>/saves/..., so the
+        # whole instances tree restores under MINECRAFT_DIR.
+        "instances": MINECRAFT_DIR,
     }
 
     try:

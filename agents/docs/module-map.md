@@ -73,6 +73,19 @@ consistent with the shared `THEME` contract.
   wake landing mid-check cannot be lost. Do not add a timeout-poll "just in case" - show the bar
   through `set_bar()` (`progress_bar.visible = True` alone no longer wakes the ticker).
   `tools/test_bar_idle_wake.py` and `tools/test_idle_wakeups.py` guard this.
+- `SeasonalAnimator` (one daemon ticker, `TICK = 0.12`) has `pause()`/`resume()` backed by a
+  `threading.Condition`; `main._on_window_event` pauses on `minimize`/`hide` and resumes on
+  `restore`/`show`/`focus`. Do not implement this with a `threading.Event` and `event.wait()` while it
+  is SET - wait() returns immediately and spins a core. Measured: 8.3 frames/s minimized before,
+  ~0.3/s after (only the in-flight frames around the event). `tools/test_seasonal_animator_pause.py`
+  guards both the gate and the event wiring.
+- The flet desktop client prints `'FlutterEngineRemoveView' returned 'kInvalidArguments' ... the
+  implicit view cannot be removed` (plus, on 0.86, two `FlBinaryMessenger without an engine` GLib
+  warnings) on **every** window close. It reproduces in a 12-line vanilla flet app on 0.86.5 and
+  1.0.3, so it is client-side, not a Cubeon failure. `main._CLIENT_TEARDOWN_NOISE` drops those lines
+  from the forwarded client stderr (they still land in `_client_tail` for incident records). Do not
+  "fix" it by skipping `page.window.close()`: that is what leaves the ghost client `_kill_flet_client`
+  exists to end.
 - Use `cubeon.dialogs` for dialog-stack compatibility. Removed APIs include `ft.border.all`,
   `ft.padding.only`, and `ft.margin.only`.
 - Local absolute paths are not valid `ft.Image.src` values. Use cached base64, bundled asset paths, or a
@@ -165,6 +178,21 @@ consistent with the shared `THEME` contract.
   keystroke used to rebuild all rows (~120 ms with 300 mods). The timer path runs `refresh_mods_list()`
   on a worker thread, so it takes `thread_safe_ui.TREE_LOCK`;
   `tools/test_mods_filter_debounce.py` locks the behaviour in.
+- **Per-instance game folders** (2026-10-28): every install launches with its own
+  `--gameDir` = `paths.game_dir_for(version_id)` under
+  `MINECRAFT_DIR/instances/<slug>/`. `saves/`, `config/`, `options.txt`,
+  `servers.dat` are real per-instance entries; `mods/`, `resourcepacks/`,
+  `shaderpacks/`, `CustomSkinLoader/`, `screenshots/`, `crash-reports/` are
+  symlinks (junction on Windows) to the shared root, so the existing sync,
+  skin, gallery and crash code keeps one path. Link failure degrades to the
+  shared `MINECRAFT_DIR` (never half-separated). The FIRST instance folder ever
+  created adopts the old shared `saves/config/options.txt/servers.dat` once
+  (marker `instances/.cubeon-adopted`). Read-only callers MUST use
+  `game_dir_for(..., create=False)` / `importer.saves_dir(..., create=False)`:
+  creating a folder can trigger that adoption. Features with no version in
+  hand (import, backup, P2P config sharing) use `paths.active_game_dir()`,
+  recorded at launch in `instances/active.json`. Locked in by
+  `tools/test_instance_game_dirs.py`.
 - `build_launch_command` only passes mll an `executablePath` that exists (`_normalize_java_path`); a
   missing/typo'd `java_path` falls back to `find_java_for_version`, never the raw config string
   (FileNotFoundError).
@@ -200,6 +228,17 @@ consistent with the shared `THEME` contract.
   of being skipped.
 - The pack-install Play guard fails CLOSED: if `pack_install_for_instance()` raises, `on_play_click` and
   `_begin_install_and_launch` refuse and start nothing. Do not restore `except Exception: pass` there.
+- The chat transcript is capped at `chat_tab._MAX_TRANSCRIPT` (400 controls, trimmed in one slice
+  delete, never `pop(0)`). The store's 200-message ring is not a UI bound by itself: an open
+  conversation appended forever (measured 2001 controls at 2000 messages). Same rule for the server
+  console (800 lines) and `incident.ClientOutputTail`.
+- `launch_game`'s ensure-steps use the *launch* network budget, not the interactive one:
+  `mods.LAUNCH_LOOKUP_TIMEOUT = (3, 10)` / `LAUNCH_LOOKUP_ATTEMPTS = 1` passed to
+  `mods.get_mod_download()`. The defaults (10 s, 3 tries, 1.5 s + 3 s backoff) stay for UI callers, and
+  the cache key ignores the policy so both share one entry. `perf_mods.ensure_installed` stops probing
+  after a `net.DownloadError` (not `HTTPStatusError` - a server that answered is not a dead route).
+  Measured cold + blackholed: 34.68 s per lookup before, 3.14 s after; the three launch steps together
+  9.15 s, was ~278 s. `tools/test_launch_lookup_budget.py` guards it.
 - `modpacks._ACTIVE_INSTALLS` is keyed by `(mc_version, loader)` via `_claim_key`; exclusive claims
   collide only on the same pair, and a loader-less (legacy) claim collides with every claim for that MC
   version (a known-loader claim must also check `(mc, "")`). `pack_install_for(mc)` /
@@ -243,6 +282,11 @@ consistent with the shared `THEME` contract.
   catch `(OSError, ValueError)` - invalid UTF-8 is a `ValueError` - and reject non-dict JSON.
   `write_instance_meta`/`get_profile_dir` write through `atomicio.write_json` (unique temp + fsync)
   and leave the previous file intact on failure. New sidecar reads must follow the same rules.
+- `mods._read_sidecar_json` memoizes sidecar JSON by `(path, st_mtime_ns, st_size)` (bounded at
+  `_SIDECAR_CACHE_MAX`), and `_read_meta`/`read_instance_meta` both go through it; the writers
+  (`_write_meta`, `write_instance_meta`) call `_forget_sidecar(path)` because a same-size rewrite can
+  land in the same mtime tick. Any new writer of one of these files must invalidate too - otherwise a
+  stale "not installed"/"no slug" answer survives. Reads return copies, so callers may mutate them.
 - `sync_mods_to_game`'s copy fallback removes a partially written destination and raises a
   `RuntimeError` naming the jar (chained from the original error); never leave a truncated jar in
   `MINECRAFT_DIR/mods`.
