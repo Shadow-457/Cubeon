@@ -3437,6 +3437,10 @@ async def main(page: ft.Page):
     # ------------------------------------------------------------------
     _bar = {"target": 0.0, "shown": 0.0, "pct": -1}
     _bar_lock = threading.Lock()
+    # Wakes the ticker when there is progress to draw. While the bar is hidden
+    # it used to re-check 10x/second for the whole app life; now it blocks here
+    # until set_bar() (the only thing that starts an animation) says so.
+    _bar_wake = threading.Event()
 
     def _paint_percent(value):
         with thread_safe_ui.TREE_LOCK, _bar_lock:
@@ -3449,6 +3453,7 @@ async def main(page: ft.Page):
 
     def set_bar(value, *, instant=False):
         """None = indeterminate pulse; 0..1 = real progress (eased on screen)."""
+        _bar_wake.set()   # a new push may be what makes the bar visible
         with thread_safe_ui.TREE_LOCK, _bar_lock:
             if value is None:
                 _bar.update(target=None, shown=0.0, pct=-1)
@@ -3471,12 +3476,18 @@ async def main(page: ft.Page):
 
     def _bar_loop():
         while True:
+            # Cleared BEFORE looking at the bar, so a set_bar() that lands in
+            # between cannot be swallowed (it either leaves the bar visible,
+            # which this iteration handles, or wakes the wait below).
+            _bar_wake.clear()
             if not progress_bar.visible:
                 if progress_percent.visible:
                     progress_percent.visible = False
                     _bar["pct"] = -1
                     thread_safe_ui.refresh(progress_percent)
-                time.sleep(0.1)
+                # Idle: block until there is progress to draw, instead of
+                # sleeping 0.1s forever (10 wakeups/second at idle).
+                _bar_wake.wait()
                 continue
             with thread_safe_ui.TREE_LOCK, _bar_lock:
                 target, shown = _bar["target"], _bar["shown"]
@@ -4498,7 +4509,7 @@ async def main(page: ft.Page):
         progress_bar.data = 1
         progress_label.value = "Preparing"
         progress_title.value = (
-            f"Minecraft {core.extract_mc_version(version_id)}"
+            f"Minecraft {core.resolve_mc_version(version_id)}"
             f" · {core.SUPPORTED_LOADERS.get(install_loader, install_loader)}")
         progress_stage.value = "PREPARING"
         progress_card.visible = True
@@ -4690,7 +4701,7 @@ async def main(page: ft.Page):
         # `version_id` can be a loader row ("fabric-loader-0.19.5-26.1.2"), so
         # the numeric base is what the Java requirement is keyed off - same
         # reason the loader checks further down use it.
-        mc_version = core.extract_mc_version(version_id)
+        mc_version = core.resolve_mc_version(version_id)
         if mc_version:
             try:
                 jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
@@ -4750,10 +4761,10 @@ async def main(page: ft.Page):
             target_version = version_id
             loader_id = install_loader or state["mod_loader"]
             if loader_id != "vanilla" and not core.is_loader_supported(
-                    loader_id, core.extract_mc_version(version_id)):
+                    loader_id, core.resolve_mc_version(version_id)):
                 raise RuntimeError(
                     f"{core.SUPPORTED_LOADERS.get(loader_id, loader_id)} does not support "
-                    f"Minecraft {core.extract_mc_version(version_id)}. "
+                    f"Minecraft {core.resolve_mc_version(version_id)}. "
                     "Choose another version or loader in New instance.")
 
             # Define callback functions that update UI elements from the
@@ -4870,7 +4881,7 @@ async def main(page: ft.Page):
             # if it isn't already installed for this version, otherwise every
             # single launch re-downloads/reinstalls it for no reason.
             loader_id = install_loader or state["mod_loader"]
-            launch_mc = core.extract_mc_version(version_id)
+            launch_mc = core.resolve_mc_version(version_id)
             selected_instance = instance_info.describe(
                 version_id, state.get("installed_meta", {}).get(version_id), with_mods=False)
             if version_id in state["installed"] and selected_instance["loader"] != "vanilla":
@@ -5016,7 +5027,7 @@ async def main(page: ft.Page):
                                 log_text = full
                         except OSError:
                             pass  # keep the in-memory tail
-                label = f"Minecraft {core.extract_mc_version(version_id) or version_id}"
+                label = f"Minecraft {core.resolve_mc_version(version_id) or version_id}"
                 try:
                     state["last_crash"] = {
                         "version_id": version_id,
@@ -5320,7 +5331,7 @@ async def main(page: ft.Page):
                 if not exited["done"]:
                     _rpc.set_activity(
                         details="Cubeon",
-                        state=f"Playing Minecraft {core.extract_mc_version(version_id) or version_id}",
+                        state=f"Playing Minecraft {core.resolve_mc_version(version_id) or version_id}",
                         start=int(time.time() * 1000),
                         large_image=_discord_img,
                         large_text=_discord_img_text,
@@ -5646,6 +5657,25 @@ async def main(page: ft.Page):
         except Exception:
             is_vanilla = False
         dependents = _loader_installs_for(vid) if is_vanilla else []
+        # Instances whose version JSON inherits from this one keep their own
+        # folder, but cannot launch once the base client jar is gone.
+        try:
+            inheritors = core.dependents_of(vid)
+        except Exception:
+            inheritors = []
+        not_cascaded = [d for d in inheritors if d not in dependents]
+        # Isolated instances (modpack clones/private profiles) own a folder full
+        # of mods that only they use. It is NOT shared, so it can be offered for
+        # deletion - but only with an explicit tick in this dialog.
+        try:
+            private_profile = core.private_profile_for_deletion(vid)
+        except Exception:
+            private_profile = None
+        delete_profile_cb = ft.Checkbox(
+            label=("Also delete this instance's mods and settings ("
+                   f"{private_profile[1] / (1024 * 1024):.0f} MB)" if private_profile else ""),
+            value=False, active_color=DANGER,
+        ) if private_profile else None
 
         def _forget_one(dead):
             """Drop a deleted id from every in-memory/config surface."""
@@ -5658,6 +5688,10 @@ async def main(page: ft.Page):
                 o for o in (version_dropdown.options or []) if o.key != dead]
             try:
                 core.forget_modpack_for_version(dead)
+            except Exception:
+                pass
+            try:
+                instance_info.forget_played(dead)
             except Exception:
                 pass
             labels = dict(cfg.get("version_labels") or {})
@@ -5721,6 +5755,16 @@ async def main(page: ft.Page):
                             "cascade: could not delete %s: %s", dep, ex)
                         continue
                     _forget_one(dep)
+            # Explicit tick only. `private_profile_for_deletion` already
+            # refused shared/legacy profiles, and a second instance using the
+            # same key makes it return None.
+            if private_profile and delete_profile_cb is not None \
+                    and delete_profile_cb.value:
+                try:
+                    core.delete_instance_profile(private_profile[0])
+                except ValueError as ex:
+                    logging.getLogger(__name__).warning(
+                        "could not delete instance profile: %s", ex)
             # Remove the deleted id from every selection/config surface.
             _forget_one(vid)
             try:
@@ -5793,8 +5837,18 @@ async def main(page: ft.Page):
                             + " will be removed too: "
                             + ", ".join(dependents),
                             size=12, color=DANGER)] if dependents else []),
+                        *([ft.Text(
+                            ("Another instance needs" if len(not_cascaded) == 1
+                             else f"{len(not_cascaded)} other instances need")
+                            + " this version and will stop launching if it is "
+                            "deleted: " + ", ".join(not_cascaded),
+                            size=12, color=DANGER)] if not_cascaded else []),
                         ft.Text("Your mods, skins, and worlds are not affected.",
                                 size=12, color=TEXT_DIM),
+                        *([delete_profile_cb, ft.Text(
+                            "This instance keeps its own mod list: tick to remove "
+                            "that folder too (it is used only by this instance).",
+                            size=12, color=TEXT_DIM)] if delete_profile_cb else []),
                     ],
                     spacing=8, tight=True,
                 ),
@@ -9135,6 +9189,9 @@ if __name__ == "__main__":
     # _WEDGE_WINDOW the client is considered stable; a later wedge is the
     # (much rarer) mid-session case left to its own path.
     _wedge_lock = threading.Lock()
+    # Signalled by _wedge_arm: while no client is armed the watchdog blocks
+    # here instead of polling 4x/second for the whole app life.
+    _wedge_wake = threading.Event()
     # pid/armed_at None = no live client being judged; set on each spawn.
     # "stamps" are the recent GL-frame timeout times (monotonic), pruned to
     # _WEDGE_RECENT - the BURST test below reads them.
@@ -9180,6 +9237,7 @@ if __name__ == "__main__":
             _wedge_state["pid"] = pid
             _wedge_state["armed_at"] = time.monotonic()
             _wedge_state["stamps"] = []
+        _wedge_wake.set()   # wake the idle watchdog for this client
 
     def _wedge_disarm():
         with _wedge_lock:
@@ -9191,11 +9249,17 @@ if __name__ == "__main__":
         # One daemon for the whole process life: wait for a client, judge
         # it once, then loop for the next session/retry/re-exec client.
         while True:
+            # Cleared BEFORE reading the state, so an _wedge_arm() landing in
+            # between cannot be swallowed (this iteration then sees the armed
+            # client, or the wait below is woken by it).
+            _wedge_wake.clear()
             with _wedge_lock:
                 pid, armed_at = (_wedge_state["pid"],
                                  _wedge_state["armed_at"])
             if pid is None or armed_at is None:
-                time.sleep(0.25)
+                # Idle: block until a client is spawned. This used to poll
+                # every 0.25s (4 wakeups/second) whenever no game was running.
+                _wedge_wake.wait()
                 continue
             now = time.monotonic()
             age = now - armed_at

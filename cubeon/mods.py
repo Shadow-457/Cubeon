@@ -38,6 +38,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
@@ -224,6 +225,52 @@ def _instance_meta_path(version_id: str | None) -> str | None:
                         INSTANCE_META_FILENAME)
 
 
+# Sidecar reads are tiny but numerous: list_mods() reads one `<jar>.cubeon.json`
+# per installed jar on every repaint (300 jars = 300 opens + JSON parses), and
+# the Play tab's instance rows re-read one `_cubeon_instance.json` per row. Both
+# are immutable-between-writes, so memoize by (path, mtime_ns, size): any
+# rewrite changes the key, so an entry can never serve stale data. Writers in
+# this module additionally drop the entry (see _forget_sidecar) because two
+# writes of the same size can land within one mtime tick on a coarse filesystem.
+_SIDECAR_CACHE_LOCK = threading.Lock()
+_SIDECAR_CACHE: dict[str, tuple[tuple[int, int], "dict | None"]] = {}
+_SIDECAR_CACHE_MAX = 2048
+
+
+def _forget_sidecar(path: str) -> None:
+    with _SIDECAR_CACHE_LOCK:
+        _SIDECAR_CACHE.pop(path, None)
+
+
+def _read_sidecar_json(path: str) -> dict | None:
+    """Read a sidecar JSON through the cache. Missing/unreadable -> None."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        _forget_sidecar(path)
+        return None
+    key = (stat.st_mtime_ns, stat.st_size)
+    with _SIDECAR_CACHE_LOCK:
+        cached = _SIDECAR_CACHE.get(path)
+    if cached is not None and cached[0] == key:
+        data = cached[1]
+        return dict(data) if isinstance(data, dict) else data
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        # ValueError covers invalid UTF-8; a corrupt sidecar must degrade to
+        # "unknown", which is what every caller already expects.
+        data = None
+    if not isinstance(data, dict):
+        data = None
+    with _SIDECAR_CACHE_LOCK:
+        if len(_SIDECAR_CACHE) >= _SIDECAR_CACHE_MAX:
+            _SIDECAR_CACHE.clear()   # bounded; the next reads refill it
+        _SIDECAR_CACHE[path] = (key, data)
+    return dict(data) if data is not None else None
+
+
 def read_instance_meta(version_id: str | None) -> dict | None:
     """The per-instance record written inside a version folder, or None.
 
@@ -232,14 +279,9 @@ def read_instance_meta(version_id: str | None) -> dict | None:
     isolation behaved.
     """
     path = _instance_meta_path(version_id)
-    if not path or not os.path.isfile(path):
+    if not path:
         return None
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
+    return _read_sidecar_json(path)
 
 
 def write_instance_meta(version_id: str | None, meta: dict) -> bool:
@@ -248,14 +290,13 @@ def write_instance_meta(version_id: str | None, meta: dict) -> bool:
     if not path:
         return False
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(meta, fh, indent=2)
-        os.replace(tmp, path)
-        return True
-    except OSError:
+        # Unique temp name + fsync: two writers (or a crash mid-write) must
+        # never leave a truncated sidecar or overwrite each other's temp file.
+        write_json(path, meta)
+    except (OSError, TypeError, ValueError):
         return False
+    _forget_sidecar(path)
+    return True
 
 
 def profile_key_for(mc_version: str | None, loader: str | None,
@@ -289,8 +330,7 @@ def get_profile_dir(mc_version: str | None, loader: str | None,
     os.makedirs(path, exist_ok=True)
     meta_path = os.path.join(path, PROFILE_META_FILENAME)
     if not os.path.isfile(meta_path):
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump({"mc_version": mc_version, "loader": loader}, f)
+        write_json(meta_path, {"mc_version": mc_version, "loader": loader})
     return path
 
 
@@ -302,6 +342,73 @@ def profile_dir_for_key(key: str | None) -> str | None:
             or "/" in key or "\\" in key:
         return None
     return os.path.join(PROFILES_DIR, key)
+
+
+def _profile_size_bytes(path: str) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def private_profile_for_deletion(version_id: str | None) -> tuple[str, int] | None:
+    """(profile key, size in bytes) of an isolated instance's OWN profile.
+
+    None when the instance uses the legacy shared (version, loader) profile -
+    that folder is reused by other installs and must never be removed with one
+    instance - when no other instance references the profile, or when the id
+    is unsafe. So the UI can safely offer "also delete this instance's mods".
+    Never raises.
+    """
+    if not version_id or not isinstance(version_id, str):
+        return None
+    meta = read_instance_meta(version_id) or {}
+    key = meta.get("profile")
+    if not isinstance(key, str) or not key:
+        return None
+    if key == profile_key(meta.get("mc_version"), meta.get("loader")):
+        return None  # legacy shared profile
+    path = profile_dir_for_key(key)
+    if not path or not os.path.isdir(path):
+        return None
+    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    try:
+        others = os.listdir(versions_dir)
+    except OSError:
+        others = []
+    for other in others:
+        if other == version_id:
+            continue
+        other_meta = read_instance_meta(other) or {}
+        if other_meta.get("profile") == key:
+            return None  # shared with another installed instance
+    return key, _profile_size_bytes(path)
+
+
+def delete_instance_profile(profile_key: str) -> None:
+    """Remove one isolated instance's private profile folder.
+
+    Only called after the user explicitly confirmed it. The key is checked to
+    be a bare folder name and the resolved path must stay inside PROFILES_DIR.
+    Raises ValueError with a readable message otherwise.
+    """
+    path = profile_dir_for_key(profile_key)
+    if not path:
+        raise ValueError("Refusing to delete that profile.")
+    root = os.path.abspath(PROFILES_DIR)
+    real = os.path.abspath(path)
+    if real == root or not real.startswith(root + os.sep):
+        raise ValueError("Refusing to delete a profile outside the profiles folder.")
+    if not os.path.isdir(path):
+        return
+    try:
+        shutil.rmtree(path)
+    except OSError as ex:
+        raise ValueError(f"Couldn't delete this instance's mods: {ex}") from ex
 
 
 def _profile_has_content(path: str) -> bool:
@@ -464,8 +571,10 @@ def list_profiles() -> list[dict]:
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
                     meta = json.load(f)
-            except (OSError, json.JSONDecodeError):
-                pass
+            except (OSError, ValueError):
+                meta = {}
+            if not isinstance(meta, dict):
+                meta = {}
         mod_count = sum(
             1 for fn in os.listdir(path)
             if fn.endswith(".jar") or fn.endswith(".jar.disabled")
@@ -495,14 +604,7 @@ def _meta_path(profile_dir: str, filename: str) -> str:
 
 
 def _read_meta(profile_dir: str, filename: str) -> dict | None:
-    path = _meta_path(profile_dir, filename)
-    if os.path.isfile(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return None
-    return None
+    return _read_sidecar_json(_meta_path(profile_dir, filename))
 
 
 def _write_meta(profile_dir: str, filename: str, slug: str | None,
@@ -520,18 +622,33 @@ def _write_meta(profile_dir: str, filename: str, slug: str | None,
 
     Writes the file if ANY of them is known - the old version bailed out unless
     a slug was present, which is precisely why modpack-installed mods ended up
-    with no sidecar at all and read as "not installed" in the Mods tab."""
-    meta = {}
+    with no sidecar at all and read as "not installed" in the Mods tab.
+
+    MERGES into an existing sidecar instead of replacing it. Callers know
+    different subsets (a browse download has the slug, a pack install only the
+    project id, a re-drop none), and overwriting used to erase the field it
+    didn't pass - which then made an identical mod in the same profile
+    unidentifiable and let a duplicate slip past find_other_copies()."""
+    existing = _read_meta(profile_dir, filename)
+    meta = dict(existing) if isinstance(existing, dict) else {}
+    changed = False
     if slug:
         meta["slug"] = slug
+        changed = True
     if project_id:
         meta["project_id"] = project_id
+        changed = True
     if url:
         meta["url"] = url
-    if not meta:
+        changed = True
+    if not changed:
         return
-    with open(_meta_path(profile_dir, filename), "w", encoding="utf-8") as f:
+    path = _meta_path(profile_dir, filename)
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(meta, f)
+    # The mtime/size key is usually enough, but two same-size rewrites inside
+    # one mtime tick would look identical - drop the entry explicitly.
+    _forget_sidecar(path)
 
 
 # Filename noise that identifies a *build*, not a mod: loader names, an "mc"
@@ -839,6 +956,25 @@ def _safe_jar_filename(raw_name: str) -> str:
     return stem + (ext if ext else ".jar")
 
 
+def _safe_download_filename(raw_name: str | None) -> str:
+    """A sanitized, `.jar`-only filename for an API/download-supplied file.
+
+    `filename` comes from Modrinth/CurseForge metadata or a pack's dependency
+    list, not from the user: `../../evil`, an absolute path or a `.exe` must
+    never become the join()ed destination inside the profile. Rejecting a
+    non-jar keeps this from writing an executable next to the game.
+    """
+    # Windows separators do not split on POSIX; normalize first so "..\\x.jar"
+    # cannot smuggle a path component through the sanitizer.
+    base = os.path.basename(str(raw_name or "").replace("\\", "/"))
+    if not base:
+        raise ValueError("Refusing a download with no file name.")
+    filename = _safe_jar_filename(base)
+    if not filename.lower().endswith(".jar"):
+        raise ValueError(f"Refusing to install '{base}' - a mod must be a .jar file.")
+    return filename
+
+
 def add_mod_file(mc_version: str | None, loader: str | None, src_path: str,
                  version_id: str | None = None) -> None:
     profile_dir = get_profile_dir(mc_version, loader, version_id)
@@ -1009,7 +1145,19 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
         try:
             os.link(src, dst)
         except OSError:
-            shutil.copyfile(src, dst)
+            # A failed copy (disk full, I/O error) must not leave a truncated
+            # jar behind - Fabric/Forge would try to load it and crash. Remove
+            # the partial file and report which mod failed, readably.
+            try:
+                shutil.copyfile(src, dst)
+            except Exception as ex:
+                try:
+                    os.remove(dst)
+                except OSError:
+                    pass
+                raise RuntimeError(
+                    f"Couldn't copy {fname} into the game's mods folder: {ex}"
+                ) from ex
         synced.append(fname)
 
     # Remember exactly what we linked, so the NEXT launch can tell our jars
@@ -1021,14 +1169,20 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
 def copy_mods_between_profiles(
     src_mc_version: str | None, src_loader: str | None,
     dst_mc_version: str | None, dst_loader: str | None,
+    src_version_id: str | None = None, dst_version_id: str | None = None,
 ) -> list[dict]:
     """Copies mods from one profile to another. For mods we recognize (have
     a stored Modrinth slug), we fetch a build that actually matches the
     destination version+loader instead of blindly copying the jar - a jar
     built for one MC version usually won't load on another.
+
+    Pass src_version_id / dst_version_id for isolated instances (modpack
+    clones own a private profile); without them the legacy shared profile for
+    that version+loader is used, exactly as before.
+
     Returns a per-mod result list: {name, status: 'copied'|'no_match'|'skipped', detail}."""
     results = []
-    for m in list_mods(src_mc_version, src_loader):
+    for m in list_mods(src_mc_version, src_loader, src_version_id):
         name = m["display_name"]
         if not m["slug"]:
             results.append({"name": name, "status": "skipped",
@@ -1047,10 +1201,12 @@ def copy_mods_between_profiles(
             download_mod(
                 file_info["url"], file_info["filename"],
                 mc_version=dst_mc_version, loader=dst_loader, slug=m["slug"],
-                hashes=file_info.get("hashes"),
+                hashes=file_info.get("hashes"), version_id=dst_version_id,
             )
             results.append({"name": name, "status": "copied", "detail": file_info["version_number"]})
-        except (OSError, requests.RequestException) as ex:
+        except (OSError, ValueError, requests.RequestException) as ex:
+            # One bad mod (sanitized/rejected filename, unsupported build) must
+            # not abort the rest of the copy.
             results.append({"name": name, "status": "no_match", "detail": str(ex)})
     return results
 
@@ -2536,9 +2692,15 @@ def installed_project_ids(mc_version: str | None, loader: str | None,
 
 
 def required_dependencies(project_id_or_slug: str, mc_version: str | None,
-                          loader: str = "fabric") -> list[dict]:
+                          loader: str = "fabric",
+                          filename: str | None = None) -> list[dict]:
     """The REQUIRED Modrinth dependencies of a mod's latest version, resolved
     to downloadable files for (mc_version, loader).
+
+    Pass `filename` when installing a specific build: the version whose
+    `files[].filename` matches is used instead of the newest one, because a
+    newer build can require different (or newer) dependencies than the jar the
+    user actually chose. Without it the newest version is used, as before.
 
     Returns a list of the same shape get_mod_download returns, plus the
     dependency's project id: [{"project_id", "filename", "url", "size_kb",
@@ -2561,7 +2723,16 @@ def required_dependencies(project_id_or_slug: str, mc_version: str | None,
         )
         if not versions:
             return []
-        deps = versions[0].get("dependencies") or []
+        chosen = versions[0]
+        if filename:
+            wanted = filename[:-len(".disabled")] if filename.endswith(".disabled") else filename
+            for version in versions:
+                names = [f.get("filename") for f in (version.get("files") or [])
+                         if isinstance(f, dict)]
+                if wanted in names:
+                    chosen = version
+                    break
+        deps = chosen.get("dependencies") or []
         required_ids = sorted({d.get("project_id") for d in deps
                                if d.get("dependency_type") == "required"
                                and d.get("project_id")})
@@ -2593,6 +2764,10 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     reported, never raised.
     """
     require_mod_loader(mc_version, loader, "download a mod")
+    # Reject a bad name before any network work: the dependency list and the
+    # progress total are resolved from it, and an unsafe name must not reach
+    # the profile folder through the main download either.
+    filename = _safe_download_filename(filename)
     installed: list[str] = []
     skipped = 0
     failed: list[str] = []
@@ -2629,7 +2804,8 @@ def install_mod_with_dependencies(download_url: str, filename: str,
     if main_project:
         if status_cb:
             status_cb("Checking dependencies...")
-        for dep in required_dependencies(main_project, mc_version, loader):
+        for dep in required_dependencies(main_project, mc_version, loader,
+                                         filename=filename):
             dep_id = dep.get("project_id")
             if dep_id and dep_id in have:
                 skipped += 1
@@ -2668,15 +2844,22 @@ def install_mod_with_dependencies(download_url: str, filename: str,
 
     for i, dep in enumerate(pending, start=2):
         dep_id = dep.get("project_id")
+        try:
+            dep_name = _safe_download_filename(dep.get("filename"))
+        except ValueError:
+            # One unusable dependency is reported like any other failure; it
+            # must not abort the main install.
+            failed.append(name_stem(dep.get("filename") or "") or "a dependency")
+            continue
         if status_cb:
             status_cb(f"Dependency {i}/{int(_batch['total'])}: "
-                      f"{name_stem(dep.get('filename') or '')}")
+                      f"{name_stem(dep_name)}")
         try:
-            download_mod(dep["url"], dep["filename"],
+            download_mod(dep["url"], dep_name,
                          mc_version=mc_version, loader=loader,
                          project_id=dep_id, hashes=dep.get("hashes"),
                          progress_cb=_batch_progress, version_id=version_id)
-            installed.append(dep["filename"])
+            installed.append(dep_name)
             # Count only files that actually landed: incrementing per success
             # (rather than assigning the loop index) means a failed dependency
             # leaves the bar short of 100 instead of silently claiming its
@@ -2722,6 +2905,16 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
     moved aside so the UI can say so rather than silently mutating the list."""
     require_mod_loader(mc_version, loader, "download a mod")
 
+    filename = _safe_download_filename(filename)
+    # The modpack installer only fetches from the mrpack allowlist; a single
+    # mod's URL comes from the same APIs (or a browse row) and gets the same
+    # treatment, so a malicious/compromised response cannot point Cubeon at an
+    # arbitrary host.
+    from .modpacks import _host_allowed
+    if not _host_allowed(download_url or ""):
+        raise ValueError(
+            f"Refusing to download '{filename}' from an untrusted host.")
+
     profile_dir = get_profile_dir(mc_version, loader, version_id)
     dest = os.path.join(profile_dir, filename)
 
@@ -2741,6 +2934,20 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
             raise RuntimeError(str(ex)) from ex
 
     global_mod_cache.get_or_fetch(dest, fetch_fn, hashes)
+    # A caller usually knows only one of the two Modrinth ids: browse rows and
+    # old callers pass the slug, a modpack manifest only the project id (it is
+    # in the CDN URL). Record both when the other is one cached lookup away.
+    # Without this, a copy written with slug-only and an older copy carrying
+    # only project_id were not recognised as the same mod by
+    # find_other_copies(), so the duplicate stayed behind as a disabled jar
+    # forever (or worse, stayed enabled next to it).
+    if (slug or project_id) and not (slug and project_id):
+        try:
+            details = get_mod_details(slug or project_id) or {}
+            slug = slug or details.get("slug") or None
+            project_id = project_id or details.get("project_id") or None
+        except Exception:
+            pass
     _write_meta(profile_dir, filename, slug, project_id=project_id, url=download_url)
     moved = [] if preserve_existing else supersede_older_copies(profile_dir, filename, slug, project_id)
     if moved and superseded_cb:

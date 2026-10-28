@@ -143,6 +143,12 @@ ALLOWED_DOWNLOAD_DOMAINS = (
 MAX_FILES = 5000
 MAX_OVERRIDE_BYTES = 512 * 1024 * 1024  # 512 MB - generous, but not unbounded
 
+# Pack overrides that describe the player's own setup rather than the pack.
+# These live in the shared game folder for every instance, so a pack shipping
+# its own copy would change the user's keybinds/video settings/server list.
+_USER_SETTINGS_FILES = {"options.txt", "optionsof.txt", "optionsshaders.txt",
+                        "servers.dat"}
+
 # Recorded in each installed pack's profile so the tab can list what's there
 # and Play can jump straight to the launchable version id.
 MODPACK_META_FILENAME = "_modpack.json"
@@ -168,14 +174,19 @@ class ModpackError(Exception):
 # This registry is the honest signal instead of a UI flag, because it must be
 # true no matter WHICH surface started the install (Modpacks tab, Settings >
 # Import, tests/CLI) and because several UI paths read it (button paint, click
-# guard, prefetch, doctor). Keyed by mc_version: the base version's folder is
-# being (re)written for every loader, so two pack installs for one base version
-# must not overlap. Each record also remembers the exact version id / profile
-# it is writing, so the Play button can lock the pack's OWN instance instead of
-# every instance that happens to share a Minecraft version number.
-_ACTIVE_INSTALLS: dict[str, dict] = {}   # mc_version -> claim record
+# guard, prefetch, doctor). Keyed by (mc_version, loader): two packs for the
+# same base version but a different loader write different loader folders and
+# must not refuse each other; `versions.install_version` still serializes the
+# shared base-version folder. Each record also remembers the exact version id /
+# profile it is writing, so the Play button can lock the pack's OWN instance
+# instead of every instance that happens to share a Minecraft version number.
+_ACTIVE_INSTALLS: dict[tuple[str, str], dict] = {}   # (mc, loader) -> claim
 _ACTIVE_INSTALLS_LOCK = threading.Lock()
 _INSTALL_LISTENERS: list = []            # no-arg callbacks, fired on change
+
+
+def _claim_key(mc_version: str, loader: str | None) -> tuple[str, str]:
+    return (str(mc_version), str(loader or ""))
 
 # A claim is touched on every progress/status callback. If an install thread
 # dies in a way that skips its `finally` (a hard interpreter teardown, a
@@ -195,12 +206,15 @@ def active_pack_installs() -> dict[str, str]:
     """mc_version -> pack name for every pack install writing disk right now.
 
     Cheap, in-memory, never raises. The UI reads this to keep a half-installed
-    instance from being offered as playable.
+    instance from being offered as playable. Two loaders may install for one MC
+    version; this base-version view reports one of them (instance guards use
+    ``pack_install_for_instance``).
     """
     with _ACTIVE_INSTALLS_LOCK:
         _prune_stale_claims_locked()
         return {mc: rec.get("name") or "modpack"
-                for mc, rec in _ACTIVE_INSTALLS.items() if rec.get("count")}
+                for (mc, _loader), rec in _ACTIVE_INSTALLS.items()
+                if rec.get("count")}
 
 
 def pack_install_for(mc_version: str) -> "str | None":
@@ -212,10 +226,13 @@ def pack_install_for(mc_version: str) -> "str | None":
     """
     if not mc_version:
         return None
+    wanted = str(mc_version)
     with _ACTIVE_INSTALLS_LOCK:
         _prune_stale_claims_locked()
-        rec = _ACTIVE_INSTALLS.get(str(mc_version))
-        return (rec.get("name") or "modpack") if rec and rec.get("count") else None
+        for (mc, _loader), rec in _ACTIVE_INSTALLS.items():
+            if mc == wanted and rec.get("count"):
+                return rec.get("name") or "modpack"
+    return None
 
 
 def pack_install_for_instance(version_id: str) -> "str | None":
@@ -267,14 +284,27 @@ def add_pack_install_listener(callback) -> None:
         _INSTALL_LISTENERS.append(callback)
 
 
-def _mark_pack_install(mc_version: str, name: str, *, exclusive: bool = False,
+def _mark_pack_install(mc_version: str, name: str, *, loader: str | None = None,
+                       exclusive: bool = False,
                        profile: str | None = None,
                        version_id: str | None = None) -> None:
+    key = _claim_key(mc_version, loader)
     with _ACTIVE_INSTALLS_LOCK:
         _prune_stale_claims_locked()
-        if exclusive and str(mc_version) in _ACTIVE_INSTALLS:
-            raise ModpackError("Another modpack is already installing for this Minecraft version. Wait for it to finish.")
-        rec = _ACTIVE_INSTALLS.setdefault(str(mc_version), {
+        if exclusive:
+            # A caller that does not know the loader (legacy/tests) cannot
+            # prove it is a different one, so it collides with every claim for
+            # that base version. A known loader collides with its own pair and
+            # with a loader-less claim, which may well be writing that loader.
+            if loader is None:
+                busy = any(k[0] == str(mc_version) for k in _ACTIVE_INSTALLS)
+            else:
+                busy = key in _ACTIVE_INSTALLS or (str(mc_version), "") in _ACTIVE_INSTALLS
+            if busy:
+                raise ModpackError(
+                    "Another modpack is already installing for this Minecraft "
+                    "version and loader. Wait for it to finish.")
+        rec = _ACTIVE_INSTALLS.setdefault(key, {
             "name": "", "count": 0, "started": time.time(), "touched": 0.0,
             "profile": None, "version_id": None,
         })
@@ -289,6 +319,7 @@ def _mark_pack_install(mc_version: str, name: str, *, exclusive: bool = False,
 
 
 def _update_pack_install(mc_version: str, name: str | None = None, *,
+                         loader: str | None = None,
                          profile: str | None = None,
                          version_id: str | None = None) -> None:
     """Record the exact instance/profile a running claim is writing.
@@ -298,7 +329,7 @@ def _update_pack_install(mc_version: str, name: str | None = None, *,
     mods are still downloading.
     """
     with _ACTIVE_INSTALLS_LOCK:
-        rec = _ACTIVE_INSTALLS.get(str(mc_version))
+        rec = _ACTIVE_INSTALLS.get(_claim_key(mc_version, loader))
         if rec is None:
             return
         rec["touched"] = time.time()
@@ -312,21 +343,22 @@ def _update_pack_install(mc_version: str, name: str | None = None, *,
     # button repaints on, and this is still the same running install.
 
 
-def _touch_pack_install(mc_version: str) -> None:
+def _touch_pack_install(mc_version: str, loader: str | None = None) -> None:
     with _ACTIVE_INSTALLS_LOCK:
-        rec = _ACTIVE_INSTALLS.get(str(mc_version))
+        rec = _ACTIVE_INSTALLS.get(_claim_key(mc_version, loader))
         if rec is not None:
             rec["touched"] = time.time()
 
 
-def _unmark_pack_install(mc_version: str) -> None:
+def _unmark_pack_install(mc_version: str, loader: str | None = None) -> None:
+    key = _claim_key(mc_version, loader)
     with _ACTIVE_INSTALLS_LOCK:
-        rec = _ACTIVE_INSTALLS.get(str(mc_version))
+        rec = _ACTIVE_INSTALLS.get(key)
         if rec is None:
             return
         rec["count"] -= 1
         if rec["count"] <= 0:
-            _ACTIVE_INSTALLS.pop(str(mc_version), None)
+            _ACTIVE_INSTALLS.pop(key, None)
     _notify_install_listeners()
 
 
@@ -355,6 +387,8 @@ def _read_index(zf: zipfile.ZipFile) -> dict:
     try:
         index = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ModpackError("The modpack's manifest is corrupted and couldn't be read.")
+    if not isinstance(index, dict):
         raise ModpackError("The modpack's manifest is corrupted and couldn't be read.")
     if index.get("game") not in (None, "minecraft"):
         raise ModpackError(f"Unsupported pack game: {index.get('game')!r}.")
@@ -387,6 +421,8 @@ def parse_dependencies(index: dict) -> tuple[str, str, str | None]:
     the pack's mods need that loader, so they'd silently never load and the
     failure would show up as "why don't my mods work" with no clue why."""
     deps = index.get("dependencies") or {}
+    if not isinstance(deps, dict):
+        deps = {}
     mc_version = deps.get("minecraft")
     if not mc_version:
         raise ModpackError("The modpack doesn't say which Minecraft version it needs.")
@@ -412,7 +448,9 @@ def summarize(index: dict) -> dict:
     """A quick, install-free description of a pack - name/version/loader/mod
     count - for confirmation UI before committing to the download."""
     mc_version, loader_id, loader_version = parse_dependencies(index)
-    files = index.get("files") or []
+    # Entries that are not objects cannot describe a file; one bad element
+    # must not turn the whole manifest into an AttributeError.
+    files = [f for f in (index.get("files") or []) if isinstance(f, dict)]
     mod_files = [f for f in files if _wanted_on_client(f) and _dest_is_mod(f.get("path", ""))]
     return {
         "name": index.get("name") or "Modpack",
@@ -441,6 +479,39 @@ def _safe_relpath(base_dir: str, rel_path: str) -> str:
     if dest_abs != base_abs and not dest_abs.startswith(base_abs + os.sep):
         raise ModpackError(f"Refusing to write outside the install folder: {rel_path!r}")
     return dest_abs
+
+
+# Mod jars carry one of these files; a resource pack carries `pack.mcmeta`.
+# The keyless CurseForge path names every entry `mods/<fileID>.jar` because the
+# real name is behind a redirect, so a pack's resource packs/shaders land in
+# mods/ unless their contents are checked after download.
+_MOD_JAR_MARKERS = ("fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml",
+                    "META-INF/neoforge.mods.toml", "mcmod.info")
+
+
+def _relocate_non_mod_jar(dest: str, mc_version: str, loader: str,
+                          version_id: str | None) -> bool:
+    """Move a downloaded `mods/*.jar` that is really a resource pack into this
+    instance's resourcepacks folder. Returns True when it moved.
+
+    Only packs are moved: a jar with no mod metadata AND no `pack.mcmeta` is
+    left where the manifest put it (an unfamiliar mod is worse to move than to
+    leave), and an unreadable archive is left alone too.
+    """
+    try:
+        with zipfile.ZipFile(dest) as zf:
+            names = set(zf.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+    if any(marker in names for marker in _MOD_JAR_MARKERS):
+        return False
+    if "pack.mcmeta" not in names:
+        return False
+    target = os.path.join(
+        content_profile_dir("resourcepack", mc_version, loader, version_id),
+        os.path.basename(dest))
+    os.replace(dest, target)
+    return True
 
 
 def _host_allowed(url: str) -> bool:
@@ -525,13 +596,26 @@ def _legacy_profile_is_empty(mc_version: str, loader: str) -> bool:
     return True
 
 
-def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None:
+def _find_installed_pack(name: str, mc_version: str, loader: str,
+                         source_id: str | None = None) -> dict | None:
     """The existing install of this pack, if any (an update/reinstall).
 
     Matching on name + game version + loader keeps a pack update in the same
     isolated instance instead of creating a second copy every time. The
     pack's own version is deliberately NOT part of the key.
+
+    `source_id` (the browse hit's platform project id) is the tie-breaker:
+    two DIFFERENT packs can share a display name, which used to merge the
+    second one into the first instance. When both sides know an id they must
+    be equal; an id on only one side (an older record, or an import from a
+    file) is not enough to prove they differ.
     """
+    def _same_source(meta: dict) -> bool:
+        have = meta.get("source_id")
+        if not source_id or not have:
+            return True
+        return str(have) == str(source_id)
+
     try:
         installed = list_installed_modpacks()
     except Exception:
@@ -540,7 +624,8 @@ def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None
         if (str(meta.get("name") or "").strip().lower()
                 == str(name or "").strip().lower()
                 and str(meta.get("mc_version")) == str(mc_version)
-                and meta.get("loader") == loader):
+                and meta.get("loader") == loader
+                and _same_source(meta)):
             return meta
     # A failed/cancelled reinstall of an OLDER Cubeon build dropped
     # _modpack.json while its ownership sidecar remained. Retry that profile
@@ -552,6 +637,7 @@ def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None
                     == str(name or "").strip().lower()
                     and meta.get("mc_version") == mc_version
                     and meta.get("loader") == loader and meta.get("profile")
+                    and _same_source(meta)
                     and ("pack_version" in meta or meta.get("pack"))):
                 return {**meta, "version_id": version_id}
     except OSError:
@@ -561,7 +647,11 @@ def _find_installed_pack(name: str, mc_version: str, loader: str) -> dict | None
 
 def _wanted_on_client(file_entry: dict) -> bool:
     """Skip files the pack marks as not for the client (server-only mods)."""
-    env = file_entry.get("env") or {}
+    if not isinstance(file_entry, dict):
+        return False
+    env = file_entry.get("env")
+    if not isinstance(env, dict):
+        env = {}
     return env.get("client", "required") != "unsupported"
 
 
@@ -650,8 +740,15 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
     packs/shaders go to the profile's content folders (so they follow THIS
     instance), and everything else (config/, options.txt, ...) into the shared
     game dir. Returns how many override mod jars were written; pass `written`
-    to also collect their basenames."""
+    to also collect their basenames.
+
+    Pack overrides must not silently replace the player's own settings for
+    every instance: options/servers files are kept, and any other existing
+    file is backed up before it is replaced."""
     override_mods = 0
+    kept_user_files = 0
+    backed_up = 0
+    backup_root: "str | None" = None
     for info in zf.infolist():
         if info.is_dir():
             continue
@@ -675,8 +772,8 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
         else:
             # A bundled pack/shader belongs to this instance; everything else
             # (configs, options.txt, ...) keeps its existing shared location.
-            dest = _content_profile_dest(rel, mc_version, loader, version_id) \
-                or _safe_relpath(MINECRAFT_DIR, rel)
+            content_dest = _content_profile_dest(rel, mc_version, loader, version_id)
+            dest = content_dest or _safe_relpath(MINECRAFT_DIR, rel)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".override-", dir=os.path.dirname(dest)) as tmpdir:
             payload = os.path.join(tmpdir, "payload")
@@ -687,9 +784,32 @@ def _extract_overrides(zf: zipfile.ZipFile, profile_dir: str, status_cb,
                 global_mod_cache.put_file(payload, staged)
                 os.replace(staged, dest)
             else:
+                if content_dest is None and os.path.exists(dest):
+                    # options.txt/servers.dat are the player's own keybinds,
+                    # video settings and server list, shared by every
+                    # instance; a pack replacing them silently changes all of
+                    # the user's games.
+                    if os.path.basename(dest).lower() in _USER_SETTINGS_FILES:
+                        kept_user_files += 1
+                        continue
+                    if backup_root is None:
+                        parent = os.path.join(MINECRAFT_DIR,
+                                              ".cubeon-override-backup")
+                        os.makedirs(parent, exist_ok=True)
+                        backup_root = tempfile.mkdtemp(
+                            prefix=time.strftime("%Y%m%d-%H%M%S-"), dir=parent)
+                    backup = _safe_relpath(backup_root, rel)
+                    os.makedirs(os.path.dirname(backup), exist_ok=True)
+                    shutil.copy2(dest, backup)
+                    backed_up += 1
                 os.replace(payload, dest)
     if override_mods:
         status_cb(f"Copied {override_mods} bundled mod(s) and pack config")
+    if kept_user_files or backed_up:
+        line = f"Kept {kept_user_files} of your own settings file(s)"
+        if backed_up:
+            line += f" and backed up {backed_up} replaced file(s)"
+        status_cb(line)
     return override_mods
 
 
@@ -759,7 +879,8 @@ def _drop_pack_marker_backup() -> None:
 
 
 def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
-                           icon_url: str | None = None) -> dict:
+                           icon_url: str | None = None,
+                           source_id: str | None = None) -> dict:
     progress_cb = progress_cb or _noop
     status_cb = status_cb or _noop
     max_cb = max_cb or _noop
@@ -775,14 +896,15 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         mc_version = info["mc_version"]
         loader_id = info["loader"]
 
-        files = index.get("files") or []
+        files = [f for f in (index.get("files") or []) if isinstance(f, dict)]
         if len(files) > MAX_FILES:
             raise ModpackError("This pack lists an implausible number of files; refusing it.")
 
         # A previous install of THIS pack (an update/reinstall) keeps its own
         # instance/profile instead of spawning another copy or merging into
         # whatever now occupies the legacy profile.
-        existing = _find_installed_pack(info["name"], mc_version, loader_id)
+        existing = _find_installed_pack(info["name"], mc_version, loader_id,
+                                        source_id=source_id)
 
         # 0) Decide which mod profile this pack owns BEFORE the long install.
         #
@@ -930,6 +1052,11 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             "pack_version": info["pack_version"],
             "loader_version": info.get("loader_version"),
         }
+        # Same identity as the marker: without it, the legacy-install retry
+        # in _find_installed_pack cannot tell two same-named packs apart.
+        recorded_source = source_id or previous_meta.get("source_id")
+        if recorded_source:
+            instance_meta["source_id"] = recorded_source
         source = previous_meta.get("source_version_id")
         if not source and loader_version_id != version_id:
             source = loader_version_id
@@ -943,7 +1070,7 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # The claim now knows the exact instance it is writing, so the Play
         # button can lock this clone (and only this clone) for the rest of the
         # download.
-        _update_pack_install(mc_version, info["name"],
+        _update_pack_install(mc_version, info["name"], loader=loader_id,
                              profile=profile, version_id=version_id)
 
         # A reinstall must REPLACE the pack's mod set, not add to it. The
@@ -984,6 +1111,12 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 dest = _safe_relpath(profile_dir, os.path.basename(path))
                 urls = entry.get("downloads") or []
                 _download_to(dest, urls, entry.get("hashes"), use_global_cache=True)
+                # A CF keyless entry is named mods/<fileID>.jar whether it is a
+                # mod, a resource pack or a shader pack. Asking the jar itself
+                # keeps a content zip out of the loader's mods folder (which
+                # makes Forge/Fabric error on launch).
+                if _relocate_non_mod_jar(dest, mc_version, loader_id, version_id):
+                    return None
                 return (os.path.basename(dest),
                         _modrinth_project_id(urls),
                         urls[0] if urls else None)
@@ -992,7 +1125,9 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 futures = [pool.submit(_fetch_one, f) for f in mod_files]
                 for fut in as_completed(futures):
                     try:
-                        fetched.append(fut.result())
+                        fetched_entry = fut.result()
+                        if fetched_entry:
+                            fetched.append(fetched_entry)
                         n += 1
                         status_cb(f"Downloading mods... {n}/{len(mod_files)}")
                         progress_cb(n)
@@ -1077,7 +1212,12 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
             _csl.ensure_ready(mc_version, loader_id, status_cb=status_cb,
                               version_id=version_id)
         except Exception:
-            pass  # best-effort: a skins problem must never fail the install
+            # Best-effort: a skins problem must never fail the install, but a
+            # silently missing CustomSkinLoader is impossible to diagnose from
+            # the UI alone.
+            log.warning("skin support could not be set up for pack install",
+                        exc_info=True)
+            status_cb("Skin support could not be set up")
         try:
             from .mods import get_profile_dir as _get_profile_dir
             from . import cubeonfriends as _friends_mod
@@ -1094,7 +1234,9 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
                 status_cb("Cubeon Friends mod not built for Minecraft "
                           f"{mc_version} - the in-game button will be missing")
         except Exception:
-            pass
+            log.warning("Friends mod could not be installed for a pack",
+                        exc_info=True)
+            status_cb("Friends button could not be set up")
 
         # 8) Record the pack so the tab can list it and Play can select it.
         #    mod_count is the REAL number of jars in the profile (the same
@@ -1117,6 +1259,11 @@ def _install_from_zip_body(zip_path: str, *, progress_cb=None, status_cb=None, m
         # art instead of a placeholder. Absent for a pack imported from disk.
         if icon_url:
             meta["icon_url"] = icon_url
+        # What this pack IS, not just what it is called: two browse hits can
+        # share a display name, and only the platform id can tell them apart
+        # (see _find_installed_pack).
+        if source_id:
+            meta["source_id"] = source_id
         try:
             from .atomicio import write_json as _write_json
             _write_json(os.path.join(profile_dir, MODPACK_META_FILENAME), meta)
@@ -1165,7 +1312,8 @@ def _peek_pack_identity(zip_path: str) -> tuple[str, str]:
         return "", ""
 
 
-def _peek_pack_claim_target(zip_path: str) -> dict | None:
+def _peek_pack_claim_target(zip_path: str,
+                            source_id: str | None = None) -> dict | None:
     """Everything the in-flight claim needs to scope itself to one instance.
 
     Reads the manifest and, for a reinstall, the existing pack record. A fresh
@@ -1183,7 +1331,8 @@ def _peek_pack_claim_target(zip_path: str) -> dict | None:
     name = str(info.get("name") or "")
     loader = info.get("loader") or "vanilla"
     try:
-        existing = _find_installed_pack(name, mc_version, loader) or {}
+        existing = _find_installed_pack(name, mc_version, loader,
+                                        source_id=source_id) or {}
     except Exception:
         existing = {}
     return {
@@ -1196,7 +1345,8 @@ def _peek_pack_claim_target(zip_path: str) -> dict | None:
 
 
 def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb=None,
-                      icon_url: str | None = None) -> dict:
+                      icon_url: str | None = None,
+                      source_id: str | None = None) -> dict:
     """`_install_from_zip_body` with the in-flight claim around it.
 
     The claim must cover the WHOLE body (base version, loader, every mod) and
@@ -1204,27 +1354,29 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
     stay unplayable for the rest of the session. That is why it lives here as
     a wrapper instead of a try/finally indenting the long install body.
 
-    The claim is EXCLUSIVE per base Minecraft version. Two pack installs for
-    one base version would both rewrite ``versions/<mc>`` and its loader
-    folder, which is exactly how a user ended up with two half-installs and
-    two different mod counts. A second click now fails immediately with a
-    readable message instead of racing the first.
+    The claim is EXCLUSIVE per (Minecraft version, loader). Two packs for the
+    same pair would both rewrite that base/loader folder pair, which is exactly
+    how a user ended up with two half-installs and two different mod counts. A
+    second same-pair click now fails immediately with a readable message
+    instead of racing the first; a different loader (which writes its own
+    loader folder) is allowed to proceed.
     """
-    target = _peek_pack_claim_target(zip_path)
+    target = _peek_pack_claim_target(zip_path, source_id=source_id)
     if not target:
         # Unreadable archive: let the body raise its own user-facing error.
         return _install_from_zip_body(zip_path, progress_cb=progress_cb,
                                       status_cb=status_cb, max_cb=max_cb,
-                                      icon_url=icon_url)
+                                      icon_url=icon_url, source_id=source_id)
 
     mc_version = target["mc_version"]
+    loader = target.get("loader")
     name = target["name"]
-    _mark_pack_install(mc_version, name, exclusive=True,
+    _mark_pack_install(mc_version, name, loader=loader, exclusive=True,
                        profile=target.get("profile"),
                        version_id=target.get("version_id"))
 
     def _touch():
-        _touch_pack_install(mc_version)
+        _touch_pack_install(mc_version, loader)
 
     def _status(text):
         _touch()
@@ -1244,14 +1396,14 @@ def _install_from_zip(zip_path: str, *, progress_cb=None, status_cb=None, max_cb
     try:
         return _install_from_zip_body(zip_path, progress_cb=_progress,
                                       status_cb=_status, max_cb=_maximum,
-                                      icon_url=icon_url)
+                                      icon_url=icon_url, source_id=source_id)
     except BaseException:
         # A failed/cancelled UPDATE must leave the previous, working pack
         # listed and playable: put its hidden _modpack.json back.
         _restore_pack_marker()
         raise
     finally:
-        _unmark_pack_install(mc_version)
+        _unmark_pack_install(mc_version, loader)
 
 
 def install_modpack_from_file(path: str, *, progress_cb=None, status_cb=None, max_cb=None) -> dict:
@@ -1327,7 +1479,8 @@ def _archive_progress_status(prefix: str, status_cb):
 
 
 def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_cb=None,
-                             icon_url: str | None = None) -> dict:
+                             icon_url: str | None = None,
+                             source_id: str | None = None) -> dict:
     """Download a `.mrpack` (from a browse result) and install it. The pack
     archive itself must come from the same trusted host allowlist as its
     files. `icon_url` is the browse hit's thumbnail, recorded in the pack meta
@@ -1342,7 +1495,8 @@ def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_
         _download_to(tmp, [url], None,
                      _archive_progress_status("Downloading modpack...", status_cb))
         return _install_from_zip(tmp, progress_cb=progress_cb, status_cb=status_cb,
-                                 max_cb=max_cb, icon_url=icon_url)
+                                 max_cb=max_cb, icon_url=icon_url,
+                                 source_id=source_id)
     finally:
         try:
             os.remove(tmp)
@@ -1363,15 +1517,25 @@ def install_modpack_from_url(url: str, *, progress_cb=None, status_cb=None, max_
 # ---------------------------------------------------------------------------
 
 
-def _cf_files_keyless(entries: list[dict]) -> list[dict]:
+def _cf_files_keyless(entries: list[dict], status_cb=None) -> list[dict]:
     """mrpack `files` entries built straight from the manifest's numeric ids, via
     CF's keyless download redirect. No API key, no metadata lookup, and - unlike
-    the keyed path - no hash to verify, since only the API knows the real SHA-1."""
+    the keyed path - no hash to verify, since only the API knows the real SHA-1.
+
+    Malformed or un-downloadable entries are COUNTED and reported, never
+    silently dropped: a pack that installs with missing mods and no warning is
+    indistinguishable from a working one until it crashes."""
     mr_files = []
+    skipped = 0
     for e in entries:
-        pid, fid = e["projectID"], e["fileID"]
+        pid = e.get("projectID") if isinstance(e, dict) else None
+        fid = e.get("fileID") if isinstance(e, dict) else None
+        if not pid or not fid:
+            skipped += 1
+            continue
         url = _cf_download_url(pid, fid)
         if not _host_allowed(url):
+            skipped += 1
             continue
         size = e.get("fileSize")
         mr_files.append({
@@ -1384,6 +1548,12 @@ def _cf_files_keyless(entries: list[dict]) -> list[dict]:
             "downloads": [url],
             "fileSize": size if isinstance(size, (int, float)) else 0,
         })
+    if skipped:
+        logging.getLogger(__name__).warning(
+            "CurseForge: skipped %d pack file(s) with no usable id or host",
+            skipped)
+        if status_cb:
+            status_cb(f"Skipped {skipped} pack file(s) CurseForge couldn't provide")
     return mr_files
 
 
@@ -1447,8 +1617,14 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
         mc_version = mc.get("version")
         if not mc_version:
             raise ModpackError("That CurseForge pack doesn't declare a Minecraft version.")
-        entries = [f for f in (manifest.get("files") or [])
-                   if isinstance(f, dict) and f.get("projectID") and f.get("fileID")]
+        raw_entries = [f for f in (manifest.get("files") or []) if isinstance(f, dict)]
+        entries = [f for f in raw_entries if f.get("projectID") and f.get("fileID")]
+        if len(entries) != len(raw_entries):
+            dropped = len(raw_entries) - len(entries)
+            logging.getLogger(__name__).warning(
+                "CurseForge: manifest has %d entries without a project/file id",
+                dropped)
+            status_cb(f"Skipped {dropped} malformed pack entries")
         if curseforge_enabled():
             status_cb(f"Resolving {len(entries)} mods from CurseForge...")
             by_key = {}
@@ -1463,7 +1639,7 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
                 status_cb("CurseForge lookup failed - using direct downloads instead...")
                 rows = None
             if rows is None:
-                mr_files = _cf_files_keyless(entries)
+                mr_files = _cf_files_keyless(entries, status_cb)
                 rows = []
             for row in rows:
                 by_key[(row.get("modId"), row.get("id"))] = row
@@ -1493,7 +1669,7 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
             # file was fetched, which is what made the classic CurseForge packs
             # (RLCraft, SkyFactory, ...) impossible to install.
             status_cb(f"Preparing {len(entries)} mods from CurseForge...")
-            mr_files = _cf_files_keyless(entries)
+            mr_files = _cf_files_keyless(entries, status_cb)
         if entries and not mr_files:
             raise ModpackError(
                 "None of this pack's mods could be resolved from CurseForge. "
@@ -1541,7 +1717,8 @@ def _cf_manifest_to_mrpack(zip_path: str, dest_mrpack: str, *, status_cb) -> dic
 
 def install_modpack_from_cf(project_id: str, file_id, *,
                             progress_cb=None, status_cb=None, max_cb=None,
-                            icon_url: str | None = None) -> dict:
+                            icon_url: str | None = None,
+                            source_id: str | None = None) -> dict:
     """Download a CurseForge pack zip and install it through the mrpack
     pipeline. The zip comes from CurseForge's own CDN/redirect endpoints
     (both allowlisted), and every per-mod URL the conversion writes comes
@@ -1559,7 +1736,8 @@ def install_modpack_from_cf(project_id: str, file_id, *,
         _cf_manifest_to_mrpack(tmp_zip, tmp_mrpack, status_cb=status_cb)
         return _install_from_zip(tmp_mrpack, progress_cb=progress_cb,
                                  status_cb=status_cb, max_cb=max_cb,
-                                 icon_url=icon_url)
+                                 icon_url=icon_url,
+                                 source_id=source_id or f"curseforge:{project_id}")
     finally:
         for tmp in (tmp_zip, tmp_mrpack):
             try:

@@ -47,6 +47,7 @@ public final class SelfTest {
         nameChecking();
         presenceText();
         connectionText();
+        modFreshnessNotice();
 
         System.out.println();
         System.out.println(passed + " passed, " + failed + " failed");
@@ -432,6 +433,55 @@ public final class SelfTest {
         ok(Bridge.parseSnapshot(
                 "{\"you\": \"H\", \"you_uid\": \"12345678\", \"available\": false}")
                 .connectionLine().contains("add-on"), "launcher lacks websocket-client");
+    }
+
+    private static void modFreshnessNotice() {
+        section("Bridge: stale-mod notice");
+        try {
+            Bridge bridge = Bridge.get();
+            setField(bridge, "ownStamp", "mine");
+            setField(bridge, "staleWarned", false);
+            bridge.setToastSink(null);
+            Bridge.Snapshot stale = new Bridge.Snapshot(
+                    true, true, true, "", "", List.of(), "", "expected", "");
+            Bridge.Snapshot current = new Bridge.Snapshot(
+                    true, true, true, "", "", List.of(), "", "mine", "");
+
+            // The first poll can run before a screen registers its toast sink.
+            checkModFreshness(bridge, stale);
+            List<Bridge.Toast> toasts = new ArrayList<>();
+            bridge.setToastSink(toasts::add);
+            checkModFreshness(bridge, stale);
+            ok(toasts.size() == 1,
+                    "the notice survives a poll that ran before the sink existed");
+
+            checkModFreshness(bridge, stale);
+            ok(toasts.size() == 1, "the notice is one-time");
+
+            setField(bridge, "staleWarned", false);
+            checkModFreshness(bridge, current);
+            ok(toasts.size() == 1, "a matching jar stamp stays silent");
+        } catch (ReflectiveOperationException ex) {
+            failed++;
+            System.out.println("FAIL  the test hooks could not run: " + ex);
+        } finally {
+            Bridge.get().setToastSink(null);
+        }
+    }
+
+    private static void setField(Object target, String name, Object value)
+            throws ReflectiveOperationException {
+        java.lang.reflect.Field field = Bridge.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static void checkModFreshness(Bridge bridge, Bridge.Snapshot snapshot)
+            throws ReflectiveOperationException {
+        java.lang.reflect.Method method = Bridge.class.getDeclaredMethod(
+                "checkModFreshness", Bridge.Snapshot.class);
+        method.setAccessible(true);
+        method.invoke(bridge, snapshot);
     }
 
     // ---- harness ---------------------------------------------------------

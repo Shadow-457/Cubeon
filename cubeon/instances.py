@@ -27,6 +27,7 @@ via ``instance_size_bytes``.
 import json
 import os
 import re
+import threading
 import time
 
 from .paths import CUBEON_HOME
@@ -53,6 +54,9 @@ MOD_CAPABLE = ("fabric", "quilt", "forge", "neoforge")
 _TOKEN_ORDER = ("neoforge", "fabric", "quilt", "forge", "optifine")
 
 _PLAY_STORE = os.path.join(CUBEON_HOME, "instance_play.json")
+# mark_played/forget_played are read-modify-write cycles on one file: two
+# launches at once (or a launch during a delete) must not lose an entry.
+_PLAY_STORE_LOCK = threading.Lock()
 
 
 def detect_loader(version_id: "str | None", folder: "str | None" = None) -> str:
@@ -161,8 +165,10 @@ def _read_play_store() -> dict:
         with open(_PLAY_STORE, encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict):
+            # bool is an int subclass; `true` is not a timestamp.
             return {k: float(v) for k, v in data.items()
-                    if isinstance(k, str) and isinstance(v, (int, float))}
+                    if isinstance(k, str) and isinstance(v, (int, float))
+                    and not isinstance(v, bool)}
     except (OSError, ValueError):
         pass
     return {}
@@ -184,18 +190,42 @@ def mark_played(version_id: "str | None", when: "float | None" = None) -> None:
     if not version_id:
         return
     try:
-        store = _read_play_store()
-        store[version_id] = float(when if when is not None else time.time())
-        # Keep the file small: only the 50 most recent installs matter, and a
-        # deleted/reinstalled version is forgotten by list_installed anyway.
-        if len(store) > 50:
-            for vid, _ in sorted(store.items(), key=lambda kv: kv[1])[:-50]:
-                store.pop(vid, None)
-        os.makedirs(os.path.dirname(_PLAY_STORE), exist_ok=True)
-        tmp = _PLAY_STORE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(store, fh)
-        os.replace(tmp, _PLAY_STORE)
+        with _PLAY_STORE_LOCK:
+            store = _read_play_store()
+            store[version_id] = float(when if when is not None else time.time())
+            # Keep the file small: only the 50 most recent installs matter, and a
+            # deleted/reinstalled version is forgotten by list_installed anyway.
+            if len(store) > 50:
+                for vid, _ in sorted(store.items(), key=lambda kv: kv[1])[:-50]:
+                    store.pop(vid, None)
+            os.makedirs(os.path.dirname(_PLAY_STORE), exist_ok=True)
+            tmp = f"{_PLAY_STORE}.{os.getpid()}.{threading.get_ident()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(store, fh)
+            os.replace(tmp, _PLAY_STORE)
+    except OSError:
+        pass
+
+
+def forget_played(version_id: "str | None") -> None:
+    """Drop a deleted instance's `last played` entry. Never raises.
+
+    Without this, deleting and reinstalling the same id resurrects the old
+    "played 2 days ago" label - the store is keyed by version id, and
+    `mark_played` only trims itself after 50 entries.
+    """
+    if not version_id:
+        return
+    try:
+        with _PLAY_STORE_LOCK:
+            store = _read_play_store()
+            if store.pop(version_id, None) is None:
+                return
+            os.makedirs(os.path.dirname(_PLAY_STORE), exist_ok=True)
+            tmp = f"{_PLAY_STORE}.{os.getpid()}.{threading.get_ident()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(store, fh)
+            os.replace(tmp, _PLAY_STORE)
     except OSError:
         pass
 

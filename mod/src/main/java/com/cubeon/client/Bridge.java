@@ -505,9 +505,12 @@ public final class Bridge {
         if (mine.isEmpty() || mine.equals(expected)) {
             return;
         }
-        staleWarned = true;
         Consumer<Toast> sink = toastSink;
         if (sink != null) {
+            // Only now is the notice actually delivered. Setting this before
+            // checking the sink dropped the one-time warning forever when a
+            // screen had not registered its toast sink yet.
+            staleWarned = true;
             sink.accept(new Toast(-2,
                     "Cubeon was updated - restart Minecraft to get the "
                             + "latest Friends features.",

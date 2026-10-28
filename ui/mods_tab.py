@@ -239,6 +239,35 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     )
 
     # Filter field to search installed mods by name
+    # Typing used to rebuild every row per keystroke (~120 ms with 300 mods
+    # installed), which stutters while typing. Restart a short timer on each
+    # keystroke and re-filter once it settles - the same debounce the browse
+    # search box uses. Enter filters immediately.
+    _filter_debounce = {"timer": None}
+
+    def _run_mods_filter():
+        """The debounce fires on a background thread; the rebuild mutates the
+        tree, so take the shared lock (see cubeon/thread_safe_ui.py)."""
+        try:
+            with thread_safe_ui.TREE_LOCK:
+                refresh_mods_list()
+        except Exception:
+            pass
+
+    def _schedule_mods_filter(e=None):
+        pending = _filter_debounce["timer"]
+        if pending is not None:
+            pending.cancel()
+        _filter_debounce["timer"] = threading.Timer(0.15, _run_mods_filter)
+        _filter_debounce["timer"].daemon = True
+        _filter_debounce["timer"].start()
+
+    def _filter_now(e=None):
+        pending = _filter_debounce["timer"]
+        if pending is not None:
+            pending.cancel()
+        refresh_mods_list()
+
     installed_filter_field = ft.TextField(
         hint_text="Search installed mods...",
         border_color=CARD_BORDER,
@@ -251,7 +280,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         height=40,
         content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        on_change=lambda e: refresh_mods_list(),  # Re-filter on each keystroke
+        on_change=_schedule_mods_filter,  # Debounced - see above
+        on_submit=_filter_now,            # Enter = filter immediately
     )
 
     def installed_slugs() -> set:

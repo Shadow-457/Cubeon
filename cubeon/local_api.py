@@ -20,9 +20,11 @@ the game simply doesn't show the Friends button - the launcher is unaffected.
 """
 
 import json
+import hmac
 import logging
 import os
 import secrets
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -30,6 +32,9 @@ from urllib.parse import parse_qs, urlsplit
 from .paths import CUBEON_HOME  # ~/.cubeon_launcher
 
 _TOKEN_FILE = os.path.join(CUBEON_HOME, "local_api.json")
+# A POST body is small JSON (the largest is a base64 E2EE DM envelope). Anything
+# bigger is refused instead of being truncated into unparseable JSON.
+_MAX_BODY_BYTES = 16384
 
 log = logging.getLogger(__name__)
 
@@ -215,10 +220,23 @@ def set_players_provider(fn) -> None:
 
 def _write_token(port: int, token: str) -> None:
     os.makedirs(CUBEON_HOME, exist_ok=True)
-    tmp = _TOKEN_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"port": port, "token": token}, f)
-    os.replace(tmp, _TOKEN_FILE)
+    # 0600 BEFORE a single byte is written: `open()` used the default mode
+    # (typically 0644) until the chmod after os.replace, so for a moment any
+    # local user could read the bearer token. mkstemp creates the file 0600 and
+    # with a unique name, so a leftover/racing temp is neither reused nor
+    # world-readable.
+    fd, tmp = tempfile.mkstemp(prefix=".local-api-", suffix=".tmp",
+                              dir=os.path.dirname(_TOKEN_FILE) or ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"port": port, "token": token}, f)
+        os.replace(tmp, _TOKEN_FILE)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     try:
         os.chmod(_TOKEN_FILE, 0o600)
     except OSError:
@@ -238,7 +256,15 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self) -> bool:
-        return self.headers.get("X-Cubeon-Token") == self.server.token
+        provided = self.headers.get("X-Cubeon-Token") or ""
+        expected = getattr(self.server, "token", "") or ""
+        # Constant-time comparison: the token is a bearer secret, and `==`
+        # leaks its prefix timing. Encode so a non-ASCII header cannot raise.
+        try:
+            return hmac.compare_digest(provided.encode("utf-8"),
+                                       expected.encode("utf-8"))
+        except (UnicodeEncodeError, TypeError):
+            return False
 
     def do_GET(self):
         if not self._authorized():
@@ -363,8 +389,17 @@ class _Handler(BaseHTTPRequestHandler):
             # Generous cap: DM bodies carry a base64 E2EE envelope, which runs
             # ~1.4x the plaintext length. Still bounded, so a misbehaving mod
             # can't make the launcher buffer an unbounded request.
-            length = min(int(self.headers.get("Content-Length") or 0), 16384)
-            body = json.loads(self.rfile.read(length) or b"{}")
+            declared = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            declared = 0
+        if declared > _MAX_BODY_BYTES:
+            # Refuse instead of reading a prefix: the truncated JSON used to
+            # parse as {} and the action silently did nothing. Read nothing
+            # more, so the cap is also a real guard on buffered bytes.
+            self._json({"ok": False, "error": "message too large"}, 413)
+            return
+        try:
+            body = json.loads(self.rfile.read(max(0, declared)) or b"{}")
         except (ValueError, json.JSONDecodeError):
             body = {}
         if not isinstance(body, dict):
@@ -494,13 +529,31 @@ def start() -> bool:
 
 def stop() -> None:
     server = getattr(start, "_server", None)
-    if server is not None:
-        try:
-            server.shutdown()
-        except Exception:
-            pass
-        start._server = None
-        try:
-            os.remove(_TOKEN_FILE)
-        except OSError:
-            pass
+    if server is None:
+        return
+    try:
+        server.shutdown()
+    except Exception:
+        pass
+    start._server = None
+    # Another launcher may have started (or a fast restart already rewrote the
+    # file) while this one was shutting down. Deleting its token would leave
+    # that process's in-game mod unable to connect until the next restart, so
+    # only remove the file while it still holds OUR token.
+    try:
+        with open(_TOKEN_FILE, "r", encoding="utf-8") as fh:
+            recorded = json.load(fh).get("token")
+    except (OSError, ValueError, AttributeError):
+        return
+    try:
+        ours = recorded is not None and hmac.compare_digest(
+            str(recorded).encode("utf-8"),
+            str(getattr(server, "token", "")).encode("utf-8"))
+    except (UnicodeEncodeError, TypeError):
+        ours = False
+    if not ours:
+        return
+    try:
+        os.remove(_TOKEN_FILE)
+    except OSError:
+        pass

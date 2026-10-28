@@ -96,7 +96,7 @@ def run_install(*, deps=None, installed=(), fail=(), meta_project=None,
 
     mods.download_mod = _fake_download
 
-    def _fake_required_deps(ref, mc_version=None, loader="fabric"):
+    def _fake_required_deps(ref, mc_version=None, loader="fabric", filename=None):
         LOG["dep_refs"].append(ref)
         return list(deps or [])
 

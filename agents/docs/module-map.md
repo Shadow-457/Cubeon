@@ -67,6 +67,12 @@ consistent with the shared `THEME` contract.
   version is not the release environment.
 - Mutate shared control trees under `thread_safe_ui.TREE_LOCK`; request scoped repaints through
   `thread_safe_ui.refresh()`. Background threads must not invoke a whole-page update directly.
+- Idle daemons block on an Event, they do not sleep-poll: `main._bar_loop` waits on `_bar_wake`
+  (set by `set_bar`, the only thing that starts a progress animation) and `_wedge_watchdog` waits on
+  `_wedge_wake` (set by `_wedge_arm`). Each clears its event *before* re-reading the state, so a
+  wake landing mid-check cannot be lost. Do not add a timeout-poll "just in case" - show the bar
+  through `set_bar()` (`progress_bar.visible = True` alone no longer wakes the ticker).
+  `tools/test_bar_idle_wake.py` and `tools/test_idle_wakeups.py` guard this.
 - Use `cubeon.dialogs` for dialog-stack compatibility. Removed APIs include `ft.border.all`,
   `ft.padding.only`, and `ft.margin.only`.
 - Local absolute paths are not valid `ft.Image.src` values. Use cached base64, bundled asset paths, or a
@@ -81,6 +87,12 @@ consistent with the shared `THEME` contract.
   cached-page render and content-type switches use `thread_safe_ui.refresh(...)`, not `page.update()`.
   A whole-tree diff in the same moment a tab is built/fetched was the "clicking Mods stalls the app"
   hitch. `tools/test_tab_repaint_scope.py` counts the full updates and fails on one.
+- The Server tab follows the same rule: `set_running_ui` refreshes `console_view` + `settings_view`
+  (everything it mutates lives in one of them), and `refresh_whitelist_list` / `refresh_orphan_notice` /
+  `refresh_plugins_visibility` / `tagged_dropdown`'s `sync_color` refresh the controls they changed.
+  Opening Servers used to cost 9 full diffs (now 1, the tab switch). If a helper starts mutating a
+  control outside those two columns, refresh it there too - `tools/test_server_repaint_scope.py` proves
+  each mutated control is inside a repainted region.
 - Instance selection is a scoped repaint too: `update_hero()` refreshes `hero_title`,
   `hero_version_text`, `hero_loader_chip_text` and `version_issue_text` itself. Do not add a
   `page.update()` to the row-click path to make a new hero label appear.
@@ -149,6 +161,10 @@ consistent with the shared `THEME` contract.
 - Content install gating uses the selected INSTANCE's real loader (`ui/mods_tab._instance_mod_capable` ->
   `instances.describe`), not `state["mod_loader"]` (a sibling instance or armed install can make the
   switcher say Fabric). A pending install for this version counts; packs always.
+- The Installed-mods filter is debounced (0.15 s `threading.Timer`, Enter = immediate) because every
+  keystroke used to rebuild all rows (~120 ms with 300 mods). The timer path runs `refresh_mods_list()`
+  on a worker thread, so it takes `thread_safe_ui.TREE_LOCK`;
+  `tools/test_mods_filter_debounce.py` locks the behaviour in.
 - `build_launch_command` only passes mll an `executablePath` that exists (`_normalize_java_path`); a
   missing/typo'd `java_path` falls back to `find_java_for_version`, never the raw config string
   (FileNotFoundError).
@@ -184,6 +200,12 @@ consistent with the shared `THEME` contract.
   of being skipped.
 - The pack-install Play guard fails CLOSED: if `pack_install_for_instance()` raises, `on_play_click` and
   `_begin_install_and_launch` refuse and start nothing. Do not restore `except Exception: pass` there.
+- `modpacks._ACTIVE_INSTALLS` is keyed by `(mc_version, loader)` via `_claim_key`; exclusive claims
+  collide only on the same pair, and a loader-less (legacy) claim collides with every claim for that MC
+  version (a known-loader claim must also check `(mc, "")`). `pack_install_for(mc)` /
+  `active_pack_installs()` keep the MC-only public view; per-instance guards use
+  `pack_install_for_instance`. `versions.install_version` already serializes the shared `versions/<mc>`
+  folder, so two same-MC different-loader pack installs are safe.
 - Modpack UI: after `_end_install_ok()` paints "Installed … ✓", every refresh/handoff it calls must be
   wrapped and logged individually. `run_install()`'s worker has a broad `except Exception`, so one
   unguarded UI refresh makes an installed pack report as "Install failed".
@@ -205,13 +227,77 @@ consistent with the shared `THEME` contract.
 - Marker reads must catch `(OSError, ValueError)` (invalid UTF-8 is a `ValueError`, not a
   `JSONDecodeError`) and skip non-dict JSON. The marker is written with `atomicio.write_json`; a
   failed write raises `ModpackError` - never report an unlisted pack as installed.
+- `mods.toggle_mod()` refuses when both `x.jar` and `x.jar.disabled` exist (raise `ValueError`); do not
+  go back to `os.rename` onto an existing file. `copy_mods_between_profiles` takes
+  `src_version_id`/`dst_version_id` so isolated instances use their private profile.
+- `required_dependencies(..., filename=...)` picks the build whose `files[].filename` matches; without a
+  match (or without the argument) it uses `versions[0]`. The install path must pass the jar filename.
+- `_write_meta` MERGES into `<jar>.cubeon.json` (never replace it with just the caller's fields);
+  `download_mod` resolves the missing slug/project_id before writing + dedup, so an older copy that
+  recorded only the other id is still replaced instead of left disabled.
+- `download_mod` treats `filename` as untrusted: `_safe_download_filename` takes the basename (after
+  normalizing `\`), sanitizes it, and rejects anything not `.jar`; the URL must pass
+  `modpacks._host_allowed` (lazy import) before any fetch. `install_mod_with_dependencies` sanitizes
+  the main name before resolving dependencies and each dependency name, counting a bad one as failed.
+- Sidecar readers (`mods._read_meta`, `mods.read_instance_meta`, `list_profiles`' `_profile.json`)
+  catch `(OSError, ValueError)` - invalid UTF-8 is a `ValueError` - and reject non-dict JSON.
+  `write_instance_meta`/`get_profile_dir` write through `atomicio.write_json` (unique temp + fsync)
+  and leave the previous file intact on failure. New sidecar reads must follow the same rules.
+- `sync_mods_to_game`'s copy fallback removes a partially written destination and raises a
+  `RuntimeError` naming the jar (chained from the original error); never leave a truncated jar in
+  `MINECRAFT_DIR/mods`.
+- Keyless CF entries are named `mods/<fileID>.jar`, so after download `_relocate_non_mod_jar` moves an
+  archive with `pack.mcmeta` and no mod metadata to the instance's `resourcepacks/`; unresolvable
+  entries are counted and reported through `status_cb`, never dropped silently.
+- Pack identity: `_modpack.json` and the instance sidecar carry `source_id` (`modrinth:<id>` /
+  `curseforge:<id>`); `_find_installed_pack(..., source_id=)` requires equality when both sides have
+  one. Never go back to name-only matching (two different packs can share a display name).
+- `_read_index` must reject a non-object JSON body with `ModpackError`; `files` entries are filtered
+  to dicts and a non-dict `env`/`dependencies` is treated as empty. Malformed packs must never leak
+  `AttributeError` into the install worker.
+- Pack install's CSL/Friends injection is best-effort but NOT silent: a failure logs
+  `log.warning(..., exc_info=True)` and emits a `status_cb` line; the install still succeeds.
+- `_extract_overrides` must KEEP existing `options*.txt`/`servers.dat` in the shared game folder and
+  back up any other file it replaces to `.cubeon-override-backup/<timestamp>/<rel>`. Never go back to
+  a blind `os.replace` into `MINECRAFT_DIR`.
+- `launch._drain` must emit only complete `\n`-terminated log lines (chunk + buffer; flush the
+  remainder after exit); `_watch` wraps the `on_exit` callback in try/except + warning log.
+- Instance deletion: `versions.dependents_of` lists `inheritsFrom` dependents (warn before delete);
+  `mods.private_profile_for_deletion` refuses legacy/shared profiles; the profile folder is removed
+  ONLY after an explicit checkbox, via `delete_instance_profile`. `instances.forget_played` drops the
+  play-store entry in both delete flows.
+- `instances` play store: `mark_played`/`forget_played` hold `_PLAY_STORE_LOCK` and write a
+  per-thread temp name; `_read_play_store` rejects `bool` values (bool is an int).
+- `instances.list_installed` is ~19 ms for 50 instances × 300 mods (measured, warm cache, 2026-10-28),
+  under the audit's 50 ms threshold, so rows are still described eagerly. Re-measure on a cold disk
+  before adding a per-row cache.
+- `versions.resolve_mc_version` is the Play-path version resolver: instance sidecar `mc_version` →
+  version JSON `inheritsFrom`/`id` (when plainly `N.N(.N)`) → `extract_mc_version`. `extract_mc_version`
+  still trusts the first number in a name ("Survival 2.0" → "2.0"), so any new Play/launch/Java/loader
+  check must use `resolve_mc_version`, not `extract_mc_version`.
+- `versions.get_installed_versions()` is memoized behind `_versions_scan_key`: (versions dir, every
+  folder, each json/jar mtime_ns+size, `active_installs()`). It returns copies, the scan body
+  (`_scan_installed_versions`) parses each json once, and a folder's canonical json/jar is re-keyed after
+  the scan copies it. Any code that changes versions/ differently (e.g. writes a jar without touching
+  mtime/size) must clear `_scan_cache`; never add a second, independent cache of this scan.
 - `cubeon/local_api.py` `do_GET` must keep the top-level `try/except` around `_dispatch_get`:
   a provider that raises has to answer 500, never die with the socket. A bodiless reply is what the
   in-game mod reports as "Cubeon launcher isn't running".
+- `local_api.stop()` removes the token file ONLY when its `"token"` still equals this server's token
+  (another launcher/fast restart may own it); `_authorized` compares the header with
+  `hmac.compare_digest` on UTF-8 bytes. Never go back to `==` or an unconditional `os.remove`.
+- `local_api._write_token` creates its temp with `tempfile.mkstemp` (0600 + unique name) and writes
+  through that fd BEFORE `os.replace`, so the bearer token is never readable by other local users.
+  Never go back to `open(tmp, "w")` + a later chmod.
+- `local_api.do_POST` refuses `Content-Length > _MAX_BODY_BYTES` (16384) with 413
+  `{"ok": false, "error": "message too large"}` and reads nothing. A missing/invalid/negative length
+  is treated as 0 (`max(0, declared)`), never `read(-1)`/EOF. Never truncate the body again: the
+  unparseable remainder used to become `{}` and silently drop the action.
 - `Bridge.java` only treats a refused connection or a 401 as "launcher gone"; a timeout (5 s for
   `/friends`) or a 5xx keeps the last snapshot and reports down after `DOWN_STREAK_FOR_DOWN` (3)
   polls. The three follow-up polls run through `quietly(...)` so one malformed body cannot publish
-  "bridge error" or skip the rest of the poll.
+  "bridge error" or skip the rest of the poll. `checkModFreshness` sets `staleWarned` only inside the
+  `sink != null` branch - a poll before the toast sink exists must not swallow the one-time notice.
 - `build_launch_command` honours a `-XX:+Use*GC` collector from the player's custom JVM flags: no
   forced G1 and no `-XX:G1*` tuning in that case. Default (no user collector) still gets exactly one
   `-XX:+UseG1GC` plus tuning.

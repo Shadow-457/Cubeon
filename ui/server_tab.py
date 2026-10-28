@@ -232,7 +232,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
         def sync_color(e=None):
             dd.color = color_by_option.get(dd.value, TEXT)
-            page.update()
+            thread_safe_ui.refresh(dd)
 
         dd.on_select = sync_color
         dd._sync_color = sync_color  # exposed so callers can re-sync after setting .value directly
@@ -277,7 +277,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         version_id = active_version["value"]
         whitelist_list.controls.clear()
         if not version_id:
-            page.update()
+            thread_safe_ui.refresh(whitelist_list)
             return
         names = core.get_whitelist(version_id)
         if not names:
@@ -291,6 +291,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     core.remove_from_whitelist(active_version["value"], n)
                 except Exception as ex:
                     whitelist_status.value = str(ex)
+                    thread_safe_ui.refresh(whitelist_status)
                 refresh_whitelist_list()
             whitelist_list.controls.append(ft.Container(
                 content=ft.Row([
@@ -305,7 +306,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 bgcolor=SURFACE_HI, border_radius=RADIUS,
                 padding=ft.padding.Padding.symmetric(horizontal=8, vertical=2),
             ))
-        page.update()
+        thread_safe_ui.refresh(whitelist_list)
 
     def on_whitelist_add(e=None):
         version_id = active_version["value"]
@@ -321,6 +322,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             whitelist_status.value = str(ex)
             whitelist_status.color = DANGER
         refresh_whitelist_list()
+        thread_safe_ui.refresh(whitelist_status)
+        thread_safe_ui.refresh(whitelist_add_field)
 
     whitelist_add_field.on_submit = on_whitelist_add
     whitelist_add_button = ft.Container(
@@ -1120,7 +1123,11 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             address_text.value = ""
             _refresh_public_address_line()
         refresh_controls_enabled()
-        page.update()
+        # Everything above lives in these two columns: the status/start/stop bar
+        # and console feed in console_view, the settings fields it enables or
+        # disables in settings_view. Refreshing them beats a full-tree diff.
+        thread_safe_ui.refresh(console_view)
+        thread_safe_ui.refresh(settings_view)
 
     def _show_snack(text: str):
         """Shows a snackbar via the shared cross-Flet plumbing; falls back to
@@ -1341,7 +1348,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             orphan_notice.value = (
                 f"A server from an earlier Cubeon session is still running "
                 f"and is holding this world. Stop it before starting a new one.")
-        page.update()
+        thread_safe_ui.refresh(orphan_notice)
+        thread_safe_ui.refresh(stop_orphan_button)
 
     def _send_console_command(version_id: str, text: str):
         """Sends a console command on a background thread - the stdin pipe
@@ -1979,7 +1987,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 )
         plugins_not_paper_notice.visible = not is_paper
         plugins_content.visible = is_paper
-        page.update()
+        thread_safe_ui.refresh(plugins_not_paper_notice)
+        thread_safe_ui.refresh(plugins_content)
 
     plugins_view = ft.Column(
         [

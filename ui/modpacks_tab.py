@@ -34,6 +34,7 @@ from cubeon import eta as cubeon_eta  # measured "time left" for downloads
 from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 
 import launcher_core as core
+from cubeon import instances as instance_info
 from cubeon import modpacks as modpacks_backend
 from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
 from ui.detail_dialog import open_project_detail
@@ -289,11 +290,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         page.update()
 
     def run_install(*, url=None, file_path=None, cf_file=None, icon_url=None,
-                    preclaimed=False):
+                    source_id=None, preclaimed=False):
         """cf_file: a get_modpack_file() result with source='curseforge' -
         installed through the CF->mrpack converter instead of the raw-mrpack
         path (a CurseForge zip isn't an .mrpack). icon_url: the browse hit's
         thumbnail, saved into the pack meta for the installed list.
+        source_id: the browse hit's platform project id ("modrinth:..." for
+        Modrinth; CurseForge derives its own), so two packs with the same
+        display name do not merge into one instance.
 
         ``preclaimed`` means the caller already claimed the install slot
         synchronously (the browse row does, before its network lookup) so this
@@ -315,7 +319,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 elif url is not None:
                     meta = core.install_modpack_from_url(
                         url, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb,
-                        icon_url=icon_url)
+                        icon_url=icon_url, source_id=source_id)
                 else:
                     meta = core.install_modpack_from_file(
                         file_path, progress_cb=progress_cb, status_cb=status_cb, max_cb=max_cb)
@@ -970,6 +974,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                                     preclaimed=True)
                     else:
                         run_install(url=file_info["url"], icon_url=pack.get("icon_url"),
+                                    source_id=(f"modrinth:{pack['project_id']}"
+                                               if pack.get("project_id") else None),
                                     preclaimed=True)
                 except Exception as ex:
                     preparing["value"] = False
@@ -1004,7 +1010,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             so no Play-tab compatibility check applies here."""
             url = (v or {}).get("url")
             if url:
-                run_install(url=url, icon_url=_pack.get("icon_url"))
+                run_install(url=url, icon_url=_pack.get("icon_url"),
+                            source_id=(f"modrinth:{_pack['project_id']}"
+                                       if _pack.get("project_id") else None))
 
         def _open_pack_detail(e=None, _pack=pack, _installed=is_installed,
                               _theme=_pack_theme, _install=on_install):
@@ -1137,6 +1145,18 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 return
             version_id = m.get("version_id")
             name = m.get("name", "Modpack")
+            # Packs own a private profile (unlike the legacy shared one), so
+            # its folder-full-of-mods can be offered for deletion - with an
+            # explicit tick in the dialog, never automatically.
+            try:
+                private_profile = core.private_profile_for_deletion(version_id)
+            except Exception:
+                private_profile = None
+            delete_profile_cb = ft.Checkbox(
+                label=("Also delete this pack's mods and settings ("
+                       f"{private_profile[1] / (1024 * 1024):.0f} MB)" if private_profile else ""),
+                value=False, active_color=DANGER,
+            ) if private_profile else None
 
             def confirm(e=None):
                 _close_any_dialog(dlg)
@@ -1166,6 +1186,16 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                     forgot = core.forget_modpack_for_version(version_id) if version_id else False
                 except Exception:
                     forgot = False
+                # 2b) The pack's private profile is only removed when the user
+                #     ticked the box; the shared legacy profile is never
+                #     offered (private_profile_for_deletion returns None).
+                if private_profile and delete_profile_cb is not None \
+                        and delete_profile_cb.value:
+                    try:
+                        core.delete_instance_profile(private_profile[0])
+                    except ValueError as ex:
+                        logging.getLogger(__name__).warning(
+                            "could not delete pack profile: %s", ex)
                 # 3) Keep config/state pointers consistent with the Play
                 #    tab's own delete flow, in case this was the selected
                 #    or last-launched version.
@@ -1178,6 +1208,10 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                     if state.get("selected_version") == version_id:
                         state["selected_version"] = None
                     core.save_config(cfg)
+                    try:
+                        instance_info.forget_played(version_id)
+                    except Exception:
+                        pass
                 refresh_installed_packs()
                 if deleted_version or forgot:
                     delete_status.value = f"Deleted {name}"
@@ -1199,6 +1233,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 content_lines.append(
                     ft.Text("Your mods, skins, and worlds are not affected.",
                             size=12, color=TEXT_DIM))
+                if delete_profile_cb is not None:
+                    content_lines.append(delete_profile_cb)
+                    content_lines.append(ft.Text(
+                        "This pack keeps its own mod list: tick to remove that "
+                        "folder too (it is used only by this pack).",
+                        size=12, color=TEXT_DIM))
 
             dlg = ft.AlertDialog(
                 modal=True, bgcolor=SURFACE,

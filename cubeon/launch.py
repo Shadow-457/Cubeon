@@ -1113,26 +1113,35 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     recent = collections.deque(maxlen=GAME_LOG_TAIL)
 
     def _drain():
+        # Read in chunks and only emit COMPLETE lines. `readline()` on a log
+        # the game is still writing returns a half-written line at EOF and the
+        # rest as a second "line" once more arrives, which breaks crash
+        # detection that matches whole lines. The remainder is flushed only
+        # when the process has ended.
+        buffer = ""
+
+        def emit(text):
+            text = text.rstrip()
+            if text:
+                recent.append(text)
+                if log_cb:
+                    log_cb(text)
+
         try:
             with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
                 while True:
-                    line = fh.readline()
-                    if line:
-                        line = line.rstrip()
-                        if line:
-                            recent.append(line)
-                            if log_cb:
-                                log_cb(line)
+                    chunk = fh.read(8192)
+                    if chunk:
+                        buffer += chunk
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            emit(line)
                         continue
                     if process.poll() is not None:
-                        # Dead: one final sweep so a crash report isn't cut
-                        # off mid-write, then stop tailing.
-                        for last in fh.read().splitlines():
-                            last = last.rstrip()
-                            if last:
-                                recent.append(last)
-                                if log_cb:
-                                    log_cb(last)
+                        # Dead: flush the final (possibly newline-less) line so
+                        # a crash report isn't cut off mid-write.
+                        if buffer:
+                            emit(buffer)
                         return
                     time.sleep(0.2)
         except OSError:
@@ -1165,7 +1174,13 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             _active_logs.discard(log_path)
             _prune_game_logs()
         if on_exit:
-            _call_on_exit(on_exit, process.returncode, list(recent), session_id)
+            # A UI callback that raises must not kill this daemon thread before
+            # it finishes; there is no other place that would report it.
+            try:
+                _call_on_exit(on_exit, process.returncode, list(recent), session_id)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "game-exit callback failed", exc_info=True)
     threading.Thread(target=_watch, daemon=True).start()
 
     return process

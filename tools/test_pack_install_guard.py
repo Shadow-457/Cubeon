@@ -190,7 +190,7 @@ def main():
     refused = {"value": False}
 
     def reentrant_body(zip_path, *, progress_cb=None, status_cb=None,
-                       max_cb=None, icon_url=None):
+                       max_cb=None, icon_url=None, source_id=None):
         calls["n"] += 1
         if calls["n"] == 1:
             try:

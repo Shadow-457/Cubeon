@@ -198,17 +198,79 @@ def _demote_incomplete(entry: dict, issue: str) -> dict:
     return out
 
 
+# Cached result of the last versions/ scan. Every tab repaint used to re-walk
+# and re-parse every version JSON (twice), which is 100s of ms on a real
+# install and runs on the UI thread. The key is a cheap stat fingerprint of the
+# same folders the scan looks at, plus the set of folders being installed right
+# now - so a new/removed/rewritten jar or json, or an install starting or
+# finishing, always invalidates it.
+_scan_cache_lock = threading.Lock()
+_scan_cache: "tuple | None" = None   # (key, result)
+
+
+def _versions_scan_key(active: set[str]) -> "tuple | None":
+    """A cheap fingerprint of versions/: (folder, [(file, mtime, size)])."""
+    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    folders = []
+    try:
+        with os.scandir(versions_dir) as entries:
+            for entry in entries:
+                try:
+                    if not entry.is_dir():
+                        continue
+                    files = []
+                    with os.scandir(entry.path) as inner:
+                        for item in inner:
+                            if item.name.endswith((".json", ".jar")):
+                                st = item.stat()
+                                files.append((item.name, st.st_mtime_ns,
+                                              st.st_size))
+                except OSError:
+                    continue
+                files.sort()
+                folders.append((entry.name, tuple(files)))
+    except OSError:
+        return None
+    folders.sort()
+    return (os.path.abspath(versions_dir), tuple(folders), frozenset(active))
+
+
 def get_installed_versions() -> list[dict]:
     """Tolerant scan: mll's built-in scanner requires the folder name to
     exactly match <name>.json/<name>.jar internally, which misses custom
     installs (TLauncher, modpacks, renamed folders). This falls back to
     scanning every subfolder of versions/ for *any* json+jar pair, and
     uses the json's own "id" field to build the real launch id, while
-    keeping the folder name as a friendly display label."""
+    keeping the folder name as a friendly display label.
+
+    The result is memoized until a file in versions/ changes (see
+    _versions_scan_key), so the Play-tab repaints do not pay for a scan."""
+    global _scan_cache
     versions_dir = os.path.join(MINECRAFT_DIR, "versions")
     if not os.path.isdir(versions_dir):
         return []
 
+    active = active_installs()
+    key = _versions_scan_key(active)
+    if key is not None:
+        with _scan_cache_lock:
+            cached = _scan_cache
+        if cached is not None and cached[0] == key:
+            return [dict(v) for v in cached[1]]
+
+    result = _scan_installed_versions(versions_dir, active)
+
+    if key is not None:
+        # The scan normalizes odd folder names by copying a canonical
+        # json/jar into place, so fingerprint the folder again instead of
+        # caching a key that no longer describes what is on disk.
+        fresh = _versions_scan_key(active)
+        with _scan_cache_lock:
+            _scan_cache = (fresh or key, result)
+    return [dict(v) for v in result]
+
+
+def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
     found = {}
 
     # Pass 1: mll's strict, well-formed scan (fast path, always correct)
@@ -230,7 +292,23 @@ def get_installed_versions() -> list[dict]:
     # including ones that are only partially installed (missing the jar,
     # missing libraries, etc.) - those get surfaced as "incomplete" rather
     # than silently hidden, so it's clear why they won't launch yet.
-    active = active_installs()
+    parsed_json: dict[str, object] = {}
+    _unreadable = object()
+
+    def _scan_json(path: str):
+        """Parse each version JSON at most once per scan."""
+        try:
+            return parsed_json[path]
+        except KeyError:
+            pass
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            data = _unreadable
+        parsed_json[path] = data
+        return data
+
     for folder in os.listdir(versions_dir):
         folder_path = os.path.join(versions_dir, folder)
         if not os.path.isdir(folder_path):
@@ -248,15 +326,22 @@ def get_installed_versions() -> list[dict]:
         jar_files = [f for f in os.listdir(folder_path) if f.endswith(".jar")]
         if not json_files:
             continue  # not a version folder at all, nothing to go on
+        if folder in found:
+            # mll's strict pass already reported this folder (and parsed its
+            # JSON); reading the same file again was half of every scan's cost.
+            # This dedupe is by FOLDER, never by the json's declared id: a
+            # half-finished install keeps its template manifest, and keying by
+            # id made the scan depend on os.listdir() order (the broken
+            # install then vanished from the list entirely - see
+            # tools/test_version_integrity.py's netdeath case).
+            continue
 
         canonical_json = folder + ".json"
         json_path = os.path.join(
             folder_path,
             canonical_json if canonical_json in json_files else json_files[0])
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
+        data = _scan_json(json_path)
+        if data is _unreadable:
             continue
         if not isinstance(data, dict):
             found[folder] = {
@@ -272,17 +357,6 @@ def get_installed_versions() -> list[dict]:
         real_id = data.get("id", folder)
         if not isinstance(real_id, str):
             real_id = folder
-        # Dedupe by FOLDER, never by the json's declared id. This check used
-        # to be `real_id in found`, which made the whole scan depend on
-        # os.listdir() order: a folder whose metadata still carries another
-        # version's id (a half-finished install keeps its template manifest -
-        # see tools/test_version_integrity.py's netdeath case) was skipped
-        # whenever that id had been seen first, so the broken install showed
-        # up as NEITHER installed nor incomplete - it just vanished from the
-        # list. The strict scan keys by folder name too, so that is the only
-        # thing worth deduping against.
-        if folder in found:
-            continue  # already picked up by the strict scan
 
         has_jar = bool(jar_files)
         # A version can be launchable via inheritsFrom (e.g. Fabric/Forge
@@ -346,7 +420,9 @@ def get_installed_versions() -> list[dict]:
             continue
         canonical_json = entry["folder"] + ".json"
         json_name = canonical_json if canonical_json in jsons else jsons[0]
-        data = _load_version_json(folder_path, json_name)
+        data = _scan_json(os.path.join(folder_path, json_name))
+        if data is _unreadable or not isinstance(data, dict):
+            data = None
         if data is None:
             if vid in active or entry.get("folder") in active:
                 found.pop(vid, None)
@@ -420,6 +496,37 @@ def delete_version(version_id: str) -> None:
         shutil.rmtree(target)
     except OSError as ex:
         raise ValueError(f"Couldn't delete this version: {ex}") from ex
+
+
+def dependents_of(version_id: str) -> list[str]:
+    """Installed version ids whose launch JSON declares `inheritsFrom`
+    `version_id`.
+
+    A vanilla base and every loader install built on it are separate folders;
+    deleting the base without them leaves "needs Minecraft X, which is
+    missing" instances behind. The UI uses this to say so before deleting.
+    Never raises.
+    """
+    if not version_id or not isinstance(version_id, str):
+        return []
+    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
+    try:
+        names = sorted(os.listdir(versions_dir))
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        if name == version_id:
+            continue
+        meta_path = os.path.join(versions_dir, name, name + ".json")
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get("inheritsFrom") == version_id:
+            out.append(name)
+    return out
 
 
 # --- Unfinished-install cleanup --------------------------------------------
@@ -659,6 +766,46 @@ def extract_mc_version(version_id: str) -> str:
         return raw
     match = re.search(r"(\d+\.\d+(?:\.\d+)?)", raw)
     return match.group(1) if match else raw
+
+
+_MC_VERSION_RE = re.compile(r"\d+\.\d+(?:\.\d+)?")
+
+
+def _looks_like_mc_version(value) -> "str | None":
+    """`value` when it is plainly a Minecraft version ("1.21.1"), else None."""
+    if isinstance(value, str) and _MC_VERSION_RE.fullmatch(value.strip()):
+        return value.strip()
+    return None
+
+
+def resolve_mc_version(version_id: str) -> str:
+    """The Minecraft version an instance actually plays, preferring what the
+    install itself records over a number found in its name.
+
+    `extract_mc_version` trusts the first N.N(.N) in an id, which is wrong for
+    an imported/renamed instance such as "Survival 2.0" (it returned "2.0"):
+    Play's Java check, loader-support check, pack lock and mod profile then all
+    used a Minecraft version that does not exist. Resolution order:
+
+      1. the instance sidecar's `mc_version` (`_cubeon_instance.json`);
+      2. `inheritsFrom`, then `id`, from the version's own json on disk when it
+         is plainly a Minecraft version;
+      3. `extract_mc_version`, unchanged, so every loader/id shape that already
+         resolved correctly keeps resolving to the same string.
+    """
+    sidecar = _read_instance_sidecar(version_id or "") or {}
+    recorded = _looks_like_mc_version(sidecar.get("mc_version"))
+    if recorded:
+        return recorded
+    if _plain_filename(version_id or ""):
+        folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+        data = _load_version_json(folder, f"{version_id}.json")
+        if isinstance(data, dict):
+            for key in ("inheritsFrom", "id"):
+                found = _looks_like_mc_version(data.get(key))
+                if found:
+                    return found
+    return extract_mc_version(version_id or "")
 
 
 def _read_instance_sidecar(folder: str) -> dict | None:

@@ -37,8 +37,9 @@ from cubeon import backup as backup_module
 # --- versions ---
 from cubeon.versions import (
     get_installed_versions, suggest_friendly_name, extract_mc_version,
+    resolve_mc_version,
     get_available_versions, get_latest_release, install_version,
-    delete_version, find_unfinished_installs, cleanup_unfinished_installs,
+    delete_version, dependents_of, find_unfinished_installs, cleanup_unfinished_installs,
 )
 
 # --- mod loaders ---
@@ -70,6 +71,7 @@ from cubeon.mods import (
     get_recommended_mods, search_mods, get_mod_download, download_mod,
     installed_project_ids, required_dependencies, install_mod_with_dependencies,
     get_mod_icons, get_mod_details, get_mod_versions, mod_doctor,
+    private_profile_for_deletion, delete_instance_profile,
 )
 
 # --- modpacks (Modrinth .mrpack: install a whole version+loader+mods bundle) ---
