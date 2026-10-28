@@ -5,6 +5,7 @@ import threading
 import time
 
 import flet as ft
+from cubeon import i18n
 
 from . import dialogs, thread_safe_ui
 from .theme import ACCENT, DANGER, TEXT, TEXT_DIM
@@ -153,7 +154,7 @@ def open_crash_check(page, *, mc_version, loader, version_id, diagnose,
                        selectable=True)
     dialog = ft.AlertDialog(
         modal=False,
-        title=ft.Text("Fix crash", color=TEXT),
+        title=ft.Text(i18n.t("Fix crash"), color=TEXT),
         content=ft.Container(ft.Column([
             ft.Text(f"{loader.title()} \u00b7 Minecraft {mc_version}", size=12,
                     color=TEXT_DIM),
@@ -214,7 +215,7 @@ def open_crash_check(page, *, mc_version, loader, version_id, diagnose,
         evidence_tile.visible = bool(ev)
         spinner.visible = False
         rescan_button.visible = True
-        close_button.content = ft.Text("Close")
+        close_button.content = ft.Text(i18n.t("Close"))
         if callable(on_status):
             try:
                 on_status(cause.value)
@@ -276,7 +277,7 @@ def open_repair_review(page, *, mc_version, loader, version_id, include,
     close_button = ft.TextButton("Stop")
     dialog = ft.AlertDialog(
         modal=False,
-        title=ft.Text("Check & repair", color=TEXT),
+        title=ft.Text(i18n.t("Check & repair"), color=TEXT),
         content=ft.Container(ft.Column([
             ft.Text(f"{loader.title()} · Minecraft {mc_version}", size=12, color=TEXT_DIM),
             ft.Row([spinner, status], spacing=10), summary, select_all, results,
@@ -361,7 +362,7 @@ def open_repair_review(page, *, mc_version, loader, version_id, include,
             apply_button.text = (f"Apply all {len(changes)} changes" if changes
                                  else "Apply selected changes")
             rescan_button.visible = True
-            close_button.content = ft.Text("Close")
+            close_button.content = ft.Text(i18n.t("Close"))
         on_status(summary.value)
         thread_safe_ui.refresh(dialog)
 
@@ -394,7 +395,7 @@ def open_repair_review(page, *, mc_version, loader, version_id, include,
                 if not session["closed"]:
                     status.value = f"Could not complete this check: {error}"
                     spinner.visible = False
-                    close_button.content = ft.Text("Close")
+                    close_button.content = ft.Text(i18n.t("Close"))
                     thread_safe_ui.refresh(dialog)
             finally:
                 on_done()

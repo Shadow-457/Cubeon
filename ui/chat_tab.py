@@ -63,6 +63,7 @@ import threading
 import time
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon.theme import (
     RADIUS, ON_ACCENT, WARNING, TEXT_FAINT, ACCENT_HI,
@@ -193,7 +194,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             [
                 ft.Row(
                     [
-                        ft.Text("Chat", size=28, color=TEXT,
+                        ft.Text(i18n.t("Chat"), size=28, color=TEXT,
                                 font_family=FONT_DISPLAY),
                         ft.Container(
                             content=ft.Text("BETA", size=9, color=ACCENT,
@@ -293,7 +294,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     )
 
     add_field = ft.TextField(
-        hint_text="Add a friend by ID",
+        hint_text=i18n.t("Add a friend by ID"),
         prefix_icon=ft.Icons.PERSON_ADD_ROUNDED,
         border_color=CARD_BORDER,
         focused_border_color=ACCENT,
@@ -325,9 +326,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         on_change=lambda e: _rebuild_friends(_last_roster["v"] or {}),
     )
 
-    requests_label = section_label("Requests")
+    requests_label = section_label(i18n.t("Requests"))
     requests_col = ft.Column(spacing=6)
-    friends_label = section_label("Friends")
+    friends_label = section_label(i18n.t("Friends"))
     friends_col = ft.Column(spacing=3)
 
     transcript_header = ft.Text("", size=16, color=TEXT,
@@ -394,7 +395,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _drafts.pop(key, None)
 
     composer = ft.TextField(
-        hint_text="Message...",
+        hint_text=i18n.t("Message..."),
         border_color=CARD_BORDER,
         focused_border_color=ACCENT,
         color=TEXT,
@@ -462,7 +463,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     empty_title = ft.Text("Pick a friend to start chatting", size=14,
                           color=TEXT_DIM)
-    empty_sub = ft.Text("Messages are private to you and them.", size=12,
+    empty_sub = ft.Text(i18n.t("Messages are private to you and them."), size=12,
                         color=TEXT_FAINT)
     empty_state = ft.Container(
         content=ft.Column(
@@ -786,6 +787,24 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         except Exception:
             pass
 
+    def _set_open(name, open_):
+        """Tell the service whether this conversation is REALLY on screen.
+
+        Tabs here are lazy-built and then retained, so the poller keeps
+        running after the player navigates away. chat_payload()'s poll
+        heartbeat would therefore keep the conversation marked "open" from
+        another tab and silently swallow that friend's message toasts - which
+        is exactly when a toast is wanted. The poll receives the same viewing
+        state so hidden tabs neither suppress notifications nor mark lines read.
+        """
+        fn = getattr(service, "set_open_conversation", None)
+        if not callable(fn):
+            return
+        try:
+            fn(name, open_=bool(open_))
+        except Exception:
+            pass
+
     def _apply_identity(roster):
         shown, uid = _identity_label({
             "uid": roster.get("you_uid"),
@@ -864,7 +883,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             rows = []
             if not friends and not query:
                 rows.append(
-                    ft.Text("No friends yet. Add one above.", size=12,
+                    ft.Text(i18n.t("No friends yet. Add one above."), size=12,
                             color=TEXT_FAINT))
             elif not friends:
                 rows.append(
@@ -1212,6 +1231,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         prev = selected["name"]
         if prev and prev != name:
             _drafts[prev] = composer.value
+            _set_open(prev, False)
         selected["name"] = name
         last_seq[name] = -1
         _last_day[name] = None
@@ -1362,6 +1382,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
     def _clear_conversation():
         if selected["name"]:
             _drafts[selected["name"]] = composer.value
+            _set_open(selected["name"], False)
         selected["name"] = None
         composer.value = ""
         with thread_safe_ui.TREE_LOCK:
@@ -1398,9 +1419,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         dlg.content = ft.Text("They'll disappear from your friends list. You "
                               "can add them back later.", size=13, color=TEXT_DIM)
         dlg.actions = [
-            ft.TextButton("Cancel",
+            ft.TextButton(i18n.t("Cancel"),
                           on_click=lambda e: _dialogs.close_dialog(page, dlg)),
-            ft.TextButton("Remove", on_click=lambda e: (
+            ft.TextButton(i18n.t("Remove"), on_click=lambda e: (
                 _dialogs.close_dialog(page, dlg), _do_remove(name))),
         ]
         _dialogs.open_dialog(page, dlg)
@@ -1427,14 +1448,22 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             cursor["v"] = ev.get("cursor", cursor["v"])
             name = selected["name"]
             if name:
+                viewing = (state.get("active_tab", "chat") == "chat"
+                           and state.get("window_focused", True)
+                           and not state.get("account_open", False))
+                _set_open(name, viewing)
                 _sweep_pending()
                 try:
+                    kwargs = ({"viewing": viewing, "viewer": "launcher"}
+                              if callable(getattr(service, "set_open_conversation", None))
+                              else {})
                     payload = service.chat_payload(
-                        name, last_seq.get(name, -1)) or {}
+                        name, last_seq.get(name, -1), **kwargs) or {}
                 except Exception:
                     payload = {}
                 _append_messages(payload.get("messages") or [], name)
-                _mark_read(name)
+                if viewing:
+                    _mark_read(name)
         finally:
             tick_lock.release()
 
@@ -1474,7 +1503,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             [
                 ft.Row(
                     [
-                        ft.Text("Chat", size=24, color=TEXT,
+                        ft.Text(i18n.t("Chat"), size=24, color=TEXT,
                                 font_family=FONT_DISPLAY),
                         ft.Container(
                             content=ft.Text("BETA", size=9, color=ACCENT,

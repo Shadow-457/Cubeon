@@ -30,6 +30,7 @@ python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --collect-data flet_desktop \
   --collect-submodules flet_desktop \
   --collect-binaries flet_desktop \
+  --collect-submodules cubeon.lang \
   --collect-submodules templates \
   main.py
 # NOTE: no --add-data for templates/ - the palettes ship as bytecode via

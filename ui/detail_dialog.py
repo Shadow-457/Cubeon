@@ -18,6 +18,7 @@ install CTA - never an empty pane.
 import threading
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon import dialogs
 from cubeon import icons as _icons
@@ -84,7 +85,7 @@ def _versions_section(versions, theme, on_install_version=None):
         v_install = None
         if on_install_version is not None and v.get("url"):
             v_install = ft.Container(
-                content=ft.Text("Install", size=11.5,
+                content=ft.Text(i18n.t("Install"), size=11.5,
                                 color=theme.get("ACCENT"),
                                 weight=ft.FontWeight.W_700),
                 bgcolor=theme.get("ACCENT_TINT"),
@@ -163,7 +164,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                 [ft.Icon(ft.Icons.DOWNLOAD_ROUNDED,
                          color=theme.get("TEXT_FAINT") if install_disabled
                          else theme.get("ON_ACCENT") or theme.get("BG"), size=16),
-                 ft.Text("Installed" if install_disabled else install_label,
+                 ft.Text(i18n.t("Installed") if install_disabled else install_label,
                          size=13, weight=ft.FontWeight.W_700,
                          color=theme.get("TEXT_FAINT") if install_disabled
                          else theme.get("ON_ACCENT") or theme.get("BG"))],
@@ -180,7 +181,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                  expand=True, max_lines=2,
                  overflow=ft.TextOverflow.ELLIPSIS) if install_hint
          else ft.Container(expand=True),
-         ft.TextButton("Close", on_click=_close),
+         ft.TextButton(i18n.t("Close"), on_click=_close),
          *((install_btn,) if install_btn is not None else ())],
         alignment=ft.MainAxisAlignment.END, spacing=10)
 

@@ -102,9 +102,13 @@ def custom_chrome_enabled(cfg, *, platform=None, env=None) -> bool:
 
     Supported on Windows and Linux (macOS is excluded). The
     ``CUBEON_CUSTOM_CHROME`` env var wins outright in both directions; an
-    explicit ``custom_window_chrome`` config value is next; otherwise Linux
-    defaults ON (2026-10-26 user ask) and Windows defaults OFF until the
-    frameless reveal is verified there.
+    explicit ``custom_window_chrome`` config value is next; otherwise BOTH
+    supported platforms default ON (Linux since 2026-10-26, Windows since
+    2026-10-28 when the Windows 10 reports came in).
+
+    A stored ``None`` (the current default) or an absent key means "this user
+    never chose", which is the only way to reach the platform default: a
+    persisted ``False`` is read as a deliberate OFF and stays OFF.
 
     Never raises: a malformed config (or a cfg-like object with no .get) must
     fall back to the platform default rather than take the launcher down.
@@ -131,9 +135,14 @@ def custom_chrome_enabled(cfg, *, platform=None, env=None) -> bool:
         configured = None
     if configured is not None:
         return bool(configured)
-    # No explicit choice: Linux gets the branded frame by default, Windows
-    # keeps the native one until its reveal path has been checked on a VM.
-    return str(plat).startswith("linux")
+    # No explicit choice: both supported platforms get the branded frame.
+    # Windows joined Linux here on 2026-10-28 - it had been held OFF pending a
+    # real-Windows reveal check, and the reports that came back were Windows 10
+    # users asking where their branded frame was. The reveal paths it was gated
+    # on (forced visible transition, to_front(), the winwindow.py backstop) are
+    # all in main.py and all run for a frameless window; CUBEON_CUSTOM_CHROME=0
+    # remains the escape hatch for a machine where it misbehaves.
+    return True
 
 
 def maximize_state(event_name, current):

@@ -10,6 +10,8 @@ no socket is ever opened. The platform notifier is a fake `_send`.
 import os
 import sys
 import xml.etree.ElementTree as ET
+import base64
+import re
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
@@ -35,13 +37,13 @@ _sandbox_home.isolate()
 
 from cubeon import osnotify  # noqa: E402
 
-print("\n1. the seven kinds are the seven kinds")
+print("\n1. the eight notification kinds")
 
-check("7 kinds", len(osnotify.KINDS) == 7, str(len(osnotify.KINDS)))
+check("8 kinds", len(osnotify.KINDS) == 8, str(len(osnotify.KINDS)))
 check("the install kinds are all there",
       {k for k, *_ in osnotify.KINDS} ==
       {"instance", "mod", "modpack", "resourcepack", "texturepack",
-       "friend", "update"})
+       "friend", "message", "update"})
 _keys = [key for _k, key, _l, _s in osnotify.KINDS]
 check("config keys are unique", len(set(_keys)) == len(_keys), str(_keys))
 check("every kind has a label and a subtitle",
@@ -226,11 +228,12 @@ try:
     osnotify._send_powershell("A & B <x>", 'D"E')
 finally:
     osnotify._run = _saved_run
-_ps = _captured[-1][-1] if _captured else ""
+_ps = base64.b64decode(_captured[-1][-1]).decode("utf-16-le") if _captured else ""
+_match = re.search(r'FromBase64String\("([^"]+)"\)', _ps)
+_xml = base64.b64decode(_match[1]).decode("utf-8") if _match else ""
 check("the PowerShell command was built", bool(_captured), str(_captured))
 check("it escapes the title's XML metacharacters",
-      "A &amp; B &lt;x&gt;" in _ps, _ps[:160])
-_xml = _ps.split("@'", 1)[1].split("'@", 1)[0] if "@'" in _ps else ""
+      "A &amp; B &lt;x&gt;" in _xml, _xml[:160])
 try:
     ET.fromstring(_xml)
     check("...and the toast payload is valid XML", True)
@@ -311,7 +314,7 @@ print("\n10. the Settings toggles are wired to these kinds")
 _settings = open(os.path.join(_ROOT, "ui", "settings_tab.py"), encoding="utf-8").read()
 _main = open(os.path.join(_ROOT, "main.py"), encoding="utf-8").read()
 check("Settings has a Notifications section",
-      'block("Notifications"' in _settings and "notification_rows" in _settings,
+      'block(i18n.t("Notifications")' in _settings and "notification_rows" in _settings,
       "the user asked for a toggle per type")
 check("the toggle rows come from osnotify.KINDS, not a copied list",
       "osnotify.KINDS" in _settings)

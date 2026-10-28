@@ -15,6 +15,7 @@ import re
 import threading
 
 import flet as ft
+from cubeon import i18n
 from cubeon import scrolling
 from cubeon.theme import (  # design system (radius, toggles, faint text tier, underline tabs, accent fg)
     RADIUS, animated_switch, TEXT_FAINT, text_tab, ON_ACCENT,
@@ -327,7 +328,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     whitelist_add_field.on_submit = on_whitelist_add
     whitelist_add_button = ft.Container(
-        content=ft.Text("Add", size=12, color=BG, weight=ft.FontWeight.W_700),
+        content=ft.Text(i18n.t("Add"), size=12, color=BG, weight=ft.FontWeight.W_700),
         bgcolor=ACCENT, border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_whitelist_add,
@@ -385,7 +386,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_gate_set,
     )
     gate_clear_button = ft.Container(
-        content=ft.Text("Remove", size=12, color=TEXT_DIM, weight=ft.FontWeight.W_600),
+        content=ft.Text(i18n.t("Remove"), size=12, color=TEXT_DIM, weight=ft.FontWeight.W_600),
         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_gate_clear,
@@ -760,8 +761,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 width=380,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: _close_dialog(dlg)),
-                ft.TextButton("Delete", on_click=confirm, style=ft.ButtonStyle(color=DANGER)),
+                ft.TextButton(i18n.t("Cancel"), on_click=lambda e: _close_dialog(dlg)),
+                ft.TextButton(i18n.t("Delete"), on_click=confirm, style=ft.ButtonStyle(color=DANGER)),
             ],
         )
         _open_dialog(dlg)
@@ -821,7 +822,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     save_settings_button = ft.Container(
         content=ft.Row(
             [ft.Icon(ft.Icons.SAVE_ROUNDED, color=BG, size=16),
-             ft.Text("Save", color=BG, weight=ft.FontWeight.W_800, size=13)],
+             ft.Text(i18n.t("Save"), color=BG, weight=ft.FontWeight.W_800, size=13)],
             spacing=7, tight=True,
         ),
         bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=18, vertical=12),
@@ -1283,7 +1284,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     restart_button = ft.Container(
         content=ft.Row(
-            [ft.Icon(ft.Icons.RESTART_ALT_ROUNDED, size=16, color=TEXT), ft.Text("Restart", size=13, color=TEXT, weight=ft.FontWeight.W_600)],
+            [ft.Icon(ft.Icons.RESTART_ALT_ROUNDED, size=16, color=TEXT), ft.Text(i18n.t("Restart"), size=13, color=TEXT, weight=ft.FontWeight.W_600)],
             spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
@@ -1578,7 +1579,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                             [ft.Container(
                                 content=ft.Row([
                                     ft.Icon(ft.Icons.LOCK_ROUNDED, size=14, color=TEXT_DIM),
-                                    ft.Text("System", size=11, color=TEXT_DIM, font_family=FONT_MONO),
+                                    ft.Text(i18n.t("System"), size=11, color=TEXT_DIM, font_family=FONT_MONO),
                                 ], spacing=4, tight=True),
                                 padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
                             )]
@@ -1728,7 +1729,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         author = hit.get("author") or "Modrinth"
 
         install_btn_text = ft.Text(
-            "Installed" if is_installed else "Install",
+            i18n.t("Installed") if is_installed else i18n.t("Install"),
             size=12.5, weight=ft.FontWeight.W_700,
             color=TEXT_FAINT if is_installed else ACCENT,
         )
@@ -2168,7 +2169,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             ft.Container(
                 content=ft.Column(
                     [
-                        section_label("Install"),
+                        section_label(i18n.t("Install")),
                         ft.Row([install_button, install_status], spacing=12),
                         install_progress,
                         ft.Container(height=4),
@@ -2242,7 +2243,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         eula_checkbox.value = core.eula_accepted(version_id)
         if not install_in_progress["value"]:
             install_button.content.value = install_button_label()
-            install_status.value = "Installed" if core.is_server_installed(version_id) else "Not installed yet"
+            install_status.value = i18n.t("Installed") if core.is_server_installed(version_id) else "Not installed yet"
             install_progress.visible = False
 
         set_running_ui(core.is_server_running(version_id))

@@ -242,8 +242,8 @@ check("version selector present", "version" in text)
 # The loader is chosen when an instance is DOWNLOADED and fixed afterwards
 # (2026-10-26 user ask). The Play card therefore shows a read-only instance
 # type, never a row of loader segments to switch between.
-check("the Play card shows a read-only instance type",
-      "instance type" in text)
+check("the Play card uses a compact loader tag without duplicate prose",
+      "instance type" not in text and "loader is fixed at install time" not in text)
 check("the current loader is named", "vanilla" in text.lower()
       or "fabric" in text.lower())
 check("no loader segmented switcher is mounted",
@@ -1390,22 +1390,20 @@ check("icon worker repaints the list region only",
 _stats_src = open(os.path.join(_app_root, "ui", "stats_tab.py"), encoding="utf-8").read()
 _main_src = open(os.path.join(_app_root, "main.py"), encoding="utf-8").read()
 
-# --- the doctor's visible entry point lives on the Play card (2026-10-25) ------
-# It used to be a "Fix problems" button in Mods/Texture/Shader -> Installed. The
-# user asked for it next to PLAY as "Fix crash", and for it to check everything.
-check("Fix crash sits on the Play card, not in the Mods installed header",
-      'data="play-fix-crash"' in _main_src
-      and "fix_crash_button" in _main_src
-      and "repair_btn" not in _mods_src,
-      "the doctor action must move next to PLAY; the Mods header keeps the status line")
+# The permanent Play repair button is removed; Installed keeps a repair entry.
+check("Play has no Fix crash button; Installed has Check & repair",
+      'data="play-fix-crash"' not in _main_src
+      and "fix_crash_button" not in _main_src
+      and 'data="mods-check-repair"' in _mods_src,
+      "dependency/conflict repair must remain reachable")
 check("Fix crash reads the crash log and checks deps/conflicts",
       "from cubeon import crash" in _main_src
       and "diagnose_and_fix" in _main_src
-      and "open_crash_check" in _main_src,
+      and 'name="cubeon-crash-check"' in _main_src,
       "Fix crash must explain the log, then run the mod/launch checks")
 check("stats tab exists and is wired into nav + lazy builders",
       "def build_stats_tab" in _stats_src
-      and '("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats")' in _main_src
+      and '("stats", ft.Icons.QUERY_STATS_ROUNDED, i18n.t("Stats"))' in _main_src
       and '"stats": _build_stats_tab' in _main_src
       and '"stats": stats_tab_host' in _main_src,
       "the Stats tab must be reachable from the top nav")
@@ -1462,7 +1460,8 @@ _chat_path = os.path.join(_app_root, "ui", "chat_tab.py")
 check("chat tab exists and is wired into nav + lazy builders",
       os.path.exists(_chat_path)
       and "def build_chat_tab" in open(_chat_path, encoding="utf-8").read()
-      and '("chat", ft.Icons.CHAT_BUBBLE_ROUNDED, "Chat")' in _main_src
+      and 'ft.Icons.CHAT_BUBBLE_ROUNDED,' in _main_src
+      and 'i18n.t("Chat")' in _main_src
       and '"chat": _build_chat_tab' in _main_src
       and '"chat": chat_tab_host' in _main_src,
       "the Chat tab must be reachable from the top nav and build lazily")
@@ -1549,6 +1548,7 @@ class _QueuedThread:
 try:
     _events = []
     _window_scope = {
+        "state": {},
         "threading": types.SimpleNamespace(Timer=lambda *args: (_events.append("timer") or _ManualTimer(*args))),
         "_save_geometry_now": lambda: _events.append("save"),
         # Kept in scope ON PURPOSE: the close path must NOT touch them. This
@@ -2288,9 +2288,9 @@ from ui.window_chrome import (  # noqa: E402
 print("\n13b. custom title bar (Windows + Linux): gated, and buildable")
 
 check("the custom frame has a persisted config key",
-      '"custom_window_chrome": False' in
+      '"custom_window_chrome": None' in
       open(os.path.join(_app_root, "cubeon", "config.py"), encoding="utf-8").read(),
-      "the Windows default stays the native frame; Linux defaults ON via "
+      "Windows and Linux default to the custom frame via "
       "winchrome.custom_chrome_enabled")
 check("the frame is enabled by one policy call, not a raw platform test in main",
       "winchrome.custom_chrome_enabled(cfg)" in _src_main

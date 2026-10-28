@@ -13,13 +13,14 @@ re-filtered for the new version+loader profile).
 
 # Standard library imports
 import re          # For turning mod names into comparable "slugs"
+import logging
 import threading   # For running network calls in the background without freezing the UI
 import time        # Throttle for the automatic problem check
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
+from cubeon import i18n
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
-from cubeon.doctor_ui import make_mod_change_approver, open_repair_review
 
 from cubeon.theme import (  # design system: corner radius, on-accent fg, hover states
     RADIUS, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
@@ -458,113 +459,119 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         # Keep the "Installed (N)" tab label in step with reality.
         _build_view_segment()
 
-    # --- Automatic repair ---------------------------------------------------
-    # "My mods won't load" almost always means a leftover duplicate copy of a
-    # mod or a missing required dependency. The doctor finds and fixes both; it
-    # also runs by itself the moment a mod is installed, so the common
-    # breakage never becomes a mystery. The word "doctor" never leaves the code.
-    #
-    # The VISIBLE repair action moved to the Play card ("Fix crash", left of
-    # PLAY) on 2026-10-25: that is where people look when a launch just failed,
-    # and it can cover mods + resource packs + shaders in one pass. This tab
-    # keeps the quiet result line from the automatic pass and the review dialog
-    # that the pass's "Review" toast opens.
-    approve_mod_change = make_mod_change_approver(page)
+    # Checks stay in the tab: no approval or result windows during automatic
+    # scans. An explicit Check & repair click authorizes reversible changes;
+    # a passive check never disables or replaces an existing mod.
     repair_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             font_family=FONT_MONO, visible=False)
-
-    def _set_repair_status(t):
-        repair_status.value = t
-        repair_status.visible = bool(t)
-        thread_safe_ui.refresh(repair_status)
-
-    def run_mod_repair(e=None):
-        """Open the repair review for the tab currently being looked at.
-
-        Mods: leftover duplicate copies, missing required dependencies, jars
-        built for a different loader/version, and two mods that declare they
-        can't run together (cubeon/mods.py:mod_doctor).
-
-        Resource packs / shaders: the pack.mcmeta format range that makes the
-        game show a pack as "Incompatible", and shader zips whose shaders/
-        folder is buried a level too deep (cubeon/doctor.py).
-
-        The Play tab's "Fix crash" runs the same review across all three
-        sections; this entry point stays scoped to the tab being looked at so
-        the automatic pass's "Review" link can't spend a minute checking a
-        server that isn't relevant."""
-        sections = []
-        if _is_mod():
-            if state["mod_loader"] == "vanilla":
-                return
-            sections = ["mods"]
-        elif _ct() == "shader":
-            sections = ["shaders"]
-        else:
-            sections = ["resourcepacks"]
-        _set_repair_status("")
-
-        def done():
-            refresh_mods_list()
-
-        try:
-            open_repair_review(
-                page, mc_version=state["selected_mc_version"], loader=state["mod_loader"],
-                version_id=version_dropdown.value, include=sections, run_doctor=core.run_doctor,
-                on_status=_set_repair_status, on_done=done)
-        except Exception as error:
-            _set_repair_status(f"Could not open repair review: {error}")
-
-    # --- Automatic check ---------------------------------------------------
-    # The same repair pass the install path already runs, but also every so
-    # often on its own: when the Mods tab opens and when the Installed list is
-    # shown, at most once per instance every AUTO_CHECK_SECONDS. It says
-    # something only when it actually fixed something (toast, with a Review
-    # action); a clean result just updates the quiet line in the Installed
-    # header.
+    repair_lock = threading.Lock()
     AUTO_CHECK_SECONDS = 15 * 60
-    auto_check_state = {"last": {}, "running": False}
+    auto_check_state = {"last": {}}
 
-    def auto_check(force=False):
-        mc = state.get("selected_mc_version")
-        loader = state.get("mod_loader")
-        version_id = version_dropdown.value
-        if not mc or not version_id or auto_check_state["running"]:
-            return
-        key = (version_id, loader)
-        last = auto_check_state["last"].get(key)
-        if not force and last and time.time() - last < AUTO_CHECK_SECONDS:
-            return
-        auto_check_state["running"] = True
-        auto_check_state["last"][key] = time.time()
+    def _set_repair_status(text, detail=None):
+        with thread_safe_ui.TREE_LOCK:
+            repair_status.value = i18n.t(text)
+            repair_status.visible = bool(text)
+            repair_status.tooltip = detail
+            thread_safe_ui.refresh(repair_status)
+
+    def _repair_sections():
+        return ["mods"] if _is_mod() else ["shaders" if _ct() == "shader" else "resourcepacks"]
+
+    def _start_repair(mc, loader, version_id, sections, *, explicit=False):
+        if (state.get("running_version") or state.get("installing_version")
+                or state.get("launching_version") or state.get("fixing_mods")):
+            if explicit:
+                _set_repair_status("Close the game and finish installs before repairing")
+            return False
+        if not repair_lock.acquire(blocking=False):
+            return False
+        with thread_safe_ui.TREE_LOCK:
+            if explicit:
+                state["fixing_mods"] = version_id
+            check_repair_btn.disabled = True
+            thread_safe_ui.refresh(check_repair_btn)
+        if explicit:
+            _set_repair_status("Checking…")
 
         def worker():
             try:
-                try:
-                    report = core.run_doctor(mc, loader, auto_fix=True, check_online=True,
-                                             approve_cb=approve_mod_change,
-                                             version_id=version_id)
-                except TypeError:
-                    report = core.run_doctor(mc, loader, auto_fix=True, check_online=True,
-                                             approve_cb=approve_mod_change)
+                report = core.run_doctor(
+                    mc, loader, auto_fix=True, check_online=explicit,
+                    approve_cb=(lambda change: True) if explicit else None,
+                    version_id=version_id, include=sections)
                 fixed = len((report or {}).get("fixed") or [])
-                if fixed:
-                    refresh_mods_list()
-                    _set_repair_status(f"Fixed {fixed} problem{'s' if fixed != 1 else ''} just now")
-                    dialogs.show_snack(
-                        page,
-                        f"Fixed {fixed} problem{'s' if fixed != 1 else ''} in this instance automatically.",
-                        duration=8000, action=lambda e: run_mod_repair(),
-                        action_label="Review")
-                else:
-                    _set_repair_status("No problems found")
-            except Exception:
-                # A background nicety: never surface its own failures as errors.
-                auto_check_state["last"].pop(key, None)
+                unresolved = (report or {}).get("unfixed") or []
+                detail = "\n".join(str(p.get("detail") or p.get("reason") or p)
+                                   for p in unresolved[:8])
+                if version_dropdown.value == version_id and _repair_sections() == sections:
+                    if fixed:
+                        refresh_mods_list()
+                    if unresolved:
+                        _set_repair_status(f"Fixed {fixed}; {len(unresolved)} need attention", detail)
+                    elif fixed:
+                        _set_repair_status(f"Fixed {fixed} problem{'s' if fixed != 1 else ''}")
+                    else:
+                        _set_repair_status("No problems found")
+            except Exception as error:
+                logging.getLogger(__name__).warning("background content check failed", exc_info=True)
+                if explicit:
+                    _set_repair_status(f"Could not complete this check: {error}")
             finally:
-                auto_check_state["running"] = False
+                with thread_safe_ui.TREE_LOCK:
+                    if explicit and state.get("fixing_mods") == version_id:
+                        state["fixing_mods"] = None
+                    check_repair_btn.disabled = False
+                    thread_safe_ui.refresh(check_repair_btn)
+                repair_lock.release()
 
-        threading.Thread(target=worker, daemon=True, name="ux-auto-check").start()
+        try:
+            threading.Thread(target=worker, daemon=True, name="cubeon-content-check").start()
+        except Exception:
+            if explicit and state.get("fixing_mods") == version_id:
+                state["fixing_mods"] = None
+            check_repair_btn.disabled = False
+            thread_safe_ui.refresh(check_repair_btn)
+            repair_lock.release()
+            raise
+        return True
+
+    def run_mod_repair(e=None):
+        mc = state.get("selected_mc_version")
+        loader = state.get("mod_loader") or "vanilla"
+        version_id = version_dropdown.value
+        if not mc or not version_id:
+            _set_repair_status("Pick an instance first")
+            return
+        if _is_mod() and loader == "vanilla":
+            _set_repair_status("Vanilla runs resource packs, not mods")
+            return
+        _start_repair(mc, loader, version_id, _repair_sections(), explicit=True)
+
+    check_repair_btn = attach_hover(ft.Container(
+        content=ft.Row(
+            [ft.Icon(ft.Icons.BUILD_ROUNDED, color=TEXT_DIM, size=14),
+             ft.Text(i18n.t("Check & repair"), color=TEXT_DIM, size=12,
+                     weight=ft.FontWeight.W_600)], spacing=5, tight=True),
+        border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
+        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
+        tooltip="Repair missing dependencies and conflicts in the background. "
+                "Changed mods are kept as disabled backups.",
+        ink=False, on_click=run_mod_repair, data="mods-check-repair",
+    ), "transparent", ROW_HOVER)
+
+    def auto_check(force=False):
+        mc = state.get("selected_mc_version")
+        loader = state.get("mod_loader") or "vanilla"
+        version_id = version_dropdown.value
+        if not mc or not version_id:
+            return
+        key = (version_id, loader, _ct())
+        last = auto_check_state["last"].get(key)
+        if not force and last and time.monotonic() - last < AUTO_CHECK_SECONDS:
+            return
+        if _start_repair(mc, loader, version_id, _repair_sections()):
+            auto_check_state["last"][key] = time.monotonic()
 
     def _compat_lines(m):
         """The one-line compatibility verdict for an installed pack/shader.
@@ -572,14 +579,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         Silence means "the game will load it" - a positive line on every row
         would just add noise. A pack the game would show as Incompatible is the
         whole reason this exists, so that one is called out in red with the
-        full explanation in a tooltip (and Play's "Fix crash" repairs it)."""
+        full explanation in a tooltip (and Check & repair fixes supported issues)."""
         compat = m.get("compat")
         if not compat or compat.get("ok") is True:
             return []
         detail = (compat.get("reason") or "").strip()
         if compat.get("ok") is False:
             return [ft.Text(
-                "Incompatible - use Fix crash on Play",
+                "Incompatible - use Check & repair",
                 size=10.5, color=DANGER,
                 tooltip=detail or "The game would show this as incompatible.")]
         return [ft.Text(
@@ -672,7 +679,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                 spacing=2, expand=True,
                             ),
                             ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_color=TEXT_FAINT,
-                                          icon_size=17, tooltip="Remove",
+                                          icon_size=17, tooltip=i18n.t("Remove"),
                                           on_click=on_delete_content),
                         ],
                         spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -754,7 +761,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             [ft.Container(
                                 content=ft.Row([
                                     ft.Icon(ft.Icons.LOCK_ROUNDED, size=14, color=TEXT_DIM),
-                                    ft.Text("System", size=11, color=TEXT_DIM, font_family=FONT_MONO),
+                                    ft.Text(i18n.t("System"), size=11, color=TEXT_DIM, font_family=FONT_MONO),
                                 ], spacing=4, tight=True),
                                 padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
                             )]
@@ -763,7 +770,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                 animated_switch(value=m["enabled"], active_color=ACCENT, on_change=on_toggle, scale=0.85),
                                 # Delete button
                                 ft.IconButton(ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=TEXT_FAINT,
-                                              icon_size=18, tooltip="Remove", on_click=on_delete),
+                                              icon_size=18, tooltip=i18n.t("Remove"), on_click=on_delete),
                             ]
                         ),
                     ],
@@ -1608,7 +1615,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                 ),
                                 ft.IconButton(ft.Icons.CLOSE_ROUNDED,
                                               icon_color=TEXT_DIM, icon_size=20,
-                                              tooltip="Close", on_click=_close),
+                                              tooltip=i18n.t("Close"), on_click=_close),
                             ],
                             spacing=14,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -1710,7 +1717,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     try:
                         report = (core.mod_doctor(
                             detail_mc, detail_loader,
-                            auto_fix=True, status_cb=on_status, approve_cb=approve_mod_change,
+                            auto_fix=True, status_cb=on_status, approve_cb=None,
                             version_id=detail_version)
                             if content_type == "mod" else {})
                         fixed = len(report.get("fixed") or [])
@@ -1768,7 +1775,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 def finished(fixed):
                     busy["v"] = False
                     done["v"] = True
-                    text.value = "Installed"
+                    text.value = i18n.t("Installed")
                     text.color = TEXT_FAINT
                     icon.name = ft.Icons.CHECK_ROUNDED
                     icon.color = TEXT_FAINT
@@ -1986,7 +1993,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             _paint()
             quick_state["repaints"].append(_paint)
             return ft.Column(
-                [ft.Text("Versions", size=15, color=TEXT,
+                [ft.Text(i18n.t("Versions"), size=15, color=TEXT,
                          weight=ft.FontWeight.W_700, font_family=FONT_DISPLAY),
                  list_holder, more],
                 spacing=6)
@@ -2118,7 +2125,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return cached[1]
         # The download button's text and icon change based on installed status
         download_btn_text = ft.Text(
-            "Installed" if is_installed else "Unavailable" if compatibility_note else "Download",
+            i18n.t("Installed") if is_installed else "Unavailable" if compatibility_note else "Download",
             size=12.5, weight=ft.FontWeight.W_700,
             color=TEXT_FAINT if is_installed else ACCENT,
         )
@@ -2360,7 +2367,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             icon = download_btn.content.controls[0]
             icon.name = ft.Icons.CHECK_ROUNDED if installed else ft.Icons.DOWNLOAD_ROUNDED
             icon.color = TEXT_FAINT if installed else ACCENT
-            download_btn_text.value = "Installed" if installed else "Unavailable" if compatibility_note else "Download"
+            download_btn_text.value = i18n.t("Installed") if installed else "Unavailable" if compatibility_note else "Download"
             download_btn_text.color = TEXT_FAINT if installed else ACCENT
             download_btn.bgcolor = None if installed else ACCENT_TINT
             download_btn.disabled = installed or bool(compatibility_note) or not _can_install(row_content_type)
@@ -2530,12 +2537,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     installed_pane = ft.Column(
         [
-            # One header row: title on the left, the automatic-check status
-            # line + count grouped on the right. The repair ACTION itself lives
-            # on the Play card now ("Fix crash", left of PLAY).
+            # One header row: title on the left, then the repair action, the
+            # automatic-check status line and the count grouped on the right.
+            # The row uses an expanding spacer, so it must not set wrap=True
+            # (Flutter's wrapped layout cannot host flex children).
             ft.Row(
-                [section_label("Installed"), ft.Container(expand=True),
-                 repair_status, installed_count_text],
+                [section_label(i18n.t("Installed")), ft.Container(expand=True),
+                 check_repair_btn, repair_status, installed_count_text],
                 spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             installed_status,
             installed_filter_field,
@@ -2617,7 +2625,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     # Header title/subtitle are refs so _apply_type_labels() can retarget them
     # when the content-type segment switches (Mods -> Resource Packs -> Shaders).
-    header_title = ft.Text("Mods", size=28, weight=ft.FontWeight.W_800, color=TEXT,
+    header_title = ft.Text(i18n.t("Mods"), size=28, weight=ft.FontWeight.W_800, color=TEXT,
                             font_family=FONT_DISPLAY)
     header_subtitle = ft.Text("Download mods, or manage what's already installed.",
                               size=13, color=TEXT_DIM)
@@ -2634,7 +2642,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     local_install_btn = attach_hover(ft.Container(
         content=ft.Row(
             [ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=TEXT_DIM, size=14),
-             ft.Text("From file", color=TEXT_DIM, size=12,
+             ft.Text(i18n.t("From file"), color=TEXT_DIM, size=12,
                      weight=ft.FontWeight.W_600)],
             spacing=5, tight=True,
         ),

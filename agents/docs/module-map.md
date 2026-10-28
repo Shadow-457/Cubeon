@@ -37,6 +37,7 @@ substitute for current code.
 | UI infrastructure | `thread_safe_ui.py`, `dialogs.py`, `motion.py`, `theme.py`, `scrolling.py` |
 | Window and crash handling | `winwindow.py`, `winchrome.py`, `incident.py`, `crash.py`, `logging_setup.py` |
 | Input and presentation | `shortcuts.py`, `seasonal.py`, `color_templates.py`, `status_text.py` |
+| Launcher language | `i18n.py`, `lang/` |
 | Release and optional features | `updater.py`, `features.py`, `osnotify.py`, `voice.py` |
 
 Except for explicit paths, names in this table are relative to `cubeon/`. Check source ownership before
@@ -212,9 +213,10 @@ consistent with the shared `THEME` contract.
 - Launch-time checking is **config-only and non-interactive** (`include=("launch",)`, `check_online=False`,
   no approver): it repairs launcher-owned settings that kill Java before Minecraft starts, never touches
   content or waits on a question. Selecting an instance starts no scan; the doctor can never block a launch.
-- Doctor repairs dependencies, version conflicts and duplicates at install time and on explicit "Check &
-  repair" (`open_repair_review`). Old jars are renamed, never deleted; approvals live in `doctor_ui.py`
-  and no approver means no destructive repair. Verified jars skip online checks; unavailable
+- Doctor runs without repair windows: Installed's "Check & repair" starts a scoped worker and the click
+  authorizes reversible changes; passive checks use `check_online=False` and no approver, and install
+  checks use no approver. Old jars are renamed, never deleted. Results stay inline, and a failed or
+  incomplete scan must never say "No problems found". Verified jars skip online checks; unavailable
   verification is one advisory, never a per-mod disable. The incompatible check is LOCAL (the jar's own
   `fabric.mod.json`), so a missing Modrinth release disables nothing.
 - Launch sync links ONE build per mod and must pick the highest MOD version, not the Minecraft version:
@@ -345,10 +347,17 @@ consistent with the shared `THEME` contract.
 - `build_launch_command` honours a `-XX:+Use*GC` collector from the player's custom JVM flags: no
   forced G1 and no `-XX:G1*` tuning in that case. Default (no user collector) still gets exactly one
   `-XX:+UseG1GC` plus tuning.
-- **Fix crash** (`play-fix-crash`) opens `open_crash_check`: read the NEWEST crash log, say what happened,
-  then run the existing dependency/conflict/launch-config checks and fix what they can (`cubeon/crash.py`).
-  No separate crash engine; clicking it is consent for safe reversible repairs. Mods -> Installed's
-  "Review" opens `open_repair_review`.
+- Play has no permanent Fix crash button. The actual crash report's repair action runs
+  `crash.diagnose_and_fix` on a worker without opening a second dialog; `fixing_mods` prevents a
+  concurrent launch, and repaired Java/RAM settings are reloaded into the live config.
+- `i18n.py` owns language order, `ui_language`, locale detection and reading direction (`page.rtl`);
+  `cubeon/lang/*.py` tables use English strings as keys and fall back to English. Changes apply after
+  restart. Every PyInstaller build must collect `cubeon.lang` because tables import dynamically.
+- Settings' Java defaults panel and launch share `launch.default_jvm_flags_report`; user flags follow
+  all defaults (including conditional pre-touch), so custom overrides win. Technical flag text stays LTR.
+- Incoming desktop message alerts run only after deduplicated live `_on_dm`, never history backfill or
+  own echoes. Open-conversation leases use `(viewer, peer)` so launcher and bridge cannot clear each
+  other; hidden/unfocused launcher polls use `viewing=False` and do not mark messages read.
 - A modpack that needs isolation owns a cloned version folder plus `_cubeon_instance.json` (profile key,
   pack name, loader, base version, `built_from`). All mod/content/CSL/Friends/perf calls take that
   instance's `version_id`; no sidecar means the legacy `(mc_version, loader)` profile. Only an empty
@@ -442,9 +451,9 @@ consistent with the shared `THEME` contract.
   `winwindow.py` backstop. Flet's default-value suppression can make a plain `visible=True` assignment
   ineffective.
 - Hide consoles on every Windows child-process spawn. Custom window chrome works on **Windows and Linux**
-  (`winchrome.custom_chrome_enabled`): Windows defaults OFF (needs a real-Windows reveal check), Linux
-  defaults ON since 2026-10-26, `CUBEON_CUSTOM_CHROME=0/1` overrides either way, an explicit
-  `custom_window_chrome` config value wins, and the one-time `custom_window_chrome_chosen` marker keeps a
+  (`winchrome.custom_chrome_enabled`): Windows and Linux default ON; real-Windows rendering
+  still needs a Windows check, `CUBEON_CUSTOM_CHROME=0/1` overrides either way, an explicit
+  non-null `custom_window_chrome` config value wins, and the one-time `custom_window_chrome_chosen` marker keeps a
   user's OFF from being migrated back on. macOS keeps the native frame. Maximize/fullscreen need explicit
   state.
 - Verify Java by running it; the launch-time check is config-only and must never prompt. Do not blame Java
@@ -501,7 +510,8 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Mods and artwork | `test_mod_ui_stability.py`, `test_loader_content_rules.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
-| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_launch_fixes.py` |
+| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_launch_fixes.py` |
+| Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Cosmetics | `test_cosmetics.py`, `test_appearance_preview.py`, `test_capes.py` |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py` |

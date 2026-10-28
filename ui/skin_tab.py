@@ -15,6 +15,7 @@ from io import BytesIO
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
+from cubeon import i18n
 
 from cubeon.theme import (
     RADIUS,        # corner radius (design system single source)
@@ -231,7 +232,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 width=30, height=28, bgcolor=CARD_FILL,
                 border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
                 alignment=ft.Alignment.CENTER, ink=False, on_click=on_delete,
-                tooltip="Delete",
+                tooltip=i18n.t("Delete"),
             ))
         footer = ft.Row(actions, spacing=6,
                         alignment=ft.MainAxisAlignment.CENTER)
@@ -867,7 +868,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 [
                     ft.Column(
                         [
-                            ft.Text("Cosmetics", size=24, color=TEXT,
+                            ft.Text(i18n.t("Cosmetics"), size=24, color=TEXT,
                                     font_family=FONT_DISPLAY),
                             ft.Text("Choose what your character wears in-game.",
                                     size=12, color=TEXT_DIM),

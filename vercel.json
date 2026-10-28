@@ -1,6 +1,7 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "functions": { "api/doctor.js": { "maxDuration": 60 } },
   "redirects": [
     { "source": "/linuxdownload", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdownload", "permanent": false },
     { "source": "/linuxdeb", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdeb", "permanent": false },

@@ -94,11 +94,17 @@ DEFAULT_CONFIG = {
     "ram_mb": 4096,
     "last_version": None,
     "java_path": None,  # None = auto-detect
+    # Launcher language (cubeon/i18n.py). None means "detect from the OS on
+    # first run, then remember what was detected" - main.py persists the
+    # resolved value, so a later boot on a differently-locale'd machine cannot
+    # silently change the player's language. An unknown code falls back to
+    # English rather than failing to start.
+    "ui_language": None,
+    "notify_message": True,
     # Extra JVM flags appended after Cubeon's own tuned defaults on every
     # client launch, e.g. "-Dsome.prop=value -XX:MaxGCPauseMillis=100". One
-    # string, split on whitespace (quotes respected). Cubeon forces the G1
-    # garbage collector, so a GC-*algorithm* flag here is overridden; every
-    # other flag is honored and can override the defaults (last one wins).
+    # string, split on whitespace (quotes respected). A custom collector wins
+    # over G1; other repeated options use the last value supplied.
     "custom_jvm_flags": "",
     "width": 1280,
     "height": 720,
@@ -178,18 +184,25 @@ DEFAULT_CONFIG = {
     # colours. The window alpha is set once at startup, so changing this needs
     # a relaunch. See BG_GLASS/SURFACE_GLASS in cubeon/theme.py.
     "glass_mode_enabled": True,
-    # Custom window frame (Windows only, prototype): drop the OS title bar and
-    # let Cubeon's own top bar BE the title bar - the brand mark drags the
-    # window, our own min/max/close buttons replace the system ones, and the
-    # window's edges stay resizable through hot-zones wired to
-    # Window.start_resizing. Off by default: the native frame is the safe path
-    # until this has been verified on a real Windows box. The window frame is
-    # set once at startup, so changing it needs a relaunch (same contract as
-    # glass_mode_enabled). See cubeon/winchrome.py for the policy and why this
-    # is Windows-only, and settings_tab.py for the toggle.
-    "custom_window_chrome": False,
+    # Custom window frame (Windows + Linux): drop the OS title bar and let
+    # Cubeon's own top bar BE the title bar - the brand mark drags the window,
+    # our own min/max/close buttons replace the system ones, and the window's
+    # edges stay resizable through hot-zones wired to Window.start_resizing.
+    #
+    # The default is None, NOT False, and that is deliberate (2026-10-28 fix):
+    # None means "this user has never chosen", so cubeon/winchrome.py's
+    # platform default decides (branded frame ON for Windows and Linux, native
+    # frame on macOS). A stored False used to be indistinguishable from an
+    # explicit "turn it off", which is why Windows 10 users who never touched
+    # the Settings toggle never saw the branded frame: the merged config
+    # handed the policy a hard False and its platform branch never ran.
+    # The window frame is set once at startup, so changing it needs a relaunch
+    # (same contract as glass_mode_enabled). CUBEON_CUSTOM_CHROME=0/1 overrides
+    # either way. See cubeon/winchrome.py for the policy, settings_tab.py for
+    # the toggle.
+    "custom_window_chrome": None,
     # Whether the user has actually touched the Custom window frame toggle.
-    # load_config flips a legacy Windows-only False to the Linux default ONCE;
+    # load_config flips a legacy un-chosen False to the platform default ONCE;
     # after the first real toggle this marker makes the choice stick.
     "custom_window_chrome_chosen": False,
     "server_ram_mb": 2048,  # RAM allocated to the local server started from the Server tab
@@ -356,12 +369,15 @@ def load_config() -> dict:
             # restore-on-off behaviour). The user's ON/OFF choice carries over.
             if "max_fps_enabled" in data and "fps_boost_enabled" not in data:
                 cfg["fps_boost_enabled"] = bool(data["max_fps_enabled"])
-            # Custom window frame (2026-10-26): Linux now draws the branded
-            # frame and it is the Linux default. Configs written before that
-            # persisted the Windows-only False default, which the user never
-            # chose - flip it ONCE for Linux, then honour the toggle for good
-            # (the Settings checkbox sets custom_window_chrome_chosen).
-            if (sys.platform.startswith("linux")
+            # Custom window frame (2026-10-26 Linux, 2026-10-28 Windows): the
+            # branded frame is the default on both. Configs written before that
+            # persisted a False the user never CHOSE - it was the shipped
+            # default - so flip it ONCE for every supported platform, then
+            # honour the toggle for good (the Settings checkbox sets
+            # custom_window_chrome_chosen). This is the fix for "Windows 10
+            # users aren't getting the custom window decorations": their
+            # config.json said false and the policy read that as a decision.
+            if ((sys.platform == "win32" or sys.platform.startswith("linux"))
                     and not data.get("custom_window_chrome_chosen")
                     and data.get("custom_window_chrome") is False):
                 cfg["custom_window_chrome"] = True

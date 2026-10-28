@@ -1,6 +1,7 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "functions": { "api/doctor.js": { "maxDuration": 60 } },
   "routes": [
     { "src": "^/403$", "dest": "/403.html", "status": 403 },
     { "src": "^/429$", "dest": "/429.html", "status": 429 },

@@ -416,6 +416,167 @@ def _pretouch_flag(ram_mb: int, system_ram_mb: int) -> str | None:
     return None
 
 
+# Why each default exists, for Settings > Java > "Cubeon's defaults". Keyed by
+# the flag itself so the report is built FROM `client_jvm_flags()` and cannot
+# drift: an unknown flag is still listed, just without a sentence.
+_JVM_FLAG_NOTES = {
+    "-Xmx":
+        "The memory ceiling, taken from your Allocated RAM slider.",
+    "-Xms":
+        "Starting heap. Deliberately smaller than -Xmx, so the JVM grows into "
+        "the ceiling as you need it instead of committing all of it up front.",
+    "-XX:+UseG1GC":
+        "Selects G1, which combines concurrent work with collection pauses.",
+    "-XX:+ParallelRefProcEnabled":
+        "Processes soft/weak references on several threads at once, shortening "
+        "each pause.",
+    "-XX:MaxGCPauseMillis=":
+        "The pause goal G1 aims for. 100 ms on a 4-core-or-less machine, "
+        "200 ms on a bigger one.",
+    "-XX:+UnlockExperimentalVMOptions":
+        "Required before any of the G1 tuning below can be set at all.",
+    "-XX:+DisableExplicitGC":
+        "Ignores System.gc() calls, which cause a full stop-the-world pause.",
+    "-XX:G1NewSizePercent=":
+        "Young-generation floor as a share of the heap. Small on purpose: a "
+        "big young gen makes G1 wait, then copy hundreds of MB at once.",
+    "-XX:G1MaxNewSizePercent=":
+        "Young-generation ceiling. 30% on 4 cores or fewer, 40% above that.",
+    "-XX:G1HeapRegionSize=8M":
+        "Region size for a client-sized heap. 16M would make young collections "
+        "coarser and longer.",
+    "-XX:G1ReservePercent=10":
+        "How much heap G1 holds back for promotion. Left at a client-sane "
+        "value rather than a server's.",
+    "-XX:G1HeapWastePercent=5":
+        "How much reclaimable garbage G1 tolerates before a mixed cycle.",
+    "-XX:G1MixedGCCountTarget=4":
+        "Spreads old-generation collection over several smaller cycles instead "
+        "of one long one.",
+    "-XX:InitiatingHeapOccupancyPercent=45":
+        "Heap fullness at which concurrent marking starts.",
+    "-XX:G1MixedGCLiveThresholdPercent=90":
+        "Skips regions that are nearly all live, since collecting them saves "
+        "almost nothing.",
+    "-XX:G1RSetUpdatingPauseTimePercent=5":
+        "Caps how much of a pause may go to remembered-set updates.",
+    "-XX:SurvivorRatio=8":
+        "Eden-to-survivor split. Deliberately not Aikar's 32, which promotes "
+        "almost everything straight to the old generation.",
+    "-XX:MaxTenuringThreshold=15":
+        "How long an object may age in survivor space before promotion.",
+    "-XX:+PerfDisableSharedMem":
+        "Disables the shared-memory JVM performance statistics file.",
+    "-Dorg.lwjgl.util.NoChecks=true":
+        "Disables LWJGL runtime checks.",
+    "-XX:+AlwaysPreTouch":
+        "Pre-touches committed heap pages at startup. Added with at least "
+        "8 GB system RAM when the selected heap is no more than half of it.",
+}
+
+
+def _jvm_flag_note(flag: str) -> str:
+    """The one-line reason for a default flag, or '' if we have none.
+
+    Prefix-matched so the flags that carry a value (`-XX:MaxGCPauseMillis=200`)
+    still find their sentence.
+    """
+    if flag in _JVM_FLAG_NOTES:
+        return _JVM_FLAG_NOTES[flag]
+    # Flags that carry a value ("-Xmx4096M", "-XX:MaxGCPauseMillis=200") are
+    # keyed by their prefix. An exact match above always wins first, so a
+    # prefix can never shadow a fuller flag.
+    for prefix, note in _JVM_FLAG_NOTES.items():
+        if flag.startswith(prefix):
+            return note
+    return ""
+
+
+def default_jvm_flags_report(ram_mb: int | None = None, *,
+                             system_ram_mb: int | None = None,
+                             cores: int | None = None,
+                             custom_jvm_flags: str | None = None) -> list[dict]:
+    """The default JVM flags Cubeon adds to a launch, with why each is there.
+
+    Built from the SAME functions `build_launch_command` uses
+    (`_initial_heap_mb`, `client_jvm_flags`, `_pretouch_flag`), so the Settings
+    panel cannot drift from what actually launches. That is the whole point of
+    routing it through here instead of restating a list in the UI.
+
+    Each entry is ``{"flag", "note", "source"}`` where `source` is:
+      - ``"always"``      added on every launch;
+      - ``"conditional"`` added only on a machine that can afford it;
+      - ``"dropped"``     a default Cubeon would add but is NOT adding here.
+
+    ``ram_mb`` is the player's Allocated RAM; omitted, only the flags that do
+    not depend on it are reported. Never raises: this is a readout, and a
+    machine that cannot report its own RAM must still get the rest of the list.
+    """
+    out: list[dict] = []
+
+    def add(flag: str, source: str) -> None:
+        out.append({"flag": flag, "note": _jvm_flag_note(flag), "source": source})
+
+    # A collector the player typed in Settings wins, and Cubeon drops its own
+    # G1 choice AND its G1-only tuning with it (they are not valid for another
+    # collector). Mirrors build_launch_command's own rule.
+    collector = re.compile(
+        r"-XX:[+-]Use(?:G1|Parallel|ParallelOld|Serial|ConcMarkSweep|ParNew"
+        r"|Z|Shenandoah|Epsilon)GC$")
+    user_collector = None
+    try:
+        user_collector = next(
+            (f for f in _parse_custom_jvm_flags(custom_jvm_flags)
+             if collector.fullmatch(f)), None)
+    except Exception:
+        user_collector = None
+    own_collector = bool(user_collector and user_collector != "-XX:+UseG1GC")
+
+    if ram_mb:
+        try:
+            ram = max(1, int(ram_mb))
+            add(f"-Xmx{ram}M", "always")
+            add(f"-Xms{_initial_heap_mb(ram)}M", "always")
+        except (TypeError, ValueError):
+            pass
+
+    for flag in client_jvm_flags(cores):
+        if own_collector and (collector.fullmatch(flag)
+                              or flag.startswith("-XX:G1")):
+            # Reported as dropped rather than hidden: a player who chose ZGC
+            # should be able to see that Cubeon stepped aside, not wonder
+            # where the tuning went.
+            out.append({"flag": flag, "note": _jvm_flag_note(flag),
+                        "source": "dropped"})
+            continue
+        add(flag, "always")
+
+    if ram_mb:
+        try:
+            sys_ram = (get_system_ram_mb() if system_ram_mb is None
+                       else int(system_ram_mb))
+            pretouch = _pretouch_flag(max(1, int(ram_mb)), sys_ram)
+            if pretouch:
+                add(pretouch, "conditional")
+            else:
+                out.append({"flag": "-XX:+AlwaysPreTouch",
+                            "note": _jvm_flag_note("-XX:+AlwaysPreTouch")
+                            + " Skipped here: it needs at least 8 GB of system "
+                              "RAM and a heap no larger than half of it.",
+                            "source": "dropped"})
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "could not resolve the AlwaysPreTouch default", exc_info=True)
+    return out
+
+
+def _default_client_jvm_arguments(ram_mb: int, user_flags: list[str]) -> list[str]:
+    """Launch and Settings share the same default flag assembly."""
+    return [entry["flag"] for entry in default_jvm_flags_report(
+        ram_mb, custom_jvm_flags=shlex.join(user_flags))
+        if entry["source"] != "dropped"]
+
+
 @_client_json_transaction
 def _restore_emptied_arguments(version_id: str) -> bool:
     """Rebuilds an arguments block that an older Cubeon emptied. Returns True if repaired.
@@ -682,15 +843,7 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     # (the JVM honors the last of a repeated flag). mll places everything in
     # jvmArguments before the main class, so they land in the right spot.
     user_flags = _parse_custom_jvm_flags(custom_jvm_flags)
-    jvm_args = [f"-Xmx{ram_mb}M", f"-Xms{_initial_heap_mb(ram_mb)}M",
-                *client_jvm_flags(),
-                *user_flags]
-    try:
-        pretouch = _pretouch_flag(ram_mb, get_system_ram_mb())
-    except Exception:
-        pretouch = None
-    if pretouch:
-        jvm_args.append(pretouch)
+    jvm_args = [*_default_client_jvm_arguments(ram_mb, user_flags), *user_flags]
 
     options = {
         "username": username,

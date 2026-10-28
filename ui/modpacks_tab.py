@@ -24,6 +24,7 @@ import subprocess
 import threading
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon.theme import (  # design system: corner radius, hover helper/tokens/underline tabs
     RADIUS, attach_hover, ACCENT_HI, ON_ACCENT, text_tab,
@@ -146,7 +147,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # out. Hidden unless an install is genuinely in flight, and disarmed at the
     # tail (see status_cb) where stopping is no longer possible.
     install_cancel_btn = ft.TextButton(
-        "Cancel", visible=False,
+        i18n.t("Cancel"), visible=False,
         style=ft.ButtonStyle(color=TEXT_DIM),
         tooltip="Stop this modpack install",
         on_click=on_cancel_install,
@@ -458,7 +459,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             bgcolor=SURFACE_HI, border_radius=RADIUS, height=52,
         )
         version_field = ft.TextField(
-            label="Version", value="1.0.0", border_color=BORDER, focused_border_color=ACCENT,
+            label=i18n.t("Version"), value="1.0.0", border_color=BORDER, focused_border_color=ACCENT,
             color=TEXT, label_style=ft.TextStyle(color=TEXT_DIM),
             bgcolor=SURFACE_HI, border_radius=RADIUS, height=52,
         )
@@ -618,7 +619,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 width=440,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: close_dlg()),
+                ft.TextButton(i18n.t("Cancel"), on_click=lambda e: close_dlg()),
                 ft.TextButton("Export .mrpack", on_click=do_create,
                               style=ft.ButtonStyle(color=ACCENT)),
             ],
@@ -911,7 +912,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             return row
         pack = dict(pack)
         install_btn_text = ft.Text(
-            "Installed" if is_installed else "Install",
+            i18n.t("Installed") if is_installed else i18n.t("Install"),
             size=12.5, weight=ft.FontWeight.W_700,
             color=TEXT_FAINT if is_installed else ACCENT,
         )
@@ -982,7 +983,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                     _end_install_err(f"Couldn't start install: {ex}"[:200])
                 finally:
                     install_btn.disabled = False
-                    install_btn_text.value = "Install"
+                    install_btn_text.value = i18n.t("Install")
                     # No coalesced-progress flush needed: progress callbacks
                     # repaint their own controls directly.
                     page.update()
@@ -1078,7 +1079,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             icon = install_btn.content.controls[0]
             icon.name = ft.Icons.CHECK_ROUNDED if installed else ft.Icons.DOWNLOAD_ROUNDED
             icon.color = TEXT_FAINT if installed else ACCENT
-            install_btn_text.value = "Installed" if installed else "Install"
+            install_btn_text.value = i18n.t("Installed") if installed else i18n.t("Install")
             install_btn_text.color = TEXT_FAINT if installed else ACCENT
             install_btn.bgcolor = None if installed else ACCENT_TINT
             install_btn.disabled = installed
@@ -1131,7 +1132,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
         play_btn = attach_hover(ft.Container(
             content=ft.Row([ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=16),
-                            ft.Text("Play", size=13, weight=ft.FontWeight.W_700, color=ON_ACCENT)], spacing=4),
+                            ft.Text(i18n.t("Play"), size=13, weight=ft.FontWeight.W_700, color=ON_ACCENT)], spacing=4),
             bgcolor=ACCENT, border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=14, vertical=8), ink=False,
             on_click=lambda e, m=meta: _play_installed(m),
@@ -1248,8 +1249,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                     width=380,
                 ),
                 actions=[
-                    ft.TextButton("Cancel", on_click=lambda e: _close_any_dialog(dlg)),
-                    ft.TextButton("Delete", on_click=confirm, style=ft.ButtonStyle(color=DANGER)),
+                    ft.TextButton(i18n.t("Cancel"), on_click=lambda e: _close_any_dialog(dlg)),
+                    ft.TextButton(i18n.t("Delete"), on_click=confirm, style=ft.ButtonStyle(color=DANGER)),
                 ],
             )
             _open_any_dialog(dlg)
@@ -1415,7 +1416,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 [
                     ft.Column(
                         [
-                            ft.Text("Modpacks", size=28, weight=ft.FontWeight.W_800, color=TEXT,
+                            ft.Text(i18n.t("Modpacks"), size=28, weight=ft.FontWeight.W_800, color=TEXT,
                                     font_family=FONT_DISPLAY),
                             ft.Text("Install a whole pack - version, mods and settings in one click.",
                                     size=13, color=TEXT_DIM),

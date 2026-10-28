@@ -98,6 +98,7 @@ def main():
         # NO --add-data for templates/: palettes ship as bytecode via
         # --collect-submodules templates only - raw .py data would put
         # readable source in the shipped exe.
+        "--collect-submodules", "cubeon.lang",
         "--collect-data", "flet",
 
         "--collect-submodules", "flet",

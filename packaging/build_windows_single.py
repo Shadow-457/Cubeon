@@ -64,6 +64,7 @@ def main() -> None:
         f"--add-data=assets{sep}assets",
         # NO templates data copy: bytecode only (see build_windows.py).
         f"--add-data=mod/brackets.json{sep}mod",
+        "--collect-submodules", "cubeon.lang",
         "--collect-data", "flet",
 
         "--collect-submodules", "flet",

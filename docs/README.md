@@ -12,6 +12,7 @@ provide the implementation details.
 - [Development setup](development/setup.md): run the source and configure tools.
 - [Contributing](development/development-workflow.md): make and verify changes.
 - [Testing](development/testing.md): smoke checks, regression suites, and UI checks.
+- [Website Doctor](development/website-doctor.md): Kilo setup and log-transfer contracts.
 - [Security reporting](../SECURITY.md): report a vulnerability privately.
 
 ## Architecture

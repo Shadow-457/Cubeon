@@ -46,9 +46,9 @@ check("...and even with no config key at all",
 check("macOS never gets it",
       winchrome.custom_chrome_enabled({"custom_window_chrome": True},
                                       platform="darwin", env={}) is False)
-check("a bare Windows install is still OFF by default",
-      winchrome.custom_chrome_enabled({}, platform="win32", env={}) is False,
-      "the native frame must stay the default until a VM has verified this")
+check("a bare Windows install gets the branded frame",
+      winchrome.custom_chrome_enabled({}, platform="win32", env={}) is True,
+      "the Windows default must reach the branded frame")
 check("Windows + the config key turns it on",
       winchrome.custom_chrome_enabled({"custom_window_chrome": True},
                                       platform="win32", env={}) is True)
@@ -83,10 +83,10 @@ check("an unparseable value is not an instruction - it falls through",
           {"custom_window_chrome": True}, platform="win32",
           env={winchrome.ENV_FLAG: "maybe"}) is True)
 
-print("\n3. a malformed config degrades to the native frame, never to a crash")
+print("\n3. a malformed config degrades to the platform default, never to a crash")
 check("a cfg with no .get() is not a reason to take the launcher down",
       winchrome.custom_chrome_enabled(object(), platform="win32",
-                                      env={}) is False)
+                                      env={}) is True)
 check("...and an env mapping that raises is swallowed too",
       winchrome.custom_chrome_enabled(
           {"custom_window_chrome": True}, platform="win32",

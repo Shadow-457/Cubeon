@@ -2,6 +2,7 @@
 from datetime import date
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon import activity, milestones, thread_safe_ui
 from cubeon.theme import ACCENT_TINT_HI
@@ -76,7 +77,7 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
     )
 
     stats_tab = ft.Column([
-        ft.Text("Stats", size=28, color=TEXT, font_family=FONT_DISPLAY),
+        ft.Text(i18n.t("Stats"), size=28, color=TEXT, font_family=FONT_DISPLAY),
         ft.Text("Your time in game, day by day.", size=13, color=TEXT_DIM),
         ft.Container(height=14),
         playtime,

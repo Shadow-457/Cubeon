@@ -287,6 +287,11 @@ class FriendsService:
         self._chat = {}            # canon peer -> {"next_seq": int, "msgs": deque}
         self._chat_seeded = {}     # canon -> {"gen": int, "t": float} | "done"
         self._chat_read = {}       # canon peer -> highest seq marked seen
+        # canon peer -> monotonic deadline while some UI is showing that
+        # conversation. Its only job is to keep the incoming-message OS toast
+        # quiet for a line the player is already looking at (see
+        # set_open_conversation / _notify_incoming_message).
+        self._chat_open = {}  # (viewer, canon peer) -> expiry
         self._connect_gen = 0      # bumped on every (re)connect for history reseed
         # Hydrate the rings from chat_store.json BEFORE anything can append, so
         # a restart resumes every conversation exactly where it left off. The
@@ -1164,7 +1169,74 @@ class FriendsService:
         # Persist before returning: an append that never reached the file is a
         # message that vanishes on the next restart (the exact bug this fixes).
         self._schedule_chat_save()
+        # Only _on_dm notifies; history backfill also uses this append path.
         return True
+
+    # -------------------------------------------------------------------
+    # the incoming-message desktop toast
+    # -------------------------------------------------------------------
+
+    # How long a poll keeps a conversation "on screen". Both the Chat tab and
+    # the in-game mod poll the open conversation every ~0.5s, so this is a
+    # heartbeat with slack: it survives a slow tick but expires on its own when
+    # a poller disappears - which is what stops a closed game from silencing
+    # that friend's toasts for the rest of the session.
+    _OPEN_CONVERSATION_TTL = 6.0
+
+    def set_open_conversation(self, friend: str, *, open_: bool = True,
+                              viewer: str = "launcher") -> None:
+        """Say whether a UI is showing this conversation right now.
+
+        The Chat tab calls this with open_=False when it closes or the
+        selection is cleared; every poll of an open conversation refreshes the
+        same entry (see chat_payload). A DICT of deadlines rather than one
+        name, because the launcher's Chat tab and the mod bridge can both be
+        watching a conversation at once and a close from one must not silence
+        the other.
+
+        Never raises: this is a notification preference, and a UI that fails to
+        report its state must not disturb the chat path.
+        """
+        try:
+            peer = (friend or "").strip()
+            canon = friends.canonical_name(peer) or peer.lower()
+            if not canon:
+                return
+            with self._chat_lock:
+                key = (viewer, canon)
+                if open_:
+                    self._chat_open[key] = (time.monotonic()
+                                              + self._OPEN_CONVERSATION_TTL)
+                else:
+                    self._chat_open.pop(key, None)
+        except Exception:
+            log.debug("set_open_conversation failed", exc_info=True)
+
+    def _conversation_on_screen(self, canon: str) -> bool:
+        """Is any UI watching this conversation right now?"""
+        with self._chat_lock:
+            now = time.monotonic()
+            expired = [key for key, deadline in self._chat_open.items()
+                       if deadline <= now]
+            for key in expired:
+                self._chat_open.pop(key, None)
+            return any(peer == canon for _viewer, peer in self._chat_open)
+
+    def _notify_incoming_message(self, canon: str, name: str, text: str) -> None:
+        """Best-effort OS toast for one decrypted incoming line.
+
+        Quiet when the conversation is already on screen: a toast for the
+        message you are reading is noise. Everything here is wrapped - this
+        runs on the WebSocket receive path, where an exception would be a
+        broken chat feature dressed up as a notification bug.
+        """
+        try:
+            if self._conversation_on_screen(canon):
+                return
+            from cubeon import osnotify
+            osnotify.chat_message(self.peer_label(name or canon), text or "", cfg=self.cfg)
+        except Exception:
+            log.debug("incoming-message notification failed", exc_info=True)
 
     # -------------------------------------------------------------------
     # chat_store.json - the ring's disk copy (the disappearing-messages fix)
@@ -1322,7 +1394,8 @@ class FriendsService:
         ts = envelope.get("ts") or (int(p.get("ts") or 0) * 1000)
         mid = str(p.get("id") or "")
         env_str = str(p.get("text") or "")
-        self._chat_append(canon, "in", sender, plain, ts, mid=mid, envelope=env_str)
+        if self._chat_append(canon, "in", sender, plain, ts, mid=mid, envelope=env_str):
+            self._notify_incoming_message(canon, sender, plain)
         # A message that arrived on its own should be visible even when the
         # mod isn't on this conversation - the screen's status line is fed
         # from this events ring. Our own echo is already the Send feedback.
@@ -1514,7 +1587,8 @@ class FriendsService:
         self._changed()
         return self._ok()
 
-    def chat_payload(self, friend: str, after) -> dict:
+    def chat_payload(self, friend: str, after, *, viewing: bool = True,
+                     viewer: str = "bridge") -> dict:
         """GET /chat. friend=<name>, after=-1 means "most recent page" (and the
         first time a conversation is opened — or the first access after a
         reconnect — asks the relay for its stored history so offline messages
@@ -1522,6 +1596,13 @@ class FriendsService:
         after>=0 returns everything with seq > after, ascending."""
         peer = (friend or "").strip()
         canon = friends.canonical_name(peer) or peer.lower()
+        if canon:
+            # A poll IS the "I am looking at this" heartbeat (see
+            # set_open_conversation). Both the Chat tab and the in-game mod
+            # poll the open conversation, so neither needs separate wiring to
+            # keep an incoming-message toast from firing on a line the player
+            # is already reading.
+            self.set_open_conversation(peer, open_=viewing, viewer=viewer)
         you = self._my_name() or ""
         with self._chat_lock:
             room = self._chat.get(canon)
@@ -1565,7 +1646,7 @@ class FriendsService:
             # open, exactly as the launcher's Chat tab does in-process - so
             # reading in Minecraft must also clear the unread badge the roster
             # shows. Same monotonic marker, idempotent, one line of parity.
-            if peer and msgs:
+            if viewing and peer and msgs:
                 self.mark_read(peer)
             return {"friend": peer, "you": you,
                     "messages": [m for m in msgs if m["seq"] > after]}
@@ -1575,7 +1656,7 @@ class FriendsService:
                     "gen": self._connect_gen, "t": time.monotonic(), "attempts": 1}
             if peer:
                 self.client.request_history(peer=peer)
-        if peer and msgs:
+        if viewing and peer and msgs:
             self.mark_read(peer)
         return {"friend": peer, "you": you,
                 "messages": msgs[-_CHAT_PAGE:]}

@@ -35,6 +35,7 @@ python -m PyInstaller --noconfirm --onedir --windowed \
   --collect-data flet_desktop \
   --collect-submodules flet_desktop \
   --collect-binaries flet_desktop \
+  --collect-submodules cubeon.lang \
   --collect-submodules templates \
   main.py
 # Only brackets.json from mod/ (rest is Java source) + templates as

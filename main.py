@@ -198,6 +198,7 @@ def _relaunch_fresh_process() -> bool:
         return False
 from launcher_core import run_file_picker  # Version-safe FilePicker.pick_files() wrapper
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
+from cubeon import i18n  # Launcher language + reading direction (cubeon/lang/*)
 from cubeon import motion  # The animation layer (hover/press/cascade/shimmer/ambience)
 from cubeon import milestones as cubeon_milestones
 from cubeon import library_stats as cubeon_library_stats
@@ -997,6 +998,28 @@ async def main(page: ft.Page):
     cfg = core.load_config()  # returns a dict with keys like "username", "ram_mb", "last_version", etc.
     _startup_mark("config loaded")
 
+    # Launcher language (cubeon/i18n.py): resolved BEFORE any control exists,
+    # the same reason motion.set_level runs here - the UI reads t() at build
+    # time, so a language applied later would leave the already-built chrome
+    # in English until a restart. An explicit choice wins; otherwise the OS
+    # locale decides ONCE and the answer is persisted, so a later boot on a
+    # differently-locale'd machine cannot silently move the player's language.
+    if not cfg.get("ui_language"):
+        cfg["ui_language"] = i18n.resolve_language(cfg)
+        try:
+            core.save_config(cfg)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "could not persist the detected language", exc_info=True)
+    i18n.set_language(cfg.get("ui_language"))
+    # Mirror the reading direction onto the page: Arabic (and any future RTL
+    # language) needs the whole layout flipped, not just translated words.
+    try:
+        page.rtl = i18n.is_rtl()
+    except Exception:
+        logging.getLogger(__name__).debug("could not set page.rtl", exc_info=True)
+    _startup_mark("language %s" % i18n.current())
+
     # Motion level (cubeon/motion.py): set before ANY widget exists, because
     # controls decide at build time whether they own a scale/opacity to animate
     # from (see motion's rule 2). The live level is re-read at event time too,
@@ -1344,26 +1367,36 @@ async def main(page: ft.Page):
     # view (skins, capes, hats) - the identity card moved behind the Account
     # icon on the right. The server keys share one top-bar icon and switch
     # between Console/Plugins/Settings through the chip row under the bar.
+    # Labels go through i18n.t() at BUILD time, so a language change takes
+    # effect on the next start (the Settings row says so). Translating them
+    # live would mean rebuilding the rail and every cached label under it.
     top_nav_items = [
-        ("play", ft.Icons.PLAY_ARROW_ROUNDED, "Play"),
-        ("mods", ft.Icons.EXTENSION_ROUNDED, "Mods"),
-        ("modpacks", ft.Icons.INVENTORY_2_ROUNDED, "Modpacks"),
-        ("profile", ft.Icons.CHECKROOM_ROUNDED, "Cosmetics"),
-        ("stats", ft.Icons.QUERY_STATS_ROUNDED, "Stats"),
-        ("server", ft.Icons.DNS_ROUNDED, "Servers"),
+        ("play", ft.Icons.PLAY_ARROW_ROUNDED, i18n.t("Play")),
+        ("mods", ft.Icons.EXTENSION_ROUNDED, i18n.t("Mods")),
+        ("modpacks", ft.Icons.INVENTORY_2_ROUNDED, i18n.t("Modpacks")),
+        ("profile", ft.Icons.CHECKROOM_ROUNDED, i18n.t("Cosmetics")),
+        ("stats", ft.Icons.QUERY_STATS_ROUNDED, i18n.t("Stats")),
+        ("server", ft.Icons.DNS_ROUNDED, i18n.t("Servers")),
     ]
     # The Chat tab only exists in builds that ship the social layer; a public
     # no-Friends build stays a plain launcher with no dead nav entry.
     if friends_enabled():
-        top_nav_items.insert(3, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED, "Chat"))
+        top_nav_items.insert(3, ("chat", ft.Icons.CHAT_BUBBLE_ROUNDED,
+                                 i18n.t("Chat")))
     server_group_items = [
-        ("server_console", ft.Icons.TERMINAL_ROUNDED, "Console"),
-        ("server_plugins", ft.Icons.EXTENSION_ROUNDED, "Plugins"),
-        ("server_settings", ft.Icons.TUNE_ROUNDED, "Settings"),
+        ("server_console", ft.Icons.TERMINAL_ROUNDED, i18n.t("Console")),
+        ("server_plugins", ft.Icons.EXTENSION_ROUNDED, i18n.t("Plugins")),
+        ("server_settings", ft.Icons.TUNE_ROUNDED, i18n.t("Settings")),
     ]
     SERVER_TOP_KEY = "server"
 
     active_tab = {"value": "play"}  # We use a dict so we can mutate it inside nested functions
+    # Mirrored into the SHARED state so a lazily-built tab can tell whether it
+    # is the pane on screen. switch_tab toggles the WRAPPER pane's `visible`,
+    # not the control a builder returned, so a tab cannot answer that question
+    # by looking at itself - and ui/chat_tab.py needs the answer to decide
+    # whether an incoming message deserves a desktop toast.
+    state["active_tab"] = active_tab["value"]
     nav_buttons = {}  # Will hold references to each navigation button container
 
     # The tab-switch choreography (2026-10-16): ONE curve and duration for the
@@ -1847,7 +1880,7 @@ async def main(page: ft.Page):
                 content=ft.Column(
                     [
                         ft.Icon(ft.Icons.TUNE_ROUNDED, size=22, color=TEXT_DIM),
-                        ft.Text("Settings", size=11, color=TEXT_DIM,
+                        ft.Text(i18n.t("Settings"), size=11, color=TEXT_DIM,
                                 weight=ft.FontWeight.W_500),
                     ],
                     spacing=3, tight=True,
@@ -1858,7 +1891,7 @@ async def main(page: ft.Page):
                 border_radius=RADIUS_LG,
                 alignment=ft.Alignment.CENTER,
                 ink=False,
-                tooltip="Settings",
+                tooltip=i18n.t("Settings"),
                 # Late-bound: _open_account_panel is defined further down.
                 on_click=lambda e: _open_account_panel(),
             ),
@@ -1931,7 +1964,7 @@ async def main(page: ft.Page):
                 padding=ft.padding.Padding.only(left=6, right=12, top=4, bottom=4),
                 border_radius=RADIUS_LG,
                 ink=False,
-                tooltip="Account",
+                tooltip=i18n.t("Account"),
                 on_click=lambda e: _open_account_panel(),
             ),
             None, ROW_HOVER,
@@ -2186,7 +2219,7 @@ async def main(page: ft.Page):
 
     profile_username_field = ft.TextField(
         value=cfg["username"],
-        label="Username",
+        label=i18n.t("Username"),
         border_color=BORDER,
         focused_border_color=ACCENT,
         color=TEXT,
@@ -2379,7 +2412,7 @@ async def main(page: ft.Page):
         ink=False, on_click=open_pfp_picker,
     )
     profile_pfp_remove_btn = ft.Container(
-        content=ft.Text("Remove", color=DANGER, weight=ft.FontWeight.W_700, size=12),
+        content=ft.Text(i18n.t("Remove"), color=DANGER, weight=ft.FontWeight.W_700, size=12),
         border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
         padding=ft.padding.Padding.symmetric(vertical=7, horizontal=12),
         ink=False, on_click=on_remove_pfp, alignment=ft.Alignment.CENTER,
@@ -2504,6 +2537,7 @@ async def main(page: ft.Page):
                 return
             try:
                 account_panel.visible = False
+                state["account_open"] = False
                 account_scrim.visible = False
                 thread_safe_ui.refresh(account_panel)
                 thread_safe_ui.refresh(account_scrim)
@@ -2604,6 +2638,7 @@ async def main(page: ft.Page):
         # Reopening during the close fade: cancel the fade target so the
         # retire timer sees an open popup and leaves it mounted.
         account_panel.visible = True
+        state["account_open"] = True
         account_panel.opacity = 1
         # The account fields are shared with the old panel; sync them so a
         # rename done on the Play tab shows up here too.
@@ -2679,7 +2714,7 @@ async def main(page: ft.Page):
     # Username input field - pre-filled with the stored username from config
     username_field = ft.TextField(
         value=cfg["username"],
-        hint_text="Username",
+        hint_text=i18n.t("Username"),
         border_color=BORDER,
         focused_border_color=ACCENT,
         color=TEXT,
@@ -2709,7 +2744,7 @@ async def main(page: ft.Page):
 
     # Dropdown to select a Minecraft version (installed or available online)
     version_dropdown = ft.Dropdown(
-        label="Version",
+        label=i18n.t("Version"),
         border_color=BORDER,
         focused_border_color=ACCENT,
         color=TEXT,
@@ -2756,23 +2791,13 @@ async def main(page: ft.Page):
     # it is NOT mounted. This label is what the Play card shows.
     loader_readout = ft.Text("Vanilla", size=14, color=TEXT,
                              weight=ft.FontWeight.W_700)
-    loader_note = ft.Text(
-        "Chosen when this instance was installed.",
-        size=11, color=TEXT_DIM, max_lines=2,
-        overflow=ft.TextOverflow.ELLIPSIS,
-    )
 
     def _paint_loader_readout():
         """Show the selected INSTANCE's real loader, never a switchable choice."""
         loader = state.get("mod_loader") or "vanilla"
         label = core.SUPPORTED_LOADERS.get(loader, "Vanilla")
         loader_readout.value = label
-        loader_note.value = (
-            "Vanilla instance - create a new Fabric instance for mods."
-            if loader == "vanilla" else
-            f"{label} instance - the loader is fixed at install time.")
-        thread_safe_ui.refresh(loader_readout)
-        thread_safe_ui.refresh(loader_note)
+        # Internal mirror only. The visible readout is the compact hero tag.
 
     # FPS boost: the Play-menu toggle (moved out of Settings on 2026-10-15).
     # ON = the launcher sets Minecraft's own speed-only graphics options at
@@ -3242,7 +3267,7 @@ async def main(page: ft.Page):
                 width=380,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: _close_dialog(dlg)),
+                ft.TextButton(i18n.t("Cancel"), on_click=lambda e: _close_dialog(dlg)),
                 ft.TextButton("Enable legacy", on_click=lambda e: _do_enable_legacy(dlg=dlg),
                               style=ft.ButtonStyle(color=ACCENT)),
             ],
@@ -3355,9 +3380,40 @@ async def main(page: ft.Page):
                 if chosen != "vanilla" else None)
         _select_version_ui()
 
+    def _instance_icon(version_id):
+        from cubeon import instance_icons
+        choices = cfg.get('instance_icons')
+        chosen = choices.get(version_id) if isinstance(choices,dict) else None
+        if instance_icons.valid(chosen):
+            return chosen
+        meta = (state.get('installed_meta') or {}).get(version_id) or {}
+        loader = instance_info.describe(version_id,meta,with_mods=False,play_store={}).get('loader')
+        return instance_icons.default(loader)
+
+    def _save_instance_icon(version_id,icon_id):
+        from cubeon import instance_icons
+        if not instance_icons.valid(icon_id) or version_id not in state['installed']:
+            return False
+        previous = cfg.get('instance_icons')
+        choices = dict(previous) if isinstance(previous,dict) else {}
+        choices[version_id] = icon_id
+        cfg['instance_icons'] = choices
+        try:
+            core.save_config(cfg)
+        except Exception:
+            if previous is None:
+                cfg.pop('instance_icons',None)
+            else:
+                cfg['instance_icons'] = previous
+            show_snack("Couldn't save the instance icon. Try again.")
+            return False
+        return True
+
     picker = VersionPicker(
         page,
         get_selected=lambda: version_dropdown.value,
+        get_icon=_instance_icon,
+        on_set_icon=_save_instance_icon,
         label_for=_dropdown_label,
         on_pick=_pick_version,
         on_browse_online=lambda: refresh_version_list(online=True),
@@ -3512,7 +3568,7 @@ async def main(page: ft.Page):
 
     # The main play button - its appearance changes based on state (play/download/busy)
     play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=18)
-    play_button_text = ft.Text("PLAY", size=15, color=ON_ACCENT,
+    play_button_text = ft.Text(i18n.t("PLAY"), size=15, color=ON_ACCENT,
                                weight=ft.FontWeight.W_700,
                                style=ft.TextStyle(letter_spacing=0.5))
 
@@ -3593,9 +3649,9 @@ async def main(page: ft.Page):
         else:
             play_sheen.reset()
         value = play_button_text.value
-        if value == "PLAY":
+        if value == i18n.t("PLAY"):
             play_button.bgcolor = ACCENT_HI if hovering else ACCENT
-        elif value in ("CANCEL", "QUIT GAME"):
+        elif value in (i18n.t("CANCEL"), i18n.t("QUIT GAME")):
             play_button.bgcolor = _STOP_BG_HI if hovering else _STOP_BG
         else:  # download / install loader
             play_button.bgcolor = "#63C7D8" if hovering else INFO
@@ -3650,30 +3706,18 @@ async def main(page: ft.Page):
     # Text to show any issues with the selected version (e.g., incomplete install)
     version_issue_text = ft.Text("", size=12, color=DANGER, visible=False)
 
-    # "Fix crash" - the doctor used to be a small button inside Mods -> Installed
-    # (one per content tab). It now sits next to PLAY, where people look when a
-    # launch just failed, and it runs the FULL doctor for everything Cubeon
-    # installed - this instance's mods plus the shared resource packs, shaders,
-    # modpacks and server plugins - because any of them can crash a launch.
-    # The click handler is bound further down, once the approver exists.
-    fix_crash_icon = ft.Icon(ft.Icons.BUILD_ROUNDED, size=16, color=TEXT_DIM)
-    fix_crash_label = ft.Text("Fix crash", size=13, color=TEXT,
-                              weight=ft.FontWeight.W_600)
-    fix_crash_button = theme.attach_hover(
-        ft.Container(
-            content=ft.Row([fix_crash_icon, fix_crash_label], spacing=8, tight=True),
-            bgcolor=ft.Colors.with_opacity(0.35, SURFACE_HI),
-            border=ft.border.Border.all(1, CARD_BORDER),
-            border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=14),
-            alignment=ft.Alignment.CENTER,
-            ink=False,
-            tooltip=("Check everything Cubeon installed: this instance's mods, "
-                     "resource packs, shaders, modpacks and server plugins."),
-            data="play-fix-crash",
-        ),
-        ft.Colors.with_opacity(0.35, SURFACE_HI), ROW_HOVER,
-    )
+    # The Play card's "Fix crash" button was REMOVED on 2026-10-28 (user ask).
+    # The doctor it opened is still here and still runs - just not from a
+    # permanent button on the Play screen:
+    #   - dependency / version-conflict / duplicate-jar repair: Mods ->
+    #     Installed's background "Check & repair",
+    #     plus the automatic pass on install and on opening Installed;
+    #   - launcher-config repair (a rejected JVM flag, a dead java_path, RAM):
+    #     the doctor's `launch` section, still run non-interactively at launch;
+    #   - the crash popup that appears after an ACTUAL crash keeps its own
+    #     contextual fix action (_run_fix_crash below), so a real crash is
+    #     still one click from a repair.
+    # What is gone is only the always-visible control next to PLAY.
 
     # When the selected version+loader is one an installed modpack owns, show
     # the pack's real name here. Without it a pack reads only as its bare MC
@@ -3774,7 +3818,7 @@ async def main(page: ft.Page):
         if mode == "play":
             paint(ACCENT, ON_ACCENT)
             play_button_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
-            play_button_text.value = "PLAY"
+            play_button_text.value = i18n.t("PLAY")
             play_button.disabled = False
         elif mode == "download":
             paint(INFO, ON_ACCENT)  # diamond cyan = download, not play (on-palette)
@@ -3796,7 +3840,7 @@ async def main(page: ft.Page):
             # with the big button and was easy to miss.
             paint(_STOP_BG, DANGER)
             play_button_icon.name = ft.Icons.CANCEL_ROUNDED
-            play_button_text.value = "CANCEL"
+            play_button_text.value = i18n.t("CANCEL")
             play_button.disabled = False
         elif mode in ("launching", "cancelling", "ending"):
             # Transient waits where stopping is no longer (or not yet)
@@ -3818,7 +3862,7 @@ async def main(page: ft.Page):
             # to end the game from the launcher at all.
             paint(_STOP_BG, DANGER)
             play_button_icon.name = ft.Icons.STOP_CIRCLE_ROUNDED
-            play_button_text.value = "QUIT GAME"
+            play_button_text.value = i18n.t("QUIT GAME")
             play_button.disabled = False
             play_button.tooltip = ("Close Minecraft now. Unsaved progress "
                                    "since the game's last autosave is lost.")
@@ -3842,7 +3886,7 @@ async def main(page: ft.Page):
             # saying PLAY and simply explains what else is happening.
             paint(ACCENT, ON_ACCENT)
             play_button_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
-            play_button_text.value = "PLAY"
+            play_button_text.value = i18n.t("PLAY")
             play_button.disabled = False
             play_button.tooltip = ("Cubeon is also checking this profile's "
                                    "mods in the background - Play launches "
@@ -3855,7 +3899,7 @@ async def main(page: ft.Page):
             # returns the moment the installer's listener clears the claim.
             paint(SURFACE_HI, TEXT_DIM)
             play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
-            play_button_text.value = "INSTALLING..."
+            play_button_text.value = i18n.t("INSTALLING...")
             play_button.disabled = True
             play_button.tooltip = ("Cubeon is still installing this instance - "
                                    "Play unlocks when it finishes.")
@@ -4129,7 +4173,7 @@ async def main(page: ft.Page):
         # full online mod check in the background, which could disable the Play
         # button ("FIXING MODS…") for up to two minutes and pop review dialogs
         # the user never asked for. Dependency/conflict repair belongs to an
-        # explicit install or the "Fix crash" action; picking an instance is
+        # explicit install or the "Check & repair" action; picking an instance is
         # not consent to scan or change its mods.
 
     def _select_version_ui():
@@ -5209,7 +5253,7 @@ async def main(page: ft.Page):
                                 # 2026-10-16 "game is running but it shows the
                                 # play button" report): clicking that button
                                 # QUITS the live game, not starts one.
-                                if play_button_text.value != "QUIT GAME":
+                                if play_button_text.value != i18n.t("QUIT GAME"):
                                     set_button_mode("running")
                                 continue  # still alive
                         except Exception:
@@ -5568,7 +5612,7 @@ async def main(page: ft.Page):
         name_field.on_submit = save
         dlg = ft.AlertDialog(
             modal=True, bgcolor=SURFACE,
-            title=ft.Text("Rename instance", color=TEXT, weight=ft.FontWeight.W_800),
+            title=ft.Text(i18n.t("Rename instance"), color=TEXT, weight=ft.FontWeight.W_800),
             content=ft.Container(
                 content=ft.Column(
                     [
@@ -5581,8 +5625,8 @@ async def main(page: ft.Page):
                 width=380,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: _close_dialog(dlg)),
-                ft.TextButton("Save", on_click=save, style=ft.ButtonStyle(color=ACCENT)),
+                ft.TextButton(i18n.t("Cancel"), on_click=lambda e: _close_dialog(dlg)),
+                ft.TextButton(i18n.t("Save"), on_click=save, style=ft.ButtonStyle(color=ACCENT)),
             ],
         )
         _open_dialog(dlg)
@@ -5697,6 +5741,9 @@ async def main(page: ft.Page):
             labels = dict(cfg.get("version_labels") or {})
             if labels.pop(dead, None) is not None:
                 cfg["version_labels"] = labels
+            icons = cfg.get('instance_icons')
+            if isinstance(icons,dict) and dead in icons:
+                cfg['instance_icons'] = {k:v for k,v in icons.items() if k != dead}
             if cfg.get("last_version") == dead:
                 cfg["last_version"] = None
             if state.get("selected_version") == dead:
@@ -5855,15 +5902,15 @@ async def main(page: ft.Page):
                 width=380,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: _close_dialog(dlg)),
-                ft.TextButton("Delete", on_click=confirm, style=ft.ButtonStyle(color=DANGER)),
+                ft.TextButton(i18n.t("Cancel"), on_click=lambda e: _close_dialog(dlg)),
+                ft.TextButton(i18n.t("Delete"), on_click=confirm, style=ft.ButtonStyle(color=DANGER)),
             ],
         )
         _open_dialog(dlg)
 
     rename_instance_btn = ft.IconButton(
         ft.Icons.DRIVE_FILE_RENAME_OUTLINE_ROUNDED, icon_color=TEXT_DIM, icon_size=18,
-        tooltip="Rename instance", on_click=on_rename_instance,
+        tooltip=i18n.t("Rename instance"), on_click=on_rename_instance,
         style=ft.ButtonStyle(color={ft.ControlState.HOVERED: TEXT}),
     )
     delete_instance_btn = ft.IconButton(
@@ -5907,7 +5954,7 @@ async def main(page: ft.Page):
                 [
                     ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, size=15,
                             color=TEXT_DIM),
-                    ft.Text("Folder", size=12, color=TEXT_DIM),
+                    ft.Text(i18n.t("Folder"), size=12, color=TEXT_DIM),
                 ],
                 spacing=6,
             ),
@@ -6107,7 +6154,7 @@ async def main(page: ft.Page):
     # (version, username) and PLAY. Everything else is demoted:
     #   - the loader is one chip next to the version text (the old "Instance
     #     type" block repeated it and could not be edited anyway);
-    #   - FPS boost and Fix crash are small quiet controls under the row;
+    #   - FPS boost is a small quiet control under the row;
     #   - the page heading and its tagline are gone.
     # ------------------------------------------------------------------
     fps_boost_switch.scale = 0.8
@@ -6115,7 +6162,7 @@ async def main(page: ft.Page):
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.BOLT_ROUNDED, size=16, color=ACCENT),
-                ft.Text("FPS boost", size=12.5, color=TEXT,
+                ft.Text(i18n.t("FPS boost"), size=12.5, color=TEXT,
                         weight=ft.FontWeight.W_600),
                 fps_boost_switch,
             ],
@@ -6131,9 +6178,8 @@ async def main(page: ft.Page):
         data="play-fps-tile",
     )
 
-    # Fix crash: same control, smaller and quieter.
-    fix_crash_button.padding = ft.padding.Padding.symmetric(horizontal=12, vertical=8)
-    fix_crash_label.size = 12.5
+    # (The Fix crash tile that used to sit here was removed 2026-10-28; the
+    # FPS boost tile is now the only quiet control under the PLAY row.)
 
     # PLAY: taller and wider than anything else on the screen.
     play_button.padding = ft.padding.Padding.symmetric(vertical=20, horizontal=20)
@@ -6145,10 +6191,6 @@ async def main(page: ft.Page):
             [
                 ft.Container(content=loader_status_text, height=18,
                              data="play-loader-status"),
-                ft.Container(
-                    content=ft.Column([section_label("Instance type"), loader_readout,
-                                       loader_note], spacing=2),
-                    visible=True, data="play-loader-readout"),
             ],
             spacing=0, tight=True,
         ),
@@ -6208,12 +6250,12 @@ async def main(page: ft.Page):
                         ft.Row(
                             [
                                 ft.Column(
-                                    [section_label("Version"), ft.Container(height=6),
+                                    [section_label(i18n.t("Version")), ft.Container(height=6),
                                      ft.Container(content=version_dropdown_button,
                                                   width=300)],
                                     spacing=0),
                                 ft.Column(
-                                    [section_label("Username"), ft.Container(height=6),
+                                    [section_label(i18n.t("Username")), ft.Container(height=6),
                                      ft.Container(content=username_field, width=220)],
                                     spacing=0),
                                 ft.Container(expand=True),
@@ -6225,7 +6267,7 @@ async def main(page: ft.Page):
 
                         ft.Container(height=14),
                         ft.Row(
-                            [fps_boost_tile, fix_crash_button],
+                            [fps_boost_tile],
                             spacing=10,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
@@ -6292,35 +6334,37 @@ async def main(page: ft.Page):
     load_popular_modpacks = _cb("modpacks", "popular")
     refresh_server_tab = _cb("server", "refresh")
 
-    # --- Fix crash (Play tab) ------------------------------------------------
-    # The doctor's visible action moved out of Mods -> Installed and onto the
-    # Play card, to the left of PLAY (2026-10-25): a failed launch is exactly
-    # when someone looks for it. "Fix crash" reads the NEWEST crash log, says
-    # what happened in one sentence, then runs the existing dependency /
+    # --- Crash repair (opened from the crash popup only) ---------------------
+    # There is no longer a permanent "Fix crash" button on the Play card
+    # (removed 2026-10-28, user ask). This flow survives because it is the
+    # contextual action inside the popup that appears after an ACTUAL crash:
+    # it reads the NEWEST crash log (or the exact log the popup is showing),
+    # says what happened in one sentence, then runs the existing dependency /
     # conflict / launch-config checks and fixes what they can
     # (cubeon/crash.py). There is no separate crash-diagnosis engine.
-    from cubeon.doctor_ui import open_crash_check
+    # Dependency and conflict repair for a healthy instance lives in Mods ->
+    # Installed ("Check & repair"), which this does not replace.
     fix_crash_state = {"busy": False}
 
     def _set_fix_crash_busy(busy):
+        """Re-entrancy guard only.
+
+        This used to also repaint the Play card's button (disabled + a
+        spinner glyph + "Checking…"). That button is gone, so the guard is now
+        a plain flag: without it, two crash popups could run two repair passes
+        over the same instance at once.
+        """
         fix_crash_state["busy"] = busy
-        # `done()` arrives from the review dialog's worker thread.
-        with thread_safe_ui.TREE_LOCK:
-            fix_crash_button.disabled = busy
-            fix_crash_label.value = "Checking…" if busy else "Fix crash"
-            fix_crash_icon.name = (ft.Icons.SYNC_ROUNDED if busy
-                                   else ft.Icons.BUILD_ROUNDED)
-            thread_safe_ui.refresh(fix_crash_button)
 
     def _run_fix_crash(e=None, *, version_id=None, crash_text=None,
                        crash_path=None):
         """Read the newest crash evidence, explain it, and fix what we can.
 
-        Called both from the Play card's Fix crash button (no explicit
-        evidence) and from the crash popup (which passes the exact log text
-        and path it just showed). The latter is why the dialog can fix the
-        crash the user is actually looking at instead of whichever file is
-        newest by the time they click.
+        Opened from the crash popup, which passes the exact log text and path
+        it just showed - that is why the worker can fix the crash the user is
+        actually looking at instead of whichever file is newest by the time
+        they click. With no explicit evidence it falls back to the newest
+        crash report on disk.
         """
         if fix_crash_state["busy"]:
             return
@@ -6348,9 +6392,12 @@ async def main(page: ft.Page):
             return
 
         _set_fix_crash_busy(True)
+        state["fixing_mods"] = vid
 
         def done():
             _set_fix_crash_busy(False)
+            if state.get("fixing_mods") == vid:
+                state["fixing_mods"] = None
             # Crash repair may have rewritten launcher-owned settings: RAM
             # (OutOfMemoryError), the Java path (wrong runtime) and the custom
             # JVM flags (an option Java rejected). The live `cfg` dict is what
@@ -6398,30 +6445,38 @@ async def main(page: ft.Page):
 
         def diagnose(mc_version, crash_loader, *, version_id, status_cb=None,
                      **_kwargs):
-            """Adapter from the dialog to cubeon/crash.py.
+            """Run cubeon/crash.py with the report's exact evidence.
 
             ``crash_text``/``crash_path`` pin the check to the log the crash
             popup showed. Without them it reads the newest crash report on
-            disk, which is right for the Play card button. Clicking "Fix
-            crash" is the consent for the reversible mod changes (jars are
-            renamed, never deleted).
+            disk. Clicking the popup's "Fix crash" action is the consent for
+            the reversible mod changes (jars are renamed, never deleted).
             """
             from cubeon import crash
             return crash.diagnose_and_fix(
                 mc_version, crash_loader, version_id=version_id,
                 text=crash_text, path=crash_path, status_cb=status_cb)
 
+        set_status("Checking this instance in the background…", busy=True)
+
+        def worker():
+            try:
+                result = diagnose(mc, loader, version_id=vid)
+                fixed = len(result.get("fixed") or [])
+                remaining = len(result.get("unfixed") or [])
+                set_status(f"Crash check: {fixed} fixed; {remaining} need attention")
+            except Exception as error:
+                set_status(f"Could not complete the crash check: {error}")
+            finally:
+                done()
+
         try:
-            open_crash_check(
-                page, mc_version=mc, loader=loader, version_id=vid,
-                diagnose=diagnose,
-                on_status=lambda text: None, on_done=done)
+            threading.Thread(target=worker, daemon=True, name="cubeon-crash-check").start()
         except Exception as error:
             _set_fix_crash_busy(False)
-            set_status(f"Could not open the crash check: {error}")
-
-    fix_crash_button.on_click = _run_fix_crash
-
+            if state.get("fixing_mods") == vid:
+                state["fixing_mods"] = None
+            set_status(f"Could not start the crash check: {error}")
 
     def _switch_loader_for_mods(loader_id):
         """The loader is fixed at install time (2026-10-26 user ask).
@@ -6786,7 +6841,7 @@ async def main(page: ft.Page):
     )
     # Java path input (optional)
     java_path_field = ft.TextField(
-        value=cfg.get("java_path") or "", label="Java path",
+        value=cfg.get("java_path") or "", label=i18n.t("Java path"),
         hint_text="Leave blank to auto-detect",
         border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
         label_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI, border_radius=RADIUS,
@@ -6796,7 +6851,7 @@ async def main(page: ft.Page):
     # e.g. "-Dsome.prop=value -XX:MaxGCPauseMillis=100". One line, split on
     # whitespace (quotes respected). Saved like every other Settings field.
     custom_jvm_field = ft.TextField(
-        value=cfg.get("custom_jvm_flags") or "", label="Custom JVM flags",
+        value=cfg.get("custom_jvm_flags") or "", label=i18n.t("Custom JVM flags"),
         hint_text="e.g. -Dsome.prop=value -XX:MaxGCPauseMillis=100",
         border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
         label_style=ft.TextStyle(color=TEXT_DIM), bgcolor=SURFACE_HI, border_radius=RADIUS,
@@ -7314,7 +7369,7 @@ async def main(page: ft.Page):
                 width=400,
             ),
             actions=[
-                ft.TextButton("Close",
+                ft.TextButton(i18n.t("Close"),
                               on_click=lambda e: _close_dialog(dlg),
                               style=ft.ButtonStyle(color=TEXT_DIM)),
                 ft.FilledButton(
@@ -7575,7 +7630,7 @@ async def main(page: ft.Page):
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.RESTART_ALT_ROUNDED, size=15, color=ON_ACCENT),
-                ft.Text("Restart to apply", color=ON_ACCENT,
+                ft.Text(i18n.t("Restart to apply"), color=ON_ACCENT,
                         weight=ft.FontWeight.W_700, size=13),
             ],
             spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER,
@@ -7806,11 +7861,11 @@ async def main(page: ft.Page):
             [
                 ft.Row(
                     [
-                        ft.Text("Settings", size=18, color=TEXT,
+                        ft.Text(i18n.t("Settings"), size=18, color=TEXT,
                                 font_family=FONT_DISPLAY, expand=True),
                         ft.IconButton(
                             icon=ft.Icons.CLOSE_ROUNDED, icon_size=18,
-                            icon_color=TEXT_DIM, tooltip="Close",
+                            icon_color=TEXT_DIM, tooltip=i18n.t("Close"),
                             on_click=_close_account_panel,
                             style=ft.ButtonStyle(
                                 bgcolor={ft.ControlState.HOVERED: SURFACE_HI}),
@@ -7921,6 +7976,7 @@ async def main(page: ft.Page):
             if key == previous_tab:
                 return
             active_tab["value"] = key
+            state["active_tab"] = key   # see the note where active_tab is made
             switch_controls = []
             # Update nav button styles
             for k, btn in nav_buttons.items():
@@ -8838,6 +8894,10 @@ async def main(page: ft.Page):
         try:
             raw = getattr(e, "type", "") or getattr(e, "data", "")
             ev = str(getattr(raw, "value", raw)).split(".")[-1].lower()
+            if ev in ("blur", "minimize", "hide", "close", "disconnect"):
+                state["window_focused"] = False
+            elif ev in ("focus", "restore", "show"):
+                state["window_focused"] = True
             # An invisible window must not animate. "hide" also means close on
             # this build (see below): pausing there is harmless - the session
             # is ending anyway - and it keeps a minimize from repainting for
@@ -9048,7 +9108,7 @@ async def main(page: ft.Page):
                             spacing=10, tight=True),
                     ),
                     actions=[ft.TextButton(
-                        "Close",
+                        i18n.t("Close"),
                         on_click=lambda _e, d=dlg: cubeon_dialogs.close_dialog(page, d))],
                 )
                 _shortcuts_dlg["dlg"] = dlg

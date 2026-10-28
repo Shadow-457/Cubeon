@@ -8,11 +8,12 @@ It shells out to the platform's own notifier (or winotify on Windows) and
 gives up quietly if there isn't one.
 
 WHAT CAN NOTIFY
-    Seven kinds, each with its own Settings switch (KINDS, below). The user
+    Eight kinds, each with its own Settings switch (KINDS, below). The user
     asked for a toggle per type, and these are the types.
 
     install-finished: instance, mod, modpack, resourcepack, texturepack
     friend online:    friend  - and ONLY the friend you talk to most
+    chat message:     message - an incoming DM you are not already reading
     Cubeon update:    update
 
 DESIGN RULES (each one is a bug that would be reportable)
@@ -34,6 +35,7 @@ DESIGN RULES (each one is a bug that would be reportable)
 from __future__ import annotations
 
 import logging
+import base64
 import os
 import shutil
 import subprocess
@@ -63,6 +65,8 @@ KINDS = [
      "A texture pack or shader finishes installing"),
     ("friend",       "notify_friend",
      "Friend online", "Only your most-talked-to friend, not every friend"),
+    ("message",      "notify_message",
+     "Chat messages", "A friend sends you a message you haven't opened"),
     ("update",       "notify_update",
      "Cubeon updates", "A new Cubeon version is available"),
 ]
@@ -168,8 +172,11 @@ def _send(title: str, body: str) -> bool:
     try:
         if backend == "winotify":
             from winotify import Notification
-            Notification(app_id=APP_NAME, title=title, msg=body).show()
-            return True
+            try:
+                Notification(app_id=APP_NAME, title=title, msg=body).show()
+                return True
+            except Exception:
+                return _send_powershell(title, body)
         if backend == "powershell":
             return _send_powershell(title, body)
         if backend == "notify-send":
@@ -215,8 +222,7 @@ _PS_TOAST = (
     'Windows.UI.Notifications,ContentType=WindowsRuntime]>$null;'
     '[Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom,'
     'ContentType=WindowsRuntime]>$null;'
-    '$t=@\'<toast><visual><binding template="ToastGeneric"><text>{title}</text>'
-    '<text>{body}</text></binding></visual></toast>\'@;'
+    '$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("{xml}"));'
     '$x=New-Object Windows.Data.Xml.Dom.XmlDocument;$x.LoadXml($t);'
     '$n=New-Object Windows.UI.Notifications.ToastNotification $x;'
     '[Windows.UI.Notifications.ToastNotificationManager]'
@@ -225,9 +231,13 @@ _PS_TOAST = (
 
 
 def _send_powershell(title: str, body: str) -> bool:
-    script = _PS_TOAST.format(title=_xml_escape(title), body=_xml_escape(body),
+    xml = ('<toast><visual><binding template="ToastGeneric"><text>'
+           + _xml_escape(title) + '</text><text>' + _xml_escape(body)
+           + '</text></binding></visual></toast>')
+    script = _PS_TOAST.format(xml=base64.b64encode(xml.encode("utf-8")).decode("ascii"),
                               app=APP_NAME)
-    return _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    return _run(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded])
 
 
 def _as_escape(text: str) -> str:
@@ -340,6 +350,39 @@ def friend_came_online(name: str, counts: dict | None, *, cfg: dict | None = Non
         return False
     return notify("friend", f"{name} is online",
                   "Say hi in the Friends tab.", cfg=cfg)
+
+
+# How much of a message a toast shows. A desktop notification is glancable and
+# it lands on a screen other people can see, so it carries the shape of the
+# message, not the transcript.
+_MESSAGE_PREVIEW_CHARS = 140
+
+
+def chat_message(name: str, text: str, *, cfg: dict | None = None) -> bool:
+    """A friend sent you a message you are not already reading.
+
+    The title is the SENDER, which is what makes the burst collapse useful:
+    `notify()` throttles on (kind, title), so a friend who types four short
+    lines in a second produces one toast instead of four.
+
+    Only incoming messages reach this, and the caller
+    (`friends_service._chat_append`) already refuses to call it for the
+    conversation the player has open in the Chat tab - a toast for the line
+    you are looking at is noise, not a notification.
+
+    The plaintext is decrypted in this process before it gets here, so nothing
+    about this call sends anything anywhere; it hands a string to the OS
+    notifier like every other kind does.
+    """
+    name = str(name or "").strip()
+    if not name:
+        return False
+    # Collapse newlines and runs of whitespace: a pasted multi-line message
+    # would otherwise make the toast as tall as the paste.
+    body = " ".join(str(text or "").split())
+    if len(body) > _MESSAGE_PREVIEW_CHARS:
+        body = body[:_MESSAGE_PREVIEW_CHARS - 1].rstrip() + "…"
+    return notify("message", name, body or "Sent you a message.", cfg=cfg)
 
 
 def update_available(new_version: str, *, cfg: dict | None = None) -> bool:

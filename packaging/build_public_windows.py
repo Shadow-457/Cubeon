@@ -56,6 +56,7 @@ try:
                     f"--add-data={assets}{sep}assets",
                     # NO templates data copy: bytecode only - no raw
                     # .py source in shipped artifacts (see build_windows.py).
+                    "--collect-submodules", "cubeon.lang",
                     "--collect-data", "flet",
 
                     "--collect-submodules", "flet",

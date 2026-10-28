@@ -28,6 +28,7 @@ python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --collect-data minecraft_launcher_lib \
   --collect-submodules minecraft_launcher_lib \
   --collect-binaries minecraft_launcher_lib \
+  --collect-submodules cubeon.lang \
   --collect-submodules templates main.py
 # No templates data copy: bytecode only - no raw .py source ships.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon import dialogs
 from cubeon import screenshot_gallery as store
@@ -270,8 +271,8 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
             content=ft.Text(f"{item['name']} will be removed from Minecraft's screenshots folder.",
                             color=TEXT_DIM),
             actions=[
-                ft.TextButton("Cancel", on_click=_cancel),
-                ft.TextButton("Delete", on_click=_confirm,
+                ft.TextButton(i18n.t("Cancel"), on_click=_cancel),
+                ft.TextButton(i18n.t("Delete"), on_click=_confirm,
                               style=ft.ButtonStyle(color=DANGER)),
             ],
         )
@@ -320,7 +321,7 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
             expand=True,
         ),
         ft.IconButton(icon=ft.Icons.REFRESH_ROUNDED, icon_color=TEXT_DIM,
-                      tooltip="Refresh", on_click=_refresh),
+                      tooltip=i18n.t("Refresh"), on_click=_refresh),
         ft.IconButton(icon=ft.Icons.FOLDER_OPEN_ROUNDED, icon_color=TEXT_DIM,
                       tooltip="Open screenshots folder", on_click=_open_folder),
     ])
@@ -363,7 +364,7 @@ def build_screenshot_gallery_tab(page: ft.Page) -> tuple[ft.Control, callable]:
                                     content=ft.Row([
                                         ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED,
                                                 size=15, color=DANGER),
-                                        ft.Text("Delete", size=11, color=DANGER),
+                                        ft.Text(i18n.t("Delete"), size=11, color=DANGER),
                                     ], spacing=5, tight=True),
                                     border=ft.border.Border.all(1, DANGER),
                                     border_radius=RADIUS,

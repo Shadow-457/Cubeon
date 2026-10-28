@@ -22,6 +22,7 @@ optional `account_pane`), so nothing is rewired.
 """
 import flet as ft
 
+from cubeon import i18n
 from cubeon import motion
 from cubeon import osnotify
 from cubeon.theme import (
@@ -96,9 +97,9 @@ def _row(title, subtitle, control, *, TEXT, TEXT_DIM):
             [
                 ft.Column(
                     [
-                        ft.Text(title, size=14, color=TEXT,
+                        ft.Text(i18n.t(title), size=14, color=TEXT,
                                 weight=ft.FontWeight.W_600),
-                        *([ft.Text(subtitle, size=12, color=TEXT_DIM)]
+                        *([ft.Text(i18n.t(subtitle), size=12, color=TEXT_DIM)]
                           if subtitle else []),
                     ],
                     spacing=2, expand=True,
@@ -117,6 +118,133 @@ def _body(control, *, pad_v=14):
     return ft.Container(
         content=control,
         padding=ft.padding.Padding.symmetric(horizontal=18, vertical=pad_v),
+    )
+
+
+def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
+                         ACCENT_TINT, TEXT, TEXT_DIM, TEXT_FAINT, FONT_MONO):
+    """The read-only "these are Cubeon's default JVM flags" disclosure.
+
+    Deliberately COLLAPSED and deliberately a readout: nobody needs twenty GC
+    flags in their face, but "what is Cubeon actually passing to Java?" is a
+    fair question the moment a mod misbehaves or a friend suggests a flag.
+
+    The rows come from `launch.default_jvm_flags_report()`, which assembles
+    them from the same functions `build_launch_command` uses - so this panel
+    cannot drift from what actually launches. That is why it takes
+    `ram_slider` and `custom_jvm_field` rather than a static list: the answer
+    genuinely depends on the RAM you allocated, your core count and whether
+    you chose your own garbage collector.
+    """
+    from cubeon import launch
+    from cubeon import thread_safe_ui
+
+    rows = ft.ListView(spacing=1, height=288, visible=False)
+    chevron = ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT_DIM)
+    summary = ft.Text("", size=11.5, color=TEXT_FAINT)
+    open_state = {"v": False}
+
+    def _rebuild():
+        """Re-read the live settings and repaint the list."""
+        try:
+            ram = int(getattr(ram_slider, "value", 0) or 0)
+        except (TypeError, ValueError):
+            ram = 0
+        try:
+            user_flags = getattr(custom_jvm_field, "value", "") or ""
+        except Exception:
+            user_flags = ""
+        try:
+            report = launch.default_jvm_flags_report(
+                ram or None, custom_jvm_flags=user_flags)
+        except Exception:
+            report = []
+        rows.controls.clear()
+        for entry in report:
+            flag = str(entry.get("flag") or "")
+            note = str(entry.get("note") or "")
+            source = entry.get("source") or "always"
+            dropped = source == "dropped"
+            # One row: the flag in mono on the left, its reason on the right.
+            # No wrap=True here - the note expands, and Flutter's wrapped
+            # layout cannot host a flex child.
+            rows.controls.append(ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Text(flag, size=11.5, font_family=FONT_MONO,
+                                color=(TEXT_FAINT if dropped else ACCENT),
+                                width=232, selectable=True, rtl=False),
+                        ft.Column(
+                            [ft.Text(note, size=11, color=TEXT_DIM),
+                             *([ft.Text(i18n.t("Not added on this machine"),
+                                        size=10, color=TEXT_FAINT)]
+                               if dropped else [])],
+                            spacing=1, expand=True, tight=True),
+                    ],
+                    spacing=12, vertical_alignment=ft.CrossAxisAlignment.START,
+                ),
+                padding=ft.padding.Padding.symmetric(horizontal=18, vertical=5),
+            ))
+        applied = sum(1 for e in report
+                      if (e.get("source") or "always") != "dropped")
+        skipped = len(report) - applied
+        if not report:
+            summary.value = i18n.t("Unavailable right now")
+        else:
+            # The count leads, the translated phrase follows, so a language
+            # that puts its noun first still reads correctly.
+            summary.value = f"{applied} {i18n.t('flags added')}" + (
+                f", {skipped} {i18n.t('not on this machine')}" if skipped else "")
+        # Repaint only this panel: the rest of Settings is untouched.
+        thread_safe_ui.refresh(rows)
+        thread_safe_ui.refresh(summary)
+
+    def _toggle(e=None):
+        with thread_safe_ui.TREE_LOCK:
+            open_state["v"] = not open_state["v"]
+            rows.visible = open_state["v"]
+            chevron.name = (ft.Icons.EXPAND_MORE_ROUNDED if open_state["v"]
+                            else ft.Icons.CHEVRON_RIGHT_ROUNDED)
+            if open_state["v"]:
+                _rebuild()   # pick up a RAM change made since it was last opened
+            thread_safe_ui.refresh(rows)
+            thread_safe_ui.refresh(chevron)
+
+    header = attach_hover(
+        ft.Container(
+            content=ft.Row(
+                [chevron,
+                 ft.Text(i18n.t("Cubeon's default flags"), size=13, color=TEXT,
+                         weight=ft.FontWeight.W_600),
+                 ft.Container(expand=True),
+                 summary],
+                spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.padding.Padding.symmetric(horizontal=18, vertical=12),
+            ink=False, on_click=_toggle,
+            tooltip="The JVM options Cubeon passes to Java on every launch, "
+                    "and why each one is there",
+        ),
+        None, ROW_HOVER,
+    )
+
+    for control in (ram_slider, custom_jvm_field):
+        previous = control.on_change
+
+        def changed(event, previous=previous):
+            if callable(previous):
+                previous(event)
+            if open_state["v"]:
+                with thread_safe_ui.TREE_LOCK:
+                    _rebuild()
+
+        control.on_change = changed
+
+    return ft.Container(
+        content=ft.Column([header, rows], spacing=0, tight=True),
+        bgcolor=ft.Colors.with_opacity(0.35, ACCENT_TINT),
+        border=ft.border.Border.all(1, BORDER),
+        border_radius=RADIUS,
     )
 
 
@@ -170,7 +298,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     the row is left out entirely.
     """
 
-    sections = [s for s in SECTIONS if s[0] != "account" or account_pane is not None]
+    # Labels are translated at build time; the KEYS are not - deep links (the
+    # seasonal badge uses "seasonal") key off them. A language change lands on
+    # the next start, like the rest of the chrome.
+    sections = [(key, icon, i18n.t(label)) for key, icon, label in SECTIONS
+                if key != "account" or account_pane is not None]
     active_section = {"value": sections[0][0]}
 
     def row(title, subtitle, control):
@@ -181,10 +313,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     def block(label, content):
         """A small caps label over a group."""
-        return ft.Column([section_label(label), content], spacing=8)
+        return ft.Column([section_label(i18n.t(label)), content], spacing=8)
 
     def heading(title):
-        return ft.Text(title, size=22, color=TEXT, font_family=FONT_DISPLAY)
+        return ft.Text(i18n.t(title), size=22, color=TEXT, font_family=FONT_DISPLAY)
 
     def pane(title, *children):
         return ft.Column(
@@ -250,15 +382,15 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     account_section = None
     if account_pane is not None:
-        account_section = pane("Account", account_pane)
+        account_section = pane(i18n.t("Account"), account_pane)
 
     # ======================================================================
     # GAME
     # ======================================================================
     compact(tidy_btn)
     versions_pane = pane(
-        "Game",
-        block("Versions", ft.Column(
+        i18n.t("Game"),
+        block(i18n.t("Versions"), ft.Column(
             [
                 group([
                     row("Show snapshots",
@@ -278,7 +410,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 "Friends, skins and the in-game menu. Off launches a clean game.",
                 client_mod_cb),
         ])),
-        block("Maintenance", group([
+        block(i18n.t("Maintenance"), group([
             row("Delete unfinished installs",
                 "Removes half-downloaded versions at startup",
                 auto_cleanup_switch),
@@ -294,13 +426,13 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # PERFORMANCE
     # ======================================================================
     performance_pane = pane(
-        "Performance",
-        block("Memory", group([
+        i18n.t("Performance"),
+        block(i18n.t("Memory"), group([
             _body(ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("Allocated RAM", size=14, color=TEXT,
+                            ft.Text(i18n.t("Allocated RAM"), size=14, color=TEXT,
                                     weight=ft.FontWeight.W_600, expand=True),
                             ram_label,
                         ],
@@ -313,7 +445,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 spacing=6,
             )),
         ])),
-        block("Java", group([
+        block(i18n.t("Java"), group([
             _body(ft.Column(
                 [
                     java_path_field,
@@ -321,9 +453,18 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                             size=11.5, color=TEXT_FAINT, font_family=FONT_MONO),
                     ft.Container(height=4),
                     custom_jvm_field,
-                    ft.Text("Extra flags go after Cubeon's defaults. "
-                            "Leave both fields blank unless you need them.",
+                    ft.Text(i18n.t("Extra flags go after Cubeon's defaults. "
+                            "Leave both fields blank unless you need them."),
                             size=11.5, color=TEXT_FAINT),
+                    ft.Container(height=6),
+                    # "Which flags does Cubeon apply by default?" - collapsed,
+                    # and built from launch.py so it cannot go stale.
+                    _java_defaults_panel(
+                        ram_slider=ram_slider,
+                        custom_jvm_field=custom_jvm_field,
+                        BORDER=BORDER, ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
+                        TEXT=TEXT, TEXT_DIM=TEXT_DIM, TEXT_FAINT=TEXT_FAINT,
+                        FONT_MONO=FONT_MONO),
                 ],
                 spacing=6,
             )),
@@ -333,14 +474,73 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     # DISPLAY
     # ======================================================================
+    # The language picker. Labels are shown in the language's OWN script
+    # first ("العربية - Arabic") so the list is usable by someone who cannot
+    # read English - that is the whole point of a language picker.
+    #
+    # The choice is SAVED, not applied: the chrome (nav rail, section labels,
+    # every cached tab) reads i18n.t() at build time, and Arabic also has to
+    # flip page.rtl. Applying half of that live would leave a mixed-language
+    # window with a half-mirrored layout, which is worse than one clean
+    # restart - so the row says "Restart to apply" like the other two here.
+    language_dropdown = ft.Dropdown(
+        value=i18n.current(),
+        width=260,
+        dense=True,
+        text_size=13,
+        bgcolor=ft.Colors.with_opacity(0.35, BG),
+        border_color=BORDER,
+        border_radius=RADIUS,
+        options=[
+            ft.dropdown.Option(
+                key=code,
+                text=(f"{native} — {english}" if code != "en" else english),
+            )
+            for code, native, english, _rtl in i18n.LANGUAGES
+        ],
+    )
+
+    def _on_language_change(e=None):
+        code = str(language_dropdown.value or "").strip().lower()
+        if code not in i18n.SUPPORTED:
+            from cubeon import thread_safe_ui
+            language_dropdown.value = i18n.current()
+            thread_safe_ui.refresh(language_dropdown)
+            return
+        previous = cfg.get(i18n.CONFIG_KEY)
+        cfg[i18n.CONFIG_KEY] = code
+        try:
+            from cubeon import config as _config
+            _config.save_config(cfg)
+        except Exception:
+            cfg[i18n.CONFIG_KEY] = previous
+            language_dropdown.value = previous or i18n.current()
+            from cubeon import thread_safe_ui
+            thread_safe_ui.refresh(language_dropdown)
+            set_status("Couldn't save the language")
+            return
+        rtl = i18n.is_rtl(code)
+        set_status(f"Language set to {i18n.language_name(code, english=True)}"
+                   + (" (right-to-left)" if rtl else "")
+                   + " - restart Cubeon to apply")
+
+    # on_select, NOT on_change: Flet 0.86's Dropdown fires on_select and
+    # silently ignores on_change (the bug tools/test_seasonal.py guards - a
+    # picker whose handler never runs looks fine in every headless test
+    # because the test calls the handler itself).
+    language_dropdown.on_select = _on_language_change
+
     launcher_rows = [
-        row("Glass background",
+        row(i18n.t("Language"),
+            "The launcher's own language. Restart to apply.",
+            language_dropdown),
+        row(i18n.t("Glass background"),
             "Translucent window. Restart to apply.",
             glass_cb),
     ]
     if custom_chrome_cb is not None:
         launcher_rows.append(row(
-            "Custom title bar",
+            i18n.t("Custom title bar"),
             "Cubeon's own window frame. Restart to apply.",
             custom_chrome_cb))
     launcher_rows.append(row(
@@ -349,22 +549,22 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         motion_switch))
 
     display_pane = pane(
-        "Display",
-        block("Game window", group([
+        i18n.t("Display"),
+        block(i18n.t("Game window"), group([
             row("Window size", "Resolution Minecraft opens at",
                 ft.Row([width_field, ft.Text("x", color=TEXT_DIM),
                         height_field], spacing=10,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER)),
         ])),
-        block("Launcher", group(launcher_rows)),
+        block(i18n.t("Launcher"), group(launcher_rows)),
     )
 
     # ======================================================================
     # SEASONAL
     # ======================================================================
     seasonal_pane = pane(
-        "Seasonal",
-        block("Look", group([
+        i18n.t("Seasonal"),
+        block(i18n.t("Look"), group([
             row("Seasonal look",
                 "Colours that follow the season in your timezone",
                 seasonal_switch),
@@ -388,7 +588,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 spacing=8,
             ), pad_v=10),
         ])),
-        block("Extras", group([
+        block(i18n.t("Extras"), group([
             row("Seasonal buddy", "A little companion on the sidebar",
                 season_pet_switch),
             row("Weather effects", "Leaves, snow or petals drifting across the top",
@@ -488,7 +688,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     )
 
     notification_rows = [
-        row(label, sub, _notify_switch(key))
+        row(i18n.t(label), sub, _notify_switch(key))
         for kind, key, label, sub in osnotify.KINDS
     ]
     notification_rows.append(row(
@@ -519,19 +719,19 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     minecraft_files_pane.visible = True
     system_pane = pane(
-        "System",
+        i18n.t("System"),
         block("Welcome tour", group([
             row("Replay onboarding", "See Cubeon's introduction again.",
                 ft.TextButton("Open tour", on_click=lambda e: on_replay_onboarding()))
         ])) if on_replay_onboarding else ft.Container(visible=False),
-        block("Notifications", group(notification_rows)),
-        block("Updates", group([
+        block(i18n.t("Notifications"), group(notification_rows)),
+        block(i18n.t("Updates"), group([
             row("Update channel",
                 "Stable gets finished releases. Beta also gets prereleases.",
                 update_channel_chip),
         ])),
         minecraft_files_pane,
-        block("Backups", group(backup_rows)),
+        block(i18n.t("Backups"), group(backup_rows)),
         ft.Row([cubeon_web_link, minekube_badge], spacing=16,
                vertical_alignment=ft.CrossAxisAlignment.CENTER),
     )

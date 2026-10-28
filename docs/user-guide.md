@@ -36,6 +36,11 @@ If you are running the source rather than a release, follow
 3. Choose Vanilla or a loader compatible with that version.
 4. Review memory and Java settings if needed, then select Play.
 
+In **Instances**, use the small pencil on a card to choose its icon. The same
+panel offers **20 blocks** and **20 mob heads**; your selection is saved per
+instance. Clicking the card itself still selects the instance. Play shows the
+loader as a compact tag beside the version.
+
 The first launch downloads missing game components and can take longer.
 Selecting an existing instance restores its version and loader.
 
@@ -86,21 +91,42 @@ project published only elsewhere will not appear in these results.
 
 ### Fixing installed content
 
-**Fix problems** in the installed-content view runs Cubeon's Doctor. For mods,
-it checks duplicate copies, missing required dependencies, loader/version
-compatibility, and declared Fabric conflicts. It can fetch compatible missing
-dependencies. Before disabling extra copies, disabling incompatible/conflicting
-mods, or replacing an installed build, it shows the affected files, instance,
-and reason and asks for approval. Cancel leaves those mods unchanged. Doctor
-keeps old files rather than deleting them; re-enable them in **Mods → Installed**.
-The status reports how many problems were fixed and still need attention. A
-cancelled required repair pauses launch instead of silently changing your mods.
+**Check & repair** in **Mods → Installed** runs Cubeon's local Doctor in the
+background. The same button checks resource packs and shaders in their installed
+views. It checks duplicate jars, required dependencies, loader/version compatibility,
+declared Fabric conflicts, and supported pack structure issues. Clicking the button
+authorizes reversible repairs, including fetching missing dependencies and renaming
+incompatible or duplicate jars to disabled backups. Re-enable those jars in Installed.
+The result appears beside the button; hover it for details of unresolved issues.
 
-The same system checks resource-pack compatibility and shader-pack structure;
-automatic checks also cover installed modpacks and server plugins. Doctor
-does not fix missing search results, repair arbitrary bugs inside a mod, or
-make a mod run on an unsupported Minecraft version or loader. Back up worlds
-before changing a modded installation.
+Automatic checks stay local and quiet: no approval or result windows. They leave
+existing mods enabled unless you explicitly request repair. Install-time checks can
+fetch missing dependencies without replacing an existing build. The permanent
+**Fix crash** button has been removed from Play. Repairs requested from an actual
+crash report also continue in the background.
+
+Doctor cannot repair arbitrary bugs inside a mod or make it support an incompatible
+Minecraft version. Launch-time checks remain limited to safe launcher configuration
+repairs and never wait on a dialog.
+
+### Website crash Doctor
+
+Click **Doctor** in a crash report to open the website with a redacted log excerpt
+already filled in. You can also open [Cubeon Doctor](https://cubeon.ylet.online/doctor)
+and upload a `.log` or `.txt` file (up to 2 MB), or paste the error. The page shows
+the likely cause, supporting log lines, and numbered visual steps pointing to the
+relevant launcher controls. These are illustrations; apply each change in Cubeon
+and test a fresh launch.
+
+Local diagnosis works without an account. **Analyze with free AI** optionally uses
+Kilo’s `kilo-auto/free` router through Cubeon’s server, with one retry for a
+temporary failure. No visitor sign-in is needed. Quotas or outages can prevent
+AI results, in which case the local guide stays available. Review the preview before sharing: automated redaction cannot catch
+every private detail. AI sends the excerpt through Cubeon’s server to Kilo and its selected provider.
+Free providers may log prompts and responses or use them for improvement;
+remove personal or confidential information before sharing.
+Large logs are shortened; your original file stays on disk. **Clear** removes the
+log from the page, and **Save this guide** downloads a text copy.
 
 ## Friends and servers
 
@@ -111,6 +137,27 @@ to use a build configured for Cubeon's services.
 Local server hosting runs on your computer. Shared access depends on the
 server and tunnel being available, and may be affected by firewall or
 network settings.
+
+## Launcher settings
+
+In **Settings → Display → Launcher**, choose **Language** and restart Cubeon to apply
+it. Arabic, English, Russian, and Spanish appear first, followed by Chinese, Hindi,
+Portuguese, French, German, Japanese, Turkish, Korean, Italian, Polish, Indonesian,
+Ukrainian, Urdu, Bengali, Persian, Malay, Pashto, and Roman Urdu. Core navigation and
+controls are translated; detailed messages without a translation fall back to English.
+Arabic, Urdu, Persian, and Pashto use a right-to-left layout.
+
+**Custom title bar** defaults on for Windows (including Windows 10) and Linux. An
+explicit saved choice to switch it off is preserved. Restart after changing it.
+
+In **Settings → Performance → Java**, expand **Cubeon's default flags** to see the
+options derived from your memory setting and hardware, with explanations and skipped
+options. This readout updates when you change RAM or custom flags. Custom flags go
+after defaults; choosing another garbage collector suppresses Cubeon's G1 options.
+
+**Settings → System → Notifications → Chat messages** controls incoming message
+notifications immediately. Open conversations in a focused launcher or the companion
+mod suppress their alerts; old history and your own sent messages do not trigger them.
 
 ## Updates
 

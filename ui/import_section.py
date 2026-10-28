@@ -35,6 +35,7 @@ import os
 import threading
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon import importer, thread_safe_ui
 from cubeon.config import run_dir_picker
@@ -476,7 +477,7 @@ def build_import_section(page, cfg, *, section_label, get_active_target,
                                     cache_extent=320),
                 width=420, height=min(360, 56 + 52 * len(rows)),
             ),
-            actions=[ft.TextButton("Cancel", on_click=lambda e: _close_picker(dlg, btn))],
+            actions=[ft.TextButton(i18n.t("Cancel"), on_click=lambda e: _close_picker(dlg, btn))],
             actions_alignment=ft.MainAxisAlignment.END,
             bgcolor=SURFACE,
         )

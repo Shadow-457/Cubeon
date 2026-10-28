@@ -24,6 +24,7 @@ from __future__ import annotations
 import threading
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon import thread_safe_ui
 from cubeon.theme import (
@@ -468,7 +469,7 @@ def build_onboarding(page, *, initial_name: str, info, friends_on: bool,
 
     # --- footer + switching ------------------------------------------------
     back_btn = ft.TextButton(
-        "Back", icon=ft.Icons.ARROW_BACK_ROUNDED,
+        i18n.t("Back"), icon=ft.Icons.ARROW_BACK_ROUNDED,
         visible=False,
         style=ft.ButtonStyle(color=TEXT_DIM, icon_color=TEXT_DIM),
     )

@@ -24,6 +24,7 @@ from __future__ import annotations
 import webbrowser
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon import dialogs as cubeon_dialogs
 from cubeon.theme import (
@@ -117,11 +118,17 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
             except Exception:
                 pass
 
+    def _doctor(e=None):
+        from cubeon.webdoctor import open_doctor
+        if not open_doctor(log_text, reason=reason, version_label=version_label):
+            if callable(show_snack):
+                show_snack("Couldn't open Doctor. Visit cubeon.ylet.online/doctor "
+                           "and use Copy log to paste this report.", duration=8000)
+
     def _fix_crash(e=None):
         if not callable(on_fix_crash):
             return
-        # The repair has its own review dialog; leaving the crash report
-        # mounted would stack two dialogs and bury the one that shows progress.
+        # The repair continues in the background; close the existing report.
         try:
             cubeon_dialogs.close_dialog(page, dlg)
         except Exception:
@@ -211,6 +218,13 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         content=content,
         actions=[
             ft.TextButton(
+                i18n.t("Doctor"), icon=ft.Icons.MEDICAL_SERVICES_ROUNDED,
+                on_click=_doctor, data="crash-web-doctor",
+                tooltip="Open the website Doctor with a redacted log excerpt. "
+                        "AI analysis shares that excerpt with Kilo.",
+                style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
+            ),
+            ft.TextButton(
                 "Copy log", icon=ft.Icons.CONTENT_COPY_ROUNDED,
                 on_click=_copy,
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
@@ -221,7 +235,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
             ),
             *([ft.TextButton(
-                "Fix crash", icon=ft.Icons.BUILD_ROUNDED,
+                i18n.t("Fix crash"), icon=ft.Icons.BUILD_ROUNDED,
                 on_click=_fix_crash,
                 tooltip="Read this crash log, explain it, and fix what it can",
                 style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),

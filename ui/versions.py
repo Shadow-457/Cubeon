@@ -8,8 +8,8 @@ keeps that one concern in one place and lets ``cubeon/instances.py`` feed all
 of it the same descriptor dict.
 
   * ``VersionPicker`` - the Game-version button plus a right-hand slide-in
-    panel (the same overlay shape as the Account panel) that lists every
-    installed instance with Play / Rename / Delete, and can switch to a
+    panel that lists installed instances with a configurable block/mob icon,
+    and can switch to a
     "New instance" view of versions that are not installed yet. Rows are
     tagged with the loader, a snapshot badge and (online) the release date;
     a "Latest release" shortcut jumps straight to the current release.
@@ -25,6 +25,7 @@ cheap to unit-test and free of the import cycle that would come from importing
 import threading
 
 import flet as ft
+from cubeon import i18n
 
 from cubeon.theme import (
     RADIUS, RADIUS_LG, ACCENT, ACCENT_TINT, TEXT, TEXT_DIM,
@@ -33,7 +34,7 @@ from cubeon.theme import (
 )
 from cubeon import instances as instance_info
 from cubeon import thread_safe_ui
-from cubeon import version_art
+from cubeon import instance_icons
 
 BANNER_FADE_MS = 180
 
@@ -120,8 +121,9 @@ class VersionPicker:
 
     The panel has two modes:
 
-      * ``installed`` - every installed instance with Play / Rename / Delete
-        and its on-disk size (walked off-thread), plus "New instance".
+      * ``installed`` - select-only cards with icon editing and on-disk size
+        (walked off-thread), plus "New instance".
+      * ``icons``     - 20 blocks or 20 mob heads for the chosen instance.
       * ``new``       - versions that are not installed yet, with search and
         the "Latest release" shortcut.
 
@@ -137,7 +139,7 @@ class VersionPicker:
 
     def __init__(self, page, *, get_selected, label_for, on_pick, on_browse_online,
                  get_instances=None, get_pack_name=None, on_open=None,
-                 loaders=None, instance_exists=None):
+                 loaders=None, instance_exists=None, get_icon=None, on_set_icon=None):
         self.page = page
         self.get_selected = get_selected
         self.label_for = label_for or (lambda _v: None)
@@ -147,6 +149,10 @@ class VersionPicker:
         self.get_pack_name = get_pack_name
         self.on_open = on_open
         self.instance_exists = instance_exists
+        self.get_icon = get_icon or (lambda _v: None)
+        self.on_set_icon = on_set_icon
+        self._icon_version = None
+        self._icon_category = 'block'
         # (id, label) pairs. The loader is chosen here, while downloading a
         # NEW instance, and then belongs to that installation (2026-10-26).
         self.loaders = list(loaders or [("vanilla", "Vanilla")])
@@ -161,11 +167,6 @@ class VersionPicker:
         self._mode = "installed"
         self._offline = False
         self._loading = False
-        # Version ids whose official art this panel already asked for. The
-        # disk cache in version_art is the real no-refetch guarantee; this
-        # only stops a rebuild storm (one per selection change) from starting
-        # several identical downloads before the first one lands.
-        self._art_requested: set[str] = set()
 
         self.label = ft.Text("No versions installed yet", size=14, color=TEXT_DIM,
                              font_family=FONT_MONO, expand=True)
@@ -222,7 +223,7 @@ class VersionPicker:
         self.browse_link = ft.Container(
             content=ft.Row(
                 [ft.Icon(ft.Icons.ADD_ROUNDED, color=ACCENT, size=16),
-                 ft.Text("New instance", size=13, color=ACCENT,
+                 ft.Text(i18n.t("New instance"), size=13, color=ACCENT,
                          weight=ft.FontWeight.W_700)],
                 spacing=6, tight=True,
             ),
@@ -234,7 +235,7 @@ class VersionPicker:
         self.back_link = ft.Container(
             content=ft.Row(
                 [ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, color=TEXT_DIM, size=14),
-                 ft.Text("Back", size=12.5, color=TEXT_DIM, weight=ft.FontWeight.W_600)],
+                 ft.Text(i18n.t("Back"), size=12.5, color=TEXT_DIM, weight=ft.FontWeight.W_600)],
                 spacing=6, tight=True,
             ),
             padding=ft.padding.Padding.symmetric(horizontal=8, vertical=6),
@@ -280,7 +281,7 @@ class VersionPicker:
             "Select a version, then press Download & Play.",
             size=11, color=TEXT_DIM, visible=False)
         self.retry_link = ft.TextButton(
-            "Retry", on_click=lambda e: self._browse(), visible=False)
+            i18n.t("Retry"), on_click=lambda e: self._browse(), visible=False)
 
         # Bounded lazy viewport: the panel is a long list, and building every
         # row at once made opening it visibly hitch on a big install set.
@@ -290,6 +291,10 @@ class VersionPicker:
 
         self.title = ft.Text("Instances", size=22, color=TEXT,
                              font_family=FONT_DISPLAY, expand=True)
+        self.icon_categories = ft.Row([
+            ft.TextButton(i18n.t('Blocks'), on_click=lambda e: self._change_icon_category('block')),
+            ft.TextButton(i18n.t('Mob heads'), on_click=lambda e: self._change_icon_category('mob')),
+        ], visible=False, spacing=8)
         self.subtitle = ft.Text(
             "Switch, rename, or remove an installed instance.",
             size=11.5, color=TEXT_DIM,
@@ -331,7 +336,7 @@ class VersionPicker:
                             self.title,
                             ft.IconButton(
                                 icon=ft.Icons.CLOSE_ROUNDED, icon_size=20,
-                                icon_color=TEXT_DIM, tooltip="Close",
+                                icon_color=TEXT_DIM, tooltip=i18n.t("Close"),
                                 on_click=lambda e: self.close(),
                             ),
                         ],
@@ -344,6 +349,7 @@ class VersionPicker:
                     self.offline_notice,
                     self.retry_link,
                     self.version_heading,
+                    self.icon_categories,
                     self.list,
                     self.install_hint,
                     ft.Container(height=6),
@@ -408,18 +414,25 @@ class VersionPicker:
     # -- interaction ---------------------------------------------------
     def _apply_mode(self):
         new = self._mode == "new"
-        self.title.value = "New instance" if new else "Instances"
-        self.subtitle.value = ("Build an instance with the version and loader you want."
-                               if new else
-                               "Switch, rename, or remove an installed instance.")
+        icons = self._mode == "icons"
+        if icons:
+            self.title.value = i18n.t('Choose icon')
+            self.subtitle.value = 'Pick a block or mob head for this instance.'
+        elif new:
+            self.title.value = i18n.t('New instance')
+            self.subtitle.value = 'Build an instance with the version and loader you want.'
+        else:
+            self.title.value = 'Instances'
+            self.subtitle.value = 'Switch instances or choose their icons.'
+        self.icon_categories.visible = icons
         self.filter_field.visible = bool(new and self._online)
         self.loader_row.visible = bool(new)
         self.version_heading.visible = new
         self.install_hint.visible = new
         self.retry_link.visible = bool(new and self._offline)
         self.latest_chip.visible = bool(new and self._online and self._latest)
-        self.back_link.visible = new
-        self.browse_link.visible = not new
+        self.back_link.visible = new or icons
+        self.browse_link.visible = not new and not icons
         self.offline_notice.visible = bool(new and self._offline)
 
     def _set_install_loader(self, loader_id):
@@ -508,6 +521,8 @@ class VersionPicker:
     def rebuild(self):
         if self._mode == "new":
             self._render_new()
+        elif self._mode == 'icons':
+            self._render_icons()
         else:
             self._render_installed()
         thread_safe_ui.refresh(self.list)
@@ -551,18 +566,58 @@ class VersionPicker:
                 self.on_pick(key)
 
     # -- rows ----------------------------------------------------------
+    def _open_icons(self, version_id):
+        if not callable(self.on_set_icon):
+            return
+        with thread_safe_ui.TREE_LOCK:
+            self._icon_version = version_id
+            self._mode = 'icons'
+            current = self.get_icon(version_id)
+            self._icon_category = 'mob' if isinstance(current,str) and current.startswith('mob-') else 'block'
+            self._apply_mode()
+            self._render_icons()
+        thread_safe_ui.refresh(self.panel)
+
+    def _change_icon_category(self, category):
+        with thread_safe_ui.TREE_LOCK:
+            self._icon_category = category
+            self._render_icons()
+        thread_safe_ui.refresh(self.list)
+
+    def _choose_icon(self, icon_id):
+        if not instance_icons.valid(icon_id) or not self._icon_version:
+            return
+        with thread_safe_ui.TREE_LOCK:
+            if self.on_set_icon(self._icon_version,icon_id) is False:
+                return
+            self._back()
+        thread_safe_ui.refresh(self.panel)
+
+    def _render_icons(self):
+        current = self.get_icon(self._icon_version)
+        tiles=[]
+        for icon in instance_icons.CATALOG:
+            if icon['category'] != self._icon_category:
+                continue
+            active = current == icon['id']
+            tiles.append(ft.Container(
+                data='instance-icon-option-' + icon['id'],
+                content=ft.Column([
+                    ft.Image(src=icon['src'],width=56,height=64,fit=ft.BoxFit.CONTAIN),
+                    ft.Text(icon['name'],size=10,color=ACCENT if active else TEXT_DIM,
+                            max_lines=1,overflow=ft.TextOverflow.ELLIPSIS),
+                ],spacing=4,horizontal_alignment=ft.CrossAxisAlignment.CENTER,tight=True),
+                expand=True,bgcolor=ACCENT_TINT if active else SURFACE_HI,
+                border=ft.border.Border.all(1,ACCENT if active else BORDER),
+                border_radius=RADIUS,padding=8,tooltip=icon['name'],ink=False,
+                on_click=lambda e,key=icon['id']:self._choose_icon(key),
+            ))
+        self.list.controls[:] = [ft.Row(tiles[i:i+4],spacing=8) for i in range(0,len(tiles),4)]
+
     def _installed_row(self, inst, selected):
-        """One select-only instance art card: real key art, title below.
+        """Select-only card with a bundled SVG icon and a separate edit click.
 
-        This is the "profile card" look from the reference (user ask,
-        2026-10-26): the version's official Mojang key art fills the top of
-        the card, with the instance name underneath. The art is served from
-        ``version_art``'s on-disk cache, so it is downloaded once and never
-        fetched again; an uncached version shows the bundled placeholder for
-        the moment it takes the download to land.
-
-        Rename and Delete live on the Play card's folder row, not on every
-        panel row - a row is for switching instances, one click.
+        Rename and Delete live on Play. Opening this list never fetches art.
         """
         vid = inst["id"]
         name = inst.get("display_name") or vid
@@ -600,23 +655,19 @@ class VersionPicker:
         size_text = ft.Text("\u2026", size=10.5, color=TEXT_FAINT,
                             font_family=FONT_MONO)
 
-        is_loader = loader not in (None, "vanilla")
-        # A REAL picture, not a vector glyph: the version's cached key art when
-        # it exists, otherwise a bundled block/cube animation. `src()` is
-        # disk-only and its encode is cached, so this is a dict lookup on every
-        # rebuild after the first.
-        thumb_src = version_art.src(base) if base else None
-        if not thumb_src:
-            thumb_src = "floating_cube.gif" if is_loader else "grass_block.gif"
-        thumb = ft.Image(src=thumb_src, fit=ft.BoxFit.COVER, expand=True)
+        thumb = ft.Image(src=instance_icons.source(self.get_icon(vid),loader=loader),
+                         fit=ft.BoxFit.CONTAIN,width=104,height=118)
+        edit = ft.IconButton(icon=ft.Icons.EDIT_ROUNDED,icon_size=16,icon_color=TEXT_DIM,
+                             tooltip=i18n.t('Choose icon'),data='instance-icon-edit-' + vid,
+                             on_click=lambda e,v=vid:self._open_icons(v),
+                             visible=callable(self.on_set_icon),right=4,top=4)
         art = ft.Container(
-            # Square key art, exactly like the reference cards: the official
-            # Mojang image is 540x540, so COVER in a square never crops the
-            # artwork into an unreadable strip (the user's "bs photo" report).
+            # Keep the card's square region while centering the smaller icon.
             aspect_ratio=1.0,
             bgcolor=SURFACE,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            content=thumb,
+            content=ft.Stack([ft.Container(content=thumb,alignment=ft.Alignment.CENTER,
+                                          left=0,right=0,top=0,bottom=0),edit]),
         )
 
         selected_chip = ft.Container(
@@ -683,35 +734,7 @@ class VersionPicker:
             ink=False,
             expand=True,
             on_click=lambda e, v=vid: self._pick(v),
-        ), size_text, inst, thumb, base
-
-    def _request_art(self, base, image):
-        """Fetch an uncached version banner once, then swap it into `image`.
-
-        Disk-cached art is already painted by ``_installed_row``; this is only
-        for the first run (or a brand-new version). ``version_art`` writes the
-        download under CACHE_DIR/version_art, so the next launch paints it
-        instantly and never touches Mojang again.
-        """
-        if not base or not image:
-            return
-        if version_art.cached_path(base):
-            return
-        if base in self._art_requested:
-            return
-        self._art_requested.add(base)
-
-        def _ready(_path):
-            src = version_art.src(base)
-            if not src:
-                return
-            try:
-                image.src = src
-                thread_safe_ui.refresh(image)
-            except Exception:
-                pass
-
-        version_art.prefetch(base, _ready)
+        ), size_text, inst
 
     def _render_installed(self):
         """Re-draw the installed list from the LIVE instance listing."""
@@ -720,14 +743,13 @@ class VersionPicker:
         except Exception:
             listing = []
         selected = self.get_selected()
-        cards, size_slots, art_slots = [], [], []
+        cards, size_slots = [], []
         for inst in listing:
-            row, size_text, meta, thumb, base = self._installed_row(
+            row, size_text, meta = self._installed_row(
                 inst, inst["id"] == selected)
             cards.append(row)
             size_slots.append((inst["id"], meta.get("folder") or inst["id"],
                                size_text))
-            art_slots.append((base, thumb))
         if cards:
             # Two square art cards per row, like the reference grid. The
             # placeholder keeps a lone last card at half width instead of
@@ -745,8 +767,6 @@ class VersionPicker:
                 padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16))]
         with thread_safe_ui.TREE_LOCK:
             self.list.controls[:] = rows
-        for base, thumb in art_slots:
-            self._request_art(base, thumb)
         if size_slots:
             threading.Thread(target=self._fill_sizes, args=(size_slots,),
                              daemon=True, name="ux-instance-sizes").start()

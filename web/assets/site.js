@@ -4,9 +4,8 @@
    Deliberately small: the mobile menu, the FAQ answers, a gentle reveal on
    scroll, a "this one's for your device" star on the right download, the
    global download counter, and the cookie banner (which only ever appears if
-   something genuinely needs consent - the site sets no cookies, and its only
-   outside request is the anonymous download-count total, which is why
-   cookies.html / privacy.html can keep describing the site accurately).
+   a configured feature needs consent). Doctor separately requests optional Kilo
+   AI after a user click; cookies.html and privacy.html describe its storage.
    Every block quits quietly when the page has none of the elements it drives,
    and everything works with JavaScript switched off.
    ========================================================================== */
@@ -260,7 +259,7 @@
     el.className = 'cookie-note';
     el.setAttribute('role', 'status');
     el.innerHTML =
-      '<p>No cookies here - never have been. <a href="cookies.html">Why</a></p>' +
+      '<p>No Cubeon tracking cookies. Optional AI uses Kilo. <a href="cookies.html">Why</a></p>' +
       '<button type="button" aria-label="Dismiss">&times;</button>';
     document.body.appendChild(el);
     var closeBtn = el.querySelector('button');
@@ -289,7 +288,7 @@
     el.innerHTML =
       '<div class="wrap">' +
         '<div class="txt"><b>Cookies &amp; your choices</b>' +
-        '<p>Cubeon sets no cookies today. If that ever changes, nothing extra runs until you say yes. Read the ' +
+        '<p>Cubeon uses no tracking cookies. Optional Doctor AI uses Kilo. If that ever changes, nothing extra runs until you say yes. Read the ' +
         '<a href="cookies.html">cookie page</a>.</p></div>' +
         '<div class="acts">' +
           '<button class="btn" type="button" data-consent="all">Accept all</button>' +
