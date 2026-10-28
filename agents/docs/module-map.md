@@ -205,6 +205,9 @@ consistent with the shared `THEME` contract.
   (`ClassNotFoundException: 他他他`, 2026-10-25). `_parse_custom_jvm_flags` drops non-option tokens (keeping
   separate values of `--add-opens`-style options), and the doctor's `launch` section clears bad flags/a
   dead `java_path`.
+- `cfg["default_jvm_flags_enabled"]` defaults to True. False removes all Cubeon-added heap/GC
+  flags and prevents forced G1 re-insertion; custom flags and required Minecraft/loader arguments
+  remain. Settings saves the switch immediately and uses the shared flag report for disabled rows.
 - Mod discovery has explicit compatible/all-Modrinth scope; broadened searches and direct project links
   never bypass install-time version/loader validation. Related-name fallback is labeled and stays on the
   same query across pages. The project detail dialog still lists builds for other game versions/loaders as
@@ -521,6 +524,7 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
 | Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_launch_fixes.py` |
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
+| Website search visibility | `test_website_seo.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Cosmetics | `test_cosmetics.py`, `test_appearance_preview.py`, `test_capes.py` |
@@ -531,6 +535,10 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 
 ## Releases and hosted services
 
+- Public website canonicals use `https://cubeon.ylet.online/` and clean, extensionless page paths.
+  Keep `web/sitemap.xml` aligned with indexable HTML pages; errors use noindex and API/report
+  URLs are omitted. `web/robots.txt` advertises the sitemap. Homepage JSON-LD contains real
+  product/platform/free-price facts, with no invented ratings. See `docs/development/website-seo.md`.
 - Website Doctor lives in `web/doctor.html`, with shared rules/evidence validation in
   `web/assets/doctor-core.js` and a server-only Groq → Kilo endpoint in `web/api/doctor.js`
   (root `api/doctor.js` wrapper). Set `GROQ_API_KEY` and `KILO_API_KEY` in hosting secrets, never browser code.
@@ -546,6 +554,9 @@ The default smoke gate does not run all registered suites; `--suites` does. See
   include up to four conflicts, with Minecraft/Java/loader requirements treated as runtime changes.
   AI failure codes distinguish configuration, credentials, quota, timeouts and invalid guides;
   local `.env` secrets do not reach Production, which needs a hosting secret plus redeployment.
+  AI is capped at 3 analysis requests per rolling 30 minutes per address hash **per instance**;
+  fallbacks count once, denied requests do not extend the window, and capacity 503s spend no slot.
+  Visitor 429s carry scope/retry seconds; shared global enforcement needs hosting/store configuration.
   See `docs/development/website-doctor.md` for size, timeout and instance-local throttling contracts.
 - A push to `main` starts the release workflow. Publishing, committing, deploying, and rewriting history
   require the user's explicit request.

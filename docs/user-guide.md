@@ -58,7 +58,8 @@ Microsoft/Mojang account.
 - **Modpacks:** carry their own Minecraft and loader requirements. Review
   the pack's requirements before installing it.
 - **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; drag
-  the 3D preview to inspect the model. Shoulder and back items are drawn in
+  the 3D preview to inspect the model. Shoulder and Back sections are marked **Beta**.
+  Shoulder and back items are drawn in
   game by Cubeon Client and are visible to you; skins and capes need compatible
   skin support. A selection is stored in the instance the game plays in, so
   each instance can keep a different item.
@@ -123,7 +124,10 @@ them. Apply one change at a time and test a fresh launch. Expand **See the error
 lines** for the evidence, or save the instructions as a `.md` file.
 
 AI tries Groq first and falls back to Kilo’s `kilo-auto/free` router through Cubeon’s server. No visitor sign-in
-is needed. If AI is unavailable, on-device instructions remain available; you
+is needed. AI is limited to three analyses per 30-minute window per network
+address on each server instance. When the quota is reached, the page shows
+how long to wait. On-device checks remain available without using AI quota.
+If AI is unavailable, on-device instructions remain available; you
 can also choose **Check on this device instead** in the log editor.
 That check covers common mod, Java, memory, config, archive, graphics and
 connection failures. When the error identifies a mod, the instructions name
@@ -165,6 +169,11 @@ In **Settings → Performance → Java**, expand **Cubeon's default flags** to s
 options derived from your memory setting and hardware, with explanations and skipped
 options. This readout updates when you change RAM or custom flags. Custom flags go
 after defaults; choosing another garbage collector suppresses Cubeon's G1 options.
+Turn off **Use Cubeon's default Java flags** to remove all Cubeon-added flags
+on the next game launch. This also removes Cubeon's `-Xmx` and `-Xms` values,
+so the RAM slider no longer sets the heap. Set your own heap flags in **Custom
+Java flags** if needed. Minecraft and loader arguments remain required. The
+switch saves immediately; no launcher restart is needed.
 
 **Settings → System → Notifications → Chat messages** controls incoming message
 notifications immediately. Open conversations in a focused launcher or the companion

@@ -58,10 +58,17 @@ for the new environment values and error messages to take effect.
 Log bodies and model output are bounded; only supported guide actions and
 matching evidence are accepted. Instructions render as an ordered list with
 a limited Markdown subset (bold, inline code and paragraphs); raw HTML never renders.
-Origin checks, five requests per minute per address hash, and eight simultaneous
-requests per function instance limit repeated calls. The in-memory throttle is
-**not a global limit**; configure the hosting firewall for limits shared across
-instances. The endpoint does not intentionally persist/log request bodies or
+Origin checks, **three analysis requests per rolling 30 minutes per address hash**,
+and eight simultaneous requests per function instance limit repeated calls.
+Provider fallback attempts count within one analysis. Denied requests do not
+extend the window; visitor HTTP 429 responses include `scope: "visitor"`, bounded
+`retry_after` seconds and an accurate `Retry-After` header. Capacity saturation
+returns HTTP 503 `ai_busy` without consuming a visitor slot. The page distinguishes
+visitor limits from upstream provider limits and retains the local guide.
+The in-memory throttle is **not a global limit**: serverless instances and
+restarts do not share it. Configure a shared hosting firewall rule or a durable
+rate-limit store before relying on it as a site-wide quota. Visitors behind the
+same address share this quota. The endpoint does not intentionally persist/log request bodies or
 return provider error details. Free providers may retain/use prompts and output;
 the page discloses this beside the upload area. File selection/drop starts AI;
 pasting requires an Analyze click, and launcher handoffs remain local until that click.

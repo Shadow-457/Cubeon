@@ -88,8 +88,8 @@ class SEOTests(unittest.TestCase):
 
     def test_product_data_matches_visible_product(self):
         page = self.pages['index']
-        self.assertIn('Cubeon', page.headings[0])
-        self.assertIn('Minecraft Launcher', page.headings[0])
+        self.assertIn('Minecraft', page.headings[0])
+        self.assertIn('Cubeon Minecraft Launcher', page.title)
         self.assertIn('Minecraft Launcher', self.pages['download'].title)
         schema, = [json.loads(value) for value in page.schemas]
         self.assertEqual(schema['@context'], 'https://schema.org')
