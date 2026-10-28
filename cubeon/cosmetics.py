@@ -32,7 +32,7 @@ import threading
 from PIL import Image
 
 from .config import save_config
-from .paths import MINECRAFT_DIR
+from .paths import active_game_dir
 
 SLOTS = ("shoulder", "back")
 
@@ -295,7 +295,15 @@ def selection_payload(cfg: dict) -> dict:
 
 
 def game_config_path(game_dir: str | None = None) -> str:
-    return os.path.join(game_dir or MINECRAFT_DIR, "config",
+    """``<gameDir>/config/cubeon-cosmetics.json`` for the given folder.
+
+    No explicit folder means the instance currently being played, NOT the
+    shared root: each instance has its own ``config/`` (Fabric passes it to
+    the mod as the config dir), so writing to the shared root made the
+    cosmetic silently vanish in game. Before the first launch
+    ``active_game_dir()`` is the shared root, which is the old behaviour.
+    """
+    return os.path.join(game_dir or active_game_dir(), "config",
                         "cubeon-cosmetics.json")
 
 

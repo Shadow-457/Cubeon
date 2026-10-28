@@ -1,5 +1,6 @@
 package com.cubeon.client.hud.screen;
 
+import com.cubeon.client.hud.CubeonHud;
 import com.cubeon.client.hud.CubeonHudConfig;
 import com.cubeon.client.hud.CubeonHud.Overlay;
 import net.minecraft.client.gui.DrawContext;
@@ -13,19 +14,23 @@ import java.util.function.Supplier;
 
 /**
  * The screen opened by the Cubeon Client menu key. Every overlay gets one row with an on/off
- * toggle next to a "Move" button that opens the drag editor for that overlay, plus a
- * reset button and Done at the bottom.
+ * toggle, a "Move" button that opens the drag editor for that overlay and a "Size" button that
+ * cycles that overlay's own size, plus a reset button and Done at the bottom.
+ *
+ * <p>Sizes are per overlay since 2026-10-28: the old single Scale button made the FPS counter
+ * and the keystrokes widget share a size, so making one readable made the other huge.
  */
 public final class CubeonHudMenuScreen extends Screen {
-	private static final int TOGGLE_WIDTH = 148;
-	private static final int MOVE_WIDTH = 64;
+	private static final int TOGGLE_WIDTH = 118;
+	private static final int MOVE_WIDTH = 48;
+	private static final int SIZE_WIDTH = 50;
 	private static final int ROW_GAP = 4;
 	private static final int ROW_HEIGHT = 24;
-	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + ROW_GAP + MOVE_WIDTH;
-	/**
-	 * Toggle rows above the Scale/Reset buttons: the five overlays.
-	 */
+	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + MOVE_WIDTH + SIZE_WIDTH + 2 * ROW_GAP;
+	/** Toggle rows above the Reset/Done buttons: the five overlays. */
 	private static final int ROWS = 5;
+	/** The sizes the Size button steps through. */
+	private static final float[] SCALES = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
 
 	public CubeonHudMenuScreen() {
 		super(Text.translatable("cubeonclient.menu.title"));
@@ -47,26 +52,6 @@ public final class CubeonHudMenuScreen extends Screen {
 		y += ROW_HEIGHT;
 		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
 		y += ROW_HEIGHT;
-
-		float[] scales = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
-
-		addDrawableChild(ButtonWidget.builder(Text.literal("Scale: " + CubeonHudConfig.get().scale), button -> {
-			CubeonHudConfig cfg = CubeonHudConfig.get();
-			int idx = 0;
-
-			for (int i = 0; i < scales.length; i++) {
-				if (Math.abs(scales[i] - cfg.scale) < 0.001F) {
-					idx = i;
-					break;
-				}
-			}
-
-			cfg.scale = scales[(idx + 1) % scales.length];
-			CubeonHudConfig.save();
-			button.setMessage(Text.literal("Scale: " + cfg.scale));
-		}).dimensions(x, y + ROW_GAP, TOTAL_WIDTH, 20).build());
-
-		y += ROW_HEIGHT + ROW_GAP;
 
 		int halfWidth = TOTAL_WIDTH / 2 - ROW_GAP / 2;
 
@@ -93,11 +78,33 @@ public final class CubeonHudMenuScreen extends Screen {
 				this.client.setScreen(new MoveOverlayScreen(this, overlay));
 			}
 		}).dimensions(x + TOGGLE_WIDTH + ROW_GAP, y, MOVE_WIDTH, 20).build());
+
+		addDrawableChild(ButtonWidget.builder(sizeLabel(overlay), button -> {
+			float current = CubeonHud.scaleOf(overlay);
+			int index = 0;
+
+			for (int i = 0; i < SCALES.length; i++) {
+				if (Math.abs(SCALES[i] - current) < 0.001F) {
+					index = i;
+					break;
+				}
+			}
+
+			CubeonHudConfig.get().setScaleFor(CubeonHud.slotOf(overlay),
+					SCALES[(index + 1) % SCALES.length]);
+			button.setMessage(sizeLabel(overlay));
+		}).dimensions(x + TOGGLE_WIDTH + MOVE_WIDTH + 2 * ROW_GAP, y, SIZE_WIDTH, 20).build());
+	}
+
+	/** "Size: 100%" for one overlay. */
+	private static Text sizeLabel(Overlay overlay) {
+		return Text.translatable("cubeonclient.menu.size",
+				Math.round(CubeonHud.scaleOf(overlay) * 100) + "%");
 	}
 
 	/** Every row between the title and the bottom of the screen. */
 	private static int contentHeight() {
-		return ROWS * ROW_HEIGHT + 2 * (ROW_HEIGHT + ROW_GAP);
+		return ROWS * ROW_HEIGHT + ROW_HEIGHT + ROW_GAP;
 	}
 
 	@Override

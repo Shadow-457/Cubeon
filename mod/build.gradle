@@ -160,6 +160,11 @@ processResources {
     // listing it unconditionally would have every Yarn jar point at a config
     // that is not there.
     def emotes = bracket.overlays.any { it.toString().startsWith('emotes') }
+    // The hold-to-zoom hooks target GameRenderer.getFov and Mouse.onMouseScroll,
+    // both Yarn-era methods; 26.x reshaped the FOV path, so those brackets have
+    // no zoom overlay and must not point at this config (a config naming a
+    // missing class is a startup warning). Same pattern as mixins_extra.
+    def zoom = bracket.overlays.any { it.toString().startsWith('zoom-') }
     def replacements = [
             version        : project.version,
             minecraft_range: bracket.depends,
@@ -168,6 +173,8 @@ processResources {
             mixins_extra   : obfuscated ? '' :
                     ',\n    {\n      "config": "cubeon-client-hud.mixins.json",\n' +
                             '      "environment": "client"\n    }',
+            zoom_mixins    : zoom ? ',\n    {\n      "config": "cubeon-client.zoom.mixins.json",\n' +
+                            '      "environment": "client"\n    }' : '',
             emotes_entrypoint : emotes ? ',\n      "com.emotesmod.client.EmotesClient"' : '',
             emotes_main       : emotes ? '\n      "com.emotesmod.EmotesMod"\n    ' : '',
             // Only an emotes build has a common (server-capable) initializer;

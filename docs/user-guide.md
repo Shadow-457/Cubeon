@@ -55,7 +55,16 @@ Microsoft/Mojang account.
 - **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; drag
   the 3D preview to inspect the model. Shoulder and back items are drawn in
   game by Cubeon Client and are visible to you; skins and capes need compatible
-  skin support.
+  skin support. A selection is stored in the instance the game plays in, so
+  each instance can keep a different item.
+- **In-game HUD and zoom:** press K in game to open the Cubeon Client menu.
+  Every overlay (FPS, keystrokes, armour, ping, CPS) has its own **Move** and
+  **Size** buttons, so making the keystrokes bigger does not enlarge the FPS
+  counter. The armour overlay shows only the four worn pieces, not the item in
+  your hand. Hold Z and scroll the mouse wheel to zoom smoothly; release to
+  return. Z can be rebound under Controls → Key Binds → Cubeon Client. Zoom is
+  available on Minecraft 1.20-1.21.11; the 26.x releases use a different FOV
+  system and do not have it yet.
 
 Screenshots have a separate section in Settings. Stats shows playtime and
 activity comparisons; it does not measure the game's frame rate.

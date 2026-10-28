@@ -386,6 +386,31 @@ def test_selection():
     finally:
         os.chmod(read_only, 0o700)
         shutil.rmtree(read_only, ignore_errors=True)
+
+    # No explicit folder means the instance being played. This is the bug
+    # that made a selected cosmetic invisible in game: the launcher wrote the
+    # shared root's config/, while the mod reads <instance>/config/.
+    from cubeon import paths
+    previous = paths.active_game_dir()
+    instance = tempfile.mkdtemp(prefix="cubeon-cosmetics-instance-")
+    try:
+        paths.set_active_game_dir(instance)
+        default_path = cosmetics.game_config_path()
+        check("no explicit folder targets the active instance",
+              default_path == os.path.join(instance, "config",
+                                           "cubeon-cosmetics.json"),
+              default_path)
+        cosmetics.sync_to_game(cfg)
+        check("the sync creates the instance's config folder",
+              os.path.isfile(default_path), default_path)
+        with open(default_path, encoding="utf-8") as fh:
+            same = json.load(fh) == cosmetics.selection_payload(cfg)
+        check("the instance file holds the current selection", same)
+    finally:
+        paths.set_active_game_dir(previous)
+        shutil.rmtree(instance, ignore_errors=True)
+    check("the active instance is restored after the check",
+          paths.active_game_dir() == previous)
     shutil.rmtree(scratch, ignore_errors=True)
 
 

@@ -2,6 +2,7 @@
 	"key.category.cubeon-client.main": "Cubeon Client",
 
 	"key.cubeon-client.open_menu": "Open Cubeon Client Menu",
+	"key.cubeon-client.zoom": "Hold to Zoom (scroll to adjust)",
 
 	"cubeonclient.menu.title": "Cubeon Client Settings",
 	"cubeonclient.menu.show_fps": "Show FPS: %s",
@@ -16,7 +17,8 @@
 	"cubeonclient.menu.show_cps": "Show CPS: %s",
 	"cubeonclient.menu.motion_blur": "Motion Blur: %s",
 	"cubeonclient.menu.move": "Move",
-	"cubeonclient.menu.reset_positions": "Reset Positions",
+	"cubeonclient.menu.size": "Size: %s",
+	"cubeonclient.menu.reset_positions": "Reset Positions & Sizes",
 
 	"cubeonclient.editor.fps": "Move the FPS display",
 	"cubeonclient.editor.keys": "Move the keystrokes display",

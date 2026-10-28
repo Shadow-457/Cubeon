@@ -65,7 +65,7 @@ public final class MoveOverlayScreen extends Screen {
 		int w = CubeonHud.widthOf(overlay, this.minecraft);
 		int h = CubeonHud.heightOf(overlay, this.minecraft);
 
-		float hudScale = CubeonHudConfig.get().scale;
+		float hudScale = CubeonHud.scaleOf(overlay);
 		graphics.pose().pushMatrix();
 		graphics.pose().scale(hudScale, hudScale);
 

@@ -19,7 +19,7 @@
     {
       "config": "cubeon-client.mixins.json",
       "environment": "client"
-    }${mixins_extra}${emotes_mixins}
+    }${mixins_extra}${zoom_mixins}${emotes_mixins}
   ],
   "depends": {
     "minecraft": "${minecraft_range}",

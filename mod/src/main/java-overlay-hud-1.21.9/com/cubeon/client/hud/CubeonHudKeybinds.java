@@ -19,6 +19,7 @@ public final class CubeonHudKeybinds {
 
 	/** Vanilla 1.21.11 leaves K unbound; users can rebind it in the controls screen. */
 	private static KeyBinding openMenu;
+	private static KeyBinding zoom;
 
 	private CubeonHudKeybinds() {
 	}
@@ -30,6 +31,14 @@ public final class CubeonHudKeybinds {
 				GLFW.GLFW_KEY_K,
 				CATEGORY);
 		KeyBindingHelper.registerKeyBinding(openMenu);
+
+		// Z is unbound in vanilla; the same controls screen can move it.
+		zoom = new KeyBinding(
+				"key." + CubeonHudClient.MOD_ID + ".zoom",
+				InputUtil.Type.KEYSYM,
+				GLFW.GLFW_KEY_Z,
+				CATEGORY);
+		KeyBindingHelper.registerKeyBinding(zoom);
 	}
 
 	/** Called once per client tick; opens the menu when the key was newly pressed. */
@@ -44,5 +53,16 @@ public final class CubeonHudKeybinds {
 		if (openMenu.wasPressed()) {
 			client.setScreen(new CubeonHudMenuScreen());
 		}
+	}
+
+	/**
+	 * True while the zoom key is held in game. The FOV and scroll mixins call
+	 * this every frame instead of caching the state, so a rebind takes effect
+	 * immediately and no screen can end up zoomed.
+	 */
+	public static boolean zoomActive() {
+		MinecraftClient client = MinecraftClient.getInstance();
+		return zoom != null && zoom.isPressed() && client.player != null
+				&& client.world != null && client.currentScreen == null;
 	}
 }

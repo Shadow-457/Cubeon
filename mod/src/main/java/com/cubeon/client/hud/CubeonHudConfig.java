@@ -56,10 +56,32 @@ public final class CubeonHudConfig {
 	public boolean showArmorChest = true;
 	public boolean showArmorLegs = true;
 	public boolean showArmorFeet = true;
-	public boolean showArmorMainHand = true;
-	public boolean showArmorOffHand = true;
 
+	/**
+	 * Size of each overlay, independent of the others (2026-10-28). A single
+	 * global scale made the keystrokes widget and the FPS counter share one
+	 * size, so making one readable made the other huge.
+	 *
+	 * <p>Null means "not set by this version" - {@link #scaleFor(String)} then
+	 * falls back to {@link #scale}, which is what an upgraded config's shared
+	 * size becomes. The fields stay null in a config saved without ever
+	 * touching that overlay, so the old global value keeps working.
+	 */
+	public Float fpsScale = null;
+	public Float keysScale = null;
+	public Float armorScale = null;
+	public Float pingScale = null;
+	public Float cpsScale = null;
+
+	/**
+	 * The legacy single size, kept so a config written by an older jar (and an
+	 * older jar reading a newer config) still means what it meant. New code
+	 * reads per-overlay sizes through {@link #scaleFor(String)}.
+	 */
 	public float scale = 1.0F;
+
+	/** How far the hold-to-zoom key magnifies: 1 = off, 8 = strongest. */
+	public float zoomFactor = 4.0F;
 
 	/** 0 = flush left, 1 = flush right. */
 	public float fpsX = 0.0F;
@@ -119,7 +141,7 @@ public final class CubeonHudConfig {
 		}
 	}
 
-	/** Puts both overlays back to their factory positions. */
+	/** Puts every overlay back to its factory position and size. */
 	public static void resetPositions() {
 		CubeonHudConfig defaults = new CubeonHudConfig();
 		instance.fpsX = defaults.fpsX;
@@ -132,6 +154,60 @@ public final class CubeonHudConfig {
 		instance.pingY = defaults.pingY;
 		instance.cpsX = defaults.cpsX;
 		instance.cpsY = defaults.cpsY;
+		instance.resetScales();
+	}
+
+	public static final float MIN_SCALE = 0.5F;
+	public static final float MAX_SCALE = 2.0F;
+
+	/** The size of one overlay ("fps", "keys", "armor", "ping", "cps"). */
+	public float scaleFor(String slot) {
+		Float value = switch (slot) {
+			case "fps" -> fpsScale;
+			case "keys" -> keysScale;
+			case "armor" -> armorScale;
+			case "ping" -> pingScale;
+			case "cps" -> cpsScale;
+			default -> null;
+		};
+		return value == null ? clampScale(scale) : clampScale(value);
+	}
+
+	/** Sets one overlay's size and saves. Unknown slots are ignored. */
+	public void setScaleFor(String slot, float value) {
+		float clamped = clampScale(value);
+		switch (slot) {
+			case "fps" -> fpsScale = clamped;
+			case "keys" -> keysScale = clamped;
+			case "armor" -> armorScale = clamped;
+			case "ping" -> pingScale = clamped;
+			case "cps" -> cpsScale = clamped;
+			default -> {
+				return;
+			}
+		}
+		save();
+	}
+
+	/** Clears the per-overlay sizes, so every overlay uses {@link #scale} again. */
+	public void resetScales() {
+		fpsScale = null;
+		keysScale = null;
+		armorScale = null;
+		pingScale = null;
+		cpsScale = null;
+		// The reset button means "back to how a fresh install looks", so the
+		// legacy shared value goes back to 1.0 too - leaving it at an old
+		// global size would make every overlay still oversized after a reset
+		// that visibly did nothing.
+		scale = 1.0F;
+	}
+
+	private static float clampScale(float value) {
+		if (Float.isNaN(value)) {
+			return 1.0F;
+		}
+		return Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
 	}
 
 	/**
@@ -173,7 +249,18 @@ public final class CubeonHudConfig {
 		cpsX = clamp01(cpsX);
 		cpsY = clamp01(cpsY);
 
-		if (scale < 0.5F) scale = 0.5F;
-		if (scale > 2.0F) scale = 2.0F;
+		scale = clampScale(scale);
+
+		if (fpsScale != null) fpsScale = clampScale(fpsScale);
+		if (keysScale != null) keysScale = clampScale(keysScale);
+		if (armorScale != null) armorScale = clampScale(armorScale);
+		if (pingScale != null) pingScale = clampScale(pingScale);
+		if (cpsScale != null) cpsScale = clampScale(cpsScale);
+
+		// 1 is "no zoom" and would make the hold key look broken, so the
+		// useful range starts a little in.
+		if (Float.isNaN(zoomFactor)) zoomFactor = 4.0F;
+		if (zoomFactor < 1.25F) zoomFactor = 1.25F;
+		if (zoomFactor > 8.0F) zoomFactor = 8.0F;
 	}
 }

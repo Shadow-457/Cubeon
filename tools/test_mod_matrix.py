@@ -631,6 +631,80 @@ def test_shipped_jars(matrix):
            f"(missing: {missing_mixins})")
 
 
+def test_zoom():
+    """Hold-to-zoom: one overlay per getFov return type, and no 26.x claim."""
+    section("hold-to-zoom wiring")
+    matrix = load(os.path.join(MOD, "brackets.json"))
+    buckets = {b["key"]: [o for o in b["overlays"]
+                          if str(o).startswith("zoom-")]
+               for b in matrix["brackets"]}
+    yarn = [b for b in matrix["brackets"] if b["mappings"] == "yarn"]
+    mojang = [b for b in matrix["brackets"] if b["mappings"] != "yarn"]
+    ok(all(len(buckets[b["key"]]) == 1 for b in yarn),
+       "every Yarn bracket carries exactly one zoom overlay")
+    ok(all(not buckets[b["key"]] for b in mojang),
+       "26.x brackets carry none: their FOV path moved and is not ported")
+
+    # GameRenderer.getFov returns a double up to 1.21.1 and a float from
+    # 1.21.2. A jar with the wrong copy compiles (the names match) and then
+    # fails to apply the mixin at startup, which is why the split is checked
+    # by version here instead of trusted.
+    parse = cubeonfriends.parse_mc_version
+    wrong = []
+    for b in yarn:
+        expected = ("zoom-double"
+                    if parse(b["compile_against"]) < parse("1.21.2")
+                    else "zoom-float")
+        if buckets[b["key"]] != [expected]:
+            wrong.append((b["key"], buckets[b["key"]], expected))
+    ok(not wrong, f"each zoom overlay matches getFov's return type ({wrong})")
+
+    for overlay in ("zoom-double", "zoom-float"):
+        base = os.path.join(MOD, "src", "main", f"java-overlay-{overlay}",
+                            "com", "cubeon", "client", "mixin")
+        ok(os.path.isfile(os.path.join(base, "ZoomMixin.java"))
+           and os.path.isfile(os.path.join(base, "ZoomScrollMixin.java")),
+           f"{overlay} ships both the FOV and the scroll hook")
+
+    shared = os.path.join(MOD, "src", "main", "java", "com", "cubeon", "client",
+                          "hud", "Zoom.java")
+    ok(os.path.isfile(shared), "the smoothed zoom state is in the shared tree")
+    shared_src = open(shared, encoding="utf-8").read()
+    ok("CubeonHudConfig" in shared_src and "net.minecraft" not in shared_src,
+       "and it stays Minecraft-free, so the shared tree still compiles alone")
+
+    cfg_path = os.path.join(MOD, "src", "main", "resources",
+                            "cubeon-client.zoom.mixins.json")
+    ok(os.path.isfile(cfg_path), "the zoom mixin config is shipped")
+    if os.path.isfile(cfg_path):
+        cfg = load(cfg_path)
+        ok(set(cfg.get("client", [])) == {"ZoomMixin", "ZoomScrollMixin"},
+           "it registers both zoom mixins")
+        ok(cfg.get("required") is False
+           and cfg.get("injectors", {}).get("defaultRequire") == 0,
+           "and it is fail-soft: a mismatch costs the zoom, not the game")
+        ok(cfg.get("compatibilityLevel") == "JAVA_17",
+           "its compatibilityLevel matches the jar's bytecode")
+
+        gradle = open(os.path.join(MOD, "build.gradle"), encoding="utf-8").read()
+        ok("zoom_mixins" in gradle and "cubeon-client.zoom.mixins.json" in gradle,
+           "build.gradle lists that config only via the templated mixins array")
+        fabric = open(os.path.join(MOD, "src", "main", "resources",
+                                   "fabric.mod.json"), encoding="utf-8").read()
+        ok("${zoom_mixins}" in fabric, "fabric.mod.json asks the build for it")
+
+        dbl = open(os.path.join(MOD, "src", "main", "java-overlay-zoom-double",
+                                "com", "cubeon", "client", "mixin", "ZoomMixin.java"),
+                   encoding="utf-8").read()
+        flt = open(os.path.join(MOD, "src", "main", "java-overlay-zoom-float",
+                                "com", "cubeon", "client", "mixin", "ZoomMixin.java"),
+                   encoding="utf-8").read()
+        ok("CallbackInfoReturnable<Double>" in dbl and "getReturnValueD" in dbl,
+           "the 1.20-1.21.1 copy reads and writes a double")
+        ok("CallbackInfoReturnable<Float>" in flt and "getReturnValueF" in flt,
+           "the 1.21.2+ copy reads and writes a float")
+
+
 def main():
     matrix = test_table()
     test_version_parsing()
@@ -640,6 +714,7 @@ def main():
     test_fabric_api_install()
     test_resources(matrix)
     test_mouse_buttons()
+    test_zoom()
     test_shipped_jars(matrix)
     print()
     print(f"{passed} passed, {failed} failed")

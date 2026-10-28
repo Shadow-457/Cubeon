@@ -817,6 +817,14 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     on_exit(returncode) is still accepted.
     """
     if cfg is not None:
+        # Each install plays in its OWN game folder (worlds, configs,
+        # options.txt), with the shared staging folders linked into it - see
+        # paths.INSTANCES_GAME_DIR. Falls back to the shared folder when the
+        # filesystem refuses a link, so this is never a new failure mode.
+        # Resolved FIRST because the per-game-dir writes below (cosmetics)
+        # must land in the folder this launch will actually read.
+        game_dir = game_dir_for(version_id)
+
         # Offline skins are keyed by username, so the file CSL looks for is
         # <USERNAME>.png. Re-syncing here covers any path that changed the
         # name or the skin without going through set_active_skin().
@@ -833,10 +841,12 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             save_config(cfg)
 
         # Shoulder/back cosmetics: the client mod reads this file, so a
-        # selection made in the Cosmetics tab is live on the next join.
+        # selection made in the Cosmetics tab is live on the next join. Written
+        # into THIS launch's game folder - the mod's config dir is the
+        # instance's config/, not the shared root.
         try:
             from . import cosmetics as _cosmetics
-            _cosmetics.sync_to_game(cfg)
+            _cosmetics.sync_to_game(cfg, game_dir)
         except Exception:
             logging.getLogger(__name__).debug(
                 "cosmetics sync failed", exc_info=True)
@@ -894,7 +904,10 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # with the shared staging folders linked into it - see
     # paths.INSTANCES_GAME_DIR. Falls back to the shared folder when the
     # filesystem refuses a link, so this is never a new failure mode.
-    game_dir = game_dir_for(version_id) if cfg is not None else MINECRAFT_DIR
+    # Already resolved at the top of the cfg block; this covers the callers
+    # that launch without a config dict (a bare command build).
+    if cfg is None:
+        game_dir = MINECRAFT_DIR
 
     # The Cubeon Client is a social mod and draws almost nothing; the actual
     # frame-rate win comes from the client performance mod suite (Sodium,

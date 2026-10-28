@@ -36,12 +36,13 @@ public final class CubeonHud {
 	static final int SPACE_HEIGHT = 6;
 
 	// Armour rows: a real item icon with the remaining durability next to it, the
-	// layout used by the usual PvP clients - helmet, chestplate, leggings, boots,
-	// held item, offhand. Only worn, damageable items get a row; empty slots are
-	// simply skipped.
+	// layout used by the usual PvP clients - helmet, chestplate, leggings, boots.
+	// Only worn, damageable items get a row; empty slots are simply skipped. The
+	// held item and offhand deliberately have no row (2026-10-28): their durability
+	// is already on the hotbar, and this HUD is about armour.
 	static final int ARMOR_ICON_SIZE = 16;
 	static final int ARMOR_ROW_HEIGHT = 16;
-	static final int ARMOR_SLOTS = 6;
+	static final int ARMOR_SLOTS = 4;
 	static final int ARMOR_WIDTH = 44;
 	static final int ARMOR_HEIGHT = ARMOR_SLOTS * ARMOR_ROW_HEIGHT;
 
@@ -96,36 +97,26 @@ public final class CubeonHud {
 		int screenW = context.getScaledWindowWidth();
 		int screenH = context.getScaledWindowHeight();
 
-		float hudScale = config.scale;
-		context.getMatrices().pushMatrix();
-		context.getMatrices().scale(hudScale, hudScale);
-
 		if (config.showFps) {
-			renderFps(context, client, (int) (posX(Overlay.FPS, config, client, screenW) / hudScale),
-					(int) (posY(Overlay.FPS, config, client, screenH) / hudScale));
+			renderOverlay(context, client, config, Overlay.FPS, screenW, screenH, CubeonHud::renderFps);
 		}
 
 		if (config.showKeys) {
-			renderKeys(context, client, (int) (posX(Overlay.KEYS, config, client, screenW) / hudScale),
-					(int) (posY(Overlay.KEYS, config, client, screenH) / hudScale), false);
+			renderOverlay(context, client, config, Overlay.KEYS, screenW, screenH,
+					(drawContext, minecraftClient, x, y) -> renderKeys(drawContext, minecraftClient, x, y, false));
 		}
 
 		if (config.showArmor) {
-			renderArmor(context, client, (int) (posX(Overlay.ARMOR, config, client, screenW) / hudScale),
-					(int) (posY(Overlay.ARMOR, config, client, screenH) / hudScale));
+			renderOverlay(context, client, config, Overlay.ARMOR, screenW, screenH, CubeonHud::renderArmor);
 		}
 
 		if (config.showPing) {
-			renderPing(context, client, (int) (posX(Overlay.PING, config, client, screenW) / hudScale),
-					(int) (posY(Overlay.PING, config, client, screenH) / hudScale));
+			renderOverlay(context, client, config, Overlay.PING, screenW, screenH, CubeonHud::renderPing);
 		}
 
 		if (config.showCps) {
-			renderCps(context, client, (int) (posX(Overlay.CPS, config, client, screenW) / hudScale),
-					(int) (posY(Overlay.CPS, config, client, screenH) / hudScale));
+			renderOverlay(context, client, config, Overlay.CPS, screenW, screenH, CubeonHud::renderCps);
 		}
-
-		context.getMatrices().popMatrix();
 
 		renderTargetHighlight(context, client);
 
@@ -168,7 +159,7 @@ public final class CubeonHud {
 			case PING -> pingWidth(client);
 			case CPS -> cpsWidth(client);
 		};
-		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
+		return Math.max(1, Math.round(base * CubeonHud.scaleOf(overlay)));
 	}
 
 	public static int heightOf(Overlay overlay, MinecraftClient client) {
@@ -179,7 +170,7 @@ public final class CubeonHud {
 			case PING -> client.textRenderer.fontHeight + 3;
 			case CPS -> cpsHeight(client);
 		};
-		return Math.max(1, Math.round(base * CubeonHudConfig.get().scale));
+		return Math.max(1, Math.round(base * CubeonHud.scaleOf(overlay)));
 	}
 
 	public static int widgetWidth() {
@@ -244,6 +235,44 @@ public final class CubeonHud {
 		}
 	}
 
+	/**
+	 * Draws one overlay at its own size. A single transform around the whole HUD
+	 * cannot work any more: each overlay has a size of its own
+	 * ({@link CubeonHudConfig#scaleFor(String)}), so its pixels are scaled and
+	 * its screen position is divided by that same scale.
+	 */
+	private static void renderOverlay(DrawContext context, MinecraftClient client, CubeonHudConfig config,
+			Overlay overlay, int screenW, int screenH, OverlayRenderer renderer) {
+		float scale = config.scaleFor(slotOf(overlay));
+		context.getMatrices().pushMatrix();
+		context.getMatrices().scale(scale, scale);
+		renderer.render(context, client,
+				Math.round(posX(overlay, config, client, screenW) / scale),
+				Math.round(posY(overlay, config, client, screenH) / scale));
+		context.getMatrices().popMatrix();
+	}
+
+	/** One overlay's saved size, including the legacy shared-size fallback. */
+	public static float scaleOf(Overlay overlay) {
+		return CubeonHudConfig.get().scaleFor(slotOf(overlay));
+	}
+
+	/** The config slot name of an overlay ("fps", "keys", ...). */
+	public static String slotOf(Overlay overlay) {
+		return switch (overlay) {
+			case FPS -> "fps";
+			case KEYS -> "keys";
+			case ARMOR -> "armor";
+			case PING -> "ping";
+			case CPS -> "cps";
+		};
+	}
+
+	@FunctionalInterface
+	private interface OverlayRenderer {
+		void render(DrawContext context, MinecraftClient client, int x, int y);
+	}
+
 	// ------------------------------------------------------------------------ drawing
 
 	public static void renderFps(DrawContext context, MinecraftClient client, int x, int y) {
@@ -287,8 +316,6 @@ public final class CubeonHud {
 				player.getEquippedStack(EquipmentSlot.CHEST),
 				player.getEquippedStack(EquipmentSlot.LEGS),
 				player.getEquippedStack(EquipmentSlot.FEET),
-				player.getMainHandStack(),
-				player.getOffHandStack(),
 		};
 
 		int row = 0;
@@ -298,8 +325,6 @@ public final class CubeonHud {
 				CubeonHudConfig.get().showArmorChest,
 				CubeonHudConfig.get().showArmorLegs,
 				CubeonHudConfig.get().showArmorFeet,
-				CubeonHudConfig.get().showArmorMainHand,
-				CubeonHudConfig.get().showArmorOffHand,
 		};
 
 		for (int i = 0; i < stacks.length; i++) {

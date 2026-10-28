@@ -66,7 +66,7 @@ public final class MoveOverlayScreen extends Screen {
 
 		// Live ghost of the overlay itself; the keystrokes widget is drawn fully lit
 		// so it reads as a preview.
-		float hudScale = CubeonHudConfig.get().scale;
+		float hudScale = CubeonHud.scaleOf(overlay);
 		context.getMatrices().push();
 		context.getMatrices().scale(hudScale, hudScale, 1.0F);
 

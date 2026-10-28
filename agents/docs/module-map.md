@@ -394,6 +394,11 @@ consistent with the shared `THEME` contract.
 
 - `cubeon/cosmetics.py` owns the catalogue, preview quads, thumbnails, selection and
   `<game>/config/cubeon-cosmetics.json` (atomic, change-only; the mod polls it every 250 ms).
+  `<game>` is the INSTANCE game folder, never the shared root: Fabric hands the mod
+  `<gameDir>/config`, and writing the shared root's `config/` is why a selected cosmetic was invisible
+  in game (fixed 2026-10-28). `game_config_path()`/`sync_to_game()` with no explicit folder resolve
+  `paths.active_game_dir()`; `launch_game()` passes the folder it just resolved so a launch can never
+  write to a different instance than the one it starts.
   `tools/gen_cosmetics.py` is the ONLY art source: it writes both `assets/cosmetics/` and the jar bundle,
   so never hand-edit a PNG or `catalog.json` - change the generator and rerun it.
 - Preview (`preview_faces`) and Java `CosmeticGeometry.java` are ONE contract; `tools/test_cosmetics.py`
@@ -409,6 +414,27 @@ consistent with the shared `THEME` contract.
   refresh it after every mod build; `test_repository_hygiene.py` fails a tracked jar without the catalogue.
 - Skin/Cape "None" is local: skin None writes the built-in Steve sheet to LocalSkin (beats a published
   Worker skin); cape None writes a transparent LocalSkin cape (`hide_cubeon_cape`). Friends keep theirs.
+
+### Cubeon Client HUD and hold-to-zoom
+
+- `CubeonHudConfig` stores one size per overlay (`fpsScale`/`keysScale`/`armorScale`/`pingScale`/
+  `cpsScale`, nullable) and keeps the old `scale` as the fallback, so an upgraded config and an older jar
+  both keep their meaning. Read sizes through `scaleFor(slot)`/`CubeonHud.scaleOf(overlay)`; never apply
+  `scale` directly. `resetPositions()` also resets sizes to 1.0 (it is labelled "Reset Positions & Sizes").
+- Each overlay pushes its own matrix around its own draw (`CubeonHud.renderOverlay`) and divides its
+  screen position by that same scale. A single transform around the whole HUD is wrong now: it would scale
+  every widget by one overlay's size. Three matrix spellings exist by era (`getMatrices().push()` +
+  3-arg `scale` on 1.20, `pushMatrix()` + 2-arg on 1.20.2-1.21.11, `pose().pushMatrix()` on 26.x).
+- The armour HUD is helmet/chest/legs/feet only. The held item and offhand rows were removed on
+  2026-10-28 (their durability is already on the hotbar); `ARMOR_SLOTS = 4` and the config has no
+  `showArmorMainHand`/`showArmorOffHand` fields.
+- Hold-to-zoom is Yarn-only (`zoom-double` for 1.20-1.21.1 where `GameRenderer.getFov` returns `double`,
+  `zoom-float` for 1.21.2-1.21.11 where it returns `float`); 26.x moved the FOV path and is not ported.
+  `Zoom.java` (shared, Minecraft-free) owns the wall-clock easing and the wheel target; `ZoomMixin` reads
+  `CubeonHudKeybinds.zoomActive()` and multiplies the FOV return, `ZoomScrollMixin` cancels only the
+  notches that adjust zoom (so the hotbar does not change). The config is listed through the
+  `${zoom_mixins}` template; do not list it unconditionally, a config naming a missing class is a startup
+  warning. Default key: Z.
 
 ### Windows, Java, and packaging
 
@@ -426,7 +452,8 @@ consistent with the shared `THEME` contract.
 - The game must not inherit launcher-only software-graphics overrides. Crash text must not promise a fix
   that has not been verified.
 - `mod/brackets.json` is the version-routing authority. Per-version source overlays are intentional; do
-  not collapse them as accidental duplication.
+  not collapse them as accidental duplication. The `zoom-double`/`zoom-float` split follows
+  `GameRenderer.getFov`'s return type (double through 1.21.1, float from 1.21.2), not a HUD era.
 - Current mod assembly needs JDK 25+ for Gradle, while bytecode targets Java 17.
 - Bundle the Flet desktop client, color templates, required mod jars, and
   `assets/jars/connect-spigot.jar`. The large tunnel JAR is a runtime dependency.
