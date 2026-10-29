@@ -41,7 +41,7 @@ DEFAULT_BETA_FEED = UPDATE_SERVICE + "/updates/beta"
 # github.com/<repo>/releases/tag/... The site is the public front door, it is
 # what the site text and the download worker agree on, and it picks the right
 # file for the visitor's OS. Override with CUBEON_DOWNLOAD_URL for staging.
-DOWNLOAD_URL = "https://cubeon.ylet.online/download"
+DOWNLOAD_URL = "https://www.ylet.online/download"
 
 # OS notifications remain once per version. The startup Skip / Update prompt
 # is independent of this marker and can appear again on the next launch.

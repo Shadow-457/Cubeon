@@ -553,11 +553,15 @@ consistent with the shared `THEME` contract.
   `ui/update_prompt.py` with Skip / Update. Skip lasts this launch; `update_notice_seen` limits only
   OS toasts. `update_channel` defaults stable; beta includes prereleases and changes apply next start.
   No installer bytes download before Update. `cubeon/update_install.py` verifies size/SHA-256 and
-  handles registered Windows installs and writable x86_64 AppImages; portable/macOS/source/package
-  installs use manual release downloads. Install & restart requires idle game/install/server state.
+  handles registered Windows installs and x86_64 AppImages in writable directories, including mode
+  0555 files; AppRun preserves the original path as `CUBEON_APPIMAGE_PATH`. Update never opens a browser;
+  unverifiable downloads report an inline error. Unsupported builds have an explicit Download manually
+  action. Restart requires idle game/install/server state. Portable/macOS/source/package installs
+  still need manual installation.
   Helpers start in the session exit path (including the window-gone watchdog), wait for process exit,
   and recheck bytes; never run a replacement or re-exec from inside a live Flet session. AppImages
-  keep a `.cubeon-previous` copy. Native Windows installation still needs a Windows smoke check.
+  keep a `.cubeon-previous` copy (also replaced atomically if read-only) and reset PyInstaller's
+  environment before reopening the updated executable. Native Windows installation still needs a Windows smoke check.
 - Preserve all three Windows reveal paths: forced visible transition, `to_front()` call, and the native
   `winwindow.py` backstop. Flet's default-value suppression can make a plain `visible=True` assignment
   ineffective.
@@ -639,10 +643,14 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 
 ## Releases and hosted services
 
-- Public website canonicals use `https://cubeon.ylet.online/` and clean, extensionless page paths.
+- Public website canonicals use `https://www.ylet.online/` and clean, extensionless page paths.
+  The displayed brand is Cubeon Launcher; Ylet publisher credits are removed. Bare `ylet.online`
+  and the old `cubeon.ylet.online` host permanently redirect to the same www paths. Hosting already
+  redirects apex to www: do not reverse it or redirect www to itself. Keep the former hosts attached.
   Keep `web/sitemap.xml` aligned with indexable HTML pages; errors use noindex and API/report
   URLs are omitted. `web/robots.txt` advertises the sitemap. Homepage JSON-LD contains real
-  product/platform/free-price facts, with no invented ratings. See `docs/development/website-seo.md`.
+  product/platform/free-price facts, with no invented ratings. Ownership-only `google*.html` files
+  stay out of the sitemap and page instrumentation. See `docs/development/website-seo.md`.
 - Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash
   discarded after 24h). Every content page carries the HTML snippet
   (`window.vaq` + `/_vercel/insights/script.js`) before `</body>`; numeric status pages

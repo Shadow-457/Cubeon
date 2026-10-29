@@ -1,11 +1,53 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
-  "functions": { "api/doctor.js": { "maxDuration": 60 } },
+  "functions": {
+    "api/doctor.js": {
+      "maxDuration": 60
+    }
+  },
   "redirects": [
-    { "source": "/linuxdownload", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdownload", "permanent": false },
-    { "source": "/linuxdeb", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdeb", "permanent": false },
-    { "source": "/linuxsetup", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxsetup", "permanent": false },
-    { "source": "/windowsdownload", "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload", "permanent": false }
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "ylet.online"
+        }
+      ],
+      "destination": "https://www.ylet.online/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "cubeon.ylet.online"
+        }
+      ],
+      "destination": "https://www.ylet.online/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/linuxdownload",
+      "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdownload",
+      "permanent": false
+    },
+    {
+      "source": "/linuxdeb",
+      "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxdeb",
+      "permanent": false
+    },
+    {
+      "source": "/linuxsetup",
+      "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxsetup",
+      "permanent": false
+    },
+    {
+      "source": "/windowsdownload",
+      "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload",
+      "permanent": false
+    }
   ]
 }

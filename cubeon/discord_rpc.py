@@ -51,7 +51,7 @@ _HEADER = struct.Struct("<II")  # opcode (uint32 LE) + frame length (uint32 LE)
 # DOWNLOAD_URL): the button says "website", and the launcher already contains
 # the download. tools/test_ui_smoke.py pins both to the same host so the two
 # cannot silently drift to different domains.
-SITE_URL = "https://cubeon.ylet.online"
+SITE_URL = "https://www.ylet.online"
 SITE_BUTTONS = ({"label": "Cubeon website", "url": SITE_URL},)
 
 

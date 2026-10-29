@@ -50,6 +50,7 @@ EOF
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "$0")")"
+export CUBEON_APPIMAGE_PATH="${APPIMAGE:-${CUBEON_APPIMAGE_PATH:-}}"
 exec "$HERE/usr/bin/Cubeon" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"

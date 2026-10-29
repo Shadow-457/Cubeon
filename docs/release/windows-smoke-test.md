@@ -13,7 +13,7 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
 
 ## 0. Get the file the way a member will
 
-1. On the Windows box open **https://cubeon.ylet.online/download** - the site,
+1. On the Windows box open **https://www.ylet.online/download** - the site,
    not a GitHub link. (The repo is private, so release pages are an auth wall
    for anyone but us.)
 2. Click **Download for Windows**. Expect `Cubeon-Windows-x64-Setup.exe` at the
@@ -56,7 +56,7 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
     and none is newer yet, redo this step after the next release. Within about
     10 seconds a snackbar appears: **"Cubeon X.Y.Z is available"**. ☐
 12. Click **Get it**. The browser must open
-    **https://cubeon.ylet.online/download**. ☐
+    **https://www.ylet.online/download**. ☐
     - If it opens a github.com release page, or an auth wall, tell me - that is
       the exact bug this was supposed to fix, and it would mean the installed
       build is older than the fix.

@@ -133,7 +133,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         from cubeon.webdoctor import open_doctor
         if not open_doctor(log_text, reason=reason, version_label=version_label):
             if callable(show_snack):
-                show_snack("Couldn't open Doctor. Visit cubeon.ylet.online/doctor "
+                show_snack("Couldn't open Doctor. Visit www.ylet.online/doctor "
                            "and use Copy log to paste this report.", duration=8000)
 
     # --- local Doctor (same sections as Settings) ---------------------------

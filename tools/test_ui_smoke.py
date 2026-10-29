@@ -1674,7 +1674,7 @@ try:
     _rpc_activity = (_sent[-1]["args"]["activity"] if _sent else {})
     check("the in-launcher activity carries the website button",
           _rpc_activity.get("buttons") == [{"label": "Cubeon website",
-                                            "url": "https://cubeon.ylet.online"}],
+                                            "url": "https://www.ylet.online"}],
           _rpc_activity.get("buttons"))
     _sent.clear()
     _rpc_probe.set_activity(details="Playing Minecraft", state="1.21.1",
@@ -1683,12 +1683,12 @@ try:
     check("a caller can still ask for a bare card",
           "buttons" not in _rpc_no_buttons, _rpc_no_buttons)
     check("the button points at the site the download page lives on",
-          _rpc_mod.SITE_URL == "https://cubeon.ylet.online"
+          _rpc_mod.SITE_URL == "https://www.ylet.online"
           and _rpc_mod.SITE_BUTTONS[0]["url"] == _rpc_mod.SITE_URL)
     _upd_src = open(os.path.join(_app_root, "cubeon", "updater.py"),
                     encoding="utf-8").read()
     check("which is the same host updater.DOWNLOAD_URL uses",
-          '"https://cubeon.ylet.online/' in _upd_src,
+          '"https://www.ylet.online/' in _upd_src,
           "the RPC button and the download page must not drift to two domains")
 
     _names = {"username": "Initial"}

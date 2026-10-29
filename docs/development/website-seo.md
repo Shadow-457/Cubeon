@@ -1,11 +1,12 @@
 # Website search visibility
 
-The canonical production site is **https://cubeon.ylet.online**. Public pages
+The canonical production site is **https://www.ylet.online**. Public pages
 declare clean canonical URLs and matching Open Graph URLs in their HTML.
 The homepage and download metadata identify Cubeon as a free Minecraft Java
-Edition launcher for Windows and Linux. The homepage keeps its original
-“Minecraft, but better.” headline; the visible introduction names the product
-and links to installation, mods, modpacks, multiplayer and troubleshooting guides.
+Edition launcher for Windows and Linux. The homepage visibly identifies
+**Cubeon Launcher** in its main heading, with Minecraft Java Edition explained
+in the introduction, and links to installation, mods, modpacks, multiplayer
+and troubleshooting guides.
 
 `web/sitemap.xml` lists all 18 public HTML pages, using `/` for the homepage and
 extensionless paths for other pages. It excludes error pages, API calls,
@@ -13,33 +14,54 @@ download redirects and report fragments. `web/robots.txt` allows crawling and
 advertises the sitemap; API routes are excluded. Error pages carry `noindex`.
 Both Vercel configurations enable clean URLs with no trailing slash.
 
-Homepage JSON-LD describes the WebSite, Ylet publisher and SoftwareApplication,
+Homepage JSON-LD names **Cubeon Launcher** consistently in WebSite, publisher,
+WebPage and SoftwareApplication records,
 using the real platforms, free price, download page and bundled screenshot.
 Do not add fabricated ratings, reviews, update dates or unsupported features.
 Structured data helps identify the product; it does not guarantee rich results.
 
+## Domain migration and site name
+
+The bare domain `https://ylet.online/` already redirects to `https://www.ylet.online/`
+in hosting. Both Vercel configurations preserve that direction and permanently
+redirect the old `cubeon.ylet.online` host to the same paths on www. Keep all
+three domains attached to the same hosting project while old links migrate.
+Do not add a www-to-apex rule: it would conflict with the existing redirect.
+The launcher’s downloads, Doctor and Discord website links use the www origin.
+
+Google chooses the displayed site name automatically. The homepage provides
+`WebSite.name = "Cubeon Launcher"` with `Cubeon` and `Cubeon Minecraft Launcher`
+as alternatives, matching Open Graph and visible branding. It carries no Ylet
+publisher credit. Changing the domain alone cannot set the displayed name.
+See [Google’s site-name guidance](https://developers.google.com/search/docs/appearance/site-names).
+
 ## After publishing
 
 1. Verify that the live homepage, `/download`, `/robots.txt` and `/sitemap.xml`
-   return HTTP 200 on `cubeon.ylet.online`. The deployed static output must
+   return HTTP 200 on `www.ylet.online`. The deployed static output must
    contain the contents of `web/`, including the two crawl files.
 2. Open [Google Search Console](https://search.google.com/search-console).
-   Add the URL-prefix property `https://cubeon.ylet.online/`, or a domain
+   Add the URL-prefix property `https://www.ylet.online/`, or a domain
    property for a domain you control. Complete Google's HTML-file or DNS
    verification using the exact value Google supplies. Verification needs the
    site owner's Google account and hosting/DNS access.
-3. Under **Sitemaps**, submit `https://cubeon.ylet.online/sitemap.xml`.
+3. Under **Sitemaps**, submit `https://www.ylet.online/sitemap.xml`.
 4. Use **URL inspection** on the homepage and download page, run the live test,
    and request indexing. Review Google's chosen canonical and any blocked URLs.
-5. Monitor indexing and Performance queries such as “Cubeon launcher” and
+5. In the old subdomain property, use Change of Address when available after
+   verifying the permanent redirects. Keep them for at least a year. The previous
+   screenshot confirmed only the old homepage was indexed; inspect the www URL
+   separately and check Google’s selected canonical after it recrawls.
+6. Monitor indexing and Performance queries such as “Cubeon launcher” and
    “Cubeon Minecraft launcher”. Keep release information and helpful guides
    accurate, and link to the canonical site from the real project profiles.
 
 Do not submit preview deployments for indexing. Keep preview environments
 excluded from search through hosting settings and verify their `X-Robots-Tag`.
-No Search Console verification, submission or deployment was performed by the
-offline checks. Google controls crawling and rankings; these changes cannot
-promise first place or immediate indexing.
+Search Console verification pages are static ownership files; they are excluded
+from the sitemap and page instrumentation checks. Offline checks do not submit
+URLs to Search Console or deploy the site. Google controls crawling and rankings;
+these changes cannot promise first place or immediate indexing.
 
 ## Verification
 

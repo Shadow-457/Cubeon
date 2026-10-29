@@ -110,8 +110,9 @@ def _updater_feed():
                        "body": "notes here"})
     info = updater.check_for_updates(feed_url="https://feed")
     check(info == {"version": "9.9.9", "url": updater.DOWNLOAD_URL,
-                   "notes": "notes here"}, "newer release is reported")
-    check(info["url"] == "https://cubeon.ylet.online/download",
+                   "notes": "notes here", "channel": "stable", "assets": {}},
+          "newer release is reported")
+    check(info["url"] == "https://www.ylet.online/download",
           "and the offer points at the site's download page")
     check("github.com" not in info["url"] and info["url"] != "https://x/release",
           "NOT at the release's html_url - this repo is private and the "

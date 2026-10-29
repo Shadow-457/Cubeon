@@ -1,6 +1,6 @@
 <h1 align="center">Cubeon</h1>
 
-<p align="center">Minecraft Java Edition launcher by <a href="https://www.ylet.online/">Ylet</a>.</p>
+<p align="center">A free Minecraft Java Edition launcher.</p>
 
 <p align="center">
   <a href="https://github.com/Shadow-457/Cubeon/releases"><img src="https://img.shields.io/github/v/release/Shadow-457/Cubeon?include_prereleases&amp;style=flat-square&amp;label=VERSION&amp;color=8a2be2&amp;labelColor=555555" alt="Latest Cubeon release" height="28"></a>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://cubeon.ylet.online/download">Download</a> ·
+  <a href="https://www.ylet.online/download">Download</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="SECURITY.md">Security</a>
@@ -20,8 +20,7 @@
 </p>
 
 Cubeon manages game installations, modded instances, cosmetics, and local
-servers. Developed by [Ylet](https://www.ylet.online/), it is built with
-Python and Flet for Linux, Windows, and macOS.
+servers. It is built with Python and Flet for Linux, Windows, and macOS.
 
 ## Capabilities
 
@@ -48,7 +47,7 @@ not run mods or shader packs on its own.
 ## Getting started
 
 Get the build for your operating system from the
-[download page](https://cubeon.ylet.online/download).
+[download page](https://www.ylet.online/download).
 See [User guide](docs/user-guide.md) for first launch, updates, and
 troubleshooting. Python is not required for packaged builds.
 

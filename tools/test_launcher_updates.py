@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import types
 from unittest.mock import Mock, patch
@@ -157,6 +158,8 @@ class LauncherUpdates(unittest.TestCase):
                 prompt.update.on_click(None)
                 download.assert_called_once()
                 self.assertEqual(prompt.phase, "ready")
+                self.assertEqual(prompt.update.content, "Restart")
+                self.assertEqual(prompt.progress.value, 1)
                 install.assert_not_called()
                 with patch.object(update_install, "prepare_install", return_value={"job": "fixture"}):
                     prompt.update.on_click(None)
@@ -176,10 +179,10 @@ class LauncherUpdates(unittest.TestCase):
                     patch("ui.update_prompt.webbrowser.open") as browser:
                 prompt.update.on_click(None)
                 download.assert_not_called()
-                if target.can_install:
-                    browser.assert_not_called()
-                    self.assertEqual(prompt.phase, "offered")
-                else:
+                browser.assert_not_called()
+                self.assertEqual(prompt.phase, "offered")
+                if not target.can_install:
+                    prompt.manual.on_click(None)
                     browser.assert_called_once_with(release()["assets"]["linux"]["url"])
 
     def test_verified_download_and_partial_cleanup(self):
@@ -223,14 +226,43 @@ class LauncherUpdates(unittest.TestCase):
         info["assets"]["linux"]["url"] = release()["assets"]["linux"]["url"]
         self.assertIsNone(update_install.release_asset(info, target))
 
-    def test_missing_checksum_uses_visible_download(self):
+    def test_missing_checksum_stays_inline_without_browser_or_download(self):
         info = release()
         info["assets"]["linux"]["sha256"] = None
         target = update_install.InstallTarget("linux", Path("/tmp/app"))
         prompt = UpdatePrompt(FakePage(), info, busy=lambda: False, install=Mock(), target=target)
-        with patch("ui.update_prompt.webbrowser.open") as browser:
+        with patch("ui.update_prompt.webbrowser.open") as browser, \
+                patch.object(update_install, "download_update") as download:
             prompt.update.on_click(None)
-            browser.assert_called_once()
+            browser.assert_not_called()
+            download.assert_not_called()
+            self.assertEqual(prompt.phase, "offered")
+            self.assertIn("missing a verified update", prompt.status.value)
+
+    def test_readonly_appimage_in_writable_directory_updates_inside_launcher(self):
+        if sys.platform != "linux":
+            self.skipTest("AppImage detection")
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp)/"Cubeon.AppImage"
+            image.write_bytes(b"old app")
+            image.chmod(0o555)
+            with patch.dict(os.environ, {"APPIMAGE":str(image)}), \
+                    patch.object(sys, "frozen", True, create=True), \
+                    patch("cubeon.update_install.platform.machine", return_value="x86_64"):
+                target = update_install.installation_target()
+                self.assertEqual(target.path, image)
+                self.assertTrue(target.can_install)
+                prompt = UpdatePrompt(FakePage(),release(),busy=lambda:False,install=Mock(),target=target)
+                with patch.object(update_install,"download_update",return_value=Path(tmp)/"download") as download, \
+                        patch("ui.update_prompt.threading.Thread") as thread, \
+                        patch("ui.update_prompt.webbrowser.open") as browser:
+                    thread.side_effect=lambda *,target,**kw: Mock(start=target)
+                    prompt.update.on_click(None)
+                    download.assert_called_once()
+                    browser.assert_not_called()
+                    self.assertEqual(prompt.update.content,"Restart")
+                with patch.dict(os.environ,{"APPIMAGE":"","CUBEON_APPIMAGE_PATH":str(image)}):
+                    self.assertEqual(update_install.installation_target().path,image)
 
     def test_busy_checks_actual_game_and_server_ownership(self):
         from cubeon import watchdog, server
@@ -252,7 +284,10 @@ class LauncherUpdates(unittest.TestCase):
             root = Path(tmp)
             app, downloaded = root/"Cubeon.AppImage", root/"download"
             app.write_bytes(b"old app")
-            app.chmod(0o755)
+            app.chmod(0o555)
+            previous=Path(str(app)+".cubeon-previous")
+            previous.write_bytes(b"older app")
+            previous.chmod(0o555)
             downloaded.write_bytes(b"new app")
             target = update_install.InstallTarget("linux", app)
             job = update_install.prepare_install(release(), target, downloaded, reopen=False)
@@ -268,6 +303,26 @@ class LauncherUpdates(unittest.TestCase):
             self.assertEqual(app.read_bytes(), b"new app")
             self.assertEqual(Path(str(app)+".cubeon-previous").read_bytes(), b"old app")
             self.assertTrue(os.access(app, os.X_OK))
+
+    def test_appimage_helper_reopens_new_version_with_fresh_environment(self):
+        if sys.platform != "linux":
+            self.skipTest("Linux helper")
+        with tempfile.TemporaryDirectory() as tmp:
+            app, downloaded, marker = Path(tmp)/"app", Path(tmp)/"download", Path(tmp)/"reopened"
+            app.write_bytes(b"old app")
+            app.chmod(0o555)
+            payload=b'#!/bin/sh\nprintf "%s:%s:%s:%s" "$PYINSTALLER_RESET_ENVIRONMENT" "${APPIMAGE:-}" "${APPDIR:-}" "${CUBEON_APPIMAGE_PATH:-}" > "$CUBEON_UPDATE_TEST_MARKER"\n'
+            downloaded.write_bytes(payload)
+            job=update_install.prepare_install(release(payload),update_install.InstallTarget("linux",app),downloaded)
+            job["command"][2]="2147483647"
+            env=dict(os.environ,APPIMAGE="old-image",APPDIR="old-mount",CUBEON_APPIMAGE_PATH="old-image",CUBEON_UPDATE_TEST_MARKER=str(marker))
+            result=subprocess.run(job["command"],env=env,capture_output=True,timeout=5)
+            self.assertEqual(result.returncode,0,result.stderr)
+            deadline=time.monotonic()+2
+            while not marker.is_file() and time.monotonic()<deadline:
+                time.sleep(0.01)
+            self.assertEqual(marker.read_text(),"1:::")
+            self.assertEqual(app.read_bytes(),payload)
 
     def test_helper_rechecks_checksum_after_preparation(self):
         if sys.platform != "linux":

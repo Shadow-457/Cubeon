@@ -7,7 +7,7 @@ so it cannot drift away from the brand, and the launcher window in it is the
 same screenshot the landing page's hero uses (web/assets/cubeon-play.png).
 
 Every content page declares it, so it must stay a real 1200x630:
-    <meta property="og:image" content="https://cubeon.ylet.online/assets/og.png" />
+    <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
 
 Two traps, both hit while writing this:
 
@@ -36,12 +36,12 @@ HTML = os.path.join(ROOT, "tools", "og-card.html")  # source; NOT under web/
 W, H = 1200, 630
 
 # Clipboard of what the card says. Keep it in step with web/index.html's hero.
-HEADLINE = "Minecraft, but better."
+HEADLINE = "Cubeon Minecraft Launcher"
 LEDE = ("A free desktop launcher for Windows and Linux: play offline under any "
         "name, and keep mods, skins and versions in one window. No account, "
         "no adverts.")
 CHIPS = ["Free", "Windows + Linux", "No account"]
-FOOT = "cubeon.ylet.online"
+FOOT = "www.ylet.online"
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -50,9 +50,8 @@ TEMPLATE = """<!DOCTYPE html>
 <title>Cubeon - Open Graph card</title>
 <style>
   /* The site's own faces and palette (web/assets/site.css), so the card cannot
-     drift away from the brand. Paths are absolute file:// URLs on purpose: this
-     document is loaded straight off disk, and a relative url() would resolve
-     against the card's own folder. */
+     drift away from the brand. Paths are relative to this source in tools/, so regenerating the
+     card does not write machine-specific workspace paths into its source. */
   @font-face{{font-family:'Minecraftia';src:url('{fonts}/Minecraftia-Regular.ttf') format('truetype')}}
   @font-face{{font-family:'Inter';src:url('{fonts}/Inter.ttf') format('truetype')}}
 
@@ -120,7 +119,7 @@ TEMPLATE = """<!DOCTYPE html>
   <div class="card">
     <div class="col-text">
       <div class="brand">
-        <img src="file://{cube}" alt="" />
+        <img src="{cube}" alt="" />
         <span>Cubeon</span>
       </div>
       <div class="rule"></div>
@@ -138,7 +137,7 @@ TEMPLATE = """<!DOCTYPE html>
     </div>
 
     <div class="shot">
-      <img src="file://{shot}" alt="" />
+      <img src="{shot}" alt="" />
     </div>
   </div>
   <div class="bar"></div>
@@ -156,7 +155,9 @@ def build_html():
         if not os.path.exists(path):
             raise SystemExit(f"missing asset: {path}")
     return TEMPLATE.format(
-        w=W, h=H, fonts=fonts, cube=cube, shot=shot,
+        w=W, h=H, fonts=os.path.relpath(fonts, os.path.dirname(HTML)),
+        cube=os.path.relpath(cube, os.path.dirname(HTML)),
+        shot=os.path.relpath(shot, os.path.dirname(HTML)),
         headline=HEADLINE, lede=LEDE,
         chip0=CHIPS[0], chip1=CHIPS[1], chip2=CHIPS[2], foot=FOOT,
     )

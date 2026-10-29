@@ -21,16 +21,17 @@ class UpdatePrompt:
         self.download = None
         self._last_progress = 0.0
         asset = update_install.release_asset(info, self.target)
-        self.can_install = self.target.can_install and bool(
-            re.fullmatch(r"[0-9a-f]{64}", str((asset or {}).get("sha256") or ""), re.I))
+        self.can_install = self.target.can_install
         size = (asset or {}).get("size")
         detail = "Download the update now, or skip and keep using Cubeon."
         if not self.can_install:
-            detail = "Update opens this version's download. Install it with your usual installer."
+            detail = self.target.reason or "This installation needs a manual update. You can download it below."
         self.status = ft.Text(detail, size=13)
         self.progress = ft.ProgressBar(value=0, visible=False)
         self.skip = ft.TextButton("Skip", on_click=self._skip, data="update-skip")
         self.update = ft.FilledButton("Update", on_click=self._update, data="update-now")
+        self.manual = ft.TextButton("Download manually", on_click=self._manual_download,
+                                    data="update-manual", visible=not self.can_install)
         content = [self.status]
         if isinstance(size, int) and size > 0:
             content.append(ft.Text(f"Download: {size / 1024**2:.0f} MB", size=12))
@@ -41,7 +42,7 @@ class UpdatePrompt:
             modal=True,
             title=ft.Text(f"Cubeon {info['version']} is available"),
             content=ft.Container(width=440, content=ft.Column(content, tight=True, spacing=12)),
-            actions=[self.skip, self.update],
+            actions=[self.skip, self.update, self.manual],
             on_dismiss=self._skip,
         )
 
@@ -69,15 +70,13 @@ class UpdatePrompt:
             if self.phase not in {"offered", "ready"}:
                 return
             if not self.can_install:
-                asset = update_install.release_asset(self.info, self.target)
-                try:
-                    if not webbrowser.open(asset["url"] if asset else self.info["url"]):
-                        raise RuntimeError("No browser opened")
-                except Exception:
-                    self.status.value = "Couldn't open the download. Please try again."
-                    self._paint()
-                    return
-                self._skip()
+                self.status.value = self.target.reason or "This installation needs a manual update. Choose Download manually below."
+                self._paint()
+                return
+            asset = update_install.release_asset(self.info, self.target)
+            if not re.fullmatch(r"[0-9a-f]{64}", str((asset or {}).get("sha256") or ""), re.I):
+                self.status.value = "This release is missing a verified update. Restart Cubeon to check again."
+                self._paint()
                 return
             if self.busy():
                 self.status.value = "Close Minecraft and stop any active installs or servers, then try again."
@@ -102,6 +101,20 @@ class UpdatePrompt:
             self._paint()
             threading.Thread(target=self._download, daemon=True, name="cubeon-update-download").start()
 
+    def _manual_download(self, _e=None):
+        with thread_safe_ui.TREE_LOCK:
+            if self.can_install or self.phase != "offered":
+                return
+            asset = update_install.release_asset(self.info, self.target)
+            try:
+                if not webbrowser.open(asset["url"] if asset else self.info["url"]):
+                    raise RuntimeError("No browser opened")
+            except Exception:
+                self.status.value = "Couldn't open the download. Please try again."
+                self._paint()
+                return
+            self._skip()
+
     def _progress(self, done, total):
         now = time.monotonic()
         if done < total and now - self._last_progress < 0.2:
@@ -123,10 +136,11 @@ class UpdatePrompt:
                     return
                 self.download = path
                 self.phase = "ready"
-                self.update.content = "Install & restart"
+                self.update.content = "Restart"
                 self.update.disabled = False
                 self.skip.content = "Skip"
-                self.status.value = "Update ready. Install it and restart Cubeon when you're ready."
+                self.progress.value = 1
+                self.status.value = "Download verified. Restart to install the update and reopen Cubeon."
                 self._paint()
         except update_install.UpdateCancelled:
             return

@@ -8646,7 +8646,7 @@ async def main(page: ft.Page):
             with _app_update_lock:
                 _pending_app_update["job"] = None
             state["updating_launcher"] = False
-            failed("Couldn't close Cubeon. Try Install & restart again.")
+            failed("Couldn't close Cubeon. Try Restart again.")
 
         try:
             page.run_task(_close_for_update)

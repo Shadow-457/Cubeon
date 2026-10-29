@@ -50,6 +50,7 @@ def file_digest(path):
 class InstallTarget:
     asset: str
     path: Path | None = None
+    reason: str = ""
 
     @property
     def can_install(self):
@@ -75,11 +76,14 @@ def installation_target() -> InstallTarget:
         return InstallTarget("windows-zip")
     if sys.platform == "darwin":
         return InstallTarget("macos")
-    image = os.environ.get("APPIMAGE")
+    image = os.environ.get("APPIMAGE") or os.environ.get("CUBEON_APPIMAGE_PATH")
     if image and getattr(sys, "frozen", False) and platform.machine().lower() in {"x86_64", "amd64"}:
         path = Path(image).resolve()
-        if path.is_file() and os.access(path, os.W_OK) and os.access(path.parent, os.W_OK):
+        # Atomic replacement needs write/search permission on the directory,
+        # not write permission on the existing executable (often mode 0555).
+        if path.is_file() and os.access(path.parent, os.W_OK | os.X_OK):
             return InstallTarget("linux", path)
+        return InstallTarget("linux", reason="Move the Cubeon AppImage to a writable folder, reopen it, and try Update again.")
     return InstallTarget("linux" if not getattr(sys, "frozen", False) else "linux-deb")
 
 
@@ -169,14 +173,17 @@ done
 actual=$(sha256sum -- "$download")
 [ "${actual%% *}" = "$digest" ] || exit 1
 replacement=$(mktemp "${target}.update.XXXXXX")
-trap 'rm -f -- "$replacement"' EXIT
+backup=$(mktemp "${target}.previous.XXXXXX")
+trap 'rm -f -- "$replacement" "$backup"' EXIT
 cp -- "$download" "$replacement"
 chmod --reference="$target" "$replacement"
 chmod u+x "$replacement"
-cp -p -- "$target" "${target}.cubeon-previous"
+cp -p -- "$target" "$backup"
+mv -f -- "$backup" "${target}.cubeon-previous"
 mv -f -- "$replacement" "$target"
 if [ "$reopen" = 1 ]; then
-  unset APPIMAGE APPDIR
+  unset APPIMAGE APPDIR CUBEON_APPIMAGE_PATH
+  export PYINSTALLER_RESET_ENVIRONMENT=1
   "$target" >/dev/null 2>&1 &
 fi
 '''
@@ -197,6 +204,7 @@ $arguments = '/S /D=' + $job.target
 $installer = Start-Process -FilePath $job.download -ArgumentList $arguments -Wait -PassThru
 if ($installer.ExitCode -ne 0) { throw 'The Cubeon installer failed.' }
 if ($job.reopen) {
+  $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
   Start-Process -FilePath (Join-Path $job.target 'Cubeon.exe')
 }
 '''

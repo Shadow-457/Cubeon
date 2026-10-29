@@ -6,7 +6,7 @@ const {GROQ_MODELS}=require('../web/assets/doctor-core.js');
 const log='java.lang.OutOfMemoryError: Java heap space';
 const guide={cause:'Heap exhausted',confidence:'high',evidence:[log],steps:[{action:'memory',title:'Raise memory',instruction:'Use the safe RAM slider.'}],verify:'Try once',rollback:'Restore RAM'};
 let counter=0;
-function req(body={log},headers={}) {return {method:'POST',body,headers:{origin:'https://cubeon.ylet.online',host:'cubeon.ylet.online','content-type':'application/json','x-vercel-forwarded-for':'test-'+(++counter),...headers}};}
+function req(body={log},headers={}) {return {method:'POST',body,headers:{origin:'https://www.ylet.online',host:'www.ylet.online','content-type':'application/json','x-vercel-forwarded-for':'test-'+(++counter),...headers}};}
 function res() {const value=new EventEmitter();value.headers={};value.setHeader=(key,text)=>value.headers[key]=text;value.end=text=>{value.body=JSON.parse(text);value.writableEnded=true;};return value;}
 async function call(handler,request=req()) {const response=res();await handler(request,response);return response;}
 async function main() {
@@ -38,6 +38,11 @@ async function main() {
   const missingKey = await call(createHandler({env:{}}));
   assert.equal(missingKey.statusCode,503);
   assert.equal(missingKey.body.error,'ai_not_configured');
+  for (const host of ['www.ylet.online','ylet.online']) {
+    const response=await call(createHandler({env:{NODE_ENV:'production'}}),req({log},{origin:'https://'+host,host,'sec-fetch-site':'same-origin'}));
+    assert.equal(response.body.error,'ai_not_configured','New production domain must pass the origin guard');
+  }
+  assert.equal((await call(handler,req({log},{origin:'https://www.ylet.online','sec-fetch-site':'cross-site'}))).statusCode,403);
   const failures = {400:'ai_request_rejected',401:'ai_credentials_invalid',402:'ai_quota_exhausted',403:'ai_credentials_invalid',429:'rate_limited',502:'ai_provider_unavailable'};
   for(const [status,reason] of Object.entries(failures)) {
     const code = Number(status);

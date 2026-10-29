@@ -5,7 +5,7 @@
 ## Install and launch
 
 Download the build for your operating system from
-[cubeon.ylet.online/download](https://cubeon.ylet.online/download).
+[www.ylet.online/download](https://www.ylet.online/download).
 Packaged builds do not require a separate Python installation.
 
 - **Windows:** use the setup executable, or extract the portable ZIP before
@@ -116,7 +116,7 @@ repairs and never wait on a dialog.
 
 Click **Doctor** in a crash report to open the website with a redacted log excerpt
 already filled in and on-device instructions ready. You can also open
-[Cubeon Doctor](https://cubeon.ylet.online/doctor) and upload a `.log` or `.txt`
+[Cubeon Doctor](https://www.ylet.online/doctor) and upload a `.log` or `.txt`
 file (up to 2 MB). Uploading starts AI analysis automatically. To paste a log or
 review the uploaded text, expand the log editor and choose **Analyze log**.
 
@@ -190,15 +190,17 @@ offer the update again next time. Downloads start only after you choose Update.
 Choose **Stable** or **Beta** in **Settings → System → Updates**. Stable is
 the default; Beta also includes prereleases. The choice applies on the next launch.
 
-Windows installations made with Cubeon's installer and writable Linux AppImages
-can download and verify the update inside Cubeon. Cancel stops the download.
-When it is ready, **Install & restart** closes Cubeon, installs the update,
-and opens the new version. Close Minecraft and stop active installs or hosted
-servers first. Updating the AppImage keeps a `.cubeon-previous` copy beside it.
+Windows installations made with Cubeon's installer and Linux AppImages in
+writable folders download and verify the update inside Cubeon. Cancel stops
+the download. The progress bar shows the download. When it is verified,
+**Restart** closes Cubeon, installs the update, and opens the new version.
+Close Minecraft and stop active installs or hosted servers first. Updating the
+AppImage keeps a `.cubeon-previous` copy beside it.
 
 Portable Windows builds, macOS, source checkouts and package-managed Linux
-installations open the selected release's download for manual installation.
-Releases without a checksum also use the manual download path.
+installations offer an explicit **Download manually** action. Update never
+opens a browser automatically. A missing checksum stays an error inside
+Cubeon; restart the launcher to check for a verified release again.
 
 Keep the launcher closed while replacing a portable build. Updating the
 app is different from deleting its data folders.

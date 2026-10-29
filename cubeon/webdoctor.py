@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 import webbrowser
 import zlib
 
-SITE_URL = "https://cubeon.ylet.online"
+SITE_URL = "https://www.ylet.online"
 MAX_URL_CHARS = 7_500  # also fits browser wrappers using Windows' 8191-char cmd limit
 MAX_REPORT_CHARS = 64_000
 

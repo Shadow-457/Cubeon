@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
-Sitemap: https://cubeon.ylet.online/sitemap.xml
+Sitemap: https://www.ylet.online/sitemap.xml

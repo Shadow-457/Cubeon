@@ -5,11 +5,10 @@
 <title>Cubeon - Open Graph card</title>
 <style>
   /* The site's own faces and palette (web/assets/site.css), so the card cannot
-     drift away from the brand. Paths are absolute file:// URLs on purpose: this
-     document is loaded straight off disk, and a relative url() would resolve
-     against the card's own folder. */
-  @font-face{font-family:'Minecraftia';src:url('/home/fuckarch/Ylet_Productions/products/cubeon/web/assets/fonts/Minecraftia-Regular.ttf') format('truetype')}
-  @font-face{font-family:'Inter';src:url('/home/fuckarch/Ylet_Productions/products/cubeon/web/assets/fonts/Inter.ttf') format('truetype')}
+     drift away from the brand. Paths are relative to this source in tools/, so regenerating the
+     card does not write machine-specific workspace paths into its source. */
+  @font-face{font-family:'Minecraftia';src:url('../web/assets/fonts/Minecraftia-Regular.ttf') format('truetype')}
+  @font-face{font-family:'Inter';src:url('../web/assets/fonts/Inter.ttf') format('truetype')}
 
   :root{
     --paper:#050505; --card:#0B0D0A;
@@ -75,12 +74,12 @@
   <div class="card">
     <div class="col-text">
       <div class="brand">
-        <img src="file:///home/fuckarch/Ylet_Productions/products/cubeon/assets/icon_512.png" alt="" />
+        <img src="../assets/icon_512.png" alt="" />
         <span>Cubeon</span>
       </div>
       <div class="rule"></div>
 
-      <h1>Minecraft, but better.</h1>
+      <h1>Cubeon Minecraft Launcher</h1>
       <p class="lede">A free desktop launcher for Windows and Linux: play offline under any name, and keep mods, skins and versions in one window. No account, no adverts.</p>
 
       <div class="chips">
@@ -89,11 +88,11 @@
         <span class="chip">No account</span>
       </div>
 
-      <div class="foot"><i></i> cubeon.ylet.online</div>
+      <div class="foot"><i></i> www.ylet.online</div>
     </div>
 
     <div class="shot">
-      <img src="file:///home/fuckarch/Ylet_Productions/products/cubeon/web/assets/cubeon-play.png" alt="" />
+      <img src="../web/assets/cubeon-play.png" alt="" />
     </div>
   </div>
   <div class="bar"></div>

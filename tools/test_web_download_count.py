@@ -70,7 +70,7 @@ const counter = { textContent: "", hidden: true };
 let clicks = [];
 function makeElement() {
   return {
-    setAttribute() {}, addEventListener() {}, appendChild() {}, remove() {},
+    setAttribute() {}, addEventListener() {}, appendChild() {}, remove() {}, focus() {},
     querySelector: makeElement,
     classList: { add() {}, remove() {}, toggle() { return false; }, contains() { return false; } },
   };
@@ -79,6 +79,7 @@ globalThis.document = {
   documentElement: { classList: { add() {} } },
   body: { appendChild() {} },
   getElementById() { return null; },
+  querySelector() { return null; },
   createElement: makeElement,
   addEventListener(type, handler) { if (type === "click") clicks.push(handler); },
   querySelectorAll(selector) {
@@ -264,13 +265,14 @@ check("site.js declares which routes count as a download", bool(routes_block))
 site_routes = tuple(re.findall(r"'([^']+)'", routes_block.group(1))) if routes_block else ()
 with open(os.path.join(WEB, "vercel.json"), encoding="utf-8") as handle:
     vercel_config = json.load(handle)
-asset_routes = tuple(rule.get("source") for rule in vercel_config.get("redirects", []))
+asset_redirects = [rule for rule in vercel_config.get("redirects", []) if not rule.get("has")]
+asset_routes = tuple(rule.get("source") for rule in asset_redirects)
 check("every counted route is a real download route, and all of them are counted",
       set(site_routes) == set(asset_routes),
       f"site.js={sorted(site_routes)} web/vercel.json={sorted(asset_routes)}")
 check("all download routes point at the streaming Worker, not GitHub",
       all(rule.get("destination", "").startswith(WORKER_URL + "/")
-          for rule in vercel_config.get("redirects", [])))
+          for rule in asset_redirects))
 
 # the rejected plumbing must stay rejected
 for path in GONE:
@@ -346,8 +348,8 @@ check("the release lookup is edge-cached, not refetched per request",
       and "cache.put(" in worker_source)
 check("a failed lookup is NOT cached (an outage must not be pinned for 5 minutes)",
       "if (cache && assets.length)" in worker_source)
-check("only name/url/size reach the cache (no private release fields)",
-      ".map((a) => ({ name: a.name, url: a.url, size: a.size }))" in worker_source)
+check("only name/url/size/digest reach the cache (no private release fields)",
+      ".map((a) => ({ name: a.name, url: a.url, size: a.size, digest: a.digest || null }))" in worker_source)
 ttl = re.search(r"const RELEASE_CACHE_SECONDS = (\d+)", worker_source)
 check("the cached release carries a TTL",
       bool(ttl) and f"max-age=${{RELEASE_CACHE_SECONDS}}" in worker_source)
@@ -418,7 +420,8 @@ check("...and the opt-in is documented in its config",
 # ---------------------------------------------------------------------------
 # 5. every page wires the shared file (index.html once shipped without it)
 # ---------------------------------------------------------------------------
-web_pages = sorted(name for name in os.listdir(WEB) if name.endswith(".html"))
+web_pages = sorted(name for name in os.listdir(WEB) if name.endswith(".html")
+                   and not re.fullmatch(r"google[0-9a-f]+\.html", name))
 check("there are pages to check", len(web_pages) >= 3)
 for page in web_pages:
     with open(os.path.join(WEB, page), encoding="utf-8") as handle:

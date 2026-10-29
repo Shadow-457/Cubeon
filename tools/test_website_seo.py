@@ -3,13 +3,14 @@
 from html.parser import HTMLParser
 import json
 from pathlib import Path
+import re
 import unittest
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / 'web'
-ORIGIN = 'https://cubeon.ylet.online'
+ORIGIN = 'https://www.ylet.online'
 
 
 class Page(HTMLParser):
@@ -53,7 +54,8 @@ class Page(HTMLParser):
 
 class SEOTests(unittest.TestCase):
     def setUp(self):
-        self.pages = {path.stem: Page(path.read_text()) for path in WEB.glob('*.html')}
+        self.pages = {path.stem: Page(path.read_text()) for path in WEB.glob('*.html')
+                      if not re.fullmatch(r'google[0-9a-f]+', path.stem)}
 
     def test_canonical_inventory_and_sitemap(self):
         expected = set()
@@ -67,7 +69,7 @@ class SEOTests(unittest.TestCase):
                 expected.add(url)
                 self.assertEqual(page.canonicals, [url])
                 self.assertEqual(page.meta['og:url'], [url])
-                self.assertEqual(page.meta['og:site_name'], ['Cubeon'])
+                self.assertEqual(page.meta['og:site_name'], ['Cubeon Launcher'])
                 self.assertNotIn('noindex', ','.join(page.meta.get('robots', [])))
                 self.assertEqual(len(page.headings), 1)
                 self.assertTrue(page.title.strip())
@@ -88,14 +90,19 @@ class SEOTests(unittest.TestCase):
 
     def test_product_data_matches_visible_product(self):
         page = self.pages['index']
-        self.assertIn('Minecraft', page.headings[0])
-        self.assertIn('Cubeon Minecraft Launcher', page.title)
+        self.assertIn('Cubeon', page.headings[0])
+        self.assertIn('Launcher', page.headings[0])
+        self.assertIn('Cubeon Launcher', page.title)
         self.assertIn('Minecraft Launcher', self.pages['download'].title)
         schema, = [json.loads(value) for value in page.schemas]
         self.assertEqual(schema['@context'], 'https://schema.org')
         graph = {entry['@type']: entry for entry in schema['@graph']}
         self.assertEqual(graph['WebSite']['url'], page.canonicals[0])
-        self.assertIn('Cubeon Launcher', graph['WebSite']['alternateName'])
+        self.assertEqual(graph['WebSite']['name'], 'Cubeon Launcher')
+        self.assertIn('Cubeon', graph['WebSite']['alternateName'])
+        self.assertEqual(graph['Organization']['name'], 'Cubeon Launcher')
+        self.assertEqual(graph['Organization']['url'], page.canonicals[0])
+        self.assertEqual(graph['WebPage']['mainEntity'], {'@id': graph['SoftwareApplication']['@id']})
         product = graph['SoftwareApplication']
         self.assertTrue(product['isAccessibleForFree'])
         self.assertEqual(product['offers']['price'], '0')
@@ -106,6 +113,26 @@ class SEOTests(unittest.TestCase):
             self.assertTrue((WEB / urlsplit(product[asset]).path.lstrip('/')).is_file())
         for guide in ['getting-started', 'mods', 'modpacks', 'multiplayer', 'troubleshooting']:
             self.assertTrue(any(urlsplit(link).path in [guide + '.html', '/' + guide] for link in page.links))
+
+    def test_domain_migration_preserves_paths_and_identity(self):
+        for config in [ROOT / 'vercel.json', WEB / 'vercel.json']:
+            rules = json.loads(config.read_text())['redirects']
+            hosts = {}
+            for rule in rules:
+                for condition in rule.get('has', []):
+                    if condition['type'] == 'host':
+                        hosts[condition['value']] = rule
+            for host in ['ylet.online', 'cubeon.ylet.online']:
+                with self.subTest(config=config, host=host):
+                    self.assertEqual(hosts[host]['source'], '/:path*')
+                    self.assertEqual(hosts[host]['destination'], ORIGIN + '/:path*')
+                    self.assertTrue(hosts[host]['permanent'])
+            self.assertNotIn('www.ylet.online', hosts, 'Canonical host must not redirect to itself')
+        for key in self.pages:
+            source = (WEB / f'{key}.html').read_text()
+            with self.subTest(page=key):
+                self.assertNotIn('https://cubeon.ylet.online', source)
+                self.assertNotRegex(source, r'>Ylet<|operated by Ylet|Ylet.*product')
 
 
     def test_analytics_is_disclosed_and_wired(self):

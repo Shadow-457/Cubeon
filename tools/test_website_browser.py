@@ -36,7 +36,7 @@ def main():
             for path in ['/?time=day', '/download']:
                 page.goto('https://cubeon.test' + path)
                 page.evaluate('document.fonts.ready')
-                expect(page.locator('h1')).to_contain_text('Minecraft' if path.startswith('/?') else 'Cubeon')
+                expect(page.locator('h1')).to_contain_text('Cubeon')
                 page.screenshot(path=str(captures / ('seo-' + ('home' if path.startswith('/?') else 'download') + '-' + str(width) + '.png')), full_page=True)
                 if page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'):
                     print(page.evaluate('''() => [...document.querySelectorAll('body *')].map(e=>({tag:e.tagName,cls:e.className,text:e.textContent.slice(0,80),right:e.getBoundingClientRect().right})).filter(e=>e.right>innerWidth+1).slice(0,15)'''))
@@ -44,14 +44,14 @@ def main():
                 assert page.locator('h1').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1'), (width, path, 'heading clipped')
                 if path.startswith('/?'):
                     expect(page.locator('.sign .lede')).to_contain_text('Minecraft Java Edition launcher')
-                    expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://cubeon.ylet.online/')
+                    expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/')
                     expect(page.locator('.sign .pane.on .btn')).to_be_visible()
             assert not errors, errors
             page.close()
         page = browser.new_page(java_script_enabled=False)
         page.route('**/*', route)
         page.goto('https://cubeon.test/')
-        expect(page.locator('h1')).to_contain_text('Minecraft')
+        expect(page.locator('h1')).to_contain_text('Cubeon')
         expect(page.locator('.sign .lede')).to_contain_text('Minecraft Java Edition launcher')
         expect(page.locator('a[href="mods.html"]').first).to_be_visible()
         print('PASS homepage/download at 1440, 768, 390 and 320px, no overflow/errors, crawlable content without JavaScript')

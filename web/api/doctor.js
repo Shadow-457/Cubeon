@@ -19,7 +19,7 @@ function reply(res, status, value) {
   res.end(JSON.stringify(value));
 }
 function permitted(req, env) {
-  const allowed = new Set(['https://cubeon.ylet.online','https://cubeon.vercel.app']);
+  const allowed = new Set(['https://www.ylet.online','https://ylet.online','https://cubeon.vercel.app']);
   for (const host of [env.VERCEL_URL,env.VERCEL_BRANCH_URL,env.VERCEL_PROJECT_PRODUCTION_URL]) {
     if (host && /^[a-z0-9.-]+$/i.test(host)) allowed.add('https://' + host);
   }
