@@ -108,5 +108,28 @@ class SEOTests(unittest.TestCase):
             self.assertTrue(any(urlsplit(link).path in [guide + '.html', '/' + guide] for link in page.links))
 
 
+    def test_analytics_is_disclosed_and_wired(self):
+        """Every content page loads the counter; the policy pages explain it.
+
+        Status pages (403/404/...) are numeric and served during outages, so
+        they are not instrumented. Adding a page without the snippet would make
+        its traffic invisible; dropping the disclosure would make the privacy
+        page untrue - both are regressions worth failing on.
+        """
+        snippet = '/_vercel/insights/script.js'
+        for key in self.pages:
+            if key.isdigit():
+                continue
+            with self.subTest(page=key):
+                source = (WEB / f'{key}.html').read_text()
+                self.assertEqual(source.count(snippet), 1)
+                self.assertIn('window.vaq', source)
+        for policy in ('privacy', 'cookies'):
+            text = (WEB / f'{policy}.html').read_text()
+            with self.subTest(policy=policy):
+                self.assertIn('Vercel Web Analytics', text)
+                self.assertIn('24 hours', text)
+
+
 if __name__ == '__main__':
     unittest.main()

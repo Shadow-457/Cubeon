@@ -7,7 +7,7 @@ account strip sat above everything and ate the height.
 
 What it is now:
 - ONE rail of sections on the left (Account, Game, Performance, Display,
-  Seasonal, System, Screenshots) and the active section on the right.
+  Seasonal, System, Doctor, Screenshots) and the active section on the right.
   Account is a section here, not a strip above the rail.
 - ONE row pattern everywhere: a title, at most one short grey line, and the
   control on the right. Rows live in a group card and are separated by hairline
@@ -17,10 +17,12 @@ What it is now:
 
 main.py still owns all logic/controls (the RAM slider and its colour math,
 legacy-version widgets, backup switches, FilePickers) - this module only
-arranges them. `build_settings_tab()` keeps its old signature (plus one
-optional `account_pane`), so nothing is rewired.
+arranges them. `build_settings_tab()` keeps its old signature (plus optional
+`account_pane`, `on_replay_onboarding` and `doctor_target`), so nothing is
+rewired.
 """
 import flet as ft
+import threading
 import unicodedata
 
 from cubeon import i18n
@@ -40,6 +42,7 @@ SECTIONS = [
     ("display", ft.Icons.MONITOR_ROUNDED, "Display"),
     ("seasonal", ft.Icons.PARK_ROUNDED, "Seasonal"),
     ("system", ft.Icons.TUNE_ROUNDED, "System"),
+    ("doctor", ft.Icons.MEDICAL_SERVICES_ROUNDED, "Doctor"),
     ("images", ft.Icons.PHOTO_LIBRARY_ROUNDED, "Screenshots"),
 ]
 
@@ -469,7 +472,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
                        screenshot_gallery=None, refresh_screenshot_gallery=None,
-                       account_pane=None, on_replay_onboarding=None):
+                       account_pane=None, on_replay_onboarding=None,
+                       doctor_target=None):
     """Assembles the two-pane Settings tab from main.py's existing controls.
 
     `save_width_height_java` is main.py's save_settings() minus the button
@@ -481,6 +485,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     `custom_chrome_cb` is the one that can legitimately be None: the custom
     window frame is Windows/Linux-only, so main.py passes None elsewhere and
     the row is left out entirely.
+
+    `doctor_target` (optional) returns (mc_version, loader, version_id) for the
+    instance to check; when it is None the Doctor pane says so instead of
+    guessing. The full check runs on a worker thread and renders every result
+    inline - the error stays attached to the fix that followed it.
     """
 
     # Labels are translated at build time; the KEYS are not - deep links (the
@@ -873,6 +882,185 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     )
 
     # ======================================================================
+    # DOCTOR
+    # ======================================================================
+    doctor_status = ft.Text("", size=12.5, color=TEXT_DIM, visible=False,
+                            selectable=True)
+    doctor_spinner = ft.ProgressRing(width=14, height=14, stroke_width=2,
+                                     color=ACCENT, visible=False)
+    doctor_summary = ft.Text("", size=12, color=TEXT_DIM, visible=False,
+                             selectable=True, data="settings-doctor-summary")
+    doctor_entries = ft.ListView(spacing=8, padding=0, height=340)
+    doctor_entries_host = ft.Container(
+        content=doctor_entries, visible=False,
+        border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
+        bgcolor=BG, padding=ft.padding.Padding.symmetric(horizontal=14,
+                                                          vertical=12),
+    )
+    doctor_cancel = threading.Event()
+    doctor_lock = threading.Lock()
+
+    def _doctor_actions(enabled=True):
+        with thread_safe_ui.TREE_LOCK:
+            doctor_run_btn.disabled = not enabled
+            doctor_stop_btn.visible = not enabled
+            doctor_spinner.visible = not enabled
+            thread_safe_ui.refresh(doctor_run_btn)
+            thread_safe_ui.refresh(doctor_stop_btn)
+            thread_safe_ui.refresh(doctor_spinner)
+
+    def _doctor_set_status(text=""):
+        with thread_safe_ui.TREE_LOCK:
+            doctor_status.value = i18n.t(text) if text else ""
+            doctor_status.visible = bool(text)
+            thread_safe_ui.refresh(doctor_status)
+
+    def _doctor_clear_results():
+        with thread_safe_ui.TREE_LOCK:
+            doctor_entries.controls.clear()
+            doctor_entries_host.visible = False
+            doctor_summary.value = ""
+            doctor_summary.visible = False
+            thread_safe_ui.refresh(doctor_entries)
+            thread_safe_ui.refresh(doctor_entries_host)
+            thread_safe_ui.refresh(doctor_summary)
+
+    def _doctor_render(report):
+        """Show EVERY result inline: the error, then what the doctor did."""
+        from cubeon.doctor import format_problem
+
+        rows = []
+        fixed = list(report.get("fixed") or [])
+        unfixed = list(report.get("unfixed") or [])
+        for entry in fixed + unfixed:
+            if entry.get("fixed"):
+                icon = ft.Icons.CHECK_CIRCLE_ROUNDED
+                color = ACCENT
+            elif entry.get("kind") == "section-failed":
+                icon = ft.Icons.ERROR_OUTLINE_ROUNDED
+                color = DANGER
+            else:
+                icon = ft.Icons.WARNING_AMBER_ROUNDED
+                color = TEXT_DIM
+            rows.append(ft.Row(
+                [
+                    ft.Icon(icon, size=15, color=color),
+                    ft.Text(format_problem(entry), size=12.5,
+                            color=TEXT if entry.get("fixed") else TEXT_DIM,
+                            selectable=True, expand=True),
+                ],
+                spacing=8, vertical_alignment=ft.CrossAxisAlignment.START,
+            ))
+        with thread_safe_ui.TREE_LOCK:
+            doctor_entries.controls[:] = rows
+            doctor_entries_host.visible = bool(rows)
+            summary = report.get("summary") or ""
+            failed = [name for name, info in (report.get("sections") or {}).items()
+                      if isinstance(info, dict) and info.get("error")]
+            if report.get("cancelled"):
+                summary = (summary or "Check stopped early.") + " Stopped."
+            if failed:
+                summary += (" Check(s) that could not run: "
+                            + ", ".join(sorted(failed)) + ".")
+            doctor_summary.value = summary
+            doctor_summary.visible = bool(summary)
+            thread_safe_ui.refresh(doctor_entries)
+            thread_safe_ui.refresh(doctor_entries_host)
+            thread_safe_ui.refresh(doctor_summary)
+
+    def _doctor_target():
+        try:
+            return doctor_target() if callable(doctor_target) else None
+        except Exception:
+            return None
+
+    def _doctor_done(report):
+        try:
+            _doctor_render(report)
+            _doctor_set_status("")
+        finally:
+            doctor_lock.release()
+            _doctor_actions(True)
+
+    def run_full_doctor(e=None):
+        if not doctor_lock.acquire(blocking=False):
+            return
+        target = _doctor_target()
+        mc, loader, version_id = (target if target else (None, None, None))
+        if not mc or not version_id:
+            doctor_lock.release()
+            _doctor_set_status("Pick a Minecraft version on the Play tab first")
+            return
+        if not callable(doctor_target):
+            doctor_lock.release()
+            _doctor_set_status("The Doctor isn't available in this build")
+            return
+        from cubeon.doctor_ui import start_doctor_worker
+
+        doctor_cancel.clear()
+        _doctor_clear_results()
+        _doctor_set_status("")
+        _doctor_actions(False)
+        _doctor_set_status(f"Checking {version_id}…")
+        started = start_doctor_worker(
+            mc_version=mc, loader=loader or "vanilla", version_id=version_id,
+            include=None, check_online=True, cancel_event=doctor_cancel,
+            status_cb=_doctor_set_status, on_done=_doctor_done,
+            approve_all=True)
+        if started is None:
+            doctor_lock.release()
+            _doctor_actions(True)
+            _doctor_set_status("Couldn't start the check - see the log")
+
+    def stop_full_doctor(e=None):
+        doctor_cancel.set()
+        _doctor_set_status("Stopping after the current step…")
+
+    def _doctor_button(label, icon, on_click, *, primary=False):
+        return attach_hover(ft.Container(
+            content=ft.Row(
+                [ft.Icon(icon, size=15, color=ACCENT if primary else TEXT_DIM),
+                 ft.Text(i18n.t(label), size=12.5,
+                         color=TEXT if primary else TEXT_DIM,
+                         weight=ft.FontWeight.W_600)],
+                spacing=6, tight=True),
+            bgcolor=ACCENT_TINT if primary else None,
+            border=ft.border.Border.all(1, ACCENT if primary else BORDER),
+            border_radius=RADIUS,
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
+            ink=False, on_click=on_click,
+        ), ACCENT_TINT if primary else "transparent", ROW_HOVER)
+
+    doctor_run_btn = _doctor_button("Run full check", ft.Icons.MEDICAL_SERVICES_ROUNDED,
+                                    run_full_doctor, primary=True)
+    doctor_stop_btn = _doctor_button("Stop", ft.Icons.STOP_CIRCLE_OUTLINED,
+                                     stop_full_doctor)
+    doctor_stop_btn.visible = False
+    if not callable(doctor_target):
+        doctor_run_btn.disabled = True
+
+    doctor_pane = pane(
+        i18n.t("Doctor"),
+        ft.Text(
+            "Checks launch settings, mods, resource packs, shaders, modpacks "
+            "and server plugins for the selected instance. Problems are fixed "
+            "when it is safe to do so; anything disabled is kept on disk so it "
+            "can be turned back on in Mods → Installed.",
+            size=12.5, color=TEXT_DIM),
+        ft.Row(
+            [doctor_run_btn, doctor_stop_btn, doctor_spinner],
+            spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        doctor_status,
+        doctor_summary,
+        doctor_entries_host,
+        ft.Text(
+            "Clicking Run full check is your approval for the fixes it finds, "
+            "including installing a missing required library. Nothing is "
+            "changed by just opening this page.",
+            size=11.5, color=TEXT_FAINT),
+    )
+
+    # ======================================================================
     # SCREENSHOTS
     # ======================================================================
     if screenshot_gallery is None:
@@ -887,6 +1075,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         "display": display_pane,
         "seasonal": seasonal_pane,
         "system": system_pane,
+        "doctor": doctor_pane,
         "images": images_pane,
     }
     if account_section is not None:

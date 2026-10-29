@@ -44,13 +44,14 @@
     <p class="crumbs"><a href="index.html">Home</a> / Cookies</p>
     <h1>Cookies</h1>
     <p class="lede">Cubeon uses no tracking cookies. Optional Doctor AI uses Kilo through our server.</p>
-    <p class="updated">Last updated 28 October 2026</p>
+    <p class="updated">Last updated 29 October 2026</p>
   </div>
 </header>
 
 <div class="prose">
   <h2>Why there's no banner</h2>
-  <p>Cubeon has no advertising or analytics trackers. Fonts and pictures come from this site. The shared download count uses our download server. Uploading a Doctor log or choosing Analyze log sends a redacted excerpt to our Kilo endpoint; on-device checks run in your browser.</p>
+  <p>Cubeon has no advertising trackers and sets no tracking cookies. Page views are counted by Vercel Web Analytics, which is cookieless: it writes nothing to your device, so there is no cookie to ask you about. For each view it records the page, the referring site, your browser, operating system and device type, a rough location and the time, and keeps them only as aggregate totals. Visitors are told apart with a one-way hash of the request that is discarded after 24 hours - no identifier that follows you between sites or between days.</p>
+  <p>Fonts and pictures come from this site. The shared download count uses our download server. Uploading a Doctor log or choosing Analyze log sends a redacted excerpt to our Kilo endpoint; on-device checks run in your browser. See <a href="privacy.html#analytics">Privacy - page counts</a>.</p>
 
   <h2>The download counter</h2>
   <p>The download buttons keep a shared count of how many different people have downloaded - the same total for everyone, and one per visitor rather than one per click. Our download server records a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored, and the hash is not linked to any account, cookie or profile. If that request can't be made, the count simply doesn't appear.</p>
@@ -100,12 +101,16 @@
     </div>
     <div class="foot-meta">
       <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
-      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 28 October 2026.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 29 October 2026.</span>
     </div>
   </div>
 </footer>
 
 <script src="assets/site.js" defer></script>
 <script src="assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

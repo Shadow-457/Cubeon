@@ -1,6 +1,7 @@
-"""Worker-thread approval dialogs for changes to installed mods."""
+"""Worker-thread approval dialogs and background doctor runs for installed content."""
 import asyncio
 import json
+import logging
 import threading
 import time
 
@@ -9,6 +10,8 @@ from cubeon import i18n
 
 from . import dialogs, thread_safe_ui
 from .theme import ACCENT, DANGER, TEXT, TEXT_DIM
+
+log = logging.getLogger(__name__)
 
 
 def make_mod_change_approver(page, *, timeout: float = 120):
@@ -50,7 +53,9 @@ def make_mod_change_approver(page, *, timeout: float = 120):
             answered = threading.Event()
             decision = {"approved": False, "dialog": None}
             replacing = change["action"] == "replace"
-            action = "Replace build" if replacing else "Disable mods"
+            enabling = change["action"] == "enable"
+            action = ("Replace build" if replacing
+                      else "Enable mod" if enabling else "Disable mods")
 
             def finish(approved):
                 if answered.is_set():
@@ -74,8 +79,10 @@ def make_mod_change_approver(page, *, timeout: float = 120):
                     if change.get("replacement"):
                         rows.append(ft.Text(f"Install: {change['replacement']}", size=12, color=ACCENT))
                     rows.append(ft.Text(
-                        "Old files are kept. You can re-enable them in Mods → Installed. "
-                        "Keep my mods leaves these files unchanged. Minecraft can still start; "
+                        ("This turns the disabled file back on; nothing is downloaded. "
+                         if enabling else
+                         "Old files are kept. You can re-enable them in Mods → Installed. ")
+                        + "Keep my mods leaves these files unchanged. Minecraft can still start; "
                         "its loader will check compatibility.",
                         size=12, color=TEXT_DIM))
                     dialog = ft.AlertDialog(
@@ -132,6 +139,51 @@ def mod_change_key(change):
     return json.dumps({key: change.get(key) for key in (
         "action", "mc_version", "loader", "mods", "replacement", "kept", "files_snapshot",
     )}, sort_keys=True)
+
+
+def start_doctor_worker(*, mc_version, loader, version_id=None, include=None,
+                        check_online=True, status_cb=None, cancel_event=None,
+                        on_done=None, approve_all=True, crash_text=None):
+    """Run the launcher's doctor on a daemon thread for an explicit action.
+
+    Used by the Settings Doctor section and the crash report's Check & fix.
+    The caller owns the controls and renders the finished report in
+    ``on_done``. Clicking the action IS the consent for reversible repairs
+    (``approve_all``), exactly like Mods -> Installed's Check & repair; pass
+    ``approve_all=False`` for a read-only scan.
+
+    Returns the thread, or None when a worker could not start. Never raises.
+    """
+    def worker():
+        report = {}
+        try:
+            from .doctor import run_doctor
+            report = run_doctor(
+                mc_version, loader, auto_fix=bool(approve_all),
+                check_online=check_online, version_id=version_id,
+                include=include, status_cb=status_cb,
+                approve_cb=(lambda change: True) if approve_all else None,
+                cancel_event=cancel_event, crash_text=crash_text)
+        except Exception as error:
+            log.warning("background doctor failed", exc_info=True)
+            report = {"checked": 0, "problems": [], "fixed": [], "unfixed": [],
+                      "sections": {}, "changes": [], "cancelled": False,
+                      "summary": f"Could not complete this check: {error}"}
+        finally:
+            if callable(on_done):
+                try:
+                    on_done(report)
+                except Exception:
+                    log.warning("doctor result rendering failed", exc_info=True)
+
+    try:
+        thread = threading.Thread(target=worker, name="cubeon-doctor",
+                                  daemon=True)
+        thread.start()
+        return thread
+    except Exception:
+        log.warning("could not start the doctor worker", exc_info=True)
+        return None
 
 
 def open_crash_check(page, *, mc_version, loader, version_id, diagnose,
@@ -313,6 +365,7 @@ def open_repair_review(page, *, mc_version, loader, version_id, include,
         update_selection()
 
     def render(report):
+        from .doctor import format_problem
         if session["closed"]:
             return
         session["report"] = report
@@ -328,7 +381,9 @@ def open_repair_review(page, *, mc_version, loader, version_id, include,
         for change in changes:
             names = ", ".join(mod["name"] for mod in change["mods"])
             changed_names.update(mod["name"] for mod in change["mods"])
-            label = "Replace build" if change["action"] == "replace" else "Disable (keep files)"
+            label = ("Replace build" if change["action"] == "replace"
+                     else "Enable mod" if change["action"] == "enable"
+                     else "Disable (keep files)")
             # Pre-selected: opening "Fix problems" is already the user asking
             # for repairs, and every proposed change keeps the old file so it
             # is reversible. A 300-mod profile can produce dozens of safe
@@ -342,6 +397,17 @@ def open_repair_review(page, *, mc_version, loader, version_id, include,
             if change.get("replacement"):
                 details += f"\nReplacement: {change['replacement']}"
             rows.append(ft.Column([checkbox, ft.Text(details, size=12, color=TEXT_DIM)], spacing=2))
+        # Fixed rows keep their reason, so "fixed 3" is never the only trace
+        # of what was changed and why.
+        for problem in report.get("fixed") or []:
+            name = problem.get("item") or problem.get("mod") or "Content"
+            if name in changed_names:
+                continue
+            rows.append(ft.Row([
+                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=ACCENT),
+                ft.Text(format_problem(problem), size=12, color=TEXT_DIM,
+                        selectable=True, expand=True),
+            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.START))
         for problem in unresolved:
             name = problem.get("item") or problem.get("mod") or "Content"
             if name in changed_names:

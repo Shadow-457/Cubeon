@@ -465,7 +465,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     repair_status = ft.Text("", size=11.5, color=TEXT_DIM,
                             font_family=FONT_MONO, visible=False)
     repair_details = ft.Text("", size=12, color=TEXT_DIM, visible=False,
-                             data="mods-repair-details")
+                             data="mods-repair-details", selectable=True)
     repair_lock = threading.Lock()
     AUTO_CHECK_SECONDS = 15 * 60
     auto_check_state = {"last": {}}
@@ -509,14 +509,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 unresolved = (report or {}).get("unfixed") or []
                 # Mod names are a separate report field; detail alone used to
                 # leave users with "requires X" and no mod to find in Installed.
-                # Explicit repairs also show exactly what changed, inline.
+                # Explicit repairs also show exactly what changed, inline - and
+                # `format_problem` keeps the ERROR attached to every fixed row,
+                # so "disabled it" never arrives without "duplicate copies".
+                from cubeon.doctor import format_problem
                 problems = unresolved + (list((report or {}).get("fixed") or []) if explicit else [])
-                detail = "\n".join(
-                    f"{p.get('item') or p.get('mod') or 'Content'}: "
-                    f"{(p.get('fix') if p.get('fixed') else None) or p.get('detail') or p.get('reason') or 'Needs attention'}"
-                    for p in problems[:8])
-                if len(problems) > 8:
-                    detail += f"\n{len(problems) - 8} more results; check the marked Installed rows."
+                detail = "\n".join(format_problem(p) for p in problems[:10])
+                if len(problems) > 10:
+                    detail += f"\n{len(problems) - 10} more results; check the marked Installed rows."
                 if version_dropdown.value == version_id and _repair_sections() == sections:
                     if fixed:
                         refresh_mods_list()

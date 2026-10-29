@@ -2105,6 +2105,42 @@ def _doctor_disable(mc_version: str, loader: str, filename: str,
     toggle_mod(mc_version, loader, filename, version_id=version_id)
 
 
+def _doctor_enable(mc_version: str, loader: str, filename: str,
+                   version_id: str | None = None) -> None:
+    """Re-enable a `.jar.disabled` copy (the reverse of _doctor_disable)."""
+    if not filename.endswith(".jar.disabled"):
+        raise ValueError("Only a disabled jar can be re-enabled.")
+    profile_dir = resolve_profile_dir(mc_version, loader, version_id)
+    target = os.path.join(profile_dir, filename[:-len(".disabled")])
+    if os.path.lexists(target):
+        raise ValueError("An enabled copy already exists. Refresh before repairing.")
+    toggle_mod(mc_version, loader, filename, version_id=version_id)
+
+
+def _jar_read_error(path: str) -> str:
+    """Why this jar cannot be read by the loader, or "" when it is fine.
+
+    A truncated download, an HTML error page saved as .jar and a zero-byte
+    file all fail the same way at launch (`invalid LOC header`, `zip END
+    header not found`, ...). Catching it here lets the doctor name the file
+    before the game does."""
+    import zipfile
+    try:
+        size = os.path.getsize(path)
+    except OSError as error:
+        return f"the file cannot be read ({error})"
+    if size == 0:
+        return "the file is empty (a failed download?)"
+    if not zipfile.is_zipfile(path):
+        return "it is not a readable jar archive (a truncated or corrupt download?)"
+    try:
+        with zipfile.ZipFile(path) as archive:
+            archive.infolist()
+    except (OSError, zipfile.BadZipFile) as error:
+        return f"the archive is corrupt ({error})"
+    return ""
+
+
 def _doctor_download(candidate: dict, *, mc_version: str, loader: str,
                      slug=None, project_id=None, approve_cb=None, changes=None,
                      reason="A compatible dependency needs to replace an installed build.",
@@ -2212,7 +2248,8 @@ def _resolve_mod_conflict(declarer: dict, target: dict, target_id: str,
 def mod_doctor(mc_version: str | None, loader: str | None, *,
                auto_fix: bool = True, check_online: bool = True,
                status_cb=None, approve_cb=None, cancel_event=None,
-               version_id: str | None = None) -> dict:
+               version_id: str | None = None,
+               crash_text: str | None = None) -> dict:
     """Find - and, when asked, fix - the common reasons a modpack won't load.
 
     Runs on every install, from a "Fix problems" action, and before a launch.
@@ -2269,12 +2306,51 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         result["cancelled"] = cancel_event is not None and cancel_event.is_set()
         return result["cancelled"]
 
-    def _report(kind, mod, detail, fixed, fix_label=""):
-        entry = {"kind": kind, "mod": mod, "detail": detail, "fixed": fixed}
+    def _report(kind, mod, detail, fixed, fix_label="", action=""):
+        entry = {"kind": kind, "mod": mod, "detail": detail, "fixed": fixed,
+                 "action": action or ("repaired" if fixed else "none")}
         if fix_label:
             entry["fix"] = fix_label
         result["problems"].append(entry)
         (result["fixed"] if fixed else result["unfixed"]).append(entry)
+
+    # --- 0. corrupt jars ----------------------------------------------------
+    # A jar the zip reader cannot open is a guaranteed loader failure, and it
+    # used to be invisible: read_mod_metadata returns None for it, so every
+    # later pass simply skipped the file. Detect it first, disable it (rename,
+    # never delete) after approval, and keep it out of the duplicate/conflict
+    # passes - a broken archive has no trustworthy metadata.
+    broken_files: set = set()
+    for m in mods:
+        if cancelled():
+            return result
+        if m.get("protected") or not m.get("enabled") or not m.get("filename"):
+            continue
+        path = os.path.join(profile_dir, m["filename"])
+        error = _jar_read_error(path)
+        if not error:
+            continue
+        broken_files.add(m["filename"])
+        reason = (f"{error}, so the game's loader cannot read this mod and "
+                  "will fail to start.")
+        fixed, fix_label = False, ""
+        if auto_fix and _request_mod_change(
+                "disable", [m], reason + " The file will be kept so you can "
+                "re-download or re-enable it.",
+                mc_version=mc_version, loader=loader, approve_cb=approve_cb,
+                changes=result["changes"], version_id=version_id):
+            try:
+                _doctor_disable(mc_version, loader, m["filename"],
+                                version_id=version_id)
+                fixed = True
+                fix_label = (f"disabled it (kept as {m['filename']}.disabled; "
+                             "re-download it to fix)")
+            except Exception:
+                log.warning("disabling corrupt mod %s failed", m["filename"],
+                            exc_info=True)
+        _report("mod-unreadable", m["display_name"],
+                f"the jar can't be read: {error}", fixed, fix_label,
+                action="disabled" if fixed else "none")
 
     # --- 1. duplicates -----------------------------------------------------
     # Only ENABLED jars count: a duplicate already sitting as .jar.disabled
@@ -2284,7 +2360,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         if m.get("protected") or not m.get("enabled"):
             continue
         fname = m.get("filename")
-        if not fname:
+        if not fname or fname in broken_files:
             continue
         # The jar's OWN declared mod id is the only proof two files are the same
         # mod. Filename stems are a guess (two different mods can shrink to the
@@ -2337,7 +2413,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
             detail = (f"another copy of {winner['display_name']} is installed "
                       f"({loser['display_name']})")
             _report("duplicate", loser["display_name"], detail, fixed,
-                    "disabled (can be re-enabled)" if fixed else "")
+                    "disabled (can be re-enabled)" if fixed else "",
+                    action="disabled" if fixed else "none")
 
     try:
         mods = list_mods(mc_version, loader, version_id)
@@ -2347,6 +2424,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     incompatible_files = set()
     locally_verified = set()
     incompatible_references = {_mod_ref(mod) for mod in mods if mod.get("enabled") and not mod.get("protected")
+                               and mod.get("filename") not in broken_files
                                and _mod_ref(mod) and _doctor_local_incompatibility(
                                    metadata.get(mod["filename"], (None, {}))[0], mc_version, loader)}
     alternatives = (_doctor_online_checks(incompatible_references, mc_version, loader, status_cb,
@@ -2356,6 +2434,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         if cancelled():
             return result
         if mod.get("protected") or not mod.get("enabled"):
+            continue
+        if mod.get("filename") in broken_files:
             continue
         meta = metadata.get(mod["filename"], (None, {}))[0]
         reason = _doctor_local_incompatibility(meta, mc_version, loader)
@@ -2389,7 +2469,9 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                     fixed, label = True, "disabled (can be re-enabled)"
                 except Exception:
                     pass
-        _report("incompatible", mod["display_name"], reason, fixed, label)
+        _report("incompatible", mod["display_name"], reason, fixed, label,
+                action=("replaced" if "replaced" in label
+                        else "disabled" if fixed else "none"))
     try:
         mods = list_mods(mc_version, loader, version_id)
         for mod in mods:
@@ -2411,7 +2493,9 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 return result
             if m.get("protected") or not m.get("enabled"):
                 continue
-            if m["filename"] in incompatible_files or m["filename"] in locally_verified:
+            if (m["filename"] in incompatible_files
+                    or m["filename"] in locally_verified
+                    or m["filename"] in broken_files):
                 continue
             ref = m.get("project_id") or m.get("slug")
             if not ref:
@@ -2452,7 +2536,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 fix_label = ""
                 if auto_fix:
                     if status_cb:
-                        status_cb(f"Installing {dep_name}")
+                        status_cb(f"Installing {dep_name} \u2014 "
+                                  f"{m['display_name']} requires it")
                     try:
                         fixed = _doctor_download(
                             dep, mc_version=mc_version, loader=loader, project_id=dep_id,
@@ -2464,7 +2549,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                     except Exception:
                         fixed = False
                 _report("missing-dependency", m["display_name"],
-                        f"needs {dep_name}", fixed, fix_label)
+                        f"needs {dep_name}", fixed, fix_label,
+                        action="installed" if fixed else "none")
 
         if unavailable:
             shown = ", ".join(sorted(unavailable)[:4])
@@ -2475,7 +2561,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                     f"{len(unavailable)} mod(s) couldn't be checked online",
                     f"Modrinth didn't answer for {shown}. Local checks still "
                     "ran and no mod was changed because of this; re-run Doctor "
-                    "when you're online.", False)
+                    "when you're online.", False, action="none")
 
     # --- 4. version conflicts (`breaks`) -----------------------------------
     # Read straight from the installed jars: Fabric records "this mod will not
@@ -2488,7 +2574,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     for m in mods:
         if not m.get("enabled") or not m.get("filename"):
             continue
-        if m["filename"] in incompatible_files:
+        if m["filename"] in incompatible_files or m["filename"] in broken_files:
             continue
         meta = metadata.get(m["filename"], (None, {}))[0]
         if not meta or not meta.get("id"):
@@ -2522,7 +2608,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
     for m in mods:
         if not m.get("enabled") or not m.get("filename"):
             continue
-        if m["filename"] in incompatible_files:
+        if m["filename"] in incompatible_files or m["filename"] in broken_files:
             continue
         try:
             bundled = metadata.get(m["filename"], (None, {}))[1]
@@ -2537,10 +2623,35 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
             if prev is None or _cmp_versions(pver, prev) > 0:
                 provided[pid] = pver
 
+    # A disabled jar can satisfy a dependency with no download at all: the
+    # exact build is already on disk as `.jar.disabled`. Re-enabling it is the
+    # cheapest, fully reversible fix, and it is why this pass reads disabled
+    # copies too (Fabric API switched off was reported as "missing" before).
+    disabled_providers: dict = {}
+    for m in mods:
+        if m.get("enabled") or m.get("protected") or not m.get("filename"):
+            continue
+        if not m["filename"].endswith(".disabled"):
+            continue
+        disabled_meta, disabled_bundled = _doctor_metadata(
+            os.path.join(profile_dir, m["filename"]), loader)
+        if not disabled_meta:
+            continue
+        disabled_version = str(disabled_meta.get("version") or "")
+        owner = str(disabled_meta.get("id") or "").lower()
+        if owner:
+            disabled_providers[owner] = (m, disabled_version, disabled_meta)
+        for pid, pver in (disabled_bundled or {}).items():
+            prev = disabled_providers.get(pid)
+            if prev is None or _cmp_versions(pver or "", prev[1] or "") > 0:
+                disabled_providers[pid] = (m, pver or "", disabled_meta)
+
     for m in mods:
         if cancelled():
             return result
         if m.get("protected") or not m.get("enabled") or not m.get("filename"):
+            continue
+        if m["filename"] in broken_files:
             continue
         meta = metas.get(m.get("filename"))
         if not meta:
@@ -2552,7 +2663,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 actual = runtime_versions[dep_key]
                 if dep_key != "minecraft" and actual and not version_satisfies(actual, predicate):
                     _report("loader-version", m.get("display_name"),
-                            f"requires {dep_id} {predicate}; this instance uses {actual}", False)
+                            f"requires {dep_id} {predicate}; this instance uses {actual}", False,
+                            action="none")
                 continue
             hit = id_map.get(dep_key)
             if hit is None:
@@ -2566,7 +2678,51 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                     _report("missing-dependency", m.get("display_name"),
                             f"needs {dep_id} {predicate} (bundled copy is "
                             f"{bundled_version or 'unversioned'})",
-                            False)
+                            False, action="none")
+                    continue
+                candidate = disabled_providers.get(dep_key)
+                if candidate is not None:
+                    disabled_mod, disabled_version, disabled_meta = candidate
+                    if not version_satisfies(disabled_version or "*", predicate):
+                        _report("missing-dependency", m.get("display_name"),
+                                f"needs {dep_id} {predicate} (the installed copy "
+                                f"is disabled and is "
+                                f"{disabled_version or 'unversioned'})",
+                                False, action="none")
+                        continue
+                    fixed, fix_label = False, ""
+                    if auto_fix:
+                        approved = _request_mod_change(
+                            "enable", [disabled_mod],
+                            f"{m.get('display_name') or 'A mod'} requires "
+                            f"{dep_id} {predicate}. The installed copy is "
+                            "disabled; re-enabling it fixes the dependency "
+                            "without downloading anything. You can disable it "
+                            "again in Installed.",
+                            mc_version=mc_version, loader=loader,
+                            approve_cb=approve_cb, changes=result["changes"],
+                            version_id=version_id)
+                        if approved and not cancelled():
+                            try:
+                                _doctor_enable(mc_version, loader,
+                                               disabled_mod["filename"],
+                                               version_id=version_id)
+                                fixed = True
+                                fix_label = "re-enabled (it was disabled)"
+                                enabled = dict(disabled_mod)
+                                enabled["filename"] = disabled_mod["filename"][
+                                    :-len(".disabled")]
+                                enabled["enabled"] = True
+                                metas[enabled["filename"]] = disabled_meta
+                                id_map[dep_key] = (enabled, disabled_version)
+                            except Exception:
+                                log.warning(
+                                    "re-enabling disabled dependency %s failed",
+                                    disabled_mod["filename"], exc_info=True)
+                    _report("missing-dependency", m.get("display_name"),
+                            f"needs {dep_id} {predicate}; the installed copy is "
+                            "disabled", fixed, fix_label,
+                            action="enabled" if fixed else "none")
                     continue
             if hit and version_satisfies(hit[1] or "*", predicate):
                 continue
@@ -2576,7 +2732,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 # handle updates; here just report it, no local fix exists.
                 _report("missing-dependency", m.get("display_name"),
                         f"needs {dep_id} {predicate} (found {hit[1]})",
-                        False)
+                        False, action="none")
                 continue
             dep_name = str(dep_id)
             fixed, fix_label = False, ""
@@ -2590,7 +2746,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                     if cancelled():
                         return result
                     if status_cb:
-                        status_cb(f"Installing {name_stem(file_info.get('filename') or dep_name)}")
+                        status_cb(f"Installing {name_stem(file_info.get('filename') or dep_name)}"
+                                  f" \u2014 {m['display_name']} requires it")
                     try:
                         fixed = _doctor_download(
                             file_info, mc_version=mc_version, loader=loader, slug=dep_id,
@@ -2619,7 +2776,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
             _report("missing-dependency", m.get("display_name"),
                     f"requires {dep_name} ({predicate}), which isn't installed "
                     f"and couldn't be fetched automatically",
-                    fixed, fix_label)
+                    fixed, fix_label,
+                    action="installed" if fixed else "none")
 
     seen_pairs: set = set()
     disabled_targets: set = set()
@@ -2627,6 +2785,8 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         if cancelled():
             return result
         if m.get("protected") or not m.get("enabled"):
+            continue
+        if m.get("filename") in broken_files:
             continue
         meta = metas.get(m.get("filename"))
         if not meta:
@@ -2687,7 +2847,87 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                             id_map.pop(dep_key, None)
                         except Exception:
                             fixed, fix_label = False, ""
-            _report("conflict", declarer_name, detail, fixed, fix_label)
+            _report("conflict", declarer_name, detail, fixed, fix_label,
+                    action=("replaced" if "replaced " in fix_label
+                            else "disabled" if fixed else "none"))
+
+    # --- 5. what the crash log itself blames -------------------------------
+    # Some conflicts have no local declaration (two mixins fighting over one
+    # class, a loader resolution the jar metadata cannot predict). The crash
+    # log DOES name the culprit; `crash.mod_candidates` extracts only explicit
+    # blame lines (never the "Fabric Mods:" table). This pass disables at most
+    # ONE matched, currently-enabled mod - conservative on purpose, since
+    # collateral disables are worse than a second crash that names the other
+    # side.
+    if crash_text and not cancelled():
+        try:
+            from .crash import mod_candidates
+            candidates = mod_candidates(crash_text)
+        except Exception:
+            candidates = []
+        if candidates:
+            fixed_mods = {p.get("mod") for p in result["problems"]
+                          if p.get("fixed")}
+            enabled_now = []
+            for m in mods:
+                if (m.get("protected") or not m.get("enabled")
+                        or not m.get("filename")):
+                    continue
+                if not os.path.isfile(os.path.join(profile_dir,
+                                                   m["filename"])):
+                    continue
+                enabled_now.append(m)
+            matched = None
+            for candidate in candidates:
+                token = candidate["name"].casefold()
+                bare = token[:-4] if token.endswith(".jar") else token
+                for m in enabled_now:
+                    fields = {m.get("filename"), m.get("stem"),
+                              m.get("display_name"), m.get("slug"),
+                              m.get("project_id")}
+                    meta = metadata.get(m["filename"], (None, {}))[0] or {}
+                    fields.update({meta.get("id"), meta.get("name")})
+                    for field in fields:
+                        if not field:
+                            continue
+                        value = str(field).casefold()
+                        if value in (token, bare) or (
+                                len(bare) >= 4 and value.startswith(
+                                    (bare + "-", bare + "_"))):
+                            matched = (m, candidate)
+                            break
+                    if matched:
+                        break
+                if matched:
+                    break
+            if matched:
+                m, candidate = matched
+                if m["display_name"] not in fixed_mods:
+                    detail = ("the crash log points at this mod: "
+                              f"{candidate['reason']}")
+                    fixed, fix_label = False, ""
+                    approved = _request_mod_change(
+                        "disable", [m],
+                        f"{detail}. Disabling it keeps the file and lets "
+                        "Minecraft start; re-enable it in Mods \u2192 Installed "
+                        "if the crash returns.",
+                        mc_version=mc_version, loader=loader,
+                        approve_cb=approve_cb, changes=result["changes"],
+                        version_id=version_id)
+                    if approved and not cancelled():
+                        try:
+                            _doctor_disable(mc_version, loader,
+                                            m["filename"],
+                                            version_id=version_id)
+                            fixed = True
+                            fix_label = "disabled it (file kept)"
+                        except Exception:
+                            log.warning(
+                                "disabling log-named mod %s failed",
+                                m["filename"], exc_info=True)
+                    _report("log-conflict", m["display_name"], detail,
+                            fixed, fix_label,
+                            action="disabled" if fixed else "none")
 
     return result
 

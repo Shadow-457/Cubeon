@@ -86,8 +86,11 @@ def restore_net():
 def write_jar(profile_dir, filename, project_id=None, slug=None):
     os.makedirs(profile_dir, exist_ok=True)
     path = os.path.join(profile_dir, filename)
-    with open(path, "wb") as f:
-        f.write(b"PK\x03\x04 fake jar")
+    # A REAL (if empty) zip: the doctor now disables jars it cannot read, and a
+    # fake `PK\x03\x04 ...` blob is exactly the corrupt-download shape it
+    # must catch. These tests care about sidecar identity, not jar contents.
+    with zipfile.ZipFile(path, "w"):
+        pass
     if project_id or slug:
         mods.record_mod_source(profile_dir, filename, slug=slug,
                                project_id=project_id)

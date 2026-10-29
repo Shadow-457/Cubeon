@@ -470,8 +470,15 @@ check("the shader really is valid afterwards",
       pf.shader_verdict(os.path.join(DOC_SHADERS, "Deep Shader.zip"))["ok"] is True,
       pf.shader_verdict(os.path.join(DOC_SHADERS, "Deep Shader.zip")))
 check("a healthy shader is not reported", "Good Shader" not in fixed_items | unfixed_items)
-check("a resource pack in shaderpacks/ is reported, not 'fixed'",
-      "Not A Shader" in unfixed_items, rep["unfixed"])
+check("a resource pack in shaderpacks/ is moved and reported fixed",
+      "Not A Shader" in fixed_items
+      and not os.path.exists(os.path.join(DOC_SHADERS, "Not A Shader.zip"))
+      and os.path.isfile(os.path.join(DOC_PACKS, "Not A Shader.zip")),
+      rep["fixed"])
+check("and the report says why it moved",
+      any("resourcepack" in (f.get("fix") or "")
+          and "not a shader" in (f.get("fix") or "") for f in rep["fixed"]),
+      rep["fixed"])
 check("all three were checked",
       rep["sections"]["shaders"]["checked"] == 3, rep["sections"]["shaders"])
 
@@ -526,7 +533,8 @@ check("the unreadable tracking file is removed (the pack list stops lying)",
                                       modpacks.MODPACK_META_FILENAME)),
       os.listdir(unreadable_marker))
 check("removing it is reported as a fix",
-      any(f["kind"] == "pack-marker" and "removed" in (f.get("fix") or "")
+      any(f["kind"] == "pack-marker" and f.get("action") == "removed"
+          and "aside" in (f.get("fix") or "")
           for f in rep["fixed"]), rep["fixed"])
 check("a gutted pack is NOT auto-deleted (only a reinstall can rebuild it)",
       os.path.isdir(gutted) and os.path.isfile(

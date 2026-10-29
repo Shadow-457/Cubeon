@@ -38,13 +38,20 @@ never a launch):
 
 Report shape (a superset of mod_doctor's, so existing callers keep working):
   {"checked", "problems", "fixed", "unfixed", "sections", "summary"}
-Every problem is {"section", "kind", "item", "detail", "fixed", "fix"?};
-entries from the mods section keep their original "mod" key too.
+Every problem is {"section", "kind", "item", "detail", "fixed", "action", "fix"?};
+`detail` is ALWAYS the concrete reason/error - including for entries that were
+fixed - and `fix` says what was actually done. entries from the mods section
+keep their original "mod" key too.
+
+`format_problem()` / `report_lines()` render that pair the same way on every
+surface ("Sodium: duplicate copies prevent loading -> disabled the older
+copy"), so a fix can never hide the error that caused it.
 """
 import json
 import os
 import re
 import shutil
+import time
 import zipfile
 
 from . import logging_setup  # noqa: F401  (installs the file log handlers)
@@ -72,7 +79,8 @@ _PLUGIN_NAME_RE = re.compile(r"^\s*name\s*:\s*[\"']?([^\"'\n#]+)", re.MULTILINE)
 def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
                auto_fix: bool = True, check_online: bool = True,
                status_cb=None, include=None, approve_cb=None, cancel_event=None,
-               version_id: str | None = None) -> dict:
+               version_id: str | None = None,
+               crash_text: str | None = None) -> dict:
     """Check (and, when auto_fix is on, repair) every kind of installed content.
 
     mc_version/loader describe the profile the user is working in. The
@@ -81,6 +89,11 @@ def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
 
     include: optional iterable of section names to run only those (the UI uses
     it to scope a check to the tab the user is looking at).
+
+    crash_text: the crashed game's log. Passed only by the crash report's
+    Check & fix; the mods pass uses the lines that explicitly blame a mod to
+    disable ONE installed culprit that local metadata cannot identify (a mixin
+    clash, a loader resolution). Normal scans leave it empty.
 
     Existing mods can only be disabled or replaced after approve_cb(change)
     returns True. The report's changes list records these proposals and consent.
@@ -97,7 +110,8 @@ def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
         "launch": lambda: _launch_section(auto_fix, status_cb),
         "mods": lambda: _mods_section(mc_version, loader, auto_fix,
                                       check_online, status_cb, review, cancel_event,
-                                      version_id=version_id),
+                                      version_id=version_id,
+                                      crash_text=crash_text),
         "resourcepacks": lambda: _resourcepacks_section(mc_version, version_id,
                                                         auto_fix, status_cb),
         "shaders": lambda: _shaders_section(auto_fix, status_cb),
@@ -117,16 +131,30 @@ def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
             continue
         try:
             checked, entries = runners[name]()
-        except Exception:
+        except Exception as error:
             # One broken section must not take the others (or a launch) down;
-            # the traceback still lands in the central file log.
+            # the traceback still lands in the central file log. It is NOT
+            # silent any more: a check that could not run must never leave the
+            # summary saying "no problems found".
             log.warning("doctor section %s failed", name, exc_info=True)
-            continue
-        report["sections"][name] = {
-            "checked": checked,
-            "problems": len(entries),
-            "fixed": sum(1 for entry in entries if entry["fixed"]),
-        }
+            detail = (f"this check could not run: "
+                      f"{type(error).__name__}: {error}".strip())
+            entry = _entry(name, "section-failed", name, detail, False,
+                           action="none")
+            entries = [entry]
+            checked = 0
+            report["sections"][name] = {
+                "checked": 0,
+                "problems": 1,
+                "fixed": 0,
+                "error": str(error) or type(error).__name__,
+            }
+        else:
+            report["sections"][name] = {
+                "checked": checked,
+                "problems": len(entries),
+                "fixed": sum(1 for entry in entries if entry["fixed"]),
+            }
         report["checked"] += checked
         report["problems"].extend(entries)
         for entry in entries:
@@ -137,23 +165,80 @@ def run_doctor(mc_version: str | None = None, loader: str | None = None, *,
 
 
 def _summarize(report: dict) -> str:
-    if not report["problems"]:
-        return f"Checked {report['checked']} item(s) - no problems found."
-    fixed = len(report["fixed"])
-    unfixed = len(report["unfixed"])
-    text = f"Checked {report['checked']} item(s): fixed {fixed}"
+    """One honest sentence: never "no problems found" after a failed or
+    cancelled check (an incomplete scan is itself a result the user needs)."""
+    checked = report.get("checked", 0)
+    fixed = len(report.get("fixed") or [])
+    unfixed = len(report.get("unfixed") or [])
+    failed = [name for name, info in (report.get("sections") or {}).items()
+              if isinstance(info, dict) and info.get("error")]
+    if report.get("cancelled"):
+        text = f"Check stopped early - {checked} item(s) checked"
+        if fixed:
+            text += f", {fixed} fixed"
+        if failed:
+            text += f", {len(failed)} check(s) could not run"
+        return text + "."
+    if failed:
+        text = f"Checked {checked} item(s): fixed {fixed}"
+        if unfixed:
+            text += f", {unfixed} need attention"
+        return (text + f", {len(failed)} check(s) could not run "
+                f"({', '.join(sorted(failed))}).")
+    if not report.get("problems"):
+        if checked == 0:
+            return "Nothing was checked - pick an instance with installed content."
+        return f"Checked {checked} item(s) - no problems found."
+    text = f"Checked {checked} item(s): fixed {fixed}"
     if unfixed:
         text += f", {unfixed} need attention"
     return text + "."
 
 
 def _entry(section: str, kind: str, item: str, detail: str, fixed: bool,
-           fix: str = "") -> dict:
+           fix: str = "", action: str = "") -> dict:
     entry = {"section": section, "kind": kind, "item": item,
-             "detail": detail, "fixed": bool(fixed)}
+             "detail": detail, "fixed": bool(fixed),
+             # Machine-readable outcome: disabled / enabled / installed /
+             # replaced / repaired / removed / none. A fixed entry without a
+             # more specific action is a repair.
+             "action": action or ("repaired" if fixed else "none")}
     if fix:
         entry["fix"] = fix
     return entry
+
+
+def format_problem(entry: dict) -> str:
+    """Render one problem for a human: the ERROR first, then what was done.
+
+    Every surface uses this so a successful fix can never replace the reason
+    with "disabled it" and leave the user guessing what went wrong."""
+    item = (entry.get("item") or entry.get("mod") or "Content")
+    raw_detail = entry.get("detail") or entry.get("reason") or ""
+    detail = str(raw_detail).strip()
+    fix = str(entry.get("fix") or "").strip()
+    if entry.get("fixed") and fix:
+        return f"{item}: {detail} \u2192 {fix}" if detail else f"{item}: {fix}"
+    if not detail:
+        detail = "needs attention"
+    return f"{item}: {detail}" if detail else str(item)
+
+
+def report_lines(report: dict, limit: int = 12, *,
+                 include_fixed: bool = True) -> list[str]:
+    """Fixed first, then what still needs attention, capped with an honest tail.
+
+    `detail` stays attached to fixed rows, so the inline result of an explicit
+    repair explains both the error and the action."""
+    entries = []
+    if include_fixed:
+        entries.extend(report.get("fixed") or [])
+    entries.extend(report.get("unfixed") or [])
+    lines = [format_problem(entry) for entry in entries[:max(0, int(limit))]]
+    rest = len(entries) - len(lines)
+    if rest > 0:
+        lines.append(f"{rest} more result(s) not shown.")
+    return lines
 
 
 def _say(status_cb, text: str) -> None:
@@ -178,9 +263,15 @@ def _launch_section(auto_fix, status_cb) -> tuple:
     looked at installed content, so "Fix crash" had nothing to fix even though
     the crash was entirely launcher config. Same for a Settings `java_path`
     that points at a deleted/moved binary.
+
+    Allocated RAM is validated too: a hand-edited/half-migrated config can hold
+    a string, a negative number, or more memory than the machine owns, and
+    either shape makes Java refuse to start (-Xmx). Clamping it is a safe,
+    reversible launcher-owned repair.
     """
     from .config import load_config, save_config, CONFIG_PATH
-    from .launch import invalid_custom_jvm_flags, _normalize_java_path
+    from .launch import (invalid_custom_jvm_flags, _normalize_java_path,
+                         _parse_custom_jvm_flags)
 
     if not os.path.isfile(CONFIG_PATH):
         return 0, []  # brand-new install: defaults are valid, nothing to report
@@ -204,7 +295,6 @@ def _launch_section(auto_fix, status_cb) -> tuple:
         fix = ""
         if auto_fix:
             try:
-                from .launch import _parse_custom_jvm_flags
                 cfg["custom_jvm_flags"] = " ".join(
                     _parse_custom_jvm_flags(raw_flags))
                 changed = True
@@ -214,7 +304,23 @@ def _launch_section(auto_fix, status_cb) -> tuple:
                 log.warning("clearing invalid custom JVM flags failed",
                             exc_info=True)
         entries.append(_entry("launch", "jvm-flags", "Custom JVM flags",
-                              detail, fixed, fix))
+                              detail, fixed, fix,
+                              action="repaired" if fixed else "none"))
+
+    # --- allocated RAM -----------------------------------------------------
+    ram_entry = _ram_problem(cfg)
+    if ram_entry is not None:
+        detail, target = ram_entry
+        fixed = False
+        fix = ""
+        if auto_fix and target:
+            cfg["ram_mb"] = target
+            changed = True
+            fixed = True
+            fix = f"set allocated RAM to {target} MB"
+        entries.append(_entry("launch", "ram", "Allocated RAM", detail,
+                              fixed, fix,
+                              action="repaired" if fixed else "none"))
 
     configured_java = cfg.get("java_path")
     if configured_java:
@@ -230,7 +336,8 @@ def _launch_section(auto_fix, status_cb) -> tuple:
                 fixed = True
                 fix = "reset Java path to auto-detect"
             entries.append(_entry("launch", "java-path", "Java path",
-                                  detail, fixed, fix))
+                                  detail, fixed, fix,
+                                  action="repaired" if fixed else "none"))
 
     if changed:
         try:
@@ -240,23 +347,62 @@ def _launch_section(auto_fix, status_cb) -> tuple:
             for entry in entries:
                 if entry["fixed"]:
                     entry["fixed"] = False
+                    entry["action"] = "none"
                     entry.pop("fix", None)
     return 1, entries
+
+
+def _ram_problem(cfg: dict):
+    """(detail, safe_target_mb) when `ram_mb` cannot be used, else None.
+
+    The configured value is quoted in the detail so the user can see exactly
+    what was wrong. The replacement is the launcher's own recommendation,
+    never more than the machine can actually back."""
+    from .config import get_system_ram_mb, recommended_max_ram_mb
+
+    raw = cfg.get("ram_mb")
+    try:
+        system = int(get_system_ram_mb())
+    except Exception:
+        system = 0
+    recommended = max(1024, int(recommended_max_ram_mb(system) if system else 4096))
+    target = max(1024, min(recommended, 6144))
+    if system:
+        target = min(target, max(1024, system - 1024))
+
+    if isinstance(raw, bool) or raw is None:
+        return (f"Allocated RAM ({raw!r}) isn't a number, so Java can't build "
+                "a usable -Xmx value.", target)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return (f"Allocated RAM ({raw!r}) isn't a whole number of MB, so Java "
+                "can't build a usable -Xmx value.", target)
+    if value < 1024:
+        return (f"Allocated RAM ({value} MB) is below the 1 GB minimum "
+                "Minecraft needs; the game will run out of memory or fail to "
+                "start.", target)
+    if system and value > system:
+        return (f"Allocated RAM ({value} MB) is larger than this machine's "
+                f"{system} MB, so the JVM may refuse to start or swap hard.",
+                target)
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Section: mods (delegates to cubeon/mods.py:mod_doctor)
 # ---------------------------------------------------------------------------
 
-def _mods_section(mc_version, loader, auto_fix, check_online, status_cb, approve_cb, cancel_event,
-                  version_id=None) -> tuple:
+def _mods_section(mc_version, loader, auto_fix, check_online, status_cb,
+                  approve_cb, cancel_event, version_id=None,
+                  crash_text=None) -> tuple:
     if not mc_version or loader not in mods.MOD_CAPABLE_LOADERS:
         return 0, []
     _say(status_cb, "Checking your mods...")
     report = mods.mod_doctor(mc_version, loader, auto_fix=auto_fix,
                              check_online=check_online, status_cb=status_cb,
                              approve_cb=approve_cb, cancel_event=cancel_event,
-                             version_id=version_id)
+                             version_id=version_id, crash_text=crash_text)
     entries = []
     for problem in report.get("problems") or []:
         # mod_doctor's entries keep their own keys ("mod", "kind", "detail",
@@ -354,9 +500,38 @@ def _shaders_section(auto_fix, status_cb) -> tuple:
             except Exception:
                 log.warning("flattening shader pack %s failed", name,
                             exc_info=True)
+        elif auto_fix:
+            # A pack with a pack.mcmeta and no shaders/ is a RESOURCE pack in
+            # the wrong folder - the game will never load it there. Moving it
+            # to resourcepacks/ makes it usable instead of leaving a dead file.
+            moved = _move_to_resourcepacks(name, path, status_cb)
+            if moved:
+                fixed = True
+                fix = ("moved it to resourcepacks/ - it is a resource pack, "
+                       "not a shader pack")
         entries.append(_entry(
-            "shaders", "shader-structure", label, verdict["reason"], fixed, fix))
+            "shaders", "shader-structure", label, verdict["reason"], fixed, fix,
+            action="repaired" if fixed else "none"))
     return checked, entries
+
+
+def _move_to_resourcepacks(name: str, path: str, status_cb) -> bool:
+    """Move a misplaced resource pack out of shaderpacks/. Never overwrites."""
+    try:
+        if packformat.read_pack_meta(path)[0] is None:
+            return False
+        os.makedirs(RESOURCEPACKS_DIR, exist_ok=True)
+        destination = os.path.join(RESOURCEPACKS_DIR, name)
+        if os.path.lexists(destination):
+            return False
+        _say(status_cb, f"Moving {name} to resource packs")
+        shutil.move(path, destination)
+        log.info("moved misplaced resource pack %s from shaderpacks/", name)
+        return True
+    except Exception:
+        log.warning("moving misplaced resource pack %s failed", name,
+                    exc_info=True)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +558,8 @@ def _iter_modpack_markers():
         try:
             with open(marker, "r", encoding="utf-8") as fh:
                 meta = json.load(fh)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
+            # invalid UTF-8 is a ValueError, not a JSONDecodeError.
             meta = None
         yield key, profile_dir, meta
 
@@ -407,23 +583,31 @@ def _modpacks_section(mc_version, loader, auto_fix, check_online, status_cb, app
         if meta is None:
             # An unreadable marker means the Modpacks tab no longer lists this
             # pack while its profile folder and mods stay exactly as they are.
-            # Removing the file is the fix - it is a tracking record, not
-            # content.
+            # Move the broken file aside (never delete it - it may be the only
+            # record of where the pack came from) and say what that means: the
+            # pack disappears from the tab until it is reinstalled.
             fixed = False
             fix = ""
             if auto_fix:
+                marker = os.path.join(profile_dir,
+                                      modpacks.MODPACK_META_FILENAME)
+                backup = f"{marker}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}"
                 try:
-                    os.remove(os.path.join(profile_dir,
-                                           modpacks.MODPACK_META_FILENAME))
+                    os.replace(marker, backup)
                     fixed = True
-                    fix = "removed the unreadable tracking file"
+                    fix = (f"moved the unreadable tracking file aside as "
+                           f"{os.path.basename(backup)}; the pack is no longer "
+                           "listed until it is reinstalled (its mods are kept)")
                 except OSError:
                     log.warning("could not remove marker in %s", profile_dir,
                                 exc_info=True)
             entries.append(_entry(
                 "modpacks", "pack-marker", pack_name,
                 "its tracking file (_modpack.json) is unreadable, so the pack "
-                "isn't listed and Play can't pick it", fixed, fix))
+                "isn't listed and Play can't pick it", fixed, fix,
+                action="removed" if fixed else "none"))
+            # Without the marker there is no reliable mc_version/loader, so
+            # the version/profile checks below cannot run for this pack.
             continue
 
         expected = meta.get("mod_count")
@@ -543,6 +727,21 @@ def _iter_server_ids():
             yield name
 
 
+def _looks_like_client_mod(jar_path: str) -> bool:
+    """True when the jar declares a Minecraft mod, not a server plugin.
+
+    This turns "it carries no plugin descriptor" into the actionable truth:
+    the user put a mod in the server's plugins/ folder."""
+    try:
+        with zipfile.ZipFile(jar_path) as zf:
+            names = {n.replace("\\", "/").lower() for n in zf.namelist()}
+    except (OSError, zipfile.BadZipFile):
+        return False
+    return any(name in names for name in (
+        "fabric.mod.json", "quilt.mod.json", "meta-inf/mods.toml",
+        "meta-inf/neoforge.mods.toml", "mcmod.info"))
+
+
 def _plugins_section(auto_fix, status_cb) -> tuple:
     checked = 0
     entries = []
@@ -570,10 +769,21 @@ def _plugins_section(auto_fix, status_cb) -> tuple:
             name, descriptor, readable = _plugin_identity(jar_path)
 
             if not readable:
+                fixed = False
+                fix = ""
+                if auto_fix:
+                    try:
+                        os.rename(jar_path, jar_path + ".disabled")
+                        fixed = True
+                        fix = "disabled it (kept on disk, the server skips it)"
+                    except OSError:
+                        log.warning("could not disable unreadable plugin %s",
+                                    jar_path, exc_info=True)
                 entries.append(_entry(
                     "plugins", "plugin-unreadable", label,
                     "the jar can't be read (a truncated download?), so the "
-                    "server will fail to load it", False))
+                    "server will fail to load it", fixed, fix,
+                    action="disabled" if fixed else "none"))
                 continue
             if descriptor is None:
                 fixed = False
@@ -588,10 +798,16 @@ def _plugins_section(auto_fix, status_cb) -> tuple:
                     except OSError:
                         log.warning("could not disable %s", jar_path,
                                     exc_info=True)
+                detail = ("it carries no plugin.yml/paper-plugin.yml, so it "
+                          "isn't a plugin the server can load")
+                if _looks_like_client_mod(jar_path):
+                    detail = ("this is a Minecraft client mod, not a server "
+                              "plugin - it has no plugin.yml/paper-plugin.yml "
+                              "and the server ignores it")
                 entries.append(_entry(
                     "plugins", "plugin-not-a-plugin", label,
-                    "it carries no plugin.yml/paper-plugin.yml, so it isn't a "
-                    "plugin the server can load", fixed, fix))
+                    detail, fixed, fix,
+                    action="disabled" if fixed else "none"))
                 continue
             by_name.setdefault((name or label).lower(), []).append(
                 (jar_path, name or label))
@@ -626,5 +842,6 @@ def _plugins_section(auto_fix, status_cb) -> tuple:
                     "plugins", "plugin-duplicate", display,
                     "another enabled jar already provides the plugin "
                     f"'{display}' - the server silently ignores this one",
-                    fixed, fix))
+                    fixed, fix,
+                    action="disabled" if fixed else "none"))
     return checked, entries

@@ -12,6 +12,8 @@ dialog surfaces it:
 * the tail of the game's own output, behind a "Show log" expansion (a wall of
   text on first paint would bury the one sentence that matters);
 * Copy, so the whole report can be pasted into Discord;
+* **Check & fix**, which runs the launcher's own Doctor on the instance that
+  crashed and shows every error + action inline;
 * a direct invite button to the Cubeon Discord, which is where support
   actually happens.
 
@@ -21,12 +23,14 @@ open, and Close only dismisses the report.
 """
 from __future__ import annotations
 
+import threading
 import webbrowser
 
 import flet as ft
 from cubeon import i18n
 
 from cubeon import dialogs as cubeon_dialogs
+from cubeon import thread_safe_ui
 from cubeon.theme import (
     ACCENT, BG, BORDER, DANGER, FONT_DISPLAY, FONT_MONO, ON_ACCENT,
     RADIUS, SURFACE, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT,
@@ -73,8 +77,16 @@ def _pill(text: str) -> ft.Container:
 
 def build_crash_dialog(page, *, reason: str, log_text: str,
                        version_label: str = "", log_path: "str | None" = None,
-                       show_snack=None, on_close=None) -> ft.AlertDialog:
-    """Build (but do not open) the crash report. See ``show_crash_dialog``."""
+                       show_snack=None, on_close=None,
+                       mc_version: "str | None" = None,
+                       loader: "str | None" = None,
+                       version_id: "str | None" = None) -> ft.AlertDialog:
+    """Build (but do not open) the crash report. See ``show_crash_dialog``.
+
+    ``mc_version``/``loader``/``version_id`` identify the instance that just
+    crashed; when they are known the dialog can run the launcher's own Doctor
+    in place and report *why* each fix was applied, without leaving the report.
+    """
     log_text = (log_text or "").strip()
     trimmed = False
     if len(log_text) > MAX_LOG_CHARS:
@@ -123,6 +135,107 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
             if callable(show_snack):
                 show_snack("Couldn't open Doctor. Visit cubeon.ylet.online/doctor "
                            "and use Copy log to paste this report.", duration=8000)
+
+    # --- local Doctor (same sections as Settings) ---------------------------
+    # The website Doctor reads the log; this one looks at the INSTALLATION that
+    # just failed (corrupt jars, bad RAM, missing dependencies...) and can fix
+    # it in place. Both are offered: the log tells you what happened, the local
+    # check is what can actually change the files for the next launch.
+    doctor_status = ft.Text("", size=11.5, color=TEXT_DIM, visible=False,
+                            selectable=True, data="crash-doctor-status")
+    doctor_spinner = ft.ProgressRing(width=13, height=13, stroke_width=2,
+                                     color=ACCENT, visible=False)
+    doctor_results = ft.ListView(spacing=6, padding=0, height=210)
+    doctor_results_host = ft.Container(
+        content=doctor_results, visible=False,
+        border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
+        bgcolor=BG, padding=ft.padding.Padding.symmetric(horizontal=10,
+                                                          vertical=8),
+        data="crash-doctor-results",
+    )
+    doctor_lock = threading.Lock()
+
+    def _doctor_row(entry):
+        from cubeon.doctor import format_problem
+        if entry.get("fixed"):
+            icon, color = ft.Icons.CHECK_CIRCLE_ROUNDED, ACCENT
+        elif entry.get("kind") == "section-failed":
+            icon, color = ft.Icons.ERROR_OUTLINE_ROUNDED, DANGER
+        else:
+            icon, color = ft.Icons.WARNING_AMBER_ROUNDED, TEXT_DIM
+        return ft.Row(
+            [ft.Icon(icon, size=14, color=color),
+             ft.Text(format_problem(entry), size=11.5, selectable=True,
+                     color=TEXT if entry.get("fixed") else TEXT_DIM,
+                     expand=True)],
+            spacing=6, vertical_alignment=ft.CrossAxisAlignment.START)
+
+    def _render_report(report):
+        with thread_safe_ui.TREE_LOCK:
+            doctor_results.controls[:] = [
+                _doctor_row(entry)
+                for entry in (list(report.get("fixed") or [])
+                              + list(report.get("unfixed") or []))]
+            doctor_results_host.visible = bool(doctor_results.controls)
+            doctor_status.value = report.get("summary") or ""
+            doctor_status.visible = bool(doctor_status.value)
+            thread_safe_ui.refresh(doctor_results)
+            thread_safe_ui.refresh(doctor_results_host)
+            thread_safe_ui.refresh(doctor_status)
+
+    def _run_local_doctor(e=None):
+        if not doctor_lock.acquire(blocking=False):
+            return
+        with thread_safe_ui.TREE_LOCK:
+            local_doctor_btn.disabled = True
+            doctor_spinner.visible = True
+            doctor_status.value = "Checking for problems…"
+            doctor_status.visible = True
+            thread_safe_ui.refresh(local_doctor_btn)
+            thread_safe_ui.refresh(doctor_spinner)
+            thread_safe_ui.refresh(doctor_status)
+
+        def done(report):
+            try:
+                _render_report(report)
+            except Exception:
+                pass
+            finally:
+                doctor_lock.release()
+                with thread_safe_ui.TREE_LOCK:
+                    local_doctor_btn.disabled = False
+                    doctor_spinner.visible = False
+                    thread_safe_ui.refresh(local_doctor_btn)
+                    thread_safe_ui.refresh(doctor_spinner)
+
+        from cubeon.doctor_ui import start_doctor_worker
+        started = start_doctor_worker(
+            mc_version=mc_version, loader=loader or "vanilla",
+            version_id=version_id, include=None, check_online=True,
+            on_done=done, approve_all=True, crash_text=log_text)
+        if started is None:
+            doctor_lock.release()
+            with thread_safe_ui.TREE_LOCK:
+                local_doctor_btn.disabled = False
+                doctor_spinner.visible = False
+                doctor_status.value = "Couldn't start the check - see the log."
+                thread_safe_ui.refresh(local_doctor_btn)
+                thread_safe_ui.refresh(doctor_spinner)
+                thread_safe_ui.refresh(doctor_status)
+
+    local_doctor_available = bool(mc_version and version_id)
+    local_doctor_btn = ft.TextButton(
+        "Check & fix", icon=ft.Icons.BUILD_CIRCLE_ROUNDED,
+        on_click=_run_local_doctor, data="crash-local-doctor",
+        disabled=not local_doctor_available,
+        tooltip=("Run the launcher's Doctor on this instance. It reports why "
+                 "each problem happened and fixes what is safe to fix; "
+                 "disabled files are kept."
+                 if local_doctor_available else
+                 "Cubeon couldn't tell which instance crashed, so the local "
+                 "check has nothing to inspect."),
+        style=ft.ButtonStyle(color=ACCENT, icon_color=ACCENT),
+    )
 
     log_field = ft.TextField(
         value=log_text,
@@ -179,6 +292,12 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                 ft.Container(height=6),
                 log_tile,
                 ft.Container(height=8),
+                ft.Row(
+                    [doctor_spinner, ft.Container(content=doctor_status,
+                                                  expand=True)],
+                    spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                doctor_results_host,
+                ft.Container(height=8),
                 ft.Column(footer_bits, spacing=3, tight=True),
             ],
             spacing=0, tight=True,
@@ -201,6 +320,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         ),
         content=content,
         actions=[
+            local_doctor_btn,
             ft.TextButton(
                 i18n.t("Doctor"), icon=ft.Icons.MEDICAL_SERVICES_ROUNDED,
                 on_click=_doctor, data="crash-web-doctor",
@@ -236,7 +356,10 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
 
 def show_crash_dialog(page, *, reason: str, log_text: str,
                       version_label: str = "", log_path: "str | None" = None,
-                      show_snack=None, on_close=None):
+                      show_snack=None, on_close=None,
+                      mc_version: "str | None" = None,
+                      loader: "str | None" = None,
+                      version_id: "str | None" = None):
     """Build + mount the crash report. Returns the dialog, or None.
 
     Safe from any thread: mounting goes through ``cubeon.dialogs``, the same
@@ -247,7 +370,8 @@ def show_crash_dialog(page, *, reason: str, log_text: str,
         dlg = build_crash_dialog(
             page, reason=reason, log_text=log_text,
             version_label=version_label, log_path=log_path,
-            show_snack=show_snack, on_close=on_close)
+            show_snack=show_snack, on_close=on_close,
+            mc_version=mc_version, loader=loader, version_id=version_id)
         cubeon_dialogs.open_dialog(page, dlg)
         return dlg
     except Exception:

@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Cubeon privacy - what we keep, and how to delete it</title>
-<meta name="description" content="Cubeon keeps as little as possible: the name you pick, your skins, your friends list, and your IP while connected. No email, no advertising, no tracking - and you can have it all deleted." />
+<meta name="description" content="Cubeon keeps as little as possible: the name you pick, your skins, your friends list, and your IP while connected. No email, no advertising, no tracking across sites - and you can have it all deleted." />
 <meta property="og:title" content="Cubeon privacy" />
 <meta property="og:description" content="No advertising or analytics profiles. Optional crash diagnosis uses Groq and Kilo; learn how logs are handled." />
 <link rel="canonical" href="https://cubeon.ylet.online/privacy" />
@@ -43,8 +43,8 @@
   <div class="wrap">
     <p class="crumbs"><a href="index.html">Home</a> / Privacy</p>
     <h1>Privacy</h1>
-    <p class="lede">Cubeon has no advertising or analytics profiles. Optional Doctor AI uses Groq with Kilo as a fallback; review the details below.</p>
-    <p class="updated">Last updated 28 October 2026</p>
+    <p class="lede">Cubeon has no advertising or analytics profiles. Page views are counted anonymously, without cookies. Optional Doctor AI uses Groq with Kilo as a fallback; review the details below.</p>
+    <p class="updated">Last updated 29 October 2026</p>
   </div>
 </header>
 
@@ -61,11 +61,16 @@
   <h2>What we don't do</h2>
   <ul>
     <li>No advertising and no ad networks, here or in the app.</li>
-    <li>No analytics profiles or Cubeon tracking cookies. Optional Doctor AI requests are described below - see <a href="cookies.html">Cookies</a>. The one statistic this website keeps is the download counter: a shared running total of distinct visitors who downloaded. Our download server keeps a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored and the hash is not used for anything else.</li>
+    <li>No analytics profiles and no tracking cookies. The website counts anonymous page views - see <a href="#analytics">page counts</a> - and sets no cookie to do it. Optional Doctor AI requests are described below - see <a href="cookies.html">Cookies</a>. The only lasting per-visitor number the site keeps is the download counter: a shared running total of distinct visitors who downloaded. Our download server keeps a one-way hash of the address the request already carries, only so the same visitor is not counted twice; the address itself is not stored and the hash is not used for anything else.</li>
     <li>No selling, renting or swapping your information with anybody.</li>
     <li>No emails, so no newsletters and nothing to unsubscribe from.</li>
     <li>No asking who you are: there's no age, name or address to hand over.</li>
   </ul>
+
+  <h2 id="analytics">Page counts on the website</h2>
+  <p>The website counts page views with Vercel Web Analytics. It is cookieless: nothing is written to your device, there is no consent banner to dismiss, and no identifier is left behind for another site to read. For each view it records the page address, the site that referred you, your browser, operating system and device type, a rough location (city level) and the time. It is stored as aggregate totals, never tied to your name, your Cubeon account or your IP address.</p>
+  <p>A visitor is counted with a one-way hash built from the incoming request. That hash is discarded after 24 hours, so nothing survives that could follow you across days or across websites. There are no advertising pixels, no cross-site profiles and nothing here that could be sold.</p>
+  <p>This section covers the website only. The launcher has no analytics at all: it sends us nothing about how you use it, which mods you pick or how often you play.</p>
 
   <h2>Where it's kept</h2>
   <p>On your own computer, where your name, skins, settings and logs sit in a Cubeon folder in your user folder. And on the small servers that connect players to each other, which is what makes your friends list and your shared skin work. Plus one number - the download counter (see <a href="cookies.html">Cookies</a>), a running total of distinct visitors who downloaded, with only a one-way hash of the address kept so the same visitor is not counted twice.</p>
@@ -125,12 +130,16 @@
     </div>
     <div class="foot-meta">
       <span>A <a href="https://www.ylet.online/" target="_blank" rel="noopener">Ylet</a> product. Say hello at <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
-      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 28 October 2026.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 29 October 2026.</span>
     </div>
   </div>
 </footer>
 
 <script src="assets/site.js" defer></script>
 <script src="assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

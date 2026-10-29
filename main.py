@@ -5064,6 +5064,15 @@ async def main(page: ft.Page):
                             pass  # keep the in-memory tail
                 label = f"Minecraft {core.resolve_mc_version(version_id) or version_id}"
                 try:
+                    mc_version = (core.extract_mc_version(version_id)
+                                  if version_id else None)
+                except Exception:
+                    mc_version = None
+                try:
+                    loader = instance_info.detect_loader(version_id)
+                except Exception:
+                    loader = "vanilla"
+                try:
                     state["last_crash"] = {
                         "version_id": version_id,
                         "reason": reason,
@@ -5077,7 +5086,9 @@ async def main(page: ft.Page):
                     show_crash_dialog(
                         page, reason=reason, log_text=log_text,
                         version_label=label, log_path=log_path,
-                        show_snack=_show_snack)
+                        show_snack=_show_snack,
+                        mc_version=mc_version, loader=loader,
+                        version_id=version_id)
 
                 # Mounting a dialog from the watcher thread must happen on the
                 # UI loop; fall back to a direct call on harnesses without one
@@ -7686,6 +7697,9 @@ async def main(page: ft.Page):
         season_pin_note=season_pin_note,
         season_pet_switch=season_pet_switch,
         season_ambience_switch=season_ambience_switch,
+        doctor_target=lambda: (state.get("selected_mc_version"),
+                               state.get("mod_loader") or "vanilla",
+                               state.get("selected_version")),
         **THEME,
     )
 

@@ -161,6 +161,114 @@ def explain(text: str) -> dict:
     }
 
 
+# Sections that enumerate every installed mod are not evidence that any one
+# mod is at fault. Skipping them is what stops a "Fabric Mods:" table from
+# turning a crash repair into "disable everything".
+_MOD_LIST_HEADING = re.compile(
+    r"^\s*(?:--\s*)?(?:fabric\s+mods|mod\s+list|mod\s+information|"
+    r"loaded\s+mods|mod\s+dependencies|dependencies)\s*(?:--)?\s*:?\s*$",
+    re.I)
+_MOD_SECTION_LINE = re.compile(r"^\s*--\s+.+?\s+--\s*$")
+# Lines that only say "X requires Y" are handled by the dependency pass; they
+# are not proof that X itself is broken. Keep the log parser to lines that
+# actually blame a mod.
+_BLAME_WORDS = ("replace", "incompatible", "conflict", "duplicate",
+                "mixin", "failed", "failure", "crash", "cannot", "could not")
+
+# (pattern, which groups are mod names). Every pattern is deliberately
+# specific: a bare word in a stack trace must never become a disable target.
+_BLAME_PATTERNS = (
+    (re.compile(r"mixin apply for mod\s+([A-Za-z0-9_.\-]+)\s+failed", re.I),
+     (1,), "its mixin failed to apply"),
+    (re.compile(r"mixin config\s+([A-Za-z0-9_.\-]+)(?:\.mixins\.json)?", re.I),
+     (1,), "its mixin config failed"),
+    (re.compile(r"from mod\s+([A-Za-z0-9_.\-]+)", re.I),
+     (1,), "the crash points at it"),
+    (re.compile(r"replace mod\s+['\"]?([A-Za-z0-9_.\-]+)['\"]?"
+                r"(?:\s*\(([^)]+)\))?", re.I),
+     (1, 2), "the loader suggests replacing it"),
+    (re.compile(r"duplicate mod\s+['\"]?([A-Za-z0-9_.\-]+)", re.I),
+     (1,), "the loader found a duplicate"),
+    (re.compile(r"mod\s+'([^']+)'\s+\(([^)]+)\)", re.I),
+     (1, 2), "the loader names it in the conflict"),
+    (re.compile(r"mod\s+\"([^\"]+)\"\s+\(([^)]+)\)", re.I),
+     (1, 2), "the loader names it in the conflict"),
+    # NeoForge's dependency block names the INSTALLED requester, not the
+    # (usually missing) dependency, so that is the mod a last-resort disable
+    # can actually act on.
+    (re.compile(r"Requested by:\s*['\"]?([A-Za-z0-9_.\-]+)", re.I),
+     (1,), "it requested a dependency the loader rejected"),
+)
+
+
+def mod_candidates(text: str) -> list[dict]:
+    """Names the log explicitly blames, strongest first.
+
+    Returns ``[{"name", "reason", "kind"}]`` with ``name`` as logged (a mod id,
+    display name, mixin prefix or jar filename). Callers match these against
+    installed jars; an unmatched name is not an error - it may be the missing
+    dependency another pass installs.
+    """
+    candidates: list[dict] = []
+    seen: set[str] = set()
+    skipping = False
+    skipped = 0
+
+    def add(name, reason, kind="mod"):
+        name = (name or "").strip().strip("'\"")
+        # A mixin config is logged as "<id>.mixins.json"; the id is the jar.
+        name = re.sub(r"(?i)\.mixins(?:\.json)?$", "", name)
+        name = name.strip()
+        key = name.casefold()
+        if not name or len(name) < 2 or key in seen:
+            return
+        seen.add(key)
+        candidates.append({"name": name, "reason": reason[:300],
+                           "kind": kind})
+
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            if skipping:
+                skipping = False
+            continue
+        if skipping:
+            skipped += 1
+            if _MOD_SECTION_LINE.match(line) or skipped > 500:
+                skipping = False
+                skipped = 0
+            continue
+        if _MOD_LIST_HEADING.match(line):
+            skipping = True
+            skipped = 0
+            continue
+
+        low = line.lower()
+        for pattern, groups, why in _BLAME_PATTERNS:
+            match = pattern.search(line)
+            if not match:
+                continue
+            # Generic "Mod 'A' (a)" lines are only evidence when the line
+            # actually blames someone; "A requires B, which is missing" is the
+            # dependency pass's job (installing B beats disabling A).
+            if "mod '" in low or 'mod "' in low:
+                if not any(word in low for word in _BLAME_WORDS):
+                    continue
+            for group in groups:
+                value = match.group(group)
+                if value:
+                    add(value, line, "mod")
+            break
+
+        # A jar named by a corruption / duplicate / failure line is the most
+        # direct evidence there is.
+        if any(word in low for word in ("jar", "invalid", "corrupt", "duplicate",
+                                        "failed", "error")):
+            for jar in re.findall(r"([A-Za-z0-9._+\-]+\.jar)", line):
+                add(jar, line, "jar")
+    return candidates
+
+
 def _raise_ram() -> str | None:
     try:
         from .config import (get_system_ram_mb, load_config,
@@ -184,13 +292,14 @@ def _raise_ram() -> str | None:
         return None
 
 
-def _doctor(mc_version, loader, version_id, include, check_online, status_cb):
+def _doctor(mc_version, loader, version_id, include, check_online, status_cb,
+            crash_text=None):
     try:
         from .doctor import run_doctor
         return run_doctor(
             mc_version, loader, auto_fix=True, check_online=check_online,
             version_id=version_id, include=include, status_cb=status_cb,
-            approve_cb=lambda change: True)
+            approve_cb=lambda change: True, crash_text=crash_text)
     except Exception:
         return None
 
@@ -248,16 +357,15 @@ def _merge_report(result: dict, report: dict | None) -> None:
     if not report:
         return
     result["report"] = report
+    from .doctor import format_problem
     for problem in report.get("fixed") or []:
-        label = problem.get("item") or problem.get("mod") or "Content"
-        detail = problem.get("fix") or problem.get("detail") or "fixed"
-        result["fixed"].append(f"{label}: {detail}")
+        # format_problem keeps the reason and the action together, so a crash
+        # repair can never read as "disabled it" with no cause attached.
+        result["fixed"].append(format_problem(problem))
     for problem in report.get("unfixed") or []:
         if problem.get("kind") == "verification-unavailable":
             continue
-        label = problem.get("item") or problem.get("mod") or "Content"
-        detail = problem.get("detail") or "needs attention"
-        result["unfixed"].append(f"{label}: {detail}")
+        result["unfixed"].append(format_problem(problem))
 
 
 def diagnose_and_fix(mc_version: str | None = None,
@@ -337,7 +445,7 @@ def diagnose_and_fix(mc_version: str | None = None,
             result["fixed"].append(corrupt)
         _merge_report(result, _doctor(
             mc_version, loader, version_id, ("mods", "launch"),
-            allow_online and kind == "mods", status_cb))
+            allow_online and kind == "mods", status_cb, crash_text=text))
         if not result["fixed"] and not result["unfixed"]:
             result["unfixed"].append(info["advice"])
         return result

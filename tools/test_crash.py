@@ -144,6 +144,21 @@ def main():
         if name.startswith("sodium-"):
             os.remove(os.path.join(profile, name))
 
+    print("\n6b. a mixin crash named only in the log disables that mod")
+    logged = os.path.join(profile, "logmod-1.0.jar")
+    _jar(logged, "logmod", "1.0")
+    result = crash.diagnose_and_fix(
+        mc, loader, allow_online=False,
+        text="Mixin apply for mod logmod failed logmod.mixins.json:...")
+    check("repair: log-named mod disabled and kept",
+          result["fixed"] and os.path.isfile(logged + ".disabled")
+          and not os.path.isfile(logged), str(result))
+    for name in ("logmod-1.0.jar", "logmod-1.0.jar.disabled"):
+        try:
+            os.remove(os.path.join(profile, name))
+        except OSError:
+            pass
+
     print("\n7. unknown crash is honest, not a fake fix")
     result = crash.diagnose_and_fix(
         allow_online=False, text="the widget exploded mysteriously")

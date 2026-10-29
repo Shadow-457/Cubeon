@@ -204,7 +204,8 @@ consistent with the shared `THEME` contract.
 - `custom_jvm_flags` tokens go before the main class; a bare token becomes the main class
   (`ClassNotFoundException: 他他他`, 2026-10-25). `_parse_custom_jvm_flags` drops non-option tokens (keeping
   separate values of `--add-opens`-style options), and the doctor's `launch` section clears bad flags/a
-  dead `java_path`.
+  dead `java_path`/a `ram_mb` that is non-numeric, under 1 GB or above the machine's RAM (clamped to the
+  launcher's own recommendation).
 - `cfg["default_jvm_flags_enabled"]` defaults to True. False removes all Cubeon-added heap/GC
   flags and prevents forced G1 re-insertion; custom flags and required Minecraft/loader arguments
   remain. Settings saves the switch immediately and uses the shared flag report for disabled rows.
@@ -228,6 +229,30 @@ consistent with the shared `THEME` contract.
   incomplete scan must never say "No problems found". Verified jars skip online checks; unavailable
   verification is one advisory, never a per-mod disable. The incompatible check is LOCAL (the jar's own
   `fabric.mod.json`), so a missing Modrinth release disables nothing.
+- Full-Doctor entry points: Settings → Doctor and the crash report's **Check & fix** both run
+  `doctor_ui.start_doctor_worker` with `include=None`, `check_online=True`, `approve_all=True` - the
+  explicit click is the consent. Mods → Installed stays scoped to the current content type. The crash
+  report needs `mc_version`/`loader`/`version_id`; without them its check button is disabled rather than
+  guessing.
+- Log-evidence pass: only the crash report's Check & fix passes `crash_text` (`run_doctor` →
+  `_mods_section` → `mod_doctor`); every other scan leaves it `None`. `crash.mod_candidates()` extracts
+  explicit blame lines only (`Mixin apply for mod X failed`, `Mixin config X`, `from mod X`,
+  `Replace mod 'X'`, `duplicate mod X`, `Mod 'X' (id)`, NeoForge `Requested by:`); it skips
+  `Fabric Mods:`/`Mod List:`/`Mod Information` tables and leaves "requires/missing" lines to the
+  dependency pass (installing the dependency beats disabling the requester). The pass matches names
+  against installed jars (filename/stem/display name/slug/project id/metadata id+name) and disables
+  **at most ONE** currently-enabled mod, reported as kind `log-conflict` with approval action `disable`.
+  A second crash names the other side; collateral disables are worse than one extra round trip.
+- Doctor report contract: every problem is `{section, kind, item, detail, fixed, action, fix?}`. `detail`
+  is ALWAYS the concrete error, even when fixed; `action` is one of disabled/enabled/installed/replaced/
+  repaired/removed/none. All surfaces render `doctor.format_problem()` ("item: error → action"), so a fix
+  can never replace the reason. `report_lines()` puts fixed first then open items, with an honest
+  "N more" tail. A section that raises becomes a `section-failed` problem and names itself in
+  `_summarize`; cancelled/zero-checked scans also never read as clean.
+- Safe automatic fixes added 2026-10-29: unreadable mods/plugins are disabled (renamed, kept); a disabled
+  jar that satisfies a required dependency is re-enabled without downloading (approval action `enable`);
+  misplaced resource packs in `shaderpacks/` move to `resourcepacks/` (never overwriting); unreadable
+  `_modpack.json` markers are moved to `.corrupt-<timestamp>`, not deleted.
 - Launch sync links ONE build per mod and must pick the highest MOD version, not the Minecraft version:
   `_version_key(filename, mc_version)` strips the `+mc…` tail, `mc<ver>` tokens and the instance version,
   then uses the first dotted run; exact ties go to the newer file mtime. Never let our pick and Fabric's
@@ -356,8 +381,9 @@ consistent with the shared `THEME` contract.
 - `build_launch_command` honours a `-XX:+Use*GC` collector from the player's custom JVM flags: no
   forced G1 and no `-XX:G1*` tuning in that case. Default (no user collector) still gets exactly one
   `-XX:+UseG1GC` plus tuning.
-- Play and crash reports have no Fix crash action. Crash reports expose Doctor, Copy log,
-  Discord and Close. Local dependency/conflict repair lives in Mods → Installed's Check & repair.
+- Play and crash reports have no Fix crash action. Crash reports expose **Check & fix** (the local doctor
+  for the crashed instance), website Doctor, Copy log, Discord and Close. Local dependency/conflict
+  repair also lives in Mods → Installed's Check & repair and Settings → Doctor.
 - `i18n.py` owns language order, `ui_language`, locale detection and reading direction (`page.rtl`);
   `cubeon/lang/*.py` tables use English strings as keys and fall back to English. Changes apply after
   restart. Every PyInstaller build must collect `cubeon.lang` because tables import dynamically.
@@ -522,7 +548,7 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Mods and artwork | `test_mod_ui_stability.py`, `test_loader_content_rules.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
-| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_launch_fixes.py` |
+| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_launch_fixes.py` |
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
 | Website search visibility | `test_website_seo.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
@@ -539,6 +565,14 @@ The default smoke gate does not run all registered suites; `--suites` does. See
   Keep `web/sitemap.xml` aligned with indexable HTML pages; errors use noindex and API/report
   URLs are omitted. `web/robots.txt` advertises the sitemap. Homepage JSON-LD contains real
   product/platform/free-price facts, with no invented ratings. See `docs/development/website-seo.md`.
+- Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash
+  discarded after 24h). Every content page carries the HTML snippet
+  (`window.vaq` + `/_vercel/insights/script.js`) before `</body>`; numeric status pages
+  (403/404/429/500/502/503) deliberately do not. The dashboard toggle is the only manual step and
+  the `/_vercel/insights/*` routes only exist after the next deployment.
+  `privacy.html#analytics` and `cookies.html` must keep describing it truthfully - the site's promise
+  is "no profiles, no cookies", not "no counting" - and `test_website_seo.py` fails if a page loses
+  the snippet or a policy page loses the disclosure.
 - Website Doctor lives in `web/doctor.html`, with shared rules/evidence validation in
   `web/assets/doctor-core.js` and a server-only Groq → Kilo endpoint in `web/api/doctor.js`
   (root `api/doctor.js` wrapper). Set `GROQ_API_KEY` and `KILO_API_KEY` in hosting secrets, never browser code.

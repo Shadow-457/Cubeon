@@ -356,7 +356,8 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       <div class="card" id="cookies">
         <h3>Cookies</h3>
         <ul>
-          <li>No Cubeon tracking cookies. Optional Doctor AI uses Kilo when you choose it.</li>
+          <li>No tracking cookies. Page views are counted anonymously, without cookies.</li>
+          <li>Optional Doctor AI uses Kilo, and only when you choose it.</li>
           <li>The app keeps your settings, name and skins as ordinary files on your computer.</li>
           <li>If that ever changes, we'll ask first.</li>
         </ul>
@@ -414,5 +415,9 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
 
 <script src="assets/site.js" defer></script>
 <script src="assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

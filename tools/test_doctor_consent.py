@@ -13,6 +13,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 
 from cubeon import doctor, mods
+from cubeon import crash
 from cubeon.doctor_ui import make_mod_change_approver
 
 
@@ -27,12 +28,13 @@ class DoctorConsentTests(unittest.TestCase):
         self.network.start()
         self.addCleanup(self.network.stop)
 
-    def jar(self, filename, identity="demo", version="1.0", breaks=None):
+    def jar(self, filename, identity="demo", version="1.0", breaks=None,
+            depends=None):
         path = os.path.join(self.profile, filename)
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("fabric.mod.json", json.dumps({
                 "id": identity, "name": identity, "version": version,
-                "breaks": breaks or {},
+                "breaks": breaks or {}, "depends": depends or {},
             }))
         return path
 
@@ -108,6 +110,92 @@ class DoctorConsentTests(unittest.TestCase):
         self.assertFalse(result["changes"])
         self.assertTrue(result["unfixed"])
         self.assertTrue(os.path.isfile(os.path.join(self.profile, "demo-1.0.jar")))
+
+    def test_corrupt_jar_is_disabled_only_after_approval(self):
+        bad = os.path.join(self.profile, "broken.jar")
+        with open(bad, "wb") as output:
+            output.write(b"not a zip")
+        report_only = self.run_doctor()
+        entry = next(p for p in report_only["problems"]
+                     if p["kind"] == "mod-unreadable")
+        self.assertFalse(report_only["fixed"])
+        self.assertTrue(os.path.isfile(bad))
+        self.assertIn("can't be read", entry["detail"])
+        self.assertEqual(entry["action"], "none")
+        result = self.run_doctor(approve_cb=lambda change: True)
+        self.assertTrue(result["fixed"])
+        self.assertTrue(os.path.isfile(bad + ".disabled"))
+        self.assertFalse(os.path.isfile(bad))
+        self.assertEqual(result["changes"][0]["action"], "disable")
+
+    def test_disabled_dependency_is_re_enabled_without_downloading(self):
+        dep = self.jar("dep-1.0.jar", identity="dep", version="1.0")
+        self.jar("main-1.0.jar", identity="main",
+                 depends={"dep": ">=1.0"})
+        os.replace(dep, dep + ".disabled")
+        requests = []
+        with patch.object(mods, "download_mod") as download:
+            result = self.run_doctor(
+                approve_cb=lambda change: requests.append(change) or True)
+        download.assert_not_called()
+        self.assertTrue(result["fixed"])
+        self.assertTrue(os.path.isfile(dep))
+        self.assertFalse(os.path.isfile(dep + ".disabled"))
+        self.assertEqual(requests[0]["action"], "enable")
+        self.assertEqual(requests[0]["mods"][0]["filename"],
+                         "dep-1.0.jar.disabled")
+
+    def test_disabled_dependency_stays_off_when_not_approved(self):
+        dep = self.jar("dep-1.0.jar", identity="dep", version="1.0")
+        self.jar("main-1.0.jar", identity="main",
+                 depends={"dep": ">=1.0"})
+        os.replace(dep, dep + ".disabled")
+        result = self.run_doctor(approve_cb=lambda change: False)
+        self.assertFalse(result["fixed"])
+        self.assertTrue(os.path.isfile(dep + ".disabled"))
+        self.assertFalse(os.path.isfile(dep))
+
+    def test_crash_log_named_mixin_mod_is_disabled(self):
+        self.jar("sodium-fabric-1.0.jar", identity="sodium", version="1.0")
+        result = self.run_doctor(
+            approve_cb=lambda change: True,
+            crash_text="Mixin apply for mod sodium failed sodium.mixins.json:...")
+        entry = next(p for p in result["problems"]
+                     if p["kind"] == "log-conflict")
+        self.assertTrue(entry["fixed"])
+        self.assertIn("crash log", entry["detail"])
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.profile, "sodium-fabric-1.0.jar.disabled")))
+        self.assertEqual(result["changes"][-1]["action"], "disable")
+
+    def test_crash_log_mod_list_is_not_evidence(self):
+        self.jar("sodium-fabric-1.0.jar", identity="sodium", version="1.0")
+        self.jar("iris-fabric-1.0.jar", identity="iris", version="1.0")
+        text = ("-- Mod Information --\nFabric Mods:\n"
+                "    sodium: Sodium 1.0\n    iris: Iris 1.0\n"
+                "-- System Details --\nDetails:\n")
+        self.assertEqual(crash.mod_candidates(text), [])
+        result = self.run_doctor(approve_cb=lambda change: True,
+                                 crash_text=text)
+        self.assertFalse([p for p in result["problems"]
+                          if p["kind"] == "log-conflict"])
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.profile, "sodium-fabric-1.0.jar")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.profile, "iris-fabric-1.0.jar")))
+
+    def test_crash_log_disables_only_the_first_named_conflict_side(self):
+        self.jar("first-fabric-1.0.jar", identity="first", version="1.0")
+        self.jar("second-fabric-1.0.jar", identity="second", version="1.0")
+        result = self.run_doctor(
+            approve_cb=lambda change: True,
+            crash_text=("Incompatible mod set! Mod 'First' (first) is "
+                        "incompatible with Mod 'Second' (second)"))
+        self.assertTrue(result["fixed"])
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.profile, "first-fabric-1.0.jar.disabled")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.profile, "second-fabric-1.0.jar")))
 
     def test_conflict_cancel_preserves_both_mods(self):
         self.jar("first-1.0.jar", "first", breaks={"second": "*"})
