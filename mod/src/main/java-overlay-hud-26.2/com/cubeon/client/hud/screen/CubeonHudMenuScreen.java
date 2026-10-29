@@ -10,8 +10,6 @@ import net.minecraft.network.chat.Component;
 
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
-import java.util.function.IntConsumer;
-import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -30,10 +28,9 @@ public final class CubeonHudMenuScreen extends Screen {
 	private static final int ROW_HEIGHT = 24;
 	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + MOVE_WIDTH + SIZE_WIDTH + 2 * ROW_GAP;
 	/**
-	 * Toggle rows above the Reset/Done buttons: the five overlays
-	 * and Motion Blur.
+	 * Toggle rows above the Reset/Done buttons: five overlays and enemy health.
 	 */
-	private static final int ROWS = 7;
+	private static final int ROWS = 6;
 	/** The sizes the Size button steps through. */
 	private static final float[] SCALES = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
 
@@ -57,15 +54,6 @@ public final class CubeonHudMenuScreen extends Screen {
 		y += ROW_HEIGHT;
 		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
 		y += ROW_HEIGHT;
-		// Motion Blur cycles Off -> Low -> Medium -> High (2026-10-24). One row,
-		// four states: the old on/off switch forced everyone onto one strength,
-		// and the strength is what makes the effect feel smooth rather than
-		// smeary. The post effect's BlurAmount is chosen by the same level.
-		int[] blurLevels = {0, 1, 2, 3};
-		addCycleRow(x, y, blurLevels, () -> config.blurStrength(), config::setBlurStrength,
-				CubeonHudMenuScreen::motionBlurLabel);
-		y += ROW_HEIGHT;
-
 		addRenderableWidget(Button.builder(enemyHealthLabel(), button -> {
 			config.showEnemyHealth = !config.showEnemyHealth;
 			CubeonHudConfig.save();
@@ -122,26 +110,6 @@ public final class CubeonHudMenuScreen extends Screen {
 				Math.round(CubeonHud.scaleOf(overlay) * 100) + "%");
 	}
 
-	/** A row that steps through a fixed list of values on each click. */
-	private void addCycleRow(int x, int y, int[] values, IntSupplier getter, IntConsumer setter,
-			Supplier<Component> label) {
-		addRenderableWidget(Button.builder(label.get(), button -> {
-			int current = getter.getAsInt();
-			int index = 0;
-
-			for (int i = 0; i < values.length; i++) {
-				if (values[i] == current) {
-					index = i;
-					break;
-				}
-			}
-
-			setter.accept(values[(index + 1) % values.length]);
-			CubeonHudConfig.save();
-			button.setMessage(label.get());
-		}).bounds(x, y, TOTAL_WIDTH, 20).build());
-	}
-
 	/** Every row between the title and the bottom of the screen. */
 	private static int contentHeight() {
 		return ROWS * ROW_HEIGHT + ROW_HEIGHT + ROW_GAP;
@@ -192,24 +160,6 @@ public final class CubeonHudMenuScreen extends Screen {
 
 	private static Component showCpsLabel() {
 		return Component.translatable("cubeonclient.menu.show_cps", stateLabel(CubeonHudConfig.get().showCps));
-	}
-
-	private static Component motionBlurLabel() {
-		return Component.translatable("cubeonclient.menu.motion_blur",
-				blurLevelLabel(CubeonHudConfig.get().blurStrength()));
-	}
-
-	private static Component blurLevelLabel(int level) {
-		switch (level) {
-			case 1:
-				return Component.translatable("cubeonclient.state.low");
-			case 2:
-				return Component.translatable("cubeonclient.state.medium");
-			case 3:
-				return Component.translatable("cubeonclient.state.high");
-			default:
-				return Component.translatable("cubeonclient.state.off");
-		}
 	}
 
 	private static Component enemyHealthLabel() {

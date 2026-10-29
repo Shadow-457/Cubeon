@@ -3,8 +3,7 @@
   "package": "com.cubeon.client.hud.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "ClientPacketListenerMixin",
-    "MotionBlurMixin"
+    "ClientPacketListenerMixin"
   ],
   "injectors": {
     "defaultRequire": 0

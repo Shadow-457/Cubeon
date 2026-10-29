@@ -189,13 +189,23 @@ public class HealthTest {
     }
     public static void main(String[] args) throws Exception {
         Path directory=Path.of(System.getProperty("test.config"));
-        Files.writeString(directory.resolve("keyhud.json"), "{\\"showFps\\":true}");
+        var old=new com.google.gson.JsonObject();
+        old.addProperty("showFps",true); old.addProperty("fpsScale",1.25F);
+        old.addProperty("motionBlur",true); old.addProperty("motionBlurStrength",3);
+        old.addProperty("dynamicCrosshair",true);
+        Files.writeString(directory.resolve("keyhud.json"),old.toString());
         CubeonHudConfig.load();
         require(CubeonHudConfig.get().showFps && !CubeonHudConfig.get().showEnemyHealth, "Old preferences preserved, health opt-in");
         PlayerEntity enemy=new PlayerEntity();
         client.player.pos=new Vec3d(0,1,0);
         hidden(enemy,"Off toggle must draw nothing");
         CubeonHudConfig.get().showEnemyHealth=true; CubeonHudConfig.save();
+        var saved=com.google.gson.JsonParser.parseString(Files.readString(
+                directory.resolve("cubeon-client-hud.json"))).getAsJsonObject();
+        require(!saved.has("motionBlur") && !saved.has("motionBlurStrength")
+                && !saved.has("dynamicCrosshair"),"Removed effects disappear on config save");
+        require(saved.get("showFps").getAsBoolean() && saved.get("fpsScale").getAsFloat()==1.25F,
+                "Removing old effects preserves other HUD preferences");
         CubeonHudConfig.get().showEnemyHealth=false; CubeonHudConfig.load();
         require(CubeonHudConfig.get().showEnemyHealth,"Health toggle persists");
         render();

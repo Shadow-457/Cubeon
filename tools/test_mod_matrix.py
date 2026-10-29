@@ -15,6 +15,7 @@ import fnmatch
 import glob
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import sys
@@ -31,6 +32,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 
 from cubeon import cubeonfriends  # noqa: E402
+from build_mod_jars import removed_feature_entries, verify, REQUIRED_ENTRIES  # noqa: E402
 
 MOD = os.path.join(ROOT, "mod")
 
@@ -394,50 +396,51 @@ def test_resources(matrix):
                                        "client", "hud", "CrosshairScale.java")),
        "nor does the shared tree still carry CrosshairScale")
 
-    # The 26.x motion blur is data as much as code: a persistent target is what
-    # turns the two-pass blur into frame accumulation, and a chain that never
-    # writes back to minecraft:main would render nothing at all. The three
-    # strength files must also stay ordered, because the menu's Off/Low/Medium/
-    # High row is just an index into them (2026-10-24).
-    mb_dir = os.path.join(MOD, "src", "main", "resources-26x", "assets",
-                          "cubeon-client", "post_effect")
-    mb_shader_path = os.path.join(MOD, "src", "main", "resources-26x", "assets",
-                                  "cubeon-client", "shaders", "post", "motion_blur.fsh")
-    mb_amounts = {}
-    for level in ("low", "medium", "high"):
-        mb_json_path = os.path.join(mb_dir, f"motion_blur_{level}.json")
-        ok(os.path.isfile(mb_json_path),
-           f"the 26.x motion blur post effect ships ({level})")
-        if not os.path.isfile(mb_json_path):
+    # Source, config and resources must all drop the removed effects.
+    pattern = re.compile(r"motion[_-]?blur|dynamic[_-]?crosshair|crosshair(?:scale|mixin)", re.I)
+    leftovers = []
+    for path in Path(MOD, "src", "main").rglob("*"):
+        if path.suffix not in {".java", ".json", ".fsh"}:
             continue
-        mb = load(mb_json_path)
-        ok(any(target.get("persistent") for target in mb.get("targets", {}).values()),
-           f"the {level} effect keeps a persistent previous-frame target")
-        samplers = {entry.get("sampler_name")
-                    for post_pass in mb.get("passes", [])
-                    for entry in post_pass.get("inputs", [])}
-        ok({"In", "Prev"} <= samplers,
-           f"{level} samples both the current and the previous frame (got {sorted(samplers)})")
-        ok(any(post_pass.get("output") == "minecraft:main"
-               for post_pass in mb.get("passes", [])),
-           f"and {level} writes its result back to minecraft:main")
-        amounts = [uniform.get("value")
-                   for post_pass in mb.get("passes", [])
-                   for uniform in post_pass.get("uniforms", {}).get("MotionBlurConfig", [])
-                   if uniform.get("name") == "BlurAmount"]
-        ok(len(amounts) == 1 and isinstance(amounts[0], (int, float)),
-           f"{level} declares one numeric BlurAmount (got {amounts})")
-        if amounts:
-            mb_amounts[level] = float(amounts[0])
-    ok(os.path.isfile(mb_shader_path), "and the shared fragment shader is shipped")
-    ok(len(mb_amounts) == 3
-       and mb_amounts["low"] < mb_amounts["medium"] < mb_amounts["high"],
-       f"the strengths are ordered low < medium < high (got {mb_amounts})")
-    ok(not os.path.isfile(os.path.join(mb_dir, "motion_blur.json")),
-       "the old single-strength effect is gone, not left as dead data")
+        if pattern.search(path.name) or pattern.search(path.read_text(encoding="utf-8")):
+            leftovers.append(str(path.relative_to(MOD)))
+    ok(not leftovers, f"removed game effects are absent from all source/resources ({leftovers})")
     if os.path.isfile(hud_cfg_path):
-        ok("MotionBlurMixin" in (hud_cfg.get("client") or []),
-           "the 26.x HUD mixin config registers the motion blur hook")
+        ok(hud_cfg.get("client") == ["ClientPacketListenerMixin"],
+           "the 26.x HUD config registers only the ping hook")
+
+
+def test_removed_effect_guard():
+    section("jar verification rejects removed effects, including stale config fields")
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "probe.jar")
+
+        def write(extra):
+            entries = dict.fromkeys(REQUIRED_ENTRIES, b"fixture")
+            entries["fabric.mod.json"] = json.dumps({"depends": {"minecraft": "*"}}).encode()
+            entries.update(extra)
+            with zipfile.ZipFile(path, "w") as jar:
+                for name, data in entries.items():
+                    jar.writestr(name, data)
+
+        write({"com/cubeon/client/hud/CubeonHud.class": b"crosshairTarget"})
+        ok(verify(path) is None, "normal vanilla crosshair references remain valid")
+        cases = (
+            ("com/cubeon/client/hud/MotionBlur.class", b"fixture"),
+            ("assets/cubeon-client/post_effect/motion_blur_low.json", b"{}"),
+            ("assets/cubeon-client/shaders/post/motion_blur.fsh", b"fixture"),
+            ("com/cubeon/client/hud/CrosshairScale.class", b"fixture"),
+            ("com/cubeon/client/hud/mixin/CrosshairMixin.class", b"fixture"),
+            ("com/cubeon/client/hud/CubeonHudConfig.class", b"motionBlurStrength"),
+            ("com/cubeon/client/hud/CubeonHudConfig.class", b"dynamicCrosshair"),
+            ("cubeon-client-hud.mixins.json", b'{"client":["MotionBlurMixin"]}'),
+            ("fabric.mod.json", b'{"depends":{"minecraft":"*"},"mixins":["cubeon-client-crosshair.mixins.json"]}'),
+        )
+        for name, data in cases:
+            write({name: data})
+            error = verify(path)
+            ok(error is not None and "removed game effects" in error,
+               f"verification rejects {name}: {data!r}")
 
 
 def test_mouse_buttons():
@@ -576,6 +579,8 @@ def test_shipped_jars(matrix):
         try:
             with zipfile.ZipFile(path) as jar:
                 names = set(jar.namelist())
+                removed = removed_feature_entries(jar)
+                ok(not removed, f"{name}: no removed game effect code/assets/config ({removed})")
                 meta = json.loads(jar.read("fabric.mod.json"))
                 # Read the mixin configs while the archive is still open; the
                 # `with` block closes it, and a closed ZipFile cannot be read.
@@ -610,8 +615,7 @@ def test_shipped_jars(matrix):
         # The same failure mode, one layer down: fabric.mod.json lists a mixin
         # config, and the config names classes. If the config is not in the jar
         # (wrong overlay) or names a class that is not (wrong era copy), Mixin
-        # skips it and the feature silently does nothing. That is how the 26.x
-        # motion blur would fail, so check the chain.
+        # skips it and the feature silently does nothing. Check the chain.
         missing_mixins = []
         for cfg_name, cfg in mixin_configs:
             if cfg is None:
@@ -713,6 +717,7 @@ def main():
     test_install()
     test_fabric_api_install()
     test_resources(matrix)
+    test_removed_effect_guard()
     test_mouse_buttons()
     test_zoom()
     test_shipped_jars(matrix)

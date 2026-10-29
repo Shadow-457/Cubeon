@@ -31,7 +31,8 @@ _sandbox_home.isolate()
 import cubeon.perf_mods as perf  # noqa: E402
 import cubeon.game_options as game_options  # noqa: E402
 from cubeon.launch import (CLIENT_JVM_FLAGS, client_jvm_flags,  # noqa: E402
-                           _initial_heap_mb, _pretouch_flag)
+                           _initial_heap_mb, _pretouch_flag,
+                           default_jvm_flags_report)
 
 _passed = _failed = 0
 
@@ -134,12 +135,14 @@ check("download error -> failed list", report["failed"] == ALL_SLUGS, f"got {rep
 print("\n6. the launch command carries the client GC tuning")
 check("G1GC requested", any("UseG1GC" in f for f in CLIENT_JVM_FLAGS),
       f"got {CLIENT_JVM_FLAGS!r}")
-_launch_src = open(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                 "cubeon", "launch.py"), encoding="utf-8").read()
+# Check the assembled flags: helper names in the source can change without
+# changing the heap, as they did when launch and Settings began sharing it.
+_default_flags = [row["flag"] for row in default_jvm_flags_report(
+    4096, system_ram_mb=8192, cores=8) if row["source"] != "dropped"]
 check("the JVM is not asked to commit the whole heap (-Xms != -Xmx)",
-      "-Xms{ram_mb}M" not in _launch_src and "_initial_heap_mb(ram_mb)" in _launch_src,
-      "an -Xms equal to -Xmx commits and pins the whole heap (F3: Allocated 100%)")
+      "-Xmx4096M" in _default_flags and "-Xms512M" in _default_flags
+      and "-Xms4096M" not in _default_flags,
+      f"got {_default_flags!r}")
 check("a small -Xmx is never given a bigger -Xms",
       _initial_heap_mb(4096) == 512 and _initial_heap_mb(256) == 256,
       f"got {_initial_heap_mb(4096)!r} / {_initial_heap_mb(256)!r}")

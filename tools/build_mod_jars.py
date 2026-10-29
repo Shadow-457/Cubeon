@@ -91,15 +91,25 @@ REQUIRED_ENTRIES_ZOOM = ("cubeon-client.zoom.mixins.json",
 # and a mixin that is compiled but not registered by a config silently does
 # nothing - the HUD still draws, its ping is just wrong, which is exactly the
 # kind of failure nobody notices. So the class and its config are required.
-# The motion blur lives only here too: its post effect and shader are the effect,
-# and MotionBlurMixin is what asks for it every frame.
 REQUIRED_ENTRIES_26X = ("cubeon-client-hud.mixins.json",
-                        "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class",
-                        "com/cubeon/client/hud/mixin/MotionBlurMixin.class",
-                        "assets/cubeon-client/post_effect/motion_blur_low.json",
-                        "assets/cubeon-client/post_effect/motion_blur_medium.json",
-                        "assets/cubeon-client/post_effect/motion_blur_high.json",
-                        "assets/cubeon-client/shaders/post/motion_blur.fsh")
+                        "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class")
+
+# Removed game effects must stay absent from every version, including unused
+# shared classes, config fields and shaders that a stale build could retain.
+REMOVED_FEATURE_MARKERS = (b"motionblur", b"motion_blur", b"dynamiccrosshair",
+                           b"dynamic_crosshair", b"crosshairscale", b"crosshairmixin",
+                           b"cubeon-client-crosshair")
+
+
+def removed_feature_entries(jar):
+    """Find removed effects in archive paths and compiled/config/resource data."""
+    found = []
+    for name in jar.namelist():
+        path = name.encode("utf-8").lower()
+        data = jar.read(name).lower() if name.endswith((".class", ".json", ".fsh")) else b""
+        if any(marker in path or marker in data for marker in REMOVED_FEATURE_MARKERS):
+            found.append(name)
+    return found
 
 # Loom 1.18 (all 24 brackets) refuses to start on an older JVM, and the system
 # gradle here runs on 21, so the build needs an explicit JAVA_HOME.
@@ -194,6 +204,9 @@ def verify(jar_path, bracket=None):
             missing = [e for e in required if e not in names]
             if missing:
                 return "jar is missing " + ", ".join(missing)
+            removed = removed_feature_entries(zf)
+            if removed:
+                return "jar contains removed game effects: " + ", ".join(removed)
             meta = zf.read("fabric.mod.json").decode("utf-8")
     except (OSError, zipfile.BadZipFile, KeyError) as exc:
         return f"jar is unreadable ({exc})"

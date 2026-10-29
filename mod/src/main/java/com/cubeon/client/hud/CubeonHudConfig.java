@@ -35,25 +35,6 @@ public final class CubeonHudConfig {
 	/** Compact bars anchored beneath nearby enemy names, opt-in. */
 	public boolean showEnemyHealth = false;
 
-	/**
-	 * 26.x only: blends the previous world frame into the current one, so fast
-	 * camera movement leaves a short trail. The effect is a Minecraft post
-	 * effect (post_effect/motion_blur_*.json) driven by {@link MotionBlur}; on
-	 * the 1.20-1.21 jars there is no row for it and the flag does nothing.
-	 *
-	 * <p>Kept as the pre-strength on/off switch so an existing config that had
-	 * it OFF stays off after the upgrade (see {@link #blurStrength()}).
-	 */
-	public boolean motionBlur = true;
-
-	/**
-	 * 0 = off, 1 = low, 2 = medium, 3 = high (2026-10-24). {@code null} means
-	 * "written by a version that only had the boolean", which is how an old
-	 * config is migrated without silently turning blur back on for someone who
-	 * had disabled it.
-	 */
-	public Integer motionBlurStrength = null;
-
 	public boolean showArmorHelmet = true;
 	public boolean showArmorChest = true;
 	public boolean showArmorLegs = true;
@@ -210,25 +191,6 @@ public final class CubeonHudConfig {
 			return 1.0F;
 		}
 		return Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
-	}
-
-	/**
-	 * The motion-blur strength as a 0..3 level. A config from before the
-	 * strength setting existed has a null field, so it falls back to the old
-	 * boolean: OFF stays OFF, ON becomes Medium (the old single effect's feel).
-	 */
-	public int blurStrength() {
-		if (motionBlurStrength == null) {
-			return motionBlur ? 2 : 0;
-		}
-
-		return Math.max(0, Math.min(3, motionBlurStrength));
-	}
-
-	/** Sets the strength and keeps the legacy boolean in step with it. */
-	public void setBlurStrength(int value) {
-		motionBlurStrength = Math.max(0, Math.min(3, value));
-		motionBlur = motionBlurStrength > 0;
 	}
 
 	public static float clamp01(float value) {

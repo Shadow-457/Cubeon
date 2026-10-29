@@ -503,6 +503,10 @@ consistent with the shared `THEME` contract.
 
 ### Cubeon Client HUD and hold-to-zoom
 
+- Motion blur and dynamic crosshair are removed from all versions: no config fields, menu rows,
+  render hooks or effect resources. Gson ignores old keys and drops them on the next HUD config save.
+  `tools/build_mod_jars.py` rejects leftover feature classes, config fields and assets before copying
+  any jar; `test_mod_matrix.py` checks the guard and all 24 packaged jars.
 - `showEnemyHealth` defaults OFF and persists in `cubeon-client-hud.json`; K → Enemy Health toggles
   thin bars beneath names for visible enemy players/hostile mobs within 24 blocks (32 bars maximum).
   Exclude self, teammates, dead/invisible/sneaking/spectator entities, hidden team tags and walls.
@@ -664,5 +668,9 @@ The default smoke gate does not run all registered suites; `--suites` does. See
   that every test or desktop smoke check passed.
 - Worker configuration is not proof of current deployment health. Preserve client/Worker protocol parity,
   authentication, write budgets, and rate limits.
+- Investigate release regressions against the tag's actual commit, not current HEAD or website labels.
+  GitHub's release name can say beta while `isPrerelease` is false; public v1.3.17 points to
+  `89ff6b9` (only an updater stamp over `f8fae0f`). FPS comparisons need identical game/instance,
+  world, mods, graphics settings, VSync and frame cap; an idle-launcher probe does not benchmark Minecraft.
 - See [builds](../../docs/release/build.md), [security](../../SECURITY.md), and
   [Worker deployment](../../worker/README.md) for the current public references.
