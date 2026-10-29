@@ -174,6 +174,8 @@ consistent with the shared `THEME` contract.
   rows and permits 1.8 Vanilla; Fabric still only offers its supported versions. New instance excludes
   existing installs (including 1.8.9); searched empty lists explain an installed version or incompatible
   loader instead of implying the release does not exist. `test_version_ui.py` exercises the 1.8 path.
+  Fabric discovery uses the official `meta.fabricmc.net` service through mll; the Legacy preference
+  does not switch to the separate Legacy Fabric project, which is not an integrated loader.
 - The Play card shows its loader as the compact hero tag; the bulky loader readout is unmounted.
   `loader_readout` / `loader_note` and `loader_toggle` survive as internal mirrors of `state["mod_loader"]`
   for the launch path and the smoke/ version tests. The card always shows Folder / Rename / Delete; there
