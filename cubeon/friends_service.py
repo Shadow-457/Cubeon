@@ -307,8 +307,11 @@ class FriendsService:
         self._out_pending = {}
         # This machine's E2EE identity, loaded lazily off identity.json.
         self._e2ee_priv = None
+        self._e2ee_lock = threading.RLock()
+        self._publish_lock = threading.Lock()
         self._e2ee_pubkey = None
         self._pubkey_published = False
+        self._pubkey_retry_at = 0.0
         # canon peer -> (public key, cached-at monotonic), so the pubkey lookup
         # that gates every encrypted send is paid once per friend per TTL
         # window instead of on every message. Both send_chat() and the Sync
@@ -844,6 +847,8 @@ class FriendsService:
         """GET /friends. Presence is sent raw (online/version/status): the mod
         renders its own presence line, so nothing pre-rendered goes over the
         bridge."""
+        if self.client.is_connected:
+            self._publish_async()
         roster = self.client.roster or {}
         self._remember_roster(roster)
         # Resolve the whole roster against ONE metadata snapshot and ONE read
@@ -911,6 +916,7 @@ class FriendsService:
             "you_display_name": you_metadata["display_name"],
             "connected": bool(self.client.is_connected),
             "available": bool(self.client.is_available),
+            "connection": getattr(self.client, "connection_status", {}),
             "friends": out,
             **requests,
             "requests_in_details": [
@@ -1083,6 +1089,10 @@ class FriendsService:
         the key off the identity file. None when there's no identity to hang a
         key on yet. Cached after the first load so a rename (which rewrites
         identity.json but preserves e2ee_sk) keeps the same key."""
+        with self._e2ee_lock:
+            return self._load_e2ee()
+
+    def _load_e2ee(self):
         if self._e2ee_priv is not None:
             return self._e2ee_priv, self._e2ee_pubkey
         path = getattr(friends, "IDENTITY_PATH", None)
@@ -1101,6 +1111,16 @@ class FriendsService:
         """Publishes this machine's E2EE public key under its claimed name so
         friends can write to it. Idempotent for this process; a failure is not
         fatal (the next send retries) but is worth one debug line."""
+        # Sends, startup and reconnect can all request publication together.
+        # Keep one POST in flight and one stable keypair for this process.
+        if not self._publish_lock.acquire(blocking=False):
+            return False
+        try:
+            return self._publish_pubkey()
+        finally:
+            self._publish_lock.release()
+
+    def _publish_pubkey(self):
         if self._pubkey_published:
             return True
         keypair = self._ensure_e2ee()
@@ -1117,6 +1137,19 @@ class FriendsService:
             self._pubkey_published = True
             return True
         return False
+
+    def reconnect_chat(self) -> dict:
+        """Explicit retry from Chat, with the same durable identity."""
+        if not self.client.is_available:
+            return self._err("Chat support is missing. Reinstall or update Cubeon.")
+        try:
+            identity = friends.ensure_identity()
+            self.client.disconnect()
+            if self.client.connect(identity):
+                return self._ok()
+        except Exception:
+            log.warning("couldn't restart chat", exc_info=True)
+        return self._err("Couldn't reconnect to chat. Please try again.")
 
     def _publish_when_connected(self) -> None:
         """Waits (briefly) for the socket, then publishes the E2EE key. Run on
@@ -1476,8 +1509,10 @@ class FriendsService:
         waiting on. Publishing is only ever a courtesy to the *friend* (it lets
         them write to us), so it must never be on the critical path of our own
         send."""
-        if self._pubkey_published:
+        if (self._pubkey_published or self._publish_lock.locked()
+                or time.monotonic() < self._pubkey_retry_at):
             return
+        self._pubkey_retry_at = time.monotonic() + 30
         threading.Thread(target=self._ensure_pubkey_published, daemon=True,
                          name="cubeon-pubkey-publish").start()
 
@@ -1541,11 +1576,14 @@ class FriendsService:
         if not text:
             return self._err("Type a message first.")
         if not self.client.is_connected:
-            return self._err(_NOT_CONNECTED)
+            connection = getattr(self.client, "connection_status", {}) or {}
+            return self._err(connection.get("message") or _NOT_CONNECTED)
         mine = self._my_name() or ""
+        if not e2ee.is_available():
+            return self._err("Encrypted chat support is missing. Update or reinstall Cubeon.")
         keypair = self._ensure_e2ee()
         if not mine or not keypair:
-            return self._err("Claim a Cubeon name before messaging.")
+            return self._err("Couldn't load your chat identity. Please restart Cubeon.")
         # Best-effort and off this thread so the friend can reply; our own send
         # doesn't depend on it.
         self._publish_async()
@@ -3295,6 +3333,11 @@ class FriendsService:
             with self._metadata_lock:
                 self._peer_pubkeys.clear()
             self.reconcile_username()
+            # start() may run before first-run identity creation, or its
+            # initial 20s wait may expire while offline. Every successful
+            # hello must publish without requiring the user to send first.
+            self._pubkey_retry_at = 0.0
+            self._publish_async()
         self._changed()
 
     def _on_roster(self, payload) -> None:

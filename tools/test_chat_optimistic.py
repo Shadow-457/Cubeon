@@ -19,6 +19,7 @@ Headless: no display, no network, no flet runtime. The tab's own poll thread
 is suppressed so every step is synchronous.
 """
 import os
+import inspect
 import sys
 import threading
 import time
@@ -83,6 +84,8 @@ class FakeService:
         self.sent = []
         self.declines = []
         self.pending_out = []   # outgoing requests, as the roster reports them
+        self.connected = True
+        self.send_result = {"ok": True, "error": ""}
 
     def roster_payload(self):
         return {"friends": [{"name": "alice", "minecraft_username": "Alice",
@@ -90,7 +93,7 @@ class FakeService:
                 "requests_in": [],
                 "requests_out": list(self.pending_out),
                 "requests_in_details": [], "requests_out_details": [],
-                "connected": True, "available": True,
+                "connected": self.connected, "available": True,
                 "you_minecraft_username": "Steve"}
 
     def events_since(self, cursor):
@@ -110,7 +113,7 @@ class FakeService:
 
     def send_chat(self, to, text):
         self.sent.append((to, text))
-        return {"ok": True, "error": ""}
+        return dict(self.send_result)
 
     def decline(self, name):
         # Old-Worker behaviour: the frame is accepted but the OUTGOING row
@@ -247,6 +250,53 @@ def main():
     check("two identical sends still show two bubbles",
           texts(root, "gg") == ["gg", "gg"], str(texts(root, "gg")))
 
+    # A rebuilt conversation must retain pending sends, and old history with
+    # the same text must never confirm a newer message.
+    def find_select(fn):
+        if not inspect.isfunction(fn):
+            return None
+        if fn.__name__ == "_select":
+            return fn
+        for value in inspect.getclosurevars(fn).nonlocals.values():
+            found = find_select(value) if inspect.isfunction(value) else None
+            if found:
+                return found
+
+    select = find_select(row.on_click)
+    send_text("survives switch")
+    select("bob")
+    select("alice")
+    check("pending messages survive switching away and back",
+          texts(root, "survives switch") == ["survives switch"])
+    svc.echo("survives switch")
+    refresh()
+    check("restored pending message confirms once",
+          texts(root, "survives switch") == ["survives switch"])
+    send_text("hello")  # already exists in history
+    select("bob")
+    select("alice")
+    check("old identical history cannot confirm a new pending send",
+          texts(root, "hello") == ["hello", "hello"]
+          and any("Sending" in text for text in texts(root)))
+    svc.echo("hello")
+    refresh()
+    check("new echo confirms only the new identical send", texts(root, "hello") == ["hello", "hello"])
+
+    svc.connected = False
+    refresh()
+    sent_before = len(svc.sent)
+    send_text("offline draft")
+    check("offline send preserves the composer without losing a message",
+          composer.value == "offline draft" and len(svc.sent) == sent_before
+          and not texts(root, "offline draft")[:-1])
+    svc.connected = True
+    svc.send_result = {"ok": False, "error": "Connection dropped."}
+    refresh()
+    send_text("refused message")
+    check("a refused send restores its draft for retry", composer.value == "refused message")
+    svc.send_result = {"ok": True, "error": ""}
+    composer.value = ""
+
     # --- cancel: the outgoing row disappears even if the server keeps it ---
     svc.pending_out = ["bob"]
     refresh()   # roster sig changed -> rebuild -> the row mounts
@@ -309,8 +359,8 @@ def main():
     check("the cap is one slice delete, not a pop(0) per message",
           "del transcript.controls[:extra]" in _CHAT_SRC
           and "controls.pop(0)" not in _CHAT_SRC)
-    check("both append paths trim (poll batch and optimistic send)",
-          _CHAT_SRC.count("_trim_transcript()") == 3,      # 1 def + 2 calls
+    check("all append paths trim (poll, optimistic send and restored pending)",
+          _CHAT_SRC.count("_trim_transcript()") == 4,      # 1 def + 3 calls
           str(_CHAT_SRC.count("_trim_transcript()")))
 
     print()

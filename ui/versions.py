@@ -10,7 +10,7 @@ of it the same descriptor dict.
   * ``VersionPicker`` - the Game-version button plus a right-hand slide-in
     panel that lists installed instances with a configurable block/mob icon,
     and can switch to a
-    "New instance" view of versions that are not installed yet. Rows are
+    three-step "New instance" setup: loader, Minecraft version, icon. Rows are
     tagged with the loader, a snapshot badge and (online) the release date;
     a "Latest release" shortcut jumps straight to the current release.
 
@@ -124,8 +124,8 @@ class VersionPicker:
       * ``installed`` - select-only cards with icon editing and on-disk size
         (walked off-thread), plus "New instance".
       * ``icons``     - 20 blocks or 20 mob heads for the chosen instance.
-      * ``new``       - versions that are not installed yet, with search and
-        the "Latest release" shortcut.
+      * ``new``       - one setup step at a time: loader, compatible version,
+        block/mob icon. Only the final Download & Play click commits.
 
     It replaces both the old ``AlertDialog`` picker and the separate Instances
     manager dialog: the Play tab's version controls are one non-modal surface.
@@ -139,7 +139,8 @@ class VersionPicker:
 
     def __init__(self, page, *, get_selected, label_for, on_pick, on_browse_online,
                  get_instances=None, get_pack_name=None, on_open=None,
-                 loaders=None, instance_exists=None, get_icon=None, on_set_icon=None):
+                 loaders=None, instance_exists=None, get_icon=None, on_set_icon=None,
+                 get_supported_versions=None, on_create=None):
         self.page = page
         self.get_selected = get_selected
         self.label_for = label_for or (lambda _v: None)
@@ -151,6 +152,15 @@ class VersionPicker:
         self.instance_exists = instance_exists
         self.get_icon = get_icon or (lambda _v: None)
         self.on_set_icon = on_set_icon
+        self.get_supported_versions = get_supported_versions
+        self.on_create = on_create
+        self._new_step = 1
+        self._new_version = None
+        self._new_icon = instance_icons.default()
+        self._loader_versions = {}
+        self._support_loading = False
+        self._support_error = False
+        self._support_generation = 0
         self._icon_version = None
         self._icon_category = 'block'
         # (id, label) pairs. The loader is chosen here, while downloading a
@@ -161,9 +171,7 @@ class VersionPicker:
         self._entries: list = []
         self._online = False
         self._latest = None
-        # Two plain modes instead of one crowded list:
-        #   "installed" - what you already have, plus one "New instance" button
-        #   "new"       - only versions you can still add, with search + latest
+        # Installed instances and a separate three-step creation flow.
         self._mode = "installed"
         self._offline = False
         self._loading = False
@@ -247,17 +255,28 @@ class VersionPicker:
         # Install-time loader choice (2026-10-26): shown only in "New
         # instance" mode, because an installed instance's loader is fixed.
         self._loader_chips: dict[str, ft.Container] = {}
-        loader_chip_row = ft.Row(spacing=6, run_spacing=6, wrap=True)
+        loader_chip_row = ft.Column(spacing=8, tight=True,
+                                   horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+        loader_descriptions = {
+            "vanilla": "Classic Minecraft, without mods.",
+            "fabric": "Lightweight, with Fabric mods.",
+            "quilt": "For Quilt-compatible mods.",
+            "forge": "For Forge mods and modpacks.",
+            "neoforge": "For NeoForge mods and modpacks.",
+        }
         for lid, label in self.loaders:
             chip = ft.Container(
-                content=ft.Text(label, size=11.5,
-                                weight=ft.FontWeight.W_600),
+                content=ft.Column([
+                    ft.Text(label, size=14, color=TEXT, weight=ft.FontWeight.W_600),
+                    ft.Text(loader_descriptions.get(lid, "Use mods made for this loader."),
+                            size=11.5, color=TEXT_DIM),
+                ], spacing=4, tight=True),
                 data=f"install-loader-{lid}",
                 bgcolor=ACCENT_TINT if lid == self._install_loader else SURFACE_HI,
                 border=ft.border.Border.all(
                     1, ACCENT if lid == self._install_loader else BORDER),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+                padding=ft.padding.Padding.symmetric(horizontal=14, vertical=12),
                 ink=False,
                 on_click=lambda e, k=lid: self._set_install_loader(k),
             )
@@ -265,15 +284,13 @@ class VersionPicker:
             loader_chip_row.controls.append(chip)
         self.loader_row = ft.Column(
             [
-                ft.Text("1  CHOOSE YOUR LOADER", size=10.5, color=TEXT_DIM,
-                        weight=ft.FontWeight.W_600),
                 loader_chip_row,
             ],
-            spacing=6, tight=True, visible=False,
+            spacing=6, visible=False, expand=True, scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
         self.loader_hint = ft.Text(
             "Vanilla Minecraft, without mods.", size=11, color=TEXT_DIM)
-        self.loader_row.controls.append(self.loader_hint)
         self.version_heading = ft.Text(
             "2  CHOOSE A MINECRAFT VERSION", size=10.5, color=TEXT_DIM,
             weight=ft.FontWeight.W_600, visible=False)
@@ -281,7 +298,11 @@ class VersionPicker:
             "Select a version, then press Download & Play.",
             size=11, color=TEXT_DIM, visible=False)
         self.retry_link = ft.TextButton(
-            i18n.t("Retry"), on_click=lambda e: self._browse(), visible=False)
+            i18n.t("Retry"), on_click=lambda e: self._load_versions(), visible=False)
+        self.step_label = ft.Text("", size=11, color=ACCENT, visible=False)
+        self.next_button = ft.FilledButton(
+            "Choose version", on_click=lambda e: self._next(), visible=False,
+            data="new-instance-next")
 
         # Bounded lazy viewport: the panel is a long list, and building every
         # row at once made opening it visibly hitch on a big install set.
@@ -343,6 +364,7 @@ class VersionPicker:
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     self.subtitle,
+                    self.step_label,
                     ft.Container(height=6),
                     self.filter_field,
                     self.loader_row,
@@ -355,13 +377,14 @@ class VersionPicker:
                     ft.Container(height=6),
                     ft.Row(
                         [self.back_link, self.latest_chip,
-                         ft.Container(expand=True), self.browse_link],
+                         ft.Container(expand=True), self.browse_link, self.next_button],
                         spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 ],
                 spacing=8,
                 expand=True,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
         )
 
@@ -386,6 +409,8 @@ class VersionPicker:
         self._apply_mode()
         if self._mode == "new":
             self._render_new()
+        elif self._mode == "icons":
+            self._render_icons()
         elif self.is_open():
             # An install/delete finished while the sheet was open: keep the
             # installed rows in step instead of waiting for the next reopen.
@@ -396,10 +421,9 @@ class VersionPicker:
         """The online fetch failed: say so and hide the filter."""
         self._offline = True
         self._loading = False
+        self._apply_mode()
         self.filter_field.visible = False
-        self.offline_notice.visible = self._mode == "new"
         self.latest_chip.visible = False
-        self.retry_link.visible = self._mode == "new"
         if self._mode == "new":
             self._render_new()
             thread_safe_ui.refresh(self.panel)
@@ -414,32 +438,54 @@ class VersionPicker:
     # -- interaction ---------------------------------------------------
     def _apply_mode(self):
         new = self._mode == "new"
-        icons = self._mode == "icons"
-        if icons:
+        versions = new and self._new_step == 2
+        icons = self._mode == "icons" or (new and self._new_step == 3)
+        if new:
+            self.title.value = i18n.t('New instance')
+            self.step_label.value = f"Step {self._new_step} of 3 · " + {
+                1: "Mod loader", 2: "Minecraft version", 3: "Instance icon"}[self._new_step]
+            loader = dict(self.loaders).get(self._install_loader, self._install_loader)
+            self.subtitle.value = {
+                1: "Choose how you want to play.",
+                2: f"{loader} · Choose a Minecraft version.",
+                3: f"{loader} · Minecraft {self._new_version}",
+            }[self._new_step]
+            self.next_button.content = {
+                1: "Choose version", 2: "Choose icon", 3: "Download & Play"}[self._new_step]
+            self.next_button.disabled = bool(
+                self._new_step > 1 and not self._new_version
+                or self._new_step == 2 and (self._loading or self._support_loading
+                                          or self._offline or self._support_error))
+        elif icons:
             self.title.value = i18n.t('Choose icon')
             self.subtitle.value = 'Pick a block or mob head for this instance.'
-        elif new:
-            self.title.value = i18n.t('New instance')
-            self.subtitle.value = 'Build an instance with the version and loader you want.'
         else:
             self.title.value = 'Instances'
             self.subtitle.value = 'Switch instances or choose their icons.'
         self.icon_categories.visible = icons
-        self.filter_field.visible = bool(new and self._online)
-        self.loader_row.visible = bool(new)
-        self.version_heading.visible = new
-        self.install_hint.visible = new
-        self.retry_link.visible = bool(new and self._offline)
-        self.latest_chip.visible = bool(new and self._online and self._latest)
+        self.step_label.visible = new
+        self.next_button.visible = new
+        self.list.visible = not new or self._new_step != 1
+        self.filter_field.visible = bool(versions and self._online and not self._offline)
+        self.loader_row.visible = bool(new and self._new_step == 1)
+        self.version_heading.visible = False
+        self.install_hint.visible = False
+        self.retry_link.visible = bool(versions and (self._offline or self._support_error))
+        self.latest_chip.visible = bool(versions and self._online and self._latest)
         self.back_link.visible = new or icons
         self.browse_link.visible = not new and not icons
-        self.offline_notice.visible = bool(new and self._offline)
+        self.offline_notice.visible = bool(versions and (self._offline or self._support_error))
 
     def _set_install_loader(self, loader_id):
         """Choose the loader for the NEXT download only (2026-10-26)."""
         if loader_id not in self._loader_chips:
             return
+        if loader_id == self._install_loader and self._new_version:
+            return
         self._install_loader = loader_id
+        self._new_version = None
+        self._new_icon = instance_icons.default(loader_id)
+        self._icon_category = 'mob' if self._new_icon.startswith('mob-') else 'block'
         self.loader_hint.value = {
             "vanilla": "Vanilla Minecraft, without mods.",
             "fabric": "A lightweight loader for Fabric mods.",
@@ -451,21 +497,31 @@ class VersionPicker:
             active = lid == loader_id
             chip.bgcolor = ACCENT_TINT if active else SURFACE_HI
             chip.border = ft.border.Border.all(1, ACCENT if active else BORDER)
-            chip.content.color = ACCENT if active else TEXT_DIM
-            chip.content.weight = (ft.FontWeight.W_700 if active
-                                   else ft.FontWeight.W_600)
+            chip.content.controls[0].color = ACCENT if active else TEXT
+            chip.content.controls[0].weight = (ft.FontWeight.W_700 if active
+                                               else ft.FontWeight.W_600)
         thread_safe_ui.refresh(self.loader_row)
         if self._mode == "new":
-            self.rebuild()
+            if self._new_step == 2:
+                self._load_versions()
+            else:
+                self._apply_mode()
+                thread_safe_ui.refresh(self.panel)
 
     def _back(self):
+        if self._mode == "new" and self._new_step > 1:
+            self._new_step -= 1
+            self._apply_mode()
+            self._render_new()
+            thread_safe_ui.refresh(self.panel)
+            return
         self._mode = "installed"
         self.filter_field.value = ""
         self._offline = False
         self.offline_notice.visible = False
         self._apply_mode()
         self._render_installed()
-        thread_safe_ui.refresh(self.list)
+        thread_safe_ui.refresh(self.panel)
 
     def is_open(self) -> bool:
         return self.panel.right == 0
@@ -544,20 +600,87 @@ class VersionPicker:
 
     def _browse(self):
         self._mode = "new"
+        self._new_step = 1
+        self._new_version = None
+        self._set_install_loader("vanilla")
+        self.filter_field.value = ""
+        self._apply_mode()
+        self._render_new()
+        thread_safe_ui.refresh(self.panel)
+
+    def _load_versions(self):
         self._loading = True
         self._offline = False
+        self._support_error = False
+        self._support_generation += 1
+        generation, loader = self._support_generation, self._install_loader
+        self._support_loading = bool(loader != "vanilla" and self.get_supported_versions
+                                     and loader not in self._loader_versions)
         self._apply_mode()
         self._render_new()
         thread_safe_ui.refresh(self.panel)
         if self.on_browse_online:
             self.on_browse_online()
+        else:
+            self._loading = False
+        if self._support_loading:
+            def fetch_support():
+                try:
+                    supported = set(self.get_supported_versions(loader))
+                except Exception:
+                    supported = None
+                with thread_safe_ui.TREE_LOCK:
+                    if generation != self._support_generation:
+                        return
+                    self._support_loading = False
+                    self._support_error = supported is None
+                    if supported is not None:
+                        self._loader_versions[loader] = supported
+                    self._apply_mode()
+                    self.rebuild()
+                    thread_safe_ui.refresh(self.panel)
+            threading.Thread(target=fetch_support, daemon=True,
+                             name="instance-loader-versions").start()
+
+    def _next(self):
+        if self._mode != "new":
+            return
+        if self._new_step == 1:
+            self._new_step = 2
+            self._load_versions()
+        elif self._new_step == 2:
+            if self.next_button.disabled or not self._new_version:
+                return
+            self._new_step = 3
+            self._apply_mode()
+            self._render_icons()
+            thread_safe_ui.refresh(self.panel)
+        elif self._new_version:
+            # Nothing is selected/downloaded in main until this final click.
+            if self.on_create:
+                if self.on_create(self._new_version, self._install_loader, self._new_icon) is False:
+                    return
+                self.close()
+                self._mode = "installed"  # ignore a queued second Finish click
+            else:
+                self._commit_pick(self._new_version, self._install_loader)
 
     def _pick(self, key):
         if not key:
             return
+        if self._mode == "new":
+            if self._new_step != 2 or not any(e["id"] == key for e in self._available_entries()):
+                return
+            self._new_version = key
+            self._apply_mode()
+            self._render_new()
+            thread_safe_ui.refresh(self.panel)
+            return
+        self._commit_pick(key)
+
+    def _commit_pick(self, key, install_loader=None):
         # Only a NEW download carries a loader choice. Installed instances
         # keep the loader they were created with.
-        install_loader = self._install_loader if self._mode == "new" else None
         self.close()
         if self.on_pick:
             if install_loader and install_loader != "vanilla":
@@ -583,8 +706,15 @@ class VersionPicker:
             self._icon_category = category
             self._render_icons()
         thread_safe_ui.refresh(self.list)
+        thread_safe_ui.refresh(self.icon_categories)
 
     def _choose_icon(self, icon_id):
+        if self._mode == "new" and self._new_step == 3:
+            if instance_icons.valid(icon_id):
+                self._new_icon = icon_id
+                self._render_icons()
+                thread_safe_ui.refresh(self.list)
+            return
         if not instance_icons.valid(icon_id) or not self._icon_version:
             return
         with thread_safe_ui.TREE_LOCK:
@@ -594,7 +724,11 @@ class VersionPicker:
         thread_safe_ui.refresh(self.panel)
 
     def _render_icons(self):
-        current = self.get_icon(self._icon_version)
+        current = self._new_icon if self._mode == "new" else self.get_icon(self._icon_version)
+        for button, category in zip(self.icon_categories.controls, ('block', 'mob')):
+            active = category == self._icon_category
+            button.style = ft.ButtonStyle(color=ACCENT if active else TEXT_DIM,
+                                          bgcolor=ACCENT_TINT if active else 'transparent')
         tiles=[]
         for icon in instance_icons.CATALOG:
             if icon['category'] != self._icon_category:
@@ -805,7 +939,7 @@ class VersionPicker:
             animate=100,
         )
 
-    def _render_new(self):
+    def _available_entries(self):
         query = (self.filter_field.value or "").strip().lower()
 
         def matches(e):
@@ -814,21 +948,36 @@ class VersionPicker:
             return (query in (e.get("id") or "").lower()
                     or query in (e.get("text") or "").lower())
 
-        available = [e for e in self._entries
+        supported = self._loader_versions.get(self._install_loader)
+        return [e for e in self._entries
                      if e.get("loader", "vanilla") == "vanilla"
+                     and (supported is None or e["id"] in supported)
                      and not (self.instance_exists(self._install_loader, e["id"])
                               if self.instance_exists else e.get("installed"))
                      and matches(e)]
+
+    def _render_new(self):
+        if self._new_step == 1:
+            self.list.controls[:] = []
+            return
+        if self._new_step == 3:
+            self._render_icons()
+            return
+        query = (self.filter_field.value or "").strip().lower()
+        available = self._available_entries()
         self.latest_chip.visible = bool(
-            not self._loading and not self._offline and self._latest
+            not self._loading and not self._support_loading and not self._support_error
+            and not self._offline and self._latest
             and any(e["id"] == self._latest for e in available))
-        rows = [self._row(e, False) for e in available]
-        if self._loading:
+        rows = [self._row(e, e["id"] == self._new_version) for e in available]
+        if self._loading or self._support_loading:
             rows = [ft.Container(
                 content=ft.Row([
                     ft.ProgressRing(width=18, height=18, stroke_width=2, color=ACCENT),
-                    ft.Text("Loading Minecraft versions…", color=TEXT_DIM, size=12),
+                    ft.Text("Loading compatible versions…", color=TEXT_DIM, size=12),
                 ], spacing=10), padding=12)]
+        if self._support_error:
+            rows = [ft.Text("Couldn't check this loader's versions. Press Retry.", size=12, color=TEXT_DIM)]
         if not rows:
             msg = ("No versions match your search." if query else
                    "Loading versions..." if self._online is False

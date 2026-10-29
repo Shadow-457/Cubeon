@@ -144,6 +144,9 @@ consistent with the shared `THEME` contract.
   `_main_action_click`, `on_play_click` and `_begin_install_and_launch` all honour them, so a repaint
   inside the handover window cannot show PLAY or start a second game. `launching_version` is set under
   `_launch_state_lock` when `installing_version` clears and released in the worker's `finally`.
+- Quit owns `state["ending_session"]` until its worker reconciles watchdog liveness, on success or
+  failure. Recovered games have no `on_exit`, so termination must restore the button itself. Optional
+  playtime/log/presence cleanup must never prevent the exit callback or hold the UI tree lock.
 
 ### Play and content
 
@@ -152,8 +155,10 @@ consistent with the shared `THEME` contract.
   title + subtitle below. The pencil chooses from 20 blocks and 20 mob heads in the same panel;
   `cubeon/instance_icons.py` validates IDs and `cfg["instance_icons"]` persists them per instance.
   `tools/gen_instance_icons.py` generates the 40 SVGs. Selection never changes when choosing an icon.
-  Folder/Rename/Delete live on the Play card. "New instance" uses install-time loader chips; `_pick` passes a loader
-  only in `"new"` mode, never vanilla.
+  Folder/Rename/Delete live on the Play card. "New instance" has three separate steps: loader →
+  compatible Minecraft version → block/mob icon. Back preserves choices; only final Download & Play
+  commits through `main._create_new_instance`. The icon is saved to the resulting loader instance ID,
+  never a sibling vanilla version. `mod_loaders.get_loader_minecraft_versions` caches support for 1h.
 - The Play card shows its loader as the compact hero tag; the bulky loader readout is unmounted.
   `loader_readout` / `loader_note` and `loader_toggle` survive as internal mirrors of `state["mod_loader"]`
   for the launch path and the smoke/ version tests. The card always shows Folder / Rename / Delete; there
@@ -209,6 +214,11 @@ consistent with the shared `THEME` contract.
 - `cfg["default_jvm_flags_enabled"]` defaults to True. False removes all Cubeon-added heap/GC
   flags and prevents forced G1 re-insertion; custom flags and required Minecraft/loader arguments
   remain. Settings saves the switch immediately and uses the shared flag report for disabled rows.
+- mll appends inherited/profile JVM arguments AFTER Cubeon's defaults/custom flags. Launch normalizes
+  heap options only before the main class: explicit custom `-Xmx`/`-Xms` (including `MaxHeapSize`/
+  `InitialHeapSize` aliases) → slider/default → profile. With defaults off, untouched profile heap
+  options remain. Option values and game arguments must survive. Settings uses `memory_limit_report`;
+  F3's Mem maximum is the limit, while Allocated can be lower. `tools/test_launch_memory.py` guards it.
 - Mod discovery has explicit compatible/all-Modrinth scope; broadened searches and direct project links
   never bypass install-time version/loader validation. Related-name fallback is labeled and stays on the
   same query across pages. The project detail dialog still lists builds for other game versions/loaders as
@@ -424,6 +434,12 @@ consistent with the shared `THEME` contract.
 - Chat is BETA-labelled in the sidebar and tab heading. Chat and the companion mod consume one
   process-scoped FriendsService; keep adaptive polling, draft preservation, read markers, and optimistic
   send/echo intact.
+- `FriendsClient.connect` reuses the current loop for the same name/secret. Each replacement owns a
+  fresh stop event; stale socket callbacks must not change its state. The core WebSocket has finite
+  upgrade/hello and ping/pong deadlines; backoff resets after `hello_ok`, never just an open socket.
+  UID persistence precedes connected state. Key initialization/publication is serialized, failed saves
+  propagate, and unreadable chat identity files must never be replaced. Successful hellos/roster polls
+  retry key publication; Chat's Reconnect preserves identity and refused/offline sends preserve drafts.
 - `roster_payload()` refreshes peer metadata once and resolves every friend against that snapshot; never
   call `peer_metadata()` per row (it re-scans the roster and re-reads identity.json, making the poll
   O(n^2)). The whitelist is cached by `whitelist.json`'s stat signature, roster faces by `(identities,
@@ -552,7 +568,8 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
 | Website search visibility | `test_website_seo.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
-| Chat | `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
+| Chat | `test_chat_connection.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
+| Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
 | Cosmetics | `test_cosmetics.py`, `test_appearance_preview.py`, `test_capes.py` |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
@@ -570,6 +587,11 @@ The default smoke gate does not run all registered suites; `--suites` does. See
   (`window.vaq` + `/_vercel/insights/script.js`) before `</body>`; numeric status pages
   (403/404/429/500/502/503) deliberately do not. The dashboard toggle is the only manual step and
   the `/_vercel/insights/*` routes only exist after the next deployment.
+  Gotcha: the served script self-disables when `navigator.webdriver` is true **or** the user agent
+  contains `Headless`, so a Playwright/Puppeteer "check" always reports zero events. Verify with
+  `launch(args=["--disable-blink-features=AutomationControlled"])` plus a normal Chrome UA; a real
+  visit then POSTs `/_vercel/insights/view` and gets 200. Real users with an ad blocker (uBlock,
+  Brave shields) are also not counted - that is expected, not a fault.
   `privacy.html#analytics` and `cookies.html` must keep describing it truthfully - the site's promise
   is "no profiles, no cookies", not "no counting" - and `test_website_seo.py` fails if a page loses
   the snippet or a policy page loses the disclosure.

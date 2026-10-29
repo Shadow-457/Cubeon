@@ -509,7 +509,7 @@ def default_jvm_flags_report(ram_mb: int | None = None, *,
       - ``"conditional"`` added only on a machine that can afford it;
       - ``"dropped"``     a default Cubeon would add but is NOT adding here.
 
-    ``ram_mb`` is the player's Allocated RAM; omitted, only the flags that do
+    ``ram_mb`` is the player's maximum RAM; omitted, only the flags that do
     not depend on it are reported. Never raises: this is a readout, and a
     machine that cannot report its own RAM must still get the rest of the list.
     """
@@ -536,8 +536,15 @@ def default_jvm_flags_report(ram_mb: int | None = None, *,
     if ram_mb:
         try:
             ram = max(1, int(ram_mb))
-            add(f"-Xmx{ram}M", "always")
-            add(f"-Xms{_initial_heap_mb(ram)}M", "always")
+            custom_heap = _custom_heap_flags(_parse_custom_jvm_flags(custom_jvm_flags))
+            defaults = _launcher_heap_flags(ram, custom_heap)
+            for kind, flag in defaults.items():
+                if kind in custom_heap:
+                    out.append({"flag": flag, "source": "dropped",
+                                "note": _jvm_flag_note(flag) +
+                                f" Replaced by your custom flag {custom_heap[kind]}."})
+                else:
+                    add(flag, "always")
         except (TypeError, ValueError):
             pass
 
@@ -834,6 +841,88 @@ def _parse_custom_jvm_flags(raw: str | None) -> list[str]:
     return kept
 
 
+def _jvm_option_positions(tokens: list[str], start: int = 0):
+    """Visit options before the main class, skipping separate option values."""
+    index = start
+    while index < len(tokens):
+        token = tokens[index]
+        if (not token.startswith("-") or token in ("-jar", "-m", "--module")
+                or token.startswith("--module=")):
+            break
+        yield index
+        index += 2 if token in _JVM_VALUE_OPTIONS else 1
+
+
+def _heap_kind(flag: str) -> str | None:
+    if flag.startswith(("-Xmx", "-XX:MaxHeapSize=")):
+        return "maximum"
+    if flag.startswith(("-Xms", "-XX:InitialHeapSize=")):
+        return "initial"
+    return None
+
+
+def _heap_size_mb(flag: str) -> float | None:
+    """Read Java heap sizes, including byte values and K/M/G/T suffixes."""
+    value = flag.split("=", 1)[1] if "=" in flag else flag[4:]
+    match = re.fullmatch(r"(\d+)([kKmMgGtT]?)", value)
+    if not match:
+        return None
+    return int(match[1]) * {"": 1 / 1048576, "k": 1 / 1024,
+                           "m": 1, "g": 1024, "t": 1048576}[match[2].lower()]
+
+
+def _custom_heap_flags(user_flags: list[str]) -> dict[str, str]:
+    chosen = {}
+    for index in _jvm_option_positions(user_flags):
+        flag = user_flags[index]
+        kind = _heap_kind(flag)
+        if kind:
+            chosen[kind] = flag  # Java's last explicit setting wins.
+    return chosen
+
+
+def _launcher_heap_flags(ram_mb: int, custom_heap: dict[str, str]) -> dict[str, str]:
+    ram = max(1, int(ram_mb))
+    initial = _initial_heap_mb(ram)
+    if "maximum" in custom_heap:
+        maximum = _heap_size_mb(custom_heap["maximum"])
+        if maximum is not None and maximum > 0:
+            initial = max(1, min(initial, int(maximum)))
+    return {"maximum": f"-Xmx{ram}M", "initial": f"-Xms{initial}M"}
+
+
+def memory_limit_report(ram_mb: int, *, custom_jvm_flags: str | None = None,
+                        default_jvm_flags_enabled: bool = True) -> dict:
+    """Settings' heap ceiling, using the same precedence as command assembly."""
+    custom = _custom_heap_flags(_parse_custom_jvm_flags(custom_jvm_flags))
+    if "maximum" in custom:
+        flag = custom["maximum"]
+        return {"source": "custom", "flag": flag, "ram_mb": _heap_size_mb(flag)}
+    if default_jvm_flags_enabled:
+        flag = _launcher_heap_flags(ram_mb, custom)["maximum"]
+        return {"source": "slider", "flag": flag, "ram_mb": _heap_size_mb(flag)}
+    return {"source": "profile", "flag": None, "ram_mb": None}
+
+
+def _normalize_heap_arguments(command: list[str], ram_mb: int,
+                              user_flags: list[str], enabled: bool) -> list[str]:
+    """Profile/inherited JVM defaults must not override launcher heap choices.
+
+    mll appends the profile's arguments after our jvmArguments. Normalize only
+    JVM options, leaving classpath/module values and all game arguments intact.
+    With defaults disabled, only explicitly customized heap sizes are owned.
+    """
+    chosen = _custom_heap_flags(user_flags)
+    if enabled:
+        chosen = {**_launcher_heap_flags(ram_mb, chosen), **chosen}
+    if not chosen:
+        return command
+    remove = {index for index in _jvm_option_positions(command, 1)
+              if _heap_kind(command[index]) in chosen}
+    return [command[0], *chosen.values(),
+            *(token for index, token in enumerate(command[1:], 1) if index not in remove)]
+
+
 def build_launch_command(version_id: str, username: str, ram_mb: int,
                           width: int, height: int, java_path: str | None = None,
                           custom_jvm_flags: str | None = None,
@@ -906,6 +995,9 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
             f"(missing {e}). It may be a broken or custom launcher install, "
             f"try reinstalling this version, or downloading the vanilla version instead."
         ) from e
+
+    command = _normalize_heap_arguments(command, ram_mb, user_flags,
+                                        default_jvm_flags_enabled)
 
     collector = re.compile(r"-XX:[+-]Use(?:G1|Parallel|ParallelOld|Serial|ConcMarkSweep|ParNew|Z|Shenandoah|Epsilon)GC$")
     # A collector the player typed in Settings is a deliberate choice, not a
@@ -1360,18 +1452,22 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         process.wait()
         try:
             watchdog.clear(session_id)
-            from .friends_service import FriendsService
-            FriendsService.reconcile_username_active()
         except Exception:
             logging.getLogger(__name__).debug("game exit reconciliation failed", exc_info=True)
         # Let the reader finish flushing what the game wrote on its way out,
         # so a crash report isn't truncated. Bounded so a stuck pipe can't
         # keep this thread alive forever.
         drain.join(timeout=5.0)
-        milestones.end_play_session(session_id=session_id)
-        with _spawn_lock:
-            _active_logs.discard(log_path)
-            _prune_game_logs()
+        try:
+            milestones.end_play_session(session_id=session_id)
+        except Exception:
+            logging.getLogger(__name__).warning("game playtime cleanup failed", exc_info=True)
+        try:
+            with _spawn_lock:
+                _active_logs.discard(log_path)
+                _prune_game_logs()
+        except Exception:
+            logging.getLogger(__name__).warning("game log cleanup failed", exc_info=True)
         if on_exit:
             # A UI callback that raises must not kill this daemon thread before
             # it finishes; there is no other place that would report it.
@@ -1380,6 +1476,11 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             except Exception:
                 logging.getLogger(__name__).warning(
                     "game-exit callback failed", exc_info=True)
+        try:
+            from .friends_service import FriendsService
+            FriendsService.reconcile_username_active()
+        except Exception:
+            logging.getLogger(__name__).debug("game username reconciliation failed", exc_info=True)
     threading.Thread(target=_watch, daemon=True).start()
 
     return process

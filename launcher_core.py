@@ -45,7 +45,7 @@ from cubeon.versions import (
 # --- mod loaders ---
 from cubeon.mod_loaders import (
     SUPPORTED_LOADERS, MOD_CAPABLE_LOADERS,
-    is_loader_supported, is_fabric_supported,
+    is_loader_supported, is_fabric_supported, get_loader_minecraft_versions,
     find_installed_loader_version, install_mod_loader, install_fabric,
 )
 

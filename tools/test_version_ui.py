@@ -230,11 +230,15 @@ browse = [c for c in walk(panel)
 check("the panel offers 'New instance'", bool(browse))
 if browse:
     driver._fire_named(browse[-1], "on_click", "browse new instances")
+    check("new instance starts with only the loader step",
+          picker_model._new_step == 1 and picker_model.loader_row.visible
+          and not picker_model.list.visible and not picker_model.filter_field.visible)
+    picker_model._next()
     deadline = time.monotonic() + 3
     from cubeon import thread_safe_ui
     while time.monotonic() < deadline:
         with thread_safe_ui.TREE_LOCK:
-            if not picker_model._loading:
+            if not picker_model._loading and not picker_model._support_loading:
                 break
         time.sleep(0.01)
 
@@ -245,9 +249,19 @@ new_ids = picker_row_ids(picker_model)
 check("new mode offers only versions that are not installed yet",
       set(new_ids) == {"1.20.1", "26w45a"}, str(sorted(new_ids)))
 picker_model._set_install_loader("fabric")
+def wait_for_versions():
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        with thread_safe_ui.TREE_LOCK:
+            if not picker_model._loading and not picker_model._support_loading:
+                return
+        time.sleep(0.01)
+    raise AssertionError("version choices did not finish loading")
+wait_for_versions()
 check("an installed vanilla base is available for a new Fabric instance",
       "1.21.11" in picker_row_ids(picker_model))
 picker_model._set_install_loader("vanilla")
+wait_for_versions()
 check("switching back to Vanilla hides its already installed base",
       "1.21.11" not in picker_row_ids(picker_model))
 panel_text = subtree_text(panel)
@@ -281,6 +295,8 @@ back = [c for c in walk(panel)
         and subtree_text(c).strip() == "back"]
 if back:
     driver._fire_named(back[0], "on_click", "back to installed versions")
+    check("Back first returns to loader selection", picker_model._new_step == 1)
+    picker_model._back()
 check("Back returns the panel to the installed list",
       picker_model.title.value == "Instances", picker_model.title.value)
 
@@ -354,11 +370,14 @@ browse = [c for c in fz.clickable_with_subtext(page, "new instance")
           if callable(getattr(c, "on_click", None))]
 if browse:
     driver._fire_named(browse[-1], "on_click", "browse new instances (last instance)")
+    picker_model._next()
+    wait_for_versions()
 back = [c for c in fz.clickable_with_subtext(page, "back")
         if callable(getattr(c, "on_click", None))
         and subtree_text(c).strip() == "back"]
 if back:
     driver._fire_named(back[0], "on_click", "back to installed versions (last instance)")
+    picker_model._back()
 
 # The panel lists that single instance, with no per-row actions.
 panel_rows = [c for c in walk(panel)

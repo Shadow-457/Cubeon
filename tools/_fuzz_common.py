@@ -409,6 +409,8 @@ def install_safe_stubs(verbose=False):
 
     import launcher_core as core
     core.get_available_versions = versions.get_available_versions
+    core.get_loader_minecraft_versions = lambda loader: [
+        version["id"] for version in core.get_available_versions()]
     core.get_latest_release = versions.get_latest_release
 
     # Redirect the one profile-dir choke point (which does makedirs + writes a

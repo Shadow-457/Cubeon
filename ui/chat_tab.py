@@ -479,11 +479,18 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         alignment=ft.Alignment.CENTER, expand=True,
     )
 
-    conn_banner_text = ft.Text("", size=12, color=WARNING)
+    conn_banner_text = ft.Text("", size=12, color=WARNING, expand=True)
+    reconnect_btn = ft.TextButton(
+        "Reconnect", on_click=lambda e: _run(
+            service.reconnect_chat,
+            lambda res: _set_status("Reconnecting to chat…" if res.get("ok") else
+                                    res.get("error") or "Couldn't reconnect.",
+                                    error=not res.get("ok")),
+            "cubeon-chat-reconnect"))
     conn_banner = ft.Container(
         content=ft.Row([ft.Icon(ft.Icons.CLOUD_OFF_ROUNDED, size=16,
                                 color=WARNING),
-                        conn_banner_text],
+                        conn_banner_text, reconnect_btn],
                        spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=ft.Colors.with_opacity(0.10, WARNING),
         border=ft.border.Border.all(1, ft.Colors.with_opacity(0.35, WARNING)),
@@ -812,9 +819,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         })
         connected = bool(roster.get("connected"))
         available = bool(roster.get("available"))
+        connection = roster.get("connection") or {}
         you_source = _get_you_picture() or _faces.get_face_b64(shown)
         sig = (shown, uid, roster.get("you_minecraft_username"),
-               roster.get("you_display_name"), connected, available, you_source)
+               roster.get("you_display_name"), connected, available, you_source,
+               connection.get("state"), connection.get("message"),
+               connection.get("retry_in"))
         if sig == _identity_sig["v"]:
             return
         _identity_sig["v"] = sig
@@ -826,16 +836,22 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         conn_dot.bgcolor = (ACCENT if connected
                             else (WARNING if available else DANGER))
         conn_text.value = ("Connected" if connected else
-                           ("Connecting…" if available else "Add-on missing"))
-        if available and not connected:
-            conn_banner_text.value = ("Connecting to Cubeon… messages will "
-                                      "send once you're back online.")
+                           ("Reconnecting…" if connection.get("state") == "retrying" else
+                            "Connecting…" if available else "Chat unavailable"))
+        if not connected:
+            conn_banner_text.value = (connection.get("message") or
+                ("Connecting to chat. Your draft will stay here until you're connected."
+                 if available else "Chat support is missing. Update or reinstall Cubeon."))
+            retry_in = connection.get("retry_in")
+            if retry_in:
+                conn_banner_text.value += f" Next attempt in {retry_in}s."
+            reconnect_btn.visible = available
             conn_banner.visible = True
         else:
             conn_banner.visible = False
         empty_sub.value = ("Add a friend by ID, or wait for someone to add you."
                            if connected else
-                           "You're offline — messages send once you reconnect.")
+                           "You're offline. Your conversations and drafts are kept here.")
         for ctrl in (you_text, your_id_text, copy_id_btn, you_avatar, conn_dot,
                      conn_text, conn_banner, empty_sub):
             thread_safe_ui.refresh(ctrl)
@@ -1108,8 +1124,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 True, 2)
             transcript.controls.append(wrap)
             q = _pending.setdefault(name, [])
-            q.append({"text": text, "wrap": wrap, "ts": ts,
-                      "t0": time.monotonic(), "failed": False})
+            entry = {"text": text, "wrap": wrap, "ts": ts,
+                     "t0": time.monotonic(), "failed": False,
+                     "after_seq": last_seq.get(name, -1)}
+            q.append(entry)
             # Bound the queue (this is what a session with an offline relay
             # looks like: every send times out and stays as a red bubble).
             while len(q) > _MAX_PENDING:
@@ -1117,8 +1135,9 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             _trim_transcript()
         thread_safe_ui.refresh(transcript)
         _stick_bottom()
+        return entry
 
-    def _fail_pending(name, text=None, entry=None):
+    def _fail_pending(name, text=None, entry=None, rejected=False):
         """Turn a pending bubble into a red "couldn't send" bubble. Called on
         a send refusal (matched by text) and on the send timeout sweep.
 
@@ -1132,9 +1151,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     if p["text"] == text:
                         entry = p
                         break
-            if entry is None or entry.get("failed"):
+            if entry is None:
+                return
+            if rejected:
+                entry["rejected"] = True
+            if entry.get("failed"):
                 return
             entry["failed"] = True
+            entry["rejected"] = rejected
             try:
                 idx = transcript.controls.index(entry["wrap"])
                 fresh = _bubble_row(
@@ -1177,7 +1201,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 q = _pending.get(name) or []
                 handled_in_place = False
                 for p in list(q):
-                    if p["text"] != text:
+                    if (p["text"] != text or p.get("rejected")
+                            or (seq is not None and int(seq) <= p.get("after_seq", -1))):
                         continue
                     q.remove(p)
                     if p.get("failed"):
@@ -1236,7 +1261,6 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         last_seq[name] = -1
         _last_day[name] = None
         _last_dir[name] = None
-        _pending[name] = []       # the transcript is rebuilt; pending bubbles die
         _stick["at_end"] = True   # opening a conversation starts at the bottom
         emoji_panel.visible = False
         composer_status.visible = False
@@ -1262,6 +1286,17 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             thread_safe_ui.refresh(ctrl)
         _mark_read(name)
         _tick()
+        # A send worker/echo can finish while a different conversation is
+        # open. Keep its pending line and remount it when this peer is opened.
+        with thread_safe_ui.TREE_LOCK:
+            for pending in _pending.get(name) or []:
+                pending["wrap"] = _bubble_row(_make_bubble(
+                    pending["text"], True, pending["ts"],
+                    dim=not pending["failed"], failed=pending["failed"],
+                    status="Couldn't send" if pending["failed"] else "Sending…"), True, 2)
+                transcript.controls.append(pending["wrap"])
+            _trim_transcript()
+        thread_safe_ui.refresh(transcript)
         _stick_bottom(force=True)
 
     def _run(action, done, label):
@@ -1273,7 +1308,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 res = action() or {}
             except Exception:
                 res = {"ok": False, "error": "That didn't work. Please try again."}
-            done(res)
+            with thread_safe_ui.TREE_LOCK:
+                done(res)
             _tick()
             _wake.set()   # the poll loop re-checks soon after any action
         threading.Thread(target=work, daemon=True, name=label).start()
@@ -1282,6 +1318,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         name = selected["name"]
         text = (composer.value or "").strip()
         if not name or not text:
+            return
+        if _last_roster["v"] and not _last_roster["v"].get("connected"):
+            _set_composer_status("Chat is reconnecting. Your message is kept in the draft.")
+            _drafts[name] = composer.value
             return
 
         _set_composer_status("")
@@ -1294,7 +1334,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         composer.value = ""
         _drafts.pop(name, None)   # the message left the box - draft is spent
         thread_safe_ui.refresh(composer)
-        _append_optimistic(name, text)
+        pending = _append_optimistic(name, text)
         # Confirm fast: poll every _POLL_FAST_SECONDS until the echo files the
         # real line, so the bubble flips out of "Sending…" in a few hundred ms
         # instead of waiting out an idle tick.
@@ -1303,9 +1343,18 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
         def done(res):
             if not res.get("ok"):
-                _set_composer_status(res.get("error")
-                                     or "Couldn't send that message.")
-                _fail_pending(name, text)
+                _fail_pending(name, entry=pending, rejected=True)
+                # Preserve a refused message for editing/resending, without
+                # replacing anything the user has typed since pressing Send.
+                if selected["name"] == name:
+                    _set_composer_status(res.get("error")
+                                         or "Couldn't send that message.")
+                    if not composer.value:
+                        composer.value = text
+                        _drafts[name] = text
+                        thread_safe_ui.refresh(composer)
+                elif not _drafts.get(name):
+                    _drafts[name] = text
 
         _run(lambda: service.send_chat(name, text), done, "cubeon-chat-send")
 
@@ -1428,6 +1477,12 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     # --- poll loop -------------------------------------------------------
     def _tick():
+        # Event handlers and action completions share this lock with Flet's
+        # diff. Never change identity/header/list controls during a tree walk.
+        with thread_safe_ui.TREE_LOCK:
+            _tick_locked()
+
+    def _tick_locked():
         if not tick_lock.acquire(blocking=False):
             return
         try:
@@ -1478,7 +1533,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         so new lines land in half a second; and for a couple of seconds after
         a send we poll fastest, which is what confirms the sender's own bubble
         promptly instead of making them watch "Sending…"."""
-        if _pending or time.monotonic() < _fast_until["v"]:
+        if (any(not p["failed"] for q in _pending.values() for p in q)
+                or time.monotonic() < _fast_until["v"]):
             return _POLL_FAST_SECONDS
         if selected["name"]:
             return _POLL_ACTIVE_SECONDS

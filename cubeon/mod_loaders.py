@@ -34,6 +34,19 @@ SUPPORTED_LOADERS = {
 MOD_CAPABLE_LOADERS = ("fabric", "quilt", "forge", "neoforge")
 
 
+def get_loader_minecraft_versions(loader_id: str) -> list[str]:
+    """One supported-version list per loader, fetched off the UI thread."""
+    if loader_id not in MOD_CAPABLE_LOADERS:
+        raise ValueError("Unknown mod loader")
+    cached = local_cache.get("loader_versions", {"loader": loader_id}, max_age=3600)
+    if isinstance(cached, list):
+        return list(cached)
+    versions = mll.mod_loader.get_mod_loader(loader_id).get_minecraft_versions(False)
+    result = [version for version in versions if isinstance(version, str)]
+    local_cache.set("loader_versions", {"loader": loader_id}, result)
+    return result
+
+
 def is_loader_supported(loader_id: str, mc_version: str) -> bool:
     if loader_id == "vanilla":
         return True

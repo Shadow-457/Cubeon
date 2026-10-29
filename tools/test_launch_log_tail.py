@@ -51,7 +51,7 @@ def check(label, condition, extra=""):
           f"{(' - ' + extra) if extra and not condition else ''}")
 
 
-def stub_launch(exit_cb):
+def stub_launch(exit_cb, *, fail_playtime=False):
     """Run launch_game with a real child process and no side effects."""
     import cubeon.content as content
     import cubeon.cubeonfriends as friends
@@ -77,8 +77,10 @@ def stub_launch(exit_cb):
     stack.enter_context(patch.object(watchdog, "clear", lambda *a, **k: None))
     stack.enter_context(patch.object(milestones, "begin_play_session",
                                      lambda *a, **k: None))
-    stack.enter_context(patch.object(milestones, "end_play_session",
-                                     lambda *a, **k: None))
+    def end_play_session(*args, **kwargs):
+        if fail_playtime:
+            raise OSError("disk full")
+    stack.enter_context(patch.object(milestones, "end_play_session", end_play_session))
     stack.enter_context(patch.object(doctor, "run_doctor",
                                      lambda *a, **k: {"fixed": []}))
     stack.enter_context(patch.object(
@@ -87,7 +89,7 @@ def stub_launch(exit_cb):
     return stack
 
 
-def run_once(on_exit):
+def run_once(on_exit, **options):
     done = threading.Event()
 
     def wrapped(code, lines, session_id=None):
@@ -96,7 +98,7 @@ def run_once(on_exit):
         finally:
             done.set()
 
-    with stub_launch(wrapped):
+    with stub_launch(wrapped, **options):
         proc = launch.launch_game(
             "1.20.1", "tester", 1024, 854, 480, None,
             mc_version="1.20.1", loader="fabric", on_exit=wrapped)
@@ -120,6 +122,16 @@ def main():
     check("a line split by the writer is delivered whole",
           seen.get("lines") == ["CRASH line one continued", "OK line"],
           str(seen.get("lines")))
+
+    # Optional bookkeeping must never suppress the actual exit callback.
+    def fail_exit_cleanup():
+        if threading.current_thread() is not threading.main_thread():
+            raise OSError("locked log")
+    with patch.object(launch, "_prune_game_logs", side_effect=fail_exit_cleanup):
+        code = run_once(capture)
+        check("failed log cleanup still delivers on_exit", code == 3)
+    code = run_once(capture, fail_playtime=True)
+    check("failed playtime cleanup still delivers on_exit", code == 3)
 
     # --- 2. a raising on_exit is logged, not an uncaught dead thread -------
     records = []

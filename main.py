@@ -3409,6 +3409,26 @@ async def main(page: ft.Page):
             return False
         return True
 
+    def _create_new_instance(version_id, loader, icon_id):
+        from cubeon import instance_icons
+        if loader not in LOADER_IDS or not instance_icons.valid(icon_id):
+            return False
+        # The icon belongs to the resulting loader instance, which receives
+        # its actual launch id during installation. Never change a sibling's
+        # vanilla icon just because its files are reused for the download.
+        state["pending_instance_icon"] = {
+            "version_id": version_id, "loader": loader, "icon": icon_id}
+        _pick_version(version_id, loader)
+        return on_play_click()
+
+    def _save_new_instance_icon(choice, loader, target_version):
+        if choice.get("loader") != loader:
+            return
+        if _save_instance_icon(target_version, choice.get("icon")) is False:
+            return
+        if state.get("pending_instance_icon") == choice:
+            state["pending_instance_icon"] = None
+
     picker = VersionPicker(
         page,
         get_selected=lambda: version_dropdown.value,
@@ -3416,6 +3436,8 @@ async def main(page: ft.Page):
         on_set_icon=_save_instance_icon,
         label_for=_dropdown_label,
         on_pick=_pick_version,
+        on_create=_create_new_instance,
+        get_supported_versions=core.get_loader_minecraft_versions,
         on_browse_online=lambda: refresh_version_list(online=True),
         # Install-time loader choice: the only place a loader can be picked
         # (2026-10-26). The Play card's switcher is gone.
@@ -3591,6 +3613,8 @@ async def main(page: ft.Page):
         it is Cancel, while a game is live it is Quit Game, otherwise it
         starts the normal play/download flow. Defined before play_button (it
         is its on_click); every name it touches resolves at click time."""
+        if state.get("ending_session"):
+            return
         if state.get("installing_version"):
             on_cancel_install()
             return
@@ -3779,6 +3803,9 @@ async def main(page: ft.Page):
         *semantic* colour so the button's meaning reads at a glance: dim = a
         transient wait, green = the game is live, red = a broken install.
         """
+        if state.get("ending_session") and state.get("running_version"):
+            mode = "ending"
+
         def paint(bg, fg):
             play_button.bgcolor = bg
             play_button_icon.color = fg
@@ -4443,9 +4470,9 @@ async def main(page: ft.Page):
         The watchdog's terminate() is graceful first (SIGTERM, SIGKILL after
         2s) and identity-checked, so it can never hit the wrong process. The
         call blocks for up to ~4s, so it runs on a daemon thread; the normal
-        on_exit path repaints the button when the game is actually down. If
-        termination is refused (stale record), the button self-heals instead
-        of pretending.
+        button is reconciled after EVERY result. A recovered game has no
+        in-process on_exit callback, so successful termination must reset it
+        here too.
         """
         try:
             from cubeon import watchdog as _watchdog
@@ -4455,19 +4482,24 @@ async def main(page: ft.Page):
         if rec is None:
             _reconcile_running_button()
             return
+        state["ending_session"] = rec.get("session_id")
         set_button_mode("ending")
         set_status("Stopping", busy=True)
-        page.update()
 
         def _work():
             try:
                 stopped = _watchdog.terminate(rec["pid"], rec.get("session_id"))
             except Exception:
                 stopped = False
-            if not stopped:
-                # The game died between the probe and the terminate (or the
-                # record went stale): on_exit won't fire for it, so heal.
+            # Do not depend on the launch watcher: recovered sessions have
+            # none, and optional exit cleanup can fail or finish later.
+            with thread_safe_ui.TREE_LOCK:
+                state["ending_session"] = None
                 _reconcile_running_button()
+                _sync_play_button()
+                if not stopped and state.get("running_version"):
+                    set_status("Running")
+                    _show_snack("Couldn't stop Minecraft. You can try Quit again.")
 
         threading.Thread(target=_work, daemon=True, name="quit-game").start()
 
@@ -4779,6 +4811,7 @@ async def main(page: ft.Page):
         # always clean it up. Registered on state so on_cancel_install finds
         # the right version even if the user changes the dropdown mid-install.
         cancel = _cancel_event(version_id)
+        icon_choice = dict(state.get("pending_instance_icon") or {})
         cancellable = {"on": True}  # disarmed once the launch phase begins
 
         def _check_cancel():
@@ -4980,6 +5013,9 @@ async def main(page: ft.Page):
             # purpose and must be cleared, so the button returns to a normal
             # "play"/"running" state and lock_loader_to_installed doesn't
             # keep re-arming it on the next version re-selection.
+            if (icon_choice.get("version_id") == version_id
+                    and icon_choice.get("loader") == loader_id):
+                _save_new_instance_icon(icon_choice, loader_id, target_version)
             if (state.get("pending_loader_install") or {}).get("version_id") == version_id:
                 state["pending_loader_install"] = None
 
@@ -5102,6 +5138,20 @@ async def main(page: ft.Page):
                     _open()
 
             def on_exit(code, lines=None, session_id=None):
+                with thread_safe_ui.TREE_LOCK:
+                    _handle_game_exit(code, lines, session_id)
+                # Repaints can run as soon as the tree lock is released.
+                # Optional presence/IPC cleanup must not hold that lock.
+                if not state.get("running_version") and not state.get("launching_version"):
+                    try:
+                        if friends_service is not None:
+                            friends_service.set_version(None)
+                        _rpc.set_activity(details="Cubeon", state="In the launcher",
+                                          large_image=_discord_img, large_text=_discord_img_text)
+                    except Exception:
+                        logging.getLogger(__name__).debug("exit presence cleanup failed", exc_info=True)
+
+            def _handle_game_exit(code, lines=None, session_id=None):
                 # Mark the game as finished BEFORE touching any UI, so the
                 # post-launch "Minecraft is running" block below can see that
                 # this launch is already over and leave the result alone.
@@ -5147,13 +5197,7 @@ async def main(page: ft.Page):
                         pass  # window gone or repaint machinery dead - nothing left
 
                 try:
-                    # Tell friends this user stopped playing (presence -> online).
                     with _launch_state_lock:
-                        if friends_service is not None:
-                            friends_service.set_version(None)
-                        # Discord presence: back to just "in the launcher".
-                        _rpc.set_activity(details="Cubeon", state="In the launcher",
-                                          large_image=_discord_img, large_text=_discord_img_text)
                         state["running_version"] = None  # version is safe to delete again
                         progress_bar.visible = False
                         crashed = bool(code) and not intentional_stop
@@ -6389,9 +6433,8 @@ async def main(page: ft.Page):
         )
         chat_tab_host.content = content
         _tab_cbs["chat"] = {"refresh": refresh}
-        # First run: the identity was just minted and startup deliberately
-        # didn't connect yet. Opening Chat is the natural moment to bring the
-        # connection up (and publish the E2EE key) so the roster populates.
+        # Startup owns the connection. connect() is idempotent while it is
+        # connecting/retrying, so opening Chat can also recover a stopped loop.
         if (friends_client is not None and friends_client.is_available
                 and not friends_client.is_connected):
             try:
@@ -6614,7 +6657,7 @@ async def main(page: ft.Page):
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )
-    ram_label = ft.Text(f"{cfg['ram_mb']} MB allocated", size=13, color=TEXT_DIM, font_family=FONT_MONO)
+    ram_label = ft.Text(f"{cfg['ram_mb']} MB maximum", size=13, color=TEXT_DIM, font_family=FONT_MONO)
     ram_warning = ft.Text(
         "",
         size=12, color=DANGER, font_family=FONT_MONO, visible=False,
@@ -6650,7 +6693,7 @@ async def main(page: ft.Page):
         color = _ram_color(value)
         ram_slider.active_color = color
         ram_slider.thumb_color = color
-        ram_label.value = f"{value} MB allocated"
+        ram_label.value = f"{value} MB maximum"
         _update_ram_warning(value)
         thread_safe_ui.refresh(ram_slider)
         thread_safe_ui.refresh(ram_label)
@@ -6663,16 +6706,17 @@ async def main(page: ft.Page):
         instead of an exception escaping a UI handler, which Flet swallows -
         leaving the user staring at a slider that "didn't stick".
         """
-        value = int(ram_slider.value)
-        if int(cfg.get("ram_mb", 0)) == value:
-            return  # nothing changed (e.g. a stray change_end after load)
-        cfg["ram_mb"] = value
-        try:
-            core.save_config(cfg)
-        except Exception as ex:
-            ram_warning.value = f"⚠ Couldn't save the RAM setting: {ex}"
-            ram_warning.visible = True
-            thread_safe_ui.refresh(ram_warning)
+        with thread_safe_ui.TREE_LOCK:
+            value = int(ram_slider.value)
+            if int(cfg.get("ram_mb", 0)) == value:
+                return  # nothing changed (e.g. a stray change_end after load)
+            cfg["ram_mb"] = value
+            try:
+                core.save_config(cfg)
+            except Exception as ex:
+                ram_warning.value = f"⚠ Couldn't save the RAM setting: {ex}"
+                ram_warning.visible = True
+                thread_safe_ui.refresh(ram_warning)
 
     ram_slider.on_change = on_ram_change
     # on_change_end exists in this Flet generation (0.86.x) and fires on drag
@@ -7762,6 +7806,10 @@ async def main(page: ft.Page):
     _tab_views = {}
 
     def _reconcile_running_button():
+        with thread_safe_ui.TREE_LOCK:
+            _reconcile_running_button_locked()
+
+    def _reconcile_running_button_locked():
         """Self-heal the play button against a dead session record.
 
         on_exit() is the normal path, but a launcher re-exec (GPU-crash
@@ -7785,8 +7833,14 @@ async def main(page: ft.Page):
             # honest mode. (A different selected version already owns its
             # own correct mode from on_version_selected.)
             state["running_version"] = None
-            if version_dropdown.value == vid:
-                _sync_play_button()
+            state["ending_session"] = None
+            progress_card.visible = False
+            progress_bar.visible = False
+            progress_spinner.visible = False
+            progress_label.visible = False
+            set_status("Ready")
+            _sync_play_button()
+            thread_safe_ui.refresh(progress_card)
         elif version_dropdown.value == vid:
             # Claimed AND alive: re-assert it. This runs on every Play-tab
             # entry and from the liveness watcher, so a stray repaint (a
@@ -8374,8 +8428,8 @@ async def main(page: ft.Page):
     # identity meant a first-run player who never opened the launcher's Chat
     # tab (in-game chat is the other way in) stayed "not connected to Cubeon"
     # for their whole first session with a perfectly good connection - the
-    # 2026-10-17 report. connect() is safe to call again from the Chat tab: it
-    # stops a running loop before starting another. Headless harnesses are not
+    # 2026-10-17 report. connect() is safe to call again from the Chat tab:
+    # it reuses a running loop for the same identity. Headless harnesses are not
     # affected - they stub FriendsClient.connect before building the UI (see
     # tools/_fuzz_common.py).
     if friends_client is not None and friends_client.is_available:

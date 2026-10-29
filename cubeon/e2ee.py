@@ -59,6 +59,8 @@ import os
 import secrets
 import time
 
+from .atomicio import write_json
+
 log = logging.getLogger(__name__)
 
 try:
@@ -123,12 +125,11 @@ def _unb64(text) -> bytes:
 # ---------------------------------------------------------------------------
 
 def _read_identity(path: str) -> dict:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or not data.get("name") or not data.get("secret"):
+        raise ValueError("Couldn't read the chat identity.")
+    return data
 
 
 def load_or_create_key(identity_path: str) -> bytes:
@@ -161,25 +162,9 @@ def load_or_create_key(identity_path: str) -> bytes:
 
 def _write_identity(path: str, identity: dict) -> None:
     """Atomic 0600 rewrite of identity.json, preserving every existing field."""
-    try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    except OSError:
-        pass
-    tmp = path + ".tmp"
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(identity, f, indent=2)
-        try:
-            os.chmod(tmp, 0o600)
-        except OSError:
-            pass
-        os.replace(tmp, path)
-    except OSError:
-        log.debug("couldn't persist the e2ee key", exc_info=True)
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+    # A failed save must not return an ephemeral key that friends publish
+    # successfully but this launcher loses at its next restart.
+    write_json(path, identity)
 
 
 # ---------------------------------------------------------------------------

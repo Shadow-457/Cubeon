@@ -557,6 +557,8 @@ def section_runtime():
 # ----------------------------------------------------------- 6. sub-suites ----
 SUITES = [
     "test_friends_service.py", "test_friends.py", "test_mod_bridge.py",
+    "test_chat_connection.py", "test_quit_game.py",
+    "test_new_instance_steps.py", "test_launch_memory.py",
     "test_capes.py", "test_ui_smoke.py", "test_winwindow.py",
     "test_winchrome.py",
     "test_startup.py",

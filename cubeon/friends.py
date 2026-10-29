@@ -697,6 +697,74 @@ except Exception:  # pragma: no cover - exercised only on a broken install
 # Reconnect backoff: quick first retries so a blip is invisible, then capped so
 # a server that's truly down isn't hammered. Presence/chat tolerate a short gap.
 _RECONNECT_BACKOFF = [1, 2, 5, 10, 20, 30]
+_CONNECT_TIMEOUT = 20
+_AUTH_RETRY_DELAY = 300  # respect the hub's 30 hellos / 10 minutes budget
+
+
+class _FriendsSocket:
+    """A socket with a per-connection timeout and interruptible receive.
+
+    WebSocketApp uses the library's global default timeout (normally None)
+    for the upgrade. Use the core socket so a stalled TLS/proxy handshake
+    cannot strand chat, without changing other clients' global timeouts.
+    """
+
+    def __init__(self, url, *, on_open, on_message, on_error, on_close):
+        self.url = url
+        self._callbacks = (on_open, on_message, on_error, on_close)
+        self._socket = websocket.WebSocket(enable_multithread=True)
+        self._socket.settimeout(10)
+        self.keep_running = True
+
+    def send(self, data):
+        if not self.keep_running:
+            raise websocket.WebSocketConnectionClosedException("Chat socket is closed")
+        return self._socket.send(data)
+
+    def close(self):
+        self.keep_running = False
+        self._socket.abort()
+
+    def run_forever(self, *, ping_interval, ping_timeout, http_proxy_timeout):
+        on_open, on_message, on_error, on_close = self._callbacks
+        try:
+            if not self.keep_running:
+                return
+            self._socket.connect(self.url, timeout=10,
+                                 http_proxy_timeout=http_proxy_timeout)
+            if not self.keep_running:
+                return
+            on_open(self)
+            next_ping = time.monotonic() + ping_interval
+            pong_deadline = None
+            while self.keep_running:
+                now = time.monotonic()
+                if pong_deadline is not None and now >= pong_deadline:
+                    raise websocket.WebSocketTimeoutException("Chat ping timed out")
+                if now >= next_ping:
+                    self._socket.ping()
+                    next_ping = now + ping_interval
+                    pong_deadline = now + ping_timeout
+                deadline = pong_deadline if pong_deadline is not None else next_ping
+                self._socket.settimeout(max(0.1, deadline - time.monotonic()))
+                try:
+                    opcode, frame = self._socket.recv_data_frame(control_frame=True)
+                except websocket.WebSocketTimeoutException:
+                    continue  # wake only for the next ping/pong deadline
+                if opcode == websocket.ABNF.OPCODE_CLOSE:
+                    break
+                if opcode == websocket.ABNF.OPCODE_PONG:
+                    pong_deadline = None
+                elif opcode in (websocket.ABNF.OPCODE_TEXT, websocket.ABNF.OPCODE_BINARY):
+                    on_message(self, frame.data)
+                # recv_data_frame replies to incoming protocol pings itself.
+        except Exception as error:
+            if self.keep_running:
+                on_error(self, error)
+        finally:
+            self.keep_running = False
+            self._socket.close(timeout=0)
+            on_close(self)
 
 
 class FriendsClient:
@@ -713,10 +781,14 @@ class FriendsClient:
         self._ws = None
         self._thread = None
         self._send_lock = threading.Lock()
+        self._lifecycle_lock = threading.RLock()
         self._stop = threading.Event()
         self._connected = threading.Event()
         self._opened_this_round = False
         self._identity = None
+        self._connection_status = {"state": "offline", "message": "", "retry_in": None}
+        self._connection_error = ""
+        self._retry_delay = None
         # What we announce on (re)connect, so a reconnect restores the same
         # presence the user last set without the UI having to re-push it.
         self._version = None
@@ -773,6 +845,17 @@ class FriendsClient:
     def is_connected(self) -> bool:
         return self._connected.is_set()
 
+    @property
+    def connection_status(self) -> dict:
+        with self._lifecycle_lock:
+            return dict(self._connection_status)
+
+    def _set_connection_status(self, state, message="", retry_in=None):
+        self._connection_status = {"state": state, "message": message,
+                                   "retry_in": retry_in}
+        self._emit("state", {"connected": state == "connected",
+                             **self._connection_status})
+
     def connect(self, identity: "dict | None" = None) -> bool:
         """Starts (or restarts) the background connection. Returns False if there's
         no identity to connect with or the WS dependency is missing - both are
@@ -783,68 +866,107 @@ class FriendsClient:
         identity = identity or load_identity()
         if not identity:
             return False
-        self._identity = identity
-        # Restarting: stop the old loop first so we never run two.
-        if self._thread and self._thread.is_alive():
+        with self._lifecycle_lock:
+            # Opening Chat during startup/backoff must not start a second loop.
+            if (self._thread and self._thread.is_alive() and not self._stop.is_set()
+                    and self._identity
+                    and all(self._identity.get(k) == identity.get(k)
+                            for k in ("name", "secret"))):
+                return True
             self.disconnect()
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run_loop, daemon=True,
-                                        name="cubeon-friends-ws")
-        self._thread.start()
+            self._identity = dict(identity)
+            # Each loop owns its stop event. Clearing the previous event lets
+            # a closing loop revive and steal the new loop's socket/state.
+            self._stop = threading.Event()
+            self._ws = None
+            self._connection_error = ""
+            self._set_connection_status("connecting")
+            self._thread = threading.Thread(target=self._run_loop,
+                                            args=(self._stop,), daemon=True,
+                                            name="cubeon-friends-ws")
+            self._thread.start()
         return True
 
     def disconnect(self) -> None:
-        self._stop.set()
-        self._connected.clear()
-        ws = self._ws
+        with self._lifecycle_lock:
+            self._stop.set()
+            self._connected.clear()
+            ws = self._ws
+            self._ws = None
+            self._set_connection_status("offline")
         if ws is not None:
             try:
                 ws.close()
             except Exception:
                 pass
 
-    def _run_loop(self) -> None:
+    def _run_loop(self, stop) -> None:
         """Connect, run until closed, reconnect with backoff, until stopped."""
         attempt = 0
-        while not self._stop.is_set():
-            self._opened_this_round = False
+        while not stop.is_set():
+            with self._lifecycle_lock:
+                if stop is not self._stop:
+                    return
+                self._opened_this_round = False
+                self._retry_delay = None
+                ws = _FriendsSocket(
+                    _ws_url(self._base_url), on_open=self._on_open,
+                    on_message=self._on_message, on_error=self._on_error,
+                    on_close=self._on_close)
+                self._ws = ws
+                self._set_connection_status("connecting", self._connection_error)
+                self._connection_error = ""
+            # Includes the upgrade AND hello response; a socket that opens but
+            # never authenticates must not sit on "Connecting" indefinitely.
+            timer = threading.Timer(_CONNECT_TIMEOUT, self._expire_connection,
+                                    args=(ws, stop))
+            timer.daemon = True
+            timer.start()
             try:
-                self._ws = websocket.WebSocketApp(
-                    _ws_url(self._base_url),
-                    on_open=self._on_open,
-                    on_message=self._on_message,
-                    on_error=self._on_error,
-                    on_close=self._on_close,
-                )
                 # ping_interval keeps the connection alive through Cloudflare's
                 # idle-timeout without any application-level heartbeat (which
                 # would be pointless writes); it's a protocol ping, not a message.
-                self._ws.run_forever(ping_interval=25, ping_timeout=10)
+                ws.run_forever(ping_interval=25, ping_timeout=10,
+                               http_proxy_timeout=10)
             except Exception as ex:
-                log.warning("friends ws loop error: %s", ex.__class__.__name__)
-            self._connected.clear()
-            if self._stop.is_set():
-                break
-            # A connection that WAS up and then dropped is a blip, not a
-            # server that will not answer: restart the ladder so the next try
-            # is a second away instead of thirty. The ladder is for a server
-            # that never opened the socket at all (a deploy, a dead network),
-            # which is the case it was written for.
-            if self._opened_this_round:
-                attempt = 0
-            delay = _RECONNECT_BACKOFF[min(attempt, len(_RECONNECT_BACKOFF) - 1)]
-            attempt += 1
-            self._emit("state", {"connected": False, "retry_in": delay})
+                self._on_error(ws, ex)
+            finally:
+                timer.cancel()
+            with self._lifecycle_lock:
+                if stop.is_set() or stop is not self._stop:
+                    return
+                self._connected.clear()
+                # An authenticated connection that dropped starts with a
+                # quick retry; repeated failed upgrades/hellos back off.
+                if self._opened_this_round:
+                    attempt = 0
+                delay = (self._retry_delay or
+                         _RECONNECT_BACKOFF[min(attempt, len(_RECONNECT_BACKOFF) - 1)])
+                attempt += 1
+                self._set_connection_status("retrying", self._connection_error, delay)
             # Interruptible sleep so disconnect() doesn't wait out the backoff.
-            self._stop.wait(delay)
-        self._emit("state", {"connected": False, "retry_in": None})
+            stop.wait(delay)
+
+    def _expire_connection(self, ws, stop):
+        with self._lifecycle_lock:
+            if (ws is not self._ws or stop.is_set() or self.is_connected):
+                return
+            ws._cubeon_expired = True
+            self._connection_error = "Chat connection timed out. Retrying automatically."
+            self._set_connection_status("retrying", self._connection_error)
+        ws.close()
 
     # -- receive ------------------------------------------------------------
 
     def _on_open(self, ws) -> None:
-        # Read by _run_loop to tell "this round reached the server" from
-        # "never got there" - the two want different reconnect backoff.
-        self._opened_this_round = True
+        with self._lifecycle_lock:
+            self._authenticate_socket(ws)
+
+    def _authenticate_socket(self, ws) -> None:
+        if (ws is not self._ws or self._stop.is_set()
+                or getattr(ws, "_cubeon_expired", False)):
+            ws.close()
+            return
         # Authenticate as the very first frame, over the already-encrypted
         # socket - the secret goes here, never in the URL, so it can't leak into
         # Cloudflare's request logs. The server replies hello_ok or error.
@@ -911,6 +1033,13 @@ class FriendsClient:
         return True
 
     def _on_message(self, ws, raw) -> None:
+        with self._lifecycle_lock:
+            self._dispatch_message(ws, raw)
+
+    def _dispatch_message(self, ws, raw) -> None:
+        if (ws is not self._ws or self._stop.is_set()
+                or getattr(ws, "_cubeon_expired", False)):
+            return
         try:
             msg = json.loads(raw)
         except (ValueError, TypeError):
@@ -920,7 +1049,10 @@ class FriendsClient:
         t = msg.get("t")
 
         if t == T_HELLO_OK:
-            self._connected.set()
+            # Only an authenticated session resets the retry ladder. A
+            # rejected hello still opened TCP and used to retry every second.
+            self._opened_this_round = True
+            self._connection_error = ""
             # The server hands back the account's 8-digit ID on every hello.
             # Persist it here so the Chat surface can show it without a separate
             # REST round trip, and so it survives even if /claim was never
@@ -930,9 +1062,18 @@ class FriendsClient:
                     self._emit("identity", {"uid": current_uid()})
             except Exception:
                 log.debug("couldn't persist the server-assigned uid", exc_info=True)
-            self._emit("state", {"connected": True, "retry_in": None})
+            # Publication/sends observe is_connected. Finish the identity
+            # rewrite first so a first-run key cannot be overwritten by UID
+            # persistence while the publisher is creating it.
+            self._connected.set()
+            self._set_connection_status("connected")
             self._emit("hello_ok", msg)
             return
+        if t == T_ERROR and not self.is_connected:
+            # Only publish the relay's human message, never an exception URL
+            # or header (which can contain proxy credentials).
+            self._connection_error = str(msg.get("message") or "Chat sign-in failed.")
+            self._retry_delay = _AUTH_RETRY_DELAY
         if t == T_ROSTER:
             self.roster = {
                 "friends": msg.get("friends", []),
@@ -993,11 +1134,35 @@ class FriendsClient:
             self._emit(event, msg)
 
     def _on_error(self, ws, error) -> None:
-        log.debug("friends ws error: %s", error)
+        with self._lifecycle_lock:
+            self._record_connection_error(ws, error)
+
+    def _record_connection_error(self, ws, error) -> None:
+        if ws is not self._ws or self._stop.is_set():
+            return
+        if not self._connection_error:
+            code = getattr(error, "status_code", None)
+            kind = type(error).__name__.lower()
+            if code in (403, 407) or "proxy" in kind:
+                message = "The network or proxy refused the chat connection."
+            elif "ssl" in kind or "certificate" in kind:
+                message = "Couldn't verify the chat server's secure connection."
+            elif "timeout" in kind:
+                message = "Chat connection timed out. Retrying automatically."
+            elif code in (429, 503):
+                message = "Chat service is busy. Retrying automatically."
+                self._retry_delay = 60
+            else:
+                message = "Can't reach the chat service. Retrying automatically."
+            self._connection_error = message
+        log.warning("friends ws error: %s", type(error).__name__)
 
     def _on_close(self, ws, *args) -> None:
-        self._connected.clear()
-        self._emit("state", {"connected": False, "retry_in": None})
+        with self._lifecycle_lock:
+            if ws is not self._ws or self._stop.is_set():
+                return
+            self._connected.clear()
+            self._set_connection_status("retrying", self._connection_error)
 
     # -- send ---------------------------------------------------------------
 

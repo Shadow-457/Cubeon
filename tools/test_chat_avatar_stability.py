@@ -75,6 +75,7 @@ with tempfile.TemporaryDirectory() as directory:
             page, {"username": "Steve"}, {}, service,
             section_label=section_label, **THEME)
         tick = closure(refresh)["_tick"]
+        tick = closure(tick)["_tick_locked"]
         render = closure(tick)["_render_roster"]
         scope = closure(render)
         rebuild_friends = scope["_rebuild_friends"]

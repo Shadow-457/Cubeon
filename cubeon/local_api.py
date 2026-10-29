@@ -303,6 +303,7 @@ class _Handler(BaseHTTPRequestHandler):
                         "requests_out": requests_out,
                         "connected": bool(roster.get("connected", True)),
                         "available": bool(roster.get("available", True)),
+                        "connection": roster.get("connection") or {},
                         "you": roster.get("you") or "",
                         "you_uid": roster.get("you_uid") or "",
                         "you_minecraft_username": roster.get("you_minecraft_username") or "",

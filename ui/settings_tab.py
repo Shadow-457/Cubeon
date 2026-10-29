@@ -268,7 +268,7 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
 
 def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                          ACCENT_TINT, TEXT, TEXT_DIM, TEXT_FAINT, FONT_MONO,
-                         cfg=None, set_status=None):
+                         cfg=None, set_status=None, memory_status=None):
     """Default JVM flags, with a saved opt-out and shared launch readout.
 
     The flag list is COLLAPSED, while the opt-out stays visible: nobody needs twenty GC
@@ -296,8 +296,30 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
     summary = ft.Text("", size=11.5, color=TEXT_FAINT)
     open_state = {"v": False}
 
+    def _sync_memory():
+        ram_slider.disabled = not bool(enabled.value)
+        if memory_status is not None:
+            report = launch.memory_limit_report(
+                int(ram_slider.value or 0),
+                custom_jvm_flags=custom_jvm_field.value or "",
+                default_jvm_flags_enabled=bool(enabled.value))
+            if report["source"] == "custom":
+                memory_status.value = i18n.t(
+                    "Custom Java limit: {flag}. This overrides the RAM slider.").format(
+                        flag=report["flag"])
+            elif report["source"] == "slider":
+                memory_status.value = i18n.t(
+                    "Maximum: {mb} MB ({gb} GB). Applies on the next launch.").format(
+                        mb=int(report["ram_mb"]), gb=f'{report["ram_mb"] / 1024:g}')
+            else:
+                memory_status.value = i18n.t(
+                    "Cubeon's default Java flags are off. The profile or Java chooses the memory limit.")
+            thread_safe_ui.refresh(memory_status)
+        thread_safe_ui.refresh(ram_slider)
+
     def _rebuild():
         """Re-read the live settings and repaint the list."""
+        _sync_memory()
         try:
             ram = int(getattr(ram_slider, "value", 0) or 0)
         except (TypeError, ValueError):
@@ -420,14 +442,17 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
         previous = control.on_change
 
         def changed(event, previous=previous):
-            if callable(previous):
-                previous(event)
-            if open_state["v"]:
-                with thread_safe_ui.TREE_LOCK:
+            with thread_safe_ui.TREE_LOCK:
+                if callable(previous):
+                    previous(event)
+                if open_state["v"]:
                     _rebuild()
+                else:
+                    _sync_memory()
 
         control.on_change = changed
 
+    _sync_memory()
     return ft.Container(
         content=ft.Column([toggle_row, header, rows], spacing=0, tight=True),
         bgcolor=ft.Colors.with_opacity(0.35, ACCENT_TINT),
@@ -619,6 +644,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # ======================================================================
     # PERFORMANCE
     # ======================================================================
+    memory_status = ft.Text("", size=11.5, color=TEXT_DIM,
+                            data="memory-limit-status")
     performance_pane = pane(
         i18n.t("Performance"),
         block(i18n.t("Memory"), group([
@@ -626,7 +653,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 [
                     ft.Row(
                         [
-                            ft.Text(i18n.t("Allocated RAM"), size=14, color=TEXT,
+                            ft.Text(i18n.t("Maximum RAM"), size=14, color=TEXT,
                                     weight=ft.FontWeight.W_600, expand=True),
                             ram_label,
                         ],
@@ -635,6 +662,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     ram_slider,
                     ram_range_row,
                     ram_warning,
+                    memory_status,
+                    ft.Text(i18n.t("In Minecraft's F3 screen, check the maximum after the slash on the Mem line. "
+                                   "Allocated shows the memory Java has reserved so far and can be lower."),
+                            size=11.5, color=TEXT_FAINT),
                 ],
                 spacing=6,
             )),
@@ -656,7 +687,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     _java_defaults_panel(
                         ram_slider=ram_slider,
                         custom_jvm_field=custom_jvm_field,
-                        cfg=cfg, set_status=set_status,
+                        cfg=cfg, set_status=set_status, memory_status=memory_status,
                         BORDER=BORDER, ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
                         TEXT=TEXT, TEXT_DIM=TEXT_DIM, TEXT_FAINT=TEXT_FAINT,
                         FONT_MONO=FONT_MONO),
