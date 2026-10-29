@@ -1,13 +1,9 @@
 """
 Update check: does the installed launcher have a newer release available?
 
-Cubeon ships as a static bundle (AppImage / EXE), so "update" here means
-TELLING the user a new version exists and opening the download page - not
-self-replacing binaries, which needs per-platform installers and signing
-infrastructure Cubeon doesn't have yet. The check is one cheap GET against
-the GitHub releases API, runs on a background thread at startup, and every
-failure mode is silent-ish (logged, never a dialog): a launcher that can't
-reach GitHub must still launch.
+Startup fetches release metadata only. The download Worker keeps repository
+credentials on the server; update files are fetched only after Update is
+clicked. An offline or failed check must never stop the launcher opening.
 """
 import logging
 import os
@@ -26,9 +22,8 @@ log = logging.getLogger(__name__)
 # scheme ("v1.2.3") or the comparison can't work.
 APP_VERSION = "1.3.20"
 
-# Override with CUBEON_UPDATE_FEED for staging/testing; the default points at
-# the project's GitHub releases. An unreachable feed must never bother the
-# user - this is a hint service, not a dependency.
+# Override with CUBEON_UPDATE_FEED for staging/testing. The public Worker
+# resolves GitHub releases without distributing repository credentials.
 #
 # STABLE vs BETA (2026-10-24): `/releases/latest` is GitHub's own definition of
 # stable - it never returns a draft or a prerelease - so the default feed needs
@@ -36,9 +31,9 @@ APP_VERSION = "1.3.20"
 # tag itself, prereleases included. A release is beta when its patch is not
 # zero (1.3.1, 1.3.2 ...); a stable is a minor bump (1.3.0, 1.4.0). That rule
 # lives in tools/release_version.py and is mirrored by the workflow.
-DEFAULT_FEED = "https://api.github.com/repos/Shadow-457/Cubeon/releases/latest"
-DEFAULT_BETA_FEED = ("https://api.github.com/repos/Shadow-457/Cubeon/"
-                     "releases?per_page=30")
+UPDATE_SERVICE = "https://cubeon-downloads.hamza-457-shahbaz.workers.dev"
+DEFAULT_FEED = UPDATE_SERVICE + "/updates/stable"
+DEFAULT_BETA_FEED = UPDATE_SERVICE + "/updates/beta"
 
 # Where "there is a newer version" SENDS people. Our own download page, never
 # the release's own html_url: this repo is private, so a visitor without an
@@ -48,8 +43,8 @@ DEFAULT_BETA_FEED = ("https://api.github.com/repos/Shadow-457/Cubeon/"
 # file for the visitor's OS. Override with CUBEON_DOWNLOAD_URL for staging.
 DOWNLOAD_URL = "https://cubeon.ylet.online/download"
 
-# Where the "we already told the user about version X" marker lives, in the
-# launcher's config. Read it through should_announce() rather than by hand.
+# OS notifications remain once per version. The startup Skip / Update prompt
+# is independent of this marker and can appear again on the next launch.
 #
 # WHY IT EXISTS (2026-10-18 report: "the notification of new cubeon release is
 # just spamming ... coming up again and again"): the in-app snackbar had NO
@@ -108,7 +103,7 @@ def should_announce(cfg: dict, version: str) -> bool:
         return True
 
 
-def _newest_release(payload):
+def _newest_release(payload, channel="beta"):
     """The newest non-draft release from a `/releases` LIST.
 
     A dict is returned as-is: staging feeds (and CUBEON_UPDATE_FEED) may answer
@@ -116,12 +111,13 @@ def _newest_release(payload):
     one. Numeric per-segment ordering, so 1.3.10 beats 1.3.9.
     """
     if isinstance(payload, dict):
-        return payload
+        payload = [payload]
     if not isinstance(payload, list):
         return {}
     best, best_version = {}, None
     for release in payload:
-        if not isinstance(release, dict) or release.get("draft"):
+        if (not isinstance(release, dict) or release.get("draft")
+                or (channel != "beta" and release.get("prerelease"))):
             continue
         version = _parse(release.get("tag_name") or "")
         if version is not None and (best_version is None or version > best_version):
@@ -133,25 +129,11 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
                       token: str | None = None,
                       download_url: str | None = None,
                       channel: str = "stable") -> dict | None:
-    """{'version', 'url', 'notes'} when a newer release exists, else None.
-    Network errors raise - callers running in the UI should use the
-    background wrapper below instead.
+    """Release metadata when newer, otherwise None. Downloads require a click.
 
-    `url` is always our public download page (DOWNLOAD_URL) and never the
-    release's own `html_url`: release pages on this private repo are an auth
-    wall for everyone without access, so sending users there is a dead end.
-
-    `channel` is "stable" (default) or "beta". Stable reads `/releases/latest`,
-    which GitHub keeps free of drafts and prereleases. Beta reads the release
-    list and picks the highest tag, so it also sees the beta releases that are
-    deliberately hidden from the home page and the stable feed.
-
-    PRIVATE repos: the releases API needs a token. Pass one (fine-grained,
-    'Contents: read-only' is enough) via the token arg, the
-    CUBEON_UPDATE_TOKEN env var, or config["update_token"]. Be aware the
-    token ships inside the launcher build, so anyone who extracts it can
-    read the private repo - fine for personal builds, not for wide
-    distribution."""
+    Explicit feed overrides can still use GitHub-shaped release objects.
+    Credentials are sent only to api.github.com, never to the public Worker.
+    """
     beta = str(channel or "stable").strip().lower() == "beta"
     if beta:
         feed = (feed_url or os.environ.get("CUBEON_UPDATE_BETA_FEED")
@@ -161,18 +143,19 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
     page = download_url or os.environ.get("CUBEON_DOWNLOAD_URL") or DOWNLOAD_URL
     tok = token or os.environ.get("CUBEON_UPDATE_TOKEN")
     headers = {"Accept": "application/vnd.github+json"}
-    if tok:
+    from urllib.parse import urlparse
+    if tok and urlparse(feed).hostname == "api.github.com":
         headers["Authorization"] = f"Bearer {tok}"
     resp = requests.get(feed, timeout=timeout, headers=headers)
     resp.raise_for_status()
-    data = resp.json()
-    if beta:
-        data = _newest_release(data)
+    data = _newest_release(resp.json(), "beta" if beta else "stable")
     tag = data.get("tag_name") or ""
     if is_newer(tag):
         return {"version": tag.lstrip("v"),
                 "url": page,
-                "notes": (data.get("body") or "")[:400]}
+                "notes": (data.get("body") or "")[:400],
+                "channel": "beta" if beta else "stable",
+                "assets": data.get("assets") if isinstance(data.get("assets"), dict) else {}}
     return None
 
 

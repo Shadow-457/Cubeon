@@ -544,6 +544,15 @@ consistent with the shared `THEME` contract.
 
 ### Windows, Java, and packaging
 
+- Startup launcher updates use one public Worker metadata check per process; a newer release opens
+  `ui/update_prompt.py` with Skip / Update. Skip lasts this launch; `update_notice_seen` limits only
+  OS toasts. `update_channel` defaults stable; beta includes prereleases and changes apply next start.
+  No installer bytes download before Update. `cubeon/update_install.py` verifies size/SHA-256 and
+  handles registered Windows installs and writable x86_64 AppImages; portable/macOS/source/package
+  installs use manual release downloads. Install & restart requires idle game/install/server state.
+  Helpers start in the session exit path (including the window-gone watchdog), wait for process exit,
+  and recheck bytes; never run a replacement or re-exec from inside a live Flet session. AppImages
+  keep a `.cubeon-previous` copy. Native Windows installation still needs a Windows smoke check.
 - Preserve all three Windows reveal paths: forced visible transition, `to_front()` call, and the native
   `winwindow.py` backstop. Flet's default-value suppression can make a plain `visible=True` assignment
   ineffective.
@@ -620,6 +629,7 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
+| Launcher updates | `test_launcher_updates.py`, `test_update_notice.py`, `node worker/test-downloads.mjs` |
 | Repository cleanliness | `test_repository_hygiene.py` |
 
 ## Releases and hosted services
@@ -668,6 +678,10 @@ The default smoke gate does not run all registered suites; `--suites` does. See
   that every test or desktop smoke check passed.
 - Worker configuration is not proof of current deployment health. Preserve client/Worker protocol parity,
   authentication, write budgets, and rate limits.
+- The downloads Worker must be deployed before releasing the startup updater. `/updates/stable` and
+  `/updates/beta` expose version/asset size/GitHub SHA-256 digest only; per-file requests pin `version`
+  and return 409 when it changed. Missing digests require manual downloads. Only two cached channel
+  lookups are supported (no arbitrary tag/asset API proxy); both use the existing per-IP throttle.
 - Investigate release regressions against the tag's actual commit, not current HEAD or website labels.
   GitHub's release name can say beta while `isPrerelease` is false; public v1.3.17 points to
   `89ff6b9` (only an updater stamp over `f8fae0f`). FPS comparisons need identical game/instance,

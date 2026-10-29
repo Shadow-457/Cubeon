@@ -90,6 +90,7 @@ def recommended_max_ram_mb(system_ram_mb: int) -> int:
 DEFAULT_HEAP_CEILING_MB = 6144
 
 DEFAULT_CONFIG = {
+    "update_channel": "stable",
     "username": "Player",
     "ram_mb": 4096,
     "last_version": None,

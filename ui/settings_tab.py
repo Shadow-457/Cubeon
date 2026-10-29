@@ -809,6 +809,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     # STABLE reads GitHub's /releases/latest (never a prerelease); BETA also
     # sees prereleases. Two states, one click - a cycling chip, not a dropdown.
     update_channel_chip = ft.Container(
+        data="update-channel",
         content=ft.Row(
             [
                 ft.Icon(ft.Icons.VERIFIED_ROUNDED, size=15, color=ACCENT),
@@ -903,8 +904,11 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         block(i18n.t("Notifications"), group(notification_rows)),
         block(i18n.t("Updates"), group([
             row("Update channel",
-                "Stable gets finished releases. Beta also gets prereleases.",
+                "Stable is the default. Beta also offers prereleases on the next launch.",
                 update_channel_chip),
+            _body(ft.Text("A newer version shows Skip and Update when Cubeon starts. "
+                          "Downloads start only when you choose Update.", size=12,
+                          color=TEXT_DIM), pad_v=12),
         ])),
         minecraft_files_pane,
         block(i18n.t("Backups"), group(backup_rows)),

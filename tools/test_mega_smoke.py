@@ -579,6 +579,7 @@ SUITES = [
     # offline/hermetic; the pipeline one extracts the real `run:` scripts out
     # of .github/workflows/build.yml, so a broken release is caught here.
     "test_release_version.py", "test_release_pipeline.py",
+    "test_update_notice.py", "test_launcher_updates.py",
     # The FPS boost as the user experiences it (options.txt + Sodium's own
     # config/sodium-options.json), and the motion layer every hover goes
     # through. Both are offline and take a few seconds.

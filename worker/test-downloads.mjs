@@ -60,7 +60,8 @@ function makeKV() {
 }
 
 // --- Stub GitHub: counts API calls, serves fake asset bytes ------------------
-function installWorld({ cache = makeCache(), releaseFails = false } = {}) {
+function installWorld({ cache = makeCache(), releaseFails = false, stableRelease = null,
+                        betaReleases = null } = {}) {
   const world = { apiCalls: 0, assetFetches: 0, lastAuth: null, cache };
   globalThis.caches = { default: cache };
   globalThis.fetch = async (url, init = {}) => {
@@ -69,7 +70,7 @@ function installWorld({ cache = makeCache(), releaseFails = false } = {}) {
       world.apiCalls++;
       world.lastAuth = init.headers && init.headers.Authorization;
       if (releaseFails) return new Response("nope", { status: 500 });
-      return Response.json({
+      const defaultRelease = {
         tag_name: "v1.0.0",
         // Extra fields on purpose: they must NOT end up in the cache.
         body: "private release notes",
@@ -81,7 +82,10 @@ function installWorld({ cache = makeCache(), releaseFails = false } = {}) {
           { name: "cubeon_1.0.10_amd64.deb", url: "https://cdn.test/deb10", size: 15, id: 5 },
           { name: "cubeon_bad.deb", url: "https://cdn.test/debbad", size: 16, id: 6 },
         ],
-      });
+      };
+      return Response.json(href.includes("releases?")
+        ? (betaReleases || [stableRelease || defaultRelease])
+        : (stableRelease || defaultRelease));
     }
     world.assetFetches++;
     return new Response("installer-bytes", { status: 200 });
@@ -266,9 +270,9 @@ check("the cached release carries roughly a 5-minute TTL",
 world = fresh();
 await get("/windowsdownload");
 const stored = JSON.parse([...world.cache.entries.values()][0].body);
-check("only name/url/size are cached - no release notes, no asset ids",
+check("only routing/checksum fields are cached - no release notes, no asset ids",
   stored.assets.every((a) =>
-    Object.keys(a).sort().join(",") === "name,size,url"),
+    Object.keys(a).sort().join(",") === "digest,name,size,url") && !stored.body,
   JSON.stringify(stored.assets[0]));
 
 world = fresh();
@@ -351,6 +355,56 @@ check("...and the flood still cost ONE cached lookup, not 30 API calls",
 res = await get("/windowsdownload", {}, "203.0.113.8");
 check("...while a different IP is untouched", res.status === 200,
   `status ${res.status}`);
+
+// --------------------------------------------- consent-based launcher updates ---
+const stableRelease = {
+  tag_name: "v2.0.0", body: "private notes", draft: false, prerelease: false,
+  assets: [{ name: "Cubeon-x86_64.AppImage", url: "https://cdn.test/app", size: 14,
+    digest: "sha256:" + "a".repeat(64) },
+  { name: "Cubeon-Windows-x64-Setup.exe", url: "https://cdn.test/setup", size: 14,
+    digest: "sha256:" + "b".repeat(64) }],
+};
+const betaRelease = { ...stableRelease, tag_name: "v2.0.10", prerelease: true };
+world = fresh({ stableRelease, betaReleases: [
+  stableRelease, { ...betaRelease, tag_name: "v2.0.9" }, betaRelease,
+  { ...betaRelease, tag_name: "v9.0.0", draft: true },
+] });
+res = await get("/updates/stable");
+const manifest = await res.json();
+check("startup metadata does not fetch an update file", world.assetFetches === 0);
+check("stable metadata supplies the version, size and checksum",
+  manifest.tag_name === "v2.0.0" && manifest.assets.linux.size === 14
+  && manifest.assets.linux.sha256 === "a".repeat(64));
+check("public metadata contains no private notes, API URLs or token",
+  !JSON.stringify(manifest).includes("private notes")
+  && !JSON.stringify(manifest).includes("cdn.test")
+  && !JSON.stringify(manifest).includes(env.GITHUB_TOKEN));
+res = await get("/updates/beta");
+const betaManifest = await res.json();
+check("beta chooses the numerically newest public release, ignoring drafts",
+  betaManifest.tag_name === "v2.0.10" && betaManifest.prerelease);
+check("stable and beta lookups have independent caches", world.apiCalls === 2);
+await get("/updates/stable");
+await get("/updates/beta");
+check("repeat metadata checks cost no further GitHub calls", world.apiCalls === 2);
+res = await get("/updates/beta/linux?version=2.0.10");
+check("the explicit beta download serves the offered release", res.status === 200);
+check("update downloads are not cached as latest", res.headers.get("Cache-Control") === "no-store");
+const fetches = world.assetFetches;
+res = await get("/updates/beta/linux?version=2.0.9");
+check("a changed release rejects the old offer before downloading",
+  res.status === 409 && world.assetFetches === fetches);
+res = await get("/updates/beta/arbitrary?version=2.0.10");
+check("unknown update assets cannot spend the token", res.status === 404 && world.apiCalls === 2);
+res = await get("/updates/stable", { method: "POST" });
+check("metadata accepts only GET", res.status === 404);
+world = fresh({ stableRelease: { ...betaRelease } });
+res = await get("/updates/stable");
+check("stable rejects prereleases even from a malformed latest response", res.status === 502);
+world = fresh({ stableRelease: { ...stableRelease,
+  assets: [{ name: "Cubeon-x86_64.AppImage", url: "https://cdn.test/app", size: 14 }] } });
+res = await get("/updates/stable");
+check("a missing checksum remains missing, never invented", (await res.json()).assets.linux.sha256 === null);
 
 // ------------------------------------------------------------------- done ---
 

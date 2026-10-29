@@ -15,6 +15,14 @@ environment after deploying.
 | `cubeon-downloads.js` | Release lookup and installer downloads | `wrangler-downloads.toml` |
 | `cubeon-waitlist.js` | Website email signup | `wrangler-waitlist.toml` |
 
+The downloads Worker also serves launcher update metadata at `/updates/stable`
+and `/updates/beta`, with per-file routes under each channel. These expose
+version, size and GitHub's SHA-256 asset digest, never repository credentials or
+private notes. A file request must include the version offered by the metadata;
+if the cached release changed it returns 409. Both channel lookups share the
+existing download throttle and have separate five-minute caches. Deploy this
+Worker before shipping a launcher that uses the startup update prompt.
+
 The skins Worker provides the `/skins/<name>.json` CustomSkinAPI lookup
 and the write routes (`POST /api/heartbeat`,
 `POST /api/skin`, `POST /report`). Its write surface stays narrow on purpose:

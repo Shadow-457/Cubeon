@@ -183,9 +183,22 @@ mod suppress their alerts; old history and your own sent messages do not trigger
 
 ## Updates
 
-When Cubeon offers an update, open the download page, download the new
-build, close the running launcher, and install or replace the app.
-The update notice does not replace the running binary automatically.
+Cubeon checks for a newer version when it starts. If one is available, a
+prompt offers **Skip** and **Update**. Skip continues this launch; Cubeon can
+offer the update again next time. Downloads start only after you choose Update.
+
+Choose **Stable** or **Beta** in **Settings → System → Updates**. Stable is
+the default; Beta also includes prereleases. The choice applies on the next launch.
+
+Windows installations made with Cubeon's installer and writable Linux AppImages
+can download and verify the update inside Cubeon. Cancel stops the download.
+When it is ready, **Install & restart** closes Cubeon, installs the update,
+and opens the new version. Close Minecraft and stop active installs or hosted
+servers first. Updating the AppImage keeps a `.cubeon-previous` copy beside it.
+
+Portable Windows builds, macOS, source checkouts and package-managed Linux
+installations open the selected release's download for manual installation.
+Releases without a checksum also use the manual download path.
 
 Keep the launcher closed while replacing a portable build. Updating the
 app is different from deleting its data folders.

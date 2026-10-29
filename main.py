@@ -93,6 +93,25 @@ _session_runtime = {"friends_service": None, "friends_client": None,
 # client as a ghost window, because `_kill_flet_client()` never gets to run.
 _relaunch = {"request": None}
 
+# An update is prepared only by Install & restart. The helper starts after
+# session teardown and waits for this process to exit before touching files.
+_pending_app_update = {"job": None}
+_app_update_lock = threading.Lock()
+
+
+def _handoff_app_update() -> bool:
+    with _app_update_lock:
+        job = _pending_app_update.get("job")
+        if job is None:
+            return False
+        _pending_app_update["job"] = None
+    try:
+        from cubeon.update_install import launch_install
+        launch_install(job)
+    except Exception:
+        logging.getLogger(__name__).exception("Could not start the update installer")
+    return True  # an update close must never re-exec the old launcher
+
 # Post-session SIGINT/SIGTERM presses, counted so the FIRST one can be graceful
 # (finish the bounded teardown, then exit through the normal hard-exit) and the
 # SECOND one is an immediate hard exit. See _reclaim_session_signals().
@@ -588,7 +607,7 @@ def _window_gone_finish(reason: str) -> None:
     # restart IS the reason the window is going away.
     _rl = _relaunch.get("request")
     _relaunching = _rl is not None and _rl.is_set()
-    if not _relaunching:
+    if not _relaunching and _pending_app_update.get("job") is None:
         try:
             if _live_flet_clients(resolve_assets_dir()):
                 return  # client still up: a minimize or a reconnect, not a close
@@ -612,7 +631,8 @@ def _window_gone_finish(reason: str) -> None:
     # exactly as it does in _session_loop: the user asked for a re-exec, and
     # leaving the process instead would make the Restart button look broken.
     _relaunched = False
-    if _relaunching:
+    _updating = _handoff_app_update()
+    if _relaunching and not _updating:
         print("cubeon: restart requested - relaunching to apply seasonal "
               "settings")
         try:
@@ -3614,7 +3634,7 @@ async def main(page: ft.Page):
         it is Cancel, while a game is live it is Quit Game, otherwise it
         starts the normal play/download flow. Defined before play_button (it
         is its on_click); every name it touches resolves at click time."""
-        if state.get("ending_session"):
+        if state.get("updating_launcher") or state.get("ending_session"):
             return
         if state.get("installing_version"):
             on_cancel_install()
@@ -4529,6 +4549,8 @@ async def main(page: ft.Page):
         # The progress card and cancel button describe one attempt. Claim
         # their slot atomically, including requests from the Java prompt.
         with _launch_state_lock:
+            if state.get("updating_launcher"):
+                return False
             if state.get("installing_version"):
                 _show_snack("An installation is already in progress", duration=4000)
                 return False
@@ -4668,6 +4690,8 @@ async def main(page: ft.Page):
         It validates the username, saves config, and then starts the installation/launch process
         in a background thread so the UI stays responsive.
         """
+        if state.get("updating_launcher"):
+            return False
         # Validate username
         username = username_field.value.strip()
         ok, err = core.validate_username(username)
@@ -8597,67 +8621,76 @@ async def main(page: ft.Page):
         pass  # watchdog is a nicety; never block startup on it
 
     # -----------------------------------------------------------------
-    # UPDATE CHECK
-    # ONE quiet background GET at startup (cubeon/updater.py). A newer
-    # release is announced ONCE PER VERSION and never by a modal: the
-    # in-app snackbar offers our own download page, and the optional OS
-    # toast rides along if the user kept that switch on.
-    #
-    # The once-per-version marker (updater.NOTICE_SEEN_KEY) is the fix for
-    # the 2026-10-18 report "the notification of new cubeon release is just
-    # spamming ... coming up again and again": the snackbar used to be shown
-    # on EVERY start with no memory whatsoever. There was also a SECOND check
-    # below (without the update token) whose only job was that toast - two
-    # GETs per start, and on a private repo two different answers for the same
-    # release. One check, one announcement, both channels.
+    # UPDATE CHECK: one metadata-only startup request. Skip lasts for this
+    # process; the old config marker limits OS toasts, never the new prompt.
     # -----------------------------------------------------------------
-    def _offer_update(info: dict):
-        import webbrowser
+    _update_active = threading.Event()
+    _update_active.set()
+    _update_prompt = {"value": None}
 
-        def _open_download(e=None):
-            # info["url"] is our own download page, not the GitHub release:
-            # that repo is private, so the release page is an auth wall for
-            # anyone who isn't us (cubeon/updater.DOWNLOAD_URL).
-            try:
-                webbrowser.open(info["url"])
-            except Exception:
-                logging.getLogger(__name__).warning("background worker error", exc_info=True)
+    def _update_busy():
+        from cubeon.update_install import application_busy
+        return application_busy(state)
 
-        _show_snack(f"Cubeon {info['version']} is available",
-                    duration=10000, action=_open_download, action_label="Get it")
+    def _install_app_update(job, failed):
+        with _launch_state_lock:
+            if _update_busy():
+                raise RuntimeError("Close Minecraft and stop active installs or servers first.")
+            state["updating_launcher"] = True
+            with _app_update_lock:
+                _pending_app_update["job"] = job
+
+        async def _close_for_update():
+            if await _window_closer.close():
+                return
+            with _app_update_lock:
+                _pending_app_update["job"] = None
+            state["updating_launcher"] = False
+            failed("Couldn't close Cubeon. Try Install & restart again.")
+
+        try:
+            page.run_task(_close_for_update)
+        except Exception:
+            with _app_update_lock:
+                _pending_app_update["job"] = None
+            state["updating_launcher"] = False
+            raise
 
     def _announce_update(info: dict):
-        """Announce a newer release - once, then never again for that version."""
         try:
-            version = str((info or {}).get("version") or "").strip()
-            if not version or not updater.should_announce(cfg, version):
+            if not _update_active.is_set():
                 return
-            # Marked (above, in place) BEFORE either notice goes out: the OS
-            # toast is switched off for plenty of people and a closed window
-            # swallows the snackbar, and a lost notice must never turn into a
-            # nag on the next start. Its write is best-effort for the same
-            # reason - a full disk costs one repeated message, not the notice.
-            try:
-                core.save_config(cfg)
-            except Exception:
-                pass
-            try:
-                from cubeon import osnotify
-                osnotify.update_available(version, cfg=cfg)
-            except Exception:
-                pass  # the toast is optional; the snackbar is the real notice
-            _offer_update(info)
+            selected_channel = "beta" if cfg.get("update_channel") == "beta" else "stable"
+            if info.get("channel", "stable") != selected_channel:
+                return  # Settings changes apply on the next start
+            version = str((info or {}).get("version") or "").strip()
+            if not version:
+                return
+            if updater.should_announce(cfg, version):
+                try:
+                    core.save_config(cfg)
+                except Exception:
+                    pass
+                try:
+                    from cubeon import osnotify
+                    osnotify.update_available(version, cfg=cfg)
+                except Exception:
+                    pass
+            from ui.update_prompt import UpdatePrompt
+            with thread_safe_ui.TREE_LOCK:
+                if _update_active.is_set():
+                    _update_prompt["value"] = UpdatePrompt(
+                        page, info, busy=_update_busy, install=_install_app_update).open()
         except Exception:
-            logging.getLogger(__name__).debug("update notice failed", exc_info=True)
+            logging.getLogger(__name__).debug("update prompt failed", exc_info=True)
 
     try:
         from cubeon import updater
-        # The optional beta channel (Settings > Notifications). Stable reads
-        # /releases/latest, which GitHub keeps free of prereleases; beta reads
-        # the release list, so someone who opted in still hears about 1.3.1.
-        updater.check_in_background(
-            _announce_update, token=cfg.get("update_token"),
-            channel=cfg.get("update_channel", "stable"))
+        if not _session_runtime.get("update_check_started"):
+            _session_runtime["update_check_started"] = True
+            updater.check_in_background(
+                _announce_update, token=cfg.get("update_token"),
+                channel=cfg.get("update_channel", "stable"))
     except Exception:
         logging.getLogger(__name__).warning("background worker error", exc_info=True)
 
@@ -8910,6 +8943,9 @@ async def main(page: ft.Page):
     # _window_gone_finish if ft.run() never comes back, and otherwise the
     # session loop does it (which is what keeps "Restart to apply" working).
     def _on_page_gone(_e):
+        _update_active.clear()
+        if _update_prompt["value"] is not None:
+            _update_prompt["value"].cancel.set()
         _window_closer.mark_closed()
         try:
             _save_geometry_now()
@@ -8929,6 +8965,9 @@ async def main(page: ft.Page):
     # process is on its way out, so everything process-scoped is stopped
     # here - there is no windowless "background" state to stay alive for.
     def _do_session_end_cleanup():
+        _update_active.clear()
+        if _update_prompt["value"] is not None:
+            _update_prompt["value"].cancel.set()
         _save_geometry_now()
         _rpc.clear()
         _rpc.close()
@@ -9768,6 +9807,8 @@ if __name__ == "__main__":
                 # straight to the fresh launcher - no GL-fallback retry, no
                 # parking; if re-exec itself fails there is no good in-process
                 # recovery left (ft.run is once-per-process), so exit.
+                if _handoff_app_update():
+                    return
                 _rl = _relaunch.get("request")
                 if _rl is not None and _rl.is_set():
                     print("cubeon: restart requested - relaunching to apply "

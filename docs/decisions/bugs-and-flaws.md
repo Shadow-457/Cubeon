@@ -432,6 +432,11 @@ unrelated 26.3 instance. The guard's purpose is unchanged.
 
 ## High: "A new Cubeon is available" nagged on every launch: FIXED (2026-10-18)
 
+**Current behavior (2026-10-29):** the user requested a startup **Skip / Update**
+prompt on later launches while an update is available. Downloads require Update;
+the once-per-version marker now limits only OS notifications. The earlier
+snackbar behavior below is historical. See `tools/test_launcher_updates.py`.
+
 **File:** `main.py` (startup update check), `cubeon/updater.py` (`should_announce`)
 
 Report: *"the notification of new cubeon release is just spamming and not

@@ -1,5 +1,5 @@
 """
-Offline test for the update notice - ONE announcement per version.
+Offline test for OS update notices (once per version) and startup prompt wiring.
 
 The 2026-10-18 report: "the notification of new cubeon release is just
 spamming and not stopping like it's just coming up again and again". Two
@@ -13,6 +13,9 @@ causes, both pinned here:
     on a private repo, two different answers for the same release.
 
 Run: python3 tools/test_update_notice.py
+
+The startup Skip / Update prompt now repeats on later launches by user choice;
+its download and installation behavior is tested in test_launcher_updates.py.
 """
 import os
 import sys
@@ -83,41 +86,17 @@ check("a lower version never announces (the feed is trusted to be newer only)",
       updater.should_announce({}, "") is False)
 
 
-# ------------------------------------------------------------- main.py wiring --
-print("\n2. main.py announces once, through one check")
-
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-with open(os.path.join(_ROOT, "main.py"), encoding="utf-8") as fh:
-    _main = fh.read()
-
-check("exactly ONE background update check is started",
-      _main.count("check_in_background(") == 1,
-      f"{_main.count('check_in_background(')} call sites")
-check("the check uses the version gate (updater.should_announce)",
-      "updater.should_announce(cfg, version)" in _main)
-check("the gate is consulted BEFORE the notices go out",
-      _main.index("updater.should_announce(cfg, version)")
-      < _main.index("osnotify.update_available(version, cfg=cfg)")
-      < _main.index("_offer_update(info)"))
-check("the marker is SAVED, so the next start stays quiet",
-      _main.index("core.save_config(cfg)") < _main.index("_offer_update(info)")
-      and "osnotify.update_available" in _main)
-_announcer = _main[_main.index("def _announce_update")
-                  :_main.index("from cubeon import updater")]
-check("a failed config write cannot swallow the notice",
-      "except Exception:\n                pass" in _announcer)
-check("the snackbar is reachable ONLY through the gated announcer",
-      _main.count("_offer_update(") - 1 == 1     # minus the definition
-      and "_offer_update(info)" in _announcer,
-      f"{_main.count('_offer_update(')} references")
-check("the OS toast still rides along (the Settings switch keeps meaning)",
-      "osnotify.update_available(version, cfg=cfg)" in _main)
-check("the old, ungated second-check marker is gone",
-      "osnotify_last_update" not in _main,
-      "the toast used to have its own key and its own token-less GET")
+# The OS toast keeps its once-per-version gate. The startup prompt now has
+# different semantics: Skip lasts this launch, so do not gate it on saved notices.
+print("\n2. startup prompt and OS notice wiring")
+from pathlib import Path
+_main = (Path(__file__).resolve().parents[1] / "main.py").read_text()
+check("one background metadata check call site", _main.count("check_in_background(") == 1)
+check("the OS toast retains its version gate", "if updater.should_announce(cfg, version):" in _main)
+check("startup prompt uses the explicit Skip / Update surface", "from ui.update_prompt import UpdatePrompt" in _main)
+check("startup check is process scoped", '_session_runtime["update_check_started"] = True' in _main)
+check("old snackbar update path is removed", "def _offer_update" not in _main)
+check("old second GET is removed", "osnotify_last_update" not in _main)
 
 print(f"\n{_passed} passed, {_failed} failed")
-if _failed:
-    print("Update-notice test: FAIL")
-    sys.exit(1)
-print("Update-notice test: PASS")
+sys.exit(bool(_failed))

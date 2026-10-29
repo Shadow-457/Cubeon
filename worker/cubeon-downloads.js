@@ -70,6 +70,36 @@ const FILES = {
   "/linuxsetup": "Cubeon-Linux-x86_64-Setup.sh",
 };
 
+// Only these release files are exposed to the launcher. No arbitrary tag or
+// asset lookup: the two cached channel lookups bound the GitHub API budget.
+const UPDATE_FILES = {
+  windows: FILES["/windowsdownload"],
+  "windows-zip": "Cubeon-Windows-x64.zip",
+  linux: FILES["/linuxdownload"],
+  "linux-deb": FILES["/linuxdeb"],
+  macos: "Cubeon-macOS.zip",
+};
+const UPDATE_ORIGIN = "https://cubeon-downloads.hamza-457-shahbaz.workers.dev";
+const versionParts = (tag) => /^v?\d+\.\d+\.\d+$/.test(tag || "")
+  ? tag.replace(/^v/, "").split(".").map(Number) : null;
+
+function newestRelease(data, channel) {
+  const candidates = (Array.isArray(data) ? data : [data])
+    .filter((r) => r && !r.draft && versionParts(r.tag_name)
+      && (channel === "beta" || !r.prerelease));
+  candidates.sort((a, b) => {
+    const av = versionParts(a.tag_name), bv = versionParts(b.tag_name);
+    for (let i = 0; i < 3; i++) if (av[i] !== bv[i]) return bv[i] - av[i];
+    return 0;
+  });
+  return candidates[0];
+}
+
+function matchingAsset(assets, spec) {
+  return typeof spec === "string" ? assets.find((a) => a.name === spec)
+    : pickLatestPrefixed(assets, spec);
+}
+
 const jsonHeaders = {
   "User-Agent": "cubeon-downloads",
   "Accept": "application/vnd.github+json",
@@ -127,7 +157,7 @@ const RELEASE_CACHE_SECONDS = 300;
 
 // A synthetic cache key. This is an internal object, not a client URL, so it
 // must not be able to collide with a real request.
-const RELEASE_CACHE_KEY = "https://cubeon-downloads.internal/latest-release.json";
+const RELEASE_CACHE_KEY = "https://cubeon-downloads.internal/release-v2-";
 
 /** The Workers edge cache, or null where there isn't one (Node, tests). */
 function edgeCache() {
@@ -141,7 +171,7 @@ function edgeCache() {
 /**
  * The latest release's assets - edge cache first, GitHub second.
  *
- * Only the three fields a route needs are kept (`name`, `url`, `size`), so the
+ * Only routing/checksum fields and version/channel are kept, so the
  * cached object is a few kB and carries nothing about the private repo beyond
  * the asset names this file already lists by hand.
  *
@@ -149,9 +179,9 @@ function edgeCache() {
  * FAILURE is deliberately not cached, so the next request retries instead of
  * pinning an outage for five minutes.
  */
-export async function latestRelease(env) {
+export async function latestRelease(env, channel = "stable") {
   const cache = edgeCache();
-  const key = new Request(RELEASE_CACHE_KEY);
+  const key = new Request(RELEASE_CACHE_KEY + channel + ".json");
 
   if (cache) {
     try {
@@ -165,18 +195,20 @@ export async function latestRelease(env) {
     }
   }
 
+  const endpoint = channel === "beta" ? "releases?per_page=30" : "releases/latest";
   const release = await fetch(
-    `https://api.github.com/repos/${REPOSITORY}/releases/latest`,
+    `https://api.github.com/repos/${REPOSITORY}/${endpoint}`,
     { headers: { ...jsonHeaders, Authorization: `Bearer ${env.GITHUB_TOKEN}` } }
-  );
-  if (!release.ok) return null;
+  ).catch(() => null);
+  if (!release || !release.ok) return null;
 
-  const data = await release.json();
+  const data = newestRelease(await release.json().catch(() => null), channel);
+  if (!data) return null;
   const assets = (Array.isArray(data.assets) ? data.assets : [])
     .filter((a) => a && typeof a.name === "string")
-    .map((a) => ({ name: a.name, url: a.url, size: a.size }));
+    .map((a) => ({ name: a.name, url: a.url, size: a.size, digest: a.digest || null }));
 
-  const payload = { assets };
+  const payload = { assets, tag_name: data.tag_name, prerelease: !!data.prerelease };
   if (cache && assets.length) {
     try {
       await cache.put(key, new Response(JSON.stringify(payload), {
@@ -308,6 +340,52 @@ export default {
 
     if (url.pathname === "/health") {
       return new Response("cubeon-downloads ok");
+    }
+
+    const updateRoute = /^\/updates\/(stable|beta)(?:\/([a-z-]+))?$/.exec(url.pathname);
+    if (updateRoute) {
+      const [, channel, kind] = updateRoute;
+      if (request.method !== "GET" || (kind && !UPDATE_FILES[kind])) {
+        return new Response("not found", { status: 404 });
+      }
+      const limited = await throttle(request, env);
+      if (limited) return limited;
+      if (!env.GITHUB_TOKEN) return new Response("update service unavailable", { status: 503 });
+      const release = await latestRelease(env, channel);
+      if (!release) return new Response("release unavailable", { status: 502 });
+      const version = release.tag_name.replace(/^v/, "");
+      if (!kind) {
+        const assets = {};
+        for (const [id, spec] of Object.entries(UPDATE_FILES)) {
+          const asset = matchingAsset(release.assets, spec);
+          if (!asset) continue;
+          assets[id] = {
+            name: asset.name, size: asset.size,
+            sha256: /^sha256:[a-f0-9]{64}$/i.test(asset.digest || "")
+              ? asset.digest.slice(7).toLowerCase() : null,
+            url: `${UPDATE_ORIGIN}/updates/${channel}/${id}?version=${version}`,
+          };
+        }
+        return Response.json({ tag_name: release.tag_name, prerelease: release.prerelease, assets },
+          { headers: { "Cache-Control": "no-store" } });
+      }
+      // A newer release during a download must cause a retry, never send bytes
+      // for a version different from the prompt and its checksum.
+      if (url.searchParams.get("version") !== version) {
+        return new Response("release changed; check for updates again", { status: 409 });
+      }
+      const asset = matchingAsset(release.assets, UPDATE_FILES[kind]);
+      if (!asset) return new Response("asset unavailable", { status: 404 });
+      const file = await fetch(asset.url, {
+        headers: { ...jsonHeaders, Accept: "application/octet-stream",
+          Authorization: `Bearer ${env.GITHUB_TOKEN}` }, redirect: "follow",
+      }).catch(() => null);
+      if (!file || !file.ok || !file.body) return new Response("asset unavailable", { status: 502 });
+      return new Response(file.body, { headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${asset.name}"`,
+        "Content-Length": String(asset.size), "Cache-Control": "no-store",
+      } });
     }
 
     // The site's counter. GET /count is a read (no throttle: it costs one KV
