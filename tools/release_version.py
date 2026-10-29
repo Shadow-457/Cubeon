@@ -75,7 +75,7 @@ SITE_FILES = (
 )
 
 # Explicit maintainer promotion; keep this history so a rebuild retains its channel.
-STABLE_PROMOTIONS = frozenset({"1.3.27"})
+STABLE_PROMOTIONS = frozenset({"1.3.27", "1.3.28"})
 
 # Mirrors cubeon/updater.py::_TAG_RE: a release the updater can compare against.
 # Anything else (nightly, v1.2, v1.2.0-rc1) is not a candidate version.
