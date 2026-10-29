@@ -75,8 +75,23 @@ with open(driver, "w", encoding="utf-8") as f:
     f.write(textwrap.dedent('''
         """Runs the REAL main.py with the fake client installed."""
         import os, sys, runpy
+        from pathlib import Path
         sys.path.insert(0, %(root)r)
+        # Redirect before the first Cubeon import: paths.ensure_dirs(),
+        # config, logs and incident markers otherwise touch the real profile.
+        Path.home = classmethod(lambda cls: cls(%(home)r))
+        original_expanduser = os.path.expanduser
+        def test_expanduser(value):
+            text = os.fsdecode(value)
+            if text == "~" or text.startswith("~/"):
+                return %(home)r + text[1:]
+            return original_expanduser(value)
+        os.path.expanduser = test_expanduser
         os.environ["CUBEON_GAME_DIR"] = %(game)r
+        # Scope executable client-cleanup scans to this test's assets, never
+        # a user's existing Cubeon window. The fake client needs no artwork.
+        sys._MEIPASS = %(home)r
+        os.makedirs(os.path.join(sys._MEIPASS, "assets"), exist_ok=True)
         import cubeon.paths as paths
         paths.CUBEON_HOME = %(home)r
         paths.CONFIG_PATH = os.path.join(%(home)r, "config.json")
@@ -174,4 +189,6 @@ except OSError as ex:
     check("main.py is readable", False, repr(ex))
 
 print(f"\n{passed} passed, {failed} failed")
+if failed:
+    print("Driver output (tail):\n" + out[-4000:])
 sys.exit(1 if failed else 0)

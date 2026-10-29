@@ -73,6 +73,9 @@ class FakeWindow:
     def destroy(self):
         pass
 
+    async def close(self):
+        pass
+
 
 class FakePage:
     """Just enough ft.Page for main() and every dialog to build against."""

@@ -35,7 +35,7 @@ substitute for current code.
 | Chat faces and artwork | `faces.py`, `icons.py`, `version_art.py` |
 | Activity and screenshots | `milestones.py`, `activity.py`, `library_stats.py`, `screenshot_gallery.py` |
 | UI infrastructure | `thread_safe_ui.py`, `dialogs.py`, `motion.py`, `theme.py`, `scrolling.py` |
-| Window and crash handling | `winwindow.py`, `winchrome.py`, `incident.py`, `crash.py`, `logging_setup.py` |
+| Window and crash handling | `window_close.py`, `winwindow.py`, `winchrome.py`, `incident.py`, `crash.py`, `logging_setup.py` |
 | Input and presentation | `shortcuts.py`, `seasonal.py`, `color_templates.py`, `status_text.py` |
 | Launcher language | `i18n.py`, `lang/` |
 | Release and optional features | `updater.py`, `features.py`, `osnotify.py`, `voice.py` |
@@ -74,6 +74,11 @@ consistent with the shared `THEME` contract.
   wake landing mid-check cannot be lost. Do not add a timeout-poll "just in case" - show the bar
   through `set_bar()` (`progress_bar.visible = True` alone no longer wakes the ticker).
   `tools/test_bar_idle_wake.py` and `tools/test_idle_wakeups.py` guard this.
+- CPU verification must include both Python and the native Flet process; divide summed core CPU
+  percent by logical CPU count to compare with Windows Task Manager. The 2026-10-29 native Linux
+  probe (Flet 0.86.5, offline metadata) measured ~1.7% total idle with the pet, ~0% minimized or
+  decorations off. This does not certify Windows/Defender behavior. `test_wedge_watchdog.py` needs
+  local socket permission and isolates home paths before imports and cleanup scans with test assets.
 - `SeasonalAnimator` (one daemon ticker, `TICK = 0.12`) has `pause()`/`resume()` backed by a
   `threading.Condition`; `main._on_window_event` pauses on `minimize`/`hide` and resumes on
   `restore`/`show`/`focus`. Do not implement this with a `threading.Event` and `event.wait()` while it
@@ -87,6 +92,12 @@ consistent with the shared `THEME` contract.
   from the forwarded client stderr (they still land in `_client_tail` for incident records). Do not
   "fix" it by skipping `page.window.close()`: that is what leaves the ghost client `_kill_flet_client`
   exists to end.
+- `WindowCloser` owns custom-X and restart close requests. It deduplicates queued/inflight calls and
+  treats only exact `RuntimeError("Session closed")` as successful teardown; other failures stay logged
+  and retryable. Never schedule the bare `page.window.close` coroutine. Reported disposed FlView/widget/
+  compositor diagnostics are quiet only while `_client_closing` is set, and stay in `_client_tail`;
+  the same messages during a live session remain visible. `test_window_close.py --native` opens and
+  automatically closes isolated probes on both installed Flet versions (requires a GUI).
 - Use `cubeon.dialogs` for dialog-stack compatibility. Removed APIs include `ft.border.all`,
   `ft.padding.only`, and `ft.margin.only`.
 - Local absolute paths are not valid `ft.Image.src` values. Use cached base64, bundled asset paths, or a
@@ -159,6 +170,10 @@ consistent with the shared `THEME` contract.
   compatible Minecraft version → block/mob icon. Back preserves choices; only final Download & Play
   commits through `main._create_new_instance`. The icon is saved to the resulting loader instance ID,
   never a sibling vanilla version. `mod_loaders.get_loader_minecraft_versions` caches support for 1h.
+- Legacy and loader support are separate gates: opting into Legacy includes old alpha/beta manifest
+  rows and permits 1.8 Vanilla; Fabric still only offers its supported versions. New instance excludes
+  existing installs (including 1.8.9); searched empty lists explain an installed version or incompatible
+  loader instead of implying the release does not exist. `test_version_ui.py` exercises the 1.8 path.
 - The Play card shows its loader as the compact hero tag; the bulky loader readout is unmounted.
   `loader_readout` / `loader_note` and `loader_toggle` survive as internal mirrors of `state["mod_loader"]`
   for the launch path and the smoke/ version tests. The card always shows Folder / Rename / Delete; there
@@ -469,8 +484,11 @@ consistent with the shared `THEME` contract.
   standing body pivot (0,0,0), torso Y=0..12; preview uses `y' = 24 - y`, `z' = -z`.
   Renderers divide by 16 and apply the body pose directly; subtracting 12 after the body transform
   raises items into the head. `test_cosmetic_renderers.py` records standing/crouching/swimming vertices.
-- A wing's edge faces follow the cut-out silhouette at final atlas size; a full-rectangle top/bottom face
-  is the "floating bar" bug, and a 16x16 edge tile loses its 1 px thickness line when downscaled to 3 px.
+- Solid pet/pack faces must be opaque: transparent sprite margins on a cuboid punch holes in its body.
+  Wings use non-overlapping thin cuboids covering the final 40×52 silhouette (quarter-unit pieces,
+  depth 0.5), with sealed caps/sides. Preserve float box dimensions; integer parsing drops those wings.
+  All atlas edges land on whole texels; Java UVs sample edge-texel centers to avoid transparent gutters.
+  Mirror rear artwork AFTER native resizing; nearest-resize ties can otherwise shift its mask one texel.
 - Per-era overlays: `cosmetics-1.20` (1.20-1.20.4, manual normal), `cosmetics-1.20.5` (1.20.5-1.20.6,
   `Entry`), `cosmetics-1.21` (1.21-1.21.1), `cosmetics-1.21.2`, `cosmetics-1.21.5`, `cosmetics-1.21.9`,
   `cosmetics-1.21.11`, `cosmetics-26`; `next()` exists through 1.20.6, gone from 1.21. Map them in `brackets.json`.
@@ -489,13 +507,18 @@ consistent with the shared `THEME` contract.
   thin bars beneath names for visible enemy players/hostile mobs within 24 blocks (32 bars maximum).
   Exclude self, teammates, dead/invisible/sneaking/spectator entities, hidden team tags and walls.
   `EnemyHealthRenderer` has Yarn/Mojang copies; `EnemyHealthBar` shares clamping/colors/NDC-to-GUI math.
+  Bars are 36×4 name-tag units (0.025 world units/unit), scaled with camera-facing projected label
+  height, distance, FOV and GUI scale; fixed screen pixels look oversized relative to distant names.
+  Sample the rotated camera-down vector, not world Y. Added mob names use that same scale through
+  the era-specific `CubeonHud.drawEnemyName`; thin distant bars retain a visible health fill.
   Native projection returns NDC, not pixels. Before 1.21.6, `health-legacy` (1.20–1.20.6),
   `health-counter` (1.21–1.21.4), `health-progress` (1.21.5) capture world projection before HUD render;
   never read the GUI's orthographic projection or reuse a frame across worlds. Hold the captured world
   weakly so returning to the title screen cannot retain it. `test_enemy_health.py`
   runs the real renderers, Gson config and legacy projectors with recorded draws and cached JOML.
-  On 26.x, the HUD passes menu/F1 visibility into the shared renderer: `screen`/`options.hideGui`
-  moved to `gui.screen()`/`gui.hud.isHidden()` in 26.2.
+  On 26.x, the HUD passes menu/F1 visibility and camera rotation into the shared renderer:
+  `screen`/`options.hideGui` moved to `gui.screen()`/`gui.hud.isHidden()` in 26.2, and
+  `GameRenderer.getMainCamera()` became `mainCamera()`.
 - `CubeonHudConfig` stores one size per overlay (`fpsScale`/`keysScale`/`armorScale`/`pingScale`/
   `cpsScale`, nullable) and keeps the old `scale` as the fallback, so an upgraded config and an older jar
   both keep their meaning. Read sizes through `scaleFor(slot)`/`CubeonHud.scaleOf(overlay)`; never apply
@@ -503,7 +526,7 @@ consistent with the shared `THEME` contract.
 - Each overlay pushes its own matrix around its own draw (`CubeonHud.renderOverlay`) and divides its
   screen position by that same scale. A single transform around the whole HUD is wrong now: it would scale
   every widget by one overlay's size. Three matrix spellings exist by era (`getMatrices().push()` +
-  3-arg `scale` on 1.20, `pushMatrix()` + 2-arg on 1.20.2-1.21.11, `pose().pushMatrix()` on 26.x).
+  3-arg `scale` through 1.21.5, `pushMatrix()` + 2-arg from 1.21.6, `pose().pushMatrix()` on 26.x).
 - The armour HUD is helmet/chest/legs/feet only. The held item and offhand rows were removed on
   2026-10-28 (their durability is already on the hotbar); `ARMOR_SLOTS = 4` and the config has no
   `showArmorMainHand`/`showArmorOffHand` fields.
@@ -545,6 +568,8 @@ consistent with the shared `THEME` contract.
 - The README uses `web/assets/cubeon-play.png`, the website's launcher image. Flat-square Shields badges
   show release, edition, and platforms; the version badge reads releases dynamically rather than
   hardcoding a stale version.
+- `web/assets/cubeon-cosmetics.png` is the supplied working in-game screenshot, also used by the README.
+  The homepage shows it immediately below the hero using WebP with PNG fallback; Doctor keeps its nav link.
 - Source licensing is Apache 2.0. Keep company/private checkout paths out of public instructions and do
   not add fabricated support or performance claims.
 - Logs, compiled classes, captures, virtual environments, and build caches stay untracked. Historical
@@ -588,7 +613,7 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
 | Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_appearance_preview.py`, `test_capes.py` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
-| Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py` |
+| Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
 | Repository cleanliness | `test_repository_hygiene.py` |

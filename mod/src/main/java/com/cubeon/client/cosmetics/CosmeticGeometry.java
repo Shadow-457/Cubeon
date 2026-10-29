@@ -122,10 +122,12 @@ public final class CosmeticGeometry {
                                 float bx, float by, float bz,
                                 float cx, float cy, float cz,
                                 float nx, float ny, float nz) {
-        float u0 = rect.x / texWidth;
-        float u1 = (rect.x + rect.width) / texWidth;
-        float v0 = rect.y / texHeight;
-        float v1 = (rect.y + rect.height) / texHeight;
+        // Sample the edge texel centers, never the transparent atlas gutter or
+        // the neighboring face. This also works for a one-texel feather edge.
+        float u0 = (rect.x + 0.5f) / texWidth;
+        float u1 = (rect.x + rect.width - 0.5f) / texWidth;
+        float v0 = (rect.y + 0.5f) / texHeight;
+        float v1 = (rect.y + rect.height - 0.5f) / texHeight;
         if (flipU) {
             float swap = u0;
             u0 = u1;

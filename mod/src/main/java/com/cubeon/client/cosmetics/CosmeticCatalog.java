@@ -38,15 +38,15 @@ public final class CosmeticCatalog {
         public final float x;
         public final float y;
         public final float z;
-        public final int width;
-        public final int height;
-        public final int depth;
+        public final float width;
+        public final float height;
+        public final float depth;
         public final int px;
         public final int uvX;
         public final int uvY;
         public final boolean mirror;
 
-        Box(float x, float y, float z, int width, int height, int depth,
+        Box(float x, float y, float z, float width, float height, float depth,
             int px, int uvX, int uvY, boolean mirror) {
             this.x = x;
             this.y = y;
@@ -170,11 +170,12 @@ public final class CosmeticCatalog {
             if (origin.size() < 3 || size.size() < 3 || uv.size() < 2) {
                 return null;
             }
-            int width = (int) number(size.get(0));
-            int height = (int) number(size.get(1));
-            int depth = (int) number(size.get(2));
+            float width = (float) number(size.get(0));
+            float height = (float) number(size.get(1));
+            float depth = (float) number(size.get(2));
             int px = (int) Json.num(raw, "px");
-            if (width <= 0 || height <= 0 || depth <= 0 || px <= 0) {
+            if (!Float.isFinite(width) || !Float.isFinite(height) || !Float.isFinite(depth)
+                    || width <= 0 || height <= 0 || depth <= 0 || px <= 0) {
                 return null;
             }
             return new Box((float) number(origin.get(0)),

@@ -31,6 +31,15 @@ public class CubeonHudClient {
     public static final Logger LOGGER = new Logger();
     public static class Logger { public void warn(String text, Object error) { throw new AssertionError(text); } }
 }''',
+    'com/cubeon/client/hud/CubeonHud.java': '''
+package com.cubeon.client.hud;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+public class CubeonHud {
+    public static void drawEnemyName(DrawContext draw, MinecraftClient client, String label, int center, int top, float scale) {
+        draw.labels.add(new int[]{center, top, Math.round(scale * 1000)});
+    }
+}''',
     'net/minecraft/util/math/Vec3d.java': '''
 package net.minecraft.util.math;
 public class Vec3d {
@@ -136,9 +145,20 @@ public class MinecraftClient {
         public int fontHeight=9;
         public int getWidth(String label) { return label.length()*6; }
     }
+    public static class Camera {
+        public org.joml.Quaternionf rotation = new org.joml.Quaternionf();
+        public org.joml.Quaternionf getRotation() { return rotation; }
+    }
     public static class Projection {
         public double depth=0.5, horizontal=0;
-        public Vec3d project(Vec3d point) { return new Vec3d(horizontal+point.x/20,point.y/20,depth); }
+        public Camera camera = new Camera();
+        public Camera getCamera() { return camera; }
+        public Vec3d project(Vec3d point) {
+            var facing = new org.joml.Vector3d(point.x, point.y - 3.3, point.z - 3)
+                    .rotate(new org.joml.Quaterniond(camera.rotation).conjugate());
+            double perspective = Math.abs(3 + facing.z) / 3;
+            return new Vec3d(horizontal + facing.x * .8 / perspective, facing.y * .8 / perspective, depth);
+        }
     }
 }''',
     'probe/HealthTest.java': '''
@@ -181,8 +201,19 @@ public class HealthTest {
         render();
         require(draw.fills.size()==2 && draw.labels.isEmpty(),"One player bar; no duplicate name");
         int[] background=draw.fills.get(0), fill=draw.fills.get(1);
-        require(Arrays.equals(background,new int[]{82,44,118,48,EnemyHealthBar.BACKGROUND}),"Bar is beneath projected name at GUI scale");
+        require(Arrays.equals(background,new int[]{82,61,118,65,EnemyHealthBar.BACKGROUND}),"Bar is beneath projected name at GUI scale");
         require(fill[2]-fill[0]==17 && fill[3]-fill[1]==2,"Half health, thin inset fill");
+        enemy.pos=new Vec3d(0,1,1.5); render();
+        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==72 && draw.fills.get(0)[3]-draw.fills.get(0)[1]==8,"Near bar scales with name tag");
+        enemy.pos=new Vec3d(0,1,6); render();
+        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==18 && draw.fills.get(0)[3]-draw.fills.get(0)[1]==2,"Far bar keeps same name-tag proportions");
+        require(draw.fills.size()==2,"Thin distant bar retains health fill");
+        enemy.pos=new Vec3d(0,1,3);
+        client.gameRenderer.camera.rotation.rotateX((float)Math.PI / 3); render();
+        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==36,"Camera pitch preserves camera-facing label size");
+        client.gameRenderer.camera.rotation.identity().rotateZ((float)Math.PI / 4); render();
+        require(draw.fills.get(0)[2]-draw.fills.get(0)[0]==36,"Camera roll preserves camera-facing label size");
+        client.gameRenderer.camera.rotation.identity();
         enemy.health=100; render(); require(draw.fills.get(1)[2]-draw.fills.get(1)[0]==34,"Overhealth clamped");
         enemy.health=Float.NaN; render(); require(draw.fills.size()==1,"Invalid health cannot overflow bar");
         enemy.health=5; render(); require(draw.fills.get(1)[4]==0xFFE87979,"Low health muted red");
@@ -204,6 +235,11 @@ public class HealthTest {
         var world=client.world; client.world=null; render(); require(draw.fills.isEmpty(),"No world"); client.world=world;
         Hostile mob=new Hostile(); client.world.entities=new ArrayList<>(List.of(mob)); render();
         require(draw.fills.size()==2 && draw.labels.size()==1 && draw.labels.get(0)[1]+9<draw.fills.get(0)[1],"Mob name above bar");
+        mob.pos=new Vec3d(0,1,6); render();
+        require(draw.labels.get(0)[2]==500 && draw.fills.get(0)[2]-draw.fills.get(0)[0]==18,"Distant mob name and bar share scale");
+        mob.pos=new Vec3d(0,1,1.5); render();
+        require(draw.labels.get(0)[2]==2000 && draw.fills.get(0)[2]-draw.fills.get(0)[0]==72,"Near mob name and bar share scale");
+        mob.pos=new Vec3d(0,1,3);
         mob.custom=true; mob.named=true; render(); require(draw.labels.isEmpty(),"No duplicate visible custom mob name");
         mob.named=false; render(); require(draw.labels.size()==1,"Hidden custom tag gets a name");
         client.world.entities=new ArrayList<>();
@@ -211,7 +247,7 @@ public class HealthTest {
         render(); require(draw.fills.size()==64,"Crowds capped at 32 bars");
         require(EnemyHealthBar.fraction(-5,20)==0 && EnemyHealthBar.fraction(10,0)==0,"Invalid bounds");
         require(!EnemyHealthBar.onScreen(Double.NaN,0,0),"Invalid projection");
-        System.out.println("Toggle persistence, enemy filtering, name placement, clamping and crowd limit passed.");
+        System.out.println("Toggle persistence, filtering, near/far proportions, camera pitch/roll, names, clamping and crowd limit passed.");
     }
 }''',
 }
@@ -241,7 +277,7 @@ def mojang_source(source):
         'drawTextWithShadow': 'text', 'currentScreen': 'screen', 'crosshairTarget': 'hitResult',
         'hudHidden': 'hideGui', 'project(': 'projectPointToScreen(', '::project': '::projectPointToScreen',
         'client.world': 'client.level', 'public ClientLevel world': 'public ClientLevel level',
-        'expand(': 'inflate(',
+        'expand(': 'inflate(', 'getCamera()': 'getMainCamera()', 'getRotation()': 'rotation()',
     }
     for old, new in replacements.items():
         source = source.replace(old, new)
@@ -257,12 +293,12 @@ def mojang_source(source):
         source = source.replace(old, new)
     source = source.replace('int y,int color) { labels.add', 'int y,int color,boolean shadow) { labels.add')
     source = source.replace('client.gameRenderer::projectPointToScreen, 0.5F',
-                            '0.5F, client.screen == null && !client.options.hideGui')
+                            '0.5F, client.screen == null && !client.options.hideGui, client.gameRenderer.camera.rotation')
     source = source.replace('getBoundingAABB', 'getBoundingBox')
     return source
 
 
-@unittest.skipUnless(shutil.which('javac') and shutil.which('java') and GSON,
+@unittest.skipUnless(shutil.which('javac') and shutil.which('java') and GSON and JOML,
                      'A JDK and Gradle-cached Gson are required')
 class EnemyHealthTests(unittest.TestCase):
     def test_actual_renderers_and_persistent_toggle(self):
@@ -286,12 +322,12 @@ class EnemyHealthTests(unittest.TestCase):
                 sources.append(str(MAIN / ('java-overlay-api-' + namespace) /
                                    'com/cubeon/client/hud/EnemyHealthRenderer.java'))
                 classes = root / 'classes'
-                compile_result = subprocess.run(['javac', '--release', '17', '-cp', str(GSON),
+                compile_result = subprocess.run(['javac', '--release', '17', '-cp', os.pathsep.join((str(GSON), str(JOML))),
                                                  '-d', str(classes), *sources], capture_output=True,
                                                 text=True, timeout=60)
                 self.assertEqual(compile_result.returncode, 0, compile_result.stderr)
                 result = subprocess.run(['java', '-Dtest.config=' + directory, '-cp',
-                                         os.pathsep.join((str(classes), str(GSON))), 'probe.HealthTest'],
+                                         os.pathsep.join((str(classes), str(GSON), str(JOML))), 'probe.HealthTest'],
                                         capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 print(namespace + ': ' + result.stdout.strip())

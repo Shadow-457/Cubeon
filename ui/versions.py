@@ -983,6 +983,20 @@ class VersionPicker:
                    "Loading versions..." if self._online is False
                    and not self.offline_notice.visible
                    else "Nothing new to add.")
+            if query and not self._loading and not self._support_loading:
+                matching = [e for e in self._entries
+                            if e.get("loader", "vanilla") == "vanilla"
+                            and (query in (e.get("id") or "").lower()
+                                 or query in (e.get("text") or "").lower())]
+                supported = self._loader_versions.get(self._install_loader)
+                compatible = [e for e in matching if supported is None or e["id"] in supported]
+                if compatible and all(
+                        self.instance_exists(self._install_loader, e["id"])
+                        if self.instance_exists else e.get("installed") for e in compatible):
+                    msg = "Already installed. Select it from your Instances list."
+                elif matching and supported is not None and not compatible:
+                    msg = (f"No matching versions for {self._install_loader.title()}. "
+                           "Go Back to choose another loader.")
             if self.offline_notice.visible:
                 msg = "Can't reach the version list right now."
             rows.append(ft.Container(

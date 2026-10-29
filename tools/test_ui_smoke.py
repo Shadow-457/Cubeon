@@ -1575,6 +1575,7 @@ try:
         # tools/test_seasonal_animator_pause.py). This probe is about the
         # close/geometry contract, so the collaborator just has to exist.
         "_season_animator_pause": lambda paused: None,
+        "_window_closer": types.SimpleNamespace(mark_closed=lambda: None),
     }
     _window_probe = _ui_functions(_main_src, ["_on_window_event"], _window_scope,
                                  "_geometry_timer = None")
@@ -2319,7 +2320,7 @@ check("the custom buttons are mounted in the top bar, not floating",
 check("the title-bar buttons drive the window",
       '_force_window_bool("minimized", True)' in _src_main
       and '_force_window_bool("maximized", target)' in _src_main
-      and "page.run_task(page.window.close)" in _src_main,
+      and "_window_closer.request()" in _src_main,
       "minimize/maximize/close must go through the window, and close must be "
       "SCHEDULED (it is a coroutine on this build)")
 check("the resize hot-zones are wired to start_resizing",

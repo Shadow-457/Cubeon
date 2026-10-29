@@ -32,6 +32,12 @@ Python and Flet for Linux, Windows, and macOS.
 - Track playtime and compare activity in the Stats tab.
 - Manage local servers and share access through tunnels.
 
+<p align="center">
+  <img src="web/assets/cubeon-cosmetics.png" width="1100" alt="Cubeon shoulder companion and back cosmetics rendered on a Minecraft player.">
+</p>
+
+Skins, shoulder companions, and back items, together in game.
+
 Friends-enabled builds also include chat, presence, and in-game integration.
 Feature availability can differ between development and public builds.
 

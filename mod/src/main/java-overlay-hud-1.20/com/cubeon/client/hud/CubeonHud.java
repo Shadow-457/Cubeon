@@ -427,4 +427,18 @@ public final class CubeonHud {
 		context.fill(dashX, dashY, dashX + 10, dashY + 1, down ? KEY_TEXT_DOWN : KEY_TEXT);
 	}
 
+
+    /** Mob labels use the same projected scale as vanilla player name tags. */
+    public static void drawEnemyName(DrawContext context, MinecraftClient client, net.minecraft.text.Text label,
+                                     int center, int top, float scale) {
+        context.getMatrices().push();
+        try {
+            context.getMatrices().scale(scale, scale, 1.0F);
+            context.drawTextWithShadow(client.textRenderer, label,
+                Math.round(center / scale) - client.textRenderer.getWidth(label) / 2,
+                Math.round(top / scale), 0xFFE4E7EB);
+        } finally {
+            context.getMatrices().pop();
+        }
+    }
 }

@@ -168,6 +168,11 @@ main{display:block}
 .eyebrow{display:inline-block;background:var(--card);border:2px solid var(--line);border-radius:var(--pill);font-weight:800;font-size:13px;letter-spacing:.04em;color:var(--grass-dark);padding:7px 14px;margin-bottom:16px;text-transform:uppercase}
 .sec-head p{margin-top:14px}
 
+/* ---- cosmetics screenshot beneath the homepage hero ---- */
+.cosmetics-shot{margin:32px 0 0}
+.cosmetics-shot picture,.cosmetics-shot img{display:block;width:100%}
+.cosmetics-shot img{height:auto}
+
 /* ---- feature cards ---- */
 .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;margin-top:44px}
 .card{background:var(--card-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:2px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:26px;transition:border-color 90ms linear}

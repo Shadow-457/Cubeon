@@ -121,7 +121,7 @@ public final class CubeonHud {
 		}
 
 		EnemyHealthRenderer.render(graphics, client, deltaTracker.getGameTimeDeltaPartialTick(false),
-				client.screen == null && !client.options.hideGui);
+				client.screen == null && !client.options.hideGui, client.gameRenderer.getMainCamera().rotation());
 		renderTargetHighlight(graphics, client);
 	}
 
@@ -496,4 +496,17 @@ public final class CubeonHud {
 		graphics.fill(cx - 6, cy, cx + 6, cy + 1, color);
 		graphics.fill(cx, cy - 6, cx + 1, cy + 6, color);
 	}
+
+    /** Mob labels use the same projected scale as vanilla player name tags. */
+    public static void drawEnemyName(GuiGraphicsExtractor graphics, Minecraft client, net.minecraft.network.chat.Component label,
+                                     int center, int top, float scale) {
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().scale(scale, scale);
+            graphics.text(client.font, label, Math.round(center / scale) - client.font.width(label) / 2,
+                Math.round(top / scale), 0xFFE4E7EB, true);
+        } finally {
+            graphics.pose().popMatrix();
+        }
+    }
 }

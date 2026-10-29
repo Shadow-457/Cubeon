@@ -1,11 +1,13 @@
 package com.cubeon.client.hud;
 
-/** Small screen-space bar shared by both Minecraft namespaces. */
+/** Name-tag-sized bar shared by both Minecraft namespaces. */
 public final class EnemyHealthBar {
     public static final double RANGE = 24.0;
     public static final int MAX_BARS = 32;
     public static final int WIDTH = 36;
     public static final int HEIGHT = 4;
+    public static final int NAME_HEIGHT = 9;
+    public static final float NAME_WORLD_HEIGHT = 0.225F;
     public static final int BACKGROUND = 0xD914181E;
 
     private EnemyHealthBar() {}
@@ -31,5 +33,10 @@ public final class EnemyHealthBar {
 
     public static int screenY(double ndc, int height) {
         return (int) Math.round((1 - ndc) * 0.5 * height);
+    }
+
+    /** Keep bar and label proportions together under distance, FOV and GUI scaling. */
+    public static float labelScale(double top, double bottom, int screenHeight) {
+        return (float) (Math.abs(bottom - top) * 0.5 * screenHeight / NAME_HEIGHT);
     }
 }

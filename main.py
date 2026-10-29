@@ -41,6 +41,7 @@ from cubeon.startup_profile import mark as _startup_mark
 # loop reads and clears it per attempt. Lives at module scope so main()
 # can register it from any entry point (script OR test harness import).
 _session_end = {"handler": None}
+_client_closing = threading.Event()
 
 # Process-scoped Discord presence. See main() where it's created - the
 # window can be closed and relaunched (Settings > Restart, GPU-crash
@@ -720,6 +721,9 @@ async def main(page: ft.Page):
     # unrelated input wakes its event loop - which is what made the Play button
     # sit on "Preparing" until you switched tabs. See cubeon/thread_safe_ui.py.
     thread_safe_ui.install(page)
+    from cubeon.window_close import WindowCloser
+    _window_closer = WindowCloser(page, lambda closing:
+                                 _client_closing.set() if closing else _client_closing.clear())
 
     # Dev-only live UI inspector (CUBEON_INSPECT=1 or cfg["dev_inspector"]):
     # a DevTools-style dialog for browsing the mounted control tree and
@@ -1712,10 +1716,7 @@ async def main(page: ft.Page):
         # page.run_task and never await it here. This handler runs on flet's
         # event loop, and a wedged client never answers - blocking here is how
         # the launcher used to end up alive with no window.
-        try:
-            page.run_task(page.window.close)
-        except Exception:
-            pass
+        _window_closer.request()
 
     def _sync_resize_edges():
         """Show the resize hot-zones only while there is something to resize.
@@ -4224,7 +4225,8 @@ async def main(page: ft.Page):
             def _fetch():
                 try:
                     versions = core.get_available_versions(
-                        include_snapshots=show_snapshots.value)
+                        include_snapshots=show_snapshots.value,
+                        include_old=bool(state.get("legacy_ok")))
                     latest = core.get_latest_release()
                 except Exception:
                     with thread_safe_ui.TREE_LOCK:
@@ -7507,9 +7509,9 @@ async def main(page: ft.Page):
             for _attempt in range(2):
                 try:
                     await asyncio.sleep(0.4 if _attempt == 0 else 0.6)
-                    await page.window.close()
-                    _restart_state["closing"] = False
-                    return
+                    if await _window_closer.close():
+                        _restart_state["closing"] = False
+                        return
                 except Exception:
                     continue
             _restore_restart_ui()
@@ -7519,9 +7521,7 @@ async def main(page: ft.Page):
         except Exception:
             # No event loop to schedule on: fall back to the immediate close.
             _restart_state["closing"] = False
-            try:
-                page.run_task(page.window.close)
-            except Exception:
+            if not _window_closer.request():
                 _restore_restart_ui()
 
     seasonal_restart_btn = ft.Container(
@@ -8834,6 +8834,7 @@ async def main(page: ft.Page):
                 # ft.run() can return, and arm the watchdog as the fallback.
                 _save_geometry_now()  # last chance: capture final state
                 if ev in ("close", "disconnect"):
+                    _window_closer.mark_closed()
                     # The window is gone for real. End the desktop client so
                     # ft.run() - which waits on that process - returns and
                     # _session_loop can classify the end and honour a pending
@@ -8909,6 +8910,7 @@ async def main(page: ft.Page):
     # _window_gone_finish if ft.run() never comes back, and otherwise the
     # session loop does it (which is what keeps "Restart to apply" working).
     def _on_page_gone(_e):
+        _window_closer.mark_closed()
         try:
             _save_geometry_now()
         except Exception:
@@ -9120,6 +9122,14 @@ _CLIENT_TEARDOWN_NOISE = re.compile(
     r"FlutterEngineRemoveView"
     r"|[Tt]he implicit view cannot be removed"
     r"|FlBinaryMessenger without an engine")
+
+# Reported by the Linux client when a queued compositor frame outlives its
+# destroyed view. Only quiet these exact diagnostics AFTER close was requested
+# or the session closed; identical warnings in a live window remain visible.
+_CLIENT_DISPOSED_VIEW_NOISE = re.compile(
+    r"invalid unclassed pointer in cast to '(?:FlView|GtkWidget)'"
+    r"|gtk_widget_(?:get_allocation|get_scale_factor|queue_draw): assertion 'GTK_IS_WIDGET \(widget\)' failed"
+    r"|fl_compositor_get_frame_size\(FlCompositor \*, size_t \*, size_t \*\): assertion 'FL_IS_COMPOSITOR\(self\)' failed")
 
 
 def run_sync(page) -> None:
@@ -9342,6 +9352,7 @@ if __name__ == "__main__":
     _client_tail = _incident.ClientOutputTail()
 
     async def _filtered_open_flet_view_async(page_url, assets_dir, hidden):
+        _client_closing.clear()
         args, flet_env, pid_file = \
             _flet_desktop.__locate_and_unpack_flet_view(
                 page_url, assets_dir, hidden)
@@ -9391,6 +9402,10 @@ if __name__ == "__main__":
                         # constant): the window is already closing, so it
                         # must not read like a launcher failure in the
                         # terminal. Recorded above, not echoed.
+                        continue
+                    if _client_closing.is_set() and _CLIENT_DISPOSED_VIEW_NOISE.search(line):
+                        # Keep disposed-view evidence in the incident tail,
+                        # while retaining all live rendering diagnostics.
                         continue
                     if _GL_FRAME_TIMEOUT.search(line):
                         # The client announces every OpenGL frame it failed

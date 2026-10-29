@@ -98,6 +98,26 @@ class NewInstanceTests(unittest.TestCase):
             p._back()
             self.assertEqual(p._mode, "installed")
 
+    def test_legacy_opt_in_reaches_manifest_fetch(self):
+        tree = ast.parse((ROOT / "main.py").read_text())
+        refresh = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                       and node.name == "refresh_version_list")
+        fetch = next(node for node in ast.walk(refresh) if isinstance(node, ast.FunctionDef)
+                     and node.name == "_fetch")
+        called = []
+        core = SimpleNamespace(
+            get_available_versions=lambda **kwargs: called.append(kwargs) or [],
+            get_latest_release=lambda: "1.21.11")
+        state = {"legacy_ok": False}
+        scope = dict(core=core, state=state, show_snapshots=SimpleNamespace(value=False),
+                     thread_safe_ui=thread_safe_ui, refresh_version_list=lambda *args: None)
+        exec(compile(ast.Module(body=[fetch], type_ignores=[]), "<actual manifest fetch>", "exec"), scope)
+        scope["_fetch"]()
+        state["legacy_ok"] = True
+        scope["_fetch"]()
+        self.assertEqual(called, [{"include_snapshots": False, "include_old": False},
+                                  {"include_snapshots": False, "include_old": True}])
+
     def test_icon_saved_to_resulting_loader_instance(self):
         tree = ast.parse((ROOT / "main.py").read_text())
         names = {"_save_instance_icon", "_save_new_instance_icon"}

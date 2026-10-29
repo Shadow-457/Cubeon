@@ -106,6 +106,49 @@ check("dropping happens with continue (not by emptying the line)",
 check("the engine line really is refused by the engine, by name",
       "implicit view" in ENGINE_LINE)
 
+# Exercise the actual output loop with closing/live sessions and captured stderr.
+import asyncio
+import io
+import re
+import threading
+from types import SimpleNamespace
+
+DISPOSED = [
+    "GLib-GObject-CRITICAL **: invalid unclassed pointer in cast to 'FlView'",
+    "GLib-GObject-CRITICAL **: invalid unclassed pointer in cast to 'GtkWidget'",
+    "Gtk-CRITICAL **: gtk_widget_get_allocation: assertion 'GTK_IS_WIDGET (widget)' failed",
+    "Gtk-CRITICAL **: gtk_widget_get_scale_factor: assertion 'GTK_IS_WIDGET (widget)' failed",
+    "Gtk-CRITICAL **: gtk_widget_queue_draw: assertion 'GTK_IS_WIDGET (widget)' failed",
+    "CRITICAL **: void fl_compositor_get_frame_size(FlCompositor *, size_t *, size_t *): assertion 'FL_IS_COMPOSITOR(self)' failed",
+]
+REAL = ["RuntimeError: Session closed", "Gtk-CRITICAL **: gtk_widget_show: assertion failed",
+        "[ERROR:flutter] rendering failed"]
+class Pipe:
+    def __init__(self, lines): self.lines = iter(lines)
+    async def readline(self): return next(self.lines, '').encode()
+for closing in (False, True):
+    lines = [line + '\n' for line in DISPOSED + REAL]
+    tail = []
+    stderr = io.StringIO()
+    gate = threading.Event()
+    if closing: gate.set()
+    env = {
+        'proc': SimpleNamespace(stdout=Pipe(lines)),
+        'sys': SimpleNamespace(__stderr__=stderr),
+        '_ATK_NOISE': re.compile(r'^never$'),
+        '_CLIENT_TEARDOWN_NOISE': NOISE,
+        '_CLIENT_DISPOSED_VIEW_NOISE': main._CLIENT_DISPOSED_VIEW_NOISE,
+        '_client_closing': gate,
+        '_client_tail': SimpleNamespace(add=tail.append),
+        '_GL_FRAME_TIMEOUT': re.compile(r'^never$'),
+    }
+    exec(compile(ast.Module(body=[loop], type_ignores=[]), '<actual-client-filter>', 'exec'), env)
+    asyncio.run(env['_filter_client_output']())
+    expected = [line + '\n' for line in (REAL if closing else DISPOSED + REAL)]
+    check(f"{'closing' if closing else 'live'} session retains the appropriate diagnostics",
+          stderr.getvalue() == ''.join(expected))
+    check(f"{'closing' if closing else 'live'} session records every diagnostic", tail == lines)
+
 print()
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

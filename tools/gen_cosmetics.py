@@ -597,8 +597,8 @@ def mushroom_faces(pal):
 # ---------------------------------------------------------------------------
 
 
-def wing_faces(pal, box):
-    """One folded wing slab; the renderer mirrors it for the other side.
+def wing_art(pal):
+    """Feather artwork used to build a closed silhouette with thin solid pieces.
 
     The tile is a transparent cut-out, not a filled rectangle: the root sits
     at the TOP-left (the shoulder blade), the leading edge runs out to the
@@ -639,53 +639,7 @@ def wing_faces(pal, box):
     main = feather_face()
     back = feather_face(flip=True)
 
-    # The slab's EDGE faces must follow the cut-out, not the full rectangle.
-    # A solid top strip is exactly the "bar floating over the shoulders" bug:
-    # the front face is transparent there, but the box's top face still painted
-    # a full-width bar.
-    #
-    # These tiles are built at their FINAL atlas size (depth*px wide, height*px
-    # tall) instead of 16x16. The atlas resizer samples a 16x16 tile down to
-    # 3px with NEAREST, which skips the one-pixel edge line entirely - the wing
-    # then renders as a zero-thickness plane. Painting the thickness at the
-    # target resolution makes it survive.
-    mask = Image.new("L", (16, 16), 0)
-    ImageDraw.Draw(mask).polygon([(0, 0), (5, 0), (9, 1), (13, 2), (15, 5),
-                                  (12, 6), (14, 9), (10, 8), (11, 12), (7, 10),
-                                  (7, 14), (3, 11), (2, 15), (0, 9)], fill=255)
-    alpha = mask.load()
-
-    def edge_face(profile, length, depth, vertical):
-        """A thickness face sized exactly like its atlas slot.
-
-        profile[i] says whether the silhouette touches the edge at source
-        column/row i. length is the atlas length (height for a side face,
-        width for a top/bottom face); depth is the slab's px thickness.
-        """
-        size = (depth, length) if vertical else (length, depth)
-        t = Image.new("RGBA", size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(t)
-        for index in range(length):
-            source = min(15, int((index + 0.5) * 16 / length))
-            if not profile[source]:
-                continue
-            if vertical:
-                draw.rectangle([0, index, depth - 1, index], fill=C(dark))
-            else:
-                draw.rectangle([index, 0, index, depth - 1], fill=C(dark))
-        return t
-
-    width, height, thickness = box["size"]
-    px = box["px"]
-    top_im = edge_face([alpha[x, 0] for x in range(16)], width * px,
-                       thickness * px, vertical=False)
-    bottom_im = edge_face([alpha[x, 15] for x in range(16)], width * px,
-                          thickness * px, vertical=False)
-    left_im = edge_face([alpha[0, y] for y in range(16)], height * px,
-                        thickness * px, vertical=True)
-    right_im = edge_face([alpha[15, y] for y in range(16)], height * px,
-                         thickness * px, vertical=True)
-    return faces(main, back, left_im, right_im, top_im, bottom_im)
+    return main, back
 
 
 def pack_faces(pal, emblem="gear"):
@@ -797,15 +751,57 @@ PALETTES = {
 }
 
 
+def sealed_faces(pal, painted):
+    """Opaque cuboid faces: sprite margins must not punch holes in solid pets/packs."""
+    amounts = {"front": 0.02, "back": -0.12, "left": -0.08,
+               "right": -0.16, "top": 0.12, "bottom": -0.25}
+    output = []
+    for part in painted:
+        faces_out = {}
+        for face, tile in part.items():
+            filled = Image.new("RGBA", tile.size, C(shade(pal["body"], amounts[face])))
+            filled.alpha_composite(tile)
+            faces_out[face] = filled
+        output.append(faces_out)
+    return output
+
+
+def silhouette_rectangles(image):
+    """Non-overlapping opaque runs, merged vertically on the native pixel grid."""
+    alpha = image.getchannel("A")
+    output, active = [], {}
+    for y in range(image.height):
+        spans = []
+        x = 0
+        while x < image.width:
+            if not alpha.getpixel((x, y)):
+                x += 1
+                continue
+            left = x
+            while x < image.width and alpha.getpixel((x, y)):
+                x += 1
+            spans.append((left, x))
+        current = {}
+        for left, right in spans:
+            key = (left, right)
+            rectangle = active.pop(key, [left, y, right - left, 0])
+            rectangle[3] += 1
+            current[key] = rectangle
+        output.extend(active.values())
+        active = current
+    output.extend(active.values())
+    return output
+
+
 def _creature(item_id, name, blurb, pal, **art):
     p = PALETTES[pal]
     return dict(
         id=item_id, slot="shoulder", name=name, blurb=blurb,
         boxes=[
-            dict(origin=[-8.0, -2.0, -1.5], size=[4, 3, 3], px=3, part=0),
-            dict(origin=[-8.0, -5.5, -2.0], size=[4, 4, 4], px=3, part=1),
+            dict(origin=[-8.0, -2.0, -1.5], size=[4, 3, 3], px=4, part=0),
+            dict(origin=[-8.0, -5.5, -2.0], size=[4, 4, 4], px=4, part=1),
         ],
-        _faces=creature_faces(p, **art),
+        _faces=sealed_faces(p, creature_faces(p, **art)),
     )
 
 
@@ -814,22 +810,38 @@ def _special(item_id, name, blurb, pal, painter):
     return dict(
         id=item_id, slot="shoulder", name=name, blurb=blurb,
         boxes=[
-            dict(origin=[-8.0, -2.0, -1.5], size=[4, 3, 3], px=3, part=0),
-            dict(origin=[-8.0, -5.5, -2.0], size=[4, 4, 4], px=3, part=1),
+            dict(origin=[-8.0, -2.0, -1.5], size=[4, 3, 3], px=4, part=0),
+            dict(origin=[-8.0, -5.5, -2.0], size=[4, 4, 4], px=4, part=1),
         ],
-        _faces=painter(p),
+        _faces=sealed_faces(p, painter(p)),
     )
 
 
 def _wings(item_id, name, blurb, pal):
     p = PALETTES[pal]
-    box = dict(origin=[1.0, 0.0, 2.2], size=[10, 13, 1], px=3,
-               part=0, mirror=True)
-    return dict(
-        id=item_id, slot="back", name=name, blurb=blurb,
-        boxes=[box],
-        _faces=[wing_faces(p, box)],
-    )
+    front, _ = wing_art(p)
+    px = 4
+    front = front.resize((10 * px, 13 * px), Image.Resampling.NEAREST)
+    # Mirror after resizing: nearest-neighbor tie-breaking can shift a mask
+    # by one texel when a 16px sprite is mirrored before its 40px resize.
+    back = front.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    boxes, painted = [], []
+    # Thin opaque pieces follow every feather boundary. There is no rectangular
+    # slab wall/top left standing behind a transparent face, or open cutout edge.
+    for left, top, width, height in silhouette_rectangles(front):
+        face = front.crop((left, top, left + width, top + height))
+        rear = back.crop((front.width - left - width, top, front.width - left, top + height))
+        depth = 2
+        def cap(row):
+            return face.crop((0, row, width, row + 1)).resize((width, depth), Image.Resampling.NEAREST)
+        left_face = face.crop((width - 1, 0, width, height)).resize((depth, height), Image.Resampling.NEAREST)
+        right_face = face.crop((0, 0, 1, height)).resize((depth, height), Image.Resampling.NEAREST)
+        boxes.append(dict(origin=[1 + left / px, top / px, 2.2],
+                          size=[width / px, height / px, depth / px], px=px,
+                          part=len(painted), mirror=True))
+        painted.append(faces(face, rear, left_face, right_face, cap(0), cap(height - 1)))
+    return dict(id=item_id, slot="back", name=name, blurb=blurb,
+                boxes=boxes, _faces=painted)
 
 
 def _pack(item_id, name, blurb, pal, emblem):
@@ -839,7 +851,7 @@ def _pack(item_id, name, blurb, pal, emblem):
         boxes=[
             dict(origin=[-4.0, 2.0, 2.2], size=[8, 9, 4], px=3, part=0),
         ],
-        _faces=[pack_faces(p, emblem)],
+        _faces=sealed_faces(p, [pack_faces(p, emblem)]),
     )
 
 
@@ -915,7 +927,10 @@ ITEMS = [
 def box_atlas_size(box):
     w, h, d = box["size"]
     px = box["px"]
-    return (2 * (w + d)) * px, (h + d) * px
+    dimensions = ((2 * (w + d)) * px, (h + d) * px)
+    if any(abs(value - round(value)) > 1e-6 for value in dimensions):
+        raise ValueError("Cosmetic atlas dimensions must land on whole texels")
+    return tuple(round(value) for value in dimensions)
 
 
 def render_item(item):
@@ -938,7 +953,10 @@ def render_item(item):
         box["uv"] = [0, cursor]
         rects = face_rects(box)
         tiles = painted[box["part"]]
-        for face, (x, y, w, h) in rects.items():
+        for face, rect in rects.items():
+            if any(abs(value - round(value)) > 1e-6 for value in rect):
+                raise ValueError("Every cosmetic face must land on whole texels")
+            x, y, w, h = (round(value) for value in rect)
             tile = tiles[face]
             if tile.size != (w, h):
                 tile = tile.resize((w, h), Image.Resampling.NEAREST)
@@ -947,7 +965,7 @@ def render_item(item):
         cursor += bh + 2
         out_boxes.append({
             "origin": [float(v) for v in box["origin"]],
-            "size": [int(v) for v in box["size"]],
+            "size": [int(v) if float(v).is_integer() else float(v) for v in box["size"]],
             "px": int(box["px"]),
             "uv": [int(box["uv"][0]), int(box["uv"][1])],
             "mirror": bool(box.get("mirror", False)),

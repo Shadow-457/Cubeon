@@ -9,6 +9,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.scoreboard.AbstractTeam;
 import net.minecraft.util.hit.EntityHitResult;
 import java.util.Comparator;
+import org.joml.Vector3f;
 import java.util.function.Function;
 
 /** Health beneath visible enemy name tags; no packets, through-wall labels or self HUD. */
@@ -27,6 +28,8 @@ public final class EnemyHealthRenderer {
                         && !entity.isSneaking() && !player.isTeammate(entity)
                         && player.squaredDistanceTo(entity) <= EnemyHealthBar.RANGE * EnemyHealthBar.RANGE);
         enemies.sort(Comparator.comparingDouble(player::squaredDistanceTo));
+        var down = new Vector3f(0, -EnemyHealthBar.NAME_WORLD_HEIGHT, 0)
+                .rotate(client.gameRenderer.getCamera().getRotation());
         int drawn = 0;
         for (LivingEntity enemy : enemies) {
             if (drawn == EnemyHealthBar.MAX_BARS) break;
@@ -37,28 +40,34 @@ public final class EnemyHealthRenderer {
             if (!player.canSee(enemy)) continue;
             Vec3d anchor = enemy.getLerpedPos(tickDelta).add(0, enemy.getHeight() + 0.5, 0);
             Vec3d name = project.apply(anchor);
-            // Vanilla labels are 9 units high at a 0.025 world scale. Anchor below their bottom.
-            Vec3d bottom = project.apply(anchor.add(0, -0.225, 0));
+            // Sample camera-facing label height, including when looking up/down.
+            Vec3d bottom = project.apply(anchor.add(down.x, down.y, down.z));
             if (name == null || bottom == null || !EnemyHealthBar.onScreen(name.x, name.y, name.z)
                     || !EnemyHealthBar.onScreen(bottom.x, bottom.y, bottom.z)) continue;
+            float scale = EnemyHealthBar.labelScale(name.y, bottom.y, context.getScaledWindowHeight());
+            if (!Float.isFinite(scale) || scale <= 0) continue;
+            int width = Math.max(2, Math.round(EnemyHealthBar.WIDTH * scale));
+            int height = Math.max(1, Math.round(EnemyHealthBar.HEIGHT * scale));
             int center = EnemyHealthBar.screenX(name.x, context.getScaledWindowWidth());
-            int y = EnemyHealthBar.screenY(bottom.y, context.getScaledWindowHeight()) + 2;
-            int x = center - EnemyHealthBar.WIDTH / 2;
-            if (x < 0 || x + EnemyHealthBar.WIDTH > context.getScaledWindowWidth()
-                    || y + EnemyHealthBar.HEIGHT > context.getScaledWindowHeight()) continue;
+            int y = EnemyHealthBar.screenY(name.y, context.getScaledWindowHeight())
+                    + Math.round((EnemyHealthBar.NAME_HEIGHT + 2) * scale);
+            int x = center - width / 2;
+            if (x < 0 || x + width > context.getScaledWindowWidth()
+                    || y + height > context.getScaledWindowHeight()) continue;
             // Add a mob name only when vanilla has no visible tag for it.
             if (!(enemy instanceof PlayerEntity) && (!enemy.hasCustomName()
                     || (!enemy.isCustomNameVisible() && !(client.crosshairTarget instanceof EntityHitResult hit
                     && hit.getEntity() == enemy)))) {
                 var label = enemy.getName();
-                context.drawTextWithShadow(client.textRenderer, label,
-                        center - client.textRenderer.getWidth(label) / 2,
-                        y - client.textRenderer.fontHeight - 2, 0xFFE4E7EB);
+                CubeonHud.drawEnemyName(context, client, label, center,
+                        EnemyHealthBar.screenY(name.y, context.getScaledWindowHeight()), scale);
             }
             float fraction = EnemyHealthBar.fraction(enemy.getHealth(), enemy.getMaxHealth());
-            context.fill(x, y, x + EnemyHealthBar.WIDTH, y + EnemyHealthBar.HEIGHT, EnemyHealthBar.BACKGROUND);
-            int fill = Math.round((EnemyHealthBar.WIDTH - 2) * fraction);
-            if (fill > 0) context.fill(x + 1, y + 1, x + 1 + fill, y + EnemyHealthBar.HEIGHT - 1,
+            context.fill(x, y, x + width, y + height, EnemyHealthBar.BACKGROUND);
+            int inset = height >= 3 && width >= 4 ? Math.max(1, Math.round(scale)) : 0;
+            inset = Math.min(inset, (height - 1) / 2);
+            int fill = Math.round((width - 2 * inset) * fraction);
+            if (fill > 0) context.fill(x + inset, y + inset, x + inset + fill, y + height - inset,
                     EnemyHealthBar.color(fraction));
             drawn++;
         }

@@ -145,7 +145,7 @@ def test_catalog():
                 problems.append((item_id, f"box {index} bad origin"))
                 continue
             if not (isinstance(size, list) and len(size) == 3
-                    and all(isinstance(v, int) and v > 0 for v in size)):
+                    and all(_is_number(v) and v > 0 for v in size)):
                 problems.append((item_id, f"box {index} bad size"))
                 continue
             if not isinstance(px, int) or px <= 0:
@@ -158,6 +158,8 @@ def test_catalog():
             if not isinstance(box.get("mirror"), bool):
                 problems.append((item_id, f"box {index} mirror is not a bool"))
             for face, (x, y, w, h) in cosmetics.face_rects(box).items():
+                if any(abs(value - round(value)) > 1e-6 for value in (x, y, w, h)):
+                    problems.append((item_id, f"box {index} {face} fractional texel boundary"))
                 if x < 0 or y < 0 or x + w > item["tex_w"] or y + h > item["tex_h"]:
                     problems.append((item_id, f"box {index} {face} leaves the atlas"))
                 rects.append((index, face, x, y, w, h))
@@ -244,45 +246,65 @@ def test_preview_faces():
     check("every preview quad is well formed", not problems,
           str(problems[:4]))
 
-    # A mirrored wing must actually produce twice the quads of one slab.
+    # Every mirrored feather piece must produce both wings.
     for item in cosmetics.items("back"):
         boxes = item["boxes"]
-        if len(boxes) == 1 and boxes[0].get("mirror"):
+        if boxes and all(box.get("mirror") for box in boxes):
             faces = cosmetics.preview_faces(item)
             single = sum(1 for box in boxes
                          for rect in cosmetics.face_rects(box).values()
                          if rect[2] and rect[3])
-            if len(faces) < single:
+            if len(faces) != 2 * single:
                 check(f"{item['id']} has both wings", False, str(len(faces)))
             else:
                 check(f"{item['id']} has both wings", True)
 
 
 def test_wing_thickness():
-    print("\n-- wing silhouette --")
-    wings = [item for item in cosmetics.items("back")
-             if any(box["size"][2] == 1 for box in item["boxes"])]
+    print("\n-- sealed cosmetics and wing silhouette --")
+    wings = [item for item in cosmetics.items("back") if item["id"].endswith("_wings")]
     check("five wing pairs", len(wings) == 5, str(len(wings)))
     problems = []
-    for item in wings:
-        box = item["boxes"][0]
+    generator = _load_generator()
+    for item in cosmetics.items():
         sheet = cosmetics.texture(item)
-        rects = cosmetics.face_rects(box)
-        for face in ("front", "back", "left", "right", "top", "bottom"):
-            x, y, w, h = rects[face]
+        for index, box in enumerate(item["boxes"]):
+            for face, (x, y, w, h) in cosmetics.face_rects(box).items():
+                tile = sheet.crop((x, y, x + w, y + h))
+                if tile.getchannel("A").getextrema() != (255, 255):
+                    problems.append((item["id"], index, face, "open surface"))
+    check("every solid pet/pack/feather face is sealed", not problems, str(problems[:6]))
+    problems = []
+    for item in wings:
+        base, _ = generator.wing_art(generator.PALETTES[item["id"].removeprefix("back_")])
+        base = base.resize((40, 52), Image.Resampling.NEAREST)
+        reconstructed = Image.new("RGBA", base.size)
+        occupied = set()
+        if len(item["boxes"]) < 2:
+            problems.append((item["id"], "still one rectangular slab"))
+        for box in item["boxes"]:
+            if not box["mirror"] or box["size"][2] != 0.5:
+                problems.append((item["id"], "wrong thickness/mirror"))
+            left = round((box["origin"][0] - 1) * 4)
+            top = round(box["origin"][1] * 4)
+            width, height = (round(value * 4) for value in box["size"][:2])
+            for y in range(top, top + height):
+                for x in range(left, left + width):
+                    if (x, y) in occupied or not (0 <= x < 40 and 0 <= y < 52):
+                        problems.append((item["id"], "overlapping/outside feather pieces"))
+                    occupied.add((x, y))
+            rects = cosmetics.face_rects(box)
+            sheet = cosmetics.texture(item)
+            x, y, w, h = rects["front"]
             tile = sheet.crop((x, y, x + w, y + h))
-            opaque = sum(1 for pixel in tile.get_flattened_data() if pixel[3] > 0)
-            if opaque == 0:
-                problems.append((item["id"], face, "transparent"))
-        # The leading edge is the tall side face; it must carry the thickness
-        # line or the wing renders as a zero-thickness plane.
-        for face in ("left", "right"):
-            x, y, w, h = rects[face]
-            tile = sheet.crop((x, y, x + w, y + h))
-            opaque = sum(1 for pixel in tile.get_flattened_data() if pixel[3] > 0)
-            if opaque < 2:
-                problems.append((item["id"], face, f"only {opaque} edge pixels"))
-    check("wing edges follow the cut-out", not problems, str(problems[:6]))
+            reconstructed.paste(tile, (left, top))
+            x, y, w, h = rects["back"]
+            rear = sheet.crop((x, y, x + w, y + h)).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            if tile.tobytes() != rear.tobytes():
+                problems.append((item["id"], "front/back mask shifted"))
+        if reconstructed.tobytes() != base.tobytes():
+            problems.append((item["id"], "feather geometry leaves gaps or a detached strip"))
+    check("closed feather geometry exactly follows the native silhouette", not problems, str(problems[:6]))
 
 
 def test_thumbnails():
@@ -661,10 +683,10 @@ def test_java_crosscheck():
                         continue
                     us = [uv[0] for uv in quad["uvs"]]
                     vs = [uv[1] for uv in quad["uvs"]]
-                    x0 = max(0, min(width, round(min(us) * width)))
-                    x1 = max(0, min(width, round(max(us) * width)))
-                    y0 = max(0, min(height, round(min(vs) * height)))
-                    y1 = max(0, min(height, round(max(vs) * height)))
+                    x0 = max(0, min(width, round(min(us) * width - 0.5)))
+                    x1 = max(0, min(width, round(max(us) * width + 0.5)))
+                    y0 = max(0, min(height, round(min(vs) * height - 0.5)))
+                    y1 = max(0, min(height, round(max(vs) * height + 0.5)))
                     crop = sheet.crop((x0, y0, x1, y1))
                     if us[0] > us[1]:
                         crop = crop.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -682,10 +704,10 @@ def test_java_crosscheck():
                     continue
                 us = [uv[0] for uv in quad["uvs"]]
                 vs = [uv[1] for uv in quad["uvs"]]
-                x0 = max(0, min(width, round(min(us) * width)))
-                x1 = max(0, min(width, round(max(us) * width)))
-                y0 = max(0, min(height, round(min(vs) * height)))
-                y1 = max(0, min(height, round(max(vs) * height)))
+                x0 = max(0, min(width, round(min(us) * width - 0.5)))
+                x1 = max(0, min(width, round(max(us) * width + 0.5)))
+                y0 = max(0, min(height, round(min(vs) * height - 0.5)))
+                y1 = max(0, min(height, round(max(vs) * height + 0.5)))
                 if sheet.crop((x0, y0, x1, y1)).getbbox() is not None:
                     problems.append((item_id, f"Java quad {index} draws something "
                                               "the preview does not"))

@@ -60,6 +60,7 @@ INSTALLED = [
 # still keep it selected instead of silently jumping to the latest release.
 AVAILABLE = [
     {"id": "1.21.11", "type": "release", "releaseTime": "2024-06-13T00:00:00+00:00"},
+    {"id": "1.8", "type": "release", "releaseTime": "2014-09-02T00:00:00+00:00"},
     {"id": "1.20.1", "type": "release", "releaseTime": "2023-06-07T00:00:00+00:00"},
     {"id": "26w45a", "type": "snapshot", "releaseTime": "2024-11-06T00:00:00+00:00"},
 ]
@@ -273,6 +274,32 @@ check("snapshots are badged", "snapshot" in panel_text, panel_text[:200])
 check("the manifest merge keeps an installed-only id selected",
       selection_scope["version_dropdown"].value == FABRIC_ID,
       selection_scope["version_dropdown"].value)
+
+# Legacy and loader support are separate gates: enabling Legacy must expose 1.8 Vanilla.
+check("1.8 stays hidden before Legacy is enabled", "1.8" not in picker_row_ids(picker_model))
+refresh_versions = inspect.getclosurevars(picker_model.on_browse_online).nonlocals["refresh_version_list"]
+selection_state["legacy_ok"] = True
+refresh_versions(online=True)
+wait_for_versions()
+check("Legacy exposes exact 1.8 for Vanilla download", "1.8" in picker_row_ids(picker_model))
+picker_model._loader_versions["fabric"] = {"1.20.1", "1.21.11"}
+picker_model._set_install_loader("fabric")
+wait_for_versions()
+picker_model.filter_field.value = "1.8"
+picker_model.rebuild()
+check("unsupported loader explains why 1.8 is unavailable",
+      "no matching versions for fabric" in subtree_text(panel).lower())
+picker_model._set_install_loader("vanilla")
+wait_for_versions()
+check("switching to Vanilla restores 1.8", "1.8" in picker_row_ids(picker_model))
+picker_model.filter_field.value = "1.21.11"
+picker_model.rebuild()
+check("installed search explains where to play the existing instance",
+      "already installed" in subtree_text(panel).lower())
+picker_model.filter_field.value = ""
+selection_state["legacy_ok"] = False
+refresh_versions(online=True)
+wait_for_versions()
 
 # The search must narrow the panel's own list without touching the dropdown.
 filters = [c for c in walk(panel)

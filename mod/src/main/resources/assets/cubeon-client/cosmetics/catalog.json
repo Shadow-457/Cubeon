@@ -19,8 +19,8 @@
       "name": "Ember Fox",
       "blurb": "A warm little fox that curls up on your shoulder.",
       "texture": "shoulder_ember_fox.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -33,7 +33,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -51,10 +51,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -66,8 +66,8 @@
       "name": "Moss Frog",
       "blurb": "A pond-green frog with a very serious expression.",
       "texture": "shoulder_moss_frog.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -80,7 +80,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -98,10 +98,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -113,8 +113,8 @@
       "name": "Lantern Moth",
       "blurb": "Its lantern tail glows softly in the dark.",
       "texture": "shoulder_lantern_moth.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -127,7 +127,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -145,10 +145,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -160,8 +160,8 @@
       "name": "Frost Cub",
       "blurb": "A snow-pale cub that never seems to feel the cold.",
       "texture": "shoulder_frost_cub.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -174,7 +174,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -192,10 +192,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -207,8 +207,8 @@
       "name": "Cloud Serpent",
       "blurb": "A tiny sky serpent coiled into a comfortable knot.",
       "texture": "shoulder_cloud_serpent.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -221,7 +221,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -239,10 +239,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -254,8 +254,8 @@
       "name": "Gear Imp",
       "blurb": "A workshop imp wearing brass goggles and a red scarf.",
       "texture": "shoulder_gear_imp.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -268,7 +268,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -286,10 +286,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -301,8 +301,8 @@
       "name": "Spore Sprite",
       "blurb": "A mushroom-cap friend with a tiny, curious face.",
       "texture": "shoulder_spore_sprite.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -315,7 +315,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -333,10 +333,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -348,8 +348,8 @@
       "name": "Star Owl",
       "blurb": "A night owl whose feathers hold a small constellation.",
       "texture": "shoulder_star_owl.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -362,7 +362,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -380,10 +380,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -395,8 +395,8 @@
       "name": "Tide Turtle",
       "blurb": "A pocket-sized turtle with a wave-worn shell.",
       "texture": "shoulder_tide_turtle.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -409,7 +409,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -427,10 +427,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -442,8 +442,8 @@
       "name": "Pumpkin Pal",
       "blurb": "A grinning pumpkin companion for the harvest season.",
       "texture": "shoulder_pumpkin_pal.png",
-      "tex_w": 48,
-      "tex_h": 44,
+      "tex_w": 64,
+      "tex_h": 60,
       "boxes": [
         {
           "origin": [
@@ -456,7 +456,7 @@
             3,
             3
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
@@ -474,10 +474,10 @@
             4,
             4
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
-            20
+            26
           ],
           "mirror": false
         }
@@ -489,8 +489,8 @@
       "name": "Ember Wings",
       "blurb": "Feathers that smoulder orange at the tips.",
       "texture": "back_ember_wings.png",
-      "tex_w": 68,
-      "tex_h": 44,
+      "tex_w": 84,
+      "tex_h": 120,
       "boxes": [
         {
           "origin": [
@@ -499,14 +499,248 @@
             2.2
           ],
           "size": [
-            10,
-            13,
-            1
+            6.25,
+            0.75,
+            0.5
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            0.75,
+            2.2
+          ],
+          "size": [
+            8.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            1.5,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            2.5,
+            2.2
+          ],
+          "size": [
+            10,
+            3.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            22
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            5.75,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            39
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            7.25,
+            2.2
+          ],
+          "size": [
+            10,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            49
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            8.0,
+            2.2
+          ],
+          "size": [
+            7.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            56
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            9.75,
+            8.0,
+            2.2
+          ],
+          "size": [
+            0.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            64
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            9.0,
+            2.2
+          ],
+          "size": [
+            8,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            72
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            10.5,
+            2.2
+          ],
+          "size": [
+            5.5,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            82
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            7.75,
+            10.5,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            89
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            4.75,
+            11.25,
+            2.2
+          ],
+          "size": [
+            1.75,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            96
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.5,
+            11.25,
+            2.2
+          ],
+          "size": [
+            2,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            104
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            5.25,
+            12.25,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            115
           ],
           "mirror": true
         }
@@ -518,8 +752,8 @@
       "name": "Frost Wings",
       "blurb": "Pale wings edged in fresh snow.",
       "texture": "back_frost_wings.png",
-      "tex_w": 68,
-      "tex_h": 44,
+      "tex_w": 84,
+      "tex_h": 120,
       "boxes": [
         {
           "origin": [
@@ -528,14 +762,248 @@
             2.2
           ],
           "size": [
-            10,
-            13,
-            1
+            6.25,
+            0.75,
+            0.5
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            0.75,
+            2.2
+          ],
+          "size": [
+            8.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            1.5,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            2.5,
+            2.2
+          ],
+          "size": [
+            10,
+            3.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            22
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            5.75,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            39
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            7.25,
+            2.2
+          ],
+          "size": [
+            10,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            49
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            8.0,
+            2.2
+          ],
+          "size": [
+            7.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            56
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            9.75,
+            8.0,
+            2.2
+          ],
+          "size": [
+            0.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            64
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            9.0,
+            2.2
+          ],
+          "size": [
+            8,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            72
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            10.5,
+            2.2
+          ],
+          "size": [
+            5.5,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            82
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            7.75,
+            10.5,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            89
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            4.75,
+            11.25,
+            2.2
+          ],
+          "size": [
+            1.75,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            96
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.5,
+            11.25,
+            2.2
+          ],
+          "size": [
+            2,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            104
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            5.25,
+            12.25,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            115
           ],
           "mirror": true
         }
@@ -547,8 +1015,8 @@
       "name": "Leaf Wings",
       "blurb": "Grown from a single, very ambitious seed.",
       "texture": "back_leaf_wings.png",
-      "tex_w": 68,
-      "tex_h": 44,
+      "tex_w": 84,
+      "tex_h": 120,
       "boxes": [
         {
           "origin": [
@@ -557,14 +1025,248 @@
             2.2
           ],
           "size": [
-            10,
-            13,
-            1
+            6.25,
+            0.75,
+            0.5
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            0.75,
+            2.2
+          ],
+          "size": [
+            8.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            1.5,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            2.5,
+            2.2
+          ],
+          "size": [
+            10,
+            3.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            22
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            5.75,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            39
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            7.25,
+            2.2
+          ],
+          "size": [
+            10,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            49
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            8.0,
+            2.2
+          ],
+          "size": [
+            7.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            56
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            9.75,
+            8.0,
+            2.2
+          ],
+          "size": [
+            0.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            64
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            9.0,
+            2.2
+          ],
+          "size": [
+            8,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            72
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            10.5,
+            2.2
+          ],
+          "size": [
+            5.5,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            82
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            7.75,
+            10.5,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            89
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            4.75,
+            11.25,
+            2.2
+          ],
+          "size": [
+            1.75,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            96
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.5,
+            11.25,
+            2.2
+          ],
+          "size": [
+            2,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            104
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            5.25,
+            12.25,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            115
           ],
           "mirror": true
         }
@@ -576,8 +1278,8 @@
       "name": "Void Wings",
       "blurb": "Dark wings scattered with distant violet stars.",
       "texture": "back_void_wings.png",
-      "tex_w": 68,
-      "tex_h": 44,
+      "tex_w": 84,
+      "tex_h": 120,
       "boxes": [
         {
           "origin": [
@@ -586,14 +1288,248 @@
             2.2
           ],
           "size": [
-            10,
-            13,
-            1
+            6.25,
+            0.75,
+            0.5
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            0.75,
+            2.2
+          ],
+          "size": [
+            8.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            1.5,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            2.5,
+            2.2
+          ],
+          "size": [
+            10,
+            3.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            22
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            5.75,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            39
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            7.25,
+            2.2
+          ],
+          "size": [
+            10,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            49
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            8.0,
+            2.2
+          ],
+          "size": [
+            7.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            56
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            9.75,
+            8.0,
+            2.2
+          ],
+          "size": [
+            0.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            64
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            9.0,
+            2.2
+          ],
+          "size": [
+            8,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            72
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            10.5,
+            2.2
+          ],
+          "size": [
+            5.5,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            82
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            7.75,
+            10.5,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            89
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            4.75,
+            11.25,
+            2.2
+          ],
+          "size": [
+            1.75,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            96
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.5,
+            11.25,
+            2.2
+          ],
+          "size": [
+            2,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            104
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            5.25,
+            12.25,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            115
           ],
           "mirror": true
         }
@@ -605,8 +1541,8 @@
       "name": "Aurora Wings",
       "blurb": "Wings that carry a piece of the northern lights.",
       "texture": "back_aurora_wings.png",
-      "tex_w": 68,
-      "tex_h": 44,
+      "tex_w": 84,
+      "tex_h": 120,
       "boxes": [
         {
           "origin": [
@@ -615,14 +1551,248 @@
             2.2
           ],
           "size": [
-            10,
-            13,
-            1
+            6.25,
+            0.75,
+            0.5
           ],
-          "px": 3,
+          "px": 4,
           "uv": [
             0,
             0
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            0.75,
+            2.2
+          ],
+          "size": [
+            8.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            1.5,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            2.5,
+            2.2
+          ],
+          "size": [
+            10,
+            3.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            22
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            5.75,
+            2.2
+          ],
+          "size": [
+            9.25,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            39
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            7.25,
+            2.2
+          ],
+          "size": [
+            10,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            49
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            8.0,
+            2.2
+          ],
+          "size": [
+            7.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            56
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            9.75,
+            8.0,
+            2.2
+          ],
+          "size": [
+            0.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            64
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            9.0,
+            2.2
+          ],
+          "size": [
+            8,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            72
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.0,
+            10.5,
+            2.2
+          ],
+          "size": [
+            5.5,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            82
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            7.75,
+            10.5,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            89
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            4.75,
+            11.25,
+            2.2
+          ],
+          "size": [
+            1.75,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            96
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            1.5,
+            11.25,
+            2.2
+          ],
+          "size": [
+            2,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            104
+          ],
+          "mirror": true
+        },
+        {
+          "origin": [
+            5.25,
+            12.25,
+            2.2
+          ],
+          "size": [
+            0.75,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            115
           ],
           "mirror": true
         }
