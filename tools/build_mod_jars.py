@@ -64,6 +64,8 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/hud/CubeonHudClient.class",
                     "com/cubeon/client/hud/CubeonHudConfig.class",
                     "com/cubeon/client/hud/CubeonHud.class",
+                    "com/cubeon/client/hud/EnemyHealthBar.class",
+                    "com/cubeon/client/hud/EnemyHealthRenderer.class",
                     # Cosmetics: the shared catalogue/selection/geometry plus the
                     # era overlay's registration class. A bracket whose overlays
                     # list lost the cosmetics entry still builds - it just ships
@@ -179,6 +181,8 @@ def build_with_gradle(bracket, jar_name, gradle, jvm_home):
 def verify(jar_path, bracket=None):
     """Checks a built jar is one Fabric will actually load. Returns an error."""
     required = list(REQUIRED_ENTRIES)
+    if bracket and any(str(o).startswith("health-") for o in bracket.get("overlays", [])):
+        required.append("com/cubeon/client/hud/LegacyHealthProjection.class")
     if bracket and bracket.get("mappings") == "none":
         required.extend(REQUIRED_ENTRIES_26X)
     if bracket and any(str(o).startswith("zoom-")

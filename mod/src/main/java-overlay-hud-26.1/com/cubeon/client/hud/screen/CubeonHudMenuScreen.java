@@ -33,7 +33,7 @@ public final class CubeonHudMenuScreen extends Screen {
 	 * Toggle rows above the Reset/Done buttons: the five overlays
 	 * and Motion Blur.
 	 */
-	private static final int ROWS = 6;
+	private static final int ROWS = 7;
 	/** The sizes the Size button steps through. */
 	private static final float[] SCALES = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
 
@@ -64,6 +64,13 @@ public final class CubeonHudMenuScreen extends Screen {
 		int[] blurLevels = {0, 1, 2, 3};
 		addCycleRow(x, y, blurLevels, () -> config.blurStrength(), config::setBlurStrength,
 				CubeonHudMenuScreen::motionBlurLabel);
+		y += ROW_HEIGHT;
+
+		addRenderableWidget(Button.builder(enemyHealthLabel(), button -> {
+			config.showEnemyHealth = !config.showEnemyHealth;
+			CubeonHudConfig.save();
+			button.setMessage(enemyHealthLabel());
+		}).bounds(x, y, TOTAL_WIDTH, 20).build());
 		y += ROW_HEIGHT;
 
 		int halfWidth = TOTAL_WIDTH / 2 - ROW_GAP / 2;
@@ -203,6 +210,10 @@ public final class CubeonHudMenuScreen extends Screen {
 			default:
 				return Component.translatable("cubeonclient.state.off");
 		}
+	}
+
+	private static Component enemyHealthLabel() {
+		return Component.translatable("cubeonclient.menu.enemy_health", stateLabel(CubeonHudConfig.get().showEnemyHealth));
 	}
 
 	private static Component stateLabel(boolean enabled) {

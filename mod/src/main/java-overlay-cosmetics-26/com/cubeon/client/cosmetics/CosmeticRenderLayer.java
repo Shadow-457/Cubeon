@@ -25,8 +25,6 @@ import net.minecraft.resources.Identifier;
 public final class CosmeticRenderLayer
         extends RenderLayer<AvatarRenderState, PlayerModel> {
 
-    private static final float BODY_PIVOT_Y = 12.0f;
-
     public CosmeticRenderLayer(RenderLayerParent<AvatarRenderState, PlayerModel> parent) {
         super(parent);
     }
@@ -46,7 +44,6 @@ public final class CosmeticRenderLayer
         CosmeticSelection.refresh();
         pose.pushPose();
         getParentModel().body.translateAndRotate(pose);
-        pose.translate(0.0f, -BODY_PIVOT_Y / 16.0f, 0.0f);
         try {
             drawItem(catalog, "back", pose, collector, light);
             drawItem(catalog, "shoulder", pose, collector, light);

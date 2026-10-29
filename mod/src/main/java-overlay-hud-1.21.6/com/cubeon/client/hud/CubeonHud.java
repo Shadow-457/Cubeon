@@ -71,11 +71,11 @@ public final class CubeonHud {
 
 	public static void register() {
 		// This version's Fabric API predates HudElementRegistry, so the older
-		// event-based callback is used instead. The second lambda parameter is unused.
-		HudRenderCallback.EVENT.register((context, tickDelta) -> render(context));
+		// event-based callback supplies the interpolation progress for enemy health bars.
+		HudRenderCallback.EVENT.register((context, tickCounter) -> render(context, tickCounter.getTickProgress(false)));
 	}
 
-	private static void render(DrawContext context) {
+	private static void render(DrawContext context, float tickDelta) {
 		MinecraftClient client = MinecraftClient.getInstance();
 
 		if (client.player == null) {
@@ -118,6 +118,7 @@ public final class CubeonHud {
 			renderOverlay(context, client, config, Overlay.CPS, screenW, screenH, CubeonHud::renderCps);
 		}
 
+		EnemyHealthRenderer.render(context, client, client.gameRenderer::project, tickDelta);
 		renderTargetHighlight(context, client);
 
 	}

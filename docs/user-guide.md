@@ -67,8 +67,10 @@ Microsoft/Mojang account.
   Every overlay (FPS, keystrokes, armour, ping, CPS) has its own **Move** and
   **Size** buttons, so making the keystrokes bigger does not enlarge the FPS
   counter. The armour overlay shows only the four worn pieces, not the item in
-  your hand. Hold Z and scroll the mouse wheel to zoom smoothly; release to
-  return. Z can be rebound under Controls → Key Binds → Cubeon Client. Zoom is
+  your hand. **Enemy Health** toggles a thin bar beneath nearby enemy names
+  (players and hostile mobs). It starts off and remembers your choice; enemies
+  behind walls and teammates are hidden. Hold Z and scroll the mouse wheel to
+  zoom smoothly; release to return. Z can be rebound under Controls → Key Binds → Cubeon Client. Zoom is
   available on Minecraft 1.20-1.21.11; the 26.x releases use a different FOV
   system and do not have it yet.
 

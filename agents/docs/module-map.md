@@ -466,7 +466,9 @@ consistent with the shared `THEME` contract.
   so never hand-edit a PNG or `catalog.json` - change the generator and rerun it.
 - Preview (`preview_faces`) and Java `CosmeticGeometry.java` are ONE contract; `tools/test_cosmetics.py`
   compiles the Java classes and compares every quad and tile. Box space: +x left, +y down, -z front; pivot
-  (0,12,0); preview uses `y' = 24 - y`, `z' = -z`.
+  standing body pivot (0,0,0), torso Y=0..12; preview uses `y' = 24 - y`, `z' = -z`.
+  Renderers divide by 16 and apply the body pose directly; subtracting 12 after the body transform
+  raises items into the head. `test_cosmetic_renderers.py` records standing/crouching/swimming vertices.
 - A wing's edge faces follow the cut-out silhouette at final atlas size; a full-rectangle top/bottom face
   is the "floating bar" bug, and a 16x16 edge tile loses its 1 px thickness line when downscaled to 3 px.
 - Per-era overlays: `cosmetics-1.20` (1.20-1.20.4, manual normal), `cosmetics-1.20.5` (1.20.5-1.20.6,
@@ -475,11 +477,25 @@ consistent with the shared `THEME` contract.
 - Local player only, back before shoulder. Unknown ids = no cosmetic, never a crash. Missing Fabric API
   costs cosmetics only (registration is try/caught). `assets/jars/cubeon-client-*.jar` is what ships, so
   refresh it after every mod build; `test_repository_hygiene.py` fails a tracked jar without the catalogue.
+- Yarn 1.21.2–1.21.11 populates `PlayerEntityRenderState.id` even with name tags hidden; match it to
+  `client.player.getId()`. `displayName` is null for our own player in F5 and must never gate cosmetics.
+  `tools/test_cosmetic_renderers.py` runs every affected renderer with hidden/decorated labels.
 - Skin/Cape "None" is local: skin None writes the built-in Steve sheet to LocalSkin (beats a published
   Worker skin); cape None writes a transparent LocalSkin cape (`hide_cubeon_cape`). Friends keep theirs.
 
 ### Cubeon Client HUD and hold-to-zoom
 
+- `showEnemyHealth` defaults OFF and persists in `cubeon-client-hud.json`; K → Enemy Health toggles
+  thin bars beneath names for visible enemy players/hostile mobs within 24 blocks (32 bars maximum).
+  Exclude self, teammates, dead/invisible/sneaking/spectator entities, hidden team tags and walls.
+  `EnemyHealthRenderer` has Yarn/Mojang copies; `EnemyHealthBar` shares clamping/colors/NDC-to-GUI math.
+  Native projection returns NDC, not pixels. Before 1.21.6, `health-legacy` (1.20–1.20.6),
+  `health-counter` (1.21–1.21.4), `health-progress` (1.21.5) capture world projection before HUD render;
+  never read the GUI's orthographic projection or reuse a frame across worlds. Hold the captured world
+  weakly so returning to the title screen cannot retain it. `test_enemy_health.py`
+  runs the real renderers, Gson config and legacy projectors with recorded draws and cached JOML.
+  On 26.x, the HUD passes menu/F1 visibility into the shared renderer: `screen`/`options.hideGui`
+  moved to `gui.screen()`/`gui.hud.isHidden()` in 26.2.
 - `CubeonHudConfig` stores one size per overlay (`fpsScale`/`keysScale`/`armorScale`/`pingScale`/
   `cpsScale`, nullable) and keeps the old `scale` as the fallback, so an upgraded config and an older jar
   both keep their meaning. Read sizes through `scaleFor(slot)`/`CubeonHud.scaleOf(overlay)`; never apply
@@ -570,7 +586,8 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_chat_connection.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
-| Cosmetics | `test_cosmetics.py`, `test_appearance_preview.py`, `test_capes.py` |
+| Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_appearance_preview.py`, `test_capes.py` |
+| Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |

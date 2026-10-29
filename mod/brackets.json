@@ -78,7 +78,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20",
-        "cosmetics-1.20"
+        "cosmetics-1.20",
+        "health-legacy"
       ],
       "java": ">=17",
       "min": "1.20",
@@ -96,7 +97,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.1",
-        "cosmetics-1.20"
+        "cosmetics-1.20",
+        "health-legacy"
       ],
       "java": ">=17",
       "min": "1.20.1",
@@ -114,7 +116,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.2",
-        "cosmetics-1.20"
+        "cosmetics-1.20",
+        "health-legacy"
       ],
       "java": ">=17",
       "min": "1.20.2",
@@ -132,7 +135,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.2",
-        "cosmetics-1.20"
+        "cosmetics-1.20",
+        "health-legacy"
       ],
       "java": ">=17",
       "min": "1.20.3",
@@ -150,7 +154,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.2",
-        "cosmetics-1.20"
+        "cosmetics-1.20",
+        "health-legacy"
       ],
       "java": ">=17",
       "min": "1.20.4",
@@ -168,7 +173,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.2",
-        "cosmetics-1.20.5"
+        "cosmetics-1.20.5",
+        "health-legacy"
       ],
       "java": ">=17",
       "min": "1.20.5",
@@ -186,7 +192,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.2",
-        "cosmetics-1.20.5"
+        "cosmetics-1.20.5",
+        "health-legacy"
       ],
       "java": ">=17",
       "min": "1.20.6",
@@ -204,7 +211,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.2",
-        "cosmetics-1.21"
+        "cosmetics-1.21",
+        "health-counter"
       ],
       "java": ">=21",
       "min": "1.21",
@@ -222,7 +230,8 @@
         "api-yarn",
         "zoom-double",
         "hud-1.20.2",
-        "cosmetics-1.21"
+        "cosmetics-1.21",
+        "health-counter"
       ],
       "java": ">=21",
       "min": "1.21.1",
@@ -240,7 +249,8 @@
         "api-yarn",
         "zoom-float",
         "hud-1.20.2",
-        "cosmetics-1.21.2"
+        "cosmetics-1.21.2",
+        "health-counter"
       ],
       "java": ">=21",
       "min": "1.21.2",
@@ -258,7 +268,8 @@
         "api-yarn",
         "zoom-float",
         "hud-1.20.2",
-        "cosmetics-1.21.2"
+        "cosmetics-1.21.2",
+        "health-counter"
       ],
       "java": ">=21",
       "min": "1.21.3",
@@ -276,7 +287,8 @@
         "api-yarn",
         "zoom-float",
         "hud-1.20.2",
-        "cosmetics-1.21.2"
+        "cosmetics-1.21.2",
+        "health-counter"
       ],
       "java": ">=21",
       "min": "1.21.4",
@@ -294,7 +306,8 @@
         "api-yarn",
         "zoom-float",
         "hud-1.20.2",
-        "cosmetics-1.21.5"
+        "cosmetics-1.21.5",
+        "health-progress"
       ],
       "java": ">=21",
       "min": "1.21.5",

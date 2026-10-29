@@ -23,8 +23,6 @@ import net.minecraft.util.Identifier;
 public final class CosmeticFeatureRenderer
         extends FeatureRenderer<PlayerEntityRenderState, PlayerEntityModel> {
 
-    private static final float BODY_PIVOT_Y = 12.0f;
-
     @SuppressWarnings("unchecked")
     public CosmeticFeatureRenderer(PlayerEntityRenderer renderer) {
         super((FeatureRendererContext<PlayerEntityRenderState, PlayerEntityModel>)
@@ -36,8 +34,8 @@ public final class CosmeticFeatureRenderer
                        int light, PlayerEntityRenderState state, float limbAngle,
                        float limbDistance) {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null || client.player == null || state.displayName == null
-                || !state.displayName.equals(client.player.getDisplayName())) {
+        if (client == null || client.player == null
+                || state.id != client.player.getId()) {
             return;
         }
         draw(matrices, vertexConsumers, light);
@@ -52,7 +50,6 @@ public final class CosmeticFeatureRenderer
         CosmeticSelection.refresh();
         matrices.push();
         getContextModel().body.applyTransform(matrices);
-        matrices.translate(0.0f, -BODY_PIVOT_Y / 16.0f, 0.0f);
         try {
             drawItem(catalog, "back", matrices, vertexConsumers, light);
             drawItem(catalog, "shoulder", matrices, vertexConsumers, light);

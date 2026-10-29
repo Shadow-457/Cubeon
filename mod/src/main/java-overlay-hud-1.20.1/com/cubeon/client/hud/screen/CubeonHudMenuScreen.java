@@ -28,7 +28,7 @@ public final class CubeonHudMenuScreen extends Screen {
 	private static final int ROW_HEIGHT = 24;
 	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + MOVE_WIDTH + SIZE_WIDTH + 2 * ROW_GAP;
 	/** Toggle rows above the Reset/Done buttons: the five overlays. */
-	private static final int ROWS = 5;
+	private static final int ROWS = 6;
 	/** The sizes the Size button steps through. */
 	private static final float[] SCALES = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
 
@@ -51,6 +51,13 @@ public final class CubeonHudMenuScreen extends Screen {
 		addToggleRow(x, y, Overlay.PING, () -> config.showPing, v -> config.showPing = v, CubeonHudMenuScreen::showPingLabel);
 		y += ROW_HEIGHT;
 		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
+		y += ROW_HEIGHT;
+
+		addDrawableChild(ButtonWidget.builder(enemyHealthLabel(), button -> {
+			config.showEnemyHealth = !config.showEnemyHealth;
+			CubeonHudConfig.save();
+			button.setMessage(enemyHealthLabel());
+		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
 		y += ROW_HEIGHT;
 
 		int halfWidth = TOTAL_WIDTH / 2 - ROW_GAP / 2;
@@ -152,6 +159,10 @@ public final class CubeonHudMenuScreen extends Screen {
 
 	private static Text showCpsLabel() {
 		return Text.translatable("cubeonclient.menu.show_cps", stateLabel(CubeonHudConfig.get().showCps));
+	}
+
+	private static Text enemyHealthLabel() {
+		return Text.translatable("cubeonclient.menu.enemy_health", stateLabel(CubeonHudConfig.get().showEnemyHealth));
 	}
 
 	private static Text stateLabel(boolean enabled) {

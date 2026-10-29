@@ -32,6 +32,8 @@ public final class CubeonHudConfig {
 	public boolean showArmor = false;
 	public boolean showPing = false;
 	public boolean showCps = false;
+	/** Compact bars anchored beneath nearby enemy names, opt-in. */
+	public boolean showEnemyHealth = false;
 
 	/**
 	 * 26.x only: blends the previous world frame into the current one, so fast

@@ -18,7 +18,8 @@ GEOMETRY CONTRACT
 A box is axis-aligned in Minecraft model space: +x is the player's left, +y is
 DOWN, and -z is the player's front (so a cape/back item sits at +z). Origins
 are absolute model coordinates, the same space `PlayerModel` uses, where the
-body pivot is (0, 12, 0). The preview converts with y' = 24 - y and z' = -z,
+standing body pivot is (0, 0, 0). The torso spans y=0..12 and the legs end at
+y=24. The preview converts with y' = 24 - y and z' = -z,
 which is the only place the two coordinate systems meet.
 
 A box's texture atlas is laid out exactly like `cubeon.appearance._box`:
@@ -57,7 +58,7 @@ MOD_TEXTURE_DIR = os.path.join(MOD_DIR, "textures", "cosmetics")
 MOD_CATALOG_DIR = os.path.join(MOD_DIR, "cosmetics")
 
 # Absolute model-space attachment points. The shoulder anchor is the top of
-# the right shoulder (body pivot is at y=12, the body's top edge is y=0); the
+# the right shoulder (the body's pivot and top edge are both at y=0); the
 # back anchor sits just behind the torso's upper back.
 ANCHORS = {
     "shoulder": [-6.0, 0.0, 0.0],

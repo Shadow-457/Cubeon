@@ -24,8 +24,6 @@ import net.minecraft.util.Identifier;
 public final class CosmeticFeatureRenderer
         extends FeatureRenderer<PlayerEntity, PlayerEntityModel<PlayerEntity>> {
 
-    private static final float BODY_PIVOT_Y = 12.0f;
-
     @SuppressWarnings({"unchecked", "rawtypes"})
     public CosmeticFeatureRenderer(PlayerEntityRenderer renderer) {
         super((FeatureRendererContext<PlayerEntity, PlayerEntityModel<PlayerEntity>>)
@@ -53,7 +51,6 @@ public final class CosmeticFeatureRenderer
         CosmeticSelection.refresh();
         matrices.push();
         getContextModel().body.rotate(matrices);
-        matrices.translate(0.0f, -BODY_PIVOT_Y / 16.0f, 0.0f);
         try {
             drawItem(catalog, "back", matrices, vertexConsumers, light);
             drawItem(catalog, "shoulder", matrices, vertexConsumers, light);

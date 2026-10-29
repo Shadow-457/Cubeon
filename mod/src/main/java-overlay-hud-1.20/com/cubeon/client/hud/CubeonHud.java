@@ -70,6 +70,7 @@ public final class CubeonHud {
 	}
 
 	public static void register() {
+		LegacyHealthProjection.register();
 		// 1.20.0 predates HudElementRegistry; the older event-based callback is used instead.
 		HudRenderCallback.EVENT.register((context, tickDelta) -> render(context));
 	}
@@ -117,6 +118,7 @@ public final class CubeonHud {
 			renderOverlay(context, client, config, Overlay.CPS, screenW, screenH, CubeonHud::renderCps);
 		}
 
+		LegacyHealthProjection.render(context, client);
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */

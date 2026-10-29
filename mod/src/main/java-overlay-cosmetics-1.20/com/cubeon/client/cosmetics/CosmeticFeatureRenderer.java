@@ -19,10 +19,10 @@ import org.joml.Vector3f;
 /**
  * Draws the local player's selected cosmetics (1.20 - 1.20.4).
  *
- * <p>The geometry is authored in Minecraft model space with the body pivot at
- * {@code (0, 12, 0)}. Applying the body part's pose and then undoing that pivot
- * makes a shoulder pet ride the torso through crouching and arm swings instead
- * of floating where the player spawned.
+ * <p>The geometry is authored in Minecraft model space with the standing body
+ * pivot at {@code (0, 0, 0)}. Applying the body part's pose directly makes the
+ * items follow the torso through crouching and swimming. The catalogue's
+ * coordinates already belong to this space; no height offset is needed.
  *
  * <p>This era has no render-state object yet, so "is this the local player" is
  * an identity check against {@code MinecraftClient.player}. Normals are
@@ -37,8 +37,6 @@ import org.joml.Vector3f;
  */
 public final class CosmeticFeatureRenderer
         extends FeatureRenderer<PlayerEntity, PlayerEntityModel<PlayerEntity>> {
-
-    private static final float BODY_PIVOT_Y = 12.0f;
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     public CosmeticFeatureRenderer(PlayerEntityRenderer renderer) {
@@ -67,7 +65,6 @@ public final class CosmeticFeatureRenderer
         CosmeticSelection.refresh();
         matrices.push();
         getContextModel().body.rotate(matrices);
-        matrices.translate(0.0f, -BODY_PIVOT_Y / 16.0f, 0.0f);
         try {
             // Back first: a wing should sit behind a shoulder pet if they ever
             // overlap, and drawing in that order keeps the depth buffer honest

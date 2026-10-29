@@ -120,6 +120,8 @@ public final class CubeonHud {
 			renderOverlay(graphics, client, config, Overlay.CPS, screenW, screenH, CubeonHud::renderCps);
 		}
 
+		EnemyHealthRenderer.render(graphics, client, deltaTracker.getGameTimeDeltaPartialTick(false),
+				client.screen == null && !client.options.hideGui);
 		renderTargetHighlight(graphics, client);
 	}
 

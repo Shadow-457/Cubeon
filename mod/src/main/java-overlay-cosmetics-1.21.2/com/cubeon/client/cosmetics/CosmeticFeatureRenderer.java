@@ -17,15 +17,13 @@ import net.minecraft.util.Identifier;
  * Draws the local player's selected cosmetics (1.21.2 - 1.21.4).
  *
  * <p>Minecraft 1.21.2 split rendering into an entity pass and a render-state
- * pass, so the feature renderer no longer receives the entity. The local player
- * is identified by display name instead; it is the same {@code Text} object the
- * renderer built for the name tag, and comparing it to the client player's
- * display name is exact for players (names are unique on a server).
+ * pass, so the feature renderer no longer receives the entity. The render
+ * state's entity id identifies the local player. Its display name is only
+ * populated when Minecraft draws a name tag, which excludes our own player
+ * in third-person view and must not gate cosmetics.
  */
 public final class CosmeticFeatureRenderer
         extends FeatureRenderer<PlayerEntityRenderState, PlayerEntityModel> {
-
-    private static final float BODY_PIVOT_Y = 12.0f;
 
     @SuppressWarnings("unchecked")
     public CosmeticFeatureRenderer(PlayerEntityRenderer renderer) {
@@ -38,8 +36,8 @@ public final class CosmeticFeatureRenderer
                        int light, PlayerEntityRenderState state, float limbAngle,
                        float limbDistance) {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null || client.player == null || state.displayName == null
-                || !state.displayName.equals(client.player.getDisplayName())) {
+        if (client == null || client.player == null
+                || state.id != client.player.getId()) {
             return;
         }
         draw(matrices, vertexConsumers, light);
@@ -54,7 +52,6 @@ public final class CosmeticFeatureRenderer
         CosmeticSelection.refresh();
         matrices.push();
         getContextModel().body.rotate(matrices);
-        matrices.translate(0.0f, -BODY_PIVOT_Y / 16.0f, 0.0f);
         try {
             drawItem(catalog, "back", matrices, vertexConsumers, light);
             drawItem(catalog, "shoulder", matrices, vertexConsumers, light);

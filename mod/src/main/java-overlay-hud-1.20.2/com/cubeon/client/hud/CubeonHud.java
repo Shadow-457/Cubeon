@@ -70,6 +70,7 @@ public final class CubeonHud {
 	}
 
 	public static void register() {
+		LegacyHealthProjection.register();
 		// This version's Fabric API predates HudElementRegistry, so the older
 		// event-based callback is used instead. The second lambda parameter is unused.
 		HudRenderCallback.EVENT.register((context, tickDelta) -> render(context));
@@ -118,6 +119,7 @@ public final class CubeonHud {
 			renderOverlay(context, client, config, Overlay.CPS, screenW, screenH, CubeonHud::renderCps);
 		}
 
+		LegacyHealthProjection.render(context, client);
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */
