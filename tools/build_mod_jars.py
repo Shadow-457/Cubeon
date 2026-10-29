@@ -98,7 +98,7 @@ REQUIRED_ENTRIES_26X = ("cubeon-client-hud.mixins.json",
 # shared classes, config fields and shaders that a stale build could retain.
 REMOVED_FEATURE_MARKERS = (b"motionblur", b"motion_blur", b"dynamiccrosshair",
                            b"dynamic_crosshair", b"crosshairscale", b"crosshairmixin",
-                           b"cubeon-client-crosshair")
+                           b"cubeon-client-crosshair", b"rendertargethighlight")
 
 
 def removed_feature_entries(jar):

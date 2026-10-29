@@ -397,7 +397,8 @@ def test_resources(matrix):
        "nor does the shared tree still carry CrosshairScale")
 
     # Source, config and resources must all drop the removed effects.
-    pattern = re.compile(r"motion[_-]?blur|dynamic[_-]?crosshair|crosshair(?:scale|mixin)", re.I)
+    pattern = re.compile(
+        r"motion[_-]?blur|dynamic[_-]?crosshair|crosshair(?:scale|mixin)|renderTargetHighlight", re.I)
     leftovers = []
     for path in Path(MOD, "src", "main").rglob("*"):
         if path.suffix not in {".java", ".json", ".fsh"}:
@@ -433,6 +434,7 @@ def test_removed_effect_guard():
             ("com/cubeon/client/hud/mixin/CrosshairMixin.class", b"fixture"),
             ("com/cubeon/client/hud/CubeonHudConfig.class", b"motionBlurStrength"),
             ("com/cubeon/client/hud/CubeonHudConfig.class", b"dynamicCrosshair"),
+            ("com/cubeon/client/hud/CubeonHud.class", b"renderTargetHighlight"),
             ("cubeon-client-hud.mixins.json", b'{"client":["MotionBlurMixin"]}'),
             ("fabric.mod.json", b'{"depends":{"minecraft":"*"},"mixins":["cubeon-client-crosshair.mixins.json"]}'),
         )

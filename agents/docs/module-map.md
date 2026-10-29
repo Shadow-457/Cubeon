@@ -507,6 +507,9 @@ consistent with the shared `THEME` contract.
   render hooks or effect resources. Gson ignores old keys and drops them on the next HUD config save.
   `tools/build_mod_jars.py` rejects leftover feature classes, config fields and assets before copying
   any jar; `test_mod_matrix.py` checks the guard and all 24 packaged jars.
+  The separate `CubeonHud.renderTargetHighlight` also drew an unconditional red plus when aiming at
+  a player (1.21.6+ and 26.x); it is removed and covered by the same archive guard. Keep enemy health
+  bars separate from crosshair changes.
 - `showEnemyHealth` defaults OFF and persists in `cubeon-client-hud.json`; K → Enemy Health toggles
   thin bars beneath names for visible enemy players/hostile mobs within 24 blocks (32 bars maximum).
   Exclude self, teammates, dead/invisible/sneaking/spectator entities, hidden team tags and walls.

@@ -7,11 +7,6 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.ItemStack;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.hit.HitResult;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayDeque;
@@ -120,7 +115,6 @@ public final class CubeonHud {
 		}
 
 		EnemyHealthRenderer.render(context, client, client.gameRenderer::project, tickDelta);
-		renderTargetHighlight(context, client);
 	}
 
 	/** Counts press edges of the attack/use bindings once per frame. */
@@ -427,69 +421,6 @@ public final class CubeonHud {
 		int dashX = x + width / 2 - 5;
 		int dashY = y + SPACE_HEIGHT / 2;
 		context.fill(dashX, dashY, dashX + 10, dashY + 1, down ? KEY_TEXT_DOWN : KEY_TEXT);
-	}
-
-	private static void renderTargetHighlight(DrawContext context, MinecraftClient client) {
-		if (client.player == null || client.crosshairTarget == null) {
-			return;
-		}
-
-		if (!(client.crosshairTarget instanceof EntityHitResult hit)) {
-			return;
-		}
-
-		if (!(hit.getEntity() instanceof PlayerEntity target)) {
-			return;
-		}
-
-		if (client.player.distanceTo(target) > client.player.getEntityInteractionRange() + 1.0D) {
-			return;
-		}
-
-		Box box = target.getBoundingBox();
-		Vec3d[] corners = {
-				new Vec3d(box.minX, box.minY, box.minZ),
-				new Vec3d(box.maxX, box.minY, box.minZ),
-				new Vec3d(box.minX, box.maxY, box.minZ),
-				new Vec3d(box.maxX, box.maxY, box.minZ),
-				new Vec3d(box.minX, box.minY, box.maxZ),
-				new Vec3d(box.maxX, box.minY, box.maxZ),
-				new Vec3d(box.minX, box.maxY, box.maxZ),
-				new Vec3d(box.maxX, box.maxY, box.maxZ),
-		};
-
-		float minX = Float.MAX_VALUE;
-		float minY = Float.MAX_VALUE;
-		float maxX = -Float.MAX_VALUE;
-		float maxY = -Float.MAX_VALUE;
-
-		for (Vec3d corner : corners) {
-			Vec3d projected = client.gameRenderer.project(corner);
-			minX = Math.min(minX, (float) projected.x);
-			minY = Math.min(minY, (float) projected.y);
-			maxX = Math.max(maxX, (float) projected.x);
-			maxY = Math.max(maxY, (float) projected.y);
-		}
-
-		if (minX == Float.MAX_VALUE) {
-			return;
-		}
-
-		int x1 = (int) minX;
-		int y1 = (int) minY;
-		int x2 = (int) maxX;
-		int y2 = (int) maxY;
-		int color = 0xFFFF3333;
-
-		context.fill(x1, y1, x2, y1 + 1, color);
-		context.fill(x1, y2 - 1, x2, y2, color);
-		context.fill(x1, y1, x1 + 1, y2, color);
-		context.fill(x2 - 1, y1, x2, y2, color);
-
-		int cx = context.getScaledWindowWidth() / 2;
-		int cy = context.getScaledWindowHeight() / 2;
-		context.fill(cx - 6, cy, cx + 6, cy + 1, color);
-		context.fill(cx, cy - 6, cx + 1, cy + 6, color);
 	}
 
     /** Mob labels use the same projected scale as vanilla player name tags. */
