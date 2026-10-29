@@ -352,12 +352,13 @@ classic = skins.add_custom_skin(classic_src, "Classic")
 
 slim_src = os.path.join(_tmp, "slim.png")
 slim_img = Image.new("RGBA", (64, 64), (100, 100, 200, 255))
-# Slim/Alex reserves the fourth column of both arm regions. Clear the full
-# columns so model detection cannot be fooled by a single transparent elbow.
-for y in range(20, 32):
-    slim_img.putpixel((47, y), (0, 0, 0, 0))
-for y in range(52, 64):
-    slim_img.putpixel((39, y), (0, 0, 0, 0))
+# Slim/Alex reserves pixels after the full arm cube nets, including the
+# top/bottom row. Side pixels x=47 and x=39 remain opaque in real Alex skins.
+for x0, y0, x1, y1 in ((54, 20, 56, 32), (50, 16, 52, 20),
+                        (46, 52, 48, 64), (42, 48, 44, 52)):
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            slim_img.putpixel((x, y), (0, 0, 0, 0))
 slim_img.save(slim_src)
 slim = skins.add_custom_skin(slim_src, "Slim")
 

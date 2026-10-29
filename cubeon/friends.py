@@ -138,6 +138,9 @@ T_GROUP_LEAVE = "group_leave"  # {gid}
 T_VERSION = "version"        # {version} - "now playing <version>", or null when stopped
 T_STATUS = "status"          # {status} - "online" | "away" | "playing"
 T_HISTORY = "history"        # {peer} or {gid} - ask for recent messages
+T_EMOTE_ROOM = "emote_room"
+T_EMOTE_READY = "emote_ready"
+T_EMOTE = "emote"
 T_TYPING = "typing"          # {to} or {gid} - "I'm typing in this conversation right now"
 T_CALL_INVITE = "call_invite"  # {to} - ring a friend
 T_CALL_ACCEPT = "call_accept"  # {room} - pick up
@@ -1109,7 +1112,7 @@ class FriendsClient:
             T_TYPING: "typing", T_METADATA: "metadata",
             T_CALL_INVITE: "call_invite", T_CALL_ACCEPT: "call_accept",
             T_CALL_DECLINE: "call_decline", T_CALL_END: "call_end",
-            T_SIGNAL: "signal",
+            T_SIGNAL: "signal", T_EMOTE: "emote", T_EMOTE_READY: "emote_ready",
         }.get(t)
         if event in ("metadata", "presence"):
             try:
@@ -1361,6 +1364,12 @@ class FriendsClient:
                 if value == self._minecraft_username:
                     self._metadata_sending = False
                     return
+
+    def send_emote_room(self, room: str) -> bool:
+        return self._raw_send({"t": T_EMOTE_ROOM, "room": room})
+
+    def send_emote(self, entity: str, emote: str, serial: int) -> bool:
+        return self._raw_send({"t": T_EMOTE, "uuid": entity, "emote": emote, "serial": serial})
 
     def set_status(self, status: str) -> None:
         self._status = status

@@ -25,10 +25,11 @@ public final class CubeonHudMenuScreen extends Screen {
 	private static final int MOVE_WIDTH = 48;
 	private static final int SIZE_WIDTH = 50;
 	private static final int ROW_GAP = 4;
-	private static final int ROW_HEIGHT = 24;
+	// Eight rows plus the title must fit Minecraft's 240px minimum GUI height.
+	private static final int ROW_HEIGHT = 22;
 	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + MOVE_WIDTH + SIZE_WIDTH + 2 * ROW_GAP;
-	/** Toggle rows above the Reset/Done buttons: the five overlays. */
-	private static final int ROWS = 6;
+	/** Toggle rows above the Reset/Done buttons: five overlays, enemy health and cosmetic animations. */
+	private static final int ROWS = 8;
 	/** The sizes the Size button steps through. */
 	private static final float[] SCALES = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
 
@@ -57,6 +58,18 @@ public final class CubeonHudMenuScreen extends Screen {
 			config.showEnemyHealth = !config.showEnemyHealth;
 			CubeonHudConfig.save();
 			button.setMessage(enemyHealthLabel());
+		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
+		y += ROW_HEIGHT;
+
+		addDrawableChild(ButtonWidget.builder(cosmeticAnimationsLabel(), button -> {
+			config.cosmeticAnimations = !config.cosmeticAnimations;
+			CubeonHudConfig.save();
+			button.setMessage(cosmeticAnimationsLabel());
+		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
+		y += ROW_HEIGHT;
+
+		addDrawableChild(ButtonWidget.builder(Text.translatable("cubeonclient.menu.emotes"), button -> {
+			this.client.setScreen(new EmoteMenuScreen());
 		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
 		y += ROW_HEIGHT;
 
@@ -163,6 +176,10 @@ public final class CubeonHudMenuScreen extends Screen {
 
 	private static Text enemyHealthLabel() {
 		return Text.translatable("cubeonclient.menu.enemy_health", stateLabel(CubeonHudConfig.get().showEnemyHealth));
+	}
+
+	private static Text cosmeticAnimationsLabel() {
+		return Text.translatable("cubeonclient.menu.cosmetic_animations", stateLabel(CubeonHudConfig.get().cosmeticAnimations));
 	}
 
 	private static Text stateLabel(boolean enabled) {

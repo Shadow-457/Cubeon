@@ -32,6 +32,10 @@ public final class CosmeticGeometry {
         public float normalX;
         public float normalY;
         public float normalZ;
+        public String motion;
+        public boolean mirrored;
+        public float pivotX, pivotY, pivotZ;
+        public float parentPivotX, parentPivotY, parentPivotZ;
     }
 
     private static final Map<CosmeticCatalog.Item, List<Quad>> CACHE =
@@ -53,7 +57,15 @@ public final class CosmeticGeometry {
     /** Builds quads without touching the cache. Public for the cross-check test. */
     public static List<Quad> build(CosmeticCatalog.Item item, float anchorX) {
         List<Quad> out = new ArrayList<>();
+        CosmeticCatalog.Box parent = null;
         for (CosmeticCatalog.Box box : item.boxes) {
+            if ("body".equals(box.motion)) {
+                parent = box;
+                break;
+            }
+        }
+        for (CosmeticCatalog.Box box : item.boxes) {
+            int first = out.size();
             float x0 = box.x;
             float y0 = box.y;
             float z0 = box.z;
@@ -91,6 +103,19 @@ public final class CosmeticGeometry {
                 addBox(out, mirroredX0, y0, z0, mirroredX1, y1, z1,
                         front, back, right, left, top, bottom,
                         item.texWidth, item.texHeight, true);
+            }
+            for (int i = first; i < out.size(); i++) {
+                Quad quad = out.get(i);
+                quad.motion = box.motion;
+                quad.mirrored = i - first >= 6;
+                quad.pivotX = quad.mirrored ? 2 * anchorX - box.pivotX : box.pivotX;
+                quad.pivotY = box.pivotY;
+                quad.pivotZ = box.pivotZ;
+                if (parent != null) {
+                    quad.parentPivotX = parent.pivotX;
+                    quad.parentPivotY = parent.pivotY;
+                    quad.parentPivotZ = parent.pivotZ;
+                }
             }
         }
         return out;

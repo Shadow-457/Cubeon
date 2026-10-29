@@ -30,6 +30,7 @@ substitute for current code.
 | Download infrastructure | `net.py`, `global_mod_cache.py`, `local_cache.py` |
 | Friends ownership | `friends_service.py`, `friends.py`, `e2ee.py` |
 | Mod bridge | `local_api.py`, `cubeonfriends.py`, `mod/brackets.json` |
+| Player emotes | `emotes.py`, `mod/src/main/java/com/cubeon/client/emotes/`, `worker/cubeon-friends.js` |
 | World sharing | `p2p.py`, `invites.py`, `server.py`, `minekube.py`, `gate.py` |
 | Cosmetics | `cosmetics.py`, `skins.py`, `capes.py`, `gallery.py`, `profile.py`, `appearance.py`, `appearance_scene.py` |
 | Chat faces and artwork | `faces.py`, `icons.py`, `version_art.py` |
@@ -469,6 +470,12 @@ consistent with the shared `THEME` contract.
   Stats uses a compact recent-playtime histogram.
 - Public UUIDs and display names are not private capability tokens. The loopback mod bridge is
   authenticated; never publish identity or token files.
+- Alex arms have 3px front/back faces and 4px sides. `_detect_slim_model` checks unused base
+  rectangles (54,20)-(56,32), (50,16)-(52,20), (46,52)-(48,64), (42,48)-(44,52);
+  x=47 and x=39 are real side pixels. Repair every base cube-net face while preserving these
+  spares and outer layers. Auto metadata is re-detected on activation; explicit classic/slim wins.
+  Each uploaded skin has an Auto/Alex/Steve control; CSL and network publication use that model.
+  Slim back-face offsets are front +7, not +8. Thumbnail filenames include the arm variant.
 
 ### Cosmetics (shoulder and back items)
 
@@ -481,6 +488,18 @@ consistent with the shared `THEME` contract.
   write to a different instance than the one it starts.
   `tools/gen_cosmetics.py` is the ONLY art source: it writes both `assets/cosmetics/` and the jar bundle,
   so never hand-edit a PNG or `catalog.json` - change the generator and rerun it.
+- Catalogue boxes carry `motion`/`pivot` rig metadata. `CosmeticAnimation` poses pets (body breathing
+  and child head glances), mirrored wing hinges (flapping/spreading for gliding), and moving packs.
+  Rest geometry/UV caches stay immutable; each draw reuses one scratch quad, including transformed
+  normals. Renderers capture an immutable frame before queued submissions. Use interpolated entity
+  age (Yarn `age`, Mojang `ageInTicks`) and render-local smoothing, never a background animation timer;
+  pause freezes the pose. Missing rig metadata keeps old geometry static. The shoulder anchor is
+  x=-7 to leave clearance for pet head movement. `test_cosmetic_animation.py` covers attachments,
+  static-head clearance, symmetry, normals, pause, transitions and cache safety.
+- Wing phase integrates the eased native sprint flag (0.4 Hz idle → 1.1 Hz sprint); multiplying
+  absolute age by changing speed causes jumps. `cosmeticAnimations` defaults ON in HUD config;
+  K → Cosmetic Animations OFF skips tracker/transform work and draws cached rest quads via a null
+  frame. Re-enabling resets the tracker. Pet faces are generated at 32px with 8 texels/model unit.
 - Preview (`preview_faces`) and Java `CosmeticGeometry.java` are ONE contract; `tools/test_cosmetics.py`
   compiles the Java classes and compares every quad and tile. Box space: +x left, +y down, -z front; pivot
   standing body pivot (0,0,0), torso Y=0..12; preview uses `y' = 24 - y`, `z' = -z`.
@@ -504,6 +523,35 @@ consistent with the shared `THEME` contract.
   Worker skin); cape None writes a transparent LocalSkin cape (`hide_cubeon_cape`). Friends keep theirs.
 
 ### Cubeon Client HUD and hold-to-zoom
+
+- Cubeon emotes use the existing authenticated Friends WebSocket, not Minecraft server payloads.
+  The old `java-overlay-emotes-*` code is dormant and requires a server mod; do not enable it to
+  implement ordinary-server emotes or change the base jar's `environment: client`.
+  B or K → Emotes opens six radial wedges and persisted `showEmotes`. Click or 1–6 plays;
+  center click stops, arrows/Tab + Enter select, Esc/right click cancels. Shared `EmoteWheel`
+  caches size-dependent scanline runs and keeps mouse hit testing aligned with sector labels.
+  26.3 uses `InputConstants` keyboard scan codes and mouse IDs (left=1, right=3), not GLFW
+  symbols or older 0/1 mouse IDs; B/K default bindings must use its native constants too.
+  Movement/actions cancel locally
+  and relay a stop. `cubeon-emote-entity/state/mojang` inject into biped/humanoid posing so player
+  equipment follows. Legacy hats copy the posed head; from 1.21.2 hats are children of head and
+  must keep local transforms (copying head angles doubles rotation on both vanilla and injected
+  3D Skin Layers meshes). Recent IDs belong to Player/Avatar states, not their biped/humanoid base.
+  Yarn 1.21.11 removed entity `isFallFlying`; use the render state's gliding flag.
+  Older entity models leave head/body roll untouched: the legacy emote mixin clears its previous
+  contribution at HEAD before vanilla re-poses, including on expiry or the next player, to prevent
+  accumulated tilt. The eight-row K menu uses 22px spacing to fit a 240px GUI height.
+- `EmoteRelay` is owned by FriendsService; token-protected `/emotecontext`, `/emote`, `/emotes`
+  carry room/send/snapshots. Bridge's existing thread drains local snapshots every 250ms in-world,
+  keeps roster polling at 6s and renews the room every 20s. No network on model/key/tick threads,
+  no added cloud poll/timer or Flet repaint per emote. Account-authenticated hub messages use
+  ephemeral socket attachments (45s room lease, finite poses), survive DO hibernation and never
+  write SQL/chat history. Rooms hash the lowercased server address with default port normalized;
+  different domain/IP aliases do not share a room. The hub supplies the account's Minecraft name;
+  rendering matches both UUID and name. Local serial tombstones reject late echoes after stopping.
+  Backend deployment plus updated clients are required for online sync; an old Worker gives a local
+  preview with sync unavailable. `test_emotes.py`, `test_emote_models.py`, `test_local_api_emotes.py`
+  and `node worker/test-emotes.mjs` cover lifecycle, poses, identity, routes and relay isolation.
 
 - Motion blur and dynamic crosshair are removed from all versions: no config fields, menu rows,
   render hooks or effect resources. Gson ignores old keys and drops them on the next HUD config save.
@@ -543,7 +591,12 @@ consistent with the shared `THEME` contract.
   `zoom-float` for 1.21.2-1.21.11 where it returns `float`); 26.x moved the FOV path and is not ported.
   `Zoom.java` (shared, Minecraft-free) owns the wall-clock easing and the wheel target; `ZoomMixin` reads
   `CubeonHudKeybinds.zoomActive()` and multiplies the FOV return, `ZoomScrollMixin` cancels only the
-  notches that adjust zoom (so the hotbar does not change). The config is listed through the
+  notches that adjust zoom (so the hotbar does not change). `ZoomLookMixin` redirects Mouse's
+  `ClientPlayerEntity.changeLookDirection(DD)V` call: sensitivity follows eased zoom and a 35ms
+  continuous-time velocity filter smooths look. It never writes vanilla sensitivity/smooth-camera
+  options; release resets the filter immediately. First hold starts at the config's zoomFactor,
+  wheel changes persist for the session, and FOV easing is 140ms. `test_zoom.py` checks 30/60/240 FPS.
+  The config is listed through the
   `${zoom_mixins}` template; do not list it unconditionally, a config naming a missing class is a startup
   warning. Default key: Z.
 
@@ -619,6 +672,9 @@ node worker/test-worker.mjs
 
 The default smoke gate does not run all registered suites; `--suites` does. See
 [testing](../../docs/development/testing.md) for prerequisites and exclusions.
+The static import gate loads `cubeon.voice`, which initializes sounddevice/PortAudio;
+on Linux it can hang without system audio access. A stack in sounddevice `_initialize`
+requires retrying with normal system access, not changing unrelated app code.
 
 | Change | Focused checks in `tools/` |
 | --- | --- |
@@ -633,7 +689,7 @@ The default smoke gate does not run all registered suites; `--suites` does. See
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_chat_connection.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
-| Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_appearance_preview.py`, `test_capes.py` |
+| Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |

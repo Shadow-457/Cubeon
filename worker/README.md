@@ -526,6 +526,24 @@ signalling - all over one WebSocket.
   `python3 tools/test_friends_service.py` - the service and the bridge, plus a
   contract check that the launcher serves every endpoint the mod calls.
 
+### Client emotes
+
+Cubeon Client emotes also use this socket. `emote_room` subscribes to a hashed
+server address; `emote_ready` acknowledges support. `emote` relays a fixed pose
+name, player UUID and serial. The hub supplies the sender's registered Minecraft
+username and sends only to live subscribers in that room. No Minecraft server
+mod is needed; both clients need the updated Cubeon Client and the same server
+address. UUID and username must match a player actually rendered by the client.
+
+Room leases last 45 seconds and clients renew every 20 seconds. Room and active
+pose state live in socket attachments, survive hibernation and never enter SQL
+or chat history. Poses expire within six seconds; changing rooms sends a stop.
+Room updates are capped at 40/min and emote frames at 20/min, below the existing
+120/min total-frame budget. Fanout is bounded at 256 sockets; late-join snapshots
+at 128 poses. Older clients ignore these message types. Older Workers leave
+updated clients in local-preview mode until this Friends Worker is deployed.
+Run `node worker/test-emotes.mjs` for relay, isolation, hibernation and expiry checks.
+
 ## Why it's a Durable Object, not KV
 
 Presence is a heartbeat: every online friend's status changes several times a

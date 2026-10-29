@@ -60,8 +60,10 @@ MOD_CATALOG_DIR = os.path.join(MOD_DIR, "cosmetics")
 # Absolute model-space attachment points. The shoulder anchor is the top of
 # the right shoulder (the body's pivot and top edge are both at y=0); the
 # back anchor sits just behind the torso's upper back.
+# The pet sits one model unit outward from the shoulder centre, leaving room
+# for its independent head turns beside the player's standing head.
 ANCHORS = {
-    "shoulder": [-6.0, 0.0, 0.0],
+    "shoulder": [-7.0, 0.0, 0.0],
     "back": [0.0, 2.0, 2.2],
 }
 
@@ -164,432 +166,212 @@ def faces(front, back, left, right, top, bottom):
 # ---------------------------------------------------------------------------
 
 
-def _ears(t, pal, style):
-    body, dark = pal["body"], pal["dark"]
-    if style == "point":
-        t.poly([(2, 5), (4, 0), (7, 5)], body)
-        t.poly([(9, 5), (12, 0), (14, 5)], body)
-        t.poly([(4, 3), (4, 1), (5, 3)], dark)
-        t.poly([(11, 3), (12, 1), (12, 3)], dark)
-    elif style == "round":
-        t.r(2, 1, 4, 4, body)
-        t.r(10, 1, 4, 4, body)
-        t.r(3, 2, 2, 2, mix(body, "#ffffff", 0.25))
-        t.r(11, 2, 2, 2, mix(body, "#ffffff", 0.25))
-    elif style == "tuft":
-        t.r(2, 2, 4, 3, body)
-        t.r(10, 2, 4, 3, body)
-        t.p(2, 1, dark)
-        t.p(3, 1, body)
-        t.p(13, 1, dark)
-        t.p(12, 1, body)
+def _pet_surface(pal, face, *, head=True):
+    """32px opaque pixel art: soft edges, two-pixel shading and deliberate fur marks."""
+    t = Tile(32)
+    base = pal['body']
+    amount = {'front': .03, 'back': -.04, 'left': -.03,
+              'right': -.06, 'top': .13, 'bottom': -.14}[face]
+    for y in range(0, 32, 2):
+        t.r(0, y, 32, 2, shade(base, amount + .08 - y / 240))
+    rim = mix(base, pal['dark'], .18)
+    t.vline(0, 0, 32, rim)
+    t.vline(31, 0, 32, rim)
+    t.hline(1, 31, 30, rim)
+    t.hline(2, 1, 28, shade(base, .22))
+    # Intentional small tufts rather than random noise.
+    for x, y in ((3, 7), (26, 8), (2, 20), (27, 22), (11, 3), (19, 5)):
+        t.hline(x, y, 2, shade(base, .12))
+        t.p(x + 1, y + 1, shade(base, -.05))
+    return t
 
 
-def _head_front(pal, ear="point", muzzle="snout", marking=None):
-    t = Tile()
-    body, light, dark = pal["body"], pal["light"], pal["dark"]
-    accent, eye = pal["accent"], pal["eye"]
-    _ears(t, pal, ear)
-    t.r(2, 3, 12, 11, body)
-    t.r(3, 3, 10, 2, mix(body, "#ffffff", 0.22))
-    # eyes
-    t.r(4, 6, 2, 3, dark)
-    t.r(10, 6, 2, 3, dark)
-    t.p(5, 6, eye)
-    t.p(11, 6, eye)
-    t.p(5, 7, "#ffffff")
-    t.p(11, 7, "#ffffff")
-    # muzzle / beak
-    if muzzle == "snout":
-        t.r(6, 10, 4, 3, light)
-        t.r(7, 10, 2, 1, dark)
-        t.p(6, 12, mix(light, dark, 0.25))
-    elif muzzle == "beak":
-        t.poly([(6, 10), (9, 10), (8, 13)], accent)
-        t.p(7, 10, shade(accent, -0.25))
-    elif muzzle == "wide":
-        t.r(5, 10, 6, 3, light)
-        t.r(7, 11, 2, 1, dark)
-    # markings
-    if marking == "spots":
-        t.p(3, 9, accent)
-        t.p(12, 9, accent)
-        t.p(3, 12, accent)
-        t.p(12, 12, accent)
-    elif marking == "stripes":
-        t.vline(2, 8, 6, dark)
-        t.vline(13, 8, 6, dark)
-        t.hline(6, 5, 4, dark)
-    elif marking == "goggles":
-        t.r(3, 5, 10, 1, pal["accent"])
-        t.r(4, 5, 3, 3, "#2b2b2b")
-        t.r(9, 5, 3, 3, "#2b2b2b")
-        t.r(5, 6, 1, 1, "#cfe8ff")
-        t.r(10, 6, 1, 1, "#cfe8ff")
-    elif marking == "star":
-        for x, y in ((3, 4), (12, 5), (4, 11), (11, 12), (8, 2)):
-            t.p(x, y, accent)
-    elif marking == "mask":
-        t.r(3, 5, 10, 4, mix(body, dark, 0.55))
-        t.r(4, 6, 2, 2, eye)
-        t.r(10, 6, 2, 2, eye)
-        t.r(4, 6, 1, 1, "#ffffff")
-        t.r(10, 6, 1, 1, "#ffffff")
-    t.outline(dark)
+def _pet_eye(t, x, y, pal, width=7, height=9):
+    """Rounded dark eyes, coloured lower iris, a big reflection and a small sparkle."""
+    ink = mix(pal['dark'], '#18202c', .65)
+    t.r(x + 1, y, width - 2, height, ink)
+    t.r(x, y + 1, width, height - 2, ink)
+    iris = mix(pal['eye'], pal['accent'], .35)
+    t.r(x + 1, y + height - 3, width - 2, 2, iris)
+    t.r(x + 1, y + 1, 2, 3, '#fff9ed')
+    t.p(x + 3, y + 1, '#fff9ed')
+    t.p(x + width - 2, y + height - 4, shade(iris, .5))
+
+
+def _pet_cheeks(t, pal, y=23):
+    blush = mix(pal['body'], '#f4a8a6', .6)
+    for x in (3, 24):
+        t.r(x, y, 5, 2, blush)
+        t.p(x + 1, y, mix(blush, '#fff1e3', .4))
+
+
+def _pet_front(pal, species):
+    t = _pet_surface(pal, 'front')
+    body, light, accent = pal['body'], pal['light'], pal['accent']
+    ink = mix(pal['dark'], '#18202c', .6)
+    cream = mix(light, '#fff3df', .4)
+    if species in ('ember_fox', 'gear_imp'):
+        for x in (3, 23):
+            t.poly([(x, 8), (x + 3, 1), (x + 7, 8)], shade(body, -.16))
+            t.poly([(x + 2, 6), (x + 3, 3), (x + 5, 6)], mix(body, '#f6b2ad', .7))
+    elif species == 'frost_cub':
+        for x in (3, 23):
+            t.r(x, 2, 6, 6, shade(body, -.10))
+            t.r(x + 1, 3, 4, 3, mix(body, '#f4c4cb', .6))
+    elif species in ('star_owl', 'cloud_serpent'):
+        for x in (3, 24):
+            t.poly([(x, 8), (x + 2, 1), (x + 5, 7)], accent)
+            t.p(x + 2, 2, shade(accent, .4))
+    if species == 'ember_fox':
+        t.poly([(1, 19), (8, 18), (12, 23), (19, 23), (23, 18), (30, 19),
+                (28, 28), (24, 30), (7, 30), (3, 28)], cream)
+        for x in (5, 22):
+            t.hline(x, 11, 5, shade(body, .35))
+    elif species == 'frost_cub':
+        t.r(3, 11, 11, 13, cream)
+        t.r(18, 11, 11, 13, cream)
+        t.r(7, 21, 18, 9, light)
+    elif species == 'star_owl':
+        for x in (7, 24):
+            t.d.ellipse((x - 7, 10, x + 7, 26), fill=C(cream))
+        t.p(15, 5, '#fff5d1')
+        t.hline(13, 6, 5, '#fff5d1')
+        t.vline(15, 4, 5, '#fff5d1')
+    elif species in ('moss_frog', 'tide_turtle'):
+        t.r(2, 22, 28, 7, light)
+        t.hline(4, 22, 24, shade(light, .2))
+        if species == 'moss_frog':
+            t.poly([(13, 7), (11, 4), (16, 5), (20, 2), (20, 6), (16, 8)], accent)
+            t.p(4, 10, shade(body, -.14)); t.p(26, 10, shade(body, -.14))
+        else:
+            t.poly([(12, 3), (19, 3), (21, 7), (16, 10), (10, 7)], accent)
+            t.hline(13, 4, 5, shade(accent, .3))
+    elif species == 'cloud_serpent':
+        t.r(8, 24, 16, 6, cream)
+        for x in (3, 25):
+            t.r(x, 9, 4, 2, accent)
+            t.p(x + 1, 8, shade(accent, .25))
+        for x, y in ((12, 5), (16, 8), (19, 5)):
+            t.hline(x, y, 2, shade(accent, -.12))
+    elif species == 'lantern_moth':
+        for x, sign in ((4, -1), (27, 1)):
+            t.vline(x, 1, 8, pal['dark'])
+            for y in (2, 4, 6):
+                t.hline(x - 2 if sign < 0 else x, y, 3, accent)
+        t.r(11, 6, 10, 4, cream)
+        t.hline(8, 10, 16, shade(body, .3))
+    elif species == 'spore_sprite':
+        t.r(0, 0, 32, 18, shade(body, -.08))
+        t.r(1, 1, 30, 3, shade(body, .2))
+        for x, y, w in ((3, 6, 6), (13, 3, 5), (23, 7, 6)):
+            t.r(x, y, w, 4, cream)
+            t.r(x + 1, y, w - 2, 1, '#fffaf0')
+        t.hline(0, 16, 32, pal['dark'])
+        t.r(2, 18, 28, 14, pal['accent'])
+        for x in (6, 23):
+            _pet_eye(t, x, 20, pal, 4, 6)
+        _pet_cheeks(t, pal, 27)
+        t.hline(14, 28, 4, ink)
+        return t.im
+    elif species == 'pumpkin_pal':
+        for x in (3, 10, 21, 28):
+            t.vline(x, 3, 28, shade(body, -.10))
+            t.vline(x + 1, 4, 26, shade(body, .12))
+        t.r(13, 1, 6, 5, accent)
+        t.poly([(17, 4), (22, 1), (27, 2), (22, 6)], shade(accent, .15))
+    # Big eyes sit low on the face, leaving a soft, rounded forehead.
+    for x in (6, 20):
+        _pet_eye(t, x, 13, pal)
+    if species == 'gear_imp':
+        brass = pal['accent']
+        for x in (4, 18):
+            t.hline(x + 1, 11, 9, brass); t.hline(x + 1, 23, 9, shade(brass, -.25))
+            t.vline(x, 12, 11, brass); t.vline(x + 10, 12, 11, brass)
+            t.p(x + 1, 12, '#fff0bb'); t.p(x + 9, 22, '#fff0bb')
+        t.hline(14, 16, 4, brass)
+        t.r(10, 26, 12, 4, cream)
+    _pet_cheeks(t, pal)
+    if species in ('star_owl', 'lantern_moth'):
+        t.poly([(13, 24), (18, 24), (16, 28)], accent)
+        t.hline(14, 24, 3, shade(accent, .4))
+    elif species in ('moss_frog', 'tide_turtle', 'pumpkin_pal'):
+        t.hline(12, 27, 8, ink)
+        t.p(11, 26, ink); t.p(20, 26, ink)
+    else:
+        t.r(14, 24, 4, 2, ink)
+        t.p(14, 24, shade(ink, .3))
+        t.p(15, 26, ink)
+        t.hline(12, 28, 3, shade(light, -.25))
+        t.hline(17, 28, 3, shade(light, -.25))
     return t.im
 
 
-def _head_back(pal, ear="point", marking=None):
-    t = Tile()
-    body, dark, accent = pal["body"], pal["dark"], pal["accent"]
-    _ears(t, pal, ear)
-    t.r(2, 3, 12, 11, body)
-    t.r(3, 3, 10, 2, mix(body, "#ffffff", 0.14))
-    t.r(4, 6, 8, 6, mix(body, dark, 0.35))
-    if marking == "spots":
-        t.speckle(accent, ((5, 8), (10, 10), (7, 12)))
-    elif marking == "stripes":
-        t.vline(7, 5, 8, dark)
-        t.vline(9, 5, 8, dark)
-    elif marking == "star":
-        t.speckle(accent, ((5, 7), (10, 9), (7, 12), (11, 6)))
-    elif marking == "goggles":
-        t.r(5, 6, 6, 1, accent)
-    t.outline(dark)
-    return t.im
-
-
-def _head_side(pal, ear="point", muzzle="snout", flip=False):
-    t = Tile()
-    body, light, dark = pal["body"], pal["light"], pal["dark"]
-    accent, eye = pal["accent"], pal["eye"]
-    if ear == "point":
-        t.poly([(4, 5), (7, 0), (10, 5)], body)
-    elif ear == "round":
-        t.r(4, 1, 5, 4, body)
-    elif ear == "tuft":
-        t.r(4, 2, 5, 3, body)
-        t.p(5, 1, dark)
-    t.r(3, 4, 11, 10, body)
-    t.r(4, 4, 9, 2, mix(body, "#ffffff", 0.2))
-    t.r(9, 7, 3, 3, dark)
-    t.p(10, 7, eye)
-    t.p(10, 8, "#ffffff")
-    if muzzle == "snout":
-        t.r(10, 10, 4, 3, light)
-        t.p(13, 11, dark)
-    elif muzzle == "beak":
-        t.poly([(10, 10), (15, 11), (10, 12)], accent)
-    if flip:
-        t.im = t.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        t.d = ImageDraw.Draw(t.im)
-    t.outline(dark)
-    return t.im
-
-
-def _head_top(pal, ear="point", marking=None):
-    t = Tile()
-    body, dark, accent = pal["body"], pal["dark"], pal["accent"]
-    t.r(3, 3, 10, 10, body)
-    t.r(4, 4, 8, 8, mix(body, "#ffffff", 0.1))
-    _ears(t, pal, ear)
-    if marking == "spots":
-        t.speckle(accent, ((5, 6), (10, 9), (8, 11)))
-    elif marking == "stripes":
-        t.vline(7, 3, 10, dark)
-        t.vline(9, 3, 10, dark)
-    elif marking == "star":
-        t.speckle(accent, ((5, 6), (10, 5), (7, 10), (11, 11)))
-    elif marking == "goggles":
-        t.r(6, 6, 4, 2, accent)
-    t.outline(dark)
-    return t.im
-
-
-def _head_bottom(pal):
-    t = Tile()
-    t.r(3, 3, 10, 10, pal["dark"])
-    t.r(5, 5, 6, 6, mix(pal["body"], pal["dark"], 0.4))
-    return t.im
-
-
-def _body_front(pal, style="belly"):
-    t = Tile()
-    body, light, dark = pal["body"], pal["light"], pal["dark"]
-    accent, eye = pal["accent"], pal["eye"]
-    t.r(1, 2, 14, 13, body)
-    t.r(2, 2, 12, 2, mix(body, "#ffffff", 0.18))
-    if style == "belly":
-        t.r(4, 4, 8, 9, light)
-        t.r(6, 4, 4, 1, mix(light, "#ffffff", 0.4))
-    elif style == "shell":
-        t.r(3, 3, 10, 10, pal["shell"])
-        for x, y in ((5, 5), (8, 5), (11, 5), (5, 8), (8, 8), (11, 8),
-                     (5, 11), (8, 11), (11, 11)):
-            t.r(x, y, 2, 2, accent)
-    elif style == "scarf":
-        t.r(2, 4, 12, 3, accent)
-        t.r(4, 7, 8, 6, light)
-    elif style == "glow":
-        for y in range(4, 14, 2):
-            t.r(5, y, 6, 1, accent)
-            t.p(6, y, eye)
-    elif style == "pumpkin":
-        for x in range(3, 14, 3):
-            t.vline(x, 3, 11, shade(body, -0.18))
-        t.r(4, 5, 3, 2, eye)
-        t.r(9, 5, 3, 2, eye)
-        t.r(5, 10, 6, 1, eye)
-        t.p(7, 11, eye)
-        t.p(8, 11, eye)
-    # little paws
-    t.r(1, 13, 3, 2, dark)
-    t.r(12, 13, 3, 2, dark)
-    t.outline(dark)
-    return t.im
-
-
-def _body_back(pal, style="tail"):
-    t = Tile()
-    body, light, dark = pal["body"], pal["light"], pal["dark"]
-    accent = pal["accent"]
-    t.r(1, 2, 14, 13, body)
-    t.r(2, 2, 12, 2, mix(body, "#ffffff", 0.12))
-    if style == "tail":
-        t.r(9, 4, 5, 10, accent)
-        t.r(10, 3, 3, 2, mix(accent, "#ffffff", 0.35))
-        t.p(13, 6, light)
-        t.p(12, 10, light)
-    elif style == "shell":
-        t.r(2, 3, 12, 11, pal["shell"])
-        t.r(4, 5, 8, 7, accent)
-        t.vline(7, 5, 7, dark)
-        t.vline(9, 5, 7, dark)
-    elif style == "spots":
-        t.speckle(accent, ((4, 5), (10, 4), (7, 8), (12, 9), (5, 11), (9, 12)))
-    elif style == "stripes":
-        t.vline(5, 3, 11, dark)
-        t.vline(8, 3, 11, dark)
-        t.vline(11, 3, 11, dark)
-    elif style == "scarf":
-        t.r(2, 3, 12, 3, accent)
-        t.r(6, 6, 4, 8, light)
-    elif style == "glow":
-        for y in range(3, 14, 2):
-            t.r(5, y, 6, 1, accent)
-    t.outline(dark)
-    return t.im
-
-
-def _body_side(pal, style="plain"):
-    t = Tile()
-    body, light, dark = pal["body"], pal["light"], pal["dark"]
-    accent = pal["accent"]
-    t.r(2, 2, 12, 13, body)
-    t.r(3, 2, 10, 2, mix(body, "#ffffff", 0.15))
-    if style == "shell":
-        t.r(2, 4, 12, 8, pal["shell"])
-        t.r(5, 6, 3, 3, accent)
-        t.r(9, 8, 3, 2, accent)
-    elif style == "spots":
-        t.speckle(accent, ((5, 6), (10, 7), (7, 10), (11, 12)))
-    elif style == "stripes":
-        t.hline(3, 6, 10, dark)
-        t.hline(3, 9, 10, dark)
-        t.hline(3, 12, 10, dark)
-    elif style == "scarf":
-        t.r(2, 4, 12, 3, accent)
-    elif style == "glow":
-        t.r(4, 5, 8, 1, accent)
-        t.r(4, 9, 8, 1, accent)
-        t.r(4, 13, 8, 1, accent)
-    t.outline(dark)
-    return t.im
-
-
-def _body_top(pal, style="plain"):
-    t = Tile()
-    body, dark = pal["body"], pal["dark"]
-    accent = pal["accent"]
-    t.r(2, 2, 12, 12, body)
-    t.r(3, 3, 10, 10, mix(body, "#ffffff", 0.08))
-    if style == "shell":
-        t.r(3, 3, 10, 10, pal["shell"])
-        t.r(6, 6, 4, 4, accent)
-    elif style == "spots":
-        t.speckle(accent, ((5, 5), (10, 7), (7, 11), (11, 10)))
-    elif style == "stripes":
-        t.vline(6, 3, 10, dark)
-        t.vline(9, 3, 10, dark)
-    elif style == "scarf":
-        t.r(2, 3, 12, 3, accent)
-    elif style == "glow":
-        t.r(5, 7, 6, 2, accent)
-    t.outline(dark)
-    return t.im
-
-
-def _body_bottom(pal):
-    t = Tile()
-    t.r(2, 2, 12, 12, pal["dark"])
-    t.r(4, 4, 8, 8, mix(pal["body"], pal["dark"], 0.45))
-    return t.im
-
-
-def creature_faces(pal, *, ear="point", muzzle="snout", marking=None,
-                   body_style="belly", back_style="tail", side_style="plain"):
-    head = faces(
-        _head_front(pal, ear, muzzle, marking),
-        _head_back(pal, ear, marking),
-        _head_side(pal, ear, muzzle, flip=False),
-        _head_side(pal, ear, muzzle, flip=True),
-        _head_top(pal, ear, marking),
-        _head_bottom(pal),
-    )
-    body = faces(
-        _body_front(pal, body_style),
-        _body_back(pal, back_style),
-        _body_side(pal, side_style),
-        _body_side(pal, side_style),
-        _body_top(pal, side_style),
-        _body_bottom(pal),
-    )
+def pet_faces(pal, species):
+    """Every pet gets matching front, rear, profile, crown and underside artwork."""
+    head = {}
+    body = {}
+    for face in ('front', 'back', 'left', 'right', 'top', 'bottom'):
+        h = _pet_surface(pal, face)
+        b = _pet_surface(pal, face, head=False)
+        light, accent = pal['light'], pal['accent']
+        if face == 'front':
+            head[face] = _pet_front(pal, species)
+            b.d.ellipse((6, 3, 25, 29), fill=C(mix(light, '#fff1df', .25)))
+            b.hline(11, 5, 10, shade(light, .3))
+            for x, y in ((9, 11), (17, 14), (12, 21)):
+                b.hline(x, y, 4, mix(light, pal['body'], .18))
+                b.hline(x + 1, y + 1, 2, shade(light, .16))
+            for x in (1, 24):
+                b.r(x, 23, 7, 8, shade(pal['body'], -.1))
+                b.r(x + 1, 27, 5, 2, mix(light, '#f0b1af', .35))
+                b.p(x + 2, 29, shade(pal['body'], -.25))
+            if species == 'gear_imp':
+                b.r(0, 2, 32, 6, '#c85c62'); b.hline(1, 3, 30, '#ef9990')
+                b.r(22, 8, 6, 13, '#c85c62'); b.hline(23, 19, 4, '#edb89b')
+            elif species == 'lantern_moth':
+                for y in (8, 13, 18):
+                    b.hline(5, y, 22, shade(pal['body'], -.13))
+                b.r(9, 11, 14, 12, accent); b.r(11, 13, 10, 8, '#ffeab1')
+                b.r(13, 14, 6, 5, '#fff9e0')
+            elif species == 'spore_sprite':
+                b.r(6, 2, 20, 25, pal['accent'])
+                b.r(6, 24, 7, 6, pal['light']); b.r(19, 24, 7, 6, pal['light'])
+        else:
+            # Small coherent directional tufts / scale flecks over the coat.
+            for x, y in ((6, 7), (16, 11), (23, 6), (8, 21), (21, 24)):
+                h.hline(x, y, 3, shade(pal['body'], .17))
+                b.hline(x, y, 3, shade(pal['body'], -.09))
+            if face in ('left', 'right'):
+                h.r(19, 23, 12, 7, mix(light, '#fff3df', .35))
+                _pet_eye(h, 21, 14, pal, 6, 8)
+                h.r(18, 23, 4, 2, mix(pal['body'], '#f4a8a6', .55))
+                h.r(5, 3, 7, 5, accent)
+            if species == 'ember_fox' and face == 'back':
+                b.poly([(16, 3), (24, 8), (28, 23), (19, 29), (13, 22)], accent)
+                b.poly([(13, 22), (19, 24), (25, 22), (19, 29)], light)
+        if species == 'tide_turtle' and face != 'bottom':
+            if face != 'front':
+                b.r(1, 2, 30, 28, pal['shell'])
+                for x, y in ((3, 4), (17, 4), (10, 13), (3, 22), (22, 22)):
+                    b.poly([(x, y + 2), (x + 3, y), (x + 8, y + 2),
+                            (x + 8, y + 6), (x + 4, y + 8), (x, y + 6)], accent)
+                    b.hline(x + 3, y + 1, 3, shade(accent, .3))
+        if species == 'star_owl' and face != 'front':
+            for x, y in ((4, 12), (12, 17), (21, 12), (7, 24), (23, 25)):
+                b.poly([(x, y), (x + 4, y + 3), (x + 8, y)], light)
+            h.hline(9, 5, 5, accent); h.vline(11, 3, 5, accent)
+        if species == 'spore_sprite' and face != 'front':
+            if face in ('left', 'right', 'back'):
+                h.hline(0, 16, 32, pal['dark'])
+                h.r(0, 18, 32, 14, pal['accent'])
+            for x, y in ((4, 5), (19, 9), (10, 22)):
+                if face == 'top' or y < 16:
+                    h.r(x, y, 6, 4, pal['light'])
+            b.r(4, 3, 24, 26, pal['accent'])
+        if face not in head:
+            head[face] = h.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT) if face == 'right' else h.im
+        body[face] = b.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT) if face == 'right' else b.im
     return [body, head]
-
-
-# ---------------------------------------------------------------------------
-# Special shoulder items
-# ---------------------------------------------------------------------------
-
-
-def moth_faces(pal):
-    # Head: big compound eyes, feathery antennae. Body: glowing lantern tail.
-    hf = Tile()
-    body, dark, accent, eye = pal["body"], pal["dark"], pal["accent"], pal["eye"]
-    hf.poly([(2, 4), (0, 0), (5, 2)], dark)
-    hf.poly([(13, 4), (15, 0), (10, 2)], dark)
-    hf.r(3, 3, 10, 10, body)
-    hf.r(4, 5, 3, 4, dark)
-    hf.r(9, 5, 3, 4, dark)
-    hf.r(5, 6, 1, 2, eye)
-    hf.r(10, 6, 1, 2, eye)
-    hf.r(7, 9, 2, 3, accent)
-    hf.outline(dark)
-    hb = Tile()
-    hb.r(3, 3, 10, 10, body)
-    hb.r(4, 4, 8, 3, mix(body, dark, 0.3))
-    hb.r(6, 8, 4, 4, accent)
-    hb.outline(dark)
-    hs = Tile()
-    hs.r(3, 4, 10, 9, body)
-    hs.r(7, 6, 4, 3, dark)
-    hs.p(9, 7, eye)
-    hs.r(5, 10, 5, 2, accent)
-    hs.outline(dark)
-    ht = Tile()
-    ht.r(3, 3, 10, 10, body)
-    ht.r(4, 4, 8, 8, mix(body, "#ffffff", 0.2))
-    ht.poly([(3, 3), (0, 0), (6, 2)], dark)
-    ht.poly([(12, 3), (15, 0), (9, 2)], dark)
-    ht.outline(dark)
-    hbot = Tile()
-    hbot.r(4, 4, 8, 8, dark)
-    head = faces(hf.im, hb.im, hs.im, hs.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
-                 ht.im, hbot.im)
-
-    bf = Tile()
-    bf.r(3, 2, 10, 12, body)
-    for y in range(3, 14, 2):
-        bf.r(4, y, 8, 1, mix(body, dark, 0.25))
-    bf.r(5, 6, 6, 4, accent)
-    bf.r(6, 7, 4, 2, eye)
-    bf.r(3, 13, 4, 2, dark)
-    bf.r(9, 13, 4, 2, dark)
-    bf.outline(dark)
-    bb = Tile()
-    bb.r(3, 2, 10, 12, body)
-    for y in range(3, 14, 2):
-        bb.r(4, y, 8, 1, mix(body, dark, 0.25))
-    bb.r(6, 8, 4, 3, accent)
-    bb.outline(dark)
-    bs = Tile()
-    bs.r(3, 3, 10, 10, body)
-    bs.r(4, 5, 8, 1, dark)
-    bs.r(4, 8, 8, 1, dark)
-    bs.r(4, 11, 8, 1, dark)
-    bs.outline(dark)
-    bt = Tile()
-    bt.r(3, 3, 10, 10, body)
-    bt.r(5, 5, 6, 6, accent)
-    bt.outline(dark)
-    bbot = Tile()
-    bbot.r(3, 3, 10, 10, dark)
-    body_faces = faces(bf.im, bb.im, bs.im, bs.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
-                       bt.im, bbot.im)
-    return [body_faces, head]
-
-
-def mushroom_faces(pal):
-    # Head box is the cap, body box is the little stem-person.
-    hf = Tile()
-    cap, spot, dark, body = pal["body"], pal["light"], pal["dark"], pal["accent"]
-    hf.r(1, 2, 14, 7, cap)
-    hf.r(2, 1, 12, 2, mix(cap, "#ffffff", 0.15))
-    hf.r(3, 4, 2, 2, spot)
-    hf.r(7, 3, 2, 2, spot)
-    hf.r(11, 4, 2, 2, spot)
-    hf.r(5, 9, 6, 5, body)
-    hf.r(6, 10, 2, 2, dark)
-    hf.r(9, 10, 2, 2, dark)
-    hf.p(7, 12, dark)
-    hf.outline(dark)
-    hb = Tile()
-    hb.r(1, 2, 14, 7, cap)
-    hb.r(2, 1, 12, 2, mix(cap, "#ffffff", 0.1))
-    hb.r(4, 4, 2, 2, spot)
-    hb.r(10, 5, 2, 2, spot)
-    hb.r(5, 9, 6, 5, body)
-    hb.outline(dark)
-    hs = Tile()
-    hs.r(1, 2, 14, 7, cap)
-    hs.r(3, 4, 2, 2, spot)
-    hs.r(10, 3, 2, 2, spot)
-    hs.r(5, 9, 6, 5, body)
-    hs.outline(dark)
-    ht = Tile()
-    ht.r(2, 2, 12, 12, cap)
-    ht.r(4, 4, 3, 3, spot)
-    ht.r(9, 6, 3, 3, spot)
-    ht.r(6, 10, 2, 2, spot)
-    ht.outline(dark)
-    hbot = Tile()
-    hbot.r(3, 3, 10, 10, dark)
-    head = faces(hf.im, hb.im, hs.im, hs.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
-                 ht.im, hbot.im)
-
-    bf = Tile()
-    bf.r(4, 2, 8, 12, body)
-    bf.r(5, 2, 6, 2, mix(body, "#ffffff", 0.2))
-    bf.r(6, 8, 4, 4, spot)
-    bf.r(4, 13, 3, 2, dark)
-    bf.r(9, 13, 3, 2, dark)
-    bf.outline(dark)
-    bb = Tile()
-    bb.r(4, 2, 8, 12, body)
-    bb.r(5, 4, 6, 6, mix(body, dark, 0.25))
-    bb.outline(dark)
-    bs = Tile()
-    bs.r(4, 3, 8, 11, body)
-    bs.r(5, 5, 6, 2, spot)
-    bs.outline(dark)
-    bt = Tile()
-    bt.r(4, 4, 8, 8, body)
-    bt.outline(dark)
-    bbot = Tile()
-    bbot.r(4, 4, 8, 8, dark)
-    body_faces = faces(bf.im, bb.im, bs.im, bs.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
-                       bt.im, bbot.im)
-    return [body_faces, head]
 
 
 # ---------------------------------------------------------------------------
@@ -793,27 +575,17 @@ def silhouette_rectangles(image):
     return output
 
 
-def _creature(item_id, name, blurb, pal, **art):
+def _creature(item_id, name, blurb, pal):
     p = PALETTES[pal]
     return dict(
         id=item_id, slot="shoulder", name=name, blurb=blurb,
         boxes=[
-            dict(origin=[-8.0, -2.0, -1.5], size=[4, 3, 3], px=4, part=0),
-            dict(origin=[-8.0, -5.5, -2.0], size=[4, 4, 4], px=4, part=1),
+            dict(origin=[-9.0, -2.0, -1.5], size=[4, 3, 3], px=8, part=0,
+                 motion="body", pivot=[-7, 1, 0]),
+            dict(origin=[-9.0, -5.5, -2.0], size=[4, 4, 4], px=8, part=1,
+                 motion="head", pivot=[-7, -2, 0]),
         ],
-        _faces=sealed_faces(p, creature_faces(p, **art)),
-    )
-
-
-def _special(item_id, name, blurb, pal, painter):
-    p = PALETTES[pal]
-    return dict(
-        id=item_id, slot="shoulder", name=name, blurb=blurb,
-        boxes=[
-            dict(origin=[-8.0, -2.0, -1.5], size=[4, 3, 3], px=4, part=0),
-            dict(origin=[-8.0, -5.5, -2.0], size=[4, 4, 4], px=4, part=1),
-        ],
-        _faces=sealed_faces(p, painter(p)),
+        _faces=sealed_faces(p, pet_faces(p, pal)),
     )
 
 
@@ -838,7 +610,8 @@ def _wings(item_id, name, blurb, pal):
         right_face = face.crop((0, 0, 1, height)).resize((depth, height), Image.Resampling.NEAREST)
         boxes.append(dict(origin=[1 + left / px, top / px, 2.2],
                           size=[width / px, height / px, depth / px], px=px,
-                          part=len(painted), mirror=True))
+                          part=len(painted), mirror=True,
+                          motion="wing", pivot=[1, 0, 2.45]))
         painted.append(faces(face, rear, left_face, right_face, cap(0), cap(height - 1)))
     return dict(id=item_id, slot="back", name=name, blurb=blurb,
                 boxes=boxes, _faces=painted)
@@ -849,7 +622,8 @@ def _pack(item_id, name, blurb, pal, emblem):
     return dict(
         id=item_id, slot="back", name=name, blurb=blurb,
         boxes=[
-            dict(origin=[-4.0, 2.0, 2.2], size=[8, 9, 4], px=3, part=0),
+            dict(origin=[-4.0, 2.0, 2.2], size=[8, 9, 4], px=3, part=0,
+                 motion="pack", pivot=[0, 2, 2.2]),
         ],
         _faces=sealed_faces(p, [pack_faces(p, emblem)]),
     )
@@ -857,44 +631,25 @@ def _pack(item_id, name, blurb, pal, emblem):
 
 ITEMS = [
     _creature("shoulder_ember_fox", "Ember Fox",
-              "A warm little fox that curls up on your shoulder.",
-              "ember_fox", ear="point", muzzle="snout", marking="spots",
-              body_style="belly", back_style="tail", side_style="spots"),
+              "A warm little fox with soft fur and a curious smile.", "ember_fox"),
     _creature("shoulder_moss_frog", "Moss Frog",
-              "A pond-green frog with a very serious expression.",
-              "moss_frog", ear="none", muzzle="wide", marking="spots",
-              body_style="belly", back_style="spots", side_style="spots"),
-    _special("shoulder_lantern_moth", "Lantern Moth",
-             "Its lantern tail glows softly in the dark.",
-             "lantern_moth", moth_faces),
+              "A cheerful pond-green frog with rosy cheeks.", "moss_frog"),
+    _creature("shoulder_lantern_moth", "Lantern Moth",
+              "A fluffy moth with sparkling eyes and a warm lantern tail.", "lantern_moth"),
     _creature("shoulder_frost_cub", "Frost Cub",
-              "A snow-pale cub that never seems to feel the cold.",
-              "frost_cub", ear="round", muzzle="snout", marking="mask",
-              body_style="belly", back_style="tail", side_style="plain"),
+              "A snow-pale cub with tiny pink paws.", "frost_cub"),
     _creature("shoulder_cloud_serpent", "Cloud Serpent",
-              "A tiny sky serpent coiled into a comfortable knot.",
-              "cloud_serpent", ear="tuft", muzzle="snout", marking="star",
-              body_style="belly", back_style="spots", side_style="spots"),
+              "A tiny sky serpent with pearly scales and gentle eyes.", "cloud_serpent"),
     _creature("shoulder_gear_imp", "Gear Imp",
-              "A workshop imp wearing brass goggles and a red scarf.",
-              "gear_imp", ear="point", muzzle="snout", marking="goggles",
-              body_style="scarf", back_style="scarf", side_style="scarf"),
-    _special("shoulder_spore_sprite", "Spore Sprite",
-             "A mushroom-cap friend with a tiny, curious face.",
-             "spore_sprite", mushroom_faces),
+              "A workshop imp wearing brass goggles and a red scarf.", "gear_imp"),
+    _creature("shoulder_spore_sprite", "Spore Sprite",
+              "A mushroom-cap friend with a tiny, curious face.", "spore_sprite"),
     _creature("shoulder_star_owl", "Star Owl",
-              "A night owl whose feathers hold a small constellation.",
-              "star_owl", ear="tuft", muzzle="beak", marking="star",
-              body_style="belly", back_style="spots", side_style="spots"),
+              "A fluffy night owl with a little constellation in its feathers.", "star_owl"),
     _creature("shoulder_tide_turtle", "Tide Turtle",
-              "A pocket-sized turtle with a wave-worn shell.",
-              "tide_turtle", ear="none", muzzle="wide", marking="spots",
-              body_style="shell", back_style="shell", side_style="shell"),
-    _special("shoulder_pumpkin_pal", "Pumpkin Pal",
-             "A grinning pumpkin companion for the harvest season.",
-             "pumpkin_pal", lambda p: creature_faces(
-                 p, ear="none", muzzle="none", marking=None,
-                 body_style="pumpkin", back_style="glow", side_style="glow")),
+              "A pocket-sized turtle with a patterned sea-green shell.", "tide_turtle"),
+    _creature("shoulder_pumpkin_pal", "Pumpkin Pal",
+              "A smiling pumpkin companion for the harvest season.", "pumpkin_pal"),
 
     _wings("back_ember_wings", "Ember Wings",
            "Feathers that smoulder orange at the tips.", "ember_wings"),
@@ -969,6 +724,8 @@ def render_item(item):
             "px": int(box["px"]),
             "uv": [int(box["uv"][0]), int(box["uv"][1])],
             "mirror": bool(box.get("mirror", False)),
+            "motion": box.get("motion", "none"),
+            "pivot": box.get("pivot", [0, 0, 0]),
         })
     return sheet, out_boxes
 

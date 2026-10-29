@@ -196,18 +196,28 @@ public class HealthTest {
         Files.writeString(directory.resolve("keyhud.json"),old.toString());
         CubeonHudConfig.load();
         require(CubeonHudConfig.get().showFps && !CubeonHudConfig.get().showEnemyHealth, "Old preferences preserved, health opt-in");
+        require(CubeonHudConfig.get().cosmeticAnimations, "Old config defaults cosmetic animations on");
+        require(CubeonHudConfig.get().showEmotes, "Old config defaults emote display on");
         PlayerEntity enemy=new PlayerEntity();
         client.player.pos=new Vec3d(0,1,0);
         hidden(enemy,"Off toggle must draw nothing");
-        CubeonHudConfig.get().showEnemyHealth=true; CubeonHudConfig.save();
+        CubeonHudConfig.get().showEnemyHealth=true;
+        CubeonHudConfig.get().cosmeticAnimations=false;
+        CubeonHudConfig.get().showEmotes=false; CubeonHudConfig.save();
         var saved=com.google.gson.JsonParser.parseString(Files.readString(
                 directory.resolve("cubeon-client-hud.json"))).getAsJsonObject();
         require(!saved.has("motionBlur") && !saved.has("motionBlurStrength")
                 && !saved.has("dynamicCrosshair"),"Removed effects disappear on config save");
         require(saved.get("showFps").getAsBoolean() && saved.get("fpsScale").getAsFloat()==1.25F,
                 "Removing old effects preserves other HUD preferences");
-        CubeonHudConfig.get().showEnemyHealth=false; CubeonHudConfig.load();
+        CubeonHudConfig.get().showEnemyHealth=false;
+        CubeonHudConfig.get().cosmeticAnimations=true;
+        CubeonHudConfig.get().showEmotes=true; CubeonHudConfig.load();
         require(CubeonHudConfig.get().showEnemyHealth,"Health toggle persists");
+        require(!CubeonHudConfig.get().cosmeticAnimations, "Animation-off preference persists");
+        require(!CubeonHudConfig.get().showEmotes, "Emote display-off preference persists");
+        CubeonHudConfig.resetPositions();
+        require(!CubeonHudConfig.get().cosmeticAnimations, "Reset positions preserves animation choice");
         render();
         require(draw.fills.size()==2 && draw.labels.isEmpty(),"One player bar; no duplicate name");
         int[] background=draw.fills.get(0), fill=draw.fills.get(1);
@@ -443,6 +453,7 @@ public class LegacyTest {
             screen = (MAIN / ('java-overlay-' + hud) /
                       'com/cubeon/client/hud/screen/CubeonHudMenuScreen.java').read_text()
             self.assertIn('config.showEnemyHealth = !config.showEnemyHealth', screen, bracket['key'])
+            self.assertIn('config.cosmeticAnimations = !config.cosmeticAnimations', screen, bracket['key'])
             self.assertIn('cubeonclient.menu.enemy_health', screen, bracket['key'])
 
 

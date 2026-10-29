@@ -83,6 +83,9 @@ _providers = {
     # Worldgate: the host's optional LAN-world password (POST /worldgate) and
     # the joiner's answer to a challenge (POST /joinpassword). See
     # cubeon/worldgate.py for the protocol.
+    "emotecontext": None,
+    "emote": None,
+    "emotes": None,
     "worldgate": None,
     "joinpassword": None,
 }
@@ -210,6 +213,18 @@ def set_askjoin_handler(fn) -> None:
     _providers["askjoin"] = fn
 
 
+def set_emote_context_handler(fn) -> None:
+    _providers["emotecontext"] = fn
+
+
+def set_emote_handler(fn) -> None:
+    _providers["emote"] = fn
+
+
+def set_emotes_provider(fn) -> None:
+    _providers["emotes"] = fn
+
+
 def set_players_provider(fn) -> None:
     """fn() -> {"players": [{"name","online","skin","cape","version","status"}]}.
     GET /players - what the in-game Friends screen's roster reads for
@@ -286,7 +301,10 @@ class _Handler(BaseHTTPRequestHandler):
     def _dispatch_get(self):
         # /events carries a query string, so route on the path alone.
         parts = urlsplit(self.path)
-        if parts.path == "/friends":
+        if parts.path == "/emotes":
+            fn = _providers["emotes"]
+            self._json(fn() if fn else {"room": "", "ready": False, "active": []})
+        elif parts.path == "/friends":
             fn = _providers["roster"]
             roster = fn() if fn else {}
             friends = [f for f in (roster.get("friends") or [])
@@ -407,7 +425,13 @@ class _Handler(BaseHTTPRequestHandler):
             body = {}
         route = urlsplit(self.path).path.lstrip("/")
 
-        if route == "invite":
+        if route in ("emotecontext", "emote"):
+            fn = _providers[route]
+            if fn is None:
+                self._json({"ok": False, "error": "Emotes require an updated Cubeon launcher."}, 503)
+            else:
+                self._call(lambda: fn(body))
+        elif route == "invite":
             # Kept separate from the table below: invite takes the name the
             # player picked from their own roster, so an empty one is the
             # service's error to word, not a 400.

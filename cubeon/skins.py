@@ -296,7 +296,7 @@ def _repair_transparent_base(img: Image.Image, *, slim: bool = False) -> Image.I
     """Return a valid RGBA sheet with holes removed from base geometry.
 
     Minecraft permits transparent pixels in the outer hat/jacket layer and in
-    the unused fourth columns of slim arms, but not in the required base
+    unused pixels outside slim arm cube nets, but not in the required base
     faces. Passing those holes through makes the game render large black gaps
     (especially down the back and outer arm). Fill only the required base
     rectangles from the built-in Steve sheet; preserve every outer-layer and
@@ -308,19 +308,16 @@ def _repair_transparent_base(img: Image.Image, *, slim: bool = False) -> Image.I
         return sheet
     fallback = default_base_skin()
     legacy = sheet.size == (64, 32)
-    regions = [
-        (0, 0, 32, 16),       # head base faces
-        (20, 20, 28, 32),     # torso
-        (4, 20, 8, 32),       # right leg
-        (44, 20, 47 if slim else 48, 32),  # right arm; slim spare x=47
-    ]
-    if legacy:
-        regions.append((44, 20, 48, 32))
-    else:
-        regions.extend([
-            (20, 52, 24, 64),  # left leg
-            (36, 52, 39 if slim else 40, 64),  # left arm; slim spare x=39
-        ])
+    # A cube net has top/bottom above four side faces. Include the back and
+    # side faces too, while preserving unused atlas pixels and outer layers.
+    parts = [(0, 0, 8, 8, 8), (16, 16, 8, 12, 4),
+             (0, 16, 4, 12, 4), (40, 16, 3 if slim and not legacy else 4, 12, 4)]
+    if not legacy:
+        parts.extend([(16, 48, 4, 12, 4), (32, 48, 3 if slim else 4, 12, 4)])
+    regions = []
+    for u, v, width, height, depth in parts:
+        regions.extend([(u + depth, v, u + depth + 2 * width, v + depth),
+                        (u, v + depth, u + 2 * (depth + width), v + depth + height)])
     for x0, y0, x1, y1 in regions:
         for y in range(y0, min(y1, sheet.height)):
             for x in range(x0, min(x1, sheet.width)):
@@ -330,25 +327,22 @@ def _repair_transparent_base(img: Image.Image, *, slim: bool = False) -> Image.I
 
 
 def _detect_slim_model(img: Image.Image) -> bool:
-    """Detect the Alex/slim model from the reserved fourth arm columns.
+    """Detect slim arms from the unused edges of both complete cube nets.
 
-    A single probe pixel is not reliable: a classic skin may have a
-    transparent elbow, while a malformed/edited slim skin may have one stray
-    opaque pixel. The official 64x64 layout reserves the fourth base column
-    at x=47 and the fourth left-arm column at x=39; slim skins leave both
-    columns transparent for the full 12-pixel arm height. Requiring both
-    columns to be clear prevents assigning a 4px/classic skin to a 3px model,
-    which is what causes the back/outer arm edge to be clipped in-game.
+    Alex uses 3px front/back faces and 4px sides. x=47 and x=39 are real
+    side pixels, not reserved columns. The unused base rectangles sit past
+    the back faces and the two 3px-wide top/bottom faces. Fully opaque edited
+    sheets remain ambiguous and need an explicit model choice.
     """
     try:
         rgba = img.convert("RGBA")
         if rgba.size != (64, 64):
             return False
-        reserved = (
-            [(47, y) for y in range(20, 32)]
-            + [(39, y) for y in range(52, 64)]
-        )
-        return all(rgba.getpixel(pos)[3] == 0 for pos in reserved)
+        reserved = ((54, 20, 56, 32), (50, 16, 52, 20),
+                    (46, 52, 48, 64), (42, 48, 44, 52))
+        return all(rgba.getpixel((x, y))[3] == 0
+                   for x0, y0, x1, y1 in reserved
+                   for y in range(y0, y1) for x in range(x0, x1))
     except Exception:
         return False
 
@@ -833,7 +827,14 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
     with Image.open(src) as sheet:
         sheet = sheet.convert("RGBA")
         legacy = sheet.size == (64, 32)
-        slim = (not legacy) and _detect_slim_model(sheet)
+        # Preview workers read the saved choice without migrating/writing
+        # metadata; a thumbnail must not race a user changing the arm model.
+        model = "auto"
+        if src_path is None:
+            model = next((s.get("model", "auto") for s in list_custom_skins()
+                          if s.get("filename") == filename), "auto")
+        slim = (not legacy) and (model == "slim" or
+                                 (model != "classic" and _detect_slim_model(sheet)))
         arm_w = 3 if slim else 4
         back = str(view).strip().lower() == "back"
 
@@ -868,29 +869,24 @@ def render_local_skin_preview(filename: str, out_path: str, scale: int = 8,
         head = face(8, 8, 8, 8, 16)
         torso = face(20, 20, 8, 12, 12)
         r_leg = face(4, 20, 4, 12, 8)
-        r_arm = face(44, 20, arm_w, 12, 8)
+        r_arm = face(44, 20, arm_w, 12, arm_w + 4)
         if legacy:
             l_leg = face(4, 20, 4, 12, 8)
             l_arm = face(44, 20, arm_w, 12, 8)
         else:
             l_leg = face(20, 52, 4, 12, 8)
-            # The slim layout keeps the left-arm origin at x=36; its unused
-            # fourth column is on the right, just like the right arm's unused
-            # column at x=47. Shifting the crop for slim skins drops the real
-            # outer edge and was the source of clipped/misaligned arms in the
-            # launcher preview.
-            l_arm = face(36, 52, arm_w, 12, 8)
+            # Front starts at x=36 for both models; the back moves one pixel
+            # left for slim arms because its front face is only 3px wide.
+            l_arm = face(36, 52, arm_w, 12, arm_w + 4)
 
         # --- Outer ("hat"/jacket/sleeve/pants) layer regions --------------------
         # On the legacy 64x32 layout there is no second skin layer at all.
         head_o = face(40, 8, 8, 8, 16)
         torso_o = face(20, 36, 8, 12, 12) if not legacy else None
         r_leg_o = face(4, 36, 4, 12, 8) if not legacy else None
-        r_arm_o = face(44, 36, arm_w, 12, 8) if not legacy else None
+        r_arm_o = face(44, 36, arm_w, 12, arm_w + 4) if not legacy else None
         l_leg_o = face(4, 52, 4, 12, 8) if not legacy else None
-        # Same rule for the left sleeve layer: its origin is x=52 for both
-        # classic and slim sheets; slim's spare column is at the right edge.
-        l_arm_o = face(52, 52, arm_w, 12, 8) if not legacy else None
+        l_arm_o = face(52, 52, arm_w, 12, arm_w + 4) if not legacy else None
 
         # Combine each part with its outer layer before scaling, so the
         # jacket/sleeve/pants pixels aren't lost to nearest-neighbor resize

@@ -183,7 +183,7 @@ check("Cosmetics offers rotation buttons without drag gestures",
       any(getattr(c, "tooltip", None) == "Rotate left" for c in controls)
       and any(getattr(c, "tooltip", None) == "Rotate right" for c in controls)
       and not any(type(c).__name__ == "GestureDetector" for c in controls))
-check("Cosmetics has no arm model selector or apply button",
+check("Cosmetics has no global arm dropdown or separate Apply button",
       not any(getattr(c, "label", None) == "Arm model" for c in controls)
       and not any(getattr(c, "value", None) == "Apply model to active skin" for c in controls))
 driver.open_tab("settings")

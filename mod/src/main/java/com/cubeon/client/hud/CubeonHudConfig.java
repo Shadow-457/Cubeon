@@ -34,6 +34,10 @@ public final class CubeonHudConfig {
 	public boolean showCps = false;
 	/** Compact bars anchored beneath nearby enemy names, opt-in. */
 	public boolean showEnemyHealth = false;
+	/** Keep cosmetics visible but skip all posing when disabled. */
+	public boolean cosmeticAnimations = true;
+	/** Receive and display player emotes, independent of decorative items. */
+	public boolean showEmotes = true;
 
 	public boolean showArmorHelmet = true;
 	public boolean showArmorChest = true;

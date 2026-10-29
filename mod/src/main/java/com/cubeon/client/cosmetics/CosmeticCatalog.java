@@ -45,9 +45,12 @@ public final class CosmeticCatalog {
         public final int uvX;
         public final int uvY;
         public final boolean mirror;
+        public final String motion;
+        public final float pivotX, pivotY, pivotZ;
 
         Box(float x, float y, float z, float width, float height, float depth,
-            int px, int uvX, int uvY, boolean mirror) {
+            int px, int uvX, int uvY, boolean mirror, String motion,
+            float pivotX, float pivotY, float pivotZ) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -58,6 +61,10 @@ public final class CosmeticCatalog {
             this.uvX = uvX;
             this.uvY = uvY;
             this.mirror = mirror;
+            this.motion = motion;
+            this.pivotX = pivotX;
+            this.pivotY = pivotY;
+            this.pivotZ = pivotZ;
         }
     }
 
@@ -178,12 +185,23 @@ public final class CosmeticCatalog {
                     || width <= 0 || height <= 0 || depth <= 0 || px <= 0) {
                 return null;
             }
+            List<Object> pivot = Json.list(raw, "pivot");
+            boolean rigged = pivot.size() >= 3;
+            if (rigged) {
+                for (int i = 0; i < 3; i++) {
+                    rigged &= Float.isFinite((float) number(pivot.get(i)));
+                }
+            }
             return new Box((float) number(origin.get(0)),
                     (float) number(origin.get(1)),
                     (float) number(origin.get(2)),
                     width, height, depth, px,
                     (int) number(uv.get(0)), (int) number(uv.get(1)),
-                    Json.bool(raw, "mirror", false));
+                    Json.bool(raw, "mirror", false),
+                    rigged ? Json.str(raw, "motion", "none") : "none",
+                    rigged ? (float) number(pivot.get(0)) : 0,
+                    rigged ? (float) number(pivot.get(1)) : 0,
+                    rigged ? (float) number(pivot.get(2)) : 0);
         }
 
         private static double number(Object value) {

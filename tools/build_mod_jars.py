@@ -58,6 +58,12 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "assets/cubeon-client/icon.png",
                     "com/cubeon/client/CubeonClient.class",
                     "com/cubeon/client/WorldPlayers.class",
+                    "com/cubeon/client/emotes/EmoteState.class",
+                    "com/cubeon/client/emotes/EmotePose.class",
+                    "com/cubeon/client/emotes/EmoteWheel.class",
+                    "com/cubeon/client/emotes/EmoteClient.class",
+                    "com/cubeon/client/mixin/EmoteModelMixin.class",
+                    "com/cubeon/client/hud/screen/EmoteMenuScreen.class",
                     "com/cubeon/client/TabListTag.class",
                     "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class",
@@ -73,19 +79,21 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     # the cheap way to catch that here.
                     "com/cubeon/client/cosmetics/CosmeticCatalog.class",
                     "com/cubeon/client/cosmetics/CosmeticGeometry.class",
+                    "com/cubeon/client/cosmetics/CosmeticAnimation.class",
                     "com/cubeon/client/cosmetics/CosmeticSelection.class",
                     "com/cubeon/client/cosmetics/CosmeticsClient.class",
                     "assets/cubeon-client/cosmetics/catalog.json",
                     "assets/cubeon-client/textures/cosmetics/shoulder_ember_fox.png")
 
-# The Yarn brackets only: hold-to-zoom is two mixins (FOV narrowing and the
-# wheel while the key is held). A mixin class that is compiled but not listed
+# The Yarn brackets only: hold-to-zoom uses FOV narrowing, the wheel
+# and a slowed/smoothed mouse-look hook. A mixin class that is compiled but not listed
 # in a config does nothing, and one listed without being present is a startup
 # warning, so both the config and the classes are required together.
 REQUIRED_ENTRIES_ZOOM = ("cubeon-client.zoom.mixins.json",
                          "com/cubeon/client/hud/Zoom.class",
                          "com/cubeon/client/mixin/ZoomMixin.class",
-                         "com/cubeon/client/mixin/ZoomScrollMixin.class")
+                         "com/cubeon/client/mixin/ZoomScrollMixin.class",
+                         "com/cubeon/client/mixin/ZoomLookMixin.class")
 
 # The 26.x brackets only. The HUD there measures ping through a mixin of its own,
 # and a mixin that is compiled but not registered by a config silently does

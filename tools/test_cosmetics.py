@@ -21,6 +21,7 @@ redirected into a scratch directory before cubeon binds its paths.
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -566,13 +567,11 @@ def _java_tool(name):
     except (OSError, subprocess.SubprocessError):
         return None
     text = (version.stderr or "") + (version.stdout or "")
-    digits = "".join(ch if ch.isdigit() else " " for ch in text).split()
-    if not digits:
+    # JVM startup warnings can contain timestamps before the real version.
+    match = re.search(r'(?:version\s+"|^javac\s+)(\d+)', text, re.MULTILINE)
+    if version.returncode != 0 or not match:
         return None
-    try:
-        if int(digits[0]) < 17:
-            return None
-    except ValueError:
+    if int(match.group(1)) < 17:
         return None
     return tool
 

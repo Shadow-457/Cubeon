@@ -19,6 +19,7 @@ public final class CubeonHudKeybinds {
 
 	/** Vanilla 1.21.11 leaves K unbound; users can rebind it in the controls screen. */
 	private static KeyBinding openMenu;
+	private static KeyBinding emotes;
 	private static KeyBinding zoom;
 
 	private CubeonHudKeybinds() {
@@ -31,6 +32,13 @@ public final class CubeonHudKeybinds {
 				GLFW.GLFW_KEY_K,
 				CATEGORY);
 		KeyBindingHelper.registerKeyBinding(openMenu);
+
+		emotes = new KeyBinding(
+				"key." + CubeonHudClient.MOD_ID + ".emotes",
+				InputUtil.Type.KEYSYM,
+				GLFW.GLFW_KEY_B,
+				CATEGORY);
+		KeyBindingHelper.registerKeyBinding(emotes);
 
 		// Z is unbound in vanilla; the same controls screen can move it.
 		zoom = new KeyBinding(
@@ -48,6 +56,10 @@ public final class CubeonHudKeybinds {
 		// Vanilla only presses keybindings while no screen is open, so this cannot fight a GUI.
 		if (client.player == null || client.world == null || client.currentScreen != null) {
 			return;
+		}
+
+		if (emotes.wasPressed()) {
+			client.setScreen(new com.cubeon.client.hud.screen.EmoteMenuScreen());
 		}
 
 		if (openMenu.wasPressed()) {

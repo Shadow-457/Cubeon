@@ -669,8 +669,9 @@ def test_zoom():
         base = os.path.join(MOD, "src", "main", f"java-overlay-{overlay}",
                             "com", "cubeon", "client", "mixin")
         ok(os.path.isfile(os.path.join(base, "ZoomMixin.java"))
-           and os.path.isfile(os.path.join(base, "ZoomScrollMixin.java")),
-           f"{overlay} ships both the FOV and the scroll hook")
+           and os.path.isfile(os.path.join(base, "ZoomScrollMixin.java"))
+           and os.path.isfile(os.path.join(base, "ZoomLookMixin.java")),
+           f"{overlay} ships FOV, scroll and look hooks")
 
     shared = os.path.join(MOD, "src", "main", "java", "com", "cubeon", "client",
                           "hud", "Zoom.java")
@@ -684,8 +685,8 @@ def test_zoom():
     ok(os.path.isfile(cfg_path), "the zoom mixin config is shipped")
     if os.path.isfile(cfg_path):
         cfg = load(cfg_path)
-        ok(set(cfg.get("client", [])) == {"ZoomMixin", "ZoomScrollMixin"},
-           "it registers both zoom mixins")
+        ok(set(cfg.get("client", [])) == {"ZoomMixin", "ZoomScrollMixin", "ZoomLookMixin"},
+           "it registers FOV, scroll and smoothed-look mixins")
         ok(cfg.get("required") is False
            and cfg.get("injectors", {}).get("defaultRequire") == 0,
            "and it is fail-soft: a mismatch costs the zoom, not the game")

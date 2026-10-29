@@ -230,6 +230,9 @@ class FriendsService:
         # GET /players - skin/cape/presence details for every Cubeon name this
         # launcher can vouch for; the in-game Friends screen's roster reads it.
         ("set_players_provider", "players_payload"),
+        ("set_emote_context_handler", "emote_context"),
+        ("set_emote_handler", "play_emote"),
+        ("set_emotes_provider", "emotes_payload"),
         # Worldgate: the host's optional LAN-world password (POST /worldgate)
         # and the joiner's proof answer (POST /joinpassword).
         ("set_worldgate_handler", "worldgate_set"),
@@ -240,6 +243,8 @@ class FriendsService:
         self.cfg = cfg
         self.state = state
         self.client = client
+        from .emotes import EmoteRelay
+        self.emotes = EmoteRelay(client)
         self._save_config = save_config or (lambda: _default_save_config(self.cfg))
 
         # Guards the session dict *reference* and the pending-invite map. Not
@@ -445,6 +450,8 @@ class FriendsService:
         launch path calls this instead of poking the client directly, so
         everything social goes through one object."""
         try:
+            if not version:
+                self.emotes.context({"room": ""})
             self.client.set_version(version)
         except Exception:
             # Presence is never worth failing a game launch over.
@@ -726,7 +733,9 @@ class FriendsService:
                           ("call_end", self._on_call_end),
                           ("signal", self._on_signal),
                           ("dm", self._on_dm),
-                          ("history", self._on_history)):
+                          ("history", self._on_history),
+                          ("emote", self.emotes.receive),
+                          ("emote_ready", self.emotes.acknowledge)):
             c.on(event, fn)
 
     def _remember_roster(self, roster) -> None:
@@ -934,6 +943,15 @@ class FriendsService:
             # means the game is running an old mod and needs a relaunch.
             "mod_stamp": _mod_stamp(version_id),
         }
+
+    def emote_context(self, body) -> dict:
+        return self.emotes.context(body)
+
+    def play_emote(self, body) -> dict:
+        return self.emotes.play(body)
+
+    def emotes_payload(self) -> dict:
+        return self.emotes.snapshot()
 
     def players_payload(self) -> dict:
         """GET /players. What the in-game menu knows about Cubeon players.
@@ -3321,6 +3339,7 @@ class FriendsService:
     # =====================================================================
 
     def _on_state(self, payload) -> None:
+        self.emotes.connection(isinstance(payload, dict) and payload.get("connected", False))
         if isinstance(payload, dict) and payload.get("connected"):
             with self._chat_lock:
                 self._connect_gen += 1

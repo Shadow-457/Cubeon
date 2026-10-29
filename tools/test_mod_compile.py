@@ -33,6 +33,7 @@ Skips cleanly (exit 0) when no JDK with javac is installed.
 import glob
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -60,9 +61,14 @@ from test_mod_bridge import find_jdk, _java_version  # noqa: E402
 MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/Json.java",
     "mod/src/main/java/com/cubeon/client/Bridge.java",
+    "mod/src/main/java/com/cubeon/client/emotes/EmoteState.java",
+    "mod/src/main/java/com/cubeon/client/emotes/EmotePose.java",
+    "mod/src/main/java/com/cubeon/client/emotes/EmoteRoom.java",
+    "mod/src/main/java/com/cubeon/client/emotes/EmoteWheel.java",
     "mod/src/main/java/com/cubeon/client/BadgeNames.java",
     "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticCatalog.java",
     "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticGeometry.java",
+    "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticAnimation.java",
     "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticSelection.java",
     "mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/CubeonClient.java",
@@ -1185,10 +1191,16 @@ def _check_mixin_wiring():
         else:
             say(len(overlays) > 0,
                 f"{name} is per-bracket and has an overlay copy", shared)
-            say(len(overlays) == 2,
-                f"{name} exists in both bracket overlays",
-                f"found {len(overlays)}; a missing one ships that bracket "
-                f"without the mixin and the feature silently does nothing")
+            matrix = json.loads(Path(ROOT, "mod", "brackets.json").read_text())
+            missing = []
+            for bracket in matrix["brackets"]:
+                selected = [Path(ROOT, "mod", "src", "main", "java-overlay-" + overlay,
+                                 "com/cubeon/client/mixin/" + name + ".java")
+                            for overlay in bracket["overlays"]]
+                if sum(path.is_file() for path in selected) != 1:
+                    missing.append(bracket["key"])
+            say(not missing, f"{name} has exactly one source in every Minecraft bracket",
+                f"missing/duplicated in {missing}")
         say(f"{name}.class" in jar_src,
             f"{name}.class is in build_mod_jars REQUIRED_ENTRIES")
 

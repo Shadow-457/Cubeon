@@ -94,11 +94,14 @@ const T = {
   HISTORY: "history", CALL_INVITE: "call_invite", CALL_ACCEPT: "call_accept",
   CALL_DECLINE: "call_decline", CALL_END: "call_end", SIGNAL: "signal",
   TYPING: "typing", METADATA: "metadata",
+  EMOTE_ROOM: "emote_room", EMOTE_READY: "emote_ready", EMOTE: "emote",
   // server -> client
   HELLO_OK: "hello_ok", ERROR: "error", ROSTER: "roster", PRESENCE: "presence",
   REQUEST: "request", FRIEND_ADDED: "friend_added", FRIEND_REMOVED: "friend_removed",
   GROUP_CREATED: "group_created", GROUP_UPDATE: "group_update", SYSTEM: "system",
 };
+
+const EMOTE_DURATIONS = Object.freeze({ wave: 3, dance: 6, bow: 3, salute: 3, shrug: 2.5, point: 3 });
 
 const MAX_TEXT = 2000;        // one chat message
 export const MAX_DM_ENVELOPE_CHARS = 2000;
@@ -380,6 +383,8 @@ export class Hub {
     if (!this.allow(`frames:${me}`, 120, 60_000)) return;
 
     switch (msg.t) {
+      case T.EMOTE_ROOM: return this.onEmoteRoom(ws, me, msg);
+      case T.EMOTE: return this.onEmote(ws, me, msg);
       case T.ADD:
         // Friend requests are the frame that costs Durable-Object work
         // (writes + notifications to the target), so they get their own,
@@ -709,6 +714,64 @@ export class Hub {
 
   onMetadata(me, msg) {
     if (this.updateMetadata(me, msg.minecraft_username)) this.broadcastMetadata(me);
+  }
+
+  // Ephemeral room subscription lives in the hibernating socket attachment.
+  // Rooms are hashes: never accept server addresses or write emotes into SQL.
+  onEmoteRoom(ws, me, msg) {
+    if (typeof msg.room !== "string" || (msg.room && !/^[0-9a-f]{64}$/.test(msg.room))) return;
+    if (!this.allow(`emote-room:${me}`, 40, 60_000)) return;
+    const att = ws.deserializeAttachment();
+    if (att.emoteRoom !== msg.room && att.emote) this.relayEmote(ws, att, "stop", att.emote.serial);
+    ws.serializeAttachment({ ...att, emoteRoom: msg.room,
+      emoteRoomUntil: Date.now() + 45_000, emote: att.emoteRoom === msg.room ? att.emote : null });
+    ws.send(jstr(T.EMOTE_READY, { room: msg.room, ready: Boolean(msg.room) }));
+    // A player who joins during an emote receives its remaining pose.
+    let count = 0;
+    for (const other of this.ctx.getWebSockets()) {
+      if (other === ws || count >= 128) continue;
+      const peer = other.deserializeAttachment();
+      if (!peer?.name || peer.emoteRoom !== msg.room || !msg.room
+          || peer.emoteRoomUntil < Date.now() || !peer.emote) continue;
+      const age = (Date.now() - peer.emote.started) / 1000;
+      if (age < EMOTE_DURATIONS[peer.emote.id]) {
+        const username = this.identityOf(peer.name).minecraft_username;
+        if (username) {
+          ws.send(jstr(T.EMOTE, { room: msg.room, uuid: peer.emote.uuid,
+            username, emote: peer.emote.id, serial: peer.emote.serial, age }));
+          count++;
+        }
+      }
+    }
+  }
+
+  onEmote(ws, me, msg) {
+    const att = ws.deserializeAttachment();
+    if (!att?.emoteRoom || att.emoteRoomUntil < Date.now()
+        || typeof msg.uuid !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(msg.uuid)
+        || !Number.isInteger(msg.serial) || msg.serial < 0 || msg.serial > 2147483647
+        || (msg.emote !== "stop" && !Object.hasOwn(EMOTE_DURATIONS, msg.emote))) return;
+    if (!this.allow(`emote:${me}`, 20, 60_000)) return;
+    const now = Date.now();
+    if (msg.emote !== "stop" && att.emote && now - att.emote.started < 750) return;
+    // Sender identity comes from the authenticated account, never the message.
+    if (!this.identityOf(me).minecraft_username) return;
+    this.relayEmote(ws, { ...att, emote: { uuid: msg.uuid, serial: msg.serial } }, msg.emote, msg.serial);
+    ws.serializeAttachment({ ...att, emote: msg.emote === "stop" ? null
+      : { uuid: msg.uuid, id: msg.emote, serial: msg.serial, started: now } });
+  }
+
+  relayEmote(ws, att, emote, serial) {
+    const username = this.identityOf(att.name).minecraft_username;
+    const frame = jstr(T.EMOTE, { room: att.emoteRoom, uuid: att.emote.uuid,
+      username, emote, serial, age: 0 });
+    let count = 0;
+    for (const other of this.ctx.getWebSockets()) {
+      const peer = other.deserializeAttachment();
+      if (!peer?.name || peer.emoteRoom !== att.emoteRoom
+          || peer.emoteRoomUntil < Date.now() || count >= 256) continue;
+      try { other.send(frame); count++; } catch { /* Closing socket. */ }
+    }
   }
 
   onVersion(ws, me, msg) {

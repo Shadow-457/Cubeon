@@ -26,7 +26,10 @@ public final class CubeonHudClient implements ClientModInitializer {
 			CubeonHudKeybinds.register();
 			CubeonHud.register();
 
-			ClientTickEvents.END_CLIENT_TICK.register(client -> CubeonHudKeybinds.tick());
+			ClientTickEvents.END_CLIENT_TICK.register(client -> {
+				CubeonHudKeybinds.tick();
+				com.cubeon.client.emotes.EmoteClient.tick();
+			});
 		} catch (Throwable missingApi) {
 			LOGGER.warn("Cubeon Client overlays unavailable (Fabric API missing?): {}",
 					missingApi.toString());

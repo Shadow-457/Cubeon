@@ -179,7 +179,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # preview; the active item is highlighted, and hover reveals Use/Delete.
     def _owned_card(*, label, sublabel, active, on_use, on_delete,
                     src=None, lazy_thumb=None, preview_w=76, preview_h=112,
-                    icon=None):
+                    icon=None, model_label=None, on_model=None):
         """A selectable installed item: preview on top, name below, hover
         actions at the bottom. The active card swaps the Use button for an
         outlined ACTIVE pill and gets the accent border.
@@ -250,6 +250,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     (ft.Text(sublabel, size=10, color=TEXT_DIM)
                      if sublabel else ft.Container()),
+                    (ft.Container(
+                        content=ft.Text(model_label, size=10, color=ACCENT),
+                        on_click=on_model, bgcolor=CARD_FILL,
+                        padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
+                        border_radius=RADIUS,
+                        tooltip="Change arms: Auto → Alex (3 px) → Steve (4 px)",
+                    ) if model_label else ft.Container()),
                     ft.Container(height=4),
                     footer,
                 ],
@@ -304,10 +311,15 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     def _render_thumb(kind, filename):
         """PIL-heavy thumbnail render -> b64, or None. Worker-thread only."""
         folder = core.SKINS_DIR if kind == "skin" else core.CAPES_DIR
-        out = os.path.join(folder, f"_thumb_{filename}.png")
+        variant = ""
+        if kind == "skin":
+            entry = next((s for s in core.list_custom_skins()
+                          if s.get("filename") == filename), {})
+            variant = "alex_" if entry.get("slim") else "steve_"
+        out = os.path.join(folder, f"_thumb_{variant}{filename}.png")
         src = os.path.join(folder, filename)
         try:
-            # The preview is a pure function of the sheet, so an up-to-date
+            # The preview depends on the sheet and arm model, so an up-to-date
             # thumb file on disk IS the render - skip the composite entirely.
             # Without this, every rebuild re-encoded every thumb (the UI jank
             # half), and with the async path it would also mean N threads
@@ -355,6 +367,29 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         return _render_thumb("cape", filename)
 
 
+    def change_skin_arms(filename):
+        entry = next((s for s in core.list_custom_skins()
+                      if s.get("filename") == filename), None)
+        if entry is None:
+            return
+        current = entry.get("model", "auto")
+        choices = ("auto", "slim", "classic")
+        wanted = choices[(choices.index(current) + 1) % 3] if current in choices else "auto"
+        try:
+            if not core.set_skin_model(cfg, filename, wanted):
+                raise ValueError("Skin no longer exists")
+            with thread_safe_ui.TREE_LOCK:
+                _THUMB_MEMO.pop(("skin", filename), None)
+                if cfg.get("active_skin") == filename:
+                    appearance.refresh(invalidate=True)
+                refresh_skins_list()
+                upload_status.value = "Arm model updated. Restart Minecraft to apply it in-game."
+        except Exception as ex:
+            with thread_safe_ui.TREE_LOCK:
+                upload_status.value = f"Couldn't change arms: {ex}"
+        thread_safe_ui.refresh(upload_status)
+        thread_safe_ui.refresh(skins_list_col)
+
     def refresh_skins_list():
         skins = core.list_custom_skins()
         skins_list_col.controls.clear()
@@ -386,6 +421,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 active=is_active,
                 on_use=lambda e, fn=s["filename"]: set_active(fn),
                 on_delete=lambda e, fn=s["filename"]: delete_skin(fn),
+                model_label=("Alex · 3 px" if s.get("model") == "slim"
+                             else "Steve · 4 px" if s.get("model") == "classic"
+                             else "Auto · " + ("Alex" if s.get("slim") else "Steve")),
+                on_model=lambda e, fn=s["filename"]: change_skin_arms(fn),
             ))
         _flush_pending_thumbs()
 

@@ -21,6 +21,7 @@ public final class CubeonHudKeybinds {
 	private static final int KEY_OPEN_MENU = 75;
 
 	private static KeyMapping openMenu;
+	private static KeyMapping emotes;
 
 	private CubeonHudKeybinds() {
 	}
@@ -34,6 +35,15 @@ public final class CubeonHudKeybinds {
 				KEY_OPEN_MENU,
 				CATEGORY);
 		KeyMappingHelper.registerKeyMapping(openMenu);
+
+		emotes = new KeyMapping(
+				"key." + CubeonHudClient.MOD_ID + ".emotes",
+				// 26.1/26.2 still call this KEYSYM; 26.3 renamed it to KEYBOARD
+				// (and dropped SCANCODE). One overlay per spelling - see hud-26.3.
+				InputConstants.Type.KEYSYM,
+				66,
+				CATEGORY);
+		KeyMappingHelper.registerKeyMapping(emotes);
 	}
 
 	/** Called once per client tick; opens the menu when the key was newly pressed. */
@@ -43,6 +53,10 @@ public final class CubeonHudKeybinds {
 		// Vanilla only presses key mappings while no screen is open, so this cannot fight a GUI.
 		if (client.player == null || client.level == null || client.gui.screen() != null) {
 			return;
+		}
+
+		if (emotes.consumeClick()) {
+			client.gui.setScreen(new com.cubeon.client.hud.screen.EmoteMenuScreen());
 		}
 
 		if (openMenu.consumeClick()) {

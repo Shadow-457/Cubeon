@@ -18,6 +18,14 @@ PACKAGE = 'com/cubeon/client/cosmetics/'
 OVERLAYS = ('1.21.2', '1.21.5', '1.21.9', '1.21.11')
 
 FIXTURES = {
+    "com/cubeon/client/hud/CubeonHudConfig.java": '''
+package com.cubeon.client.hud;
+public class CubeonHudConfig {
+    private static final CubeonHudConfig CONFIG = new CubeonHudConfig();
+    public boolean cosmeticAnimations = true;
+    public static CubeonHudConfig get() { return CONFIG; }
+}
+''',
     'net/minecraft/client/MinecraftClient.java': '''
 package net.minecraft.client;
 public class MinecraftClient {
@@ -26,12 +34,18 @@ public class MinecraftClient {
     public Player player = new Player();
     public static class Player {
         public int getId() { return 42; }
+        public boolean isSprinting() { return false; }
         public Object getDisplayName() { return "Player"; }
+        public net.minecraft.util.math.Vec3d getVelocity() { return new net.minecraft.util.math.Vec3d(); }
     }
 }''',
     'net/minecraft/client/render/entity/state/PlayerEntityRenderState.java': '''
 package net.minecraft.client.render.entity.state;
-public class PlayerEntityRenderState { public int id; public Object displayName; }
+public class PlayerEntityRenderState { public int id; public Object displayName; public float age = 80; public boolean isGliding; }
+''',
+    'net/minecraft/util/math/Vec3d.java': '''
+package net.minecraft.util.math;
+public class Vec3d { public double horizontalLength() { return 0; } }
 ''',
     'net/minecraft/client/util/math/MatrixStack.java': '''
 package net.minecraft.client.util.math;
@@ -186,9 +200,13 @@ public class RendererTest {
             double c = Math.cos(pitch), sin = Math.sin(pitch);
             for (String idKey : List.of("back_void_wings", "shoulder_star_owl")) {
                 var item = catalog.get(idKey);
+                var posed = new CosmeticAnimation.PosedQuad();
+                var animation = com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations
+                        ? CosmeticAnimation.sample(state.age / 20, 0, false) : null;
                 for (var quad : CosmeticGeometry.quads(item, catalog.anchorX(item.slot))) {
+                    posed.set(quad, animation);
                     for (int i = 0; i < 4; i++) {
-                        float x = quad.x[i] / 16, y = quad.y[i] / 16, z = quad.z[i] / 16;
+                        float x = posed.x[i] / 16, y = posed.y[i] / 16, z = posed.z[i] / 16;
                         float[] wanted = {x, offsetY + (float)(c*y-sin*z), offsetZ + (float)(sin*y+c*z)};
                         float[] actual = Draws.points.get(vertex++);
                         for (int axis = 0; axis < 3; axis++) {
@@ -223,6 +241,11 @@ public class RendererTest {
         body.getField("z").setFloat(null, 0);
         body.getField("pitch").setFloat(null, (float)-Math.PI / 2);
         check(42, null, BOTH);
+        // Off keeps the complete rest mesh visible, including body transforms.
+        com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations = false;
+        check(42, null, BOTH);
+        com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations = true;
+        check(42, null, BOTH);
         MinecraftClient.instance.player = null;
         check(42, null, List.of());                  // Leaving a world is harmless.
         MinecraftClient.instance = null;
@@ -247,7 +270,7 @@ class CosmeticRendererTests(unittest.TestCase):
                     sources.append(str(path))
                 sources += [str(JAVA / 'com/cubeon/client/Json.java')]
                 sources += [str(JAVA / PACKAGE / (name + '.java')) for name in
-                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry')]
+                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry', 'CosmeticAnimation')]
                 sources += [str(ROOT / ('mod/src/main/java-overlay-cosmetics-' + overlay) /
                                 PACKAGE / 'CosmeticFeatureRenderer.java')]
                 classes = root / 'classes'

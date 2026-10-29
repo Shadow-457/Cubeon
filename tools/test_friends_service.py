@@ -121,6 +121,8 @@ class FakeClient:
     def call_decline(self, room): return self._send("call_decline", room)
     def call_end(self, room): return self._send("call_end", room)
     def signal(self, room, to, data): return self._send("signal", room, to, data)
+    def send_emote_room(self, room): return self._send("emote_room", room)
+    def send_emote(self, *args): return self._send("emote", *args)
     def set_version(self, v): self.versions.append(v)
     def connect(self, identity=None): self.connects += 1
 
@@ -265,6 +267,8 @@ def test_contract():
     for group in re.findall(r'_(?:NAME|BARE)_ROUTES = \(([^)]*)\)', api):
         served.update("/" + n for n in re.findall(r'"(\w+)"', group))
     served.update("/" + n for n in re.findall(r'route == "(\w+)"', api))
+    for group in re.findall(r'route in \(([^)]*)\)', api):
+        served.update("/" + n for n in re.findall(r'"(\w+)"', group))
 
     missing = sorted((posts | gets) - served)
     ok(not missing, f"every endpoint the mod calls is routed (missing: {missing})")

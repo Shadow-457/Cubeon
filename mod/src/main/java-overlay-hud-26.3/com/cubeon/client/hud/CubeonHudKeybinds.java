@@ -15,12 +15,11 @@ public final class CubeonHudKeybinds {
 	public static final KeyMapping.Category CATEGORY =
 			KeyMapping.Category.register(Identifier.fromNamespaceAndPath(CubeonHudClient.MOD_ID, "main"));
 
-	// Raw keyboard scan code for K, the same values vanilla uses for its own default
-	// bindings (75 = K). Vanilla 26.3 leaves this key completely unbound; users can
-	// rebind it in Settings -> Controls -> Key Binds -> Cubeon Client.
-	private static final int KEY_OPEN_MENU = 75;
+	// 26.3 uses native keyboard scan codes, not the older GLFW key symbols.
+	private static final int KEY_OPEN_MENU = InputConstants.KEY_K;
 
 	private static KeyMapping openMenu;
+	private static KeyMapping emotes;
 
 	private CubeonHudKeybinds() {
 	}
@@ -34,6 +33,15 @@ public final class CubeonHudKeybinds {
 				KEY_OPEN_MENU,
 				CATEGORY);
 		KeyMappingHelper.registerKeyMapping(openMenu);
+
+		emotes = new KeyMapping(
+				"key." + CubeonHudClient.MOD_ID + ".emotes",
+				// 26.3 renamed 26.1/26.2's KEYSYM to KEYBOARD (and dropped
+				// SCANCODE). This overlay exists only for that spelling.
+				InputConstants.Type.KEYBOARD,
+				InputConstants.KEY_B,
+				CATEGORY);
+		KeyMappingHelper.registerKeyMapping(emotes);
 	}
 
 	/** Called once per client tick; opens the menu when the key was newly pressed. */
@@ -43,6 +51,10 @@ public final class CubeonHudKeybinds {
 		// Vanilla only presses key mappings while no screen is open, so this cannot fight a GUI.
 		if (client.player == null || client.level == null || client.gui.screen() != null) {
 			return;
+		}
+
+		if (emotes.consumeClick()) {
+			client.gui.setScreen(new com.cubeon.client.hud.screen.EmoteMenuScreen());
 		}
 
 		if (openMenu.consumeClick()) {

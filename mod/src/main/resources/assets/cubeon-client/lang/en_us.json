@@ -19,5 +19,22 @@
   "cubeonclient.editor.ping": "Move the ping display",
   "cubeonclient.editor.cps": "Move the CPS display",
   "cubeonclient.editor.hint": "Drag with the left mouse button, then press Done",
-  "cubeonclient.menu.enemy_health": "Enemy Health: %s"
+  "cubeonclient.menu.enemy_health": "Enemy Health: %s",
+  "cubeonclient.menu.cosmetic_animations": "Cosmetic Animations: %s",
+  "key.cubeon-client.emotes": "Open Emotes",
+  "cubeonclient.menu.emotes": "Emotes",
+  "cubeonclient.emotes.synced": "Visible to Cubeon users on this server",
+  "cubeonclient.emotes.local": "Local preview — Cubeon sync unavailable",
+  "cubeonclient.emotes.stop": "Stop Emote",
+  "cubeonclient.emotes.show": "Show Emotes: %s",
+  "cubeonclient.emote.wave": "Wave",
+  "cubeonclient.emote.dance": "Dance",
+  "cubeonclient.emote.bow": "Bow",
+  "cubeonclient.emote.salute": "Salute",
+  "cubeonclient.emote.shrug": "Shrug",
+  "cubeonclient.emote.point": "Point",
+  "cubeonclient.emotes.choose": "Click",
+  "cubeonclient.emotes.enabled": "Show emotes: On",
+  "cubeonclient.emotes.disabled": "Show emotes: Off",
+  "cubeonclient.emotes.wheel_hint": "Click / 1–6 to play   ·   Esc to close"
 }

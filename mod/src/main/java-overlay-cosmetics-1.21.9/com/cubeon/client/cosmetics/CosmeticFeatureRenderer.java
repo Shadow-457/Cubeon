@@ -1,5 +1,7 @@
 package com.cubeon.client.cosmetics;
 
+import com.cubeon.client.hud.CubeonHudConfig;
+
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.OverlayTexture;
 import net.minecraft.client.render.RenderLayer;
@@ -31,6 +33,8 @@ public final class CosmeticFeatureRenderer
                 (Object) renderer);
     }
 
+    private final CosmeticAnimation.Tracker motion = new CosmeticAnimation.Tracker();
+
     @Override
     public void render(MatrixStack matrices, OrderedRenderCommandQueue queue,
                        int light, PlayerEntityRenderState state, float limbAngle,
@@ -40,10 +44,14 @@ public final class CosmeticFeatureRenderer
                 || state.id != client.player.getId()) {
             return;
         }
-        draw(matrices, queue, light);
+        CosmeticAnimation.Frame animation = CubeonHudConfig.get().cosmeticAnimations
+                ? motion.sample(state.age / 20.0f,
+                (float) client.player.getVelocity().horizontalLength() * 4, state.isGliding, client.player.isSprinting()) : motion.disabled();
+        draw(matrices, queue, light, animation);
     }
 
-    private void draw(MatrixStack matrices, OrderedRenderCommandQueue queue, int light) {
+    private void draw(MatrixStack matrices, OrderedRenderCommandQueue queue,
+                      int light, CosmeticAnimation.Frame animation) {
         CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
         if (catalog == null) {
             return;
@@ -52,8 +60,8 @@ public final class CosmeticFeatureRenderer
         matrices.push();
         getContextModel().body.applyTransform(matrices);
         try {
-            drawItem(catalog, "back", matrices, queue, light);
-            drawItem(catalog, "shoulder", matrices, queue, light);
+            drawItem(catalog, "back", matrices, queue, light, animation);
+            drawItem(catalog, "shoulder", matrices, queue, light, animation);
         } finally {
             matrices.pop();
         }
@@ -61,7 +69,7 @@ public final class CosmeticFeatureRenderer
 
     private void drawItem(CosmeticCatalog.Catalog catalog, String slot,
                           MatrixStack matrices, OrderedRenderCommandQueue queue,
-                          int light) {
+                          int light, CosmeticAnimation.Frame animation) {
         CosmeticCatalog.Item item = catalog.get(CosmeticSelection.get(slot));
         if (item == null) {
             return;
@@ -70,16 +78,18 @@ public final class CosmeticFeatureRenderer
                 "textures/cosmetics/" + item.texture);
         RenderLayer layer = RenderLayer.getEntityCutoutNoCull(texture);
         queue.submitCustom(matrices, layer, (entry, buffer) -> {
-            for (CosmeticGeometry.Quad quad : CosmeticGeometry.quads(
+            CosmeticAnimation.PosedQuad posed = new CosmeticAnimation.PosedQuad();
+                    for (CosmeticGeometry.Quad quad : CosmeticGeometry.quads(
                     item, catalog.anchorX(item.slot))) {
+                        posed.set(quad, animation);
                 for (int i = 0; i < 4; i++) {
-                    buffer.vertex(entry, quad.x[i] / 16.0f, quad.y[i] / 16.0f,
-                                    quad.z[i] / 16.0f)
+                    buffer.vertex(entry, posed.x[i] / 16.0f, posed.y[i] / 16.0f,
+                                    posed.z[i] / 16.0f)
                             .color(255, 255, 255, 255)
                             .texture(quad.u[i], quad.v[i])
                             .overlay(OverlayTexture.DEFAULT_UV)
                             .light(light)
-                            .normal(entry, quad.normalX, quad.normalY, quad.normalZ);
+                            .normal(entry, posed.normalX, posed.normalY, posed.normalZ);
                 }
             }
         });

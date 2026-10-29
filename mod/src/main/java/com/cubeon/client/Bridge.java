@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.function.Consumer;
 
 /**
@@ -269,6 +270,73 @@ public final class Bridge {
         }
     }
 
+    public record EmoteEvent(String uuid, String username, String emote, int serial, float age) { }
+    private record EmoteRequest(String room, String body) { }
+    private final ArrayBlockingQueue<EmoteRequest> emoteRequests = new ArrayBlockingQueue<>(16);
+    private volatile String emoteRoom = "";
+    private String sentEmoteRoom = "";
+    private long emoteRoomSentAt;
+    private volatile boolean emotesReady;
+    private volatile List<EmoteEvent> emotes = List.of();
+
+    /** No network from ticks, key handlers or model rendering. */
+    public void setEmoteRoom(String room) {
+        String next = room == null ? "" : room;
+        if (!next.equals(emoteRoom)) {
+            emoteRoom = next;
+            emotes = List.of();
+            emotesReady = false;
+            emoteRequests.clear();
+            wake();
+        }
+    }
+
+    public boolean emotesReady() { return emotesReady && current.connected(); }
+    public List<EmoteEvent> emotes() { return emotes; }
+
+    public boolean sendEmote(String uuid, String emote, int serial) {
+        boolean accepted = emoteRequests.offer(new EmoteRequest(emoteRoom,
+                "{\"uuid\":" + Json.quote(uuid) + ",\"emote\":" + Json.quote(emote)
+                        + ",\"serial\":" + serial + "}"));
+        wake();
+        return accepted;
+    }
+
+    private void refreshEmotes() {
+        String room = emoteRoom;
+        long now = System.nanoTime() / 1_000_000;
+        if (!room.equals(sentEmoteRoom) || (!room.isEmpty() && now - emoteRoomSentAt > 20_000)) {
+            Result result = post("/emotecontext", Json.object("room", room));
+            if (!result.ok()) { emotesReady = false; return; }
+            sentEmoteRoom = room;
+            emoteRoomSentAt = now;
+        }
+        EmoteRequest request;
+        while ((request = emoteRequests.poll()) != null) {
+            if (request.room().equals(room)) {
+                Result result = post("/emote", request.body());
+                if (!result.ok()) {
+                    emotesReady = false;
+                    Consumer<Toast> sink = toastSink;
+                    if (sink != null) sink.accept(new Toast(-1, result.error(), true));
+                }
+            }
+        }
+        if (room.isEmpty()) return;
+        String body = get("/emotes");
+        if (body == null) { emotesReady = false; return; }
+        Map<String, Object> data = Json.parseObject(body);
+        if (!room.equals(emoteRoom) || !room.equals(Json.str(data, "room", ""))) return;
+        emotesReady = Json.bool(data, "ready", false);
+        List<EmoteEvent> fresh = new ArrayList<>();
+        for (Object row : Json.list(data, "active")) {
+            if (fresh.size() >= 128) break;
+            fresh.add(new EmoteEvent(Json.str(row, "uuid", ""), Json.str(row, "username", ""),
+                    Json.str(row, "emote", ""), (int) Json.num(row, "serial"), (float) Json.num(row, "age")));
+        }
+        emotes = List.copyOf(fresh);
+    }
+
     // ---- state -----------------------------------------------------------
 
     private final HttpClient http = HttpClient.newBuilder()
@@ -384,10 +452,16 @@ public final class Bridge {
     }
 
     private void pollLoop() {
+        long fullPollAt = 0;
         try {
             while (true) {
                 try {
-                    refresh();
+                    long now = System.nanoTime() / 1_000_000;
+                    if (now >= fullPollAt || !current.launcherUp()) {
+                        refresh();
+                        fullPollAt = now + IDLE_POLL_MS;
+                    }
+                    if (current.launcherUp()) quietly("emote sync", this::refreshEmotes);
                 } catch (RuntimeException ex) {
                     // A malformed response or callback must not kill this
                     // thread: a dead poller leaves the screen frozen on its
@@ -396,7 +470,7 @@ public final class Bridge {
                     publish(down("Cubeon bridge error: " + ex));
                 }
                 long wait = current.launcherUp()
-                        ? IDLE_POLL_MS
+                        ? (emoteRoom.isEmpty() ? IDLE_POLL_MS : 250)
                         : DOWN_BACKOFF_MS[Math.min(downStreak, DOWN_BACKOFF_MS.length - 1)];
                 synchronized (wakeLock) {
                     if (!wakeRequested) {

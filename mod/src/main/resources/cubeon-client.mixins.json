@@ -4,7 +4,8 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "PlayerTabOverlayMixin",
-    "YggdrasilSessionServiceMixin"
+    "YggdrasilSessionServiceMixin",
+    "EmoteModelMixin"
   ],
   "injectors": {
     "defaultRequire": 0

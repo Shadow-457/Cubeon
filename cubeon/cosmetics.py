@@ -38,7 +38,7 @@ SLOTS = ("shoulder", "back")
 
 #: Absolute model-space attachment points (see gen_cosmetics.py).
 ANCHORS = {
-    "shoulder": (-6.0, 0.0, 0.0),
+    "shoulder": (-7.0, 0.0, 0.0),
     "back": (0.0, 2.0, 2.2),
 }
 

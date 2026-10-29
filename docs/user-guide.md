@@ -63,16 +63,37 @@ Microsoft/Mojang account.
   game by Cubeon Client and are visible to you; skins and capes need compatible
   skin support. A selection is stored in the instance the game plays in, so
   each instance can keep a different item.
+  In game, shoulder pets breathe and look around; wings beat slowly at rest,
+  speed up smoothly when sprinting and spread
+  during gliding, and backpacks sway while you move. The launcher preview shows
+  the resting model. Restart Minecraft after changing the companion mod.
 - **In-game HUD and zoom:** press K in game to open the Cubeon Client menu.
   Every overlay (FPS, keystrokes, armour, ping, CPS) has its own **Move** and
   **Size** buttons, so making the keystrokes bigger does not enlarge the FPS
   counter. The armour overlay shows only the four worn pieces, not the item in
   your hand. **Enemy Health** toggles a thin bar beneath nearby enemy names
   (players and hostile mobs). It starts off and remembers your choice; enemies
-  behind walls and teammates are hidden. Hold Z and scroll the mouse wheel to
-  zoom smoothly; release to return. Z can be rebound under Controls → Key Binds → Cubeon Client. Zoom is
+  behind walls and teammates are hidden. **Cosmetic Animations** starts on;
+  switch it off to keep pets, wings and packs still and reduce animation work.
+  The choice is saved. Hold Z to zoom in; scroll the wheel to adjust it.
+  Looking around is slower and lightly smoothed while zoomed; release to return.
+  Z can be rebound under Controls → Key Binds → Cubeon Client. Zoom is
   available on Minecraft 1.20-1.21.11; the 26.x releases use a different FOV
   system and do not have it yet.
+- **Emotes:** press B, or K → Emotes, to open the circular picker for Wave,
+  Dance, Bow, Salute, Shrug or Point. Move the mouse over a wedge and click,
+  or press 1–6. Arrows/Tab and Enter also work. Esc or right click closes it;
+  click the center to stop an emote. Move, jump, attack or use an item to
+  cancel. **Show Emotes** turns their display on/off and saves your choice.
+  Other players running the updated Cubeon Client can see them on ordinary
+  servers without a server mod. Both launchers need an online Cubeon connection
+  and both players must join using the same server address. The picker shows
+  whether sync is available; offline emotes remain visible to you. Unmodified
+  Minecraft clients cannot display these animations.
+- **Skin arms:** each uploaded skin has an **Auto / Alex / Steve** control.
+  Auto detects normal skin sheets; choose **Alex · 3 px** for a slim skin
+  whose editor filled its unused pixels, or **Steve · 4 px** for wide arms.
+  The choice is saved for that skin. Restart Minecraft after changing it.
 
 Screenshots have a separate section in Settings. Stats shows playtime and
 activity comparisons; it does not measure the game's frame rate.

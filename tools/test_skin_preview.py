@@ -23,10 +23,10 @@ def check(label, condition):
         raise SystemExit(1)
 
 
-# Detection must inspect the whole reserved columns, not one pixel. A classic
+# Detection must inspect the full unused cube-net regions, not one pixel. A classic
 # skin with a transparent elbow but an opaque lower arm remains classic.
 classic_probe = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-classic_probe.putpixel((47, 30), (1, 2, 3, 255))
+classic_probe.putpixel((54, 30), (1, 2, 3, 255))
 check("classic reserved arm column wins over a transparent probe pixel",
       not skins._detect_slim_model(classic_probe))
 

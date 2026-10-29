@@ -2,7 +2,7 @@
   "version": 1,
   "anchors": {
     "shoulder": [
-      -6.0,
+      -7.0,
       0.0,
       0.0
     ],
@@ -17,14 +17,14 @@
       "id": "shoulder_ember_fox",
       "slot": "shoulder",
       "name": "Ember Fox",
-      "blurb": "A warm little fox that curls up on your shoulder.",
+      "blurb": "A warm little fox with soft fur and a curious smile.",
       "texture": "shoulder_ember_fox.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -33,16 +33,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -51,12 +57,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -64,14 +76,14 @@
       "id": "shoulder_moss_frog",
       "slot": "shoulder",
       "name": "Moss Frog",
-      "blurb": "A pond-green frog with a very serious expression.",
+      "blurb": "A cheerful pond-green frog with rosy cheeks.",
       "texture": "shoulder_moss_frog.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -80,16 +92,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -98,12 +116,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -111,14 +135,14 @@
       "id": "shoulder_lantern_moth",
       "slot": "shoulder",
       "name": "Lantern Moth",
-      "blurb": "Its lantern tail glows softly in the dark.",
+      "blurb": "A fluffy moth with sparkling eyes and a warm lantern tail.",
       "texture": "shoulder_lantern_moth.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -127,16 +151,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -145,12 +175,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -158,14 +194,14 @@
       "id": "shoulder_frost_cub",
       "slot": "shoulder",
       "name": "Frost Cub",
-      "blurb": "A snow-pale cub that never seems to feel the cold.",
+      "blurb": "A snow-pale cub with tiny pink paws.",
       "texture": "shoulder_frost_cub.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -174,16 +210,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -192,12 +234,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -205,14 +253,14 @@
       "id": "shoulder_cloud_serpent",
       "slot": "shoulder",
       "name": "Cloud Serpent",
-      "blurb": "A tiny sky serpent coiled into a comfortable knot.",
+      "blurb": "A tiny sky serpent with pearly scales and gentle eyes.",
       "texture": "shoulder_cloud_serpent.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -221,16 +269,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -239,12 +293,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -254,12 +314,12 @@
       "name": "Gear Imp",
       "blurb": "A workshop imp wearing brass goggles and a red scarf.",
       "texture": "shoulder_gear_imp.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -268,16 +328,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -286,12 +352,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -301,12 +373,12 @@
       "name": "Spore Sprite",
       "blurb": "A mushroom-cap friend with a tiny, curious face.",
       "texture": "shoulder_spore_sprite.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -315,16 +387,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -333,12 +411,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -346,14 +430,14 @@
       "id": "shoulder_star_owl",
       "slot": "shoulder",
       "name": "Star Owl",
-      "blurb": "A night owl whose feathers hold a small constellation.",
+      "blurb": "A fluffy night owl with a little constellation in its feathers.",
       "texture": "shoulder_star_owl.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -362,16 +446,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -380,12 +470,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -393,14 +489,14 @@
       "id": "shoulder_tide_turtle",
       "slot": "shoulder",
       "name": "Tide Turtle",
-      "blurb": "A pocket-sized turtle with a wave-worn shell.",
+      "blurb": "A pocket-sized turtle with a patterned sea-green shell.",
       "texture": "shoulder_tide_turtle.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -409,16 +505,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -427,12 +529,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -440,14 +548,14 @@
       "id": "shoulder_pumpkin_pal",
       "slot": "shoulder",
       "name": "Pumpkin Pal",
-      "blurb": "A grinning pumpkin companion for the harvest season.",
+      "blurb": "A smiling pumpkin companion for the harvest season.",
       "texture": "shoulder_pumpkin_pal.png",
-      "tex_w": 64,
-      "tex_h": 60,
+      "tex_w": 128,
+      "tex_h": 116,
       "boxes": [
         {
           "origin": [
-            -8.0,
+            -9.0,
             -2.0,
             -1.5
           ],
@@ -456,16 +564,22 @@
             3,
             3
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
         },
         {
           "origin": [
-            -8.0,
+            -9.0,
             -5.5,
             -2.0
           ],
@@ -474,12 +588,18 @@
             4,
             4
           ],
-          "px": 4,
+          "px": 8,
           "uv": [
             0,
-            26
+            50
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
         }
       ]
     },
@@ -508,7 +628,13 @@
             0,
             0
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -526,7 +652,13 @@
             0,
             7
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -544,7 +676,13 @@
             0,
             14
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -562,7 +700,13 @@
             0,
             22
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -580,7 +724,13 @@
             0,
             39
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -598,7 +748,13 @@
             0,
             49
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -616,7 +772,13 @@
             0,
             56
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -634,7 +796,13 @@
             0,
             64
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -652,7 +820,13 @@
             0,
             72
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -670,7 +844,13 @@
             0,
             82
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -688,7 +868,13 @@
             0,
             89
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -706,7 +892,13 @@
             0,
             96
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -724,7 +916,13 @@
             0,
             104
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -742,7 +940,13 @@
             0,
             115
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         }
       ]
     },
@@ -771,7 +975,13 @@
             0,
             0
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -789,7 +999,13 @@
             0,
             7
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -807,7 +1023,13 @@
             0,
             14
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -825,7 +1047,13 @@
             0,
             22
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -843,7 +1071,13 @@
             0,
             39
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -861,7 +1095,13 @@
             0,
             49
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -879,7 +1119,13 @@
             0,
             56
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -897,7 +1143,13 @@
             0,
             64
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -915,7 +1167,13 @@
             0,
             72
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -933,7 +1191,13 @@
             0,
             82
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -951,7 +1215,13 @@
             0,
             89
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -969,7 +1239,13 @@
             0,
             96
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -987,7 +1263,13 @@
             0,
             104
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1005,7 +1287,13 @@
             0,
             115
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         }
       ]
     },
@@ -1034,7 +1322,13 @@
             0,
             0
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1052,7 +1346,13 @@
             0,
             7
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1070,7 +1370,13 @@
             0,
             14
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1088,7 +1394,13 @@
             0,
             22
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1106,7 +1418,13 @@
             0,
             39
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1124,7 +1442,13 @@
             0,
             49
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1142,7 +1466,13 @@
             0,
             56
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1160,7 +1490,13 @@
             0,
             64
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1178,7 +1514,13 @@
             0,
             72
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1196,7 +1538,13 @@
             0,
             82
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1214,7 +1562,13 @@
             0,
             89
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1232,7 +1586,13 @@
             0,
             96
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1250,7 +1610,13 @@
             0,
             104
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1268,7 +1634,13 @@
             0,
             115
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         }
       ]
     },
@@ -1297,7 +1669,13 @@
             0,
             0
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1315,7 +1693,13 @@
             0,
             7
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1333,7 +1717,13 @@
             0,
             14
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1351,7 +1741,13 @@
             0,
             22
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1369,7 +1765,13 @@
             0,
             39
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1387,7 +1789,13 @@
             0,
             49
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1405,7 +1813,13 @@
             0,
             56
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1423,7 +1837,13 @@
             0,
             64
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1441,7 +1861,13 @@
             0,
             72
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1459,7 +1885,13 @@
             0,
             82
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1477,7 +1909,13 @@
             0,
             89
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1495,7 +1933,13 @@
             0,
             96
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1513,7 +1957,13 @@
             0,
             104
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1531,7 +1981,13 @@
             0,
             115
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         }
       ]
     },
@@ -1560,7 +2016,13 @@
             0,
             0
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1578,7 +2040,13 @@
             0,
             7
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1596,7 +2064,13 @@
             0,
             14
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1614,7 +2088,13 @@
             0,
             22
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1632,7 +2112,13 @@
             0,
             39
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1650,7 +2136,13 @@
             0,
             49
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1668,7 +2160,13 @@
             0,
             56
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1686,7 +2184,13 @@
             0,
             64
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1704,7 +2208,13 @@
             0,
             72
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1722,7 +2232,13 @@
             0,
             82
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1740,7 +2256,13 @@
             0,
             89
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1758,7 +2280,13 @@
             0,
             96
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1776,7 +2304,13 @@
             0,
             104
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         },
         {
           "origin": [
@@ -1794,7 +2328,13 @@
             0,
             115
           ],
-          "mirror": true
+          "mirror": true,
+          "motion": "wing",
+          "pivot": [
+            1,
+            0,
+            2.45
+          ]
         }
       ]
     },
@@ -1823,7 +2363,13 @@
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "pack",
+          "pivot": [
+            0,
+            2,
+            2.2
+          ]
         }
       ]
     },
@@ -1852,7 +2398,13 @@
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "pack",
+          "pivot": [
+            0,
+            2,
+            2.2
+          ]
         }
       ]
     },
@@ -1881,7 +2433,13 @@
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "pack",
+          "pivot": [
+            0,
+            2,
+            2.2
+          ]
         }
       ]
     },
@@ -1910,7 +2468,13 @@
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "pack",
+          "pivot": [
+            0,
+            2,
+            2.2
+          ]
         }
       ]
     },
@@ -1939,7 +2503,13 @@
             0,
             0
           ],
-          "mirror": false
+          "mirror": false,
+          "motion": "pack",
+          "pivot": [
+            0,
+            2,
+            2.2
+          ]
         }
       ]
     }
