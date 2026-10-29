@@ -77,12 +77,15 @@ check("releasable drops junk", rv.releasable(["v1.0.0", "nightly", "v1.1", "v1.0
 
 
 # ----------------------------------------------------------------- channel ---
-section("channel - patch zero is stable, everything else is beta")
+section("channel - patch zero and explicit promotions are stable")
 check("1.3.0 is stable", rv.channel("1.3.0") == "stable")
 check("1.4.0 is stable (a new minor series)", rv.channel("1.4.0") == "stable")
 check("2.0.0 is stable (a major bump)", rv.channel("2.0.0") == "stable")
 check("1.3.1 is beta", rv.channel("1.3.1") == "beta")
 check("1.3.10 is beta", rv.channel("1.3.10") == "beta")
+check("promoted 1.3.27 is stable", rv.channel("1.3.27") == "stable")
+check("promoted v-prefixed input is stable", rv.channel("v1.3.27") == "stable")
+check("the next patch still defaults to beta", rv.channel("1.3.28") == "beta")
 check("v-prefixed input is accepted", rv.channel("v1.3.1") == "beta")
 check("channel rejects garbage", raises(rv.channel, "1.3"))
 check("the first push of 1.3.0 is stable",
@@ -202,6 +205,8 @@ try:
 
     check("stamp round-trips through current()",
           rv.read_app_version(tmp / "cubeon" / "updater.py") == "2.6.0")
+    check("a promoted stable stamps both app and website",
+          len(rv.stamp("1.3.27")) == 3)
     check("stamp rejects garbage", raises(rv.stamp, "2.5"))
     check("stamp counts replacements per file",
           all(isinstance(n, int) and n > 0 for _p, n in rv.stamp("2.6.1", site=True)))

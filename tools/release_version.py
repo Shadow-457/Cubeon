@@ -30,6 +30,8 @@ Release channels (2026-10-24):
     published as a normal GitHub release, becomes `/releases/latest` (which
     feeds the home page, the download Worker and the default updater), and is
     the only channel allowed to stamp its version into the website;
+  * explicitly promoted versions in STABLE_PROMOTIONS are also stable;
+    maintainers may promote a verified beta without changing its version;
   * everything else is a BETA - 1.3.1, 1.3.2, ... - published as a GitHub
     PRERELEASE. GitHub keeps prereleases out of `/releases/latest`, so a beta
     is invisible on the home page and to stable users by construction, while
@@ -72,6 +74,9 @@ SITE_FILES = (
      re.compile(r"(?<![\w.])Version \d+\.\d+\.\d+(?![\w.])"), "Version {version}"),
 )
 
+# Explicit maintainer promotion; keep this history so a rebuild retains its channel.
+STABLE_PROMOTIONS = frozenset({"1.3.27"})
+
 # Mirrors cubeon/updater.py::_TAG_RE: a release the updater can compare against.
 # Anything else (nightly, v1.2, v1.2.0-rc1) is not a candidate version.
 TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
@@ -99,9 +104,9 @@ def fmt(version: tuple[int, int, int]) -> str:
 
 
 def channel(version: str) -> str:
-    """'stable' for a minor release (patch 0), 'beta' for everything else.
+    """'stable' for patch 0 or an explicit promotion, otherwise 'beta'.
 
-    The patch-zero rule is the whole channel system: 1.3.0 is a stable, 1.3.1
+    By default, 1.3.0 is a stable, 1.3.1
     is the first beta after it, 1.3.2 the next, and 1.4.0 starts a new stable.
     GitHub's prerelease flag (set by the workflow from this answer) is what
     hides betas from `/releases/latest`, so the home page and the stable
@@ -110,7 +115,7 @@ def channel(version: str) -> str:
     parsed = parse(version)
     if parsed is None:
         raise VersionError(f"not a vX.Y.Z version: {version!r}")
-    return "stable" if parsed[2] == 0 else "beta"
+    return "stable" if parsed[2] == 0 or fmt(parsed) in STABLE_PROMOTIONS else "beta"
 
 
 def bump(version: str) -> str:

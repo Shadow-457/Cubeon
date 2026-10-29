@@ -685,8 +685,11 @@ The default smoke gate does not run all registered suites; `--suites` does. See
   See `docs/development/website-doctor.md` for size, timeout and instance-local throttling contracts.
 - A push to `main` starts the release workflow. Publishing, committing, deploying, and rewriting history
   require the user's explicit request.
-- `tools/release_version.py` owns stamping/channel policy. Zero-patch versions are stable; nonzero-patch
-  versions are beta. Preserve concurrent release metadata and do not force-push over another change.
+- `tools/release_version.py` owns stamping/channel policy. Zero-patch versions and explicit
+  `STABLE_PROMOTIONS` (v1.3.27) are stable; other patches default to beta. Promotion preserves
+  published binaries/tag; use `[skip ci]` for metadata/site commits to avoid minting a new beta.
+  Rebuild with the current workflow, not an old pre-promotion commit. Preserve concurrent release
+  metadata and do not force-push over another change.
 - Publishing verifies the required assets. Test jobs are separate; a published release does not establish
   that every test or desktop smoke check passed.
 - Worker configuration is not proof of current deployment health. Preserve client/Worker protocol parity,

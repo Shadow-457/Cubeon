@@ -231,6 +231,7 @@ author|body|createdAt|publishedAt|tarballUrl|zipballUrl|targetCommitish|uploadUr
         case " $* " in *" --draft=true "*) rm -f "$RELSTATE/published/$tag";; esac
         # --prerelease is what keeps a beta out of /releases/latest.
         case " $* " in *" --prerelease "*) touch "$RELSTATE/prerelease/$tag";; esac
+        case " $* " in *" --prerelease=false "*) rm -f "$RELSTATE/prerelease/$tag";; esac
         case " $* " in *" --latest "*) touch "$RELSTATE/latest/$tag";; esac;;
       *) echo "gh-stub: unhandled release $sub" >&2; exit 1;;
     esac;;
@@ -531,6 +532,8 @@ try:
           rc.returncode == 0, detail=rc.stderr.strip() or rc.stdout.strip())
     check("a version ahead of the public one does become Latest",
           sim.has("published", "v1.5.0") and sim.has("latest", "v1.5.0"))
+    check("stable publication clears a previous prerelease flag",
+          not sim.has("prerelease", "v1.5.0"))
 finally:
     sim.cleanup()
 

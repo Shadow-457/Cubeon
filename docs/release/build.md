@@ -128,8 +128,12 @@ python tools/release_version.py stamp 1.4.0
 ```
 
 `next` is a preview. `stamp` modifies files. Current channel policy treats
-versions with a zero patch component as stable and nonzero patches as beta;
-check `tools/release_version.py` before changing this policy.
+versions with a zero patch component as stable and nonzero patches as beta,
+except explicit maintainer promotions in `STABLE_PROMOTIONS` (v1.3.27).
+Promoting a published build preserves its tag and binaries. Commit promotion
+metadata and website stamps with `[skip ci]` so the push does not create another
+beta. Do not rerun an older workflow commit that predates the promotion policy;
+use the current workflow if a rebuild is needed.
 
 The [release workflow](../../.github/workflows/build.yml) creates a draft,
 builds the platform assets from its tag, and verifies the assets before

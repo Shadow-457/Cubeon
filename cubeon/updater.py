@@ -29,8 +29,9 @@ APP_VERSION = "1.3.27"
 # stable - it never returns a draft or a prerelease - so the default feed needs
 # no filtering. The beta channel asks for the full list and picks the highest
 # tag itself, prereleases included. A release is beta when its patch is not
-# zero (1.3.1, 1.3.2 ...); a stable is a minor bump (1.3.0, 1.4.0). That rule
-# lives in tools/release_version.py and is mirrored by the workflow.
+# zero (1.3.1, 1.3.2 ...), unless explicitly promoted; a stable is normally a
+# minor bump (1.3.0, 1.4.0). tools/release_version.py owns that build policy;
+# clients follow GitHub's prerelease flag, including promoted releases.
 UPDATE_SERVICE = "https://cubeon-downloads.hamza-457-shahbaz.workers.dev"
 DEFAULT_FEED = UPDATE_SERVICE + "/updates/stable"
 DEFAULT_BETA_FEED = UPDATE_SERVICE + "/updates/beta"

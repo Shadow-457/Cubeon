@@ -271,7 +271,8 @@ jobs:
           # download worker keep pointing at the previous release until every
           # asset is up and `publish` has verified them.
           #
-          # CHANNEL decides whether this is a stable (patch zero) or a beta.
+          # CHANNEL decides whether this is a stable (patch zero or an explicit
+          # maintainer promotion) or a beta.
           # A beta is created as a GitHub PRERELEASE, which is what keeps it out
           # of /releases/latest - the home page, the download Worker and the
           # default updater all read that endpoint, so a beta cannot leak onto
@@ -294,6 +295,8 @@ jobs:
             gh release edit "$TAG" --draft=true
             if [ "$CHANNEL" = "beta" ]; then
               gh release edit "$TAG" --prerelease
+            else
+              gh release edit "$TAG" --prerelease=false --title "Cubeon $TAG"
             fi
           elif [ "$CHANNEL" = "beta" ]; then
             gh release create "$TAG" \
@@ -632,10 +635,10 @@ jobs:
                        | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
             newest="$(printf '%s\n%s\n' "${highest#v}" "${TAG#v}" | sort -V | tail -1)"
             if [ -z "$highest" ] || [ "$newest" = "${TAG#v}" ]; then
-              gh release edit "$TAG" --draft=false --latest
+              gh release edit "$TAG" --draft=false --prerelease=false --title "Cubeon $TAG" --latest
             else
               echo "$TAG is not ahead of the public $highest; publishing without --latest"
-              gh release edit "$TAG" --draft=false --latest=false
+              gh release edit "$TAG" --draft=false --prerelease=false --title "Cubeon $TAG" --latest=false
             fi
           fi
           gh release view "$TAG" --json tagName,isDraft,isPrerelease,url
