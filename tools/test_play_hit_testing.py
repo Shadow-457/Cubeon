@@ -56,16 +56,18 @@ ok(m2 is not None,
 
 # ...and the sheen must NOT be a sibling painted after the button anywhere.
 # The Play tab mounts the button directly in a footer Row (next to the
-# instance picker and Fix crash); look at that mount window instead of pinning
-# the exact row order, which changes whenever the Play card is rearranged.
+# instance picker); look at that mount window instead of pinning the exact
+# row order, which changes whenever the Play card is rearranged.
 mount_at = src.find("ft.Container(content=play_button")
 ok(mount_at != -1,
    "the footer mounts the button directly (no painted layer behind/above it)")
 footer_block = src[max(0, mount_at - 1200):mount_at + 200]
 ok("play_sheen" not in footer_block,
    "the footer no longer paints play_sheen ON TOP of the button")
-ok("fix_crash_button" in src and 'data="play-fix-crash"' in src,
-   "Fix crash sits in the Play footer, left of PLAY (2026-10-25)")
+# The permanent Fix crash button was removed from the Play footer (repair now
+# lives in Installed's Check & repair / the Doctor). Keep it from creeping back.
+ok("fix_crash_button" not in src and 'data="play-fix-crash"' not in src,
+   "the Play footer has no Fix crash button (moved to Installed / Doctor)")
 ok("hero_glow" not in src,
    "the Play/QUIT aura is gone (2026-10-23 user ask)")
 

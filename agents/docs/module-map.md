@@ -188,6 +188,12 @@ consistent with the shared `THEME` contract.
 - `instances.describe()` is the single source of instance metadata (reads the last-played sidecar through
   the caller's `play_store`). Render from one `list_installed()` call; `mod_count()` is a cheap `scandir`.
   `mark_played()` records the instance that actually launched.
+- A completed loader install must ADOPT its resulting instance: `do_install_and_launch` calls
+  `_adopt_installed_instance(target_version, loader_id)` whenever `target_version != version_id`, which
+  moves the dropdown/`state["selected_version"]`, sets `state["mod_loader"]`, and persists
+  `cfg["last_version"]`. Without it the Play click's base vanilla row stays selected, so the next Play,
+  the next launcher start and the Mods profile are all vanilla - the "installed Fabric, got vanilla"
+  report. `tools/test_instance_install_flow.py` locks this in.
 - Version selection repaints only the badge / server-status / loader / instance regions; do not put a
   whole-page `page.update()` back on the row-click path.
 - Account and Settings are ONE centered, rounded popup (`account_panel` aligned CENTER + `account_card`),

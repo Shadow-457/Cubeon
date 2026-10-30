@@ -3401,6 +3401,52 @@ async def main(page: ft.Page):
                 if chosen != "vanilla" else None)
         _select_version_ui()
 
+    def _adopt_installed_instance(version_id, loader_id=None):
+        """Make the launchable instance an install just produced the selected one.
+
+        A loader install creates a SEPARATE version id (e.g.
+        ``fabric-loader-0.19.5-1.21.11``) while the Play click that started it
+        ran on the base vanilla row. Leaving the dropdown there is the
+        "downloaded Fabric but got vanilla" report: the next Play - and the next
+        launcher start through ``cfg["last_version"]`` - launched the vanilla
+        row, and the Mods tab read the vanilla profile. Switch to the instance
+        that was actually installed/selected, and persist it.
+
+        Runs from the install worker, so it holds TREE_LOCK for the control
+        writes and leaves the repaint to the normal selection path.
+        """
+        if not version_id:
+            return
+        try:
+            with thread_safe_ui.TREE_LOCK:
+                _ensure_version_option(version_id)
+                version_dropdown.value = version_id
+                state["pending_loader_install"] = None
+                state["loader_choice"] = None
+                meta = (state.get("installed_meta") or {}).get(version_id) or {}
+                try:
+                    detected = instance_info.describe(
+                        version_id, meta, None, with_mods=False,
+                        play_store={}).get("loader")
+                except Exception:
+                    detected = None
+                if detected not in LOADER_IDS and loader_id in LOADER_IDS:
+                    detected = loader_id
+                if detected in LOADER_IDS:
+                    state["mod_loader"] = detected
+                    loader_toggle.selected_index = LOADER_IDS.index(detected)
+                cfg["last_version"] = version_id
+                try:
+                    core.save_config(cfg)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "couldn't persist the installed loader instance",
+                        exc_info=True)
+            _select_version_ui()
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "couldn't select the installed loader instance", exc_info=True)
+
     def _instance_icon(version_id):
         from cubeon import instance_icons
         choices = cfg.get('instance_icons')
@@ -5044,6 +5090,14 @@ async def main(page: ft.Page):
                 _save_new_instance_icon(icon_choice, loader_id, target_version)
             if (state.get("pending_loader_install") or {}).get("version_id") == version_id:
                 state["pending_loader_install"] = None
+
+            # A loader install is its own launchable instance. The click that
+            # started this worker ran on the base vanilla row, so without this
+            # the card/dropdown (and cfg["last_version"] on the next start)
+            # kept pointing at vanilla - the "I downloaded Fabric but got
+            # vanilla" report. Adopt what we actually installed/selected.
+            if target_version != version_id:
+                _adopt_installed_instance(target_version, loader_id)
 
             # Now that the version (and loader, if any) is installed, the
             # loader choice is locked in - refresh the cached support map and

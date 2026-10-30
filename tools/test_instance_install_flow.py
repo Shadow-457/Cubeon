@@ -2,6 +2,7 @@
 import inspect
 import os
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 sys.path[:0] = [os.path.dirname(__file__), os.path.dirname(os.path.dirname(__file__))]
 import _sandbox_home
@@ -105,6 +106,48 @@ with patch.object(stubs.core, 'install_version', install_base), \
           '1.21.11' in state['installed'] and delete.call_count == 0)
     check('loader cancellation releases the install claim',
           state['installing_version'] is None and scope['progress_stage'].value == 'CANCELLED')
+
+# A successful loader install creates its own launchable id. The click ran on
+# the base vanilla row, so the worker must select the loader instance it just
+# installed - otherwise the next Play (and the next launcher start, through
+# cfg["last_version"]) launched vanilla: the "I downloaded Fabric but got
+# vanilla" report.
+selection_scope = inspect.getclosurevars(
+    function_from_controls(controls, 'on_version_selected')).nonlocals
+saved_configs = []
+
+def save_config(value):
+    saved_configs.append(dict(value))
+
+def install_loader_ok(loader, mc, progress, status, maximum, **kwargs):
+    vid = f'{loader}-loader-0.19.5-{mc}'
+    installed.append({'id': vid, 'type': 'release'})
+    return vid
+
+launched = []
+
+def launch_ok(version_id, *args, **kwargs):
+    launched.append(version_id)
+    return SimpleNamespace(session_id='fixture-session')
+
+with patch.object(stubs.core, 'install_mod_loader', install_loader_ok), \
+     patch.object(stubs.core, 'is_loader_supported', return_value=True), \
+     patch.object(stubs.core, 'launch_game', launch_ok), \
+     patch.object(stubs.core, 'save_config', save_config), \
+     patch('main.threading.Thread', DeferredThread):
+    select('1.21.11', 'fabric')
+    begin('1.21.11', 'tester')
+    jobs.pop(0)()
+
+loader_id = 'fabric-loader-0.19.5-1.21.11'
+check('a loader install launches the loader instance',
+      launched == [loader_id])
+check('the installed loader instance becomes the selected one',
+      selection_scope['version_dropdown'].value == loader_id
+      and state.get('selected_version') == loader_id
+      and state.get('mod_loader') == 'fabric')
+check('the loader selection is persisted for the next start',
+      bool(saved_configs) and saved_configs[-1].get('last_version') == loader_id)
 
 scope['progress_bar'].visible = True
 scope['set_bar'](None)
