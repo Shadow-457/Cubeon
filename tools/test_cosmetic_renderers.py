@@ -228,8 +228,8 @@ public class RendererTest {
             throw new AssertionError("Equipped wing rig must enable N");
         Files.writeString(Path.of(args[0]), selection.replace("back_void_wings", "back_void_wings_small"));
         CosmeticSelection.bind(Path.of(args[0]));
-        if (!"back_void_wings_small".equals(CosmeticSelection.selectedWing()))
-            throw new AssertionError("Original small wing rig must also enable N");
+        if (CosmeticSelection.selectedWing() != null)
+            throw new AssertionError("Small wings must completely ignore N");
         Files.writeString(Path.of(args[0]), selection.replace("back_void_wings", "back_gear_pack"));
         CosmeticSelection.bind(Path.of(args[0]));
         if (CosmeticSelection.selectedWing() != null) throw new AssertionError("Pack must not enable N");

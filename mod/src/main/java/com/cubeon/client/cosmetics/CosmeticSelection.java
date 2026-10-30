@@ -95,7 +95,7 @@ public final class CosmeticSelection {
         String id = get("back");
         CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
         CosmeticCatalog.Item item = catalog == null ? null : catalog.get(id);
-        if (item != null) {
+        if (item != null && item.wingFlare) {
             for (CosmeticCatalog.Box box : item.boxes) {
                 if ("wing".equals(box.motion)) return id;
             }

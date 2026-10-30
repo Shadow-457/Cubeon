@@ -257,7 +257,7 @@ public class AnimationTest {
             check(item.texWidth <= 512 && item.texHeight <= 1024, "Old GPU texture budget");
             var posed = new CosmeticAnimation.PosedQuad();
             for (float elapsed : new float[]{-1, 0, .3f, .8f, 1.4f, 2.6f}) {
-                var normal = new CosmeticAnimation.Tracker().sample(20, 0, false, false, elapsed);
+                var normal = new CosmeticAnimation.Tracker().sample(20, 0, false, false, item.wingFlare ? elapsed : -1);
                 var flexed = normal.forItem(item);
                 check(flexed.forItem(item) == flexed, "Item snapshot prepared only once");
                 var byPoint = new HashMap<String, float[]>();
@@ -285,7 +285,7 @@ public class AnimationTest {
                         }
                     }
                 }
-                if (elapsed == .8f) {
+                if (elapsed == .8f && item.wingFlare) {
                     for (int j = 0; j < item.feathers.size(); j++)
                         check(Math.abs(displacement[j]) > .01f, "Every feather visibly bends: " + item.id + "/" + j);
                     float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
@@ -316,6 +316,20 @@ public class AnimationTest {
             }
         }
     }
+    static void verifySmallIgnoresN(CosmeticCatalog.Catalog catalog) {
+        for (var item : catalog.items()) if (item.id.endsWith("_small")) {
+            check(!item.wingFlare, "Small wings cannot opt into N");
+            var tracker = new CosmeticAnimation.Tracker();
+            for (int n = 0; n < 130; n++) {
+                float t = 20 + n / 40f;
+                float[] idle = points(item, tracker.sample(t, 0, false, false, -1));
+                float[] pressed = points(item, tracker.sample(t, 0, false, false, n / 40f));
+                check(Arrays.equals(idle, pressed), "N must not move a single small-wing vertex: " + item.id);
+            }
+            check(difference(points(item, tracker.sample(20, 0, false, false)),
+                    points(item, tracker.sample(20.3f, 0, false, false))) > .01f, "Small wings retain normal gentle motion");
+        }
+    }
     static volatile float checksum;
     static void benchmark(CosmeticCatalog.Item item) {
         var quads = CosmeticGeometry.quads(item, 0);
@@ -329,7 +343,7 @@ public class AnimationTest {
                 long allocated = bean.getThreadAllocatedBytes(thread), started = System.nanoTime();
                 float sum = 0;
                 for (int n = 0; n < frames; n++) {
-                    var frame = enabled ? tracker.sample(n / 60f, 0, false, false, n % 180 / 60f).forItem(item) : tracker.disabled();
+                    var frame = enabled ? tracker.sample(n / 60f, 0, false, false, item.wingFlare ? n % 180 / 60f : -1).forItem(item) : tracker.disabled();
                     for (int q = 0; q < quads.size(); q++) { posed.set(quads.get(q), frame); sum += posed.z[0]; }
                 }
                 long nanos = System.nanoTime() - started;
@@ -356,6 +370,7 @@ public class AnimationTest {
         verifyTime(catalog.get("back_void_wings"));
         verifyLegacy();
         verifyFeathers(catalog);
+        verifySmallIgnoresN(catalog);
         benchmark(catalog.get("back_ember_wings"));
         benchmark(catalog.get("back_ember_wings_small"));
         verifySprint(catalog.get("back_void_wings"));

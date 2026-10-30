@@ -542,7 +542,9 @@ consistent with the shared `THEME` contract.
   covering the native 160×176 art (4 texels/unit, depth 0.75), with hinge `(2, 0, 2.575)` mirrored around x=0. Art y=44
   is shoulder height; box Y starts at -11. Preserve float dimensions; integer parsing drops wings.
   Existing `back_<theme>_wings` IDs remain Giant; `back_<theme>_wings_small` restore the original
-  40×52 pixels/10×13 model units, depth 0.5 and hinge `(1, 0, 2.45)` for all five themes. Both support N.
+  40×52 pixels/10×13 model units, depth 0.5 and hinge `(1, 0, 2.45)` for all five themes.
+  `wing_flare=false` excludes Small from N input and strips a captured Giant flare from its item
+  frame immediately; Small retains idle/sprint/glide motion. N is for Giant wings only.
   Optional `faces` default to all six; mirror left/right mask bits as well as tiles. Never determine
   mirrored quads by a fixed six-face count. `tools/test_cosmetics.py` pins original Small pixel hashes.
   Giant-wing previews fit the full orbit at one yaw-independent scale without changing bare skins.

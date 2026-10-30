@@ -286,6 +286,8 @@ def test_wing_thickness():
     }
     for item in wings:
         small = item["id"].endswith("_small")
+        if item.get("wing_flare") != (not small):
+            problems.append((item["id"], "wrong N flare capability"))
         palette = generator.PALETTES[item["id"].removeprefix("back_").removesuffix("_small")]
         base, _ = generator.small_wing_art(palette) if small else generator.wing_art(palette)
         if small:

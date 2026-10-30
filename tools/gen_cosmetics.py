@@ -839,7 +839,7 @@ def _wings(item_id, name, blurb, pal, small=False):
                           motion="wing", pivot=hinge))
         painted.append(faces(face, rear, left_face, right_face, cap(0), cap(height - 1)))
     return dict(id=item_id, slot="back", name=name, blurb=blurb,
-                boxes=boxes, feathers=feathers, _faces=painted)
+                boxes=boxes, feathers=feathers, wing_flare=not small, _faces=painted)
 
 
 def _pack(item_id, name, blurb, pal, emblem):
@@ -999,6 +999,7 @@ def main():
             "tex_h": image.height,
             "boxes": boxes,
             **({"feathers": item["feathers"]} if "feathers" in item else {}),
+            **({"wing_flare": item["wing_flare"]} if "wing_flare" in item else {}),
         })
 
     text = json.dumps(catalog, indent=2) + "\n"

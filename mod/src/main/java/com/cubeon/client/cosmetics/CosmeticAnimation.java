@@ -115,7 +115,7 @@ public final class CosmeticAnimation {
             sprinting = source.sprinting; wingPhase = source.wingPhase; dragon = source.dragon;
             featherItem = item;
             feathers = new float[item.feathers.size() * 3];
-            float action = Float.isFinite(dragon) && dragon >= 0 && dragon < WingAction.DURATION
+            float action = item.wingFlare && Float.isFinite(dragon) && dragon >= 0 && dragon < WingAction.DURATION
                     ? smooth(dragon / .35f) * smooth((WingAction.DURATION - dragon) / .65f) : 0;
             float beat = Math.max(0, dragon - .35f) * 7.1f;
             for (int j = 0; j < item.feathers.size(); j++) {
@@ -137,6 +137,10 @@ public final class CosmeticAnimation {
 
         /** Prepare once per selected item, before submission. Snapshots stay immutable. */
         public Frame forItem(CosmeticCatalog.Item item) {
+            // A just-swapped Small selection must ignore an already-captured Giant flare,
+            // even before the next input tick cancels it.
+            if (!item.wingFlare && Float.isFinite(dragon) && dragon >= 0 && dragon < WingAction.DURATION)
+                return new Frame(time, movement, flight, sprinting, wingPhase, -1).forItem(item);
             return item.feathers.isEmpty() || item == featherItem ? this : new Frame(this, item);
         }
     }

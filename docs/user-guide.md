@@ -70,9 +70,10 @@ Microsoft/Mojang account.
   speed up smoothly when sprinting and spread during gliding. The five wing themes
   offer the original cute **Small** wings and joined **Giant** wings. Each feather
   flexes and recoils with a slight delay while its root stays attached.
-  Press **N** with wings equipped to spread them and
+  Press **N** with **Giant** wings equipped to spread them and
   play a short dragon-style wing flare; it settles back automatically. Rebind
   **Dragon Wing Flare** in Minecraft's Controls → Key Binds → Cubeon Client.
+  Small wings keep their gentle normal movement and completely ignore N.
   Backpacks sway while you move. The launcher preview shows
   the resting model. Restart Minecraft after changing the companion mod.
 - **In-game HUD and zoom:** press K in game to open the Cubeon Client menu.

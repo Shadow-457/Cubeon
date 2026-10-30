@@ -860,7 +860,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         refresh()
         controls = [heading, _grid_scroll(grid), status]
         if slot == "back":
-            controls.append(ft.Text("Choose Small or Giant wings. Press N in Minecraft for a dragon flare; K → Cosmetic motion turns movement off.",
+            controls.append(ft.Text("Small wings move gently. Press N in Minecraft for a Giant-wing flare; K → Cosmetic motion turns movement off.",
                                     size=11, color=TEXT_DIM))
         return ft.Column(controls, spacing=8)
 

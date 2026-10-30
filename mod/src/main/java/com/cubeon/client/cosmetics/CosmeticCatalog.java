@@ -98,9 +98,10 @@ public final class CosmeticCatalog {
         public final int texHeight;
         public final List<Box> boxes;
         public final List<Feather> feathers;
+        public final boolean wingFlare;
 
         Item(String id, String slot, String name, String texture,
-             int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers) {
+             int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers, boolean wingFlare) {
             this.id = id;
             this.slot = slot;
             this.name = name;
@@ -109,6 +110,7 @@ public final class CosmeticCatalog {
             this.texHeight = texHeight;
             this.boxes = Collections.unmodifiableList(boxes);
             this.feathers = Collections.unmodifiableList(feathers);
+            this.wingFlare = wingFlare;
         }
     }
 
@@ -199,7 +201,7 @@ public final class CosmeticCatalog {
                 feathers.add(new Feather(x, y, ex, ey, width, curve));
             }
             return new Item(id, slot, Json.str(raw, "name", id), texture,
-                    texWidth, texHeight, boxes, feathers);
+                    texWidth, texHeight, boxes, feathers, Json.bool(raw, "wing_flare", true));
         }
 
         private static Box parseBox(Object raw) {

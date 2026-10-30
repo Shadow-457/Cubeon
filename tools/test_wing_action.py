@@ -14,7 +14,7 @@ COMMON = {
     'com/cubeon/client/hud/FreelookController.java': 'package com.cubeon.client.hud; public class FreelookController { public static boolean sync(){return false;} }',
     'com/cubeon/client/hud/screen/CubeonHudMenuScreen.java': 'package com.cubeon.client.hud.screen; public class CubeonHudMenuScreen {}',
     'com/cubeon/client/hud/screen/EmoteMenuScreen.java': 'package com.cubeon.client.hud.screen; public class EmoteMenuScreen {}',
-    'com/cubeon/client/cosmetics/CosmeticSelection.java': 'package com.cubeon.client.cosmetics; public class CosmeticSelection { public static String wing="back_ember_wings"; public static String selectedWing(){return wing;} }',
+    'com/cubeon/client/cosmetics/CosmeticSelection.java': 'package com.cubeon.client.cosmetics; public class CosmeticSelection { public static String wing="back_ember_wings"; public static String selectedWing(){return wing != null && wing.endsWith("_small") ? null : wing;} }',
     'org/lwjgl/glfw/GLFW.java': 'package org.lwjgl.glfw; public class GLFW { public static final int GLFW_KEY_K=75,GLFW_KEY_B=66,GLFW_KEY_N=78,GLFW_KEY_Z=90,GLFW_KEY_LEFT_ALT=342; }',
     'net/minecraft/client/util/InputUtil.java': 'package net.minecraft.client.util; public class InputUtil { public enum Type { KEYSYM } }',
     'com/mojang/blaze3d/platform/InputConstants.java': 'package com.mojang.blaze3d.platform; public class InputConstants { public enum Type { KEYSYM,KEYBOARD } public static final int KEY_K=75,KEY_B=66,KEY_N=78,KEY_LALT=342; }',
@@ -90,6 +90,10 @@ public class NTest {{
   check(WingAction.INSTANCE.elapsed(mc.player,mc.{world},10.05f)<0,"Old key stops after rebinding");
   {helper}.press(71);CubeonHudKeybinds.tick();
   check(WingAction.INSTANCE.elapsed(mc.player,mc.{world},10.05f)==0,"Rebound key plays action");
+  CosmeticSelection.wing="back_ember_wings_small";CubeonHudKeybinds.tick();
+  check(WingAction.INSTANCE.elapsed(mc.player,mc.{world},10.05f)<0,"Switching to Small cancels a Giant flare");
+  key.down=false;CubeonHudKeybinds.tick();key.down=true;key.queued=1;CubeonHudKeybinds.tick();
+  check(key.queued==0 && WingAction.INSTANCE.elapsed(mc.player,mc.{world},10.05f)<0,"Small wings completely ignore N");
   mc.player=null;CubeonHudKeybinds.tick();
   check(WingAction.INSTANCE.elapsed(null,mc.{world},10.05f)<0,"Leaving world clears action");
   System.out.println(checks+" native wing input checks passed.");

@@ -26660,7 +26660,8 @@
           "width": 1.75,
           "curve": -0.5
         }
-      ]
+      ],
+      "wing_flare": true
     },
     {
       "id": "back_frost_wings",
@@ -52719,7 +52720,8 @@
           "width": 1.75,
           "curve": -0.5
         }
-      ]
+      ],
+      "wing_flare": true
     },
     {
       "id": "back_leaf_wings",
@@ -78778,7 +78780,8 @@
           "width": 1.75,
           "curve": -0.5
         }
-      ]
+      ],
+      "wing_flare": true
     },
     {
       "id": "back_void_wings",
@@ -104837,7 +104840,8 @@
           "width": 1.75,
           "curve": -0.5
         }
-      ]
+      ],
+      "wing_flare": true
     },
     {
       "id": "back_aurora_wings",
@@ -130896,7 +130900,8 @@
           "width": 1.75,
           "curve": -0.5
         }
-      ]
+      ],
+      "wing_flare": true
     },
     {
       "id": "back_gear_pack",
@@ -132534,7 +132539,8 @@
           "width": 1.25,
           "curve": 0
         }
-      ]
+      ],
+      "wing_flare": false
     },
     {
       "id": "back_frost_wings_small",
@@ -133997,7 +134003,8 @@
           "width": 1.25,
           "curve": 0
         }
-      ]
+      ],
+      "wing_flare": false
     },
     {
       "id": "back_leaf_wings_small",
@@ -135460,7 +135467,8 @@
           "width": 1.25,
           "curve": 0
         }
-      ]
+      ],
+      "wing_flare": false
     },
     {
       "id": "back_void_wings_small",
@@ -136923,7 +136931,8 @@
           "width": 1.25,
           "curve": 0
         }
-      ]
+      ],
+      "wing_flare": false
     },
     {
       "id": "back_aurora_wings_small",
@@ -138386,7 +138395,8 @@
           "width": 1.25,
           "curve": 0
         }
-      ]
+      ],
+      "wing_flare": false
     }
   ]
 }
