@@ -38,6 +38,8 @@ public final class CubeonHudConfig {
 	public boolean cosmeticAnimations = true;
 	/** Receive and display player emotes, independent of decorative items. */
 	public boolean showEmotes = true;
+	/** Up to eight favorite names, ordered clockwise from the top of the wheel. */
+	public String[] emoteFavorites = com.cubeon.client.emotes.EmoteFavorites.defaults();
 
 	public boolean showArmorHelmet = true;
 	public boolean showArmorChest = true;
@@ -206,6 +208,7 @@ public final class CubeonHudConfig {
 	}
 
 	private void clampAll() {
+		emoteFavorites = com.cubeon.client.emotes.EmoteFavorites.normalize(emoteFavorites);
 		fpsX = clamp01(fpsX);
 		fpsY = clamp01(fpsY);
 		keysX = clamp01(keysX);

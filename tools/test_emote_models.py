@@ -23,7 +23,7 @@ ANNOTATIONS={
 @unittest.skipUnless(shutil.which('javac') and shutil.which('java'),'JDK required')
 class ModelTests(unittest.TestCase):
  def test_remote_model_hooks(self):
-  for era in ('entity','state','mojang'):
+  for era in ('entity','state','origin','mojang'):
    with self.subTest(era=era),tempfile.TemporaryDirectory() as temp:
     folder=Path(temp); fixtures=dict(ANNOTATIONS);mojang=era=='mojang'
     client='net.minecraft.client.Minecraft' if mojang else 'net.minecraft.client.MinecraftClient'
@@ -36,7 +36,8 @@ class ModelTests(unittest.TestCase):
     def add(cls,body):
      package,name=cls.rsplit('.',1)
      fixtures[cls.replace('.','/')+'.java']=f'package {package}; public class {name} '+body
-    add(part,'{ public float '+','.join(angles)+'; public void copyTransform(ModelPart other) {'+' '.join(f'{a}=other.{a};' for a in angles)+'} }')
+    position='y' if mojang else 'originY' if era=='origin' else 'pivotY'
+    add(part,'{ public float '+','.join((*angles,position))+'; public void copyTransform(ModelPart other) {'+' '.join(f'{a}=other.{a};' for a in (*angles,position))+'} }')
     superclass='net.minecraft.entity.LivingEntity' if era=='entity' else 'Object'
     if era=='entity':add(superclass,'{}')
     add(player,f'''extends {superclass} {{
@@ -74,7 +75,15 @@ public class ModelTest {
   RESET
   player.name="Unrelated"; m=new EmoteModelMixin(); CALL
   check(m.rightArm.PITCH==0,"Same UUID with unrelated name is rejected");
-  player.name="BlueFox";player.riding=true;m=new EmoteModelMixin();CALL
+  player.name="BlueFox";
+  EmoteState.reset(); EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox","sit",22,1)));
+  m=new EmoteModelMixin(); CALL
+  check(m.body.POSITION==10&&m.head.POSITION==10&&m.rightArm.POSITION==10,"Sit lowers torso, head and arms together");
+  check(m.rightLeg.PITCH < -1.5f,"Sit extends legs from lowered hips");
+  HAT_SIT
+  SIT_RESET
+  EmoteState.reset(); EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox","wave",23,1)));
+  player.riding=true;m=new EmoteModelMixin();CALL
   check(m.rightArm.PITCH==0,"Riding pose remains vanilla");
   player.riding=false;player.swimming=true;m=new EmoteModelMixin();CALL
   check(m.rightArm.PITCH==0,"Swimming pose remains vanilla");
@@ -84,19 +93,19 @@ public class ModelTest {
   System.out.println("Remote wave, identity matching, hat, riding/swimming and display-off passed.");
  }
 }'''.replace('HAT_CHECK', '''check(m.hat.ROLL==m.head.ROLL,"Detached legacy hat follows posed head");''' if era=='entity' else '''check(m.hat.ROLL==0&&m.hat.PITCH==0,"Nested hat and injected 3D mesh retain local identity, inheriting head exactly once");
-  for(int pose=0;pose<6;pose++){
+  for(int pose=0;pose<EmoteState.NAMES.length;pose++){
    EmoteState.reset();EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox",EmoteState.NAMES[pose],10,1)));
    m=new EmoteModelMixin();CALL
    check(m.hat.ROLL==0&&m.hat.PITCH==0,"Every emote preserves nested layer transform");
   }
-  EmoteState.reset();EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox","wave",10,1)));''').replace('ACTOR',actor).replace('AVATAR',avatar).replace('UUID()',('getUUID' if mojang else 'getUuid')+'()').replace('CALL',call).replace('PITCH',angles[0]).replace('ROLL',angles[2]).replace('RESET', '''var reset=EmoteModelMixin.class.getDeclaredMethod("cubeon$reset",org.spongepowered.asm.mixin.injection.callback.CallbackInfo.class); reset.setAccessible(true);
+  EmoteState.reset();EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox","wave",10,1)));''').replace('HAT_SIT', 'check(m.hat.POSITION==10,"Detached hat follows seated head");' if era=='entity' else 'check(m.hat.POSITION==0,"Nested hat inherits seated translation once");').replace('SIT_RESET', 'reset.invoke(m,new org.spongepowered.asm.mixin.injection.callback.CallbackInfo()); check(m.body.POSITION==0&&m.hat.POSITION==0&&m.rightLeg.POSITION==0,"Leaving sit restores model origins");' if era=='entity' else '').replace('POSITION',position).replace('ACTOR',actor).replace('AVATAR',avatar).replace('UUID()',('getUUID' if mojang else 'getUuid')+'()').replace('CALL',call).replace('PITCH',angles[0]).replace('ROLL',angles[2]).replace('RESET', '''var reset=EmoteModelMixin.class.getDeclaredMethod("cubeon$reset",org.spongepowered.asm.mixin.injection.callback.CallbackInfo.class); reset.setAccessible(true);
   reset.invoke(m,new org.spongepowered.asm.mixin.injection.callback.CallbackInfo());
   check(m.head.roll==0&&m.body.roll==0,"Legacy pose does not accumulate across frames or players");''' if era=='entity' else '')
     paths=[]
     for relative,text in fixtures.items():
      p=folder/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text);paths.append(p)
     java=ROOT/'mod/src/main/java/com/cubeon/client'
-    paths += [java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java'))]
+    paths += [java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java')), *sorted((java/'ui').glob('*.java'))]
     run=subprocess.run(['javac','--release','17','-d',str(folder),*map(str,paths)],capture_output=True,text=True,timeout=60)
     self.assertEqual(run.returncode,0,run.stdout+run.stderr)
     run=subprocess.run(['java','-cp',str(folder),'ModelTest'],capture_output=True,text=True,timeout=60)

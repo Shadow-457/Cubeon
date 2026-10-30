@@ -15,6 +15,7 @@ import net.minecraft.entity.LivingEntity;
 @Mixin(BipedEntityModel.class)
 public abstract class EmoteModelMixin {
     @Unique private boolean cubeon$posed;
+    @Unique private float cubeon$drop;
 
     /** Older biped models leave head/body roll untouched between entities. */
     @Inject(method = "setAngles(Lnet/minecraft/entity/LivingEntity;FFFFF)V", at = @At("HEAD"))
@@ -22,6 +23,10 @@ public abstract class EmoteModelMixin {
         if (cubeon$posed) {
             BipedEntityModel<?> model = (BipedEntityModel<?>) (Object) this;
             model.head.roll = 0; model.body.roll = 0;
+            model.head.pivotY -= cubeon$drop; model.body.pivotY -= cubeon$drop;
+            model.rightArm.pivotY -= cubeon$drop; model.leftArm.pivotY -= cubeon$drop;
+            model.rightLeg.pivotY -= cubeon$drop; model.leftLeg.pivotY -= cubeon$drop;
+            model.hat.pivotY -= cubeon$drop; cubeon$drop = 0;
             cubeon$posed = false;
         }
     }
@@ -40,6 +45,7 @@ public abstract class EmoteModelMixin {
         cubeon$pose(model.head, 0, pose); cubeon$pose(model.body, 1, pose);
         cubeon$pose(model.rightArm, 2, pose); cubeon$pose(model.leftArm, 3, pose);
         cubeon$pose(model.rightLeg, 4, pose); cubeon$pose(model.leftLeg, 5, pose);
+        cubeon$drop = pose.drop;
         model.hat.copyTransform(model.head);
         cubeon$posed = true;
     }
@@ -47,5 +53,6 @@ public abstract class EmoteModelMixin {
         part.pitch = pose.blend(index, 0, part.pitch);
         part.yaw = pose.blend(index, 1, part.yaw);
         part.roll = pose.blend(index, 2, part.roll);
+        part.pivotY += pose.drop;
     }
 }

@@ -198,6 +198,8 @@ public class HealthTest {
         require(CubeonHudConfig.get().showFps && !CubeonHudConfig.get().showEnemyHealth, "Old preferences preserved, health opt-in");
         require(CubeonHudConfig.get().cosmeticAnimations, "Old config defaults cosmetic animations on");
         require(CubeonHudConfig.get().showEmotes, "Old config defaults emote display on");
+        require(CubeonHudConfig.get().emoteFavorites.length==8,"Old config gains default emote wheel");
+        CubeonHudConfig.get().emoteFavorites=new String[]{"sit", "invalid", "laugh", "sit", null};
         PlayerEntity enemy=new PlayerEntity();
         client.player.pos=new Vec3d(0,1,0);
         hidden(enemy,"Off toggle must draw nothing");
@@ -214,10 +216,14 @@ public class HealthTest {
         CubeonHudConfig.get().cosmeticAnimations=true;
         CubeonHudConfig.get().showEmotes=true; CubeonHudConfig.load();
         require(CubeonHudConfig.get().showEnemyHealth,"Health toggle persists");
+        require(Arrays.equals(CubeonHudConfig.get().emoteFavorites,new String[]{"sit", "laugh"}),
+                "Favorite names persist in order, with invalid/duplicate values removed");
         require(!CubeonHudConfig.get().cosmeticAnimations, "Animation-off preference persists");
         require(!CubeonHudConfig.get().showEmotes, "Emote display-off preference persists");
         CubeonHudConfig.resetPositions();
         require(!CubeonHudConfig.get().cosmeticAnimations, "Reset positions preserves animation choice");
+        require(Arrays.equals(CubeonHudConfig.get().emoteFavorites,new String[]{"sit", "laugh"}),
+                "HUD position reset preserves emote favorites");
         render();
         require(draw.fills.size()==2 && draw.labels.isEmpty(),"One player bar; no duplicate name");
         int[] background=draw.fills.get(0), fill=draw.fills.get(1);
@@ -339,6 +345,9 @@ class EnemyHealthTests(unittest.TestCase):
                     sources.append(str(path))
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
                             for name in ('EnemyHealthBar', 'CubeonHudConfig')]
+                sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
+                            ('Json.java', 'Bridge.java', 'emotes/EmoteState.java',
+                             'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]
                 sources.append(str(MAIN / ('java-overlay-api-' + namespace) /
                                    'com/cubeon/client/hud/EnemyHealthRenderer.java'))
                 classes = root / 'classes'
@@ -403,6 +412,8 @@ public class LegacyTest {
     static void require(boolean okay,String why) { if(!okay) throw new AssertionError(why); }
     public static void main(String[] args) {
         LegacyHealthProjection.register(); CubeonHudConfig.get().showEnemyHealth=true;
+        require(CubeonHudConfig.get().emoteFavorites.length==8,"Old config gains default emote wheel");
+        CubeonHudConfig.get().emoteFavorites=new String[]{"sit", "invalid", "laugh", "sit", null};
         PlayerEntity enemy=new PlayerEntity(); enemy.pos=new Vec3d(0,1,-3);
         client.world.entities=new ArrayList<>(List.of(enemy));
         render(); require(draw.fills.isEmpty(),"No world frame yet");
@@ -432,6 +443,9 @@ public class LegacyTest {
                     sources.append(str(path))
                 sources += [str(MAIN / 'java/com/cubeon/client/hud' / (name + '.java'))
                             for name in ('EnemyHealthBar', 'CubeonHudConfig')]
+                sources += [str(MAIN / 'java/com/cubeon/client' / name) for name in
+                            ('Json.java', 'Bridge.java', 'emotes/EmoteState.java',
+                             'emotes/EmotePose.java', 'emotes/EmoteFavorites.java')]
                 sources += [str(MAIN / ('java-overlay-' + overlay) / 'com/cubeon/client/hud' / filename)
                             for overlay, filename in [('api-yarn', 'EnemyHealthRenderer.java'),
                                                        ('health-' + era, 'LegacyHealthProjection.java')]]
@@ -454,7 +468,8 @@ public class LegacyTest {
                       'com/cubeon/client/hud/screen/CubeonHudMenuScreen.java').read_text()
             self.assertIn('config.showEnemyHealth = !config.showEnemyHealth', screen, bracket['key'])
             self.assertIn('config.cosmeticAnimations = !config.cosmeticAnimations', screen, bracket['key'])
-            self.assertIn('cubeonclient.menu.enemy_health', screen, bracket['key'])
+            layout = (MAIN / 'java/com/cubeon/client/ui/HudMenu.java').read_text()
+            self.assertIn('cubeonclient.hud.health', layout, bracket['key'])
 
 
 if __name__ == '__main__':

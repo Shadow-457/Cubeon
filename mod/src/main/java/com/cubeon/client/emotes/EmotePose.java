@@ -4,6 +4,8 @@ package com.cubeon.client.emotes;
 public final class EmotePose {
     public final float[] angles = new float[18]; // head, body, right/left arm, right/left leg
     public final float weight;
+    /** Model-space units downwards, shared by every body part for a grounded sit. */
+    public float drop;
     public int mask;
     private EmotePose(float weight) { this.weight = weight; }
     public float blend(int part, int axis, float base) {
@@ -47,6 +49,37 @@ public final class EmotePose {
             case 5 -> { // point
                 pose.set(2, -(float)Math.PI/2, -.05f, .12f);
                 pose.set(3, .12f, 0, -.14f); pose.set(0, -.06f, 0, 0);
+            }
+            case 6 -> { // clap: hands meet in front, then open with a soft hold
+                float close = .5f - .5f * (float)Math.cos(age * 9.5f);
+                float hands = .12f + .34f * smooth(close);
+                pose.set(2, -1.35f - close*.08f, -hands, -.04f);
+                pose.set(3, -1.35f - close*.08f, hands, .04f);
+                pose.set(0, .05f + close*.025f, 0, 0);
+                pose.set(1, -.015f + close*.02f, 0, 0);
+            }
+            case 7 -> { // laugh: hand over mouth, little shoulder and head pulses
+                float chuckle = (float)Math.sin(age*12);
+                pose.set(2, -2.55f + chuckle*.035f, -.5f, -.14f);
+                pose.set(3, -.65f, .55f, .18f);
+                pose.set(0, -.16f + chuckle*.045f, -.04f, sway*.02f);
+                pose.set(1, .075f + chuckle*.025f, 0, chuckle*.018f);
+            }
+            case 8 -> { // sit: legs forward, hands resting alongside the lap
+                pose.drop = 10 * weight;
+                pose.set(4, -(float)Math.PI/2, -.12f, .06f);
+                pose.set(5, -(float)Math.PI/2, .12f, -.06f);
+                pose.set(2, -.48f, -.08f, -.06f);
+                pose.set(3, -.48f, .08f, .06f);
+                pose.set(1, .04f, 0, 0); pose.set(0, .06f + sway*.012f, 0, 0);
+            }
+            case 9 -> { // celebrate: arms up, small alternating fist pumps
+                float pump = (float)Math.sin(age*7);
+                pose.set(2, -2.8f + pump*.15f, -.12f, .3f);
+                pose.set(3, -2.8f - pump*.15f, .12f, -.3f);
+                pose.set(0, -.13f + pump*.02f, sway*.04f, 0);
+                pose.set(1, -.04f, sway*.05f, pump*.025f);
+                pose.set(4, pump*.06f, 0, 0); pose.set(5, -pump*.06f, 0, 0);
             }
             default -> { }
         }

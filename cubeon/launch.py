@@ -41,6 +41,7 @@ from .paths import (MINECRAFT_DIR, APP_NAME, CUBEON_HOME, game_dir_for,
                     set_active_game_dir)
 from .config import stable_uuid, save_config, get_system_ram_mb
 from .mods import sync_mods_to_game
+from .mod_loaders import MOD_CAPABLE_LOADERS
 from . import csl
 from .skins import sync_local_skin_to_csl
 
@@ -1110,14 +1111,19 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
 
         # Best-effort: never let a skin-mod problem stop the game launching.
         try:
-            csl.ensure_ready(
+            skin_setup = csl.ensure_ready(
                 mc_version, loader,
                 manage=bool(cfg.get("manage_skin_mod", True)),
                 status_cb=status_cb,
                 version_id=version_id,
-            )
-        except Exception:
-            pass
+            ) or {}
+            if (cfg.get("manage_skin_mod", True) and loader in MOD_CAPABLE_LOADERS
+                    and not skin_setup.get("installed")):
+                logging.getLogger(__name__).warning("skin loader setup: %s",
+                                                     skin_setup.get("detail") or "not installed")
+        except Exception as error:
+            logging.getLogger(__name__).warning("skin loader setup failed: %s",
+                                                 type(error).__name__)
 
     # Ship the in-game Cubeon Client mod into the Fabric profile so the
     # Friends button exists in Minecraft's game menu. Best-effort, always

@@ -101,7 +101,8 @@ const T = {
   GROUP_CREATED: "group_created", GROUP_UPDATE: "group_update", SYSTEM: "system",
 };
 
-const EMOTE_DURATIONS = Object.freeze({ wave: 3, dance: 6, bow: 3, salute: 3, shrug: 2.5, point: 3 });
+const EMOTE_DURATIONS = Object.freeze({ wave: 3, dance: 6, bow: 3, salute: 3, shrug: 2.5, point: 3,
+  clap: 4, laugh: 4, sit: 6, celebrate: 4.5 });
 
 const MAX_TEXT = 2000;        // one chat message
 export const MAX_DM_ENVELOPE_CHARS = 2000;

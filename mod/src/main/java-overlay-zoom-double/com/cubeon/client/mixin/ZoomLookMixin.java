@@ -2,6 +2,7 @@ package com.cubeon.client.mixin;
 
 import com.cubeon.client.hud.CubeonHudKeybinds;
 import com.cubeon.client.hud.Zoom;
+import com.cubeon.client.hud.FreelookController;
 import net.minecraft.client.Mouse;
 import net.minecraft.client.network.ClientPlayerEntity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,6 +18,10 @@ public abstract class ZoomLookMixin {
     @Redirect(method = "updateMouse", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/network/ClientPlayerEntity;changeLookDirection(DD)V"))
     private void cubeon$zoomLook(ClientPlayerEntity player, double dx, double dy) {
+        if (FreelookController.look(dx, dy)) {
+            cubeon$look.apply(0, 0, false);
+            return;
+        }
         cubeon$look.apply(dx, dy, CubeonHudKeybinds.zoomActive());
         player.changeLookDirection(cubeon$look.x, cubeon$look.y);
     }

@@ -68,21 +68,36 @@ Microsoft/Mojang account.
   during gliding, and backpacks sway while you move. The launcher preview shows
   the resting model. Restart Minecraft after changing the companion mod.
 - **In-game HUD and zoom:** press K in game to open the Cubeon Client menu.
-  Every overlay (FPS, keystrokes, armour, ping, CPS) has its own **Move** and
-  **Size** buttons, so making the keystrokes bigger does not enlarge the FPS
+  Each overlay (FPS, keystrokes, armour, ping, CPS) has a card with a display
+  toggle, **Move**, and a clickable size percentage. Sizes are independent,
+  so making the keystrokes bigger does not enlarge the FPS
   counter. The armour overlay shows only the four worn pieces, not the item in
   your hand. **Enemy Health** toggles a thin bar beneath nearby enemy names
   (players and hostile mobs). It starts off and remembers your choice; enemies
-  behind walls and teammates are hidden. **Cosmetic Animations** starts on;
+  behind walls and teammates are hidden. **Cosmetic motion** starts on;
   switch it off to keep pets, wings and packs still and reduce animation work.
-  The choice is saved. Hold Z to zoom in; scroll the wheel to adjust it.
+  The choice is saved. **Reset layout** restores overlay positions and sizes.
+  Tab/arrows select controls; Enter activates them. In the drag editor,
+  release the mouse to save and choose Done or press Enter to return.
+  Hold Z to zoom in; scroll the wheel to adjust it.
   Looking around is slower and lightly smoothed while zoomed; release to return.
   Z can be rebound under Controls → Key Binds → Cubeon Client. Zoom is
   available on Minecraft 1.20-1.21.11; the 26.x releases use a different FOV
   system and do not have it yet.
-- **Emotes:** press B, or K → Emotes, to open the circular picker for Wave,
-  Dance, Bow, Salute, Shrug or Point. Move the mouse over a wedge and click,
-  or press 1–6. Arrows/Tab and Enter also work. Esc or right click closes it;
+- **Freelook:** hold Left Alt and move the mouse to orbit your player without
+  changing your aim. Scroll up to bring the camera closer, down to move it
+  farther (1–12 blocks, with normal wall collision). Release to restore your
+  previous perspective. Menus and focus loss also stop freelook; press the key
+  again to resume. F5 keeps the perspective you choose. Rebind Left Alt under
+  Controls → Key Binds → Cubeon Client. Available in all supported client
+  versions; freelook takes priority when held together with zoom.
+- **Emotes:** press B, or K → Emotes, to open the circular picker. The library
+  includes Wave, Dance, Bow, Salute, Shrug, Point, Clap, Laugh, Sit and Celebrate.
+  Move the mouse over a wedge and click, or press 1–8. Arrows/Tab and Enter also
+  work. Choose **Edit wheel** (or press E) to add or remove favorites: the wheel
+  holds up to eight, saved in the order you add them. Selected entries have an
+  green edge; remove one before adding another when full. Click **Done** to
+  return. Esc or right click returns from editing, then closes the picker;
   click the center to stop an emote. Move, jump, attack or use an item to
   cancel. **Show Emotes** turns their display on/off and saves your choice.
   Other players running the updated Cubeon Client can see them on ordinary

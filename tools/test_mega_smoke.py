@@ -587,7 +587,7 @@ SUITES = [
     "test_activity_stats.py", "test_keyboard_shortcuts.py", "test_milestones.py",
     "test_scrolling.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",
-    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_animation.py", "test_zoom.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
+    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_animation.py", "test_zoom.py", "test_freelook.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
     "test_mod_ui_stability.py",
     "test_mod_search.py",
     "test_doctor_consent.py",

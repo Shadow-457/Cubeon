@@ -704,6 +704,22 @@ _CONNECT_TIMEOUT = 20
 _AUTH_RETRY_DELAY = 300  # respect the hub's 30 hellos / 10 minutes budget
 
 
+def _chat_tls_options() -> dict:
+    """Keep system trust and add the CA bundle shipped with requests.
+
+    Frozen Linux builds may run on a distro with different OpenSSL CA paths.
+    An explicit trust-store override still belongs to the user/network admin.
+    """
+    if any(os.environ.get(key) for key in (
+            "WEBSOCKET_CLIENT_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR")):
+        return {}  # websocket-client honours these without our context
+    import ssl
+    import certifi
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
+    return {"context": context}
+
+
 class _FriendsSocket:
     """A socket with a per-connection timeout and interruptible receive.
 
@@ -715,7 +731,8 @@ class _FriendsSocket:
     def __init__(self, url, *, on_open, on_message, on_error, on_close):
         self.url = url
         self._callbacks = (on_open, on_message, on_error, on_close)
-        self._socket = websocket.WebSocket(enable_multithread=True)
+        self._socket = websocket.WebSocket(enable_multithread=True,
+                                           sslopt=_chat_tls_options())
         self._socket.settimeout(10)
         self.keep_running = True
 
@@ -912,29 +929,40 @@ class FriendsClient:
                     return
                 self._opened_this_round = False
                 self._retry_delay = None
+                self._ws = None
+                self._set_connection_status("connecting", self._connection_error)
+                self._connection_error = ""
+            ws = None
+            timer = None
+            try:
+                # Socket/certificate setup can fail too. Keep it inside the
+                # retry boundary instead of abandoning a "connecting" status.
                 ws = _FriendsSocket(
                     _ws_url(self._base_url), on_open=self._on_open,
                     on_message=self._on_message, on_error=self._on_error,
                     on_close=self._on_close)
-                self._ws = ws
-                self._set_connection_status("connecting", self._connection_error)
-                self._connection_error = ""
-            # Includes the upgrade AND hello response; a socket that opens but
-            # never authenticates must not sit on "Connecting" indefinitely.
-            timer = threading.Timer(_CONNECT_TIMEOUT, self._expire_connection,
-                                    args=(ws, stop))
-            timer.daemon = True
-            timer.start()
-            try:
+                with self._lifecycle_lock:
+                    if stop.is_set() or stop is not self._stop:
+                        ws.close()
+                        return
+                    self._ws = ws
+                # Covers the upgrade AND hello, not just opening TCP.
+                timer = threading.Timer(_CONNECT_TIMEOUT, self._expire_connection,
+                                        args=(ws, stop))
+                timer.daemon = True
+                timer.start()
                 # ping_interval keeps the connection alive through Cloudflare's
                 # idle-timeout without any application-level heartbeat (which
                 # would be pointless writes); it's a protocol ping, not a message.
                 ws.run_forever(ping_interval=25, ping_timeout=10,
                                http_proxy_timeout=10)
             except Exception as ex:
-                self._on_error(ws, ex)
+                with self._lifecycle_lock:
+                    if stop is self._stop and not stop.is_set():
+                        self._record_connection_error(ws, ex)
             finally:
-                timer.cancel()
+                if timer is not None:
+                    timer.cancel()
             with self._lifecycle_lock:
                 if stop.is_set() or stop is not self._stop:
                     return
@@ -1149,7 +1177,10 @@ class FriendsClient:
             if code in (403, 407) or "proxy" in kind:
                 message = "The network or proxy refused the chat connection."
             elif "ssl" in kind or "certificate" in kind:
-                message = "Couldn't verify the chat server's secure connection."
+                message = ("Couldn't verify the chat server's secure connection. "
+                           "Check your system date/time and CA certificates.")
+            elif "gaierror" in kind or "address" in kind:
+                message = "Couldn't resolve the chat service address. Check your DNS settings."
             elif "timeout" in kind:
                 message = "Chat connection timed out. Retrying automatically."
             elif code in (429, 503):
@@ -1158,7 +1189,11 @@ class FriendsClient:
             else:
                 message = "Can't reach the chat service. Retrying automatically."
             self._connection_error = message
-        log.warning("friends ws error: %s", type(error).__name__)
+        code = getattr(error, "status_code", None)
+        if isinstance(code, int) and 100 <= code <= 599:
+            log.warning("friends ws error: %s (HTTP %s)", type(error).__name__, code)
+        else:
+            log.warning("friends ws error: %s", type(error).__name__)
 
     def _on_close(self, ws, *args) -> None:
         with self._lifecycle_lock:

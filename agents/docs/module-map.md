@@ -80,6 +80,10 @@ consistent with the shared `THEME` contract.
   probe (Flet 0.86.5, offline metadata) measured ~1.7% total idle with the pet, ~0% minimized or
   decorations off. This does not certify Windows/Defender behavior. `test_wedge_watchdog.py` needs
   local socket permission and isolates home paths before imports and cleanup scans with test assets.
+  For Linux resource experiments, a systemd user scope's MemoryMax applies to the launcher and
+  inherited Flet/Java children together, not the OS. Use taskset for verified CPU affinity:
+  AllowedCPUs alone did not restrict this user's scope. CPU/RAM caps do not emulate Intel iGPU
+  throughput; FPS certification requires the actual target GPU.
 - `SeasonalAnimator` (one daemon ticker, `TICK = 0.12`) has `pause()`/`resume()` backed by a
   `threading.Condition`; `main._on_window_event` pauses on `minimize`/`hide` and resumes on
   `restore`/`show`/`focus`. Do not implement this with a `threading.Event` and `event.wait()` while it
@@ -458,6 +462,10 @@ consistent with the shared `THEME` contract.
   UID persistence precedes connected state. Key initialization/publication is serialized, failed saves
   propagate, and unreadable chat identity files must never be replaced. Successful hellos/roster polls
   retry key publication; Chat's Reconnect preserves identity and refused/offline sends preserve drafts.
+- Chat TLS adds certifi's bundled CAs to system trust for AppImages on distros with different OpenSSL
+  CA paths (including Fedora). Preserve certificate/hostname verification and explicit
+  `WEBSOCKET_CLIENT_CA_BUNDLE` / `SSL_CERT_FILE` / `SSL_CERT_DIR` overrides. Socket construction must
+  stay inside the retry boundary; setup failures otherwise strand the UI on Connecting.
 - `roster_payload()` refreshes peer metadata once and resolves every friend against that snapshot; never
   call `peer_metadata()` per row (it re-scans the roster and re-reads identity.json, making the poll
   O(n^2)). The whitelist is cached by `whitelist.json`'s stat signature, roster faces by `(identities,
@@ -521,26 +529,50 @@ consistent with the shared `THEME` contract.
   `tools/test_cosmetic_renderers.py` runs every affected renderer with hidden/decorated labels.
 - Skin/Cape "None" is local: skin None writes the built-in Steve sheet to LocalSkin (beats a published
   Worker skin); cape None writes a transparent LocalSkin cape (`hide_cubeon_cape`). Friends keep theirs.
+- The default cape is mirrored atomically from `assets/capes/cubeon_cape.png` into LocalSkin for this
+  player; it no longer needs a successful remote lookup once the local provider is active. Preserve
+  hand-placed capes, custom uploads, hide/rename/management opt-out behavior, and CSL's source ordering.
 
-### Cubeon Client HUD and hold-to-zoom
+### Cubeon Client HUD, freelook and hold-to-zoom
 
 - Cubeon emotes use the existing authenticated Friends WebSocket, not Minecraft server payloads.
   The old `java-overlay-emotes-*` code is dormant and requires a server mod; do not enable it to
   implement ordinary-server emotes or change the base jar's `environment: client`.
-  B or K → Emotes opens six radial wedges and persisted `showEmotes`. Click or 1–6 plays;
-  center click stops, arrows/Tab + Enter select, Esc/right click cancels. Shared `EmoteWheel`
-  caches size-dependent scanline runs and keeps mouse hit testing aligned with sector labels.
+  B or K → Emotes opens up to eight saved favorites; click or 1–8 plays and the center stops.
+  E / Edit wheel opens the ten-emote library (including Clap, Laugh, Sit, Celebrate);
+  selecting entries adds/removes favorites, Done/E/Esc/right click returns to the wheel.
+  `emoteFavorites` stores ordered names, normalizes unknown/duplicate entries and keeps at least
+  one and at most eight; old configs default to the original six plus Clap/Celebrate.
+  Arrows/Tab + Enter work in both views. Shared `EmoteWheel` caches scanline runs per size/slot count.
   26.3 uses `InputConstants` keyboard scan codes and mouse IDs (left=1, right=3), not GLFW
   symbols or older 0/1 mouse IDs; B/K default bindings must use its native constants too.
   Movement/actions cancel locally
-  and relay a stop. `cubeon-emote-entity/state/mojang` inject into biped/humanoid posing so player
+  and relay a stop. `cubeon-emote-entity/state/origin/mojang` inject into biped/humanoid posing so player
   equipment follows. Legacy hats copy the posed head; from 1.21.2 hats are children of head and
   must keep local transforms (copying head angles doubles rotation on both vanilla and injected
   3D Skin Layers meshes). Recent IDs belong to Player/Avatar states, not their biped/humanoid base.
   Yarn 1.21.11 removed entity `isFallFlying`; use the render state's gliding flag.
   Older entity models leave head/body roll untouched: the legacy emote mixin clears its previous
   contribution at HEAD before vanilla re-poses, including on expiry or the next player, to prevent
-  accumulated tilt. The eight-row K menu uses 22px spacing to fit a 240px GUI height.
+  accumulated tilt. Sit adds model-space translation to all six body parts, never hitboxes/camera;
+  legacy detached hats copy it and newer nested hats inherit it once. Legacy HEAD reset removes
+  the previous drop before vanilla posing; render-state models reset natively. Yarn 1.21.5 renamed
+  ModelPart.pivotY to originY: use `cubeon-emote-state` before it and `cubeon-emote-origin` after it.
+  HUD screens share the Minecraft-free `ui/ClientUi`, `HudMenu` cards and `HudEditorChrome` toolbars;
+  black/green tokens match the launcher, and twenty controls fit a 240px GUI height. Native `hud-*`
+  adapters retain input, preview matrices, per-overlay sizes and saves. `ClientUiFont` selects only
+  the screen's Inter subset (`font/ui.json`, `ui.ttf`, OFL); it never replaces Minecraft's default font.
+  Font styles use Identifier through 1.21.8, StyleSpriteSource.Font from Yarn 1.21.9, and
+  FontDescription.Resource on 26.x. Regenerate the subset with `tools/gen_client_ui_font.py`.
+  TTF provider file IDs are relative to `font/`: `cubeon-client:ui.ttf` resolves the bundled
+  `assets/cubeon-client/font/ui.ttf` (verified in legacy and current native font loaders).
+  Custom screens render corners, wheel sectors, emote icons and the cube logo from cached,
+  antialiased `textures/ui/` atlases generated by `tools/gen_client_ui_art.py` (Pillow).
+  `ClientUiDraw` uses legacy texture calls through 1.21.1, `ui-texture-layer` for 1.21.2–1.21.5,
+  and native render pipelines from 1.21.6. Do not use whole-GUI-pixel spans in these screens;
+  the span fallback is for Minecraft-free harnesses. Inter oversampling is 6; preview captures
+  exercise the production atlas regions at 3x GUI scale, but remain separate from live gameplay.
+  `test_client_ui.py` exercises real geometry, font metrics, controls, resize and draw bounds.
 - `EmoteRelay` is owned by FriendsService; token-protected `/emotecontext`, `/emote`, `/emotes`
   carry room/send/snapshots. Bridge's existing thread drains local snapshots every 250ms in-world,
   keeps roster polling at 6s and renews the room every 20s. No network on model/key/tick threads,
@@ -549,9 +581,12 @@ consistent with the shared `THEME` contract.
   write SQL/chat history. Rooms hash the lowercased server address with default port normalized;
   different domain/IP aliases do not share a room. The hub supplies the account's Minecraft name;
   rendering matches both UUID and name. Local serial tombstones reject late echoes after stopping.
-  Backend deployment plus updated clients are required for online sync; an old Worker gives a local
+  Keep names/durations identical in EmoteState, cubeon/emotes.py and Worker EMOTE_DURATIONS;
+  older clients ignore unknown names. Backend deployment plus updated clients are required for online sync; an old Worker gives a local
   preview with sync unavailable. `test_emotes.py`, `test_emote_models.py`, `test_local_api_emotes.py`
   and `node worker/test-emotes.mjs` cover lifecycle, poses, identity, routes and relay isolation.
+  `test_mod_matrix.py` also verifies every shipped favorites class/translation and the position-field
+  overlay split; a compiled jar alone does not prove the bundled client was refreshed.
 
 - Motion blur and dynamic crosshair are removed from all versions: no config fields, menu rows,
   render hooks or effect resources. Gson ignores old keys and drops them on the next HUD config save.
@@ -587,6 +622,23 @@ consistent with the shared `THEME` contract.
 - The armour HUD is helmet/chest/legs/feet only. The held item and offhand rows were removed on
   2026-10-28 (their durability is already on the hotbar); `ARMOR_SLOTS = 4` and the config has no
   `showArmorMainHand`/`showArmorOffHand` fields.
+- Freelook is camera-only on all 24 brackets: rebindable Left Alt holds a rear orbit,
+  mouse rotates independent yaw/pitch and wheel chooses 1–12 distance (up nearer, down farther).
+  Release restores the saved first/rear/front perspective; menus, focus loss, death/sleep,
+  owner/world changes and F5 stop it. Interrupted holds need release before resuming; F5 wins.
+  `hud/Freelook.java` owns state and continuous-time distance easing. Never write entity angles
+  or send rotation packets. Yarn `freelook-yarn` reuses the existing `ZoomLookMixin` redirect
+  (freelook wins over zoom); do not add a competing mouse redirect. Camera collision uses
+  `freelook-camera-double` through 1.20.6 and `freelook-camera-float` from 1.21: scale vanilla's
+  `clipToSpace` input, preserving raycasts/entity scale. Both HEAD boolean modifiers share a
+  managed-view flag cleared at RETURN so release fixes stale caller arguments in either order.
+  All 26.x use `freelook-mojang`: Camera.update(DeltaTracker), alignWithEntity/setRotation,
+  getMaxZoom(float), MouseHandler.turnPlayer/LocalPlayer.turn and onScroll(long,double,double).
+  Era keybind adapters own native screen eligibility. Each bracket supplies its freelook resource
+  overlay; build verification requires config registration, hooks and the control translation.
+  `test_freelook.py` exercises production state/controller/input/camera callbacks;
+  `--targets` additionally audits every cached mapped game JAR. Builds/bytecode checks do not
+  replace a real in-game recording test with other camera mods installed.
 - Hold-to-zoom is Yarn-only (`zoom-double` for 1.20-1.21.1 where `GameRenderer.getFov` returns `double`,
   `zoom-float` for 1.21.2-1.21.11 where it returns `float`); 26.x moved the FOV path and is not ported.
   `Zoom.java` (shared, Minecraft-free) owns the wall-clock easing and the wheel target; `ZoomMixin` reads
@@ -652,6 +704,9 @@ consistent with the shared `THEME` contract.
   versions. Runtime JARs are not generated clutter.
 - UI captures default to `archive/ui-captures/`, not the agent-reference tree. Old diagnostic snapshots
   are kept locally in `archive/agent-history/generated/`.
+- Social export packs stay in ignored `archive/marketing/`. The dated Instagram pack contains
+  `upload/` JPGs, matching captions/alt text, a title/hashtag CSV, PNG backups and a portable
+  Pillow generator under `source/`; regenerate there instead of editing exported images.
 - Do not delete build caches while a build or worker is active. Local cleanup does not shrink existing Git
   history; do not rewrite history without approval.
 - The repository lives at `~/Ylet_Productions/products/cubeon`; old `Products/Cubeon` or
@@ -691,6 +746,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
 | Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
+| Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
@@ -707,6 +763,10 @@ requires retrying with normal system access, not changing unrelated app code.
   URLs are omitted. `web/robots.txt` advertises the sitemap. Homepage JSON-LD contains real
   product/platform/free-price facts, with no invented ratings. Ownership-only `google*.html` files
   stay out of the sitemap and page instrumentation. See `docs/development/website-seo.md`.
+  Image discovery uses 12 image sitemap entries, including ten public PNGs under
+  `web/assets/screenshots/`; `tools/prepare_seo_images.py` regenerates redacted copies from
+  ignored `archive/ui-captures/seo-images/`. Extra screenshots are absent from visible HTML;
+  public URLs and the sitemap are shared by all visitors, with no Google-only responses.
 - Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash
   discarded after 24h). Every content page carries the HTML snippet
   (`window.vaq` + `/_vercel/insights/script.js`) before `</body>`; numeric status pages

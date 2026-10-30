@@ -20,6 +20,7 @@ public final class CubeonHudKeybinds {
 	/** Vanilla 1.21.11 leaves K unbound; users can rebind it in the controls screen. */
 	private static KeyBinding openMenu;
 	private static KeyBinding emotes;
+	private static KeyBinding freelook;
 	private static KeyBinding zoom;
 
 	private CubeonHudKeybinds() {
@@ -40,6 +41,13 @@ public final class CubeonHudKeybinds {
 				CATEGORY);
 		KeyBindingHelper.registerKeyBinding(emotes);
 
+		freelook = new KeyBinding(
+				"key." + CubeonHudClient.MOD_ID + ".freelook",
+				InputUtil.Type.KEYSYM,
+				GLFW.GLFW_KEY_LEFT_ALT,
+				CATEGORY);
+		KeyBindingHelper.registerKeyBinding(freelook);
+
 		// Z is unbound in vanilla; the same controls screen can move it.
 		zoom = new KeyBinding(
 				"key." + CubeonHudClient.MOD_ID + ".zoom",
@@ -52,6 +60,7 @@ public final class CubeonHudKeybinds {
 	/** Called once per client tick; opens the menu when the key was newly pressed. */
 	public static void tick() {
 		MinecraftClient client = MinecraftClient.getInstance();
+		FreelookController.sync();
 
 		// Vanilla only presses keybindings while no screen is open, so this cannot fight a GUI.
 		if (client.player == null || client.world == null || client.currentScreen != null) {
@@ -75,6 +84,8 @@ public final class CubeonHudKeybinds {
 	public static boolean zoomActive() {
 		MinecraftClient client = MinecraftClient.getInstance();
 		return zoom != null && zoom.isPressed() && client.player != null
-				&& client.world != null && client.currentScreen == null;
+				&& client.world != null && client.currentScreen == null && !FreelookController.sync();
 	}
+
+    public static boolean freelookHeld() { return freelook != null && freelook.isPressed(); }
 }

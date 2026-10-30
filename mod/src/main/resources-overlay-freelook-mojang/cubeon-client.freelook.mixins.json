@@ -1,0 +1,7 @@
+{
+  "required": false,
+  "package": "com.cubeon.client.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": ["FreelookCameraMixin", "FreelookScrollMixin", "FreelookLookMixin"],
+  "injectors": {"defaultRequire": 1}
+}

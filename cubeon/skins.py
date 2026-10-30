@@ -685,10 +685,14 @@ def _publish_skin(cfg: dict) -> None:
                     headers=headers,
                     timeout=_NET_TIMEOUT,
                 )
-            except requests.RequestException:
+            except requests.RequestException as error:
+                logging.getLogger(__name__).warning("skin heartbeat failed: %s",
+                                                     type(error).__name__)
                 _record_publish_failure(state)  # offline - cool off, retry later
                 return
             if resp.status_code != 200:
+                logging.getLogger(__name__).warning("skin heartbeat failed: HTTP %s",
+                                                     resp.status_code)
                 # 403 = UUID owned by another secret: retrying can't help
                 # either, so it gets the same cooldown. 429/5xx = transient
                 # server trouble (429 name_move_cooldown = either this identity
@@ -735,13 +739,18 @@ def _publish_skin(cfg: dict) -> None:
                     _UPLOAD_URL, json=payload, headers=headers,
                     timeout=_NET_TIMEOUT,
                 )
-            except requests.RequestException:
+            except requests.RequestException as error:
+                logging.getLogger(__name__).warning("skin upload failed: %s",
+                                                     type(error).__name__)
                 return  # retried next time the sheet syncs
 
             if resp.status_code == 200:
                 state.update({"hash": digest, "model": model})
                 state.pop("retry_not_before", None)  # success clears cooldown
                 _save_publish_state(state)
+            else:
+                logging.getLogger(__name__).warning("skin upload failed: HTTP %s",
+                                                     resp.status_code)
             # A non-200 leaves hash/model unrecorded so the next sync retries;
             # the identity half already saved above stays accurate as-is.
     except Exception:

@@ -10,7 +10,7 @@ cubeon imports (see _sandbox_home).
 Covers the two behaviors that remain after the animated-cape removal:
   * any image becomes a valid cape sheet (auto-fit onto the 10x16 panel),
   * set_active_cape / sync: LocalSkin/capes/<USERNAME>.png appears, is the
-    fitted sheet, and rename/none cleans up the old file.
+    fitted sheet, and the bundled default works offline with rename/hide/opt-out.
 """
 import io
 import os
@@ -120,7 +120,10 @@ with Image.open(synced) as im:
           im.getpixel((5, 5))[:3] == (200, 30, 30), f"got {im.getpixel((5, 5))}")
 
 capes.set_active_cape(cfg, None)
-check("csl cape removed when unset", not os.path.exists(synced))
+with open(capes._DEFAULT_CAPE_PATH, "rb") as f:
+    default_cape = f.read()
+with open(synced, "rb") as f:
+    check("unsetting an upload restores the bundled Cubeon cape", f.read() == default_cape)
 
 cfg2 = {"username": "Tester", "active_cape": capeB["filename"]}
 capes.set_active_cape(cfg2, capeB["filename"])
@@ -153,8 +156,38 @@ cfg5 = {"username": "Tester"}
 capes.set_hide_cubeon_cape(cfg5, True)
 check("hide can be turned on again", os.path.isfile(synced))
 capes.set_hide_cubeon_cape(cfg5, False)
-check("turning None off removes the hiding cape",
-      not os.path.exists(synced))
+with open(synced, "rb") as f:
+    check("turning None off restores the bundled cape", f.read() == default_cape)
+
+offline_cfg = {"username": "OfflinePlayer"}
+capes.sync_local_cape_to_csl(offline_cfg)
+offline_path = os.path.join(capes.CSL_LOCAL_CAPES_DIR, "OfflinePlayer.png")
+with open(offline_path, "rb") as f:
+    check("a fresh player gets the exact bundled cape without network access",
+          f.read() == default_cape)
+stamp = os.stat(offline_path).st_mtime_ns
+capes.sync_local_cape_to_csl(offline_cfg)
+check("an unchanged default cape is not rewritten", os.stat(offline_path).st_mtime_ns == stamp)
+offline_cfg["username"] = "RenamedPlayer"
+capes.sync_local_cape_to_csl(offline_cfg)
+check("rename removes the old owned default cape", not os.path.exists(offline_path))
+renamed_path = os.path.join(capes.CSL_LOCAL_CAPES_DIR, "RenamedPlayer.png")
+check("rename mirrors the default under the new name", os.path.isfile(renamed_path))
+offline_cfg["manage_skin_mod"] = False
+capes.sync_local_cape_to_csl(offline_cfg)
+check("management opt-out removes the owned default cape", not os.path.exists(renamed_path))
+
+hand_path = os.path.join(capes.CSL_LOCAL_CAPES_DIR, "HandPlayer.png")
+with open(hand_path, "wb") as f:
+    f.write(_make_still(64, 32))
+hand_stamp = os.stat(hand_path).st_mtime_ns
+capes.sync_local_cape_to_csl({"username": "HandPlayer"})
+check("default sync preserves a cape placed by hand", os.stat(hand_path).st_mtime_ns == hand_stamp)
+
+with patch.object(capes, "_DEFAULT_CAPE_PATH", "/missing/bundled-cape.png"):
+    capes.sync_local_cape_to_csl({"username": "MissingAsset"})
+check("a missing bundled asset does not block sync or create a broken cape",
+      not os.path.exists(os.path.join(capes.CSL_LOCAL_CAPES_DIR, "MissingAsset.png")))
 
 # Delete removes the stored file and drops the entry.
 capes.delete_custom_cape(capeB["filename"])

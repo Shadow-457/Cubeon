@@ -4213,12 +4213,14 @@ def _local_skin_name(cfg: dict) -> str:
 
 def _local_cape_name(cfg: dict) -> str:
     """The cape on record for THIS machine's account, same rules as the skin."""
+    if cfg.get("hide_cubeon_cape") and not cfg.get("active_cape"):
+        return ""
     try:
         from .paths import CSL_LOCAL_CAPES_DIR
         username = (cfg.get("username") or "").strip()
         if username and os.path.isfile(
                 os.path.join(CSL_LOCAL_CAPES_DIR, f"{username}.png")):
-            return f"{cfg.get('active_cape') or 'custom'} (local)"
+            return f"{cfg.get('active_cape') or 'Cubeon'} (local)"
     except Exception:
         pass
     return cfg.get("active_cape") or ""

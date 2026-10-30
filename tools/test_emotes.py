@@ -51,6 +51,28 @@ class RelayTests(unittest.TestCase):
         self.relay.ready=False; self.assertFalse(self.relay.play(body)['ok'])
         self.now+=46; self.assertFalse(self.relay.snapshot()['ready'])
 
+    def test_catalogue_matches_mod_and_worker(self):
+        from cubeon.emotes import DURATIONS
+        import re
+        java=(ROOT/'mod/src/main/java/com/cubeon/client/emotes/EmoteState.java').read_text()
+        names=re.findall(r'"([a-z]+)"', re.search(r'NAMES = \{(.*?)\};',java,re.S).group(1))
+        values=re.search(r'DURATIONS = \{(.*?)\};',java,re.S).group(1)
+        durations=[float(item.strip().rstrip('f')) for item in values.split(',')]
+        self.assertEqual(dict(zip(names,durations)),DURATIONS)
+        worker=(ROOT/'worker/cubeon-friends.js').read_text()
+        values=re.search(r'EMOTE_DURATIONS = Object.freeze\(\{(.*?)\}\)',worker,re.S).group(1)
+        self.assertEqual({name:float(value) for name,value in re.findall(r'(\w+): ([\d.]+)',values)},DURATIONS)
+
+    def test_new_catalogue_relay_and_expiry(self):
+        from cubeon.emotes import DURATIONS
+        for emote in ('clap', 'laugh', 'sit', 'celebrate'):
+            with self.subTest(emote=emote):
+                self.relay.receive(self.frame(emote=emote))
+                self.assertEqual(self.relay.snapshot()['active'][0]['emote'], emote)
+                self.now += DURATIONS[emote] + .01
+                self.assertEqual(self.relay.snapshot()['active'], [])
+                self.assertTrue(self.relay.play({'uuid': self.entity, 'emote': emote, 'serial': 9})['ok'])
+
 HARNESS=r'''
 import com.cubeon.client.Bridge;
 import com.cubeon.client.emotes.*;
@@ -76,7 +98,7 @@ public class EmoteTest {
   EmoteState.reset(); EmoteState.sync(List.of(event(actor,20,1)));
   check(EmoteState.frame(actor,"BlueFox",.5f).weight==1,"Remote joins mid-emote");
   EmoteState.sync(List.of()); check(!EmoteState.active(),"Remote stop propagates");
-  for(int e=0;e<6;e++) {
+  for(int e=0;e<EmoteState.NAMES.length;e++) {
    int serial=EmoteState.play(actor,"BlueFox",e);
    for(int i=0;i<140;i++) {
     EmoteState.tick(); var pose=EmoteState.frame(actor,"BlueFox",.5f);
@@ -84,6 +106,10 @@ public class EmoteTest {
       check(Float.isFinite(pose.blend(part,axis,.1f)),"Finite pose");
    }
    check(!EmoteState.active(),"Finite duration");
+   if(e==8) {
+    var sitting=EmotePose.sample(e,1,6);
+    check(sitting.drop==10 && sitting.blend(4,0,0)<-1.5f,"Sit lowers the model and folds legs forward");
+   }
    var start=EmotePose.sample(e,0,3); var end=EmotePose.sample(e,3,3);
    check(start.weight==0&&end.weight==0,"Smooth start and end");
   }
@@ -98,7 +124,7 @@ class JavaTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             folder=Path(temp);harness=folder/'EmoteTest.java';harness.write_text(HARNESS)
             java=ROOT/'mod/src/main/java/com/cubeon/client'
-            sources=[java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java')),harness]
+            sources=[java/'Json.java',java/'Bridge.java',*sorted((java/'emotes').glob('*.java')), *sorted((java/'ui').glob('*.java')),harness]
             run=subprocess.run(['javac','--release','17','-d',str(folder),*map(str,sources)],capture_output=True,text=True,timeout=60)
             self.assertEqual(run.returncode,0,run.stdout+run.stderr)
             run=subprocess.run(['java','-cp',str(folder),'EmoteTest'],capture_output=True,text=True,timeout=60)

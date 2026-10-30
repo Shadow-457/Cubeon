@@ -1,7 +1,13 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://www.ylet.online/</loc>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/cubeon-play.png</image:loc>
+    </image:image>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-playtime-stats.png</image:loc>
+    </image:image>
   </url>
   <url>
     <loc>https://www.ylet.online/benchmarks</loc>
@@ -11,6 +17,15 @@
   </url>
   <url>
     <loc>https://www.ylet.online/cosmetics</loc>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/cubeon-cosmetics.webp</image:loc>
+    </image:image>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-cosmetics-wings.png</image:loc>
+    </image:image>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-shoulder-companion-textures.png</image:loc>
+    </image:image>
   </url>
   <url>
     <loc>https://www.ylet.online/docs</loc>
@@ -26,6 +41,9 @@
   </url>
   <url>
     <loc>https://www.ylet.online/getting-started</loc>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-account-settings.png</image:loc>
+    </image:image>
   </url>
   <url>
     <loc>https://www.ylet.online/help</loc>
@@ -35,12 +53,30 @@
   </url>
   <url>
     <loc>https://www.ylet.online/modpacks</loc>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-modpacks.png</image:loc>
+    </image:image>
   </url>
   <url>
     <loc>https://www.ylet.online/mods</loc>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-mods.png</image:loc>
+    </image:image>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-resource-packs.png</image:loc>
+    </image:image>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-shaders.png</image:loc>
+    </image:image>
   </url>
   <url>
     <loc>https://www.ylet.online/multiplayer</loc>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-friends-chat.png</image:loc>
+    </image:image>
+    <image:image>
+      <image:loc>https://www.ylet.online/assets/screenshots/cubeon-launcher-server-console.png</image:loc>
+    </image:image>
   </url>
   <url>
     <loc>https://www.ylet.online/privacy</loc>

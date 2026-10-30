@@ -418,7 +418,13 @@ def test_removed_effect_guard():
 
         def write(extra):
             entries = dict.fromkeys(REQUIRED_ENTRIES, b"fixture")
-            entries["fabric.mod.json"] = json.dumps({"depends": {"minecraft": "*"}}).encode()
+            entries["fabric.mod.json"] = json.dumps({"depends": {"minecraft": "*"},
+                "mixins": ["cubeon-client.freelook.mixins.json"]}).encode()
+            entries["cubeon-client.freelook.mixins.json"] = json.dumps({
+                "package": "com.cubeon.client.mixin",
+                "client": ["FreelookCameraMixin", "FreelookScrollMixin"]}).encode()
+            entries["assets/cubeon-client/lang/en_us.json"] = json.dumps({
+                "key.cubeon-client.freelook": "Hold to Freelook"}).encode()
             entries.update(extra)
             with zipfile.ZipFile(path, "w") as jar:
                 for name, data in entries.items():
@@ -573,17 +579,43 @@ def test_shipped_jars(matrix):
 
     jars = sorted(glob.glob(os.path.join(ROOT, "assets", "jars",
                                          "cubeon-client-*.jar")))
-    if not jars:
-        ok(True, "no built jars to inspect (skip)")
-        return
+    expected = {
+        matrix["jar_name"].replace("{version}", matrix["mod_version"]).replace("{key}", bracket["key"]): bracket
+        for bracket in matrix["brackets"]
+    }
+    missing_jars = sorted(set(expected) - {os.path.basename(path) for path in jars})
+    ok(not missing_jars, f"every supported bracket has a shipped jar (missing: {missing_jars})")
+    labels = load(os.path.join(MOD, "src", "main", "resources", "assets", "cubeon-client", "lang", "en_us.json"))
+    screen_labels = {key: value for key, value in labels.items()
+                     if key.startswith(("cubeonclient.emote.", "cubeonclient.emotes.", "cubeonclient.hud."))}
+    font_dir = Path(MOD, "src/main/resources/assets/cubeon-client/font")
+    font_resources = {"assets/cubeon-client/font/" + filename: (font_dir / filename).read_bytes()
+                      for filename in ("ui.json", "ui.ttf", "OFL-Inter.txt")}
+    ui_resources = {"assets/cubeon-client/textures/ui/" + file.name: file.read_bytes()
+                    for file in Path(MOD, "src/main/resources/assets/cubeon-client/textures/ui").iterdir()}
     for path in jars:
         name = os.path.basename(path)
+        error = verify(path, expected.get(name))
+        ok(error is None, f"{name}: current required client classes and resources ({error})")
         try:
             with zipfile.ZipFile(path) as jar:
                 names = set(jar.namelist())
                 removed = removed_feature_entries(jar)
                 ok(not removed, f"{name}: no removed game effect code/assets/config ({removed})")
                 meta = json.loads(jar.read("fabric.mod.json"))
+                ok(meta.get("environment") == "client"
+                   and not any(entry.startswith("com/emotesmod/") for entry in names),
+                   f"{name}: ordinary-server emotes retain the client-only mod")
+                shipped_labels = json.loads(jar.read("assets/cubeon-client/lang/en_us.json"))
+                ok(shipped_labels.get("key.cubeon-client.freelook") == labels["key.cubeon-client.freelook"],
+                   f"{name}: freelook control label is current")
+                ok(all(shipped_labels.get(key) == value for key, value in screen_labels.items()),
+                   f"{name}: all emote and custom HUD screen translations are current")
+                ok(all(jar.read(entry) == data for entry, data in font_resources.items()),
+                   f"{name}: custom font, provider and license match the source assets")
+                ok("com/cubeon/client/hud/screen/ClientUiDraw.class" in names
+                   and all(jar.read(entry) == data for entry, data in ui_resources.items()),
+                   f"{name}: smooth corner/wheel/icon masks and native renderer match the source assets")
                 # Read the mixin configs while the archive is still open; the
                 # `with` block closes it, and a closed ZipFile cannot be read.
                 mixin_configs = []
@@ -635,6 +667,38 @@ def test_shipped_jars(matrix):
         ok(not missing_mixins,
            f"{name}: every listed mixin config and class is present "
            f"(missing: {missing_mixins})")
+
+
+def test_emote_model_overlays(matrix):
+    section("emote model positions follow each Minecraft API era")
+    parse = cubeonfriends.parse_mc_version
+    for bracket in matrix["brackets"]:
+        version = parse(bracket["compile_against"])
+        era = ("mojang" if bracket["mappings"] == "none" else
+               "origin" if version >= (1, 21, 5) else
+               "state" if version >= (1, 21, 2) else "entity")
+        overlays = [entry for entry in bracket["overlays"] if entry.startswith("cubeon-emote-")]
+        ok(overlays == ["cubeon-emote-" + era],
+           f"{bracket['key']}: one emote model overlay with the correct position fields ({era})")
+
+
+def test_freelook(matrix):
+    section("freelook camera and input overlays")
+    for bracket in matrix["brackets"]:
+        actual = [o for o in bracket["overlays"] if o.startswith("freelook-")]
+        if bracket["mappings"] == "none":
+            expected = ["freelook-mojang"]
+        else:
+            precision = "double" if cubeonfriends.parse_mc_version(bracket["key"]) < (1, 21, 0) else "float"
+            expected = ["freelook-yarn", "freelook-camera-" + precision]
+        ok(actual == expected, f"{bracket['key']}: orbit/collision/input match the native API")
+    for era in ("yarn", "mojang"):
+        config = load(os.path.join(MOD, "src/main/resources-overlay-freelook-" + era,
+                                   "cubeon-client.freelook.mixins.json"))
+        expected = ["FreelookCameraMixin", "FreelookScrollMixin"]
+        if era == "mojang":
+            expected.append("FreelookLookMixin")
+        ok(config["client"] == expected, f"{era}: registers every freelook hook")
 
 
 def test_zoom():
@@ -722,6 +786,8 @@ def main():
     test_resources(matrix)
     test_removed_effect_guard()
     test_mouse_buttons()
+    test_emote_model_overlays(matrix)
+    test_freelook(matrix)
     test_zoom()
     test_shipped_jars(matrix)
     print()

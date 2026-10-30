@@ -55,15 +55,35 @@ ASSETS_JARS = os.path.join(ROOT, "assets", "jars")
 # the HUD, and a missing com/cubeon/client/hud class is the only cheap way to see that).
 REQUIRED_ENTRIES = ("fabric.mod.json",
                     "cubeon-client.mixins.json",
+                    "cubeon-client.freelook.mixins.json",
+                    "com/cubeon/client/hud/Freelook.class",
+                    "com/cubeon/client/hud/FreelookController.class",
+                    "com/cubeon/client/mixin/FreelookCameraMixin.class",
+                    "com/cubeon/client/mixin/FreelookScrollMixin.class",
+                    "assets/cubeon-client/lang/en_us.json",
                     "assets/cubeon-client/icon.png",
                     "com/cubeon/client/CubeonClient.class",
                     "com/cubeon/client/WorldPlayers.class",
                     "com/cubeon/client/emotes/EmoteState.class",
                     "com/cubeon/client/emotes/EmotePose.class",
                     "com/cubeon/client/emotes/EmoteWheel.class",
+                    "com/cubeon/client/emotes/EmoteFavorites.class",
                     "com/cubeon/client/emotes/EmoteClient.class",
                     "com/cubeon/client/mixin/EmoteModelMixin.class",
                     "com/cubeon/client/hud/screen/EmoteMenuScreen.class",
+                    "com/cubeon/client/hud/screen/ClientUiFont.class",
+                    "com/cubeon/client/hud/screen/ClientUiDraw.class",
+                    "com/cubeon/client/hud/screen/CubeonHudMenuScreen.class",
+                    "com/cubeon/client/hud/screen/MoveOverlayScreen.class",
+                    "com/cubeon/client/ui/ClientUi.class",
+                    "com/cubeon/client/ui/HudMenu.class",
+                    "com/cubeon/client/ui/HudEditorChrome.class",
+                    "assets/cubeon-client/font/ui.json",
+                    "assets/cubeon-client/font/ui.ttf",
+                    "assets/cubeon-client/font/OFL-Inter.txt",
+                    "assets/cubeon-client/textures/ui/rounded.png",
+                    "assets/cubeon-client/textures/ui/icons.png",
+                    "assets/cubeon-client/textures/ui/wheel-8.png",
                     "com/cubeon/client/TabListTag.class",
                     "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class",
@@ -100,6 +120,7 @@ REQUIRED_ENTRIES_ZOOM = ("cubeon-client.zoom.mixins.json",
 # nothing - the HUD still draws, its ping is just wrong, which is exactly the
 # kind of failure nobody notices. So the class and its config are required.
 REQUIRED_ENTRIES_26X = ("cubeon-client-hud.mixins.json",
+                        "com/cubeon/client/mixin/FreelookLookMixin.class",
                         "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class")
 
 # Removed game effects must stay absent from every version, including unused
@@ -216,7 +237,9 @@ def verify(jar_path, bracket=None):
             if removed:
                 return "jar contains removed game effects: " + ", ".join(removed)
             meta = zf.read("fabric.mod.json").decode("utf-8")
-    except (OSError, zipfile.BadZipFile, KeyError) as exc:
+            freelook = json.loads(zf.read("cubeon-client.freelook.mixins.json"))
+            labels = json.loads(zf.read("assets/cubeon-client/lang/en_us.json"))
+    except (OSError, zipfile.BadZipFile, KeyError, ValueError) as exc:
         return f"jar is unreadable ({exc})"
     left = re.findall(r"\$\{(\w+)\}", meta)
     if left:
@@ -227,6 +250,19 @@ def verify(jar_path, bracket=None):
         return f"fabric.mod.json is not valid JSON ({exc})"
     if not parsed.get("depends", {}).get("minecraft"):
         return "fabric.mod.json declares no Minecraft range"
+    configs = [entry.get("config") if isinstance(entry, dict) else entry
+               for entry in parsed.get("mixins", [])]
+    if "cubeon-client.freelook.mixins.json" not in configs:
+        return "freelook mixin config is not registered"
+    expected = ["FreelookCameraMixin", "FreelookScrollMixin"]
+    if bracket and bracket.get("mappings") == "none":
+        expected.append("FreelookLookMixin")
+    if (not isinstance(freelook, dict)
+            or freelook.get("package") != "com.cubeon.client.mixin"
+            or freelook.get("client") != expected):
+        return "freelook mixin config has incorrect hooks"
+    if not isinstance(labels, dict) or not labels.get("key.cubeon-client.freelook"):
+        return "freelook control label is missing"
     return None
 
 

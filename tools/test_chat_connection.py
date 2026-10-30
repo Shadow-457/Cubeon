@@ -1,6 +1,7 @@
 """Chat startup/reconnect races, timeout budgets and encryption publication."""
 import json
 import os
+import ssl
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -103,6 +104,17 @@ class RejectedSocket(HeldSocket):
         self.callbacks["on_close"](self)
 
 
+with patch.object(friends, "_FriendsSocket", side_effect=RuntimeError("socket setup failed")):
+    client = friends.FriendsClient()
+    client._identity = identity
+    client._stop = Stop(rounds=2)
+    client._run_loop(client._stop)
+    check("socket setup failures report an error and retry instead of stranding Connecting",
+          client._stop.delays == [1, 2]
+          and client.connection_status["state"] == "retrying"
+          and bool(client.connection_status["message"]))
+
+
 with patch.object(friends, "_FriendsSocket", RejectedSocket), patch.object(threading.Timer, "start"):
     client = friends.FriendsClient()
     client._identity = identity
@@ -129,11 +141,33 @@ client._on_error(client._ws, SimpleNamespace(status_code=407))
 client._on_close(client._ws)
 check("proxy refusal produces an actionable connection message",
       "proxy" in client.connection_status["message"])
+client._connection_error = ""
+with patch.object(friends.log, "warning") as warning:
+    client._on_error(client._ws, friends.websocket.WebSocketBadStatusException(
+        "sensitive proxy URL", status_code=403))
+    check("connection diagnostics include HTTP status without exception credentials",
+          warning.call_args.args == ("friends ws error: %s (HTTP %s)",
+                                     "WebSocketBadStatusException", 403))
+
+
+trust_env = ("WEBSOCKET_CLIENT_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR")
+with patch.dict(os.environ, {k: "" for k in trust_env}):
+    # Model an AppImage whose OpenSSL searches paths absent on the host distro.
+    with patch.object(ssl.SSLContext, "load_default_certs"):
+        context = friends._chat_tls_options()["context"]
+        check("chat trusts the bundled public CAs even without host CA paths",
+              context.cert_store_stats()["x509_ca"] > 0)
+        check("bundled trust still verifies certificates and hostnames",
+              context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname)
+    for key in trust_env:
+        with patch.dict(os.environ, {key: "/admin/custom-trust"}):
+            check(f"chat respects explicit {key}", friends._chat_tls_options() == {})
 
 
 class CoreSocket:
     def __init__(self, **kwargs):
         self.timeouts, self.connect_options, self.closed = [], {}, False
+        self.options = kwargs
 
     def settimeout(self, seconds): self.timeouts.append(seconds)
     def connect(self, url, **kwargs): self.connect_options = kwargs
@@ -149,6 +183,7 @@ with patch.object(friends.websocket, "WebSocket", CoreSocket):
     socket.run_forever(ping_interval=25, ping_timeout=10, http_proxy_timeout=10)
     check("TLS/upgrade has its own finite timeout and always closes",
           socket._socket.connect_options["timeout"] == 10 and socket._socket.closed)
+    check("the socket receives Cubeon's TLS options", "sslopt" in socket._socket.options)
 
 class HeartbeatSocket(CoreSocket):
     def __init__(self, **kwargs):

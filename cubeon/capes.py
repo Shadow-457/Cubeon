@@ -15,7 +15,7 @@ which the CubeonLocalSkin source reads - registered by cubeon/csl.py with a
 load-order contract that puts it AHEAD of the Worker API, so:
 
     custom cape set    -> your upload wins the cape slot
-    no custom cape     -> the shared Cubeon cape (Worker) fills in
+    no custom cape     -> the bundled Cubeon cape shows locally, even offline
 
 That ordering is entirely a csl.py concern (see the ORDER CONTRACT comment
 above EXTRALIST_ENTRIES there); this module only stores the file and puts it
@@ -45,6 +45,11 @@ from PIL import Image
 
 from .paths import CAPES_DIR, CSL_LOCAL_CAPES_DIR
 from .config import save_config
+
+# PyInstaller preserves the package's __file__ under _MEIPASS; its parent
+# contains bundled assets in both the AppImage and standalone layouts.
+_DEFAULT_CAPE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                 "assets", "capes", "cubeon_cape.png")
 
 # Metadata lives inside CAPES_DIR (no separate paths.py constant needed) - the
 # same {"filename", "name"} record list skins.py keeps, minus the slim flag
@@ -224,17 +229,21 @@ def sync_local_cape_to_csl(cfg: dict) -> None:
     a fully transparent cape instead. CSL's LocalSkin source is ahead of the
     Worker source, so the transparent cape wins the slot and the shared Cubeon
     cape disappears from this player's screen only.
+
+    The default cape is bundled too: this player's cape must not depend on a
+    successful heartbeat or remote texture download. Friends still use the API.
     """
     username = (cfg.get("username") or "").strip()
     filename = cfg.get("active_cape")
     hide = bool(cfg.get("hide_cubeon_cape"))
     previous = cfg.get("csl_synced_cape_name")
+    use_default = not (filename or hide) and cfg.get("manage_skin_mod", True)
 
     # Clean up the file we last wrote if the name changed (a rename would
     # otherwise strand <OLDNAME>.png) or there's nothing to wear anymore. Only
     # ever remove a name this launcher recorded writing, so a cape the user
     # dropped into LocalSkin by hand is never clobbered.
-    if previous and (previous != username or not (filename or hide)):
+    if previous and (previous != username or not (filename or hide or use_default)):
         _remove_local_cape(previous)
         cfg["csl_synced_cape_name"] = None
 
@@ -251,6 +260,29 @@ def sync_local_cape_to_csl(cfg: dict) -> None:
             shutil.copyfile(src, dest)
         elif hide:
             _transparent_cape_sheet().save(dest, "PNG")
+        elif use_default:
+            # Respect a cape placed here by hand, just as the skin mirror does.
+            if previous != username and os.path.isfile(dest):
+                return
+            with open(_DEFAULT_CAPE_PATH, "rb") as source:
+                data = source.read()
+            try:
+                with open(dest, "rb") as current:
+                    unchanged = current.read() == data
+            except FileNotFoundError:
+                unchanged = False
+            if not unchanged:
+                # Publish a complete texture; CSL can read while sync runs.
+                import tempfile
+                fd, tmp = tempfile.mkstemp(prefix=".cubeon-cape-", suffix=".tmp",
+                                           dir=CSL_LOCAL_CAPES_DIR)
+                try:
+                    with os.fdopen(fd, "wb") as output:
+                        output.write(data)
+                    os.replace(tmp, dest)
+                finally:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
         else:
             return
         cfg["csl_synced_cape_name"] = username

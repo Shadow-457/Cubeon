@@ -35,6 +35,24 @@ as alternatives, matching Open Graph and visible branding. It carries no Ylet
 publisher credit. Changing the domain alone cannot set the displayed name.
 See [Google’s site-name guidance](https://developers.google.com/search/docs/appearance/site-names).
 
+## Google Images
+
+`web/sitemap.xml` includes 12 images using Google's image sitemap namespace,
+associated with the existing product and feature pages. Ten public copies from
+`archive/ui-captures/seo-images/` live in `web/assets/screenshots/`; the existing
+Play PNG and in-game cosmetics WebP are reused. New PNGs have descriptive filenames
+and embedded title/description metadata. `tools/prepare_seo_images.py` regenerates
+the public copies with Pillow and masks account details, friend IDs and chat previews.
+Original captures stay in the ignored archive.
+
+The extra images are not rendered or downloaded by the visible pages. Discovery
+uses the sitemap, without hidden HTML, keyword stuffing or crawler-specific responses.
+Images are publicly accessible by direct URL: there is no "Google only" access mode.
+Sitemap submission supports discovery, not guaranteed indexing or rankings. Google
+can choose not to index images, especially ones not embedded in a visible page.
+PNG metadata is descriptive asset information, not a promise that Google uses it.
+After publishing, submit or resubmit the existing `/sitemap.xml` in Search Console.
+
 ## After publishing
 
 1. Verify that the live homepage, `/download`, `/robots.txt` and `/sitemap.xml`

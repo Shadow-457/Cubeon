@@ -10,8 +10,10 @@ import java.util.UUID;
 
 /** Client-thread-only, bounded active poses. No timers or rendering-thread I/O. */
 public final class EmoteState {
-    public static final String[] NAMES = {"wave", "dance", "bow", "salute", "shrug", "point"};
-    private static final float[] DURATIONS = {3, 6, 3, 3, 2.5f, 3};
+    // Append only: stored wheel choices and existing clients retain the original IDs.
+    public static final String[] NAMES = {"wave", "dance", "bow", "salute", "shrug", "point",
+            "clap", "laugh", "sit", "celebrate"};
+    private static final float[] DURATIONS = {3, 6, 3, 3, 2.5f, 3, 4, 4, 6, 4.5f};
     private record Active(String username, int emote, int serial, float start, boolean local) { }
     private static final Map<String, Active> ACTIVE = new HashMap<>();
     private static final Map<String, Integer> LOCAL_SERIAL = new HashMap<>();

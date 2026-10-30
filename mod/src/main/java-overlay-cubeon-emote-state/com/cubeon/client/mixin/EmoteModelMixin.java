@@ -38,5 +38,6 @@ public abstract class EmoteModelMixin {
         part.pitch = pose.blend(index, 0, part.pitch);
         part.yaw = pose.blend(index, 1, part.yaw);
         part.roll = pose.blend(index, 2, part.roll);
+        part.pivotY += pose.drop;
     }
 }

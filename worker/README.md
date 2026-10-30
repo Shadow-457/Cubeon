@@ -528,6 +528,11 @@ signalling - all over one WebSocket.
 
 ### Client emotes
 
+The allowlist includes Wave, Dance, Bow, Salute, Shrug, Point, Clap, Laugh,
+Sit and Celebrate. Durations must match `cubeon/emotes.py` and the mod
+`EmoteState` catalog. Clients skip unknown names, so an older client can
+continue displaying its original six emotes after the relay is updated.
+
 Cubeon Client emotes also use this socket. `emote_room` subscribes to a hashed
 server address; `emote_ready` acknowledges support. `emote` relays a fixed pose
 name, player UUID and serial. The hub supplies the sender's registered Minecraft

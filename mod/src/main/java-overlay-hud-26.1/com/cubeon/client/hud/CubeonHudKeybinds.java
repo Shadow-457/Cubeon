@@ -22,6 +22,7 @@ public final class CubeonHudKeybinds {
 
 	private static KeyMapping openMenu;
 	private static KeyMapping emotes;
+	private static KeyMapping freelook;
 
 	private CubeonHudKeybinds() {
 	}
@@ -44,11 +45,21 @@ public final class CubeonHudKeybinds {
 				66,
 				CATEGORY);
 		KeyMappingHelper.registerKeyMapping(emotes);
+
+		freelook = new KeyMapping(
+				"key." + CubeonHudClient.MOD_ID + ".freelook",
+				// 26.1/26.2 still call this KEYSYM; 26.3 renamed it to KEYBOARD
+				// (and dropped SCANCODE). One overlay per spelling - see hud-26.3.
+				InputConstants.Type.KEYSYM,
+				342,
+				CATEGORY);
+		KeyMappingHelper.registerKeyMapping(freelook);
 	}
 
 	/** Called once per client tick; opens the menu when the key was newly pressed. */
 	public static void tick() {
 		Minecraft client = Minecraft.getInstance();
+		FreelookController.sync();
 
 		// Vanilla only presses key mappings while no screen is open, so this cannot fight a GUI.
 		if (client.player == null || client.level == null || client.screen != null) {
@@ -63,4 +74,12 @@ public final class CubeonHudKeybinds {
 			client.setScreen(new CubeonHudMenuScreen());
 		}
 	}
+
+    public static boolean freelookHeld() { return freelook != null && freelook.isDown(); }
+    public static boolean freelookEligible() {
+        Minecraft client = Minecraft.getInstance();
+        return client.player != null && client.level != null && client.screen == null
+                && client.isWindowActive() && client.mouseHandler.isMouseGrabbed()
+                && client.getCameraEntity() == client.player && client.player.isAlive() && !client.player.isSleeping();
+    }
 }

@@ -57,6 +57,24 @@ hub=new Hub(ctx,{});
 await send(viewer,{t:'emote_room',room});
 assert.equal(viewer.frames.at(-1).emote,'dance','hibernation preserves active pose');
 clear();
+for (const [index, emote] of ['clap','laugh','sit','celebrate'].entries()) {
+ await send(actor,{t:'emote',uuid,emote:'stop',serial:10+index*2});
+ clear();
+ await send(actor,{t:'emote',uuid,emote,serial:11+index*2});
+ assert.equal(viewer.frames.at(-1).emote,emote,'new emote relays to Cubeon viewers');
+ assert.equal(viewer.frames.at(-1).username,'BlueFox','new emotes use trusted account identity');
+}
+await send(actor,{t:'emote',uuid,emote:'stop',serial:20});
+await send(actor,{t:'emote',uuid,emote:'sit',serial:21});
+actor.attachment.emote.started=Date.now()-5000;
+clear();
+await send(viewer,{t:'emote_room',room});
+assert.equal(viewer.frames.at(-1).emote,'sit','late join sees Sit throughout its six-second duration');
+actor.attachment.emote.started=Date.now()-6500;
+clear();
+await send(viewer,{t:'emote_room',room});
+assert.equal(viewer.frames.filter(f=>f.t==='emote').length,0,'finished Sit is not replayed');
+clear();
 await send(actor,{t:'emote_room',room:'b'.repeat(64)});
 assert.equal(viewer.frames.at(-1).emote,'stop','leaving cancels the old room pose');
 assert.equal(actor.attachment.emote,null);

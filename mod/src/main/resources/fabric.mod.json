@@ -19,6 +19,10 @@
     {
       "config": "cubeon-client.mixins.json",
       "environment": "client"
+    },
+    {
+      "config": "cubeon-client.freelook.mixins.json",
+      "environment": "client"
     }${mixins_extra}${zoom_mixins}${emotes_mixins}
   ],
   "depends": {

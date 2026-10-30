@@ -37,5 +37,6 @@ public abstract class EmoteModelMixin {
         part.xRot = pose.blend(index, 0, part.xRot);
         part.yRot = pose.blend(index, 1, part.yRot);
         part.zRot = pose.blend(index, 2, part.zRot);
+        part.y += pose.drop;
     }
 }

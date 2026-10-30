@@ -4,6 +4,7 @@ from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
+import struct
 import unittest
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
@@ -79,7 +80,7 @@ class SEOTests(unittest.TestCase):
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(len(descriptions), len(set(descriptions)))
         sitemap = ET.parse(WEB / 'sitemap.xml')
-        locations = [entry.text for entry in sitemap.findall('.//{*}loc')]
+        locations = [entry.text for entry in sitemap.findall('./{*}url/{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
         self.assertEqual(len(locations), len(set(locations)))
         self.assertEqual(set(locations), expected)
         # Error pages, API routes, redirect-only downloads and personal log fragments stay out.
@@ -87,6 +88,44 @@ class SEOTests(unittest.TestCase):
         robots = (WEB / 'robots.txt').read_text()
         self.assertIn('User-agent: *\nAllow: /\nDisallow: /api/', robots)
         self.assertIn('Sitemap: ' + ORIGIN + '/sitemap.xml', robots)
+
+    def test_image_discovery_without_hidden_page_content(self):
+        """Sitemap images must be public assets attached to indexable page URLs."""
+        namespace = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9',
+                     'image': 'http://www.google.com/schemas/sitemap-image/1.1'}
+        sitemap = ET.parse(WEB / 'sitemap.xml')
+        images = []
+        for page in sitemap.findall('s:url', namespace):
+            for image in page.findall('image:image', namespace):
+                location = image.find('image:loc', namespace)
+                self.assertIsNotNone(location)
+                url = urlsplit(location.text)
+                self.assertEqual(url.scheme + '://' + url.netloc, ORIGIN)
+                self.assertFalse(url.query or url.fragment)
+                file = WEB / url.path.lstrip('/')
+                self.assertTrue(file.is_file(), location.text)
+                self.assertIn(file.suffix, ('.png', '.webp'))
+                # Deprecated caption/title tags are no longer read by Google.
+                self.assertEqual([child.tag for child in image], ['{' + namespace['image'] + '}loc'])
+                if '/screenshots/' in url.path:
+                    self.assertRegex(file.name, r'^cubeon-[a-z-]+\.png$')
+                    data = file.read_bytes()
+                    self.assertEqual(data[:8], b'\x89PNG\r\n\x1a\n')
+                    width, height = struct.unpack('>II', data[16:24])
+                    self.assertGreaterEqual(width, 1000)
+                    self.assertGreaterEqual(height, 500)
+                    self.assertIn(b'Title\x00', data)
+                    self.assertIn(b'Description\x00', data)
+                    self.assertNotIn(b'eXIf', data)
+                images.append(location.text)
+        self.assertEqual(len(images), 12)
+        self.assertEqual(len(images), len(set(images)))
+        public_copies = {ORIGIN + '/' + str(file.relative_to(WEB))
+                         for file in (WEB / 'assets/screenshots').glob('*.png')}
+        self.assertTrue(public_copies.issubset(set(images)), 'Every public copy must be discoverable')
+        # These screenshots are not inserted as hidden elements or loaded by page scripts.
+        for file in [*WEB.glob('*.html'), *WEB.glob('assets/*.js'), *WEB.glob('assets/*.css')]:
+            self.assertNotIn('assets/screenshots/', file.read_text(), str(file))
 
     def test_product_data_matches_visible_product(self):
         page = self.pages['index']

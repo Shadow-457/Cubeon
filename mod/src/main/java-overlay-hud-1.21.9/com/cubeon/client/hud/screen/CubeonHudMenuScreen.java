@@ -1,188 +1,117 @@
 package com.cubeon.client.hud.screen;
-
-import com.cubeon.client.hud.CubeonHud;
 import com.cubeon.client.hud.CubeonHudConfig;
-import com.cubeon.client.hud.CubeonHud.Overlay;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.input.KeyInput;
+import net.minecraft.client.gui.Click;
 
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
+import com.cubeon.client.hud.CubeonHud;
+import com.cubeon.client.hud.CubeonHud.Overlay;
+import com.cubeon.client.ui.ClientUi;
+import com.cubeon.client.ui.HudMenu;
 
-/**
- * The screen opened by the Cubeon Client menu key. Every overlay gets one row with an on/off
- * toggle, a "Move" button that opens the drag editor for that overlay and a "Size" button that
- * cycles that overlay's own size, plus a reset button and Done at the bottom.
- *
- * <p>Sizes are per overlay since 2026-10-28: the old single Scale button made the FPS counter
- * and the keystrokes widget share a size, so making one readable made the other huge.
- */
+/** Cubeon HUD settings, with custom cards and native input adapters. */
 public final class CubeonHudMenuScreen extends Screen {
-	private static final int TOGGLE_WIDTH = 118;
-	private static final int MOVE_WIDTH = 48;
-	private static final int SIZE_WIDTH = 50;
-	private static final int ROW_GAP = 4;
-	// Eight rows plus the title must fit Minecraft's 240px minimum GUI height.
-	private static final int ROW_HEIGHT = 22;
-	private static final int TOTAL_WIDTH = TOGGLE_WIDTH + MOVE_WIDTH + SIZE_WIDTH + 2 * ROW_GAP;
-	/** Toggle rows above the Reset/Done buttons: five overlays, enemy health and cosmetic animations. */
-	private static final int ROWS = 8;
-	/** The sizes the Size button steps through. */
-	private static final float[] SCALES = {0.5F, 0.75F, 1.0F, 1.25F, 1.5F, 2.0F};
+    private static final Overlay[] OVERLAYS = Overlay.values();
+    private static final float[] SCALES = {.5f, .75f, 1f, 1.25f, 1.5f, 2f};
+    private final HudMenu menu = new HudMenu();
+    private final HudMenu.Settings settings = new HudMenu.Settings() {
+        public boolean visible(int index) {
+            var config = CubeonHudConfig.get();
+            return switch (OVERLAYS[index]) {
+                case FPS -> config.showFps; case KEYS -> config.showKeys;
+                case ARMOR -> config.showArmor; case PING -> config.showPing; case CPS -> config.showCps;
+            };
+        }
+        public float scale(int index) { return CubeonHud.scaleOf(OVERLAYS[index]); }
+        public boolean health() { return CubeonHudConfig.get().showEnemyHealth; }
+        public boolean animations() { return CubeonHudConfig.get().cosmeticAnimations; }
+    };
+    public CubeonHudMenuScreen() { super(Text.translatable("cubeonclient.menu.title")); }
+    @Override protected void init() { menu.layout(this.width, this.height); }
+    @Override public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        context.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
+    }
+    @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        super.render(context, mouseX, mouseY, delta);
+        menu.render(canvas(context), this.width, this.height, mouseX, mouseY, settings);
+    }
 
-	public CubeonHudMenuScreen() {
-		super(Text.translatable("cubeonclient.menu.title"));
-	}
+    private ClientUi.Canvas canvas(DrawContext context) { return new ClientUi.Canvas() {
+            public void fill(int x0, int y0, int x1, int y1, int color) { context.fill(x0, y0, x1, y1, color); }
+            public boolean textures() { return true; }
+            public void image(String path, int x, int y, int w, int h, int u, int v,
+                              int regionW, int regionH, int textureW, int textureH, int color) {
+                ClientUiDraw.image(context, path, x, y, w, h, u, v, regionW, regionH, textureW, textureH, color);
+            }
+            public void text(String value, int x, int y, int color) {
+                var label = ClientUiFont.text(value);
+                context.drawText(textRenderer, label, x - textRenderer.getWidth(label) / 2, y, color, false);
+            }
+            public int width(String value) { return textRenderer.getWidth(ClientUiFont.text(value)); }
+            public String translate(String key) { return Text.translatable(key).getString(); }
+        }; }
+    @Override public boolean mouseClicked(Click event, boolean doubleClick) {
+        if (event.button() == 1) { close(); return true; }
+        if (event.button() == 0) return choose(menu.hit(event.x(), event.y()));
+        return super.mouseClicked(event, doubleClick);
+    }
+    @Override public boolean keyPressed(KeyInput event) {
+        return key(event.key()) || super.keyPressed(event);
+    }
 
-	@Override
-	protected void init() {
-		CubeonHudConfig config = CubeonHudConfig.get();
-		int x = this.width / 2 - TOTAL_WIDTH / 2;
-		int y = this.height / 2 - contentHeight() / 2;
+    private boolean key(int key) {
+        if (key >= GLFW.GLFW_KEY_1 && key <= GLFW.GLFW_KEY_5) return choose((key - GLFW.GLFW_KEY_1) * 3);
+        if (key == GLFW.GLFW_KEY_LEFT || key == GLFW.GLFW_KEY_UP) { menu.step(-1); return true; }
+        if (key == GLFW.GLFW_KEY_RIGHT || key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_TAB) { menu.step(1); return true; }
+        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_SPACE) return choose(menu.selection());
+        if (key == GLFW.GLFW_KEY_E) return choose(HudMenu.EMOTES);
+        if (key == GLFW.GLFW_KEY_K) { close(); return true; }
+        return false;
+    }
 
-		addToggleRow(x, y, Overlay.FPS, () -> config.showFps, v -> config.showFps = v, CubeonHudMenuScreen::showFpsLabel);
-		y += ROW_HEIGHT;
-		addToggleRow(x, y, Overlay.KEYS, () -> config.showKeys, v -> config.showKeys = v, CubeonHudMenuScreen::showKeysLabel);
-		y += ROW_HEIGHT;
-		addToggleRow(x, y, Overlay.ARMOR, () -> config.showArmor, v -> config.showArmor = v, CubeonHudMenuScreen::showArmorLabel);
-		y += ROW_HEIGHT;
-		addToggleRow(x, y, Overlay.PING, () -> config.showPing, v -> config.showPing = v, CubeonHudMenuScreen::showPingLabel);
-		y += ROW_HEIGHT;
-		addToggleRow(x, y, Overlay.CPS, () -> config.showCps, v -> config.showCps = v, CubeonHudMenuScreen::showCpsLabel);
-		y += ROW_HEIGHT;
+    private boolean choose(int action) {
+        if (action < 0 || action > HudMenu.DONE) return false;
+        CubeonHudConfig config = CubeonHudConfig.get();
+        if (action < HudMenu.EMOTES) {
+            Overlay overlay = OVERLAYS[action / 3];
+            switch (action % 3) {
+                case 0 -> {
+                    switch (overlay) {
+                        case FPS -> config.showFps = !config.showFps;
+                        case KEYS -> config.showKeys = !config.showKeys;
+                        case ARMOR -> config.showArmor = !config.showArmor;
+                        case PING -> config.showPing = !config.showPing;
+                        case CPS -> config.showCps = !config.showCps;
+                    }
+                    CubeonHudConfig.save();
+                }
+                case 1 -> { if (this.client != null) this.client.setScreen(new MoveOverlayScreen(this, overlay)); }
+                case 2 -> {
+                    float current = CubeonHud.scaleOf(overlay);
+                    int index = 0;
+                    for (int i = 0; i < SCALES.length; i++) if (Math.abs(SCALES[i] - current) < .001f) { index = i; break; }
+                    config.setScaleFor(CubeonHud.slotOf(overlay), SCALES[(index + 1) % SCALES.length]);
+                }
+            }
+            return true;
+        }
+        switch (action) {
+            case HudMenu.EMOTES -> { if (this.client != null) this.client.setScreen(new EmoteMenuScreen()); }
+            case HudMenu.HEALTH -> { config.showEnemyHealth = !config.showEnemyHealth; CubeonHudConfig.save(); }
+            case HudMenu.ANIMATIONS -> { config.cosmeticAnimations = !config.cosmeticAnimations; CubeonHudConfig.save(); }
+            case HudMenu.RESET -> { CubeonHudConfig.resetPositions(); CubeonHudConfig.save(); }
+            case HudMenu.DONE -> close();
+        }
+        return true;
+    }
 
-		addDrawableChild(ButtonWidget.builder(enemyHealthLabel(), button -> {
-			config.showEnemyHealth = !config.showEnemyHealth;
-			CubeonHudConfig.save();
-			button.setMessage(enemyHealthLabel());
-		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
-		y += ROW_HEIGHT;
-
-		addDrawableChild(ButtonWidget.builder(cosmeticAnimationsLabel(), button -> {
-			config.cosmeticAnimations = !config.cosmeticAnimations;
-			CubeonHudConfig.save();
-			button.setMessage(cosmeticAnimationsLabel());
-		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
-		y += ROW_HEIGHT;
-
-		addDrawableChild(ButtonWidget.builder(Text.translatable("cubeonclient.menu.emotes"), button -> {
-			this.client.setScreen(new EmoteMenuScreen());
-		}).dimensions(x, y, TOTAL_WIDTH, 20).build());
-		y += ROW_HEIGHT;
-
-		int halfWidth = TOTAL_WIDTH / 2 - ROW_GAP / 2;
-
-		addDrawableChild(ButtonWidget.builder(Text.translatable("cubeonclient.menu.reset_positions"), button -> {
-			CubeonHudConfig.resetPositions();
-			CubeonHudConfig.save();
-		}).dimensions(x, y + ROW_GAP, halfWidth, 20).build());
-
-		addDrawableChild(ButtonWidget.builder(Text.translatable("gui.done"), button -> close())
-				.dimensions(x + halfWidth + ROW_GAP, y + ROW_GAP, TOTAL_WIDTH - halfWidth - ROW_GAP, 20)
-				.build());
-	}
-
-	private void addToggleRow(int x, int y, Overlay overlay, BooleanSupplier enabled, Consumer<Boolean> setter,
-			Supplier<Text> label) {
-		addDrawableChild(ButtonWidget.builder(label.get(), button -> {
-			setter.accept(!enabled.getAsBoolean());
-			CubeonHudConfig.save();
-			button.setMessage(label.get());
-		}).dimensions(x, y, TOGGLE_WIDTH, 20).build());
-
-		addDrawableChild(ButtonWidget.builder(Text.translatable("cubeonclient.menu.move"), button -> {
-			if (this.client != null) {
-				this.client.setScreen(new MoveOverlayScreen(this, overlay));
-			}
-		}).dimensions(x + TOGGLE_WIDTH + ROW_GAP, y, MOVE_WIDTH, 20).build());
-
-		addDrawableChild(ButtonWidget.builder(sizeLabel(overlay), button -> {
-			float current = CubeonHud.scaleOf(overlay);
-			int index = 0;
-
-			for (int i = 0; i < SCALES.length; i++) {
-				if (Math.abs(SCALES[i] - current) < 0.001F) {
-					index = i;
-					break;
-				}
-			}
-
-			CubeonHudConfig.get().setScaleFor(CubeonHud.slotOf(overlay),
-					SCALES[(index + 1) % SCALES.length]);
-			button.setMessage(sizeLabel(overlay));
-		}).dimensions(x + TOGGLE_WIDTH + MOVE_WIDTH + 2 * ROW_GAP, y, SIZE_WIDTH, 20).build());
-	}
-
-	/** "Size: 100%" for one overlay. */
-	private static Text sizeLabel(Overlay overlay) {
-		return Text.translatable("cubeonclient.menu.size",
-				Math.round(CubeonHud.scaleOf(overlay) * 100) + "%");
-	}
-
-	/** Every row between the title and the bottom of the screen. */
-	private static int contentHeight() {
-		return ROWS * ROW_HEIGHT + ROW_HEIGHT + ROW_GAP;
-	}
-
-	@Override
-	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		/* Screen#render already renders the background before this method is
-		 * called, so there is nothing to draw behind the widgets here. */
-		super.render(context, mouseX, mouseY, delta);
-		context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, this.height / 2 - contentHeight() / 2 - 14, 0xFFFFFFFF);
-	}
-
-	@Override
-	public void removed() {
-		CubeonHudConfig.save();
-	}
-
-	@Override
-	public void close() {
-		CubeonHudConfig.save();
-
-		if (this.client != null) {
-			this.client.setScreen(null);
-		}
-	}
-
-	@Override
-	public boolean shouldPause() {
-		return false;
-	}
-
-	private static Text showFpsLabel() {
-		return Text.translatable("cubeonclient.menu.show_fps", stateLabel(CubeonHudConfig.get().showFps));
-	}
-
-	private static Text showKeysLabel() {
-		return Text.translatable("cubeonclient.menu.show_keys", stateLabel(CubeonHudConfig.get().showKeys));
-	}
-
-	private static Text showArmorLabel() {
-		return Text.translatable("cubeonclient.menu.show_armor", stateLabel(CubeonHudConfig.get().showArmor));
-	}
-
-	private static Text showPingLabel() {
-		return Text.translatable("cubeonclient.menu.show_ping", stateLabel(CubeonHudConfig.get().showPing));
-	}
-
-	private static Text showCpsLabel() {
-		return Text.translatable("cubeonclient.menu.show_cps", stateLabel(CubeonHudConfig.get().showCps));
-	}
-
-	private static Text enemyHealthLabel() {
-		return Text.translatable("cubeonclient.menu.enemy_health", stateLabel(CubeonHudConfig.get().showEnemyHealth));
-	}
-
-	private static Text cosmeticAnimationsLabel() {
-		return Text.translatable("cubeonclient.menu.cosmetic_animations", stateLabel(CubeonHudConfig.get().cosmeticAnimations));
-	}
-
-	private static Text stateLabel(boolean enabled) {
-		return Text.translatable(enabled ? "cubeonclient.state.on" : "cubeonclient.state.off");
-	}
+    @Override public void removed() { CubeonHudConfig.save(); }
+    @Override public void close() {
+        CubeonHudConfig.save();
+        if (this.client != null) this.client.setScreen(null);
+    }
+    @Override public boolean shouldPause() { return false; }
 }

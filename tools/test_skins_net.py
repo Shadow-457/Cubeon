@@ -31,6 +31,7 @@ import re
 import sys
 import tempfile
 import types
+from unittest.mock import patch
 
 import requests as _real_requests
 
@@ -233,7 +234,10 @@ check("a marker from a different endpoint re-syncs the pointer (no needless uplo
 clear_marker()
 reset_calls()
 _next["resp"] = _FakeResp(403, {"error": "not_yours"})
-skins._publish_skin(default_cfg)  # must not raise
+with patch.object(skins.logging.getLogger(skins.__name__), "warning") as warning:
+    skins._publish_skin(default_cfg)  # must not raise
+    check("heartbeat diagnostics record only the HTTP status",
+          warning.call_args.args == ("skin heartbeat failed: HTTP %s", 403))
 check("a 403 on the heartbeat stops everything (one attempt)", len(_calls) == 1)
 _state_after_403 = skins._load_publish_state()
 check("a 403 records NO identity (so a later fix retries)",
@@ -273,7 +277,10 @@ check("failed upload leaves no hash in the marker (retried next sync)",
 clear_marker()
 reset_calls()
 _next["raise"] = True
-skins._publish_skin(default_cfg)  # offline: must return quietly, never raise
+with patch.object(skins.logging.getLogger(skins.__name__), "warning") as warning:
+    skins._publish_skin(default_cfg)  # offline: must return quietly, never raise
+    check("network diagnostics record the error type without credentials",
+          warning.call_args.args == ("skin heartbeat failed: %s", "RequestException"))
 check("a network error is swallowed (no raise)", True)
 _net_err_state = skins._load_publish_state()
 check("a network error records no identity",

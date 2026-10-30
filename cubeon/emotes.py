@@ -9,7 +9,8 @@ import time
 import uuid
 
 DURATIONS = {"wave": 3.0, "dance": 6.0, "bow": 3.0,
-             "salute": 3.0, "shrug": 2.5, "point": 3.0}
+             "salute": 3.0, "shrug": 2.5, "point": 3.0,
+             "clap": 4.0, "laugh": 4.0, "sit": 6.0, "celebrate": 4.5}
 ROOM_RE = re.compile(r"[0-9a-f]{64}\Z")
 NAME_RE = re.compile(r"[A-Za-z0-9_]{3,16}\Z")
 

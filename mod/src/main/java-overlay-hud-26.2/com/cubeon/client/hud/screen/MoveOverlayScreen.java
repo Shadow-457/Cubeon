@@ -1,10 +1,13 @@
 package com.cubeon.client.hud.screen;
 
+import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.input.KeyEvent;
 import com.cubeon.client.hud.CubeonHudConfig;
+import com.cubeon.client.ui.ClientUi;
+import com.cubeon.client.ui.HudEditorChrome;
 import com.cubeon.client.hud.CubeonHud;
 import com.cubeon.client.hud.CubeonHud.Overlay;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
@@ -38,17 +41,13 @@ public final class MoveOverlayScreen extends Screen {
 	}
 
 	@Override
-	protected void init() {
-		addRenderableWidget(Button.builder(Component.translatable("gui.done"), button -> onClose())
-				.bounds(this.width / 2 - 100, this.height - 28, 200, 20)
-				.build());
-	}
+	protected void init() { }
 
 	@Override
 	public void extractBackground(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		// Translucent darkening instead of the vanilla background, so the world and the
 		// real HUD stay visible while choosing a spot.
-		graphics.fill(0, 0, this.width, this.height, 0x90000000);
+		graphics.fill(0, 0, this.width, this.height, ClientUi.BACKDROP);
 	}
 
 	@Override
@@ -81,14 +80,16 @@ public final class MoveOverlayScreen extends Screen {
 
 		graphics.pose().popMatrix();
 
-		CubeonHud.drawOutline(graphics, x - PADDING, y - PADDING, w + 2 * PADDING, h + 2 * PADDING, 0xFFFFFFFF);
-		graphics.centeredText(this.font, Component.translatable("cubeonclient.editor.hint"), this.width / 2, 12, 0xFFFFC87D);
-		graphics.centeredText(this.font, this.title, this.width / 2, this.height - 46, 0xFFFFFFFF);
+        HudEditorChrome.render(canvas(graphics), this.width, this.height, this.title.getString(),
+                mouseX, mouseY, x, y, w, h, this.dragging);
 	}
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		// Let the Done button (and focus handling) process the click first.
+        if (event.button() == 0 && HudEditorChrome.done(this.width, this.height, event.x(), event.y())) { onClose(); return true; }
+        if (event.button() == 1) { onClose(); return true; }
+
+		// Preserve native screen focus handling before grabbing the preview.
 		if (super.mouseClicked(event, doubleClick)) {
 			return true;
 		}
@@ -149,6 +150,28 @@ public final class MoveOverlayScreen extends Screen {
 	public boolean isPauseScreen() {
 		return false;
 	}
+
+    @Override public boolean keyPressed(KeyEvent event) {
+        return key(event.key()) || super.keyPressed(event);
+    }
+    private boolean key(int key) {
+        if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) { onClose(); return true; }
+        return false;
+    }
+    private ClientUi.Canvas canvas(GuiGraphicsExtractor graphics) { return new ClientUi.Canvas() {
+            public void fill(int x0, int y0, int x1, int y1, int color) { graphics.fill(x0, y0, x1, y1, color); }
+            public boolean textures() { return true; }
+            public void image(String path, int x, int y, int w, int h, int u, int v,
+                              int regionW, int regionH, int textureW, int textureH, int color) {
+                ClientUiDraw.image(graphics, path, x, y, w, h, u, v, regionW, regionH, textureW, textureH, color);
+            }
+            public void text(String value, int x, int y, int color) {
+                var label = ClientUiFont.text(value);
+                graphics.text(font, label, x - font.width(label) / 2, y, color, false);
+            }
+            public int width(String value) { return font.width(ClientUiFont.text(value)); }
+            public String translate(String key) { return Component.translatable(key).getString(); }
+        }; }
 
 	private boolean isOverWidget(double mouseX, double mouseY) {
 		CubeonHudConfig config = CubeonHudConfig.get();
