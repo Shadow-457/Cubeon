@@ -36,6 +36,13 @@ def main():
             for path in ['/?time=day', '/download']:
                 page.goto('https://cubeon.test' + path)
                 page.evaluate('document.fonts.ready')
+                expect(page.locator('link[rel="icon"]')).to_have_attribute('href', '/assets/favicon.png')
+                assert page.evaluate('''async () => {
+                    const icon = new Image();
+                    icon.src = document.querySelector('link[rel="icon"]').href;
+                    await icon.decode();
+                    return icon.naturalWidth === 256 && icon.naturalHeight === 256;
+                }'''), (width, path, 'favicon failed to load')
                 expect(page.locator('h1')).to_contain_text('Cubeon')
                 page.screenshot(path=str(captures / ('seo-' + ('home' if path.startswith('/?') else 'download') + '-' + str(width) + '.png')), full_page=True)
                 if page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'):

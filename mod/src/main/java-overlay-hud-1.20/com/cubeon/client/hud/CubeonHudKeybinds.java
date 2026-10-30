@@ -1,6 +1,8 @@
 package com.cubeon.client.hud;
 
 import com.cubeon.client.hud.screen.CubeonHudMenuScreen;
+import com.cubeon.client.cosmetics.CosmeticSelection;
+import com.cubeon.client.cosmetics.WingAction;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
@@ -17,6 +19,7 @@ import org.lwjgl.glfw.GLFW;
 public final class CubeonHudKeybinds {
 	private static KeyBinding openMenu;
 	private static KeyBinding emotes;
+	private static KeyBinding wingFlare;
 	private static KeyBinding freelook;
 	private static KeyBinding zoom;
 
@@ -38,6 +41,13 @@ public final class CubeonHudKeybinds {
 				"key.category." + CubeonHudClient.MOD_ID + ".main");
 		KeyBindingHelper.registerKeyBinding(emotes);
 
+		wingFlare = new KeyBinding(
+				"key." + CubeonHudClient.MOD_ID + ".wing_flare",
+				InputUtil.Type.KEYSYM,
+				GLFW.GLFW_KEY_N,
+				"key.category." + CubeonHudClient.MOD_ID + ".main");
+		KeyBindingHelper.registerKeyBinding(wingFlare);
+
 		freelook = new KeyBinding(
 				"key." + CubeonHudClient.MOD_ID + ".freelook",
 				InputUtil.Type.KEYSYM,
@@ -58,6 +68,17 @@ public final class CubeonHudKeybinds {
 	public static void tick() {
 		MinecraftClient client = MinecraftClient.getInstance();
 		FreelookController.sync();
+
+        boolean wingPressed = false;
+        while (wingFlare != null && wingFlare.wasPressed()) wingPressed = true;
+        WingAction.INSTANCE.tick(wingFlare != null && wingFlare.isPressed(), wingPressed,
+                client.player != null && client.world != null && client.currentScreen == null
+                && client.isWindowFocused() && client.mouse.isCursorLocked()
+                && client.getCameraEntity() == client.player && client.player.isAlive()
+                && !client.player.isSleeping() && CubeonHudConfig.get().cosmeticAnimations,
+                client.player, client.world, CosmeticSelection.selectedWing(),
+                client.player == null ? 0 : client.player.age / 20.0f);
+
 
 		// Vanilla only presses keybindings while no screen is open, so this cannot fight a GUI.
 		if (client.player == null || client.world == null || client.currentScreen != null) {

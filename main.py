@@ -5497,7 +5497,7 @@ async def main(page: ft.Page):
                 if not exited["done"]:
                     _rpc.set_activity(
                         details="Cubeon",
-                        state=f"Playing Minecraft {core.resolve_mc_version(version_id) or version_id}",
+                        state=f"Playing Minecraft {launch_mc} ({core.SUPPORTED_LOADERS.get(loader_id, loader_id)})",
                         start=int(time.time() * 1000),
                         large_image=_discord_img,
                         large_text=_discord_img_text,

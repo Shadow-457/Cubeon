@@ -11,7 +11,7 @@ public final class CosmeticAnimation {
     public static Frame sample(float seconds, float movement, boolean gliding) {
         float t = Float.isFinite(seconds) ? seconds : 0;
         float move = Float.isFinite(movement) ? Math.max(0, Math.min(1, movement)) : 0;
-        return new Frame(t, move, gliding ? 1 : 0, 0, t * 2.6f);
+        return new Frame(t, move, gliding ? 1 : 0, 0, t * 2.6f, -1);
     }
 
     /** Render-local response smoothing; no timer, global map or background work. */
@@ -24,6 +24,11 @@ public final class CosmeticAnimation {
 
         /** Frequency follows sprinting without ever multiplying age by a changing speed. */
         public Frame sample(float seconds, float targetMovement, boolean gliding, boolean sprinting) {
+            return sample(seconds, targetMovement, gliding, sprinting, -1);
+        }
+
+        public Frame sample(float seconds, float targetMovement, boolean gliding,
+                            boolean sprinting, float dragonElapsed) {
             float t = Float.isFinite(seconds) ? seconds : 0;
             float target = Float.isFinite(targetMovement)
                     ? Math.max(0, Math.min(1, targetMovement)) : 0;
@@ -46,7 +51,7 @@ public final class CosmeticAnimation {
                 sprint += (goal - sprint) * response;
             }
             previous = t;
-            return new Frame(t, movement, flight, sprint, phase);
+            return new Frame(t, movement, flight, sprint, phase, dragonElapsed);
         }
 
         /** Null denotes the cached rest pose; no Frame or transforms are allocated. */
@@ -59,7 +64,7 @@ public final class CosmeticAnimation {
     public static final class Frame {
         private final Transform body, head, leftWing, rightWing, pack;
 
-        private Frame(float t, float move, float gliding, float sprint, float phase) {
+        private Frame(float t, float move, float gliding, float sprint, float phase, float dragonElapsed) {
             float breath = 0.018f * sin(t * 2.2f);
             body = new Transform(0, 0, 0.012f * sin(t * 1.1f)
                     + move * 0.025f * sin(t * 9), 1 + breath);
@@ -76,8 +81,22 @@ public final class CosmeticAnimation {
                     + (0.12f + 0.018f * sin(t * 2.6f)) * gliding;
             float lift = (-0.05f + (0.028f + sprint * 0.012f)
                     * sin(phase - 0.45f)) * (1 - gliding) - 0.10f * gliding;
-            leftWing = new Transform(0, -sweep, lift, 1);
-            rightWing = new Transform(0, sweep, -lift, 1);
+            float pitch = 0;
+            if (Float.isFinite(dragonElapsed) && dragonElapsed >= 0 && dragonElapsed < WingAction.DURATION) {
+                // Spread and lift first, then three sweeping dragon-like beats.
+                // Smooth entry/exit blends back into the uninterrupted idle phase.
+                float weight = smooth(dragonElapsed / 0.35f)
+                        * smooth((WingAction.DURATION - dragonElapsed) / 0.65f);
+                float beatPhase = Math.max(0, dragonElapsed - 0.35f) * 7.1f;
+                float dragonSweep = 0.10f + 0.09f * sin(beatPhase - 0.4f);
+                float dragonLift = -0.12f - 0.43f * (float) Math.cos(beatPhase)
+                        - 0.08f * sin(beatPhase * 2);
+                sweep += (dragonSweep - sweep) * weight;
+                lift += (dragonLift - lift) * weight;
+                pitch = (0.10f + 0.13f * sin(beatPhase - 0.5f)) * weight;
+            }
+            leftWing = new Transform(pitch, -sweep, lift, 1);
+            rightWing = new Transform(pitch, sweep, -lift, 1);
             // A backpack follows the wearer, rather than breathing like a pet.
             pack = new Transform(move * 0.025f * sin(t * 9),
                     move * 0.035f * sin(t * 8), 0, 1);
@@ -85,6 +104,11 @@ public final class CosmeticAnimation {
     }
 
     private static float sin(float value) { return (float) Math.sin(value); }
+
+    private static float smooth(float value) {
+        float t = Math.max(0, Math.min(1, value));
+        return t * t * (3 - 2 * t);
+    }
 
     /** Rotation R_y R_x R_z, followed by a local Y scale. */
     private static final class Transform {

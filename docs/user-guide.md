@@ -32,9 +32,10 @@ If you are running the source rather than a release, follow
 
 1. Set a player name in Account. Cubeon uses local/offline profiles rather
    than Microsoft account sign-in.
-2. Select a Minecraft version in Play.
-3. Choose Vanilla or a loader compatible with that version.
-4. Review memory and Java settings if needed, then select Play.
+2. Open **Instances** in Play and select **New instance**.
+3. Fabric is selected by default. Choose another loader if needed, then choose
+   a compatible Minecraft version and a block or mob icon.
+4. Review memory and Java settings if needed, then select **Download & Play**.
 
 In **Instances**, use the small pencil on a card to choose its icon. The same
 panel offers **20 blocks** and **20 mob heads**; your selection is saved per
@@ -43,6 +44,8 @@ loader as a compact tag beside the version.
 
 The first launch downloads missing game components and can take longer.
 Selecting an existing instance restores its version and loader.
+With Discord desktop running, Rich Presence shows the Minecraft version and
+loader you are playing, for example “Playing Minecraft 1.21.11 (Fabric)”.
 
 An offline profile does not authenticate you to servers that require a
 Microsoft/Mojang account.

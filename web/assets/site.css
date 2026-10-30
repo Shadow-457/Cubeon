@@ -173,6 +173,14 @@ main{display:block}
 .cosmetics-shot picture,.cosmetics-shot img{display:block;width:100%}
 .cosmetics-shot img{height:auto}
 
+/* ---- in-guide screenshots -------------------------------------------
+   Real <img> elements, on the page that explains them. Google Images does
+   not index CSS background images and rarely indexes images that exist only
+   in the sitemap, so each public screenshot is embedded where it belongs. */
+.docs-shot{margin:24px 0;background:var(--card-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:3px solid var(--ink);border-radius:var(--r);box-shadow:7px 7px 0 var(--grass);overflow:hidden}
+.docs-shot img{display:block;width:100%;height:auto}
+.docs-shot figcaption{padding:10px 14px;font-size:14.5px;font-weight:600;color:var(--text-soft);border-top:3px solid var(--ink);background:var(--paper)}
+
 /* ---- feature cards ---- */
 .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:22px;margin-top:44px}
 .card{background:var(--card-glass);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);border:2px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:26px;transition:border-color 90ms linear}

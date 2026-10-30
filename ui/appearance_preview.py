@@ -5,7 +5,6 @@ Rotation buttons glide between these frames without rebuilding the scene.
 """
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
-import math
 import os
 import threading
 import time
@@ -13,8 +12,7 @@ import time
 import flet as ft
 from PIL import Image
 
-from cubeon.appearance import CharacterModel
-from cubeon.appearance_scene import order_faces
+from cubeon.appearance import CharacterModel, render_faces
 from cubeon import thread_safe_ui
 from cubeon.theme import TEXT_DIM
 
@@ -24,54 +22,9 @@ SUPERSAMPLE = 2             # render at 2x then box-filter down: clean edges
 HOME_YAW, PITCH = 25.0, 10.0
 TICK = 1 / 60
 
-_AFFINE = getattr(Image, "Transform", Image).AFFINE
-_NEAREST = getattr(Image, "Resampling", Image).NEAREST
-_BOX = getattr(Image, "Resampling", Image).BOX
-
-
-def _shade(texture, factor):
-    if factor >= 0.999:
-        return texture
-    red, green, blue, alpha = texture.split()
-    table = [min(255, int(i * factor + 0.5)) for i in range(256)]
-    return Image.merge("RGBA", (red.point(table), green.point(table), blue.point(table), alpha))
-
-
 def render_frame(faces, textures, supersample=SUPERSAMPLE):
-    """Paint already depth-ordered projected faces into one RGBA stage image."""
-    width, height = STAGE_W * supersample, STAGE_H * supersample
-    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    for face in faces:
-        texture = textures.get(face.index)
-        if texture is None:
-            continue
-        origin, horizontal, vertical = face.points
-        tex_w, tex_h = texture.size
-        ox, oy = origin[0] * supersample, origin[1] * supersample
-        a = (horizontal[0] - origin[0]) * supersample / tex_w
-        c = (horizontal[1] - origin[1]) * supersample / tex_w
-        b = (vertical[0] - origin[0]) * supersample / tex_h
-        d = (vertical[1] - origin[1]) * supersample / tex_h
-        det = a * d - b * c
-        if abs(det) < 1e-6:          # edge-on: nothing to see
-            continue
-        xs = (ox, ox + a * tex_w, ox + b * tex_h, ox + a * tex_w + b * tex_h)
-        ys = (oy, oy + c * tex_w, oy + d * tex_h, oy + c * tex_w + d * tex_h)
-        x0, x1 = max(0, math.floor(min(xs))), min(width, math.ceil(max(xs)))
-        y0, y1 = max(0, math.floor(min(ys))), min(height, math.ceil(max(ys)))
-        if x1 <= x0 or y1 <= y0:
-            continue
-        # PIL wants output -> texture. Invert the texture -> screen matrix, with
-        # the crop offset folded in so only the face's own box is sampled.
-        coeffs = (d / det, -b / det, (d * (x0 - ox) - b * (y0 - oy)) / det,
-                  -c / det, a / det, (-c * (x0 - ox) + a * (y0 - oy)) / det)
-        lighting = 0.72 + 0.28 * max(0, face.normal[1] * 0.5 + face.normal[2] * 0.8)
-        piece = _shade(texture, lighting).transform(
-            (x1 - x0, y1 - y0), _AFFINE, coeffs, _NEAREST)
-        canvas.alpha_composite(piece, (x0, y0))
-    if supersample > 1:
-        canvas = canvas.resize((STAGE_W, STAGE_H), _BOX)
-    return canvas
+    """Render cached turntable frames with per-pixel skin-layer occlusion."""
+    return render_faces(faces, textures, size=(STAGE_W, STAGE_H), supersample=supersample)
 
 
 def _png(image):
@@ -203,13 +156,10 @@ class AppearancePreview:
                 for index, face in enumerate(model.faces):
                     if face.texture.getbbox():
                         textures[index] = face.texture.convert("RGBA")
-                project_lock = threading.Lock()
-
                 def frame(step):
                     if self._stale(generation):
                         return None
-                    with project_lock:
-                        faces = order_faces(model.project(step * 360 / STEPS, PITCH), [])
+                    faces = model.project(step * 360 / STEPS, PITCH)
                     return render_frame([f for f in faces if f.index in textures], textures)
 
                 # First paint: only the frame the user is looking at, right away.

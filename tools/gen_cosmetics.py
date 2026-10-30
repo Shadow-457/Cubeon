@@ -40,10 +40,12 @@ Run from the repo root:
 from __future__ import annotations
 
 import json
+import math
+import random
 import os
 import sys
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -379,49 +381,176 @@ def pet_faces(pal, species):
 # ---------------------------------------------------------------------------
 
 
+WING_SIZE = (160, 176)
+WING_PALETTE = ["#211421", "#342037", "#542338", "#7c2939", "#a63236",
+                "#cf4533", "#ed6535", "#ff9143", "#ffbc59", "#ffe18c", "#fff4c9"]
+WING_RAMPS = {
+    "frost": ["#111c35", "#1d3450", "#28536d", "#337691", "#409ab2",
+              "#61bdd0", "#87dce7", "#aaf0f2", "#c8fbf7", "#e8ffff", "#ffffff"],
+    "leaf": ["#142822", "#203d28", "#2d5731", "#3c7131", "#519437",
+             "#72b944", "#9bda5b", "#c6eb72", "#e1f68c", "#f1ffb5", "#ffffdc"],
+    "void": ["#100e25", "#201839", "#352153", "#4d2b76", "#663697",
+             "#894bbb", "#a364d8", "#bf8bec", "#d9b3ff", "#eee0ff", "#ffffff"],
+    "aurora": ["#121c36", "#242949", "#393665", "#4f4398", "#6c58c4",
+               "#8b72e7", "#689ddd", "#59c8c7", "#7ee7d9", "#b0fff0", "#eefffc"],
+}
+
+
+def _wing_feather(start, end, width, curve=0, seed=0, molten=True, joined=False):
+    """Paint a tapered feather with separated vanes and stepped molten veins."""
+    sx, sy = start
+    dx, dy = end[0] - sx, end[1] - sy
+    length = math.hypot(dx, dy)
+    ax, ay = dx / length, dy / length
+    nx, ny = -ay, ax
+
+    def point(t, side=0):
+        offset = curve * math.sin(math.pi * t) + side
+        return (round(sx + dx * t + nx * offset), round(sy + dy * t + ny * offset))
+
+    def breadth(t):
+        base = width * math.sin(math.pi * (0.07 + t * 0.93)) ** 0.72 * (1 - 0.18 * t)
+        # Broader inner vanes overlap farther out along the fan. The final
+        # fifth keeps V2's exact tapered tips and open outer silhouette.
+        overlap = 1 + 0.75 * max(0, 1 - max(0, t - 0.5) / 0.3) if joined else 1
+        return base * overlap
+
+    steps = 32
+    polygon = []
+    for sign in (-1, 1):
+        indices = range(steps + 1) if sign == -1 else range(steps, -1, -1)
+        for i in indices:
+            t = i / steps
+            notch = 0.67 if i % 4 == (seed % 3) and 0.45 < t < 0.93 else 1
+            polygon.append(point(t, sign * breadth(t) * notch))
+    mask = Image.new("L", WING_SIZE)
+    ImageDraw.Draw(mask).polygon(polygon, fill=255)
+    inset = mask.filter(ImageFilter.MinFilter(3))
+    tile = Image.new("RGBA", WING_SIZE)
+    pixels = tile.load()
+    rim = ImageChops.subtract(mask, inset)
+    for y in range(WING_SIZE[1]):
+        for x in range(WING_SIZE[0]):
+            if not mask.getpixel((x, y)):
+                continue
+            t = max(0, min(1, ((x - sx) * ax + (y - sy) * ay) / length))
+            side = ((x - sx) * nx + (y - sy) * ny) - curve * math.sin(math.pi * t)
+            # The brightest area is the outer feather; the root stays volcanic.
+            heat = 1.5 + 7.5 * t
+            heat += 0.6 if side < -1 else -0.7
+            # Parallel vanes are deliberate bands, rather than random noise.
+            if (int(t * length + abs(side) * 0.75) + seed) % 7 < 2:
+                heat -= 1.6
+            if abs(side) > breadth(t) * 0.72:
+                heat -= 1.2
+            colour = WING_PALETTE[max(0, min(10, int(heat)))]
+            if rim.getpixel((x, y)):
+                colour = "#281728" if t < 0.9 else "#ffb747"
+            pixels[x, y] = (*bytes.fromhex(colour[1:]), 255)
+    drawing = ImageDraw.Draw(tile)
+    # Warm bevel along the leading side and a pale, sharp final tip.
+    edge = [point(i / steps, -breadth(i / steps) * 0.76) for i in range(8, 31)]
+    drawing.line(edge, fill="#f7843d", width=1)
+    drawing.line([point(0.87, -1), point(0.96), point(1)], fill="#fff4c9", width=2)
+    if molten:
+        vein = [point(t, math.sin(t * 33 + seed) * 1.1) for t in (0.18, 0.28, 0.4, 0.52, 0.65, 0.79, 0.92)]
+        drawing.line(vein, fill="#a63b2c", width=5)
+        drawing.line(vein, fill="#ff963e", width=3)
+        drawing.line(vein, fill="#ffe6a0", width=1)
+        for j, t in enumerate((0.33, 0.5, 0.67, 0.8)):
+            sign = 1 if (j + seed) % 2 else -1
+            crack = [point(t), point(t + 0.035, sign * breadth(t) * 0.3),
+                     point(t + 0.02, sign * breadth(t) * 0.48),
+                     point(t + 0.09, sign * breadth(t) * 0.75)]
+            drawing.line(crack, fill="#fb9a43", width=2)
+            drawing.line(crack[:3], fill="#ffe2a0", width=1)
+    tile.putalpha(mask)
+    return tile
+
+
+def _ember_wing():
+    canvas = Image.new("RGBA", WING_SIZE)
+    # Long primary feathers, drawn trailing edge first. The rising upper
+    # feathers and detached points give the wing its dramatic open fan.
+    primaries = [
+        ((10, 49), (69, 169), 12, -11),
+        ((16, 44), (106, 148), 14, -16),
+        ((22, 40), (139, 112), 14, -17),
+        ((27, 37), (156, 73), 13, -15),
+        ((30, 33), (155, 35), 12, -11),
+        ((31, 30), (128, 3), 11, -7),
+    ]
+    for i, (start, end, width, curve) in enumerate(primaries):
+        canvas.alpha_composite(_wing_feather(start, end, width, curve, i,
+                                      joined=i < len(primaries) - 1))
+    # Distinct shorter layers over the primary roots; these are darker, broad
+    # armoured feathers with the same copper rim and warm vein language.
+    coverts = [
+        ((9, 47), (49, 104), 10, -7),
+        ((14, 41), (87, 73), 11, -9),
+        ((19, 33), (101, 29), 10, -5),
+    ]
+    for i, (start, end, width, curve) in enumerate(coverts):
+        canvas.alpha_composite(_wing_feather(start, end, width, curve, i + 20, molten=i % 2 == 0))
+    for i, end in enumerate(((29, 69), (43, 36))):
+        canvas.alpha_composite(_wing_feather((5, 44), end, 7, -2, 40 + i, molten=False))
+    # Obsidian shoulder armour, with a molten eye/rune at its centre.
+    drawing = ImageDraw.Draw(canvas)
+    drawing.polygon([(3, 39), (9, 29), (19, 26), (28, 33), (27, 47), (17, 59), (6, 57)],
+                    fill="#281a2d", outline="#ba5634", width=2)
+    drawing.line([(7, 40), (12, 33), (18, 31), (24, 35)], fill="#ffc267", width=1)
+    drawing.polygon([(10, 42), (18, 35), (23, 41), (18, 49)], fill="#7c2939", outline="#ff9a43")
+    drawing.polygon([(14, 41), (18, 37), (21, 41), (18, 46)], fill="#ffe9b0")
+    drawing.line([(7, 48), (12, 50), (16, 54), (23, 47)], fill="#d8723d", width=1)
+    # Tiny ember flecks stay inside the feathers and can be baked into texture.
+    rng = random.Random(709)
+    for _ in range(35):
+        x, y = rng.randrange(25, 148), rng.randrange(10, 156)
+        if canvas.getpixel((x, y))[3] and canvas.getpixel((x, y))[0] < 160:
+            drawing.point((x, y), fill="#ffb965")
+    return canvas
+
+
 def wing_art(pal):
-    """Feather artwork used to build a closed silhouette with thin solid pieces.
-
-    The tile is a transparent cut-out, not a filled rectangle: the root sits
-    at the TOP-left (the shoulder blade), the leading edge runs out to the
-    tip, and the trailing edge hangs down in feather points. In the slab that
-    puts the root at the spine, the tip past the arm, and the feathers down
-    the back - which is what makes it read as a wing instead of a plank.
-    """
-    root, mid, tip = pal["body"], pal["light"], pal["accent"]
-    dark, edge = pal["dark"], pal["eye"]
-
-    def feather_face(flip=False):
-        t = Tile()
-        silhouette = [(0, 0), (5, 0), (9, 1), (13, 2), (15, 5),
-                      (12, 6), (14, 9), (10, 8), (11, 12), (7, 10),
-                      (7, 14), (3, 11), (2, 15), (0, 9)]
-        mask = Image.new("L", (16, 16), 0)
-        ImageDraw.Draw(mask).polygon(silhouette, fill=255)
-        base = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
-        bd = ImageDraw.Draw(base)
-        bd.polygon(silhouette, fill=C(mid))
-        # Feather bands radiate from the shoulder root to each trailing point.
-        bands = [(12, 6), (14, 9), (11, 12), (7, 14), (2, 15)]
-        for index, point in enumerate(bands):
-            bd.polygon([(1, 1), point, (point[0] - 1, point[1]), (1, 3)],
-                       fill=C(root if index % 2 == 0 else shade(root, -0.16)))
-            bd.point(point, fill=C(tip))
-            bd.point((point[0] - 1, point[1] - 1), fill=C(tip))
-        # Bright leading edge from the root to the tip.
-        bd.line([(1, 1), (6, 1), (10, 2), (14, 4)], fill=C(tip))
-        base.putalpha(Image.composite(base.getchannel("A"), Image.new("L", (16, 16), 0), mask))
-        t.im = base
-        t.d = ImageDraw.Draw(t.im)
-        t.outline(dark)
-        if flip:
-            t.im = t.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-        return t.im
-
-    main = feather_face()
-    back = feather_face(flip=True)
-
-    return main, back
+    """Approved V3 fan: six joined primary feathers with sealed pixel edges."""
+    image = _ember_wing()
+    theme = pal.get("wing_theme", "ember")
+    if theme != "ember":
+        ramp = WING_RAMPS[theme]
+        palette = [C(colour) for colour in WING_PALETTE]
+        colours = {colour for count, colour in image.getcolors(image.width * image.height) if colour[3]}
+        lookup = {colour: C(ramp[min(range(len(palette)), key=lambda i:
+                    sum((colour[channel] - palette[i][channel]) ** 2 for channel in range(3)))])
+                  for colour in colours}
+        pixels = image.load()
+        for y in range(image.height):
+            for x in range(image.width):
+                if pixels[x, y][3]:
+                    colour = lookup[pixels[x, y]]
+                    if theme == "aurora":
+                        shimmer = (math.sin(x / 18 + y / 27) + 1) / 2
+                        colour = mix(colour, "#68f6cb" if shimmer > 0.5 else "#b97eff",
+                                     0.25 * shimmer)
+                    pixels[x, y] = colour
+        # Theme-specific highlights remain inside the approved silhouette.
+        def point(x, y, colour):
+            if 0 <= x < image.width and 0 <= y < image.height and pixels[x, y][3]:
+                pixels[x, y] = C(colour)
+        if theme in ("frost", "void"):
+            for x, y in ((43, 34), (77, 26), (111, 37), (122, 62),
+                         (103, 90), (88, 113), (63, 132), (55, 79)):
+                point(x, y, "#ffffff")
+                for offset in (-2, -1, 1, 2):
+                    point(x + offset, y, "#e5f7ff" if theme == "frost" else "#dfc0ff")
+                    point(x, y + offset, "#e5f7ff" if theme == "frost" else "#dfc0ff")
+                if theme == "frost":
+                    for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+                        point(x + dx, y + dy, "#c0f7ff")
+        elif theme == "leaf":
+            for x, y in ((51, 52), (83, 63), (110, 85), (71, 120)):
+                for dx, dy in ((0, 0), (1, 0), (0, 1), (-1, 0)):
+                    point(x + dx, y + dy, "#f5e993")
+    return image, image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
 
 def pack_faces(pal, emblem="gear"):
@@ -510,15 +639,15 @@ PALETTES = {
                         accent="#7ed9c8", eye="#f4c95d", shell="#2f6f6b"),
     "pumpkin_pal": dict(body="#e07a2e", light="#f2a24e", dark="#7a3a14",
                         accent="#4e8b3a", eye="#ffe08a"),
-    "ember_wings": dict(body="#e8722c", light="#ffb347", dark="#7a2e12",
+    "ember_wings": dict(wing_theme="ember", body="#e8722c", light="#ffb347", dark="#7a2e12",
                         accent="#ffe08a", eye="#c94b3b"),
-    "frost_wings": dict(body="#bfe3f2", light="#eaf7fc", dark="#5c8fa8",
+    "frost_wings": dict(wing_theme="frost", body="#bfe3f2", light="#eaf7fc", dark="#5c8fa8",
                         accent="#ffffff", eye="#8fd3ee"),
-    "leaf_wings": dict(body="#4e9b3a", light="#7ed957", dark="#23471c",
+    "leaf_wings": dict(wing_theme="leaf", body="#4e9b3a", light="#7ed957", dark="#23471c",
                        accent="#cfe8a0", eye="#2f6f2a"),
-    "void_wings": dict(body="#2a2140", light="#4b3a73", dark="#120c20",
+    "void_wings": dict(wing_theme="void", body="#2a2140", light="#4b3a73", dark="#120c20",
                        accent="#b98cff", eye="#6a4fb3"),
-    "aurora_wings": dict(body="#3ecfb2", light="#7c6cf0", dark="#1e4a5a",
+    "aurora_wings": dict(wing_theme="aurora", body="#3ecfb2", light="#7c6cf0", dark="#1e4a5a",
                          accent="#e8fffa", eye="#3ecfb2"),
     "gear_pack": dict(body="#7a4b2a", light="#c9a24b", dark="#3a2414",
                       accent="#ff7a3c", eye="#c9a24b"),
@@ -593,7 +722,7 @@ def _wings(item_id, name, blurb, pal):
     p = PALETTES[pal]
     front, _ = wing_art(p)
     px = 4
-    front = front.resize((10 * px, 13 * px), Image.Resampling.NEAREST)
+    # Native V3 art is 40×44 model units; the shoulder root is texel (4, 44).
     # Mirror after resizing: nearest-neighbor tie-breaking can shift a mask
     # by one texel when a 16px sprite is mirrored before its 40px resize.
     back = front.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
@@ -603,15 +732,15 @@ def _wings(item_id, name, blurb, pal):
     for left, top, width, height in silhouette_rectangles(front):
         face = front.crop((left, top, left + width, top + height))
         rear = back.crop((front.width - left - width, top, front.width - left, top + height))
-        depth = 2
+        depth = 3
         def cap(row):
             return face.crop((0, row, width, row + 1)).resize((width, depth), Image.Resampling.NEAREST)
         left_face = face.crop((width - 1, 0, width, height)).resize((depth, height), Image.Resampling.NEAREST)
         right_face = face.crop((0, 0, 1, height)).resize((depth, height), Image.Resampling.NEAREST)
-        boxes.append(dict(origin=[1 + left / px, top / px, 2.2],
+        boxes.append(dict(origin=[1 + left / px, -11 + top / px, 2.2],
                           size=[width / px, height / px, depth / px], px=px,
                           part=len(painted), mirror=True,
-                          motion="wing", pivot=[1, 0, 2.45]))
+                          motion="wing", pivot=[2, 0, 2.575]))
         painted.append(faces(face, rear, left_face, right_face, cap(0), cap(height - 1)))
     return dict(id=item_id, slot="back", name=name, blurb=blurb,
                 boxes=boxes, _faces=painted)
@@ -652,15 +781,15 @@ ITEMS = [
               "A smiling pumpkin companion for the harvest season.", "pumpkin_pal"),
 
     _wings("back_ember_wings", "Ember Wings",
-           "Feathers that smoulder orange at the tips.", "ember_wings"),
+           "Giant phoenix feathers traced with molten gold.", "ember_wings"),
     _wings("back_frost_wings", "Frost Wings",
-           "Pale wings edged in fresh snow.", "frost_wings"),
+           "Giant crystalline wings with bright frost veins.", "frost_wings"),
     _wings("back_leaf_wings", "Leaf Wings",
-           "Grown from a single, very ambitious seed.", "leaf_wings"),
+           "Great emerald feathers with luminous living veins.", "leaf_wings"),
     _wings("back_void_wings", "Void Wings",
-           "Dark wings scattered with distant violet stars.", "void_wings"),
+           "Giant violet feathers scattered with distant stars.", "void_wings"),
     _wings("back_aurora_wings", "Aurora Wings",
-           "Wings that carry a piece of the northern lights.", "aurora_wings"),
+           "Great flowing feathers carrying the northern lights.", "aurora_wings"),
     _pack("back_gear_pack", "Gear Pack",
           "A sturdy pack with a brass gear clasp.", "gear_pack", "gear"),
     _pack("back_scholar_pack", "Scholar Pack",

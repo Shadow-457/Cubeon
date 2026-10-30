@@ -46,7 +46,8 @@ public final class CosmeticFeatureRenderer
         }
         CosmeticAnimation.Frame animation = CubeonHudConfig.get().cosmeticAnimations
                 ? motion.sample(state.age / 20.0f,
-                (float) client.player.getVelocity().horizontalLength() * 4, state.isGliding, client.player.isSprinting()) : motion.disabled();
+                (float) client.player.getVelocity().horizontalLength() * 4, state.isGliding, client.player.isSprinting(),
+                WingAction.INSTANCE.elapsed(client.player, client.world, state.age / 20.0f)) : motion.disabled();
         draw(matrices, vertexConsumers, light, animation);
     }
 

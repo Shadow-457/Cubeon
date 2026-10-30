@@ -47,7 +47,8 @@ public final class CosmeticRenderLayer
         }
         CosmeticAnimation.Frame animation = CubeonHudConfig.get().cosmeticAnimations
                 ? motion.sample(state.ageInTicks / 20.0f,
-                (float) client.player.getDeltaMovement().horizontalDistance() * 4, state.isFallFlying, client.player.isSprinting()) : motion.disabled();
+                (float) client.player.getDeltaMovement().horizontalDistance() * 4, state.isFallFlying, client.player.isSprinting(),
+                WingAction.INSTANCE.elapsed(client.player, client.level, state.ageInTicks / 20.0f)) : motion.disabled();
         CosmeticSelection.refresh();
         pose.pushPose();
         getParentModel().body.translateAndRotate(pose);

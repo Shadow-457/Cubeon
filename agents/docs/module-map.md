@@ -171,7 +171,8 @@ consistent with the shared `THEME` contract.
   title + subtitle below. The pencil chooses from 20 blocks and 20 mob heads in the same panel;
   `cubeon/instance_icons.py` validates IDs and `cfg["instance_icons"]` persists them per instance.
   `tools/gen_instance_icons.py` generates the 40 SVGs. Selection never changes when choosing an icon.
-  Folder/Rename/Delete live on the Play card. "New instance" has three separate steps: loader →
+  Folder/Rename/Delete live on the Play card. "New instance" defaults to Fabric on every new flow
+  and has three separate steps: loader →
   compatible Minecraft version → block/mob icon. Back preserves choices; only final Download & Play
   commits through `main._create_new_instance`. The icon is saved to the resulting loader instance ID,
   never a sibling vanilla version. `mod_loaders.get_loader_minecraft_versions` caches support for 1h.
@@ -188,6 +189,8 @@ consistent with the shared `THEME` contract.
 - `instances.describe()` is the single source of instance metadata (reads the last-played sidecar through
   the caller's `play_store`). Render from one `list_installed()` call; `mod_count()` is a cheap `scandir`.
   `mark_played()` records the instance that actually launched.
+- Discord's playing status uses the launch worker's `launch_mc` and `loader_id` (for example
+  `Playing Minecraft 1.21.11 (Fabric)`), never a later selection's shared `state["mod_loader"]`.
 - A completed loader install must ADOPT its resulting instance: `do_install_and_launch` calls
   `_adopt_installed_instance(target_version, loader_id)` whenever `target_version != version_id`, which
   moves the dropdown/`state["selected_version"]`, sets `state["mod_loader"]`, and persists
@@ -493,6 +496,11 @@ consistent with the shared `THEME` contract.
 
 ### Cosmetics (shoulder and back items)
 
+- `appearance.CharacterModel` keeps outer skin texels as raised caps with 0.5-unit walls around
+  transparent gaps; merged strips suppress internal/corner walls. The cached turntable and reference
+  renderer share `appearance.render_faces` with per-pixel opaque depth and a translucent pass.
+  Inflated sleeves intersect neighbouring boxes: do not restore whole-face painter ordering or
+  flatten the outer atlas onto the base. Rotation still only changes cached frame opacity.
 - `cubeon/cosmetics.py` owns the catalogue, preview quads, thumbnails, selection and
   `<game>/config/cubeon-cosmetics.json` (atomic, change-only; the mod polls it every 250 ms).
   `<game>` is the INSTANCE game folder, never the shared root: Fabric hands the mod
@@ -769,6 +777,9 @@ requires retrying with normal system access, not changing unrelated app code.
   URLs are omitted. `web/robots.txt` advertises the sitemap. Homepage JSON-LD contains real
   product/platform/free-price facts, with no invented ratings. Ownership-only `google*.html` files
   stay out of the sitemap and page instrumentation. See `docs/development/website-seo.md`.
+  All pages declare `/assets/favicon.png` (256×256 Cubeon cube), with `/favicon.ico` as fallback;
+  `tools/prepare_website_favicon.py` copies the launcher icons. Google Search needs a bitmap favicon;
+  the navbar's SVG and the already-correct WebSite name do not force Google's displayed icon/name.
   Image discovery uses 12 image sitemap entries, including ten public PNGs under
   `web/assets/screenshots/`; `tools/prepare_seo_images.py` regenerates redacted copies from
   ignored `archive/ui-captures/seo-images/`. Extra screenshots are absent from visible HTML;

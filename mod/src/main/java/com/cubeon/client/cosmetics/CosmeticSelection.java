@@ -90,6 +90,19 @@ public final class CosmeticSelection {
         return "shoulder".equals(slot) ? shoulder : "back".equals(slot) ? back : null;
     }
 
+    /** Only rigged wings can play the N action; packs and unknown ids cannot. */
+    public static String selectedWing() {
+        String id = get("back");
+        CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
+        CosmeticCatalog.Item item = catalog == null ? null : catalog.get(id);
+        if (item != null) {
+            for (CosmeticCatalog.Box box : item.boxes) {
+                if ("wing".equals(box.motion)) return id;
+            }
+        }
+        return null;
+    }
+
     private static String valid(String id, String slot) {
         if (id == null || id.isEmpty()) {
             return null;

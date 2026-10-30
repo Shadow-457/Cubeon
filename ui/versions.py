@@ -166,7 +166,9 @@ class VersionPicker:
         # (id, label) pairs. The loader is chosen here, while downloading a
         # NEW instance, and then belongs to that installation (2026-10-26).
         self.loaders = list(loaders or [("vanilla", "Vanilla")])
-        self._install_loader = "vanilla"
+        self._default_install_loader = (
+            "fabric" if any(lid == "fabric" for lid, label in self.loaders) else self.loaders[0][0])
+        self._install_loader = self._default_install_loader
 
         self._entries: list = []
         self._online = False
@@ -536,7 +538,7 @@ class VersionPicker:
         self.filter_field.value = ""
         self._offline = False
         self.offline_notice.visible = False
-        self._set_install_loader("vanilla")
+        self._set_install_loader(self._default_install_loader)
         self._apply_mode()
         self.sync_label()
         self._render_installed()
@@ -602,7 +604,7 @@ class VersionPicker:
         self._mode = "new"
         self._new_step = 1
         self._new_version = None
-        self._set_install_loader("vanilla")
+        self._set_install_loader(self._default_install_loader)
         self.filter_field.value = ""
         self._apply_mode()
         self._render_new()

@@ -31,6 +31,7 @@ import argparse
 import glob
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -88,6 +89,7 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/mixin/PlayerTabOverlayMixin.class",
                     "com/cubeon/client/mixin/YggdrasilSessionServiceMixin.class",
                     "com/cubeon/client/hud/CubeonHudClient.class",
+                    "com/cubeon/client/hud/CubeonHudKeybinds.class",
                     "com/cubeon/client/hud/CubeonHudConfig.class",
                     "com/cubeon/client/hud/CubeonHud.class",
                     "com/cubeon/client/hud/EnemyHealthBar.class",
@@ -100,6 +102,7 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/cosmetics/CosmeticCatalog.class",
                     "com/cubeon/client/cosmetics/CosmeticGeometry.class",
                     "com/cubeon/client/cosmetics/CosmeticAnimation.class",
+                    "com/cubeon/client/cosmetics/WingAction.class",
                     "com/cubeon/client/cosmetics/CosmeticSelection.class",
                     "com/cubeon/client/cosmetics/CosmeticsClient.class",
                     "assets/cubeon-client/cosmetics/catalog.json",
@@ -263,6 +266,19 @@ def verify(jar_path, bracket=None):
         return "freelook mixin config has incorrect hooks"
     if not isinstance(labels, dict) or not labels.get("key.cubeon-client.freelook"):
         return "freelook control label is missing"
+    if not labels.get("key.cubeon-client.wing_flare"):
+        return "dragon wing control label is missing"
+    with zipfile.ZipFile(jar_path) as jar:
+        if b"wing_flare" not in jar.read("com/cubeon/client/hud/CubeonHudKeybinds.class"):
+            return "dragon wing key binding is missing"
+        catalog_entry = "assets/cubeon-client/cosmetics/catalog.json"
+        if jar.read(catalog_entry) != Path(os.path.join(ROOT, "assets/cosmetics/catalog.json")).read_bytes():
+            return "cosmetics catalogue is stale"
+        for wing in ("ember", "frost", "leaf", "void", "aurora"):
+            name = "back_" + wing + "_wings.png"
+            entry = "assets/cubeon-client/textures/cosmetics/" + name
+            if entry not in jar.namelist() or jar.read(entry) != Path(os.path.join(ROOT, "assets/cosmetics", name)).read_bytes():
+                return "wing texture is missing or stale: " + name
     return None
 
 

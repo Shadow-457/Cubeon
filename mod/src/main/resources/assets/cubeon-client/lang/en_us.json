@@ -3,6 +3,7 @@
   "key.cubeon-client.open_menu": "Open Cubeon Client Menu",
   "key.cubeon-client.zoom": "Hold to Zoom (scroll to adjust)",
   "key.cubeon-client.freelook": "Hold to Freelook (scroll to adjust distance)",
+  "key.cubeon-client.wing_flare": "Dragon Wing Flare",
   "cubeonclient.menu.title": "Cubeon Client Settings",
   "cubeonclient.menu.show_fps": "Show FPS: %s",
   "cubeonclient.menu.show_keys": "Show Keystrokes: %s",

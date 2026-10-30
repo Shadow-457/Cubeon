@@ -2,6 +2,8 @@ package com.cubeon.client.hud;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.cubeon.client.hud.screen.CubeonHudMenuScreen;
+import com.cubeon.client.cosmetics.CosmeticSelection;
+import com.cubeon.client.cosmetics.WingAction;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -20,6 +22,7 @@ public final class CubeonHudKeybinds {
 
 	private static KeyMapping openMenu;
 	private static KeyMapping emotes;
+	private static KeyMapping wingFlare;
 	private static KeyMapping freelook;
 
 	private CubeonHudKeybinds() {
@@ -44,6 +47,15 @@ public final class CubeonHudKeybinds {
 				CATEGORY);
 		KeyMappingHelper.registerKeyMapping(emotes);
 
+		wingFlare = new KeyMapping(
+				"key." + CubeonHudClient.MOD_ID + ".wing_flare",
+				// 26.3 renamed 26.1/26.2's KEYSYM to KEYBOARD (and dropped
+				// SCANCODE). This overlay exists only for that spelling.
+				InputConstants.Type.KEYBOARD,
+				InputConstants.KEY_N,
+				CATEGORY);
+		KeyMappingHelper.registerKeyMapping(wingFlare);
+
 		freelook = new KeyMapping(
 				"key." + CubeonHudClient.MOD_ID + ".freelook",
 				// 26.3 renamed 26.1/26.2's KEYSYM to KEYBOARD (and dropped
@@ -58,6 +70,14 @@ public final class CubeonHudKeybinds {
 	public static void tick() {
 		Minecraft client = Minecraft.getInstance();
 		FreelookController.sync();
+
+        boolean wingPressed = false;
+        while (wingFlare != null && wingFlare.consumeClick()) wingPressed = true;
+        WingAction.INSTANCE.tick(wingFlare != null && wingFlare.isDown(), wingPressed,
+                freelookEligible() && CubeonHudConfig.get().cosmeticAnimations,
+                client.player, client.level, CosmeticSelection.selectedWing(),
+                client.player == null ? 0 : client.player.tickCount / 20.0f);
+
 
 		// Vanilla only presses key mappings while no screen is open, so this cannot fight a GUI.
 		if (client.player == null || client.level == null || client.gui.screen() != null) {

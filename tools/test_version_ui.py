@@ -247,8 +247,9 @@ check("browsing switches the panel to the new-instance view",
       picker_model.title.value == "New instance", picker_model.title.value)
 
 new_ids = picker_row_ids(picker_model)
-check("new mode offers only versions that are not installed yet",
-      set(new_ids) == {"1.20.1", "26w45a"}, str(sorted(new_ids)))
+check("new mode defaults to Fabric and excludes already installed Fabric instances",
+      picker_model._install_loader == "fabric"
+      and set(new_ids) == {"1.20.1", "1.21.11", "26w45a"}, str(sorted(new_ids)))
 picker_model._set_install_loader("fabric")
 def wait_for_versions():
     deadline = time.monotonic() + 3

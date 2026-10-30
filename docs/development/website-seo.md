@@ -35,6 +35,18 @@ as alternatives, matching Open Graph and visible branding. It carries no Ylet
 publisher credit. Changing the domain alone cannot set the displayed name.
 See [Google’s site-name guidance](https://developers.google.com/search/docs/appearance/site-names).
 
+The search favicon is the existing Cubeon cube in a 256×256 PNG at
+`/assets/favicon.png`; all pages declare that stable URL. `/favicon.ico` supplies
+the conventional fallback. Regenerate both from the launcher icons with
+`python3 tools/prepare_website_favicon.py`. The visible navbar still uses the SVG.
+Google's [favicon guidance](https://developers.google.com/search/docs/appearance/favicon-in-search)
+lists bitmap formats, so an SVG-only favicon does not supply a supported search
+icon. The live site checked on 2026-10-31 already advertised the correct Cubeon
+WebSite name but still supplied only the SVG and returned 404 for `/favicon.ico`.
+Publish the bitmap files and HTML changes, then request a homepage recrawl in
+Search Console. Google can retain an earlier icon or use the domain as a fallback
+site name; neither a recrawl nor structured data guarantees an immediate change.
+
 ## Google Images
 
 `web/sitemap.xml` includes 12 images using Google's image sitemap namespace,

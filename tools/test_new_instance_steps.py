@@ -15,6 +15,7 @@ import _sandbox_home
 _sandbox_home.isolate()
 import app_driver
 from cubeon import atomicio, thread_safe_ui, instances
+from cubeon.theme import ACCENT, ACCENT_TINT
 from ui.versions import VersionPicker
 
 
@@ -78,6 +79,32 @@ class NewInstanceTests(unittest.TestCase):
             p._next()
             self.assertEqual(self.committed, [("1.20.1", "fabric", "block-tnt")])
             self.assertFalse(p.is_open())
+
+    def test_default_fabric_reaches_install_without_a_loader_click(self):
+        p = self.picker()
+        with patch.object(threading.Thread, "start"):
+            p.open()
+            p._browse()
+            self.assertEqual(p._install_loader, "fabric")
+            self.assertEqual(p._loader_chips["fabric"].bgcolor, ACCENT_TINT)
+            self.assertEqual(p._loader_chips["fabric"].border.top.color, ACCENT)
+            p._loader_versions["fabric"] = {"1.20.1", "1.21.1"}
+            p._next()
+            p._pick("1.21.1")
+            p._next()
+            p._next()
+            self.assertEqual(self.committed[0][:2], ("1.21.1", "fabric"))
+            p.open()
+            p._browse()
+            p._set_install_loader("vanilla")
+            p._next()
+            p._pick("1.20.1")
+            p._next()
+            p._next()
+            self.assertEqual(self.committed[-1][:2], ("1.20.1", "vanilla"))
+            p.open()
+            p._browse()
+            self.assertEqual(p._install_loader, "fabric")
 
     def test_offline_retry_preserves_step_and_loader(self):
         p = self.picker()

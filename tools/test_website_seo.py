@@ -18,6 +18,7 @@ class Page(HTMLParser):
     def __init__(self, source):
         super().__init__()
         self.meta, self.canonicals, self.links, self.headings, self.schemas = {}, [], [], [], []
+        self.favicons = []
         self.title = ''
         self.active = None
         self.feed(source)
@@ -29,6 +30,8 @@ class Page(HTMLParser):
             self.meta.setdefault(key, []).append(attrs.get('content', ''))
         if tag == 'link' and attrs.get('rel') == 'canonical':
             self.canonicals.append(attrs.get('href'))
+        if tag == 'link' and attrs.get('rel') == 'icon':
+            self.favicons.append(attrs)
         if tag == 'a' and attrs.get('href'):
             self.links.append(attrs['href'])
         if tag == 'title':
@@ -126,6 +129,25 @@ class SEOTests(unittest.TestCase):
         # These screenshots are not inserted as hidden elements or loaded by page scripts.
         for file in [*WEB.glob('*.html'), *WEB.glob('assets/*.js'), *WEB.glob('assets/*.css')]:
             self.assertNotIn('assets/screenshots/', file.read_text(), str(file))
+
+    def test_search_favicon_is_a_crawlable_cube_bitmap(self):
+        # Google Search's favicon formats exclude SVG. Every page supplies
+        # the same stable PNG URL, and the conventional ICO fallback exists.
+        for key, page in self.pages.items():
+            with self.subTest(page=key):
+                self.assertEqual(len(page.favicons), 1)
+                icon, = page.favicons
+                self.assertEqual(icon['href'], '/assets/favicon.png')
+                self.assertEqual(icon['type'], 'image/png')
+                self.assertEqual(icon['sizes'], '256x256')
+        data = (WEB / 'assets/favicon.png').read_bytes()
+        self.assertEqual(data[:8], b'\x89PNG\r\n\x1a\n')
+        self.assertEqual(struct.unpack('>II', data[16:24]), (256, 256))
+        self.assertEqual(data, (ROOT / 'assets/icon_256.png').read_bytes())
+        fallback = (WEB / 'favicon.ico').read_bytes()
+        self.assertEqual(fallback[:4], b'\x00\x00\x01\x00')
+        self.assertEqual(fallback, (ROOT / 'assets/icon.ico').read_bytes())
+        self.assertNotIn('Disallow: /assets', (WEB / 'robots.txt').read_text())
 
     def test_product_data_matches_visible_product(self):
         page = self.pages['index']

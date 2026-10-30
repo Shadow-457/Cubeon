@@ -18,7 +18,7 @@ from PIL import Image, ImageChops
 from cubeon import skins
 from cubeon.appearance import CharacterModel, Face
 from cubeon.appearance_scene import order_faces, _intersection, _area
-from ui.appearance_preview import AppearancePreview
+from ui.appearance_preview import AppearancePreview, render_frame
 from ui.settings_tab import SECTIONS
 from _fuzz_common import every_control, walk
 import app_driver
@@ -47,6 +47,58 @@ check("slim skins use narrower arm geometry", slim.getbbox()[2] - slim.getbbox()
 legacy = CharacterModel(skins.default_base_skin().crop((0, 0, 64, 32))).render(180, 0)
 check("legacy 64x32 skins have a complete rear view", legacy.getbbox()[3] > 380)
 
+# The outer atlas must remain separate from the base and have texel walls,
+# including around holes. These use the real turntable rasteriser.
+layer_sheet = skins.default_base_skin()
+for y in range(64):
+    for x in range(64):
+        if layer_sheet.getpixel((x, y))[3]:
+            layer_sheet.putpixel((x, y), (20, 40, 240, 255))
+bare_sheet = layer_sheet.copy()
+for x, y in ((41, 11), (21, 39), (45, 39), (53, 55), (5, 39), (5, 55)):
+    layer_sheet.putpixel((x, y), (240, 40, 20, 255))
+source_bytes = layer_sheet.tobytes()
+layer_model = CharacterModel(layer_sheet)
+layer_textures = {i: face.texture for i, face in enumerate(layer_model.faces)}
+layer_frame = render_frame(layer_model.project(0, 0), layer_textures, supersample=1)
+for label, point in (("hat", (129, 82)), ("jacket", (129, 168)),
+                     ("right sleeve", (87, 168)), ("left sleeve", (219, 168)),
+                     ("right trouser", (131, 300)), ("left trouser", (175, 300))):
+    red, green, blue, alpha = layer_frame.getpixel(point)
+    check(f"the raised {label} samples its own outer-layer atlas", red > 180 and blue < 40 and alpha == 255)
+check("constructing the voxel model preserves the original skin sheet", layer_sheet.tobytes() == source_bytes)
+base_front = next(face for face in layer_model.faces
+                  if face.normal == (0, 0, 1) and face.vertices[0] == (-4, 32, 4))
+check("the base texture retains its pixels underneath the raised hat",
+      base_front.texture.tobytes() == bare_sheet.crop((8, 8, 16, 16)).tobytes())
+red, green, blue, alpha = layer_frame.getpixel((143, 82))
+check("a transparent outer texel exposes the opaque base", blue > 180 and red < 40 and alpha == 255)
+
+edge_sheet = bare_sheet.copy()
+edge_sheet.putpixel((40, 11), (240, 40, 20, 255))
+edge_model = CharacterModel(edge_sheet)
+edge_frame = render_frame(edge_model.project(0, 0), {i: f.texture for i, f in enumerate(edge_model.faces)}, 1)
+check("a raised edge texel protrudes beyond the base silhouette",
+      edge_frame.getpixel((112, 82))[0] > 180 and CharacterModel(bare_sheet).render(0, 0).getpixel((112, 82))[3] == 0)
+relief_frame = edge_model.render(35, 10)
+relief_reds = {red for count, (red, green, blue, alpha) in relief_frame.getcolors(320 * 440)
+              if red > 100 and green < 50 and blue < 50 and alpha == 255}
+check("turning reveals shaded side walls on individual skin pixels", len(relief_reds) >= 2)
+check("empty outer layers add no geometry", len(CharacterModel(bare_sheet).faces) == 36)
+check("fully opaque layers merge their caps and hide internal voxel walls",
+      len(CharacterModel(Image.new("RGBA", (64, 64), "white")).faces) == 72)
+
+slim_layers = CharacterModel(layer_sheet, slim=True)
+slim_layer_frame = render_frame(slim_layers.project(0, 0), {i: f.texture for i, f in enumerate(slim_layers.faces)}, 1)
+check("both Alex sleeves retain their outer pixels on three-pixel arms",
+      all(slim_layer_frame.getpixel(point)[0] > 180 for point in ((99, 168), (221, 168))))
+legacy_layers = CharacterModel(layer_sheet.crop((0, 0, 64, 32)))
+legacy_layer_frame = render_frame(legacy_layers.project(0, 0), {i: f.texture for i, f in enumerate(legacy_layers.faces)}, 1)
+check("legacy skins extrude the hat without inventing jacket or sleeve layers",
+      legacy_layer_frame.getpixel((129, 82))[0] > 180
+      and legacy_layer_frame.getpixel((129, 168))[2] > 180
+      and len(legacy_layers.faces) == len(edge_model.faces))
+
 # Cape "None" hides the shared Cubeon cape in the preview too, so the 3D box
 # and the game agree (offline shows vanilla Steve/Alex with no cape).
 import tempfile
@@ -74,6 +126,22 @@ check("crossing surfaces depth-test each pixel, not each whole face",
       depth_frame.getpixel((138, 220))[2] > 200 and depth_frame.getpixel((182, 220))[0] > 200)
 crossing.faces.reverse()
 check("opaque occlusion is independent of face submission order", crossing.render(0, 0).tobytes() == depth_frame.tobytes())
+live_crossing = render_frame(crossing.project(0, 0), {i: f.texture for i, f in enumerate(crossing.faces)}, 1)
+check("cached turntable frames also depth-test crossing surfaces per pixel", live_crossing.tobytes() == depth_frame.tobytes())
+
+transparent_model = CharacterModel(bare_sheet)
+transparent_model.faces = [
+    Face(((-4, 20, 3), (4, 20, 3), (-4, 12, 3)), (0, 0, 1), Image.new("RGBA", (8, 8), (240, 0, 0, 128))),
+    Face(((-4, 20, 0), (4, 20, 0), (-4, 12, 0)), (0, 0, 1), Image.new("RGBA", (8, 8), (0, 0, 240, 255))),
+    Face(((-4, 20, -3), (4, 20, -3), (-4, 12, -3)), (0, 0, 1), Image.new("RGBA", (8, 8), (0, 240, 0, 128))),
+]
+transparent_frame = render_frame(transparent_model.project(0, 0), {i: f.texture for i, f in enumerate(transparent_model.faces)}, 1)
+red, green, blue, alpha = transparent_frame.getpixel((160, 220))
+check("translucent outer pixels blend over the base and hide rear layers",
+      90 < red < 120 and green == 0 and 90 < blue < 120 and alpha == 255)
+transparent_model.faces.reverse()
+check("translucent skin blending is independent of face submission order",
+      transparent_model.render(0, 0).tobytes() == transparent_frame.tobytes())
 
 cape_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "capes", "cubeon_cape.png")
 with Image.open(cape_path) as source:

@@ -134,6 +134,7 @@ with patch.object(stubs.core, 'install_mod_loader', install_loader_ok), \
      patch.object(stubs.core, 'is_loader_supported', return_value=True), \
      patch.object(stubs.core, 'launch_game', launch_ok), \
      patch.object(stubs.core, 'save_config', save_config), \
+     patch.object(stubs.app._rpc, 'set_activity') as rpc_activity, \
      patch('main.threading.Thread', DeferredThread):
     select('1.21.11', 'fabric')
     begin('1.21.11', 'tester')
@@ -148,6 +149,13 @@ check('the installed loader instance becomes the selected one',
       and state.get('mod_loader') == 'fabric')
 check('the loader selection is persisted for the next start',
       bool(saved_configs) and saved_configs[-1].get('last_version') == loader_id)
+check('Discord shows the Minecraft version and the loader that launched',
+      rpc_activity.call_args is not None
+      and rpc_activity.call_args.kwargs.get('state') == 'Playing Minecraft 1.21.11 (Fabric)')
+check('the playing Discord card retains its elapsed timer and artwork',
+      rpc_activity.call_args is not None
+      and isinstance(rpc_activity.call_args.kwargs.get('start'), int)
+      and 'large_image' in rpc_activity.call_args.kwargs)
 
 scope['progress_bar'].visible = True
 scope['set_bar'](None)
