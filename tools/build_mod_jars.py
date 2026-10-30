@@ -101,6 +101,8 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     # the cheap way to catch that here.
                     "com/cubeon/client/cosmetics/CosmeticCatalog.class",
                     "com/cubeon/client/cosmetics/CosmeticGeometry.class",
+                    "com/cubeon/client/cosmetics/CosmeticGeometry$FeatherWeight.class",
+                    "com/cubeon/client/cosmetics/CosmeticCatalog$Feather.class",
                     "com/cubeon/client/cosmetics/CosmeticAnimation.class",
                     "com/cubeon/client/cosmetics/WingAction.class",
                     "com/cubeon/client/cosmetics/CosmeticSelection.class",
@@ -274,8 +276,9 @@ def verify(jar_path, bracket=None):
         catalog_entry = "assets/cubeon-client/cosmetics/catalog.json"
         if jar.read(catalog_entry) != Path(os.path.join(ROOT, "assets/cosmetics/catalog.json")).read_bytes():
             return "cosmetics catalogue is stale"
-        for wing in ("ember", "frost", "leaf", "void", "aurora"):
-            name = "back_" + wing + "_wings.png"
+        names = ["back_" + wing + "_wings" + size + ".png"
+                 for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small")]
+        for name in names:
             entry = "assets/cubeon-client/textures/cosmetics/" + name
             if entry not in jar.namelist() or jar.read(entry) != Path(os.path.join(ROOT, "assets/cosmetics", name)).read_bytes():
                 return "wing texture is missing or stale: " + name

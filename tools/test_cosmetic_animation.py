@@ -22,6 +22,7 @@ public class AnimationTest {
     }
     static float[] points(CosmeticCatalog.Item item, CosmeticAnimation.Frame frame) {
         var quads = CosmeticGeometry.quads(item, 0);
+        if (frame != null) frame = frame.forItem(item);
         float[] result = new float[quads.size() * 12];
         var posed = new CosmeticAnimation.PosedQuad();
         int n = 0;
@@ -53,7 +54,7 @@ public class AnimationTest {
             for (var q : quads) original.add(new float[]{q.x[0], q.y[0], q.z[0], q.normalX, q.normalY, q.normalZ, q.u[0], q.v[0]});
             var posed = new CosmeticAnimation.PosedQuad();
             for (int tick = 0; tick < 1920; tick++) {
-                var frame = CosmeticAnimation.sample(tick / 30.0f, (tick % 120) / 120.0f, tick % 120 > 60);
+                var frame = CosmeticAnimation.sample(tick / 30.0f, (tick % 120) / 120.0f, tick % 120 > 60).forItem(item);
                 for (var q : quads) {
                     posed.set(q, frame);
                     float length = posed.normalX*posed.normalX + posed.normalY*posed.normalY + posed.normalZ*posed.normalZ;
@@ -64,7 +65,8 @@ public class AnimationTest {
                     near(bx*posed.normalX + by*posed.normalY + bz*posed.normalZ, 0, "Normal perpendicular to second edge");
                     for (int i = 0; i < 4; i++) {
                         check(Float.isFinite(posed.x[i]) && Float.isFinite(posed.y[i]) && Float.isFinite(posed.z[i]), "Finite coordinates");
-                        check(Math.abs(posed.x[i]) < 20 && Math.abs(posed.y[i]) < 20 && Math.abs(posed.z[i]) < 20, "Bounded movement");
+                        float bound = "wing".equals(q.motion) ? 55 : 20;
+                        check(Math.abs(posed.x[i]) < bound && Math.abs(posed.y[i]) < bound && Math.abs(posed.z[i]) < bound, "Bounded movement");
                         if ("head".equals(q.motion))
                             check(posed.x[i] < -4, "Pet turns must clear the player's head: " + item.id);
                     }
@@ -86,7 +88,7 @@ public class AnimationTest {
         var mirror = pivot("wing", -1, 0, 2.45f); mirror.mirrored = true;
         var posed = new CosmeticAnimation.PosedQuad();
         for (int tick = 0; tick < 100; tick++) {
-            var frame = CosmeticAnimation.sample(tick / 20.0f, 1, tick > 50);
+            var frame = CosmeticAnimation.sample(tick / 20.0f, 1, tick > 50).forItem(wings);
             for (var q : List.of(body, root, mirror)) {
                 posed.set(q, frame);
                 near(posed.x[0], q.pivotX, "Attachment X");
@@ -171,6 +173,176 @@ public class AnimationTest {
         check(difference(points(wings, tracker.sample(20, 0, false)),
                 points(wings, CosmeticAnimation.sample(20, 0, false))) < .0001, "Re-enable resets time");
     }
+    static void verifyDragon(CosmeticCatalog.Catalog catalog) {
+        Object player = new Object(), world = new Object();
+        String id = "back_ember_wings";
+        var action = new WingAction();
+        action.tick(true, true, true, player, world, id, 10);
+        near(action.elapsed(player, world, 10), 0, "N starts immediately");
+        near(action.elapsed(player, world, 9.98f), 0, "Subtick interpolation starts smoothly");
+        check(action.elapsed(new Object(), world, 10) < 0, "Different player cannot inherit N");
+        check(action.elapsed(player, new Object(), 10) < 0, "Different world cannot inherit N");
+        action.tick(true, true, true, player, world, id, 10.25f);
+        near(action.elapsed(player, world, 10.25f), .25f, "Keyboard repeat never restarts a beat");
+        action.tick(false, false, true, player, world, id, 10.3f);
+        action.tick(true, true, true, player, world, id, 10.4f);
+        near(action.elapsed(player, world, 10.4f), .4f, "Rapid taps never snap an active beat");
+        near(action.elapsed(player, world, 10.4f), .4f, "Paused entity age freezes the action");
+        check(action.elapsed(player, world, 10 + WingAction.DURATION) < 0, "One-shot ends automatically");
+        action.tick(true, true, false, player, world, id, 10.45f);
+        check(action.elapsed(player, world, 10.45f) < 0, "Menu/focus/death/disabled cancels");
+        action.tick(true, true, true, player, world, id, 10.5f);
+        check(action.elapsed(player, world, 10.5f) < 0, "Held N cannot restart after a menu");
+        action.tick(false, false, true, player, world, id, 10.55f);
+        action.tick(true, true, true, player, world, id, 10.6f);
+        near(action.elapsed(player, world, 10.6f), 0, "Fresh press starts after cancellation");
+        action.tick(false, false, true, player, world, "back_frost_wings", 10.65f);
+        check(action.elapsed(player, world, 10.65f) < 0, "Changing wing cancels the old action");
+        action.tick(true, true, true, player, world, null, 10.7f);
+        check(action.elapsed(player, world, 10.7f) < 0, "Packs and no wings ignore N");
+        action.tick(false, false, true, player, world, id, 10.75f);
+        action.tick(true, true, true, player, world, id, 10.8f);
+        action.tick(false, false, true, player, world, id, 0);
+        check(action.elapsed(player, world, 0) < 0, "Age reset cancels N");
+        action.tick(true, true, true, player, world, id, Float.NaN);
+        check(action.elapsed(player, world, Float.NaN) < 0, "Invalid time is harmless");
+        var wings = catalog.get(id);
+        var tracker = new CosmeticAnimation.Tracker();
+        float[] baseline = points(wings, tracker.sample(20, 0, false, false));
+        check(difference(baseline, points(wings, tracker.sample(20, 0, false, false, 0))) == 0,
+                "Dragon entry starts at the exact normal pose");
+        check(difference(baseline, points(wings, tracker.sample(20, 0, false, false, .001f))) < .003,
+                "Dragon entry never snaps");
+        check(difference(baseline, points(wings, tracker.sample(20, 0, false, false, .8f))) > 8,
+                "Dragon beats have a visibly powerful stroke");
+        check(difference(baseline, points(wings, tracker.sample(20, 0, false, false, WingAction.DURATION - .001f))) < .003,
+                "Dragon exit returns smoothly to normal phase");
+        var pet = catalog.get("shoulder_ember_fox");
+        check(difference(points(pet, tracker.sample(20, 0, false, false)),
+                points(pet, tracker.sample(20, 0, false, false, .8f))) == 0, "N only moves wings");
+        var q = pivot("wing", 2, 0, 2.575f); q.x[0] = 41; q.y[0] = 18;
+        var mirror = pivot("wing", -2, 0, 2.575f); mirror.x[0] = -41; mirror.y[0] = 18; mirror.mirrored = true;
+        var posed = new CosmeticAnimation.PosedQuad();
+        for (int i = 0; i < 390; i++) {
+            var frame = tracker.sample(20, 0, false, false, i / 120f).forItem(wings);
+            posed.set(q, frame);
+            float x = posed.x[0], y = posed.y[0], z = posed.z[0];
+            posed.set(mirror, frame);
+            near(x, -posed.x[0], "Dragon mirror X"); near(y, posed.y[0], "Dragon mirror Y"); near(z, posed.z[0], "Dragon mirror Z");
+            var root = pivot("wing", 2, 0, 2.575f);
+            posed.set(root, frame);
+            near(posed.x[0], 2, "Dragon shoulder attachment X"); near(posed.y[0], 0, "Dragon shoulder attachment Y");
+            for (var quad : CosmeticGeometry.quads(wings, 0)) {
+                posed.set(quad, frame);
+                near(posed.normalX * posed.normalX + posed.normalY * posed.normalY + posed.normalZ * posed.normalZ,
+                        1, "Dragon lighting normals stay unit length");
+                for (int v = 0; v < 4; v++) check(Float.isFinite(posed.x[v]) && Float.isFinite(posed.y[v]) && Float.isFinite(posed.z[v]),
+                        "Dragon geometry stays finite");
+            }
+        }
+        float[] reference = null;
+        for (int fps : new int[]{30, 60, 240}) {
+            tracker = new CosmeticAnimation.Tracker();
+            float[] result = null;
+            for (int i = 0; i <= fps * 2; i++) result = points(wings, tracker.sample(20 + i / (float) fps, 0, false, false, i / (float) fps));
+            if (reference != null) check(difference(reference, result) < .002, "Dragon action is independent of FPS");
+            reference = result;
+        }
+    }
+    static void verifyFeathers(CosmeticCatalog.Catalog catalog) {
+        for (var item : catalog.items()) {
+            if (item.feathers.isEmpty()) continue;
+            var quads = CosmeticGeometry.quads(item, 0);
+            check(quads.size() <= (item.id.endsWith("_small") ? 144 : 2556), "Lightweight mesh budget");
+            check(item.texWidth <= 512 && item.texHeight <= 1024, "Old GPU texture budget");
+            var posed = new CosmeticAnimation.PosedQuad();
+            for (float elapsed : new float[]{-1, 0, .3f, .8f, 1.4f, 2.6f}) {
+                var normal = new CosmeticAnimation.Tracker().sample(20, 0, false, false, elapsed);
+                var flexed = normal.forItem(item);
+                check(flexed.forItem(item) == flexed, "Item snapshot prepared only once");
+                var byPoint = new HashMap<String, float[]>();
+                float[] displacement = new float[item.feathers.size()];
+                float[] nearest = new float[item.feathers.size()]; Arrays.fill(nearest, Float.MAX_VALUE);
+                for (var q : quads) {
+                    posed.set(q, flexed);
+                    float[][] output = new float[4][];
+                    for (int v = 0; v < 4; v++) {
+                        output[v] = new float[]{posed.x[v], posed.y[v], posed.z[v]};
+                        String key = q.x[v] + "," + q.y[v] + "," + q.z[v];
+                        float[] previous = byPoint.putIfAbsent(key, output[v]);
+                        if (previous != null) for (int axis = 0; axis < 3; axis++)
+                            near(previous[axis], output[v][axis], "Feather caps/walls stay welded");
+                    }
+                    if (q.mirrored || q.normalZ != -1) continue;
+                    posed.set(q, normal); // Shoulder stroke without the local feather bends.
+                    for (int v = 0; v < 4; v++) for (int j = 0; j < item.feathers.size(); j++) {
+                        var f = item.feathers.get(j);
+                        float dx = q.x[v] - f.endX, dy = q.y[v] - f.endY;
+                        float distance = dx*dx + dy*dy;
+                        if (distance < nearest[j]) {
+                            nearest[j] = distance;
+                            displacement[j] = output[v][2] - posed.z[v];
+                        }
+                    }
+                }
+                if (elapsed == .8f) {
+                    for (int j = 0; j < item.feathers.size(); j++)
+                        check(Math.abs(displacement[j]) > .01f, "Every feather visibly bends: " + item.id + "/" + j);
+                    float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
+                    for (float value : displacement) { min = Math.min(min, value); max = Math.max(max, value); }
+                    check(max - min > (item.id.endsWith("_small") ? .1f : .5f), "Feathers have distinct recoil");
+                }
+                if (elapsed != .8f || !item.id.startsWith("back_ember_")) continue;
+                // T junctions must land on the same straight, deformed edge as the cap.
+                for (var q : quads) {
+                    if (q.mirrored || q.normalZ != -1) continue;
+                    posed.set(q, flexed);
+                    for (int v = 0; v < 4; v++) {
+                        int next = (v + 1) % 4;
+                        for (var other : quads) {
+                            if (other.mirrored || other.normalZ != -1) continue;
+                            for (int n = 0; n < 4; n++) {
+                                float dx = q.x[next]-q.x[v], dy = q.y[next]-q.y[v];
+                                float t = Math.abs(dx) > 0 ? (other.x[n]-q.x[v])/dx : (other.y[n]-q.y[v])/dy;
+                                if (t <= 0 || t >= 1 || other.x[n] != q.x[v]+dx*t || other.y[n] != q.y[v]+dy*t) continue;
+                                float[] actual = byPoint.get(other.x[n] + "," + other.y[n] + "," + other.z[n]);
+                                near(actual[0], posed.x[v]*(1-t) + posed.x[next]*t, "No open X seam");
+                                near(actual[1], posed.y[v]*(1-t) + posed.y[next]*t, "No open Y seam");
+                                near(actual[2], posed.z[v]*(1-t) + posed.z[next]*t, "No open Z seam");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    static volatile float checksum;
+    static void benchmark(CosmeticCatalog.Item item) {
+        var quads = CosmeticGeometry.quads(item, 0);
+        var tracker = new CosmeticAnimation.Tracker(); var posed = new CosmeticAnimation.PosedQuad();
+        var bean = (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
+        if (bean.isThreadAllocatedMemorySupported()) bean.setThreadAllocatedMemoryEnabled(true);
+        for (boolean enabled : new boolean[]{true, false}) {
+            for (int run = 0; run < 2; run++) {
+                int frames = run == 0 ? 400 : 3000;
+                long thread = Thread.currentThread().getId();
+                long allocated = bean.getThreadAllocatedBytes(thread), started = System.nanoTime();
+                float sum = 0;
+                for (int n = 0; n < frames; n++) {
+                    var frame = enabled ? tracker.sample(n / 60f, 0, false, false, n % 180 / 60f).forItem(item) : tracker.disabled();
+                    for (int q = 0; q < quads.size(); q++) { posed.set(quads.get(q), frame); sum += posed.z[0]; }
+                }
+                long nanos = System.nanoTime() - started;
+                long bytes = bean.getThreadAllocatedBytes(thread) - allocated;
+                checksum = sum;
+                if (run == 1) {
+                    check(bytes / frames < (enabled ? 1024 : 8), "Bounded allocations / static OFF skips work");
+                    System.out.printf(Locale.ROOT, "%s: %d quads, %.3f ms/frame CPU pose, %d bytes/frame (%s).%n",
+                            item.id, quads.size(), nanos / (double) frames / 1e6, bytes / frames, enabled ? "ON" : "OFF");
+                }
+            }
+        }
+    }
     static void verifyLegacy() {
         var q = pivot("none", 0, 0, 0); q.x[0] = 5; q.y[0] = 6; q.z[0] = 7;
         var posed = new CosmeticAnimation.PosedQuad();
@@ -183,8 +355,12 @@ public class AnimationTest {
         verifyAttachments(catalog.get("back_void_wings"));
         verifyTime(catalog.get("back_void_wings"));
         verifyLegacy();
+        verifyFeathers(catalog);
+        benchmark(catalog.get("back_ember_wings"));
+        benchmark(catalog.get("back_ember_wings_small"));
         verifySprint(catalog.get("back_void_wings"));
-        System.out.println("All 20 cosmetics: idle movement, sealed mirrored wings, fixed attachments, lighting, cache safety, smoothing, pause and world reset passed.");
+        verifyDragon(catalog);
+        System.out.println("All 25 cosmetics: idle movement, sealed mirrored wings, fixed attachments, lighting, cache safety, smoothing, pause, world reset and dragon N action passed.");
     }
 }
 '''
@@ -198,13 +374,13 @@ class CosmeticAnimationTests(unittest.TestCase):
             harness = root / 'AnimationTest.java'
             harness.write_text(HARNESS)
             sources = [JAVA / 'Json.java'] + [JAVA / 'cosmetics' / (name + '.java')
-                       for name in ('CosmeticCatalog', 'CosmeticGeometry', 'CosmeticAnimation')]
+                       for name in ('CosmeticCatalog', 'CosmeticGeometry', 'CosmeticAnimation', 'WingAction')]
             compiled = subprocess.run(['javac', '--release', '17', '-d', folder,
                                        *map(str, sources), str(harness)], capture_output=True, text=True, timeout=60)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             tested = subprocess.run(['java', '-cp', folder, 'AnimationTest',
                                      str(ROOT / 'assets/cosmetics/catalog.json')],
-                                    capture_output=True, text=True, timeout=60)
+                                    capture_output=True, text=True, timeout=120)
             self.assertEqual(tested.returncode, 0, tested.stdout + tested.stderr)
             print(tested.stdout.strip())
 

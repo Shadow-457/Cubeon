@@ -60,15 +60,20 @@ Microsoft/Mojang account.
   or Oculus. Downloading a shader ZIP alone does not enable shaders.
 - **Modpacks:** carry their own Minecraft and loader requirements. Review
   the pack's requirements before installing it.
-- **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; drag
-  the 3D preview to inspect the model. Shoulder and Back sections are marked **Beta**.
+- **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; use
+  the rotation arrows to inspect the 3D model. Shoulder and Back sections are marked **Beta**.
   Shoulder and back items are drawn in
   game by Cubeon Client and are visible to you; skins and capes need compatible
   skin support. A selection is stored in the instance the game plays in, so
   each instance can keep a different item.
   In game, shoulder pets breathe and look around; wings beat slowly at rest,
-  speed up smoothly when sprinting and spread
-  during gliding, and backpacks sway while you move. The launcher preview shows
+  speed up smoothly when sprinting and spread during gliding. The five wing themes
+  offer the original cute **Small** wings and joined **Giant** wings. Each feather
+  flexes and recoils with a slight delay while its root stays attached.
+  Press **N** with wings equipped to spread them and
+  play a short dragon-style wing flare; it settles back automatically. Rebind
+  **Dragon Wing Flare** in Minecraft's Controls → Key Binds → Cubeon Client.
+  Backpacks sway while you move. The launcher preview shows
   the resting model. Restart Minecraft after changing the companion mod.
 - **In-game HUD and zoom:** press K in game to open the Cubeon Client menu.
   Each overlay (FPS, keystrokes, armour, ping, CPS) has a card with a display
@@ -78,7 +83,8 @@ Microsoft/Mojang account.
   your hand. **Enemy Health** toggles a thin bar beneath nearby enemy names
   (players and hostile mobs). It starts off and remembers your choice; enemies
   behind walls and teammates are hidden. **Cosmetic motion** starts on;
-  switch it off to keep pets, wings and packs still and reduce animation work.
+  switch it off to keep pets, wings and packs still, including individual feather
+  movement and the N flare. This skips animation calculations.
   The choice is saved. **Reset layout** restores overlay positions and sizes.
   Tab/arrows select controls; Enter activates them. In the drag editor,
   release the mouse to save and choose Done or press Enter to return.

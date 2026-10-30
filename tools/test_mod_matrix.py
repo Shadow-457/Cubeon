@@ -424,7 +424,14 @@ def test_removed_effect_guard():
                 "package": "com.cubeon.client.mixin",
                 "client": ["FreelookCameraMixin", "FreelookScrollMixin"]}).encode()
             entries["assets/cubeon-client/lang/en_us.json"] = json.dumps({
-                "key.cubeon-client.freelook": "Hold to Freelook"}).encode()
+                "key.cubeon-client.freelook": "Hold to Freelook",
+                "key.cubeon-client.wing_flare": "Dragon Wing Flare"}).encode()
+            entries["com/cubeon/client/hud/CubeonHudKeybinds.class"] = b"wing_flare"
+            entries["assets/cubeon-client/cosmetics/catalog.json"] = Path(ROOT, "assets/cosmetics/catalog.json").read_bytes()
+            names = ["back_" + wing + "_wings" + size + ".png"
+                     for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small")]
+            for name in names:
+                entries["assets/cubeon-client/textures/cosmetics/" + name] = Path(ROOT, "assets/cosmetics", name).read_bytes()
             entries.update(extra)
             with zipfile.ZipFile(path, "w") as jar:
                 for name, data in entries.items():
@@ -432,6 +439,15 @@ def test_removed_effect_guard():
 
         write({"com/cubeon/client/hud/CubeonHud.class": b"crosshairTarget"})
         ok(verify(path) is None, "normal vanilla crosshair references remain valid")
+        for entry, data, why in (
+            ("com/cubeon/client/hud/CubeonHudKeybinds.class", b"old_bindings", "key binding"),
+            ("assets/cubeon-client/cosmetics/catalog.json", b"{}", "catalogue is stale"),
+            ("assets/cubeon-client/textures/cosmetics/back_ember_wings.png", b"old_texture", "texture is missing or stale"),
+            ("assets/cubeon-client/textures/cosmetics/back_ember_wings_small.png", b"old_texture", "texture is missing or stale"),
+        ):
+            write({entry: data})
+            error = verify(path)
+            ok(error is not None and why in error, f"verification rejects stale dragon wing entry {entry}")
         cases = (
             ("com/cubeon/client/hud/MotionBlur.class", b"fixture"),
             ("assets/cubeon-client/post_effect/motion_blur_low.json", b"{}"),
@@ -609,6 +625,8 @@ def test_shipped_jars(matrix):
                 shipped_labels = json.loads(jar.read("assets/cubeon-client/lang/en_us.json"))
                 ok(shipped_labels.get("key.cubeon-client.freelook") == labels["key.cubeon-client.freelook"],
                    f"{name}: freelook control label is current")
+                ok(shipped_labels.get("key.cubeon-client.wing_flare") == labels["key.cubeon-client.wing_flare"],
+                   f"{name}: dragon wing control label is current")
                 ok(all(shipped_labels.get(key) == value for key, value in screen_labels.items()),
                    f"{name}: all emote and custom HUD screen translations are current")
                 ok(all(jar.read(entry) == data for entry, data in font_resources.items()),

@@ -47,10 +47,11 @@ public final class CosmeticCatalog {
         public final boolean mirror;
         public final String motion;
         public final float pivotX, pivotY, pivotZ;
+        public final int faces;
 
         Box(float x, float y, float z, float width, float height, float depth,
             int px, int uvX, int uvY, boolean mirror, String motion,
-            float pivotX, float pivotY, float pivotZ) {
+            float pivotX, float pivotY, float pivotZ, int faces) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -65,7 +66,26 @@ public final class CosmeticCatalog {
             this.pivotX = pivotX;
             this.pivotY = pivotY;
             this.pivotZ = pivotZ;
+            this.faces = faces;
         }
+    }
+
+    /** Artist-authored feather centre lines, in unmirrored model space. */
+    public static final class Feather {
+        public final float x, y, endX, endY, width, curve;
+        Feather(float x, float y, float endX, float endY, float width, float curve) {
+            this.x = x; this.y = y; this.endX = endX; this.endY = endY;
+            this.width = width; this.curve = curve;
+        }
+    }
+
+    /** Front, back, left, right, top, bottom, in the shared atlas order. */
+    public static int faceBit(String name) {
+        return switch (name) {
+            case "front" -> 1; case "back" -> 2; case "left" -> 4;
+            case "right" -> 8; case "top" -> 16; case "bottom" -> 32;
+            default -> 0;
+        };
     }
 
     /** One catalogue entry. {@code texture} is a file name, not a resource id. */
@@ -77,9 +97,10 @@ public final class CosmeticCatalog {
         public final int texWidth;
         public final int texHeight;
         public final List<Box> boxes;
+        public final List<Feather> feathers;
 
         Item(String id, String slot, String name, String texture,
-             int texWidth, int texHeight, List<Box> boxes) {
+             int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers) {
             this.id = id;
             this.slot = slot;
             this.name = name;
@@ -87,6 +108,7 @@ public final class CosmeticCatalog {
             this.texWidth = texWidth;
             this.texHeight = texHeight;
             this.boxes = Collections.unmodifiableList(boxes);
+            this.feathers = Collections.unmodifiableList(feathers);
         }
     }
 
@@ -163,8 +185,21 @@ public final class CosmeticCatalog {
             if (boxes.isEmpty()) {
                 return null;
             }
+            List<Feather> feathers = new ArrayList<>();
+            for (Object guide : Json.list(raw, "feathers")) {
+                List<Object> start = Json.list(guide, "start"), end = Json.list(guide, "end");
+                float width = (float) Json.num(guide, "width");
+                float curve = (float) Json.num(guide, "curve");
+                if (start.size() < 2 || end.size() < 2 || width <= 0 || !Float.isFinite(width)
+                        || !Float.isFinite(curve) || feathers.size() >= 16) continue;
+                float x = (float) number(start.get(0)), y = (float) number(start.get(1));
+                float ex = (float) number(end.get(0)), ey = (float) number(end.get(1));
+                if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(ex)
+                        || !Float.isFinite(ey) || Math.hypot(ex - x, ey - y) < 0.1) continue;
+                feathers.add(new Feather(x, y, ex, ey, width, curve));
+            }
             return new Item(id, slot, Json.str(raw, "name", id), texture,
-                    texWidth, texHeight, boxes);
+                    texWidth, texHeight, boxes, feathers);
         }
 
         private static Box parseBox(Object raw) {
@@ -192,6 +227,11 @@ public final class CosmeticCatalog {
                     rigged &= Float.isFinite((float) number(pivot.get(i)));
                 }
             }
+            int faces = 63;
+            if (((Map<?, ?>) raw).containsKey("faces")) {
+                faces = 0;
+                for (Object face : Json.list(raw, "faces")) faces |= faceBit(String.valueOf(face));
+            }
             return new Box((float) number(origin.get(0)),
                     (float) number(origin.get(1)),
                     (float) number(origin.get(2)),
@@ -201,7 +241,7 @@ public final class CosmeticCatalog {
                     rigged ? Json.str(raw, "motion", "none") : "none",
                     rigged ? (float) number(pivot.get(0)) : 0,
                     rigged ? (float) number(pivot.get(1)) : 0,
-                    rigged ? (float) number(pivot.get(2)) : 0);
+                    rigged ? (float) number(pivot.get(2)) : 0, faces);
         }
 
         private static double number(Object value) {

@@ -512,15 +512,25 @@ consistent with the shared `THEME` contract.
   so never hand-edit a PNG or `catalog.json` - change the generator and rerun it.
 - Catalogue boxes carry `motion`/`pivot` rig metadata. `CosmeticAnimation` poses pets (body breathing
   and child head glances), mirrored wing hinges (flapping/spreading for gliding), and moving packs.
+  Wing items also carry artist-authored `feathers` guides and optional box `faces` masks.
+  `CosmeticGeometry` caches sparse tip-bend/fan/twist weights, welding T junctions between caps;
+  renderers prepare `Frame.forItem(item)` once before submission. Render-thread `PosedQuad` scratch
+  caches each unique vertex's displacement within that immutable frame; never put mutable poses in
+  queued frames or cached rest geometry. Motion OFF bypasses all feather preparation and posing.
   Rest geometry/UV caches stay immutable; each draw reuses one scratch quad, including transformed
   normals. Renderers capture an immutable frame before queued submissions. Use interpolated entity
   age (Yarn `age`, Mojang `ageInTicks`) and render-local smoothing, never a background animation timer;
   pause freezes the pose. Missing rig metadata keeps old geometry static. The shoulder anchor is
   x=-7 to leave clearance for pet head movement. `test_cosmetic_animation.py` covers attachments,
   static-head clearance, symmetry, normals, pause, transitions and cache safety.
+- `WingAction` owns the rebindable N dragon flare: a 3.25s local action sampled from entity age.
+  Every HUD keybinding era drains presses before menu gating; focus/cursor, world/player, wing
+  selection and cosmetic-motion OFF cancel it. Held/repeated N never restarts an active stroke.
+  Renderers capture its elapsed time in immutable frames; no timers or entity/flight changes.
+  `tools/test_wing_action.py` runs the real adapters in all eight input eras, including rebinding.
 - Wing phase integrates the eased native sprint flag (0.4 Hz idle → 1.1 Hz sprint); multiplying
   absolute age by changing speed causes jumps. `cosmeticAnimations` defaults ON in HUD config;
-  K → Cosmetic Animations OFF skips tracker/transform work and draws cached rest quads via a null
+  K → Cosmetic motion OFF skips tracker/transform work and draws cached rest quads via a null
   frame. Re-enabling resets the tracker. Pet faces are generated at 32px with 8 texels/model unit.
 - Preview (`preview_faces`) and Java `CosmeticGeometry.java` are ONE contract; `tools/test_cosmetics.py`
   compiles the Java classes and compares every quad and tile. Box space: +x left, +y down, -z front; pivot
@@ -528,8 +538,14 @@ consistent with the shared `THEME` contract.
   Renderers divide by 16 and apply the body pose directly; subtracting 12 after the body transform
   raises items into the head. `test_cosmetic_renderers.py` records standing/crouching/swimming vertices.
 - Solid pet/pack faces must be opaque: transparent sprite margins on a cuboid punch holes in its body.
-  Wings use non-overlapping thin cuboids covering the final 40×52 silhouette (quarter-unit pieces,
-  depth 0.5), with sealed caps/sides. Preserve float box dimensions; integer parsing drops those wings.
+  V3 Giant wings use opaque caps and only exposed silhouette walls (2,532 quads/pair, 256×564 atlas),
+  covering the native 160×176 art (4 texels/unit, depth 0.75), with hinge `(2, 0, 2.575)` mirrored around x=0. Art y=44
+  is shoulder height; box Y starts at -11. Preserve float dimensions; integer parsing drops wings.
+  Existing `back_<theme>_wings` IDs remain Giant; `back_<theme>_wings_small` restore the original
+  40×52 pixels/10×13 model units, depth 0.5 and hinge `(1, 0, 2.45)` for all five themes. Both support N.
+  Optional `faces` default to all six; mirror left/right mask bits as well as tiles. Never determine
+  mirrored quads by a fixed six-face count. `tools/test_cosmetics.py` pins original Small pixel hashes.
+  Giant-wing previews fit the full orbit at one yaw-independent scale without changing bare skins.
   All atlas edges land on whole texels; Java UVs sample edge-texel centers to avoid transparent gutters.
   Mirror rear artwork AFTER native resizing; nearest-resize ties can otherwise shift its mask one texel.
 - Per-era overlays: `cosmetics-1.20` (1.20-1.20.4, manual normal), `cosmetics-1.20.5` (1.20.5-1.20.6,

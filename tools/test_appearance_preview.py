@@ -16,6 +16,7 @@ from flet.controls.object_patch import ObjectPatch
 from flet.messaging.protocol import configure_encode_object_for_msgpack
 from PIL import Image, ImageChops
 from cubeon import skins
+from cubeon import cosmetics
 from cubeon.appearance import CharacterModel, Face
 from cubeon.appearance_scene import order_faces, _intersection, _area
 from ui.appearance_preview import AppearancePreview, render_frame
@@ -46,6 +47,21 @@ slim = CharacterModel(skins.default_base_skin(), slim=True).render(0, 0)
 check("slim skins use narrower arm geometry", slim.getbbox()[2] - slim.getbbox()[0] < frames[0].getbbox()[2] - frames[0].getbbox()[0])
 legacy = CharacterModel(skins.default_base_skin().crop((0, 0, 64, 32))).render(180, 0)
 check("legacy 64x32 skins have a complete rear view", legacy.getbbox()[3] > 380)
+
+wing_item = cosmetics.get("back_ember_wings")
+giant = CharacterModel(skins.default_base_skin(), cosmetics_faces=cosmetics.preview_faces(wing_item))
+giant_frames = [giant.render(yaw, pitch) for yaw, pitch in
+                ((0, 10), (45, 10), (90, 10), (180, 10), (270, 10), (45, 75), (45, -75))]
+check("giant V3 wings fit inside the preview throughout the orbit",
+      all(frame.getbbox() and min(frame.getbbox()[:2]) >= 10
+          and frame.getbbox()[2] <= 310 and frame.getbbox()[3] <= 430 for frame in giant_frames))
+scales = []
+for yaw in range(0, 360, 30):
+    face = next(face for face in giant.project(yaw, 10)
+                if abs(face.vertices[2][1] - face.vertices[0][1]) > 1)
+    scales.append(round(abs((face.points[2][1] - face.points[0][1])
+                            / (face.vertices[2][1] - face.vertices[0][1])), 6))
+check("turning giant wings keeps one fixed camera scale", len(set(scales)) == 1)
 
 # The outer atlas must remain separate from the base and have texel walls,
 # including around holes. These use the real turntable rasteriser.

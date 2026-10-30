@@ -823,9 +823,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 on_use=lambda e: choose(None), on_delete=None,
                 preview_w=76, preview_h=76))
             for item in cosmetics.items(slot, appearance.cosmetics_dir):
+                wing = bool(item.get("feathers"))
                 card = _owned_card(
-                    src=_cosmetic_thumb(item), label=item["name"],
-                    sublabel="", active=active_id == item["id"],
+                    src=_cosmetic_thumb(item), label=item["name"].split(" (")[0] if wing else item["name"],
+                    sublabel=("Small" if item["id"].endswith("_small") else "Giant") if wing else "",
+                    active=active_id == item["id"],
                     on_use=lambda e, i=item["id"]: choose(i), on_delete=None,
                     preview_w=76, preview_h=76)
                 card.tooltip = item["blurb"]
@@ -856,7 +858,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             padding=ft.padding.Padding.symmetric(horizontal=6, vertical=2),
             data="cosmetic-beta-" + slot)], spacing=8)
         refresh()
-        return ft.Column([heading, _grid_scroll(grid), status], spacing=8)
+        controls = [heading, _grid_scroll(grid), status]
+        if slot == "back":
+            controls.append(ft.Text("Choose Small or Giant wings. Press N in Minecraft for a dragon flare; K → Cosmetic motion turns movement off.",
+                                    size=11, color=TEXT_DIM))
+        return ft.Column(controls, spacing=8)
 
     shoulder_pane = _cosmetic_pane("shoulder", "Shoulder Items")
     back_pane = _cosmetic_pane("back", "Back Items")

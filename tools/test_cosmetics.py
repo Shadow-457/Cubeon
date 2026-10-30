@@ -4,7 +4,7 @@ Cosmetics exist twice on purpose: the launcher reads ``assets/cosmetics`` and
 the Cubeon Client reads its own copy from the mod jar. One generator writes
 both, and this test is what keeps that promise honest. It checks:
 
-* the catalogue's shape (20 items, 10 per slot, unique ids, valid boxes);
+* the catalogue's shape (25 items, 10 shoulder / 15 back, unique ids, valid boxes);
 * the atlas layout and every preview quad, including the mirrored wing;
 * that the wing's cut-out silhouette has real thickness on its edges, so it
   cannot render as a flat plank;
@@ -19,6 +19,7 @@ No display and no network: everything is read from the repository, and HOME is
 redirected into a scratch directory before cubeon binds its paths.
 """
 import importlib.util
+import hashlib
 import json
 import os
 import re
@@ -82,9 +83,9 @@ def test_catalog():
     every = cosmetics.items()
     shoulder = cosmetics.items("shoulder")
     back = cosmetics.items("back")
-    check("20 cosmetics", len(every) == 20, str(len(every)))
+    check("25 cosmetics", len(every) == 25, str(len(every)))
     check("10 shoulder items", len(shoulder) == 10, str(len(shoulder)))
-    check("10 back items", len(back) == 10, str(len(back)))
+    check("15 back items", len(back) == 15, str(len(back)))
     check("every item is in one slot", len(shoulder) + len(back) == len(every))
 
     ids = [item["id"] for item in every]
@@ -253,8 +254,8 @@ def test_preview_faces():
         if boxes and all(box.get("mirror") for box in boxes):
             faces = cosmetics.preview_faces(item)
             single = sum(1 for box in boxes
-                         for rect in cosmetics.face_rects(box).values()
-                         if rect[2] and rect[3])
+                         for name, rect in cosmetics.face_rects(box).items()
+                         if name in box.get("faces", cosmetics.face_rects(box)) and rect[2] and rect[3])
             if len(faces) != 2 * single:
                 check(f"{item['id']} has both wings", False, str(len(faces)))
             else:
@@ -263,8 +264,8 @@ def test_preview_faces():
 
 def test_wing_thickness():
     print("\n-- sealed cosmetics and wing silhouette --")
-    wings = [item for item in cosmetics.items("back") if item["id"].endswith("_wings")]
-    check("five wing pairs", len(wings) == 5, str(len(wings)))
+    wings = [item for item in cosmetics.items("back") if item.get("feathers")]
+    check("five small and five giant wing pairs", len(wings) == 10, str(len(wings)))
     problems = []
     generator = _load_generator()
     for item in cosmetics.items():
@@ -276,22 +277,45 @@ def test_wing_thickness():
                     problems.append((item["id"], index, face, "open surface"))
     check("every solid pet/pack/feather face is sealed", not problems, str(problems[:6]))
     problems = []
+    originals = {
+        "ember": "3ddae1544aa507c91a6a03e06a8d58daee1b0d4789fbd2507404838f5f455edc",
+        "frost": "f551765686889d0500d0b160fb82c728fab41b03d6bb900cdd718ed82fd8bf5a",
+        "leaf": "d51f63cef0ed459766b9955713ea84901affe5b544d54212772bdbe7e76548ae",
+        "void": "00e7ae55a54458ea475281d49a5ec1c4e2aab80771e638c8006c7ea99dee72a2",
+        "aurora": "2ba769751259ef2575956e171d7610367cbeba8ceb13bf122def7e4b917dd87e",
+    }
     for item in wings:
-        base, _ = generator.wing_art(generator.PALETTES[item["id"].removeprefix("back_")])
-        base = base.resize((40, 52), Image.Resampling.NEAREST)
+        small = item["id"].endswith("_small")
+        palette = generator.PALETTES[item["id"].removeprefix("back_").removesuffix("_small")]
+        base, _ = generator.small_wing_art(palette) if small else generator.wing_art(palette)
+        if small:
+            base = base.resize((40, 52), Image.Resampling.NEAREST)
         reconstructed = Image.new("RGBA", base.size)
         occupied = set()
+        actual_edges = set()
         if len(item["boxes"]) < 2:
             problems.append((item["id"], "still one rectangular slab"))
         for box in item["boxes"]:
-            if not box["mirror"] or box["size"][2] != 0.5:
+            if not box["mirror"] or box["size"][2] != (0.5 if small else 0.75):
                 problems.append((item["id"], "wrong thickness/mirror"))
+            if "front" not in box.get("faces", ["front"]):
+                left = round((box["origin"][0] - 1) * 4)
+                top = round((box["origin"][1] + (0 if small else 11)) * 4)
+                width, height = (round(value * 4) for value in box["size"][:2])
+                for side in box["faces"]:
+                    for y in range(top, top + height):
+                        for x in range(left, left + width):
+                            key = (x, y, side)
+                            if key in actual_edges:
+                                problems.append((item["id"], "duplicate edge wall"))
+                            actual_edges.add(key)
+                continue
             left = round((box["origin"][0] - 1) * 4)
-            top = round(box["origin"][1] * 4)
+            top = round((box["origin"][1] + (0 if small else 11)) * 4)
             width, height = (round(value * 4) for value in box["size"][:2])
             for y in range(top, top + height):
                 for x in range(left, left + width):
-                    if (x, y) in occupied or not (0 <= x < 40 and 0 <= y < 52):
+                    if (x, y) in occupied or not (0 <= x < base.width and 0 <= y < base.height):
                         problems.append((item["id"], "overlapping/outside feather pieces"))
                     occupied.add((x, y))
             rects = cosmetics.face_rects(box)
@@ -303,6 +327,21 @@ def test_wing_thickness():
             rear = sheet.crop((x, y, x + w, y + h)).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
             if tile.tobytes() != rear.tobytes():
                 problems.append((item["id"], "front/back mask shifted"))
+        expected_edges = set()
+        alpha = base.getchannel("A")
+        for y in range(base.height):
+            for x in range(base.width):
+                if not alpha.getpixel((x, y)):
+                    continue
+                for side, dx, dy in (("left", 1, 0), ("right", -1, 0), ("top", 0, -1), ("bottom", 0, 1)):
+                    if not (0 <= x + dx < base.width and 0 <= y + dy < base.height and alpha.getpixel((x + dx, y + dy))):
+                        expected_edges.add((x, y, side))
+        if expected_edges != actual_edges:
+            problems.append((item["id"], "missing/extraneous silhouette wall"))
+        if small:
+            theme = item["id"].removeprefix("back_").removesuffix("_wings_small")
+            if hashlib.sha256(reconstructed.tobytes()).hexdigest() != originals[theme]:
+                problems.append((item["id"], "original cute artwork changed"))
         if reconstructed.tobytes() != base.tobytes():
             problems.append((item["id"], "feather geometry leaves gaps or a detached strip"))
     check("closed feather geometry exactly follows the native silhouette", not problems, str(problems[:6]))
@@ -323,7 +362,7 @@ def test_thumbnails():
             problems.append((item["id"], f"mode {image.mode}"))
         if image.getbbox() is None:
             problems.append((item["id"], "renders empty"))
-    check("all 20 cards render a visible thumbnail", not problems,
+    check("all 25 cards render a visible thumbnail", not problems,
           str(problems[:4]))
 
 

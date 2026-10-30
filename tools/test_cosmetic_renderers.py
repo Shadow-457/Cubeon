@@ -32,6 +32,7 @@ public class MinecraftClient {
     public static MinecraftClient instance = new MinecraftClient();
     public static MinecraftClient getInstance() { return instance; }
     public Player player = new Player();
+    public Object world = new Object();
     public static class Player {
         public int getId() { return 42; }
         public boolean isSprinting() { return false; }
@@ -202,7 +203,7 @@ public class RendererTest {
                 var item = catalog.get(idKey);
                 var posed = new CosmeticAnimation.PosedQuad();
                 var animation = com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations
-                        ? CosmeticAnimation.sample(state.age / 20, 0, false) : null;
+                        ? CosmeticAnimation.sample(state.age / 20, 0, false).forItem(item) : null;
                 for (var quad : CosmeticGeometry.quads(item, catalog.anchorX(item.slot))) {
                     posed.set(quad, animation);
                     for (int i = 0; i < 4; i++) {
@@ -221,6 +222,18 @@ public class RendererTest {
         }
     }
     public static void main(String[] args) throws Exception {
+        CosmeticSelection.bind(Path.of(args[0]));
+        String selection = Files.readString(Path.of(args[0]));
+        if (!"back_void_wings".equals(CosmeticSelection.selectedWing()))
+            throw new AssertionError("Equipped wing rig must enable N");
+        Files.writeString(Path.of(args[0]), selection.replace("back_void_wings", "back_void_wings_small"));
+        CosmeticSelection.bind(Path.of(args[0]));
+        if (!"back_void_wings_small".equals(CosmeticSelection.selectedWing()))
+            throw new AssertionError("Original small wing rig must also enable N");
+        Files.writeString(Path.of(args[0]), selection.replace("back_void_wings", "back_gear_pack"));
+        CosmeticSelection.bind(Path.of(args[0]));
+        if (CosmeticSelection.selectedWing() != null) throw new AssertionError("Pack must not enable N");
+        Files.writeString(Path.of(args[0]), selection);
         CosmeticSelection.bind(Path.of(args[0]));
         Class<?> type = Class.forName("com.cubeon.client.cosmetics.CosmeticFeatureRenderer");
         renderer = type.getConstructor(PlayerEntityRenderer.class).newInstance(new PlayerEntityRenderer());
@@ -270,7 +283,7 @@ class CosmeticRendererTests(unittest.TestCase):
                     sources.append(str(path))
                 sources += [str(JAVA / 'com/cubeon/client/Json.java')]
                 sources += [str(JAVA / PACKAGE / (name + '.java')) for name in
-                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry', 'CosmeticAnimation')]
+                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry', 'CosmeticAnimation', 'WingAction')]
                 sources += [str(ROOT / ('mod/src/main/java-overlay-cosmetics-' + overlay) /
                                 PACKAGE / 'CosmeticFeatureRenderer.java')]
                 classes = root / 'classes'

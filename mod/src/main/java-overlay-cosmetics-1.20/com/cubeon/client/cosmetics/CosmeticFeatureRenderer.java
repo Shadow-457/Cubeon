@@ -46,6 +46,7 @@ public final class CosmeticFeatureRenderer
                 (Object) renderer);
     }
 
+    private final CosmeticAnimation.PosedQuad posed = new CosmeticAnimation.PosedQuad();
     private final CosmeticAnimation.Tracker motion = new CosmeticAnimation.Tracker();
 
     @Override
@@ -91,6 +92,7 @@ public final class CosmeticFeatureRenderer
         if (item == null) {
             return;
         }
+        final CosmeticAnimation.Frame itemAnimation = animation == null ? null : animation.forItem(item);
         Identifier texture = Identifier.of("cubeon-client",
                 "textures/cosmetics/" + item.texture);
         VertexConsumer buffer = vertexConsumers.getBuffer(
@@ -99,10 +101,10 @@ public final class CosmeticFeatureRenderer
         Matrix4f position = entry.getPositionMatrix();
         Matrix3f normalMatrix = entry.getNormalMatrix();
         Vector3f normal = new Vector3f();
-        CosmeticAnimation.PosedQuad posed = new CosmeticAnimation.PosedQuad();
+
         for (CosmeticGeometry.Quad quad : CosmeticGeometry.quads(
                 item, catalog.anchorX(item.slot))) {
-            posed.set(quad, animation);
+            posed.set(quad, itemAnimation);
             normal.set(posed.normalX, posed.normalY, posed.normalZ);
             normalMatrix.transform(normal);
             if (normal.lengthSquared() > 1.0e-8f) {

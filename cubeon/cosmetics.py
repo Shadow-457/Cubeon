@@ -177,6 +177,8 @@ def preview_faces(item: dict, directory: str | None = None) -> list[tuple]:
                 source = name
                 if mirrored and name in ("left", "right"):
                     source = "right" if name == "left" else "left"
+                if source not in box.get("faces", faces):
+                    continue
                 tile = _tile(sheet, rects[source], mirrored)
                 if tile.getbbox():
                     result.append((vertices, normal, tile))

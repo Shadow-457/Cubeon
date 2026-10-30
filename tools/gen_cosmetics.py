@@ -382,6 +382,21 @@ def pet_faces(pal, species):
 
 
 WING_SIZE = (160, 176)
+PRIMARY_FEATHERS = [
+    ((10, 49), (69, 169), 12, -11),
+    ((16, 44), (106, 148), 14, -16),
+    ((22, 40), (139, 112), 14, -17),
+    ((27, 37), (156, 73), 13, -15),
+    ((30, 33), (155, 35), 12, -11),
+    ((31, 30), (128, 3), 11, -7),
+]
+COVERT_FEATHERS = [
+    ((9, 47), (49, 104), 10, -7),
+    ((14, 41), (87, 73), 11, -9),
+    ((19, 33), (101, 29), 10, -5),
+    ((5, 44), (29, 69), 7, -2),
+    ((5, 44), (43, 36), 7, -2),
+]
 WING_PALETTE = ["#211421", "#342037", "#542338", "#7c2939", "#a63236",
                 "#cf4533", "#ed6535", "#ff9143", "#ffbc59", "#ffe18c", "#fff4c9"]
 WING_RAMPS = {
@@ -472,24 +487,13 @@ def _ember_wing():
     canvas = Image.new("RGBA", WING_SIZE)
     # Long primary feathers, drawn trailing edge first. The rising upper
     # feathers and detached points give the wing its dramatic open fan.
-    primaries = [
-        ((10, 49), (69, 169), 12, -11),
-        ((16, 44), (106, 148), 14, -16),
-        ((22, 40), (139, 112), 14, -17),
-        ((27, 37), (156, 73), 13, -15),
-        ((30, 33), (155, 35), 12, -11),
-        ((31, 30), (128, 3), 11, -7),
-    ]
+    primaries = PRIMARY_FEATHERS
     for i, (start, end, width, curve) in enumerate(primaries):
         canvas.alpha_composite(_wing_feather(start, end, width, curve, i,
                                       joined=i < len(primaries) - 1))
     # Distinct shorter layers over the primary roots; these are darker, broad
     # armoured feathers with the same copper rim and warm vein language.
-    coverts = [
-        ((9, 47), (49, 104), 10, -7),
-        ((14, 41), (87, 73), 11, -9),
-        ((19, 33), (101, 29), 10, -5),
-    ]
+    coverts = COVERT_FEATHERS[:3]
     for i, (start, end, width, curve) in enumerate(coverts):
         canvas.alpha_composite(_wing_feather(start, end, width, curve, i + 20, molten=i % 2 == 0))
     for i, end in enumerate(((29, 69), (43, 36))):
@@ -509,6 +513,51 @@ def _ember_wing():
         if canvas.getpixel((x, y))[3] and canvas.getpixel((x, y))[0] < 160:
             drawing.point((x, y), fill="#ffb965")
     return canvas
+
+
+def small_wing_art(pal):
+    """Feather artwork used to build a closed silhouette with thin solid pieces.
+
+    The tile is a transparent cut-out, not a filled rectangle: the root sits
+    at the TOP-left (the shoulder blade), the leading edge runs out to the
+    tip, and the trailing edge hangs down in feather points. In the slab that
+    puts the root at the spine, the tip past the arm, and the feathers down
+    the back - which is what makes it read as a wing instead of a plank.
+    """
+    root, mid, tip = pal["body"], pal["light"], pal["accent"]
+    dark, edge = pal["dark"], pal["eye"]
+
+    def feather_face(flip=False):
+        t = Tile()
+        silhouette = [(0, 0), (5, 0), (9, 1), (13, 2), (15, 5),
+                      (12, 6), (14, 9), (10, 8), (11, 12), (7, 10),
+                      (7, 14), (3, 11), (2, 15), (0, 9)]
+        mask = Image.new("L", (16, 16), 0)
+        ImageDraw.Draw(mask).polygon(silhouette, fill=255)
+        base = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        bd = ImageDraw.Draw(base)
+        bd.polygon(silhouette, fill=C(mid))
+        # Feather bands radiate from the shoulder root to each trailing point.
+        bands = [(12, 6), (14, 9), (11, 12), (7, 14), (2, 15)]
+        for index, point in enumerate(bands):
+            bd.polygon([(1, 1), point, (point[0] - 1, point[1]), (1, 3)],
+                       fill=C(root if index % 2 == 0 else shade(root, -0.16)))
+            bd.point(point, fill=C(tip))
+            bd.point((point[0] - 1, point[1] - 1), fill=C(tip))
+        # Bright leading edge from the root to the tip.
+        bd.line([(1, 1), (6, 1), (10, 2), (14, 4)], fill=C(tip))
+        base.putalpha(Image.composite(base.getchannel("A"), Image.new("L", (16, 16), 0), mask))
+        t.im = base
+        t.d = ImageDraw.Draw(t.im)
+        t.outline(dark)
+        if flip:
+            t.im = t.im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        return t.im
+
+    main = feather_face()
+    back = feather_face(flip=True)
+
+    return main, back
 
 
 def wing_art(pal):
@@ -718,32 +767,79 @@ def _creature(item_id, name, blurb, pal):
     )
 
 
-def _wings(item_id, name, blurb, pal):
+def wing_rectangles(image, limit=36):
+    """Bounded opaque caps; no transparent slab, no hidden interior walls."""
+    alpha = image.getchannel("A")
+    used = set()
+    output = []
+    for y in range(image.height):
+        x = 0
+        while x < image.width:
+            if not alpha.getpixel((x, y)) or (x, y) in used:
+                x += 1
+                continue
+            width = 1
+            while (x + width < image.width and width < limit
+                   and alpha.getpixel((x + width, y)) and (x + width, y) not in used):
+                width += 1
+            height = 1
+            while (y + height < image.height and height < limit
+                   and all(alpha.getpixel((xx, y + height)) and (xx, y + height) not in used
+                           for xx in range(x, x + width))):
+                height += 1
+            used.update((xx, yy) for yy in range(y, y + height) for xx in range(x, x + width))
+            output.append((x, y, width, height, ["front", "back"]))
+            x += width
+    # Only native silhouette edges get thickness. Each wall shares the cap rig.
+    for side, dx, dy in (("left", 1, 0), ("right", -1, 0),
+                         ("top", 0, -1), ("bottom", 0, 1)):
+        mask = Image.new("RGBA", image.size)
+        for y in range(image.height):
+            for x in range(image.width):
+                if alpha.getpixel((x, y)) and not (
+                        0 <= x + dx < image.width and 0 <= y + dy < image.height
+                        and alpha.getpixel((x + dx, y + dy))):
+                    mask.putpixel((x, y), (255, 255, 255, 255))
+        for x, y, width, height in silhouette_rectangles(mask):
+            output.append((x, y, width, height, [side]))
+    return output
+
+
+def _wings(item_id, name, blurb, pal, small=False):
     p = PALETTES[pal]
-    front, _ = wing_art(p)
     px = 4
-    # Native V3 art is 40×44 model units; the shoulder root is texel (4, 44).
-    # Mirror after resizing: nearest-neighbor tie-breaking can shift a mask
-    # by one texel when a 16px sprite is mirrored before its 40px resize.
+    if small:
+        front, _ = small_wing_art(p)
+        front = front.resize((40, 52), Image.Resampling.NEAREST)
+        y_origin, depth, hinge = 0, 2, [1, 0, 2.45]
+        guides = [((1, 1), end, 2, 0) for end in ((12, 6), (14, 9), (11, 12), (7, 14), (2, 15))]
+        feathers = [dict(start=[1 + x * 2.5 / px, y * 3.25 / px],
+                         end=[1 + ex * 2.5 / px, ey * 3.25 / px],
+                         width=width * 2.5 / px, curve=0)
+                    for (x, y), (ex, ey), width, curve in guides]
+    else:
+        front, _ = wing_art(p)
+        y_origin, depth, hinge = -11, 3, [2, 0, 2.575]
+        feathers = [dict(start=[1 + x / px, y_origin + y / px],
+                         end=[1 + ex / px, y_origin + ey / px],
+                         width=width / px, curve=curve / px)
+                    for (x, y), (ex, ey), width, curve in PRIMARY_FEATHERS + COVERT_FEATHERS]
     back = front.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
     boxes, painted = [], []
-    # Thin opaque pieces follow every feather boundary. There is no rectangular
-    # slab wall/top left standing behind a transparent face, or open cutout edge.
-    for left, top, width, height in silhouette_rectangles(front):
+    for left, top, width, height, visible in wing_rectangles(front):
         face = front.crop((left, top, left + width, top + height))
         rear = back.crop((front.width - left - width, top, front.width - left, top + height))
-        depth = 3
         def cap(row):
             return face.crop((0, row, width, row + 1)).resize((width, depth), Image.Resampling.NEAREST)
         left_face = face.crop((width - 1, 0, width, height)).resize((depth, height), Image.Resampling.NEAREST)
         right_face = face.crop((0, 0, 1, height)).resize((depth, height), Image.Resampling.NEAREST)
-        boxes.append(dict(origin=[1 + left / px, -11 + top / px, 2.2],
+        boxes.append(dict(origin=[1 + left / px, y_origin + top / px, 2.2],
                           size=[width / px, height / px, depth / px], px=px,
-                          part=len(painted), mirror=True,
-                          motion="wing", pivot=[2, 0, 2.575]))
+                          part=len(painted), mirror=True, faces=visible,
+                          motion="wing", pivot=hinge))
         painted.append(faces(face, rear, left_face, right_face, cap(0), cap(height - 1)))
     return dict(id=item_id, slot="back", name=name, blurb=blurb,
-                boxes=boxes, _faces=painted)
+                boxes=boxes, feathers=feathers, _faces=painted)
 
 
 def _pack(item_id, name, blurb, pal, emblem):
@@ -780,15 +876,15 @@ ITEMS = [
     _creature("shoulder_pumpkin_pal", "Pumpkin Pal",
               "A smiling pumpkin companion for the harvest season.", "pumpkin_pal"),
 
-    _wings("back_ember_wings", "Ember Wings",
+    _wings("back_ember_wings", "Ember Wings (Giant)",
            "Giant phoenix feathers traced with molten gold.", "ember_wings"),
-    _wings("back_frost_wings", "Frost Wings",
+    _wings("back_frost_wings", "Frost Wings (Giant)",
            "Giant crystalline wings with bright frost veins.", "frost_wings"),
-    _wings("back_leaf_wings", "Leaf Wings",
+    _wings("back_leaf_wings", "Leaf Wings (Giant)",
            "Great emerald feathers with luminous living veins.", "leaf_wings"),
-    _wings("back_void_wings", "Void Wings",
+    _wings("back_void_wings", "Void Wings (Giant)",
            "Giant violet feathers scattered with distant stars.", "void_wings"),
-    _wings("back_aurora_wings", "Aurora Wings",
+    _wings("back_aurora_wings", "Aurora Wings (Giant)",
            "Great flowing feathers carrying the northern lights.", "aurora_wings"),
     _pack("back_gear_pack", "Gear Pack",
           "A sturdy pack with a brass gear clasp.", "gear_pack", "gear"),
@@ -801,6 +897,11 @@ ITEMS = [
     _pack("back_banner_pack", "Banner Pack",
           "A travel pack flying a small Cubeon banner.", "banner_pack", "banner"),
 ]
+
+# Restore the original cute artwork and 10×13 dimensions alongside approved V3.
+for theme in ("ember", "frost", "leaf", "void", "aurora"):
+    ITEMS.append(_wings("back_" + theme + "_wings_small", theme.title() + " Wings (Small)",
+                        "Original cute feather wings.", theme + "_wings", small=True))
 
 
 # ---------------------------------------------------------------------------
@@ -825,16 +926,35 @@ def render_item(item):
     # Stack each box's atlas vertically. Width is shared so the PNG stays a
     # simple rectangle; a box's own atlas may be narrower than the sheet.
     sizes = [box_atlas_size(box) for box in boxes]
-    sheet_w = max(w for w, _ in sizes)
-    sheet_h = sum(h for _, h in sizes) + 2 * (len(boxes) - 1)
+    placements = {}
+    if "feathers" in item:
+        # Compact shelves keep even detailed giant wings below old GPU limits.
+        sheet_w = 256
+        x = y = shelf_height = 0
+        for index in sorted(range(len(sizes)), key=lambda i: -sizes[i][1]):
+            width, height = sizes[index]
+            if x + width > sheet_w:
+                x = 0
+                y += shelf_height + 2
+                shelf_height = 0
+            placements[index] = [x, y]
+            x += width + 2
+            shelf_height = max(shelf_height, height)
+        sheet_h = y + shelf_height
+    else:
+        sheet_w = max(w for w, _ in sizes)
+        sheet_h = sum(h for _, h in sizes) + 2 * (len(boxes) - 1)
+        cursor = 0
+        for index, (width, height) in enumerate(sizes):
+            placements[index] = [0, cursor]
+            cursor += height + 2
     sheet_w = max(4, (sheet_w + 3) // 4 * 4)
     sheet_h = max(4, (sheet_h + 3) // 4 * 4)
     sheet = Image.new("RGBA", (sheet_w, sheet_h), (0, 0, 0, 0))
 
-    cursor = 0
     out_boxes = []
     for index, box in enumerate(boxes):
-        box["uv"] = [0, cursor]
+        box["uv"] = placements[index]
         rects = face_rects(box)
         tiles = painted[box["part"]]
         for face, rect in rects.items():
@@ -845,8 +965,6 @@ def render_item(item):
             if tile.size != (w, h):
                 tile = tile.resize((w, h), Image.Resampling.NEAREST)
             sheet.alpha_composite(tile, (x, y))
-        bw, bh = sizes[index]
-        cursor += bh + 2
         out_boxes.append({
             "origin": [float(v) for v in box["origin"]],
             "size": [int(v) if float(v).is_integer() else float(v) for v in box["size"]],
@@ -855,6 +973,7 @@ def render_item(item):
             "mirror": bool(box.get("mirror", False)),
             "motion": box.get("motion", "none"),
             "pivot": box.get("pivot", [0, 0, 0]),
+            **({"faces": box["faces"]} if "faces" in box else {}),
         })
     return sheet, out_boxes
 
@@ -879,6 +998,7 @@ def main():
             "tex_w": image.width,
             "tex_h": image.height,
             "boxes": boxes,
+            **({"feathers": item["feathers"]} if "feathers" in item else {}),
         })
 
     text = json.dumps(catalog, indent=2) + "\n"
