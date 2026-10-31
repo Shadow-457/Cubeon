@@ -36,8 +36,9 @@ class ModelTests(unittest.TestCase):
     def add(cls,body):
      package,name=cls.rsplit('.',1)
      fixtures[cls.replace('.','/')+'.java']=f'package {package}; public class {name} '+body
-    position='y' if mojang else 'originY' if era=='origin' else 'pivotY'
-    add(part,'{ public float '+','.join((*angles,position))+'; public void copyTransform(ModelPart other) {'+' '.join(f'{a}=other.{a};' for a in (*angles,position))+'} }')
+    positions=('x','y','z') if mojang else tuple(('origin' if era=='origin' else 'pivot')+a for a in 'XYZ')
+    position=positions[1]
+    add(part,'{ public float '+','.join((*angles,*positions))+'; public void copyTransform(ModelPart other) {'+' '.join(f'{a}=other.{a};' for a in (*angles,*positions))+'} }')
     superclass='net.minecraft.entity.LivingEntity' if era=='entity' else 'Object'
     if era=='entity':add(superclass,'{}')
     add(player,f'''extends {superclass} {{
@@ -64,6 +65,13 @@ import com.cubeon.client.Bridge;
 import com.cubeon.client.mixin.EmoteModelMixin;
 public class ModelTest {
  static void check(boolean ok,String why){if(!ok)throw new AssertionError(why);}
+ static void near(double a,double b,String why){check(Math.abs(a-b)<0.00002,why+": "+a+" != "+b);}
+ static float[] rotate(float x,float y,float z,float pitch,float yaw,float roll){
+  float cp=(float)Math.cos(pitch),sp=(float)Math.sin(pitch),cy=(float)Math.cos(yaw),sy=(float)Math.sin(yaw);
+  float cr=(float)Math.cos(roll),sr=(float)Math.sin(roll),py=cp*y-sp*z,pz=sp*y+cp*z;
+  float yx=cy*x+sy*pz,yz=-sy*x+cy*pz;
+  return new float[]{cr*yx-sr*py,sr*yx+cr*py,yz};
+ }
  public static void main(String[] args)throws Exception{
   var player=ACTOR; var renderState=new AVATAR();
   var method=java.util.Arrays.stream(EmoteModelMixin.class.getDeclaredMethods())
@@ -82,6 +90,35 @@ public class ModelTest {
   check(m.rightLeg.PITCH < -1.5f,"Sit extends legs from lowered hips");
   HAT_SIT
   SIT_RESET
+  EmoteState.reset(); EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox","bow",22,1)));
+  m=new EmoteModelMixin(); m.rightArm.POSITION=2; m.leftArm.POSITION=2;
+  m.rightArm.PX=-5; m.leftArm.PX=5; m.rightLeg.POSITION=12; m.leftLeg.POSITION=12;
+  CALL
+  near(m.body.POSITION+12*Math.cos(m.body.PITCH),12,"Bow torso bottom stays at hips");
+  near(m.body.PZ+12*Math.sin(m.body.PITCH),0,"Bow cannot open a depth gap at waist");
+  near(m.head.POSITION,m.body.POSITION,"Bow head follows the neck");
+  near(m.head.PZ,m.body.PZ,"Bow head depth follows neck");
+  near(m.rightArm.POSITION,m.body.POSITION+2*Math.cos(m.body.PITCH),"Bow shoulder stays on torso");
+  near(m.rightArm.PZ,m.body.PZ+2*Math.sin(m.body.PITCH),"Bow shoulder depth stays on torso");
+  near(m.rightLeg.POSITION,12,"Bow keeps legs planted"); near(m.rightLeg.PZ,0,"Bow keeps leg depth");
+  BOW_RESET
+  // Sweep the complete entrance/hold/exit with standing and crouched base angles.
+  for(float basePitch:new float[]{0,.5f})for(float yaw:new float[]{-.7f,.2f})for(float roll:new float[]{-.15f,.1f})
+  for(int frame=0;frame<=60;frame++){
+   var pose=EmotePose.sample(2,frame/20f,3);pose.anchorBody(1,2,3,basePitch,yaw,roll);
+   pose.position(1,1,2,3);
+   float[] hip=rotate(0,12,0,basePitch,yaw,roll);
+   float[] bent=rotate(0,12,0,pose.blend(1,0,basePitch),yaw,roll);
+   for(int axis=0;axis<3;axis++)near(pose.offsets[3+axis]+bent[axis],hip[axis],"Hip anchor across animation and vanilla orientation");
+   for(float shoulderY:new float[]{2,2.5f}){
+    float[] shoulder=rotate(5,shoulderY,0,basePitch,yaw,roll);
+    pose.position(3,1+shoulder[0],2+shoulder[1],3+shoulder[2]);
+    float[] expected=rotate(5,shoulderY,0,pose.blend(1,0,basePitch),yaw,roll);
+    for(int axis=0;axis<3;axis++)near(shoulder[axis]+pose.offsets[9+axis],expected[axis]+pose.offsets[3+axis],"Slim/classic shoulder connection");
+   }
+   pose.position(4,-2,12,0);
+   for(int axis=0;axis<3;axis++)near(pose.offsets[12+axis],0,"Bow never translates feet");
+  }
   EmoteState.reset(); EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox","wave",23,1)));
   player.riding=true;m=new EmoteModelMixin();CALL
   check(m.rightArm.PITCH==0,"Riding pose remains vanilla");
@@ -90,9 +127,12 @@ public class ModelTest {
   player.swimming=false;com.cubeon.client.hud.CubeonHudConfig.get().showEmotes=false;
   m=new EmoteModelMixin();CALL
   check(m.rightArm.PITCH==0,"Display off skips emote pose");
-  System.out.println("Remote wave, identity matching, hat, riding/swimming and display-off passed.");
+  System.out.println("Bow hip/neck/shoulder seams, animation sweep, remote identity, hats, sit and eligibility passed.");
  }
-}'''.replace('HAT_CHECK', '''check(m.hat.ROLL==m.head.ROLL,"Detached legacy hat follows posed head");''' if era=='entity' else '''check(m.hat.ROLL==0&&m.hat.PITCH==0,"Nested hat and injected 3D mesh retain local identity, inheriting head exactly once");
+}'''.replace('BOW_RESET', '''reset.invoke(m,new org.spongepowered.asm.mixin.injection.callback.CallbackInfo());
+  near(m.body.POSITION,0,"Leaving bow restores torso origin");near(m.head.PZ,0,"Leaving bow restores head depth");
+  near(m.rightArm.POSITION,2,"Leaving bow restores shoulder origin");near(m.rightArm.PZ,0,"Leaving bow restores shoulder depth");
+  near(m.hat.POSITION,0,"Leaving bow restores detached hat");''' if era=='entity' else '').replace('PX',positions[0]).replace('PZ',positions[2]).replace('HAT_CHECK', '''check(m.hat.ROLL==m.head.ROLL,"Detached legacy hat follows posed head");''' if era=='entity' else '''check(m.hat.ROLL==0&&m.hat.PITCH==0,"Nested hat and injected 3D mesh retain local identity, inheriting head exactly once");
   for(int pose=0;pose<EmoteState.NAMES.length;pose++){
    EmoteState.reset();EmoteState.sync(java.util.List.of(new Bridge.EmoteEvent(player.UUID().toString(),"BlueFox",EmoteState.NAMES[pose],10,1)));
    m=new EmoteModelMixin();CALL

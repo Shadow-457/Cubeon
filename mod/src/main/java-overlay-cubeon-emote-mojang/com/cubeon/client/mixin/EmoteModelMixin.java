@@ -27,6 +27,8 @@ public abstract class EmoteModelMixin {
         EmotePose pose = EmoteState.frame(player.getUUID(), player.getName().getString(), state.ageInTicks % 1);
         if (pose == null) return;
         HumanoidModel<?> model = (HumanoidModel<?>) (Object) this;
+        pose.anchorBody(model.body.x, model.body.y, model.body.z,
+                model.body.xRot, model.body.yRot, model.body.zRot);
         cubeon$pose(model.head, 0, pose); cubeon$pose(model.body, 1, pose);
         cubeon$pose(model.rightArm, 2, pose); cubeon$pose(model.leftArm, 3, pose);
         cubeon$pose(model.rightLeg, 4, pose); cubeon$pose(model.leftLeg, 5, pose);
@@ -37,6 +39,9 @@ public abstract class EmoteModelMixin {
         part.xRot = pose.blend(index, 0, part.xRot);
         part.yRot = pose.blend(index, 1, part.yRot);
         part.zRot = pose.blend(index, 2, part.zRot);
-        part.y += pose.drop;
+        pose.position(index, part.x, part.y, part.z);
+        part.x += pose.offsets[index*3];
+        part.y += pose.offsets[index*3+1];
+        part.z += pose.offsets[index*3+2];
     }
 }

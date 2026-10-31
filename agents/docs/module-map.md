@@ -596,6 +596,12 @@ consistent with the shared `THEME` contract.
   legacy detached hats copy it and newer nested hats inherit it once. Legacy HEAD reset removes
   the previous drop before vanilla posing; render-state models reset natively. Yarn 1.21.5 renamed
   ModelPart.pivotY to originY: use `cubeon-emote-state` before it and `cubeon-emote-origin` after it.
+  Bow's torso origin is at the neck: `EmotePose.anchorBody` anchors its 12-unit hip center using
+  vanilla Z/Y/X rotation; `position` carries head/shoulder origins through the same bend while legs
+  stay planted. All four model adapters apply XYZ offsets. Legacy HEAD reset undoes those exact
+  offsets, including the detached hat, before vanilla re-poses; never return to rotating the torso
+  at its default origin (it opens the waist). `test_emote_models.py` sweeps blend ages, standing/
+  crouched orientations, slim/classic shoulder origins and all four production injection bodies.
   HUD screens share the Minecraft-free `ui/ClientUi`, `HudMenu` cards and `HudEditorChrome` toolbars;
   black/green tokens match the launcher, and twenty controls fit a 240px GUI height. Native `hud-*`
   adapters retain input, preview matrices, per-overlay sizes and saves. `ClientUiFont` selects only
