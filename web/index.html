@@ -4,10 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
-<title>Cubeon Launcher - Free Minecraft Launcher for Windows &amp; Linux</title>
-<meta name="description" content="Cubeon is a free Minecraft Java Edition launcher for Windows and Linux. Manage mods, modpacks, skins and versions, play with friends, and diagnose crashes." />
-<meta property="og:title" content="Cubeon Launcher - Free Minecraft Launcher for Windows &amp; Linux" />
-<meta property="og:description" content="Cubeon is a free Minecraft Java Edition launcher for Windows and Linux. Manage mods, modpacks, skins and versions, play with friends, and diagnose crashes." />
+<title>Cubeon Launcher - Free Open-Source Minecraft Java Launcher</title>
+<meta name="description" content="Official Cubeon Minecraft Launcher: free, open-source and built for Java Edition on Windows, Linux and macOS. Manage mods, modpacks, skins and friends." />
+<meta property="og:title" content="Cubeon Launcher - Free Open-Source Minecraft Java Launcher" />
+<meta property="og:description" content="Official Cubeon Minecraft Launcher: free, open-source and built for Java Edition on Windows, Linux and macOS. Manage mods, modpacks, skins and friends." />
 <link rel="canonical" href="https://www.ylet.online/" />
 <meta property="og:url" content="https://www.ylet.online/" />
 <meta property="og:site_name" content="Cubeon Launcher" />
@@ -73,7 +73,8 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       "@id": "https://www.ylet.online/#organization",
       "name": "Cubeon Launcher",
       "url": "https://www.ylet.online/",
-      "logo": "https://www.ylet.online/assets/icon.svg"
+      "logo": "https://www.ylet.online/assets/favicon.png",
+      "sameAs": "https://github.com/Shadow-457/Cubeon"
     },
     {
       "@type": "WebSite",
@@ -96,9 +97,9 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       "@id": "https://www.ylet.online/#launcher",
       "name": "Cubeon Launcher",
       "url": "https://www.ylet.online/",
-      "description": "Cubeon is a free Minecraft Java Edition launcher for Windows and Linux. Manage mods, modpacks, skins and versions, play with friends, and diagnose crashes.",
+      "description": "Cubeon Launcher is a free, Apache 2.0 open-source Minecraft Java Edition desktop launcher for Windows, Linux and macOS. Manage versions, modded instances, skins, friends and local servers.",
       "applicationCategory": "GameApplication",
-      "operatingSystem": "Windows 10, Windows 11, Linux",
+      "operatingSystem": "Windows 10, Windows 11, Linux, macOS",
       "isAccessibleForFree": true,
       "offers": {
         "@type": "Offer",
@@ -113,17 +114,44 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
         "@id": "https://www.ylet.online/#organization"
       },
       "alternateName": "Cubeon Minecraft Launcher",
-      "sameAs": "https://github.com/Shadow-457/Cubeon"
+      "sameAs": "https://github.com/Shadow-457/Cubeon",
+      "license": "https://github.com/Shadow-457/Cubeon/blob/main/LICENSE",
+      "mainEntityOfPage": {
+        "@id": "https://www.ylet.online/#webpage"
+      },
+      "subjectOf": [
+        {
+          "@id": "https://www.ylet.online/about#webpage"
+        },
+        {
+          "@id": "https://www.ylet.online/#source-code"
+        }
+      ]
     },
     {
       "@type": "WebPage",
       "@id": "https://www.ylet.online/#webpage",
       "url": "https://www.ylet.online/",
-      "name": "Cubeon Launcher - Free Minecraft Launcher for Windows & Linux",
+      "name": "Cubeon Launcher - Free Open-Source Minecraft Java Launcher",
       "isPartOf": {
         "@id": "https://www.ylet.online/#website"
       },
       "mainEntity": {
+        "@id": "https://www.ylet.online/#launcher"
+      }
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "@id": "https://www.ylet.online/#source-code",
+      "name": "Cubeon Launcher source code",
+      "url": "https://github.com/Shadow-457/Cubeon",
+      "codeRepository": "https://github.com/Shadow-457/Cubeon",
+      "license": "https://github.com/Shadow-457/Cubeon/blob/main/LICENSE",
+      "programmingLanguage": [
+        "Python",
+        "Java"
+      ],
+      "targetProduct": {
         "@id": "https://www.ylet.online/#launcher"
       }
     }
@@ -165,25 +193,25 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       </div>
       <h1>Cubeon<br><span class="hl">Launcher.</span></h1>
       <div class="sign">
-        <p class="lede">Cubeon is a free Minecraft Java Edition launcher for Windows and Linux. Keep mods, modpacks, skins and versions in one window, and play with friends.</p>
+        <p class="lede">Cubeon is a free Minecraft Java Edition launcher for Windows, Linux and macOS. Open-source, with mods, modpacks, skins and friends in one window.</p>
         <div class="dl">
           <div class="pane" data-os="windows">
             <a class="btn big" href="/windowsdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5 11 3.4v8H3zM12 3.3 21 2v9.4h-9zM3 12.6h8v8L3 19.5zM12 12.6h9V22l-9-1.3z" fill="currentColor"/></svg>Download for Windows</a>
-            <p class="meta">v1.3.28 &middot; Installer &middot; 120 MB &middot; Free</p>
+            <p class="meta">Stable release &middot; Installer &middot; Free</p>
           </div>
 
           <div class="pane" data-os="linux">
             <a class="btn big" href="/linuxdownload"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m7.5 9 3 3-3 3M12.5 15h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>Download for Linux</a>
-            <p class="meta">v1.3.28 &middot; Single file &middot; 108 MB &middot; Free</p>
+            <p class="meta">Stable release &middot; AppImage &middot; Free</p>
             <details class="more"><summary>Other versions</summary><div>
-              <a href="/linuxdeb">Debian and Ubuntu package (114 MB)</a>
-              <a href="/linuxsetup">Add it to your app menu (1 KB)</a>
+              <a href="/linuxdeb">Debian and Ubuntu package</a>
+              <a href="/linuxsetup">Linux installer</a>
             </div></details>
           </div>
 
           <div class="pane" data-os="mac">
-            <span class="btn big off" aria-disabled="true"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v12H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2"/></svg>Download for macOS</span>
-            <p class="meta">Not available yet</p>
+            <a class="btn big" href="https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-macOS.zip"><svg class="osi" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v12H3z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2"/></svg>Download for macOS</a>
+            <p class="meta">Stable release &middot; App bundle &middot; Free</p>
           </div>
 
           <p class="switch">Not your system?
@@ -214,7 +242,12 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
   </div>
 </section>
 
-<section class="section"><div class="wrap"><div class="card"><h2>What is Cubeon Launcher?</h2><p>Cubeon Launcher is a free desktop app for Minecraft Java Edition on Windows and Linux. Install game versions, manage modded instances, customize skins and cosmetics, and play with friends.</p><p><a href="getting-started.html">Install the Minecraft launcher</a>, <a href="mods.html">add mods, resource packs and shaders</a>, or <a href="modpacks.html">set up a modpack</a>. Use the guides to <a href="multiplayer.html">play Minecraft with friends</a> and <a href="troubleshooting.html">troubleshoot a crash</a>. The <a href="https://github.com/Shadow-457/Cubeon">Cubeon source code</a> and <a href="https://github.com/Shadow-457/Cubeon/releases">releases</a> are on GitHub.</p></div></div></section>
+<section class="section" id="about-cubeon"><div class="wrap"><div class="card">
+  <h2>What is Cubeon Launcher?</h2>
+  <p>Cubeon Launcher, also called Cubeon Minecraft Launcher, is a free, open-source desktop app for Minecraft Java Edition on Windows, Linux and macOS. This is the official Cubeon website. Install game versions, manage modded instances, customize skins and cosmetics, and play with friends.</p>
+  <p><a href="about.html">About Cubeon and official project links</a> explains the platforms, license and local player profiles. Cubeon is a separate project from the similarly named Cubion launcher.</p>
+  <p><a href="getting-started.html">Install the Minecraft launcher</a>, <a href="mods.html">add mods, resource packs and shaders</a>, or <a href="modpacks.html">set up a modpack</a>. Use the guides to <a href="multiplayer.html">play Minecraft with friends</a> and <a href="troubleshooting.html">troubleshoot a crash</a>. The <a href="https://github.com/Shadow-457/Cubeon">official Cubeon source repository</a> and <a href="https://github.com/Shadow-457/Cubeon/releases">release history</a> are on GitHub.</p>
+</div></div></section>
 
 <!-- ========================= facts strip ======================== -->
 <section class="strip">
@@ -288,7 +321,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       <h2>Three steps to your first world</h2>
     </div>
     <div class="steps">
-      <div class="step rise"><span class="num">1</span><h3>Download it</h3><p>The Windows installer or the Linux single file - every button shows the size before you click it.</p></div>
+      <div class="step rise"><span class="num">1</span><h3>Download it</h3><p>Choose the Windows installer, Linux AppImage or macOS app bundle. The <a href="download.html">download page</a> has the platform options.</p></div>
       <div class="step rise"><span class="num">2</span><h3>Type a name</h3><p>Three to sixteen characters. There is no account, no email and no password to come up with.</p></div>
       <div class="step rise"><span class="num">3</span><h3>Add your friends</h3><p>Type their Cubeon name in the launcher and they show up in your list, with what they're playing. No server to rent, nothing to forward.</p></div>
     </div>
@@ -315,20 +348,20 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
     <h3 class="faq-h">The basics</h3>
     <div class="faq">
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Is it really free?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Yes. Every feature works without paying and there are no adverts. Playing with your friends will never sit behind a paywall.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">Do I need a Minecraft account?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Pick a name (three to sixteen characters) and play. No email, no password. If you already own the game, just use the name you always use.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Do I need a Minecraft account?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon uses local/offline player profiles: pick a name of three to sixteen characters. It does not provide Microsoft account sign-in. Servers requiring Microsoft authentication cannot accept these profiles; see the <a href="multiplayer.html#offline">multiplayer guide</a>.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">How do I play with friends?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Add friends by their Cubeon name and the launcher keeps the conversation, showing who's online and what they're playing. To share an actual world, open <strong>Servers</strong>, install a server for the version you picked and hand out the free public address it gives you - set a join password and only the people you tell can get in. No server to rent, nothing to change on anyone's computer.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Is it fast?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>We measured it rather than claiming it. On the same PC, same Minecraft version, Cubeon averaged <strong>206 FPS</strong> in game against 152 for FastClient and 119 for SKLauncher - and its worst single second was 102 FPS, where the other two dropped to 37 and 33. The <a href="/benchmarks" style="color:var(--grass-dark);text-decoration:underline">benchmarks page</a> has every number, the charts, and the caveats that weaken the comparison.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Can I bring my own mods or modpacks?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Yes. Open Settings, go to Import, and point it at the folder your mods live in. Cubeon lists everything it finds - mods, resource packs, shader packs, modpacks and worlds - and installs what you pick for the version you chose.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">What does my computer need?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows 10 or 11, or a modern 64-bit Linux. There is no Mac version yet.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">What does my computer need?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Packaged builds are available for Windows 10 and 11, 64-bit Linux, and macOS. Choose the file for your system on the <a href="download.html">download page</a>; macOS app bundles are also on the <a href="https://github.com/Shadow-457/Cubeon/releases/latest">latest stable release</a>. Minecraft itself needs compatible Java and graphics drivers.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Where are my name and skins kept, and who sees them?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>On your computer, in the <strong>.cubeon_launcher</strong> folder inside your user folder. Your skin and cape are shared so other Cubeon players see them when you play together. Change or remove them whenever you like.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Will you email me?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>No. Cubeon never asks for an email address, so there is nothing to unsubscribe from.</p></div></div></div>
     </div>
 
     <h3 class="faq-h">If something goes wrong</h3>
     <div class="faq">
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the installer. Linux: the single file (make it executable, then run it); the package version is for Debian and Ubuntu.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">Which file should I download?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: the app bundle from the <a href="https://github.com/Shadow-457/Cubeon/releases/latest">stable GitHub release</a>. Download only from the official site or repository.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">The game won't start<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Minecraft needs Java. Cubeon uses a Java it finds on your computer when it's new enough, and offers to download a free one for you when it isn't - so usually there's nothing to install. If a launch still fails, install Java free from <a href="https://adoptium.net" target="_blank" rel="noopener" style="color:var(--grass-dark);text-decoration:underline">adoptium.net</a> and try again.</p></div></div></div>
-      <div class="q"><button class="q-a" type="button" aria-expanded="false">My computer warns me about the file<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Normal for small independent apps that aren't signed by a big company. Signing them properly would cost more than 359€ a year, so we don't. On Windows choose Keep, then More info, then Run anyway. We also just run the Windows build through Wine on Linux, so a Mac version isn't a priority right now.</p></div></div></div>
+      <div class="q"><button class="q-a" type="button" aria-expanded="false">My computer warns me about the file<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Unsigned independent apps can trigger a Windows SmartScreen or macOS Gatekeeper warning. Check that the file came from this site or the <a href="https://github.com/Shadow-457/Cubeon/releases">official GitHub releases</a>, and read the <a href="help.html">platform help</a> for the warning you see.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">A friend can't get in, or I can't find them<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>A friend's name only exists once they've opened Cubeon at least once, so ask them to run it first. If someone can't join a server you're running, check the address and password from the Servers section, and make sure you're both on the same Minecraft version and the newest Cubeon.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Something else entirely<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Email <a href="mailto:hamza.457.shahbaz@gmail.com" style="color:var(--grass-dark);text-decoration:underline">hamza.457.shahbaz@gmail.com</a> with what you were doing. Attaching the small log in the <strong>.cubeon_launcher</strong> folder makes a fix much faster.</p></div></div></div>
     </div>
@@ -339,13 +372,13 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
 <section class="cta">
   <div class="wrap">
     <h2>Ready when you are</h2>
-    <p class="lede">Download it, type a name, play. Free on Windows and Linux - no account, nothing to pay.</p>
+    <p class="lede">Download it, type a name, play. Free on Windows, Linux and macOS, with local player profiles.</p>
     <div class="hero-actions">
       <a class="btn big" href="/windowsdownload">Download for Windows</a>
       <a class="btn quiet" href="/linuxdownload">Download for Linux</a>
       <a class="btn discord" href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Join the Discord</a>
     </div>
-    <p class="hero-note">v1.3.28 &middot; Free &middot; No account needed</p>
+    <p class="hero-note">Free &middot; Open-source &middot; Local player profiles</p>
   </div>
 </section>
 
@@ -421,6 +454,7 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
     <div>
       <h4>On this page</h4>
       <nav class="foot-links" aria-label="Sections">
+        <a href="about.html">About Cubeon</a>
         <a href="#download">Download</a>
         <a href="#features">Features</a>
         <a href="#start">Getting started</a>

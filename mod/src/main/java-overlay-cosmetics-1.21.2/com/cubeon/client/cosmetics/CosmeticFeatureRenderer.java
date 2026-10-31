@@ -16,7 +16,7 @@ import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.util.Identifier;
 
 /**
- * Draws the local player's selected cosmetics (1.21.2 - 1.21.4).
+ * Draws selected local and opted-in peer cosmetics (1.21.2 - 1.21.4).
  *
  * <p>Minecraft 1.21.2 split rendering into an entity pass and a render-state
  * pass, so the feature renderer no longer receives the entity. The render
@@ -34,36 +34,27 @@ public final class CosmeticFeatureRenderer
     }
 
     private final CosmeticAnimation.PosedQuad posed = new CosmeticAnimation.PosedQuad();
-    private final CosmeticAnimation.Tracker motion = new CosmeticAnimation.Tracker();
 
     @Override
     public void render(MatrixStack matrices, VertexConsumerProvider vertexConsumers,
                        int light, PlayerEntityRenderState state, float limbAngle,
                        float limbDistance) {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client == null || client.player == null
-                || state.id != client.player.getId()) {
-            return;
-        }
-        CosmeticAnimation.Frame animation = CubeonHudConfig.get().cosmeticAnimations
-                ? motion.sample(state.age / 20.0f,
-                (float) client.player.getVelocity().horizontalLength() * 4, state.isGliding, client.player.isSprinting(),
-                WingAction.INSTANCE.elapsed(client.player, client.world, state.age / 20.0f)) : motion.disabled();
-        draw(matrices, vertexConsumers, light, animation);
+        CosmeticView view = CosmeticPlayers.view(state.id, state.age / 20.0f, state.isGliding);
+        if (view == null) return;
+        draw(matrices, vertexConsumers, light, view);
     }
 
     private void draw(MatrixStack matrices, VertexConsumerProvider vertexConsumers,
-                      int light, CosmeticAnimation.Frame animation) {
+                      int light, CosmeticView view) {
         CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
         if (catalog == null) {
             return;
         }
-        CosmeticSelection.refresh();
         matrices.push();
         getContextModel().body.rotate(matrices);
         try {
-            drawItem(catalog, "back", matrices, vertexConsumers, light, animation);
-            drawItem(catalog, "shoulder", matrices, vertexConsumers, light, animation);
+            drawItem(catalog, "back", matrices, vertexConsumers, light, view);
+            drawItem(catalog, "shoulder", matrices, vertexConsumers, light, view);
         } finally {
             matrices.pop();
         }
@@ -71,12 +62,14 @@ public final class CosmeticFeatureRenderer
 
     private void drawItem(CosmeticCatalog.Catalog catalog, String slot,
                           MatrixStack matrices, VertexConsumerProvider vertexConsumers,
-                          int light, CosmeticAnimation.Frame animation) {
-        CosmeticCatalog.Item item = catalog.get(CosmeticSelection.get(slot));
+                          int light, CosmeticView view) {
+        CosmeticCatalog.Item selected = catalog.get(view.items().get(slot));
+        final CosmeticCatalog.Item item = selected == null ? null
+                : selected.forWingDepth(CubeonHudConfig.get().wingDepth);
         if (item == null) {
             return;
         }
-        final CosmeticAnimation.Frame itemAnimation = animation == null ? null : animation.forItem(item);
+        final CosmeticAnimation.Frame itemAnimation = view.animation() == null ? null : view.animation().forItem(item);
         Identifier texture = Identifier.of("cubeon-client",
                 "textures/cosmetics/" + item.texture);
         VertexConsumer buffer = vertexConsumers.getBuffer(

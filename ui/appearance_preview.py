@@ -1,10 +1,10 @@
 """A textured character preview with button-controlled rotation.
 
-The character is rendered once per skin/cape into cached turntable frames.
-Rotation buttons glide between these frames without rebuilding the scene.
+Only requested camera angles are rendered, then cached for subsequent turns.
+One worker coalesces camera and appearance changes instead of baking a full orbit.
 """
-from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
+import logging
 import os
 import threading
 import time
@@ -44,7 +44,11 @@ class AppearancePreview:
         self._generation = 0
         self._pending = None
         self._running = False
-        self._frames = []          # one Container per turntable step
+        self._frames = {}          # visited turntable steps only
+        self._frames_generation = -1
+        self._model = None
+        self._textures = {}
+        self._requested_step = None
         self._shown = None
         self._motion = 0           # bumped to cancel glide / fling threads
         self.scene = ft.Stack([], width=STAGE_W, height=STAGE_H, clip_behavior=ft.ClipBehavior.NONE,
@@ -76,20 +80,31 @@ class AppearancePreview:
         self._show(step)
 
     def _show(self, step):
-        """Flip visibility between two pre-rendered frames; nothing else moves."""
+        """Use a cached frame or request the latest angle without blocking input."""
+        start_worker = False
+        old = new = None
         with thread_safe_ui.TREE_LOCK, self._lock:
-            frames = self._frames
-            if not frames or step == self._shown:
-                return
-            old = frames[self._shown] if self._shown is not None and self._shown < len(frames) else None
-            new = frames[step]
-            new.opacity = 1          # show the new one first so there is never a blank frame
-            if old is not None:
-                old.opacity = 0
-            self._shown = step
-        thread_safe_ui.refresh(new)
+            if self._frames_generation == self._generation:
+                new = self._frames.get(step)
+            if new is not None:
+                if step == self._shown:
+                    return
+                old = self._frames.get(self._shown)
+                new.opacity = 1
+                if old is not None:
+                    old.opacity = 0
+                self._shown = step
+            elif self._model is not None or self._pending is not None:
+                self._requested_step = step
+                if not self._running:
+                    self._running = True
+                    start_worker = True
+        if new is not None:
+            thread_safe_ui.refresh(new)
         if old is not None:
             thread_safe_ui.refresh(old)
+        if start_worker:
+            self._start_worker()
 
     def _cancel_motion(self):
         with self._lock:
@@ -99,7 +114,7 @@ class AppearancePreview:
     def _glide(self, delta, duration=0.3):
         token = self._cancel_motion()
         if not self._frames:
-            self.yaw = (self.yaw + delta) % 360
+            self._set_yaw(self.yaw + delta)
             return
         threading.Thread(target=self._glide_run, args=(token, self.yaw, delta, duration),
                          daemon=True, name="ux-appearance-glide").start()
@@ -128,6 +143,7 @@ class AppearancePreview:
             if invalidate or (not self._frames and not self._running):
                 self._generation += 1
                 self._pending = (self._generation, dict(self.cfg))
+                self._requested_step = self._step_for(self.yaw)
                 if not self._running:
                     self._running = True
                     start_worker = True
@@ -135,7 +151,10 @@ class AppearancePreview:
         if loaded:
             self._show(self._step_for(self.yaw))
         if start_worker:
-            threading.Thread(target=self._load, daemon=True, name="ux-appearance-assets").start()
+            self._start_worker()
+
+    def _start_worker(self):
+        threading.Thread(target=self._load, daemon=True, name="ux-appearance-assets").start()
 
     def _stale(self, generation):
         with self._lock:
@@ -146,78 +165,70 @@ class AppearancePreview:
             with self._lock:
                 request = self._pending
                 self._pending = None
-                if request is None:
+                step = self._requested_step
+                self._requested_step = None
+                if request is None and step is None:
                     self._running = False
                     return
-            generation, cfg = request
+                generation = self._generation
             try:
-                model = CharacterModel.from_config(cfg, self.default_cape_path, self.cosmetics_dir)
-                textures = {}
-                for index, face in enumerate(model.faces):
-                    if face.texture.getbbox():
-                        textures[index] = face.texture.convert("RGBA")
-                def frame(step):
-                    if self._stale(generation):
-                        return None
-                    faces = model.project(step * 360 / STEPS, PITCH)
-                    return render_frame([f for f in faces if f.index in textures], textures)
-
-                # First paint: only the frame the user is looking at, right away.
-                if not self._frames:
-                    first = self._step_for(self.yaw)
-                    quick = frame(first)
-                    if quick is None:
-                        continue
-                    stage = ft.Container(
-                        content=ft.Image(src=_png(quick), width=STAGE_W, height=STAGE_H, fit=ft.BoxFit.FILL,
-                                         gapless_playback=True, filter_quality=ft.FilterQuality.MEDIUM),
-                        left=0, top=0, width=STAGE_W, height=STAGE_H)
-                    with thread_safe_ui.TREE_LOCK, self._lock:
+                if request is not None:
+                    generation, cfg = request
+                    model = CharacterModel.from_config(cfg, self.default_cape_path, self.cosmetics_dir)
+                    textures = {index: face.texture.convert("RGBA")
+                                for index, face in enumerate(model.faces) if face.texture.getbbox()}
+                    with self._lock:
                         if generation != self._generation:
                             continue
-                        self.scene.controls[:] = [stage]
-                    thread_safe_ui.refresh(self.scene)
-
-                workers = max(1, min(4, os.cpu_count() or 2))
-                with ThreadPoolExecutor(max_workers=workers) as pool:
-                    images = list(pool.map(frame, range(STEPS)))
-                if any(image is None for image in images) or self._stale(generation):
+                        self._model, self._textures = model, textures
+                        step = self._step_for(self.yaw)
+                else:
+                    model, textures = self._model, self._textures
+                if model is None or self._stale(generation):
                     continue
-
-                # Crop every frame to the same box (the model's footprint) so the
-                # whole ring costs a fraction of 60 full stages in GPU memory.
-                boxes = [image.getchannel("A").getbbox() for image in images]
-                boxes = [box for box in boxes if box]
-                if not boxes:
+                with self._lock:
+                    cached = self._frames_generation == generation and step in self._frames
+                if cached:
+                    self._show(step)
+                    continue
+                faces = model.project(step * 360 / STEPS, PITCH)
+                image = render_frame([face for face in faces if face.index in textures], textures)
+                box = image.getchannel("A").getbbox()
+                if not box:
                     raise ValueError("empty model")
-                left = max(0, min(b[0] for b in boxes) - 2)
-                top = max(0, min(b[1] for b in boxes) - 2)
-                right = min(STAGE_W, max(b[2] for b in boxes) + 2)
-                bottom = min(STAGE_H, max(b[3] for b in boxes) + 2)
+                left, top = max(0, box[0] - 2), max(0, box[1] - 2)
+                right, bottom = min(STAGE_W, box[2] + 2), min(STAGE_H, box[3] + 2)
                 width, height = right - left, bottom - top
-                frames = [ft.Container(
+                stage = ft.Container(
                     content=ft.Image(src=_png(image.crop((left, top, right, bottom))), width=width, height=height,
                                      fit=ft.BoxFit.FILL, gapless_playback=True,
                                      filter_quality=ft.FilterQuality.MEDIUM, data=f"appearance-frame:{step}"),
                     left=left, top=top, width=width, height=height, opacity=0)
-                    for step, image in enumerate(images)]
-                # Soft contact shadow under the feet grounds the figure.
-                shadow = ft.Container(
-                    left=(left + right) / 2 - 42, top=bottom - 12, width=84, height=10, border_radius=42,
-                    bgcolor="#22000000",
-                    shadow=ft.BoxShadow(blur_radius=16, spread_radius=2, color="#55000000"))
-
                 with thread_safe_ui.TREE_LOCK, self._lock:
                     if generation != self._generation:
                         continue
-                    step = self._step_for(self.yaw)
-                    frames[step].opacity = 1
-                    self._frames, self._shown = frames, step
-                    self.scene.controls[:] = [shadow] + frames
+                    if self._frames_generation != generation:
+                        self._frames = {}
+                        self._frames_generation = generation
+                        self._shown = None
+                        shadow = ft.Container(
+                            left=STAGE_W / 2 - 42, top=bottom - 12, width=84, height=10, border_radius=42,
+                            bgcolor="#22000000",
+                            shadow=ft.BoxShadow(blur_radius=16, spread_radius=2, color="#55000000"))
+                        self.scene.controls[:] = [shadow]
+                    self._frames[step] = stage
+                    self.scene.controls.append(stage)
+                    if self._shown is None or step == self._step_for(self.yaw):
+                        old = self._frames.get(self._shown)
+                        if old is not None:
+                            old.opacity = 0
+                        stage.opacity = 1
+                        self._shown = step
                     self.note.value = "Use the arrows to rotate"
                 thread_safe_ui.refresh(self.scene)
                 thread_safe_ui.refresh(self.note)
             except Exception:
+                logging.getLogger(__name__).exception("Could not render appearance preview")
                 with thread_safe_ui.TREE_LOCK, self._lock:
                     if generation != self._generation:
                         continue

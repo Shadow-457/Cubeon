@@ -138,7 +138,10 @@ export default {
     // by lunchtime, which would break skins for everyone. The signature
     // checks below cannot help: a random uuid and a random secret are both
     // perfectly well-formed.
-    const gate = await throttle(request, env, WRITE_RATE);
+    const cosmeticsRead = (request.method === "GET" || request.method === "HEAD")
+      && path.startsWith("/cosmetics/") && path.endsWith(".json");
+    const gate = cosmeticsRead ? await throttleCosmeticsRead(request)
+      : await throttle(request, env, WRITE_RATE);
     if (gate) return gate;
 
     if (path === "/api/heartbeat") {
@@ -148,6 +151,10 @@ export default {
     if (path === "/api/skin") {
       if (request.method !== "POST") return methodNotAllowed("POST");
       return handleSkinUpload(request, env);
+    }
+    if (path === "/api/cosmetics") {
+      if (request.method !== "POST") return methodNotAllowed("POST");
+      return handleCosmetics(request, env);
     }
     if (path === "/api/unlocks") {
       if (request.method === "POST") return handleUnlocksPost(request, env);
@@ -167,6 +174,10 @@ export default {
       return new Response("cubeon-skins ok\n", {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
+    }
+
+    if (path.startsWith("/cosmetics/") && path.endsWith(".json")) {
+      return serveCosmetics(path.slice("/cosmetics/".length, -5), env);
     }
 
     if (path.startsWith("/textures/")) {
@@ -228,6 +239,12 @@ const WRITE_RATE = { max: 20, windowMs: 60_000 };
 // That is exactly why the binding is the real answer and this is only a
 // backstop, but an unbound-by-default Worker must not be wide open.
 const fallbackRL = new Map();
+const cosmeticsReadRL = new Map();
+async function throttleCosmeticsRead(request) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (cosmeticsReadRL.size > 4096) cosmeticsReadRL.clear();
+  return fallbackAllow(cosmeticsReadRL, ip, 240, 60_000, Date.now()) ? null : tooMany();
+}
 
 /**
  * Sliding-window limiter over {max} requests per {windowMs} for one key.
@@ -571,6 +588,49 @@ async function handleHeartbeat(request, env) {
  * (see serveProfile) - handing it a URL made CSL fetch a nonsense double
  * prefixed path and silently drop the skin/cape.
  */
+// Only bundled catalogue IDs cross the network; no uploaded meshes or texture URLs.
+const COSMETIC_IDS = {
+  back: new Set(["back_aurora_wings", "back_ember_wings", "back_frost_wings",
+    "back_leaf_wings", "back_void_wings", "back_aurora_wings_small",
+    "back_ember_wings_small", "back_frost_wings_small", "back_leaf_wings_small",
+    "back_void_wings_small", "back_gear_pack", "back_scholar_pack", "back_lantern_pack",
+    "back_shell_pack", "back_banner_pack"]),
+  shoulder: new Set(["shoulder_ember_fox", "shoulder_moss_frog", "shoulder_lantern_moth",
+    "shoulder_frost_cub", "shoulder_cloud_serpent", "shoulder_gear_imp", "shoulder_spore_sprite",
+    "shoulder_star_owl", "shoulder_tide_turtle", "shoulder_pumpkin_pal"]),
+};
+
+async function handleCosmetics(request, env) {
+  const secretHash = await bearerSecretHash(request);
+  if (!secretHash) return problem(401, "missing_or_bad_token");
+  const body = await readJsonLimited(request, 1024);
+  if (!body) return problem(400, "bad_body");
+  const uuid = typeof body.uuid === "string" ? body.uuid.toLowerCase() : "";
+  if (!UUID_RE.test(uuid)) return problem(400, "bad_uuid");
+  for (const slot of ["back", "shoulder"]) {
+    if (body[slot] !== null && !COSMETIC_IDS[slot].has(body[slot]))
+      return problem(400, "bad_cosmetic");
+  }
+  // A heartbeat must establish ownership first; this route cannot claim a UUID.
+  const owner = await env.SKINS.get(`owner:${uuid}`);
+  if (!owner || !constantTimeEqual(owner, secretHash)) return problem(403, "not_yours");
+  if (await env.SKINS.get(`blocked:${uuid}`)) return problem(403, "blocked");
+  const record = JSON.stringify({ back: body.back, shoulder: body.shoulder });
+  const put = await putIfChanged(env, `cosmetics:${uuid}`, record);
+  if (put === "quota") return problem(429, "kv_write_budget_exhausted");
+  return json({ status: "ok" }, "no-store");
+}
+
+async function serveCosmetics(username, env) {
+  if (!USERNAME_RE.test(username)) return notFound();
+  const uuid = await env.SKINS.get(`pointer:${username.toLowerCase()}`);
+  if (!uuid || await env.SKINS.get(`blocked:${uuid}`)) return notFound();
+  const record = await env.SKINS.get(`cosmetics:${uuid}`, "json");
+  return json({ version: 1, username, uuid,
+    back: COSMETIC_IDS.back.has(record?.back) ? record.back : null,
+    shoulder: COSMETIC_IDS.shoulder.has(record?.shoulder) ? record.shoulder : null }, PROFILE_CACHE);
+}
+
 async function handleSkinUpload(request, env) {
   const secretHash = await bearerSecretHash(request);
   if (!secretHash) return problem(401, "missing_or_bad_token");

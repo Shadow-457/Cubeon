@@ -197,6 +197,8 @@ public class HealthTest {
         CubeonHudConfig.load();
         require(CubeonHudConfig.get().showFps && !CubeonHudConfig.get().showEnemyHealth, "Old preferences preserved, health opt-in");
         require(CubeonHudConfig.get().cosmeticAnimations, "Old config defaults cosmetic animations on");
+        require(CubeonHudConfig.get().wingDepth, "Old config defaults layered 3D wings on");
+        require(!CubeonHudConfig.get().showOtherCosmetics, "Other cosmetics preference defaults OFF");
         require(CubeonHudConfig.get().showEmotes, "Old config defaults emote display on");
         require(CubeonHudConfig.get().emoteFavorites.length==8,"Old config gains default emote wheel");
         CubeonHudConfig.get().emoteFavorites=new String[]{"sit", "invalid", "laugh", "sit", null};
@@ -205,6 +207,8 @@ public class HealthTest {
         hidden(enemy,"Off toggle must draw nothing");
         CubeonHudConfig.get().showEnemyHealth=true;
         CubeonHudConfig.get().cosmeticAnimations=false;
+        CubeonHudConfig.get().wingDepth=false;
+        CubeonHudConfig.get().showOtherCosmetics=true;
         CubeonHudConfig.get().showEmotes=false; CubeonHudConfig.save();
         var saved=com.google.gson.JsonParser.parseString(Files.readString(
                 directory.resolve("cubeon-client-hud.json"))).getAsJsonObject();
@@ -214,14 +218,20 @@ public class HealthTest {
                 "Removing old effects preserves other HUD preferences");
         CubeonHudConfig.get().showEnemyHealth=false;
         CubeonHudConfig.get().cosmeticAnimations=true;
+        CubeonHudConfig.get().wingDepth=true;
+        CubeonHudConfig.get().showOtherCosmetics=false;
         CubeonHudConfig.get().showEmotes=true; CubeonHudConfig.load();
         require(CubeonHudConfig.get().showEnemyHealth,"Health toggle persists");
         require(Arrays.equals(CubeonHudConfig.get().emoteFavorites,new String[]{"sit", "laugh"}),
                 "Favorite names persist in order, with invalid/duplicate values removed");
         require(!CubeonHudConfig.get().cosmeticAnimations, "Animation-off preference persists");
+        require(!CubeonHudConfig.get().wingDepth, "Flat-wing preference persists independently");
+        require(CubeonHudConfig.get().showOtherCosmetics, "Other cosmetics preference persists independently");
         require(!CubeonHudConfig.get().showEmotes, "Emote display-off preference persists");
         CubeonHudConfig.resetPositions();
         require(!CubeonHudConfig.get().cosmeticAnimations, "Reset positions preserves animation choice");
+        require(!CubeonHudConfig.get().wingDepth, "Reset positions preserves wing depth choice");
+        require(CubeonHudConfig.get().showOtherCosmetics, "Reset positions preserves other cosmetics choice");
         require(Arrays.equals(CubeonHudConfig.get().emoteFavorites,new String[]{"sit", "laugh"}),
                 "HUD position reset preserves emote favorites");
         render();

@@ -136,6 +136,15 @@ def _tile(sheet: Image.Image, rect, flip: bool) -> Image.Image:
     return tile
 
 
+def _feather_depth(guide: dict, x: float) -> float:
+    import math
+    root = 1 + math.ceil((guide["start"][0] - 1) / 4) * 4
+    extent = guide["end"][0] - root
+    t = max(0, min(1, (x - root) / extent)) if abs(extent) >= .1 else 0
+    value = guide.get("curl", 0) * t * t + guide.get("tilt", 0) * (guide["end"][0] - guide["start"][0]) * t
+    return math.floor(value * 4096 + .5) / 4096
+
+
 def preview_faces(item: dict, directory: str | None = None) -> list[tuple]:
     """``(vertices, normal, texture)`` triples in the preview's space.
 
@@ -154,6 +163,14 @@ def preview_faces(item: dict, directory: str | None = None) -> list[tuple]:
             x0, y0, z0 = box["origin"]
             width, height, depth = box["size"]
             x1, y1, z1 = x0 + width, y0 + height, z0 + depth
+            guide_index = box.get("feather", -1)
+            curve = item.get("separate_feathers") and 0 <= guide_index < len(item.get("feathers", []))
+            if curve:
+                import math
+                guide = item["feathers"][guide_index]
+                curve_left = 1 + math.floor((x0 - 1) / 4) * 4
+                curve_first = _feather_depth(guide, curve_left)
+                curve_slope = (_feather_depth(guide, curve_left + 4) - curve_first) / 4
             if mirrored:
                 x0, x1 = 2 * anchor_x - x1, 2 * anchor_x - x0
             # Minecraft -> preview.
@@ -181,6 +198,14 @@ def preview_faces(item: dict, directory: str | None = None) -> list[tuple]:
                     continue
                 tile = _tile(sheet, rects[source], mirrored)
                 if tile.getbbox():
+                    if curve:
+                        vertices = [(x, y, z - curve_first -
+                                     ((2 * anchor_x - x if mirrored else x) - curve_left) * curve_slope)
+                                    for x, y, z in vertices]
+                        nx, ny, nz = normal
+                        nx += (-1 if mirrored else 1) * curve_slope * nz
+                        length = math.sqrt(nx * nx + ny * ny + nz * nz)
+                        normal = (nx / length, ny / length, nz / length)
                     result.append((vertices, normal, tile))
     return result
 
@@ -286,6 +311,9 @@ def set_active(cfg: dict, slot: str, item_id: str | None) -> None:
     cfg["active_shoulder_item" if slot == "shoulder" else "active_back_item"] = item_id
     sync_to_game(cfg)
     save_config(cfg)
+    if cfg.get("manage_skin_mod", True):
+        from .skins import _publish_skin_async
+        _publish_skin_async(cfg)
 
 
 def selection_payload(cfg: dict) -> dict:

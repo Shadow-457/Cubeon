@@ -425,11 +425,13 @@ def test_removed_effect_guard():
                 "client": ["FreelookCameraMixin", "FreelookScrollMixin"]}).encode()
             entries["assets/cubeon-client/lang/en_us.json"] = json.dumps({
                 "key.cubeon-client.freelook": "Hold to Freelook",
+                "cubeonclient.hud.wing_depth": "3D wings",
                 "key.cubeon-client.wing_flare": "Dragon Wing Flare"}).encode()
             entries["com/cubeon/client/hud/CubeonHudKeybinds.class"] = b"wing_flare"
+            entries["com/cubeon/client/hud/CubeonHudConfig.class"] = b"wingDepth"
             entries["assets/cubeon-client/cosmetics/catalog.json"] = Path(ROOT, "assets/cosmetics/catalog.json").read_bytes()
             names = ["back_" + wing + "_wings" + size + ".png"
-                     for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small")]
+                     for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small", "_flat")]
             for name in names:
                 entries["assets/cubeon-client/textures/cosmetics/" + name] = Path(ROOT, "assets/cosmetics", name).read_bytes()
             entries.update(extra)
@@ -444,6 +446,8 @@ def test_removed_effect_guard():
             ("assets/cubeon-client/cosmetics/catalog.json", b"{}", "catalogue is stale"),
             ("assets/cubeon-client/textures/cosmetics/back_ember_wings.png", b"old_texture", "texture is missing or stale"),
             ("assets/cubeon-client/textures/cosmetics/back_ember_wings_small.png", b"old_texture", "texture is missing or stale"),
+            ("assets/cubeon-client/textures/cosmetics/back_ember_wings_flat.png", b"old_texture", "texture is missing or stale"),
+            ("com/cubeon/client/hud/CubeonHudConfig.class", b"old_config", "3D wing setting is missing"),
         ):
             write({entry: data})
             error = verify(path)

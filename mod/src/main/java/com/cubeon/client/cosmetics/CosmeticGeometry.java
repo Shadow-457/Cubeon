@@ -38,6 +38,7 @@ public final class CosmeticGeometry {
         public float parentPivotX, parentPivotY, parentPivotZ;
         public FeatherWeight[] feathers;
         public int featherVertexCount;
+        public int feather = -1;
     }
 
     private static final Map<CosmeticCatalog.Item, List<Quad>> CACHE =
@@ -112,10 +113,13 @@ public final class CosmeticGeometry {
             for (int i = first; i < out.size(); i++) {
                 Quad quad = out.get(i);
                 quad.motion = box.motion;
+                quad.feather = box.feather;
                 quad.mirrored = i >= mirrorStart;
                 quad.pivotX = quad.mirrored ? 2 * anchorX - box.pivotX : box.pivotX;
                 quad.pivotY = box.pivotY;
                 quad.pivotZ = box.pivotZ;
+                if (item.separateFeathers && box.feather >= 0 && box.feather < item.feathers.size())
+                    curveRest(quad, item.feathers.get(box.feather), anchorX);
                 if (parent != null) {
                     quad.parentPivotX = parent.pivotX;
                     quad.parentPivotY = parent.pivotY;
@@ -125,6 +129,33 @@ public final class CosmeticGeometry {
         }
         if (!item.feathers.isEmpty()) bindFeathers(item, out, anchorX);
         return out;
+    }
+
+    private static double depthAt(CosmeticCatalog.Feather f, double x) {
+        // The root stays flat through the next shared strip boundary. Starting
+        // the curve mid-strip lifts short covert roots away from their attachment.
+        double root = 1 + Math.ceil((f.x - 1) / 4) * 4;
+        double extent = f.endX - root;
+        double t = Math.abs(extent) < .1 ? 0 : Math.max(0, Math.min(1, (x - root) / extent));
+        // Binary-grid endpoints make Java/Python rest meshes identical, including seams.
+        return Math.floor((f.curl * t * t + f.tilt * (f.endX - f.x) * t) * 4096 + .5) / 4096;
+    }
+
+    /** Four-model-unit strips make a curved feather from joined planar caps. */
+    private static void curveRest(Quad quad, CosmeticCatalog.Feather f, float anchorX) {
+        double minX = Double.POSITIVE_INFINITY;
+        for (float x : quad.x) minX = Math.min(minX, quad.mirrored ? 2 * anchorX - x : x);
+        double left = 1 + Math.floor((minX - 1) / 4) * 4;
+        double first = depthAt(f, left), slope = (depthAt(f, left + 4) - first) / 4;
+        for (int v = 0; v < 4; v++) {
+            double x = quad.mirrored ? 2 * anchorX - quad.x[v] : quad.x[v];
+            quad.z[v] += (float) (first + (x - left) * slope);
+        }
+        float sign = quad.mirrored ? -1 : 1;
+        quad.normalX -= sign * (float) slope * quad.normalZ;
+        float length = (float) Math.sqrt(quad.normalX * quad.normalX
+                + quad.normalY * quad.normalY + quad.normalZ * quad.normalZ);
+        quad.normalX /= length; quad.normalY /= length; quad.normalZ /= length;
     }
 
     private static void addBox(List<Quad> out, float x0, float y0, float z0,
@@ -234,9 +265,25 @@ public final class CosmeticGeometry {
         return t * t * (3 - 2 * t);
     }
 
-    private static float[] weights(CosmeticCatalog.Item item, float x, float y) {
+    private static float[] weights(CosmeticCatalog.Item item, float x, float y, int bone) {
         int count = item.feathers.size();
         float[] result = new float[count * 4];
+        if (bone >= 0) {
+            var f = item.feathers.get(bone);
+            float dx = f.endX - f.x, dy = f.endY - f.y;
+            float length = (float) Math.hypot(dx, dy);
+            float t = Math.max(0, Math.min(1, ((x - f.x) * dx + (y - f.y) * dy) / (length * length)));
+            float root = smooth(((float) Math.hypot(x - item.boxes.get(0).pivotX,
+                    y - item.boxes.get(0).pivotY) - 1.25f) / 3);
+            float side = ((x - f.x) * -dy + (y - f.y) * dx) / length
+                    - f.curve * (float) Math.sin(Math.PI * t);
+            float tip = t * t * root;
+            result[bone*4] = length * tip;
+            result[bone*4+1] = -dy * tip;
+            result[bone*4+2] = dx * tip;
+            result[bone*4+3] = side * t * root;
+            return result;
+        }
         float[] ts = new float[count], sides = new float[count], lengths = new float[count];
         float[] scores = new float[count];
         int first = 0, second = -1;
@@ -271,18 +318,33 @@ public final class CosmeticGeometry {
     }
 
     private static void bindFeathers(CosmeticCatalog.Item item, List<Quad> quads, float anchorX) {
+        if (!item.separateFeathers) {
+            bindGroup(item, quads, anchorX, -1, 0);
+            return;
+        }
+        int next = 0;
+        for (int bone = 0; bone < item.feathers.size(); bone++) {
+            List<Quad> group = new ArrayList<>();
+            for (Quad quad : quads) if (quad.feather == bone) group.add(quad);
+            next = bindGroup(item, group, anchorX, bone, next);
+        }
+        for (Quad quad : quads) if (quad.feathers != null) quad.featherVertexCount = next;
+    }
+
+    private static int bindGroup(CosmeticCatalog.Item item, List<Quad> quads, float anchorX,
+                                 int bone, int firstIndex) {
         Map<Long, Node> nodes = new java.util.LinkedHashMap<>();
         for (Quad q : quads) {
             if (!"wing".equals(q.motion)) continue;
             for (int v = 0; v < 4; v++) {
                 float x = q.mirrored ? 2 * anchorX - q.x[v] : q.x[v], y = q.y[v];
-                nodes.computeIfAbsent(key(x, y), unused -> new Node(x, y, weights(item, x, y)));
+                nodes.computeIfAbsent(key(x, y), unused -> new Node(x, y, weights(item, x, y, bone)));
             }
         }
         // Weld T junctions: caps of different sizes must agree along shared edges.
         // Overlapping collinear edges share their outer endpoints as one straight span.
         List<Edge> edges = new ArrayList<>();
-        for (var box : item.boxes) if ((box.faces & 3) != 0) {
+        for (var box : item.boxes) if ((box.faces & 3) != 0 && (bone < 0 || box.feather == bone)) {
             edges.add(new Edge(true, box.y, box.x, box.x + box.width));
             edges.add(new Edge(true, box.y + box.height, box.x, box.x + box.width));
             edges.add(new Edge(false, box.x, box.y, box.y + box.height));
@@ -332,7 +394,7 @@ public final class CosmeticGeometry {
             }
             if (difference < 0.0000005f) break;
         }
-        int index = 0;
+        int index = firstIndex;
         for (Node node : nodes.values()) node.frozen = new FeatherWeight(index++, node.weights);
         for (Quad q : quads) if ("wing".equals(q.motion)) {
             q.feathers = new FeatherWeight[4];
@@ -340,6 +402,7 @@ public final class CosmeticGeometry {
             for (int v = 0; v < 4; v++)
                 q.feathers[v] = nodes.get(key(q.mirrored ? 2 * anchorX - q.x[v] : q.x[v], q.y[v])).frozen;
         }
+        return index;
     }
 
     private static final class Rect {

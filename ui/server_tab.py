@@ -27,6 +27,7 @@ from cubeon import icons as _icons  # disk cache for Modrinth project art
 from ui.detail_dialog import open_project_detail
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
+from ui.install_feedback import InstallRegistry, compact_status, progress_text
 
 
 def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
@@ -1631,6 +1632,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         visible=False,
     )
     _plugin_install_busy = {"v": False}   # one install at a time (double-click safe)
+    plugin_install_registry = InstallRegistry()
     plugin_results_list = ft.Column(spacing=10)
     PLUGIN_PAGE_SIZE = 5
     plugin_browse_state = {"results": [], "page": 0}
@@ -1662,7 +1664,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             alignment=ft.Alignment.CENTER,
         )
 
-    def _install_plugin_handler(hit: dict):
+    def _install_plugin_handler(hit: dict, feedback=None):
         def handler(e=None):
             version_id = active_version["value"]
             if not version_id:
@@ -1670,6 +1672,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             if _plugin_install_busy["v"]:
                 plugin_search_status.value = "Already installing a plugin. One at a time."
                 page.update()
+                return
+            job = feedback or plugin_install_registry.project(
+                ("plugin", version_id), hit.get("project_id"), hit.get("slug"))
+            if not job.start():
                 return
             _plugin_install_busy["v"] = True
             title = hit.get("title") or hit.get("slug") or "plugin"
@@ -1686,16 +1692,19 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                                                          mc_version=core.minecraft_version(version_id))
                     if not file_info:
                         plugin_search_status.value = f"No build of {title} found for {version_id}."
+                        job.finish(error=plugin_search_status.value)
                     else:
                         def on_progress(done, total):
                             # Byte-accurate progress from download_plugin's
                             # stream callback; indeterminate bar if the
                             # server didn't send Content-Length.
-                            plugin_install_bar.value = (done / total) if total else None
+                            plugin_install_bar.value = min(1, max(0, done / total)) if total else None
                             plugin_install_pct.value = (
-                                f"{int(done * 100 / max(total, 1))}% · {done // 1024} KB"
+                                f"{min(100, int(done * 100 / max(total, 1)))}% · {done // 1024} KB"
                                 if total else f"{done // 1024} KB")
-                            page.update()
+                            job.status(progress_text(done, total))
+                            thread_safe_ui.refresh(plugin_install_bar)
+                            thread_safe_ui.refresh(plugin_install_pct)
 
                         core.download_plugin(
                             version_id, file_info["url"], file_info["filename"],
@@ -1703,10 +1712,12 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                         )
                         plugin_install_pct.value = "100%"
                         plugin_search_status.value = f"Installed {title}."
+                        job.finish(file_info["filename"])
                         refresh_plugins_list()
                         _render_plugin_page()  # flip its Browse button to "Installed"
                 except Exception as ex:
                     plugin_search_status.value = f"Couldn't install {title}: {ex}"
+                    job.finish(error=plugin_search_status.value)
                 finally:
                     plugin_install_banner.visible = False
                     _plugin_install_busy["v"] = False
@@ -1727,6 +1738,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             desc = desc[:102] + "..."
         downloads = hit.get("downloads", 0) or 0
         author = hit.get("author") or "Modrinth"
+        feedback = plugin_install_registry.project(
+            ("plugin", active_version["value"]), hit.get("project_id"), hit.get("slug"))
 
         install_btn_text = ft.Text(
             i18n.t("Installed") if is_installed else i18n.t("Install"),
@@ -1744,7 +1757,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
             ink=False,
-            on_click=None if is_installed else _install_plugin_handler(hit),
+            on_click=None if is_installed else _install_plugin_handler(hit, feedback),
         )
 
         # Row click opens the shared project detail dialog (packs/plugins had
@@ -1766,11 +1779,24 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 icon_url=_hit.get("icon_url"),
                 blurb=_hit.get("description") or desc,
                 install_label="Install",
-                on_install=None if _installed else _install,
-                install_disabled=_installed,
+                on_install=None if is_installed else _install(_hit, feedback),
+                install_disabled=is_installed,
+                install_feedback=feedback,
                 install_hint="Server plugins install into the server's plugins folder.",
                 loader=None,
             )
+
+        seen = {"result": feedback.result_id}
+        def paint(job):
+            nonlocal is_installed
+            if seen["result"] != job.result_id:
+                seen["result"] = job.result_id
+                if job.result == "success":
+                    is_installed = True
+            install_btn.disabled = job.busy or is_installed
+            install_btn_text.value = compact_status(job.text) if job.busy else i18n.t("Installed") if is_installed else i18n.t("Install")
+            install_btn.tooltip = job.text if job.busy or job.result == "error" else None
+        feedback.watch(install_btn, paint)
 
         return attach_hover(
             ft.Container(

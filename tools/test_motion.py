@@ -71,7 +71,7 @@ def _scale_value(control):
     """The scale as a number, whether it is a raw float or a Scale transform."""
     s = control.scale
     if s is None:
-        return None
+        return 1.0  # no transform is the identity size
     # Flet 1.0.3's Scale is a two-axis dataclass; older builds exposed a
     # single `.scale`. Either way, compare against the horizontal axis.
     if hasattr(s, "scale_x"):
@@ -146,27 +146,34 @@ c = theme.attach_hover(ft.Container(bgcolor="#101010"), "#101010", "#202020")
 check("attach_hover() return value is the container itself",
       isinstance(c, ft.Container))
 check("the fill animates instead of snapping",
-      c.animate == motion.FAST and c.animate_scale == motion.FAST)
-check("the resting scale is written at build time",
-      _scale_value(c) == 1.0, _scale_value(c))
+      c.animate == motion.FAST)
+check("colour-only hover installs no scale matrix or scale animation",
+      c.scale is None and c.animate_scale is None)
 
 hover(c)
 check("hovering swaps the fill", c.bgcolor == "#202020", c.bgcolor)
 check("hovering leaves the control's size unchanged",
       abs(_scale_value(c) - motion.LIFT) < 1e-9, _scale_value(c))
 check("default hover and press do not zoom", motion.LIFT == 1.0 and motion.PRESS == 1.0)
+check("hovering a default card still creates no transform", c.scale is None)
 check("default clicks start no press animation", not callable(getattr(c, "on_tap_down", None)))
 hover(c, False)
 check("leaving restores the fill and the scale",
       c.bgcolor == "#101010" and _scale_value(c) == 1.0,
       f"{c.bgcolor} {_scale_value(c)}")
 
-_owned = ft.Container(scale=ft.Scale(1.4, alignment=ft.Alignment.CENTER),
+_owned = ft.Container(scale=ft.Scale(scale_x=1.4, scale_y=1.4, alignment=ft.Alignment.CENTER),
                       bgcolor="#101010")
 theme.attach_hover(_owned, "#101010", "#202020")
 hover(_owned)
 check("a control that owns its own scale is left alone",
       _scale_value(_owned) == 1.4, _scale_value(_owned))
+
+_lifted = motion.polish(ft.Container(), lift=1.02)
+hover(_lifted)
+check("explicit lift keeps both transform axes finite",
+      _lifted.scale.scale_x == 1.02 and _lifted.scale.scale_y == 1.02
+      and _lifted.animate_scale == motion.FAST)
 
 _filled = []
 _f = theme.attach_hover(ft.Container(bgcolor="#101010"), "#101010", "#202020")

@@ -36,6 +36,10 @@ public final class CubeonHudConfig {
 	public boolean showEnemyHealth = false;
 	/** Keep cosmetics visible but skip all posing when disabled. */
 	public boolean cosmeticAnimations = true;
+	/** Layered curved Giant feathers; false selects the inexpensive flat mesh. */
+	public boolean wingDepth = true;
+	/** Saved opt-in for future peer cosmetics; current renderers remain local-only. */
+	public boolean showOtherCosmetics = false;
 	/** Receive and display player emotes, independent of decorative items. */
 	public boolean showEmotes = true;
 	/** Up to eight favorite names, ordered clockwise from the top of the wheel. */

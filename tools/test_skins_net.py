@@ -51,6 +51,8 @@ from cubeon import skins                                            # noqa: E402
 from cubeon.config import stable_secret, stable_uuid                # noqa: E402
 from PIL import Image                                               # noqa: E402
 
+_original_publish_async = skins._publish_skin_async
+
 failures = 0
 
 
@@ -151,9 +153,14 @@ reset_calls()
 ok_all()
 skins._publish_skin(default_cfg)
 
-check("first publish makes exactly two POSTs (heartbeat + upload)", len(_calls) == 2, len(_calls))
+check("first publish makes three POSTs (heartbeat + cosmetics + upload)", len(_calls) == 3, len(_calls))
 hb = _calls[0] if _calls else {}
-up = _calls[1] if len(_calls) > 1 else {}
+up = _calls[2] if len(_calls) > 2 else {}
+peer = _calls[1] if len(_calls) > 1 else {}
+check("cosmetic publication is authenticated, UUID-keyed and clears old peer items",
+      peer.get("url") == skins.csl.CUBEON_API_BASE + "/api/cosmetics"
+      and peer.get("json") == {"uuid": stable_uuid(), "back": None, "shoulder": None}
+      and bearer_of(peer) == stable_secret())
 check("heartbeat goes to the heartbeat URL", hb.get("url") == skins._HEARTBEAT_URL)
 check("upload goes to the skin URL", up.get("url") == skins._UPLOAD_URL)
 check("both calls pass a timeout (can't hang forever)",
@@ -224,7 +231,8 @@ reset_calls()
 ok_all()
 skins._publish_skin(default_cfg)
 check("a marker from a different endpoint re-syncs the pointer (no needless upload)",
-      len(_calls) == 1 and _calls[0]["url"] == skins._HEARTBEAT_URL, len(_calls))
+      len(_calls) == 2 and _calls[0]["url"] == skins._HEARTBEAT_URL
+      and _calls[1]["url"].endswith("/api/cosmetics"), len(_calls))
 
 # ---------------------------------------------------------------------------
 # 4. Failure handling: 403 and network errors are swallowed, don't poison
@@ -253,7 +261,7 @@ check("during cooldown no POST is made", _calls == [])
 clear_marker()
 reset_calls()
 _next["raise"] = False
-_responses_list = [_FakeResp(200, {"status": "ok"}), _FakeResp(403, {"error": "not_yours"})]
+_responses_list = [_FakeResp(200, {"status": "ok"}), _FakeResp(200), _FakeResp(403, {"error": "not_yours"})]
 _seq = {"n": 0}
 def _sequenced_post(url, json=None, headers=None, timeout=None):
     _seq["n"] += 1
@@ -272,7 +280,7 @@ check("heartbeat success survives an upload failure (identity half recorded)",
       state.get("username") == "TestUser" and state.get("uuid") == stable_uuid(),
       json.dumps(state))
 check("failed upload leaves no hash in the marker (retried next sync)",
-      state.get("hash") is None and len(_calls) == 2)
+      state.get("hash") is None and len(_calls) == 3)
 
 clear_marker()
 reset_calls()
@@ -309,7 +317,7 @@ clear_marker()
 reset_calls()
 ok_all()
 skins._publish_skin(dict(vanilla_cfg))
-check("vanilla first launch fires exactly ONE call", len(_calls) == 1, len(_calls))
+check("vanilla first launch heartbeats and publishes empty cosmetic slots", len(_calls) == 2, len(_calls))
 check("that call is the heartbeat", _calls and _calls[0]["url"] == skins._HEARTBEAT_URL)
 check("no POST /api/skin without custom content",
       all(c["url"] != skins._UPLOAD_URL for c in _calls))
@@ -575,6 +583,78 @@ check("the name stamp is written on the first claim too (no free displacement wi
 check("the RATE_LIMITER opt-in is documented in the Worker's own config",
       "RATE_LIMITER" in open(os.path.join(os.path.dirname(WORKER_SRC),
                                           "wrangler-skins.toml"), encoding="utf-8").read())
+
+clear_marker()
+reset_calls()
+ok_all()
+peer_cfg = {"username": "PeerOwner", "active_back_item": "back_void_wings",
+            "active_shoulder_item": "shoulder_star_owl"}
+skins._publish_skin(peer_cfg)
+check("first cosmetic selection heartbeats and publishes IDs without a skin upload",
+      len(_calls) == 2 and _calls[1]["json"] == {
+          "uuid": stable_uuid(), "back": "back_void_wings", "shoulder": "shoulder_star_owl"})
+reset_calls()
+skins._publish_skin(peer_cfg)
+check("unchanged peer selection makes zero requests", _calls == [])
+reset_calls()
+peer_cfg["active_back_item"] = None
+skins._publish_skin(peer_cfg)
+check("clearing a back item sends null and preserves the selected shoulder",
+      len(_calls) == 1 and _calls[0]["json"] == {
+          "uuid": stable_uuid(), "back": None, "shoulder": "shoulder_star_owl"})
+reset_calls()
+_next["resp"] = _FakeResp(403)
+peer_cfg["active_shoulder_item"] = None
+skins._publish_skin(peer_cfg)
+marker = skins._load_publish_state()
+check("failed cosmetic publication retains the prior selection and sets a cooldown",
+      marker.get("cosmetics", {}).get("shoulder") == "shoulder_star_owl"
+      and marker.get("retry_not_before", 0) > 0)
+reset_calls()
+skins._publish_skin(peer_cfg)
+check("cosmetic failure cooldown prevents repeat requests", _calls == [])
+marker["retry_not_before"] = 0
+skins._save_publish_state(marker)
+ok_all()
+skins._publish_skin(peer_cfg)
+check("a later retry clears the last shared shoulder without republishing identity",
+      len(_calls) == 1 and skins._load_publish_state().get("cosmetics") == {"back": None, "shoulder": None})
+
+clear_marker()
+reset_calls()
+_responses_list = [_FakeResp(200), _FakeResp(403), _FakeResp(200)]
+_seq["n"] = 0
+skins.requests.post = _sequenced_post
+try:
+    skins._publish_skin(default_cfg)
+finally:
+    skins.requests.post = _orig_post
+marker = skins._load_publish_state()
+check("successful skin upload cannot erase a cosmetic failure cooldown",
+      marker.get("hash") is not None and marker.get("cosmetics") is None
+      and marker.get("retry_not_before", 0) > 0)
+
+import threading
+skins._publish_skin_async = _original_publish_async
+first_started = threading.Event()
+release_first = threading.Event()
+latest_finished = threading.Event()
+sent = []
+def slow_publish(snapshot):
+    sent.append(snapshot["active_back_item"])
+    if len(sent) == 1:
+        first_started.set()
+        release_first.wait(3)
+    else:
+        latest_finished.set()
+with patch.object(skins, "_publish_skin", side_effect=slow_publish):
+    skins._publish_skin_async({"active_back_item": "first"})
+    check("async publishing starts without blocking the UI", first_started.wait(2))
+    skins._publish_skin_async({"active_back_item": "intermediate"})
+    skins._publish_skin_async({"active_back_item": "latest"})
+    release_first.set()
+    check("rapid clicks publish the latest choice through the same worker", latest_finished.wait(3)
+          and sent == ["first", "latest"])
 
 print(f"\n{failures} CHECK(S) FAILED" if failures else "\nALL SKIN-NET CHECKS PASSED")
 sys.exit(1 if failures else 0)

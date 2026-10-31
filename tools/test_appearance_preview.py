@@ -196,20 +196,6 @@ class QueuedThread:
         jobs.append(self.target)
 
 
-class InlinePool:
-    def __init__(self, **kwargs):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-    def map(self, fn, values):
-        return map(fn, values)
-
-
 def load_model(cfg, default_cape_path, cosmetics_dir=None):
     loads.append(dict(cfg))
     if cfg.get("active_skin") == "older.png":
@@ -222,25 +208,36 @@ def load_model(cfg, default_cape_path, cosmetics_dir=None):
 # Camera/mesh geometry is checked above. These fixtures focus on lifecycle
 # and the real Flet patch size without rasterising sixty full-size images.
 with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
-     patch("ui.appearance_preview.ThreadPoolExecutor", InlinePool), \
-     patch("ui.appearance_preview.render_frame", return_value=Image.new("RGBA", (320, 440), "white")), \
+     patch("ui.appearance_preview.render_frame", return_value=Image.new("RGBA", (320, 440), "white")) as raster, \
      patch.object(CharacterModel, "from_config", side_effect=load_model), \
      patch("ui.appearance_preview.thread_safe_ui.refresh", side_effect=paints.append):
     stage.refresh(invalidate=True)
     check("loading starts one background asset worker", len(jobs) == 1)
     jobs.pop(0)()
     check("a stale asset load never replaces the selected skin",
-          len(loads) == 2 and loads[-1]["active_skin"] == "newest.png" and len(stage._frames) == 60)
+          len(loads) == 2 and loads[-1]["active_skin"] == "newest.png" and len(stage._frames) == 1)
+    check("opening renders only the visible angle and makes rotation ready",
+          raster.call_count == 1 and stage.note.value == "Use the arrows to rotate")
     check("the asset worker exits once frames are ready", not stage._running)
-    textures = tuple((id(frame.content), frame.content.src) for frame in stage._frames)
     stage.turn(30)
+    jobs.pop(0)()
+    check("an uncached turn coalesces intermediate angles into one worker", len(jobs) == 1)
     jobs.pop(0)()
     check("the rotation button changes the camera", stage.yaw == 85)
     stage.reset()
     jobs.pop(0)()
+    if jobs:
+        jobs.pop(0)()
     check("reset restores the camera without remounting the scene",
           stage.yaw == 25 and stage.pitch == 10 and stage.gesture.content is stage.scene)
     encode = configure_encode_object_for_msgpack(BaseControl)
+    for angle in (0, 30, 90, 180, 270, 330):
+        stage._set_yaw(angle)
+        if jobs:
+            jobs.pop(0)()
+    check("unvisited camera angles remain unrendered", len(stage._frames) < 15)
+    textures = tuple((id(frame.content), frame.content.src) for frame in stage._frames.values())
+    render_count = raster.call_count
     initial, _added, _removed = ObjectPatch.from_diff(None, stage.scene, BaseControl)
     msgpack.packb(initial.to_message(), default=encode)
     patch_sizes = []
@@ -253,7 +250,8 @@ with patch("ui.appearance_preview.threading.Thread", QueuedThread), \
         check(f"orbit {angle}: cached frames never remount", not added and not removed)
         check(f"orbit {angle}: no image source retransmits", b"src" not in encoded)
     check("rotation keeps every cached image and starts no asset workers",
-          not jobs and textures == tuple((id(frame.content), frame.content.src) for frame in stage._frames))
+          not jobs and raster.call_count == render_count
+          and textures == tuple((id(frame.content), frame.content.src) for frame in stage._frames.values()))
     check("rotation patches remain small", max(patch_sizes) < 20000)
 
 driver = app_driver.build_headless()

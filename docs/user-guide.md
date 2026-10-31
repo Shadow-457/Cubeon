@@ -65,21 +65,31 @@ Microsoft/Mojang account.
 - **Cosmetics:** manage skins, capes, and shoulder/back items in Cosmetics; use
   the rotation arrows to inspect the 3D model. Shoulder and Back sections are marked **Beta**.
   Shoulder and back items are drawn in
-  game by Cubeon Client and are visible to you; skins and capes need compatible
+  game by Cubeon Client; skins and capes need compatible
   skin support. A selection is stored in the instance the game plays in, so
   each instance can keep a different item.
   In game, shoulder pets breathe and look around; wings beat slowly at rest,
   speed up smoothly when sprinting and spread during gliding. The five wing themes
-  offer the original cute **Small** wings and joined **Giant** wings. Each feather
+  offer the original cute **Small** wings and layered **Giant** wings. Each Giant feather
   flexes and recoils with a slight delay while its root stays attached.
   Press **N** with **Giant** wings equipped to spread them and
   play a short dragon-style wing flare; it settles back automatically. Rebind
   **Dragon Wing Flare** in Minecraft's Controls → Key Binds → Cubeon Client.
   Small wings keep their gentle normal movement and completely ignore N.
+  Giant feathers have separate curved surfaces and depth. In client settings (**K**),
+  turn **3D wings** off for a simpler flat mesh that keeps the overall flapping and N
+  flare. This saves rendering work on weaker GPUs; Small wings are unaffected.
+  **Other cosmetics** starts off. Turn it on to see other Cubeon players' selected
+  wings, backpacks and shoulder pets within 64 blocks. Your own items stay visible
+  either way. Shared selections use the skin service; players need the updated
+  Cubeon Client and managed skin support in the launcher to publish their choices.
+  Changes may take about a minute to appear for others. The N flare stays local.
   Backpacks sway while you move. The launcher preview shows
   the resting model. Restart Minecraft after changing the companion mod.
 - **In-game HUD and zoom:** press K in game to open the Cubeon Client menu.
-  Each overlay (FPS, keystrokes, armour, ping, CPS) has a card with a display
+  The HUD stays visible when using F3 debug information or F3+B hitboxes;
+  F1 still hides it along with Minecraft's HUD.
+  Each overlay (FPS, keystrokes, armour, ping, CPS) has a row with a display
   toggle, **Move**, and a clickable size percentage. Sizes are independent,
   so making the keystrokes bigger does not enlarge the FPS
   counter. The armour overlay shows only the four worn pieces, not the item in

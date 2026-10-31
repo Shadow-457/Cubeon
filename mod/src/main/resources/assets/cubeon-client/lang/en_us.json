@@ -58,10 +58,21 @@
   "cubeonclient.hud.open_wheel": "Open wheel  →",
   "cubeonclient.hud.health": "Enemy health",
   "cubeonclient.hud.animations": "Cosmetic motion",
+  "cubeonclient.hud.wing_depth": "3D wings",
+  "cubeonclient.hud.other_cosmetics": "Other cosmetics",
+  "cubeonclient.hud.other_cosmetics_hint": "Show other players’ Cubeon wings, packs and shoulder pets",
+  "cubeonclient.hud.wing_depth_hint": "Off uses flat wings for better performance",
   "cubeonclient.hud.reset": "Reset layout",
   "cubeonclient.hud.editor": "HUD EDITOR",
   "cubeonclient.hud.drag_hint": "Drag to position · Enter to finish",
   "cubeonclient.hud.keyboard_hint": "Tab / Enter · 1–5 toggles · E emotes",
   "cubeonclient.hud.reset_hint": "Reset positions and sizes",
-  "cubeonclient.hud.size_hint": "Click the percentage to change size"
+  "cubeonclient.hud.size_hint": "Click the percentage to change size",
+  "cubeonclient.hud.section_overlays": "HUD OVERLAYS",
+  "cubeonclient.hud.section_cosmetics": "COSMETICS",
+  "cubeonclient.hud.section_tools": "PLAY TOOLS",
+  "cubeonclient.hud.health_compact": "Health",
+  "cubeonclient.hud.animations_compact": "Motion",
+  "cubeonclient.hud.wing_depth_compact": "3D wings",
+  "cubeonclient.hud.other_cosmetics_compact": "Others"
 }

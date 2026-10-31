@@ -259,6 +259,12 @@ consistent with the shared `THEME` contract.
   Modrinth loader facet.
 - The local cache stores fetch timestamps, not a caller-independent expiry. Stale reads never mark data
   fresh; empty mod searches retry after one minute.
+- `ui/install_feedback.py` shares atomic install claims across browse rows, detail footers and version
+  actions. Jobs are keyed by project ID/slug and captured content type/instance/version/loader;
+  retained controls use weak subscriptions under `TREE_LOCK`. Keep busy state through modpack lookup
+  handover to the actual installer. Action labels show bounded percentages or transferred KB for unknown
+  totals; full progress/repair details stay in tooltips. Dependency batches explicitly advance after
+  successful cached files too. `tools/test_content_install_feedback.py` exercises the real callbacks.
 - Launch checks never prompt: the config pass uses `include=("launch",)` / `check_online=False`;
   `mod_dependencies.run_dependency_doctor` then repairs actual Fabric/Quilt JAR requirements under
   `_spawn_lock`, before sync/spawn, using the selected `version_id`. Clean profiles make no network calls;
@@ -450,6 +456,8 @@ consistent with the shared `THEME` contract.
   inputs so one pack is one instance; a user label keeps an install visible.
 - Runtime `ft.Scale` must set both `scale_x` and `scale_y`: a null axis becomes an invalid Flutter
   matrix (`TransformLayer` spam). `test_repository_hygiene.py` enforces it.
+- Default `motion.polish` hover cards change colours without a scale/AnimatedScale; only explicit
+  non-identity lift/press factors install transforms. Do not restore identity transforms on scroll cards.
 - Shared storage must not leak one instance's active content into another. Installs/cancellation must
   respect instance ownership and atomic writes.
 - FPS boost is the Play-menu toggle. Turning it off restores the previous settings; do not replace
@@ -519,7 +527,9 @@ consistent with the shared `THEME` contract.
 - Catalogue boxes carry `motion`/`pivot` rig metadata. `CosmeticAnimation` poses pets (body breathing
   and child head glances), mirrored wing hinges (flapping/spreading for gliding), and moving packs.
   Wing items also carry artist-authored `feathers` guides and optional box `faces` masks.
-  `CosmeticGeometry` caches sparse tip-bend/fan/twist weights, welding T junctions between caps;
+  `CosmeticGeometry` caches sparse tip-bend/fan/twist weights, welding T junctions within each feather;
+  Giant boxes carry a `feather` owner (armour uses -1) and `separate_feathers=true`. Never weld or blend
+  their nodes/weights across feather owners; vertex-cache indexes remain unique across all groups.
   renderers prepare `Frame.forItem(item)` once before submission. Render-thread `PosedQuad` scratch
   caches each unique vertex's displacement within that immutable frame; never put mutable poses in
   queued frames or cached rest geometry. Motion OFF bypasses all feather preparation and posing.
@@ -538,17 +548,51 @@ consistent with the shared `THEME` contract.
   absolute age by changing speed causes jumps. `cosmeticAnimations` defaults ON in HUD config;
   K → Cosmetic motion OFF skips tracker/transform work and draws cached rest quads via a null
   frame. Re-enabling resets the tracker. Pet faces are generated at 32px with 8 texels/model unit.
+- K → **3D wings** persists `wingDepth` (default true, including upgraded configs) independently of
+  cosmetic motion. OFF selects the Giant item's generated internal `flat` variant: four alpha-cutout
+  quads per pair, no side walls or feather preparation, but the same hinge/flap/glide/N action.
+  `forWingDepth()` leaves Small/pets/packs untouched. Every renderer captures the chosen immutable
+  item before queued submission, using that item's matching texture and geometry; never toggle
+  geometry from inside the queued callback. Position reset preserves this preference.
+- K → **Other cosmetics** saves `showOtherCosmetics` (default false). OFF skips peer lookups/drawing;
+  ON shows known Cubeon back/shoulder selections from the skins Worker's `/cosmetics/<name>.json`.
+  `RemoteCosmetics` performs bounded background reads (2 workers, 64 queued, 128 entries, 60s cache),
+  invalidates on world/setting changes, and discards stale completions. Native `CosmeticPlayers` resolves
+  actual player identity, hides invisible/spectator/distant (>64 blocks) peers and keeps one weak animation
+  tracker per player; queued rendering captures an immutable `CosmeticView`. N remains local.
+  Launcher skin sync and cosmetic selection changes publish `/api/cosmetics` with the UUID's Bearer token;
+  state dedupes unchanged selections, None clears both slots, and one coalescing publisher preserves the
+  latest choice. Worker permits only public catalogue IDs, shares the existing ownership/blocking contract,
+  and uses a separate 240/minute read limiter so reads cannot exhaust the 20/minute write gate.
+  `worker/wrangler-skins.toml` must declare name/main/date before any TOML table; putting them after
+  `[ratelimits.simple]` nests them inside the limiter and breaks deployment configuration.
+  Never hide Minecraft capes, Elytra or shoulder parrots through this setting. Position reset preserves it.
 - Preview (`preview_faces`) and Java `CosmeticGeometry.java` are ONE contract; `tools/test_cosmetics.py`
   compiles the Java classes and compares every quad and tile. Box space: +x left, +y down, -z front; pivot
   standing body pivot (0,0,0), torso Y=0..12; preview uses `y' = 24 - y`, `z' = -z`.
+- Skin builds never rasterize bundled cosmetic thumbnails: Shoulder/Back populate only on opening,
+  then worker-render/cache their cards. `AppearancePreview` uses one worker and caches visited angles;
+  camera requests coalesce to the latest step, with no eager 60-angle orbit bake. First-frame readiness
+  enables rotation immediately. Keep generation checks so old skin renders cannot overwrite a newer
+  selection. `test_skin_loading.py` checks click-path work; `--native` probes pinned Flet timings/errors.
   Renderers divide by 16 and apply the body pose directly; subtracting 12 after the body transform
   raises items into the head. `test_cosmetic_renderers.py` records standing/crouching/swimming vertices.
 - Solid pet/pack faces must be opaque: transparent sprite margins on a cuboid punch holes in its body.
-  V3 Giant wings use opaque caps and only exposed silhouette walls (2,532 quads/pair, 256×564 atlas),
-  covering the native 160×176 art (4 texels/unit, depth 0.75), with hinge `(2, 0, 2.575)` mirrored around x=0. Art y=44
-  is shoulder height; box Y starts at -11. Preserve float dimensions; integer parsing drops wings.
+  Giant wings use eleven independent feather volumes plus shoulder armour, opaque caps and exposed
+  silhouette walls (3,566 quads/pair, one 512×240 atlas per theme). Native 160×176 paint stays at
+  4 texels/unit; contours use a two-pixel grid, thickness is 0.25 model units, and layers have separate
+  depths farther along the span. Root bases stay at `z=2.125 + featherIndex/64` (armour index 11),
+  avoiding coplanar fighting while keeping the shoulder attachment beside the torso. Never translate
+  whole feathers/armour backward to obtain depth. Feather `curl`/`tilt` produce curved rest surfaces:
+  keep them flat until the first shared X-strip boundary at/after the guide root, then curve toward
+  the tip. Interpolate quantized 1/4096 depth
+  endpoints across globally aligned four-unit X strips (starting at x=1). Split caps AND walls on
+  these strips; arbitrary nonlinear corner offsets break the preview's three-anchor parallelogram
+  contract. The Giant hinge is `(2, 2, 2.25)` mirrored around x=0, including the flat variant. Art y=44
+  maps to model Y=2; box Y starts at -9. Origins, hinges and feather guides move together when lowering
+  wings (model +Y is down). Preserve float dimensions; integer parsing drops wings.
   Existing `back_<theme>_wings` IDs remain Giant; `back_<theme>_wings_small` restore the original
-  40×52 pixels/10×13 model units, depth 0.5 and hinge `(1, 0, 2.45)` for all five themes.
+  40×52 pixels/10×13 model units, Y origin 2, depth 0.5 and hinge `(1, 2, 2.45)` for all five themes.
   `wing_flare=false` excludes Small from N input and strips a captured Giant flare from its item
   frame immediately; Small retains idle/sprint/glide motion. N is for Giant wings only.
   Optional `faces` default to all six; mirror left/right mask bits as well as tiles. Never determine
@@ -556,14 +600,18 @@ consistent with the shared `THEME` contract.
   Giant-wing previews fit the full orbit at one yaw-independent scale without changing bare skins.
   All atlas edges land on whole texels; Java UVs sample edge-texel centers to avoid transparent gutters.
   Mirror rear artwork AFTER native resizing; nearest-resize ties can otherwise shift its mask one texel.
+  `tools/capture_wing_review.py` rasterizes all four corners of actual Java poses with textured
+  triangles and a depth buffer, including a HEAD comparison; this is a software review, not GPU/FPS
+  certification. Build tooling regenerates artwork before Gradle: avoid reading bundles during it.
 - Per-era overlays: `cosmetics-1.20` (1.20-1.20.4, manual normal), `cosmetics-1.20.5` (1.20.5-1.20.6,
   `Entry`), `cosmetics-1.21` (1.21-1.21.1), `cosmetics-1.21.2`, `cosmetics-1.21.5`, `cosmetics-1.21.9`,
   `cosmetics-1.21.11`, `cosmetics-26`; `next()` exists through 1.20.6, gone from 1.21. Map them in `brackets.json`.
-- Local player only, back before shoulder. Unknown ids = no cosmetic, never a crash. Missing Fabric API
+- Local player plus opted-in peers, back before shoulder. Unknown ids = no cosmetic, never a crash. Missing Fabric API
   costs cosmetics only (registration is try/caught). `assets/jars/cubeon-client-*.jar` is what ships, so
   refresh it after every mod build; `test_repository_hygiene.py` fails a tracked jar without the catalogue.
 - Yarn 1.21.2–1.21.11 populates `PlayerEntityRenderState.id` even with name tags hidden; match it to
-  `client.player.getId()`. `displayName` is null for our own player in F5 and must never gate cosmetics.
+  `client.player.getId()`; peers resolve the state's native entity id through the active world.
+  `displayName` is null for our own player in F5 and must never gate cosmetics or name a peer lookup.
   `tools/test_cosmetic_renderers.py` runs every affected renderer with hidden/decorated labels.
 - Skin/Cape "None" is local: skin None writes the built-in Steve sheet to LocalSkin (beats a published
   Worker skin); cape None writes a transparent LocalSkin cape (`hide_cubeon_cape`). Friends keep theirs.
@@ -603,13 +651,18 @@ consistent with the shared `THEME` contract.
   at its default origin (it opens the waist). `test_emote_models.py` sweeps blend ages, standing/
   crouched orientations, slim/classic shoulder origins and all four production injection bodies.
   HUD screens share the Minecraft-free `ui/ClientUi`, `HudMenu` cards and `HudEditorChrome` toolbars;
-  black/green tokens match the launcher, and twenty controls fit a 240px GUI height. Native `hud-*`
+  black/green tokens match the launcher. HUD rows and cosmetics/play tools form two panes, collapsing
+  to compact rows at small GUI sizes; twenty-two non-overlapping controls fit 320×240. Native `hud-*`
   adapters retain input, preview matrices, per-overlay sizes and saves. `ClientUiFont` selects only
   the screen's Inter subset (`font/ui.json`, `ui.ttf`, OFL); it never replaces Minecraft's default font.
   Font styles use Identifier through 1.21.8, StyleSpriteSource.Font from Yarn 1.21.9, and
   FontDescription.Resource on 26.x. Regenerate the subset with `tools/gen_client_ui_font.py`.
   TTF provider file IDs are relative to `font/`: `cubeon-client:ui.ttf` resolves the bundled
   `assets/cubeon-client/font/ui.ttf` (verified in legacy and current native font loaders).
+- Cubeon HUD stays visible with F3/debug tools, including F3+B hitboxes. Never gate it on
+  `debugEnabled`/`shouldShowDebugHud()`/`showDebugScreen()`. F1, no player and MoveOverlayScreen still
+  suppress normal overlays. `test_hud_debug_visibility.py` executes all eight production render entry
+  points with counted draws; full builds check complete game classes and APIs.
   Custom screens render corners, wheel sectors, emote icons and the cube logo from cached,
   antialiased `textures/ui/` atlases generated by `tools/gen_client_ui_art.py` (Pillow).
   `ClientUiDraw` uses legacy texture calls through 1.21.1, `ui-texture-layer` for 1.21.2–1.21.5,
@@ -805,7 +858,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_chat_connection.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
-| Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py` |
+| Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `node worker/test-cosmetics.mjs` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
@@ -829,8 +882,17 @@ requires retrying with normal system access, not changing unrelated app code.
   the navbar's SVG and the already-correct WebSite name do not force Google's displayed icon/name.
   Image discovery uses 12 image sitemap entries, including ten public PNGs under
   `web/assets/screenshots/`; `tools/prepare_seo_images.py` regenerates redacted copies from
-  ignored `archive/ui-captures/seo-images/`. Extra screenshots are absent from visible HTML;
-  public URLs and the sitemap are shared by all visitors, with no Google-only responses.
+  ignored `archive/ui-captures/seo-images/`. All 12 images appear in the public `/docs#docs-screenshots`
+  gallery with captions, alt text and full-size links; their image sitemap entries belong to `/docs`.
+  `tools/prepare_docs_image_previews.py` creates small WebP previews from the redacted public assets.
+  Public HTML, image URLs and the sitemap are shared by all visitors, with no Google-only responses.
+- `/about` is the official Cubeon product facts page; homepage/AboutPage schema share
+  `https://www.ylet.online/#launcher` and the official GitHub source identity. The sitemap has
+  19 public pages. `tools/submit_website_indexnow.py` previews by default; `--submit` checks the
+  deployed key, sitemap, robots, indexing directives and exact HTML before notifying IndexNow.
+  Unpublished HTML edits intentionally fail that check; run from the deployed checkout or select
+  only matching canonical URLs. `web/indexnow-key.txt` is the public verification file. OAI-SearchBot
+  already inherits the public wildcard robots allowance; GPTBot training is independent of search.
 - Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash
   discarded after 24h). Every content page carries the HTML snippet
   (`window.vaq` + `/_vercel/insights/script.js`) before `</body>`; numeric status pages

@@ -48,10 +48,11 @@ public final class CosmeticCatalog {
         public final String motion;
         public final float pivotX, pivotY, pivotZ;
         public final int faces;
+        public final int feather;
 
         Box(float x, float y, float z, float width, float height, float depth,
             int px, int uvX, int uvY, boolean mirror, String motion,
-            float pivotX, float pivotY, float pivotZ, int faces) {
+            float pivotX, float pivotY, float pivotZ, int faces, int feather) {
             this.x = x;
             this.y = y;
             this.z = z;
@@ -67,15 +68,17 @@ public final class CosmeticCatalog {
             this.pivotY = pivotY;
             this.pivotZ = pivotZ;
             this.faces = faces;
+            this.feather = feather;
         }
     }
 
     /** Artist-authored feather centre lines, in unmirrored model space. */
     public static final class Feather {
-        public final float x, y, endX, endY, width, curve;
-        Feather(float x, float y, float endX, float endY, float width, float curve) {
+        public final float x, y, endX, endY, width, curve, curl, tilt;
+        Feather(float x, float y, float endX, float endY, float width, float curve, float curl, float tilt) {
             this.x = x; this.y = y; this.endX = endX; this.endY = endY;
             this.width = width; this.curve = curve;
+            this.curl = curl; this.tilt = tilt;
         }
     }
 
@@ -99,9 +102,12 @@ public final class CosmeticCatalog {
         public final List<Box> boxes;
         public final List<Feather> feathers;
         public final boolean wingFlare;
+        public final boolean separateFeathers;
+        public final Item flatVariant;
 
         Item(String id, String slot, String name, String texture,
-             int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers, boolean wingFlare) {
+             int texWidth, int texHeight, List<Box> boxes, List<Feather> feathers,
+             boolean wingFlare, boolean separateFeathers, Item flatVariant) {
             this.id = id;
             this.slot = slot;
             this.name = name;
@@ -111,6 +117,13 @@ public final class CosmeticCatalog {
             this.boxes = Collections.unmodifiableList(boxes);
             this.feathers = Collections.unmodifiableList(feathers);
             this.wingFlare = wingFlare;
+            this.separateFeathers = separateFeathers;
+            this.flatVariant = flatVariant;
+        }
+
+        /** Resolve once before queued rendering so a setting change cannot mix meshes. */
+        public Item forWingDepth(boolean enabled) {
+            return !enabled && separateFeathers && flatVariant != null ? flatVariant : this;
         }
     }
 
@@ -163,6 +176,10 @@ public final class CosmeticCatalog {
         }
 
         private static Item parseItem(Object raw) {
+            return parseItem(raw, true);
+        }
+
+        private static Item parseItem(Object raw, boolean allowFlat) {
             if (!(raw instanceof Map<?, ?>)) {
                 return null;
             }
@@ -198,10 +215,16 @@ public final class CosmeticCatalog {
                 float ex = (float) number(end.get(0)), ey = (float) number(end.get(1));
                 if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(ex)
                         || !Float.isFinite(ey) || Math.hypot(ex - x, ey - y) < 0.1) continue;
-                feathers.add(new Feather(x, y, ex, ey, width, curve));
+                float curl = (float) Json.num(guide, "curl"), tilt = (float) Json.num(guide, "tilt");
+                if (!Float.isFinite(curl) || Math.abs(curl) > 8
+                        || !Float.isFinite(tilt) || Math.abs(tilt) > .5f) continue;
+                feathers.add(new Feather(x, y, ex, ey, width, curve, curl, tilt));
             }
+            Item flat = allowFlat ? parseItem(((Map<?, ?>) raw).get("flat"), false) : null;
+            if (flat != null && (!id.equals(flat.id) || !slot.equals(flat.slot))) flat = null;
             return new Item(id, slot, Json.str(raw, "name", id), texture,
-                    texWidth, texHeight, boxes, feathers, Json.bool(raw, "wing_flare", true));
+                    texWidth, texHeight, boxes, feathers, Json.bool(raw, "wing_flare", true),
+                    Json.bool(raw, "separate_feathers", false), flat);
         }
 
         private static Box parseBox(Object raw) {
@@ -234,6 +257,9 @@ public final class CosmeticCatalog {
                 faces = 0;
                 for (Object face : Json.list(raw, "faces")) faces |= faceBit(String.valueOf(face));
             }
+            double feather = ((Map<?, ?>) raw).containsKey("feather") ? Json.num(raw, "feather") : -1;
+            int featherIndex = Double.isFinite(feather) && feather == Math.rint(feather)
+                    && feather >= 0 && feather < 16 ? (int) feather : -1;
             return new Box((float) number(origin.get(0)),
                     (float) number(origin.get(1)),
                     (float) number(origin.get(2)),
@@ -243,7 +269,7 @@ public final class CosmeticCatalog {
                     rigged ? Json.str(raw, "motion", "none") : "none",
                     rigged ? (float) number(pivot.get(0)) : 0,
                     rigged ? (float) number(pivot.get(1)) : 0,
-                    rigged ? (float) number(pivot.get(2)) : 0, faces);
+                    rigged ? (float) number(pivot.get(2)) : 0, faces, featherIndex);
         }
 
         private static double number(Object value) {

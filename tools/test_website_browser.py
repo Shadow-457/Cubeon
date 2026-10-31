@@ -33,7 +33,7 @@ def main():
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.route('**/*', route)
-            for path in ['/?time=day', '/download']:
+            for path in ['/?time=day', '/download', '/about', '/docs']:
                 page.goto('https://cubeon.test' + path)
                 page.evaluate('document.fonts.ready')
                 expect(page.locator('link[rel="icon"]')).to_have_attribute('href', '/assets/favicon.png')
@@ -44,7 +44,22 @@ def main():
                     return icon.naturalWidth === 256 && icon.naturalHeight === 256;
                 }'''), (width, path, 'favicon failed to load')
                 expect(page.locator('h1')).to_contain_text('Cubeon')
-                page.screenshot(path=str(captures / ('seo-' + ('home' if path.startswith('/?') else 'download') + '-' + str(width) + '.png')), full_page=True)
+                if path == '/docs':
+                    expect(page.locator('.docs-gallery figure')).to_have_count(12)
+                    for screenshot in page.locator('.docs-gallery img').all():
+                        screenshot.scroll_into_view_if_needed()
+                        expect(screenshot).to_be_visible()
+                        expect(screenshot).to_have_js_property('complete', True)
+                        expect(screenshot).not_to_have_js_property('naturalWidth', 0)
+                        assert screenshot.evaluate('''async (img) => {
+                            await img.decode();
+                            return img.naturalWidth > 0 && img.naturalWidth <= 900 &&
+                                img.currentSrc.includes('/screenshots/previews/') &&
+                                img.clientWidth <= innerWidth && img.clientHeight > 0;
+                        }'''), (width, 'gallery preview did not load')
+                    page.evaluate('scrollTo(0, 0)')
+                name = 'home' if path.startswith('/?') else path.lstrip('/')
+                page.screenshot(path=str(captures / ('seo-' + name + '-' + str(width) + '.png')), full_page=True)
                 if page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'):
                     print(page.evaluate('''() => [...document.querySelectorAll('body *')].map(e=>({tag:e.tagName,cls:e.className,text:e.textContent.slice(0,80),right:e.getBoundingClientRect().right})).filter(e=>e.right>innerWidth+1).slice(0,15)'''))
                 assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, path, 'horizontal overflow')
@@ -53,6 +68,12 @@ def main():
                     expect(page.locator('.sign .lede')).to_contain_text('Minecraft Java Edition launcher')
                     expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/')
                     expect(page.locator('.sign .pane.on .btn')).to_be_visible()
+                    page.locator('[data-pick="mac"]').click()
+                    expect(page.locator('.sign .pane.on .btn')).to_have_attribute(
+                        'href', 'https://github.com/Shadow-457/Cubeon/releases/latest/download/Cubeon-macOS.zip')
+                if path == '/about':
+                    expect(page.locator('link[rel="canonical"]')).to_have_attribute('href', 'https://www.ylet.online/about')
+                    expect(page.locator('.project-facts')).to_contain_text('Minecraft Java Edition')
             assert not errors, errors
             page.close()
         page = browser.new_page(java_script_enabled=False)
@@ -61,7 +82,16 @@ def main():
         expect(page.locator('h1')).to_contain_text('Cubeon')
         expect(page.locator('.sign .lede')).to_contain_text('Minecraft Java Edition launcher')
         expect(page.locator('a[href="mods.html"]').first).to_be_visible()
-        print('PASS homepage/download at 1440, 768, 390 and 320px, no overflow/errors, crawlable content without JavaScript')
+        expect(page.locator('a[href="about.html"]').first).to_be_visible()
+        page.goto('https://cubeon.test/about')
+        expect(page.locator('.project-facts')).to_contain_text('Shadow-457/Cubeon')
+        expect(page.locator('.project-facts a[href="https://github.com/Shadow-457/Cubeon"]').first).to_be_visible()
+        page.goto('https://cubeon.test/docs')
+        expect(page.locator('.docs-gallery img')).to_have_count(12)
+        expect(page.locator('.docs-gallery img').first).to_have_attribute('alt', 'Cubeon Launcher Play screen with Minecraft version selection and the Play button.')
+        page.locator('.docs-gallery img').first.scroll_into_view_if_needed()
+        expect(page.locator('.docs-gallery img').first).to_be_visible()
+        print('PASS homepage/download/about/docs and 12 loaded gallery images at 1440, 768, 390 and 320px, no overflow/errors, crawlable content without JavaScript')
         browser.close()
 
 

@@ -1,4 +1,4 @@
-<h1 align="center">Cubeon</h1>
+<h1 align="center">Cubeon Launcher</h1>
 
 <p align="center">A free Minecraft Java Edition launcher.</p>
 
@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <a href="https://www.ylet.online/">Official website</a> ·
+  <a href="https://www.ylet.online/about">About Cubeon</a> ·
   <a href="https://www.ylet.online/download">Download</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
@@ -19,8 +21,12 @@
   <img src="web/assets/cubeon-play.png" width="1100" alt="Cubeon's Play screen, using the screenshot published on the website.">
 </p>
 
-Cubeon manages game installations, modded instances, cosmetics, and local
-servers. It is built with Python and Flet for Linux, Windows, and macOS.
+**Cubeon Launcher** (also called **Cubeon Minecraft Launcher**) is a free,
+Apache 2.0 open-source desktop launcher for **Minecraft Java Edition**.
+The official website is **https://www.ylet.online/** and this is its official
+source repository. Cubeon manages game installations, modded instances,
+cosmetics, and local servers. It is built with Python and Flet for Linux,
+Windows, and macOS.
 
 ## Capabilities
 

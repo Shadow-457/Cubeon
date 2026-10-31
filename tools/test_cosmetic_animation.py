@@ -84,8 +84,9 @@ public class AnimationTest {
     }
     static void verifyAttachments(CosmeticCatalog.Item wings) {
         var body = pivot("body", -6, 1, 0);
-        var root = pivot("wing", 1, 0, 2.45f);
-        var mirror = pivot("wing", -1, 0, 2.45f); mirror.mirrored = true;
+        var hinge = wings.boxes.get(0);
+        var root = pivot("wing", hinge.pivotX, hinge.pivotY, hinge.pivotZ);
+        var mirror = pivot("wing", -hinge.pivotX, hinge.pivotY, hinge.pivotZ); mirror.mirrored = true;
         var posed = new CosmeticAnimation.PosedQuad();
         for (int tick = 0; tick < 100; tick++) {
             var frame = CosmeticAnimation.sample(tick / 20.0f, 1, tick > 50).forItem(wings);
@@ -220,8 +221,9 @@ public class AnimationTest {
         var pet = catalog.get("shoulder_ember_fox");
         check(difference(points(pet, tracker.sample(20, 0, false, false)),
                 points(pet, tracker.sample(20, 0, false, false, .8f))) == 0, "N only moves wings");
-        var q = pivot("wing", 2, 0, 2.575f); q.x[0] = 41; q.y[0] = 18;
-        var mirror = pivot("wing", -2, 0, 2.575f); mirror.x[0] = -41; mirror.y[0] = 18; mirror.mirrored = true;
+        var hinge = wings.boxes.get(0);
+        var q = pivot("wing", hinge.pivotX, hinge.pivotY, hinge.pivotZ); q.x[0] = 41; q.y[0] = 18;
+        var mirror = pivot("wing", -hinge.pivotX, hinge.pivotY, hinge.pivotZ); mirror.x[0] = -41; mirror.y[0] = 18; mirror.mirrored = true;
         var posed = new CosmeticAnimation.PosedQuad();
         for (int i = 0; i < 390; i++) {
             var frame = tracker.sample(20, 0, false, false, i / 120f).forItem(wings);
@@ -229,9 +231,10 @@ public class AnimationTest {
             float x = posed.x[0], y = posed.y[0], z = posed.z[0];
             posed.set(mirror, frame);
             near(x, -posed.x[0], "Dragon mirror X"); near(y, posed.y[0], "Dragon mirror Y"); near(z, posed.z[0], "Dragon mirror Z");
-            var root = pivot("wing", 2, 0, 2.575f);
+            var root = pivot("wing", hinge.pivotX, hinge.pivotY, hinge.pivotZ);
             posed.set(root, frame);
-            near(posed.x[0], 2, "Dragon shoulder attachment X"); near(posed.y[0], 0, "Dragon shoulder attachment Y");
+            near(posed.x[0], 2, "Dragon shoulder attachment X"); near(posed.y[0], 2, "Dragon shoulder attachment Y");
+            near(posed.z[0], hinge.pivotZ, "Dragon shoulder attachment Z");
             for (var quad : CosmeticGeometry.quads(wings, 0)) {
                 posed.set(quad, frame);
                 near(posed.normalX * posed.normalX + posed.normalY * posed.normalY + posed.normalZ * posed.normalZ,
@@ -253,8 +256,38 @@ public class AnimationTest {
         for (var item : catalog.items()) {
             if (item.feathers.isEmpty()) continue;
             var quads = CosmeticGeometry.quads(item, 0);
-            check(quads.size() <= (item.id.endsWith("_small") ? 144 : 2556), "Lightweight mesh budget");
+            check(quads.size() <= (item.id.endsWith("_small") ? 144 : 4096), "Lightweight closed-feather mesh budget");
             check(item.texWidth <= 512 && item.texHeight <= 1024, "Old GPU texture budget");
+            if (item.separateFeathers) {
+                float[] low = new float[item.feathers.size()], high = new float[item.feathers.size()];
+                int[] attachedRoots = new int[item.feathers.size()];
+                Arrays.fill(low, Float.MAX_VALUE); Arrays.fill(high, -Float.MAX_VALUE);
+                for (var q : quads) {
+                    if (q.feather < 0) {
+                        check(q.feathers == null, "Root armour is not welded into a vane");
+                        for (float z : q.z) check(z <= 2.625f, "Shoulder armour must sit against the torso");
+                        continue;
+                    }
+                    for (int v = 0; v < 4; v++) {
+                        low[q.feather] = Math.min(low[q.feather], q.z[v]);
+                        high[q.feather] = Math.max(high[q.feather], q.z[v]);
+                        for (int bone : q.feathers[v].bones)
+                            check(bone == q.feather, "A feather cannot share another feather's bend weights");
+                        var f = item.feathers.get(q.feather);
+                        float rootEnd = 1 + (float)Math.ceil((f.x - 1) / 4) * 4;
+                        float x = q.mirrored ? -q.x[v] : q.x[v];
+                        if (x <= rootEnd) {
+                            check(q.z[v] >= 2 && q.z[v] <= 2.625f,
+                                    "Feather root stays beside the body instead of using the tip depth");
+                            attachedRoots[q.feather]++;
+                        }
+                    }
+                }
+                for (int bone = 0; bone < item.feathers.size(); bone++) {
+                    check(attachedRoots[bone] > 0, "Each feather has a flat attached root");
+                    check(high[bone] - low[bone] > .6f, "Each feather has genuine curved depth at rest");
+                }
+            }
             var posed = new CosmeticAnimation.PosedQuad();
             for (float elapsed : new float[]{-1, 0, .3f, .8f, 1.4f, 2.6f}) {
                 var normal = new CosmeticAnimation.Tracker().sample(20, 0, false, false, item.wingFlare ? elapsed : -1);
@@ -268,14 +301,15 @@ public class AnimationTest {
                     float[][] output = new float[4][];
                     for (int v = 0; v < 4; v++) {
                         output[v] = new float[]{posed.x[v], posed.y[v], posed.z[v]};
-                        String key = q.x[v] + "," + q.y[v] + "," + q.z[v];
+                        String key = q.feather + "/" + q.x[v] + "," + q.y[v] + "," + q.z[v];
                         float[] previous = byPoint.putIfAbsent(key, output[v]);
                         if (previous != null) for (int axis = 0; axis < 3; axis++)
                             near(previous[axis], output[v][axis], "Feather caps/walls stay welded");
                     }
-                    if (q.mirrored || q.normalZ != -1) continue;
+                    if (q.mirrored || q.normalZ >= -.5f || (item.separateFeathers && q.feather < 0)) continue;
                     posed.set(q, normal); // Shoulder stroke without the local feather bends.
                     for (int v = 0; v < 4; v++) for (int j = 0; j < item.feathers.size(); j++) {
+                        if (item.separateFeathers && q.feather != j) continue;
                         var f = item.feathers.get(j);
                         float dx = q.x[v] - f.endX, dy = q.y[v] - f.endY;
                         float distance = dx*dx + dy*dy;
@@ -295,17 +329,17 @@ public class AnimationTest {
                 if (elapsed != .8f || !item.id.startsWith("back_ember_")) continue;
                 // T junctions must land on the same straight, deformed edge as the cap.
                 for (var q : quads) {
-                    if (q.mirrored || q.normalZ != -1) continue;
+                    if (q.mirrored || q.normalZ >= -.5f) continue;
                     posed.set(q, flexed);
                     for (int v = 0; v < 4; v++) {
                         int next = (v + 1) % 4;
                         for (var other : quads) {
-                            if (other.mirrored || other.normalZ != -1) continue;
+                            if (other.mirrored || other.normalZ >= -.5f || other.feather != q.feather) continue;
                             for (int n = 0; n < 4; n++) {
                                 float dx = q.x[next]-q.x[v], dy = q.y[next]-q.y[v];
                                 float t = Math.abs(dx) > 0 ? (other.x[n]-q.x[v])/dx : (other.y[n]-q.y[v])/dy;
                                 if (t <= 0 || t >= 1 || other.x[n] != q.x[v]+dx*t || other.y[n] != q.y[v]+dy*t) continue;
-                                float[] actual = byPoint.get(other.x[n] + "," + other.y[n] + "," + other.z[n]);
+                                float[] actual = byPoint.get(other.feather + "/" + other.x[n] + "," + other.y[n] + "," + other.z[n]);
                                 near(actual[0], posed.x[v]*(1-t) + posed.x[next]*t, "No open X seam");
                                 near(actual[1], posed.y[v]*(1-t) + posed.y[next]*t, "No open Y seam");
                                 near(actual[2], posed.z[v]*(1-t) + posed.z[next]*t, "No open Z seam");
@@ -371,7 +405,32 @@ public class AnimationTest {
         verifyLegacy();
         verifyFeathers(catalog);
         verifySmallIgnoresN(catalog);
+        for (var item : catalog.items()) {
+            check(item.forWingDepth(true) == item, "3D ON preserves the selected item");
+            var flat = item.forWingDepth(false);
+            if (!item.separateFeathers) {
+                check(flat == item, "Small wings and other cosmetics ignore the depth setting");
+                continue;
+            }
+            check(flat != item && flat.feathers.isEmpty(), "Flat option skips feather preparation");
+            var quads = CosmeticGeometry.quads(flat, 0);
+            check(quads.size() == 4, "Flat pair uses four cutout quads");
+            for (var q : quads) {
+                check(q.feathers == null && q.normalZ != 0, "Flat wings have no weights or side walls");
+                check(Arrays.stream(new double[]{q.z[0], q.z[1], q.z[2], q.z[3]}).distinct().count() == 1,
+                        "Flat faces have no curved rest depth");
+            }
+            var tracker = new CosmeticAnimation.Tracker();
+            var rest = points(flat, null);
+            check(difference(rest, points(flat, tracker.sample(20, 0, false))) > .01f,
+                    "Flat wings still flap");
+            check(difference(points(flat, tracker.sample(20, 0, false, false)),
+                    points(flat, tracker.sample(20, 0, false, false, .8f))) > 8,
+                    "Flat Giant wings retain N flare");
+            check(difference(rest, points(flat, tracker.disabled())) == 0, "Flat motion OFF stays static");
+        }
         benchmark(catalog.get("back_ember_wings"));
+        benchmark(catalog.get("back_ember_wings").forWingDepth(false));
         benchmark(catalog.get("back_ember_wings_small"));
         verifySprint(catalog.get("back_void_wings"));
         verifyDragon(catalog);

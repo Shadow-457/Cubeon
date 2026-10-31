@@ -299,17 +299,10 @@ def polish(container, base_bg=None, hover_bg=None, *,
     """
     anchor = anchor or ft.Alignment.CENTER
     st = {"hover": False, "down": False, "timer": None}
-    # Nothing here is decided by the motion level at BUILD time, which is the
-    # point: the fill transition belongs to the control and the level is asked
-    # when an event fires, so the Settings switch reaches rows that already
-    # exist. The resting scale is written unconditionally too (an identity
-    # transform costs nothing), so a row built while motion was reduced can
-    # still lift the moment it is switched back to full - no rebuild, no
-    # swapping the control's type under the client.
-    #
-    # Only take ownership of `scale` if nobody else has: some controls (the top
-    # nav's icon and underline) use it for their own affordance.
-    owns_scale = container.scale is None
+    # Default hover feedback only changes colours. Avoid installing an
+    # AnimatedScale/Transform on scrollable cards when every factor is 1;
+    # explicit lift/press callers still own a complete two-axis transform.
+    owns_scale = container.scale is None and (scale != 1 or lift != 1 or press != 1)
     if owns_scale:
         try:
             container.scale = ft.Scale(scale_x=scale, scale_y=scale, alignment=anchor)

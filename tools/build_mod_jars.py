@@ -106,6 +106,10 @@ REQUIRED_ENTRIES = ("fabric.mod.json",
                     "com/cubeon/client/cosmetics/CosmeticAnimation.class",
                     "com/cubeon/client/cosmetics/WingAction.class",
                     "com/cubeon/client/cosmetics/CosmeticSelection.class",
+                    "com/cubeon/client/cosmetics/CosmeticSelection$Items.class",
+                    "com/cubeon/client/cosmetics/CosmeticView.class",
+                    "com/cubeon/client/cosmetics/CosmeticPlayers.class",
+                    "com/cubeon/client/cosmetics/RemoteCosmetics.class",
                     "com/cubeon/client/cosmetics/CosmeticsClient.class",
                     "assets/cubeon-client/cosmetics/catalog.json",
                     "assets/cubeon-client/textures/cosmetics/shoulder_ember_fox.png")
@@ -268,16 +272,20 @@ def verify(jar_path, bracket=None):
         return "freelook mixin config has incorrect hooks"
     if not isinstance(labels, dict) or not labels.get("key.cubeon-client.freelook"):
         return "freelook control label is missing"
+    if not labels.get("cubeonclient.hud.wing_depth"):
+        return "3D wing setting label is missing"
     if not labels.get("key.cubeon-client.wing_flare"):
         return "dragon wing control label is missing"
     with zipfile.ZipFile(jar_path) as jar:
+        if b"wingDepth" not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
+            return "3D wing setting is missing"
         if b"wing_flare" not in jar.read("com/cubeon/client/hud/CubeonHudKeybinds.class"):
             return "dragon wing key binding is missing"
         catalog_entry = "assets/cubeon-client/cosmetics/catalog.json"
         if jar.read(catalog_entry) != Path(os.path.join(ROOT, "assets/cosmetics/catalog.json")).read_bytes():
             return "cosmetics catalogue is stale"
         names = ["back_" + wing + "_wings" + size + ".png"
-                 for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small")]
+                 for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small", "_flat")]
         for name in names:
             entry = "assets/cubeon-client/textures/cosmetics/" + name
             if entry not in jar.namelist() or jar.read(entry) != Path(os.path.join(ROOT, "assets/cosmetics", name)).read_bytes():

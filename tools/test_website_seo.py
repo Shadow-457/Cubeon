@@ -6,7 +6,8 @@ from pathlib import Path
 import re
 import struct
 import unittest
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
+from urllib.robotparser import RobotFileParser
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,7 @@ class Page(HTMLParser):
         super().__init__()
         self.meta, self.canonicals, self.links, self.headings, self.schemas = {}, [], [], [], []
         self.favicons = []
+        self.images = []
         self.title = ''
         self.active = None
         self.feed(source)
@@ -34,6 +36,8 @@ class Page(HTMLParser):
             self.favicons.append(attrs)
         if tag == 'a' and attrs.get('href'):
             self.links.append(attrs['href'])
+        if tag == 'img':
+            self.images.append(attrs)
         if tag == 'title':
             self.active = 'title'
         if tag == 'h1':
@@ -92,13 +96,16 @@ class SEOTests(unittest.TestCase):
         self.assertIn('User-agent: *\nAllow: /\nDisallow: /api/', robots)
         self.assertIn('Sitemap: ' + ORIGIN + '/sitemap.xml', robots)
 
-    def test_image_discovery_without_hidden_page_content(self):
-        """Sitemap images must be public assets attached to indexable page URLs."""
+    def test_image_discovery_matches_visible_page_content(self):
+        """Every sitemap image appears in ordinary HTML on its associated page."""
         namespace = {'s': 'http://www.sitemaps.org/schemas/sitemap/0.9',
                      'image': 'http://www.google.com/schemas/sitemap-image/1.1'}
         sitemap = ET.parse(WEB / 'sitemap.xml')
         images = []
         for page in sitemap.findall('s:url', namespace):
+            page_url = page.find('s:loc', namespace).text
+            page_key = urlsplit(page_url).path.strip('/') or 'index'
+            html = self.pages[page_key]
             for image in page.findall('image:image', namespace):
                 location = image.find('image:loc', namespace)
                 self.assertIsNotNone(location)
@@ -108,6 +115,14 @@ class SEOTests(unittest.TestCase):
                 file = WEB / url.path.lstrip('/')
                 self.assertTrue(file.is_file(), location.text)
                 self.assertIn(file.suffix, ('.png', '.webp'))
+                matches = [img for img in html.images if urljoin(page_url, img.get('src', '')) == location.text]
+                self.assertEqual(len(matches), 1, (page_url, location.text))
+                displayed, = matches
+                self.assertGreater(len(displayed.get('alt', '').strip()), 25)
+                self.assertGreater(int(displayed['width']), 0)
+                self.assertGreater(int(displayed['height']), 0)
+                self.assertEqual(displayed['loading'], 'lazy')
+                self.assertIn(displayed['src'], html.links, 'A full-size image link must be available')
                 # Deprecated caption/title tags are no longer read by Google.
                 self.assertEqual([child.tag for child in image], ['{' + namespace['image'] + '}loc'])
                 if '/screenshots/' in url.path:
@@ -126,9 +141,12 @@ class SEOTests(unittest.TestCase):
         public_copies = {ORIGIN + '/' + str(file.relative_to(WEB))
                          for file in (WEB / 'assets/screenshots').glob('*.png')}
         self.assertTrue(public_copies.issubset(set(images)), 'Every public copy must be discoverable')
-        # These screenshots are not inserted as hidden elements or loaded by page scripts.
-        for file in [*WEB.glob('*.html'), *WEB.glob('assets/*.js'), *WEB.glob('assets/*.css')]:
-            self.assertNotIn('assets/screenshots/', file.read_text(), str(file))
+        self.assertEqual(len(self.pages['docs'].images) - 2, 12)  # Two brand icons outside the gallery.
+        for url in images:
+            preview = WEB / 'assets/screenshots/previews' / (Path(urlsplit(url).path).stem + '.webp')
+            data = preview.read_bytes()
+            self.assertEqual(data[:4], b'RIFF')
+            self.assertEqual(data[8:12], b'WEBP')
 
     def test_search_favicon_is_a_crawlable_cube_bitmap(self):
         # Google Search's favicon formats exclude SVG. Every page supplies
@@ -194,6 +212,34 @@ class SEOTests(unittest.TestCase):
             with self.subTest(page=key):
                 self.assertNotIn('https://cubeon.ylet.online', source)
                 self.assertNotRegex(source, r'>Ylet<|operated by Ylet|Ylet.*product')
+
+    def test_official_product_identity_is_connected_across_pages(self):
+        graphs = {}
+        for key in ('index', 'about'):
+            page = self.pages[key]
+            schema, = [json.loads(value) for value in page.schemas]
+            graphs[key] = {entry['@type']: entry for entry in schema['@graph']}
+        home, about = graphs['index'], graphs['about']
+        self.assertEqual(home['SoftwareApplication'], about['SoftwareApplication'])
+        self.assertEqual(home['SoftwareApplication']['sameAs'], 'https://github.com/Shadow-457/Cubeon')
+        self.assertEqual(about['AboutPage']['mainEntity'], {'@id': home['SoftwareApplication']['@id']})
+        self.assertEqual(about['AboutPage']['url'], self.pages['about'].canonicals[0])
+        self.assertEqual(home['SoftwareSourceCode']['targetProduct'], home['WebPage']['mainEntity'])
+        self.assertEqual(home['SoftwareSourceCode']['codeRepository'], home['SoftwareApplication']['sameAs'])
+        self.assertIn('LICENSE', home['SoftwareApplication']['license'])
+        for page in ('index', 'docs'):
+            self.assertIn('about.html', self.pages[page].links)
+        for link in ('https://www.ylet.online/', 'https://github.com/Shadow-457/Cubeon',
+                     'https://github.com/Shadow-457/Cubeon/releases/latest'):
+            self.assertIn(link, self.pages['about'].links)
+
+    def test_search_crawlers_can_read_pages_but_not_private_api(self):
+        policy = RobotFileParser()
+        policy.parse((WEB / 'robots.txt').read_text().splitlines())
+        for crawler in ('Googlebot', 'bingbot', 'OAI-SearchBot', 'ChatGPT-User'):
+            for page in ('/', '/about', '/download', '/assets/favicon.png'):
+                self.assertTrue(policy.can_fetch(crawler, ORIGIN + page), (crawler, page))
+            self.assertFalse(policy.can_fetch(crawler, ORIGIN + '/api/doctor'))
 
 
     def test_analytics_is_disclosed_and_wired(self):

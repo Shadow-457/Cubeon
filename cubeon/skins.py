@@ -607,7 +607,18 @@ def _record_publish_failure(state: dict) -> None:
     _save_publish_state(state)
 
 
+_PUBLISH_LOCK = threading.Lock()
+_ASYNC_LOCK = threading.Lock()
+_ASYNC_PENDING = None
+_ASYNC_RUNNING = False
+
+
 def _publish_skin(cfg: dict) -> None:
+    with _PUBLISH_LOCK:
+        _publish_skin_serial(cfg)
+
+
+def _publish_skin_serial(cfg: dict) -> None:
     """Pushes identity + skin to the Worker so other players see them.
 
     Runs on a background thread (see _publish_skin_async), so it owns all its
@@ -656,6 +667,13 @@ def _publish_skin(cfg: dict) -> None:
             or state.get("base") != csl.CUBEON_API_BASE
         )
 
+        from .cosmetics import selection_payload
+        cosmetics = selection_payload(cfg)
+        cosmetics.pop("version")
+        cosmetics_changed = (state.get("uuid") != machine_uuid
+                             or state.get("base") != csl.CUBEON_API_BASE
+                             or state.get("cosmetics") != cosmetics)
+
         # Real content only. The sheet is composed (and hashed) lazily, so a
         # vanilla sync costs zero PIL work as well as zero upload bytes.
         has_custom = bool(cfg.get("active_skin"))
@@ -670,7 +688,7 @@ def _publish_skin(cfg: dict) -> None:
         else:
             skin_changed = False
 
-        if not identity_changed and not skin_changed:
+        if not identity_changed and not skin_changed and not cosmetics_changed:
             return
 
         # 1. Heartbeat first: it claims ownership of the UUID (TOFU) and
@@ -717,6 +735,25 @@ def _publish_skin(cfg: dict) -> None:
             state.pop("retry_not_before", None)  # success clears cooldown
             _save_publish_state(state)
 
+        cosmetics_failed = False
+        if cosmetics_changed:
+            try:
+                resp = requests.post(
+                    csl.CUBEON_API_BASE + "/api/cosmetics",
+                    json={"uuid": machine_uuid, **cosmetics}, headers=headers,
+                    timeout=_NET_TIMEOUT,
+                )
+                if resp.status_code == 200:
+                    state["cosmetics"] = cosmetics
+                    state.pop("retry_not_before", None)
+                    _save_publish_state(state)
+                else:
+                    cosmetics_failed = True
+                    _record_publish_failure(state)
+            except requests.RequestException:
+                cosmetics_failed = True
+                _record_publish_failure(state)
+
         # 2. Then the sheet itself, if it moved. Skipped entirely when only
         # the name changed (the texture under the UUID didn't) and when
         # there's no custom content to ship (never upload default Steve).
@@ -746,7 +783,8 @@ def _publish_skin(cfg: dict) -> None:
 
             if resp.status_code == 200:
                 state.update({"hash": digest, "model": model})
-                state.pop("retry_not_before", None)  # success clears cooldown
+                if not cosmetics_failed:
+                    state.pop("retry_not_before", None)
                 _save_publish_state(state)
             else:
                 logging.getLogger(__name__).warning("skin upload failed: HTTP %s",
@@ -769,11 +807,29 @@ def _publish_skin_async(cfg: dict) -> None:
     field the upload reads is an immutable str/None), so the background upload
     can't observe a half-mutated config while the caller goes on to
     save_config()."""
-    snapshot = dict(cfg)
-    threading.Thread(
-        target=_publish_skin, args=(snapshot,),
-        name="cubeon-skin-publish", daemon=True,
-    ).start()
+    global _ASYNC_PENDING, _ASYNC_RUNNING
+    with _ASYNC_LOCK:
+        _ASYNC_PENDING = dict(cfg)
+        if _ASYNC_RUNNING:
+            return
+        _ASYNC_RUNNING = True
+    def publish_latest():
+        global _ASYNC_PENDING, _ASYNC_RUNNING
+        while True:
+            with _ASYNC_LOCK:
+                snapshot = _ASYNC_PENDING
+                _ASYNC_PENDING = None
+                if snapshot is None:
+                    _ASYNC_RUNNING = False
+                    return
+            _publish_skin(snapshot)
+            with _ASYNC_LOCK:
+                pending = _ASYNC_PENDING is not None
+            if pending:
+                # KV permits one write per key per second; rapid selection clicks
+                # coalesce while this single publisher waits between attempts.
+                time.sleep(1.1)
+    threading.Thread(target=publish_latest, name="cubeon-skin-publish", daemon=True).start()
 
 
 def report_skin(username: str, reason: str = "") -> bool:

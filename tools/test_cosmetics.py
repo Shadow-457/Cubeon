@@ -165,12 +165,15 @@ def test_catalog():
                 if x < 0 or y < 0 or x + w > item["tex_w"] or y + h > item["tex_h"]:
                     problems.append((item_id, f"box {index} {face} leaves the atlas"))
                 rects.append((index, face, x, y, w, h))
-        for i in range(len(rects)):
-            for j in range(i + 1, len(rects)):
-                _, face_a, xa, ya, wa, ha = rects[i]
-                _, face_b, xb, yb, wb, hb = rects[j]
-                if xa < xb + wb and xb < xa + wa and ya < yb + hb and yb < ya + ha:
+        active = []
+        for rect in sorted(rects, key=lambda value: value[2]):
+            _, face_b, xb, yb, wb, hb = rect
+            active = [other for other in active if other[2] + other[4] > xb]
+            for other in active:
+                _, face_a, xa, ya, wa, ha = other
+                if ya < yb + hb and yb < ya + ha:
                     problems.append((item_id, f"{face_a}/{face_b} atlas overlap"))
+            active.append(rect)
 
     check("every item is well formed", not problems, "; ".join(
         f"{i}: {p}" for i, p in problems[:6]))
@@ -234,9 +237,8 @@ def test_preview_faces():
                 problems.append((item["id"], "transparent tile was emitted"))
             if tile.size[0] <= 0 or tile.size[1] <= 0:
                 problems.append((item["id"], "empty tile"))
-            nonzero = [abs(v) for v in normal if abs(v) > 1e-9]
-            if len(nonzero) != 1 or abs(nonzero[0] - 1.0) > 1e-9:
-                problems.append((item["id"], f"normal is not an axis unit: {normal}"))
+            if abs(sum(v*v for v in normal) - 1) > 1e-9:
+                problems.append((item["id"], f"normal is not unit length: {normal}"))
 
         mirror_boxes = [box for box in item["boxes"] if box.get("mirror")]
         if mirror_boxes:
@@ -286,67 +288,89 @@ def test_wing_thickness():
     }
     for item in wings:
         small = item["id"].endswith("_small")
+        y_origin = 2 if small else -9
+        hinge = [1, 2, 2.45] if small else [2, 2, 2.25]
+        if any(box["pivot"] != hinge for box in item["boxes"]):
+            problems.append((item["id"], "wrong lowered shoulder attachment"))
+        if not small:
+            flat_boxes = item["flat"]["boxes"]
+            if len(flat_boxes) != 1 or flat_boxes[0]["origin"] != [1, -9, 2.125] or flat_boxes[0]["pivot"] != hinge:
+                problems.append((item["id"], "flat wings do not match the lowered attachment"))
         if item.get("wing_flare") != (not small):
             problems.append((item["id"], "wrong N flare capability"))
         palette = generator.PALETTES[item["id"].removeprefix("back_").removesuffix("_small")]
         base, _ = generator.small_wing_art(palette) if small else generator.wing_art(palette)
         if small:
             base = base.resize((40, 52), Image.Resampling.NEAREST)
-        reconstructed = Image.new("RGBA", base.size)
-        occupied = set()
-        actual_edges = set()
-        if len(item["boxes"]) < 2:
-            problems.append((item["id"], "still one rectangular slab"))
-        for box in item["boxes"]:
-            if not box["mirror"] or box["size"][2] != (0.5 if small else 0.75):
-                problems.append((item["id"], "wrong thickness/mirror"))
-            if "front" not in box.get("faces", ["front"]):
-                left = round((box["origin"][0] - 1) * 4)
-                top = round((box["origin"][1] + (0 if small else 11)) * 4)
-                width, height = (round(value * 4) for value in box["size"][:2])
-                for side in box["faces"]:
-                    for y in range(top, top + height):
-                        for x in range(left, left + width):
-                            key = (x, y, side)
-                            if key in actual_edges:
-                                problems.append((item["id"], "duplicate edge wall"))
-                            actual_edges.add(key)
-                continue
-            left = round((box["origin"][0] - 1) * 4)
-            top = round((box["origin"][1] + (0 if small else 11)) * 4)
-            width, height = (round(value * 4) for value in box["size"][:2])
-            for y in range(top, top + height):
-                for x in range(left, left + width):
-                    if (x, y) in occupied or not (0 <= x < base.width and 0 <= y < base.height):
-                        problems.append((item["id"], "overlapping/outside feather pieces"))
-                    occupied.add((x, y))
-            rects = cosmetics.face_rects(box)
-            sheet = cosmetics.texture(item)
-            x, y, w, h = rects["front"]
-            tile = sheet.crop((x, y, x + w, y + h))
-            reconstructed.paste(tile, (left, top))
-            x, y, w, h = rects["back"]
-            rear = sheet.crop((x, y, x + w, y + h)).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
-            if tile.tobytes() != rear.tobytes():
-                problems.append((item["id"], "front/back mask shifted"))
-        expected_edges = set()
-        alpha = base.getchannel("A")
-        for y in range(base.height):
-            for x in range(base.width):
-                if not alpha.getpixel((x, y)):
+        layers = [base] if small else generator.wing_layers(palette)
+        for layer_index, base in enumerate(layers):
+            feather_index = -1 if small or layer_index == len(item["feathers"]) else layer_index
+            layer_boxes = [box for box in item["boxes"] if box.get("feather", -1) == feather_index]
+            reconstructed = Image.new("RGBA", base.size)
+            occupied = set()
+            actual_edges = set()
+            if len(item["boxes"]) < 2:
+                problems.append((item["id"], "still one rectangular slab"))
+            for box in layer_boxes:
+                if not box["mirror"] or box["size"][2] != (0.5 if small else 0.25):
+                    problems.append((item["id"], "wrong thickness/mirror"))
+                if "front" not in box.get("faces", ["front"]):
+                    left = round((box["origin"][0] - 1) * 4)
+                    top = round((box["origin"][1] - y_origin) * 4)
+                    width, height = (round(value * 4) for value in box["size"][:2])
+                    for side in box["faces"]:
+                        for y in range(top, top + height):
+                            for x in range(left, left + width):
+                                key = (x, y, side)
+                                if key in actual_edges:
+                                    problems.append((item["id"], "duplicate edge wall"))
+                                actual_edges.add(key)
                     continue
-                for side, dx, dy in (("left", 1, 0), ("right", -1, 0), ("top", 0, -1), ("bottom", 0, 1)):
-                    if not (0 <= x + dx < base.width and 0 <= y + dy < base.height and alpha.getpixel((x + dx, y + dy))):
-                        expected_edges.add((x, y, side))
-        if expected_edges != actual_edges:
-            problems.append((item["id"], "missing/extraneous silhouette wall"))
-        if small:
-            theme = item["id"].removeprefix("back_").removesuffix("_wings_small")
-            if hashlib.sha256(reconstructed.tobytes()).hexdigest() != originals[theme]:
-                problems.append((item["id"], "original cute artwork changed"))
-        if reconstructed.tobytes() != base.tobytes():
-            problems.append((item["id"], "feather geometry leaves gaps or a detached strip"))
+                left = round((box["origin"][0] - 1) * 4)
+                top = round((box["origin"][1] - y_origin) * 4)
+                width, height = (round(value * 4) for value in box["size"][:2])
+                for y in range(top, top + height):
+                    for x in range(left, left + width):
+                        if (x, y) in occupied or not (0 <= x < base.width and 0 <= y < base.height):
+                            problems.append((item["id"], "overlapping/outside feather pieces"))
+                        occupied.add((x, y))
+                rects = cosmetics.face_rects(box)
+                sheet = cosmetics.texture(item)
+                x, y, w, h = rects["front"]
+                tile = sheet.crop((x, y, x + w, y + h))
+                reconstructed.paste(tile, (left, top))
+                x, y, w, h = rects["back"]
+                rear = sheet.crop((x, y, x + w, y + h)).transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                if tile.tobytes() != rear.tobytes():
+                    problems.append((item["id"], "front/back mask shifted"))
+            expected_edges = set()
+            alpha = base.getchannel("A")
+            for y in range(base.height):
+                for x in range(base.width):
+                    if not alpha.getpixel((x, y)):
+                        continue
+                    for side, dx, dy in (("left", 1, 0), ("right", -1, 0), ("top", 0, -1), ("bottom", 0, 1)):
+                        if not (0 <= x + dx < base.width and 0 <= y + dy < base.height and alpha.getpixel((x + dx, y + dy))):
+                            expected_edges.add((x, y, side))
+            if expected_edges != actual_edges:
+                problems.append((item["id"], "missing/extraneous silhouette wall"))
+            if small:
+                theme = item["id"].removeprefix("back_").removesuffix("_wings_small")
+                if hashlib.sha256(reconstructed.tobytes()).hexdigest() != originals[theme]:
+                    problems.append((item["id"], "original cute artwork changed"))
+            if reconstructed.tobytes() != base.tobytes():
+                problems.append((item["id"], "feather geometry leaves gaps or a detached strip"))
     check("closed feather geometry exactly follows the native silhouette", not problems, str(problems[:6]))
+    for item in wings:
+        if item["id"].endswith("_small"):
+            continue
+        groups = {box.get("feather", -1) for box in item["boxes"]}
+        check(item["id"] + " has separate feather ownership",
+              item.get("separate_feathers") and groups == set(range(len(item["feathers"]))) | {-1})
+        depth_layers = {box["origin"][2] for box in item["boxes"]}
+        check(item["id"] + " has overlapping depth layers", len(depth_layers) >= 6)
+        check(item["id"] + " has bounded closed-volume geometry",
+              sum(len(box["faces"]) * 2 for box in item["boxes"]) <= 4096)
 
 
 def test_thumbnails():
@@ -491,6 +515,16 @@ def _same_bytes(left, right):
         return False
 
 
+def _render_variants():
+    """Public items plus internal flat meshes, with unique diagnostic ids."""
+    variants = []
+    for item in cosmetics.items():
+        variants.append(item)
+        if item.get("flat"):
+            variants.append({**item["flat"], "id": item["id"] + "_flat"})
+    return variants
+
+
 def test_bundles():
     print("\n-- launcher and mod bundles --")
     check("mod catalogue exists",
@@ -500,7 +534,7 @@ def test_bundles():
                       os.path.join(MOD_BUNDLE, "catalog.json")))
     missing = []
     differing = []
-    for item in cosmetics.items():
+    for item in _render_variants():
         launcher = os.path.join(LAUNCHER_BUNDLE, item["texture"])
         jar = os.path.join(MOD_TEXTURES, item["texture"])
         if not os.path.isfile(jar):
@@ -552,6 +586,14 @@ def test_generator_output():
                 problems.append((item["id"], "art drift from the generator"))
         if boxes != entry["boxes"]:
             problems.append((item["id"], "box/UV drift from the generator"))
+        if item.get("_flat"):
+            flat_image, flat_boxes = generator.render_item(item["_flat"])
+            flat_entry = entry.get("flat", {})
+            with Image.open(os.path.join(LAUNCHER_BUNDLE, flat_entry["texture"])) as disk:
+                if disk.size != flat_image.size or disk.convert("RGBA").tobytes() != flat_image.tobytes():
+                    problems.append((item["id"], "flat artwork drift"))
+            if flat_boxes != flat_entry.get("boxes"):
+                problems.append((item["id"], "flat geometry drift"))
     check("committed art and geometry are the generator's output",
           not problems, str(problems[:4]))
 
@@ -574,9 +616,15 @@ public final class DumpCosmetics {
         String text = Files.readString(Path.of(args[0]), StandardCharsets.UTF_8);
         CosmeticCatalog.Catalog catalog = CosmeticCatalog.Catalog.parse(text);
         for (CosmeticCatalog.Item item : catalog.items()) {
+            emit(item, item.id, catalog);
+            if (item.flatVariant != null) emit(item.flatVariant, item.id + "_flat", catalog);
+        }
+    }
+
+    private static void emit(CosmeticCatalog.Item item, String id, CosmeticCatalog.Catalog catalog) {
             float anchor = catalog.anchorX(item.slot);
             for (CosmeticGeometry.Quad q : CosmeticGeometry.build(item, anchor)) {
-                StringBuilder line = new StringBuilder(item.id);
+                StringBuilder line = new StringBuilder(id);
                 for (int i = 0; i < 4; i++) {
                     line.append('|').append(f(q.x[i])).append(',').append(f(q.y[i]))
                             .append(',').append(f(q.z[i]));
@@ -588,11 +636,12 @@ public final class DumpCosmetics {
                 }
                 System.out.println(line);
             }
-        }
     }
 
     private static String f(float value) {
-        return String.format(Locale.ROOT, "%.5f", value);
+        // Keep binary-grid endpoints intact; Python applies the shared rounding.
+        // Formatting at five decimals here uses a different tie rule from round().
+        return String.format(Locale.ROOT, "%.8f", value);
     }
 }
 """
@@ -617,20 +666,16 @@ def _java_tool(name):
     return tool
 
 
-def _model_vertex(vertex):
-    x, y, z = vertex
-    return (round(x, 5), round(24 - y, 5), round(-z, 5))
-
-
 def _model_corners(vertices):
     """The four model-space corners of a preview face.
 
     ``preview_faces`` returns three anchors (TL, TR, BL); the fourth is implied,
     exactly as the Java renderer implies it when it emits a quad cycle.
     """
-    a, b, c = (_model_vertex(vertex) for vertex in vertices)
-    d = (b[0] + c[0] - a[0], b[1] + c[1] - a[1], b[2] + c[2] - a[2])
-    return tuple(sorted((a, b, c, d)))
+    a, b, c = ((x, 24 - y, -z) for x, y, z in vertices)
+    d = tuple(b[i] + c[i] - a[i] for i in range(3))
+    return tuple(sorted(tuple(round(value, 5) for value in corner)
+                        for corner in (a, b, c, d)))
 
 
 def test_java_crosscheck():
@@ -705,7 +750,13 @@ def test_java_crosscheck():
 
         problems = []
         used = {item_id: set() for item_id in quads}
-        for item in cosmetics.items():
+        candidates = {}
+        for item_id, item_quads in quads.items():
+            by_geometry = {}
+            for index, quad in enumerate(item_quads):
+                by_geometry.setdefault((quad['key'], quad['normal']), []).append(index)
+            candidates[item_id] = by_geometry
+        for item in _render_variants():
             item_id = item["id"]
             sheet = cosmetics.texture(item)
             width, height = sheet.size
@@ -716,7 +767,8 @@ def test_java_crosscheck():
                 model_normal = (round(normal[0], 5), round(-normal[1], 5),
                                 round(-normal[2], 5))
                 match = None
-                for index, quad in enumerate(item_quads):
+                for index in candidates[item_id].get((key, model_normal), []):
+                    quad = item_quads[index]
                     if index in used[item_id]:
                         continue
                     if quad["key"] != key or quad["normal"] != model_normal:
@@ -755,7 +807,7 @@ def test_java_crosscheck():
               str(problems[:4]))
         total = sum(len(value) for value in quads.values())
         check("the cross-check covered the whole catalogue",
-              len(quads) == len(cosmetics.items()) and total > 0,
+              len(quads) == len(_render_variants()) and total > 0,
               f"{len(quads)} items, {total} quads")
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

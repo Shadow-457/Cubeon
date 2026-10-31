@@ -24,6 +24,7 @@ from cubeon import dialogs
 from cubeon import icons as _icons
 from cubeon import mods as _mods
 from cubeon import thread_safe_ui
+from ui.install_feedback import compact_status
 
 
 def _human_count(n) -> str:
@@ -71,7 +72,7 @@ def _icon_ctrl(url, theme, size=64):
                         alignment=ft.Alignment.CENTER)
 
 
-def _versions_section(versions, theme, on_install_version=None):
+def _versions_section(versions, theme, on_install_version=None, install_feedback=None):
     """Newest handful of releases - informational only (the footer Install
     button drives the tab's own version-picking install pipeline)."""
     rows = []
@@ -91,8 +92,19 @@ def _versions_section(versions, theme, on_install_version=None):
                 bgcolor=theme.get("ACCENT_TINT"),
                 border_radius=theme.get("RADIUS"),
                 padding=ft.padding.Padding.symmetric(horizontal=12, vertical=5),
-                on_click=lambda e, _v=v: on_install_version(_v),
             )
+            v_install.on_click = lambda e, _v=v, button=v_install: on_install_version(_v) if not button.disabled else None
+            if install_feedback is not None:
+                done = {"installed": False, "result": install_feedback.result_id}
+                def paint(job, button=v_install, done=done):
+                    if done["result"] != job.result_id:
+                        done["result"] = job.result_id
+                        done["installed"] = job.result == "success"
+                    button.disabled = job.busy or done["installed"]
+                    button.content.value = compact_status(job.text) if job.busy else (
+                        i18n.t("Installed") if done["installed"] else i18n.t("Install"))
+                    button.tooltip = job.text if job.busy or job.result == "error" else None
+                install_feedback.watch(v_install, paint)
         rows.append(ft.Container(
             content=ft.Row(
                 [ft.Column(
@@ -125,7 +137,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                         install_disabled: bool = False,
                         install_hint: str = "", loader=None,
                         mc_version=None,
-                        on_install_version=None) -> bool:
+                        on_install_version=None, install_feedback=None) -> bool:
     """Opens the generic detail dialog for one Modrinth project.
 
     Returns True when a dialog was opened. `ref` is a Modrinth project id or
@@ -175,6 +187,23 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
             on_click=None if install_disabled else
             (lambda e: (dialogs.close_dialog(page, dlg), on_install(e))[1]),
         )
+        original_click = install_btn.on_click
+        def click(e):
+            if original_click and not install_btn.disabled:
+                original_click(e)
+        install_btn.on_click = click
+        if install_feedback is not None:
+            done = {"installed": install_disabled, "result": install_feedback.result_id}
+            def paint(job):
+                if done["result"] != job.result_id:
+                    done["result"] = job.result_id
+                    done["installed"] = job.result == "success"
+                installed = done["installed"]
+                install_btn.disabled = job.busy or installed
+                install_btn.content.controls[1].value = compact_status(job.text) if job.busy else (
+                    i18n.t("Installed") if installed else install_label)
+                install_btn.tooltip = job.text if job.busy or job.result == "error" else None
+            install_feedback.watch(install_btn, paint)
 
     footer = ft.Row(
         [ft.Text(install_hint, size=11.5, color=theme.get("TEXT_FAINT"),
@@ -257,7 +286,8 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                     shrink_wrap=True))
             vs = _versions_section(versions, theme,
-                                   on_install_version=on_install_version)
+                                   on_install_version=on_install_version,
+                                   install_feedback=install_feedback)
             if vs is not None:
                 controls.append(ft.Container(height=2))
                 controls.append(vs)

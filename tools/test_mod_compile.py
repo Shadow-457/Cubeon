@@ -73,6 +73,7 @@ MOD_SOURCES = [
     "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticCatalog.java",
     "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticGeometry.java",
     "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticAnimation.java",
+    "mod/src/main/java/com/cubeon/client/cosmetics/WingAction.java",
     "mod/src/main/java/com/cubeon/client/cosmetics/CosmeticSelection.java",
     "mod/src/main/java/com/cubeon/client/mixin/YggdrasilSessionServiceMixin.java",
     "mod/src/main/java-overlay-api-mojang/com/cubeon/client/CubeonClient.java",

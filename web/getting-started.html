@@ -85,11 +85,9 @@
         <p>Everything is on the <a href="download.html">download page</a>, and every build is free with no account attached. Pick the file that matches your computer:</p>
         <ul>
           <li><strong>Windows - setup file.</strong> Double-click it, click through the installer, and launch Cubeon from the Start menu. This is the easiest option for most people.</li>
-          <li><strong>Windows - portable ZIP.</strong> Extract the <em>whole</em> folder somewhere you can write to (your user folder or another drive, not inside <code>Program Files</code>), then run <code>Cubeon.exe</code> from inside it. Keep the folder's files together: moving just the <code>.exe</code> will break it.</li>
-          <li><strong>Linux - installer or package.</strong> Use whichever your distribution handles best. If you take the AppImage, mark it executable once and run it.</li>
+          <li><strong>Linux - installer or package.</strong> The setup includes the launcher and icon, adds an app menu entry, and supports systems without FUSE. Debian and Ubuntu users can choose the package. The standalone AppImage remains available as an alternative.</li>
         </ul>
-        <pre><code>chmod +x Cubeon-x86_64.AppImage
-./Cubeon-x86_64.AppImage</code></pre>
+        <pre><code>bash Cubeon-Linux-x86_64-Setup.sh</code></pre>
         <p>There is no Mac build yet. When there is one, it will be on the download page.</p>
 
         <h3>What the computer needs</h3>
@@ -191,11 +189,11 @@
 
       <div class="docs-section" id="updates">
         <h2>Updating</h2>
-        <p>When a new version is out, Cubeon tells you and points at the download page. It does not replace itself while it is running.</p>
+        <p>When a new version is available, Cubeon offers Skip and Update. Choose Update to download and verify it, install it, and reopen Cubeon automatically.</p>
         <ol>
-          <li>Download the new build.</li>
-          <li>Close Cubeon completely - including the tray icon if your desktop keeps one.</li>
-          <li>Run the new installer, or replace the contents of your portable folder.</li>
+          <li>Close Minecraft and stop active installs or hosted servers.</li>
+          <li>Click Update in Cubeon. You can cancel while it downloads.</li>
+          <li>Cubeon reopens after installation. Debian/Ubuntu package updates may ask for system authorization.</li>
         </ol>
         <p>Your name, skins, worlds and installed content are not touched by an update: they live in your user folder, not in the app folder (<a href="files.html#where">where things live</a>).</p>
         <p><strong>Settings</strong> &gt; <strong>Updates</strong> also lets you pick the update channel. Stable gets releases; beta gets the test builds as well.</p>

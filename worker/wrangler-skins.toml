@@ -22,6 +22,10 @@
 # limiting, variable name RATE_LIMITER, 20 per 60 seconds. The block below
 # mirrors it, so a `wrangler deploy -c wrangler-skins.toml` produces the same
 # Worker as the dashboard rather than silently dropping the edge limit.
+name = "cubeon-skins"
+main = "cubeon-skins.js"
+compatibility_date = "2025-04-01"
+
 [[ratelimits]]
 name = "RATE_LIMITER"
 namespace_id = "1003"
@@ -29,10 +33,6 @@ namespace_id = "1003"
   [ratelimits.simple]
   limit = 20
   period = 60
-
-name = "cubeon-skins"
-main = "cubeon-skins.js"
-compatibility_date = "2025-04-01"
 
 [[kv_namespaces]]
 binding = "SKINS"

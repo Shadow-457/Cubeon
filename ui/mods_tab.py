@@ -37,6 +37,7 @@ from cubeon import status_text  # keeps "<... at 0x...>" out of labels
 from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 from cubeon import instances as instance_info  # the selected instance's real loader
+from ui.install_feedback import InstallRegistry, compact_status, progress_text
 
 
 def batch_progress_text(value: float, total: float, eta: "str | None" = None) -> str:
@@ -118,6 +119,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     installed_show_all = {"value": False}
     installed_rows = {}
     browse_rows = {}
+    install_registry = InstallRegistry()
 
     def _row_key(identity):
         return (_ct(), state.get("selected_mc_version"), state.get("mod_loader"),
@@ -1571,6 +1573,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         detail_version = version_dropdown.value
         detail_search_mc = current_mc_version_for_search()
         detail_loader = state.get("mod_loader")
+        feedback = install_registry.project(
+            (content_type, detail_mc, detail_loader, detail_version), ref, mod.get("slug"))
         title = mod.get("title") or mod.get("display_name") or "Mod"
         icon_url = mod.get("icon_url")
         blurb = (mod.get("description") or "").strip()
@@ -1689,13 +1693,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             _eta = cubeon_eta.EtaEstimator()
 
             def _install_progress(done, total):
-                if not total:
-                    return
-                pct = int(done * 100 / total)
+                pct = min(100, int(done * 100 / total)) if total else -1
                 if pct != _pct["v"]:
                     _pct["v"] = pct
-                    on_status(batch_progress_text(done, total,
-                                                  _eta.note(done, total)))
+                    on_status(progress_text(done, total, batch=True,
+                                            eta=_eta.note(done, total)))
 
             def worker():
                 try:
@@ -1717,8 +1719,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             icon_url=details.get("icon_url"),
                             slug=details.get("slug"),
                             title=details.get("title"),
-                            progress_cb=lambda done, total: on_status(
-                                f"Downloading… {int(done * 100 / total)}%") if total else None)
+                            progress_cb=lambda done, total: on_status(progress_text(done, total)))
                     if result.get("failed"):
                         refresh_mods_list()
                         on_error(RuntimeError("Installed, but dependencies failed: "
@@ -1749,7 +1750,6 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         def _install_button(v, details, *, label="Install", big=False):
             """An Install button that owns its busy / done / error states."""
             done = {"v": bool(installed_now.get(v.get("filename")))}
-            busy = {"v": False}
             blocked = content_type != "resourcepack" and detail_loader not in MOD_CAPABLE_LOADERS
             fg = ON_ACCENT if big else ACCENT
             text = ft.Text(label, size=13 if big else 12,
@@ -1770,56 +1770,48 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 tooltip="Choose a compatible mod loader on the Play tab first." if blocked else None,
             )
 
-            def on_click(e):
-                if busy["v"] or done["v"] or blocked:
-                    return
-                busy["v"] = True
-                btn.disabled = True
-                text.value = "Installing..."
-                text.color = TEXT_DIM
-                icon.color = TEXT_DIM
-                btn.bgcolor = ROW_HOVER
-                thread_safe_ui.refresh(btn)
+            seen = {"result": feedback.result_id}
+            def paint(job):
+                if seen["result"] != job.result_id:
+                    seen["result"] = job.result_id
+                    if job.result == "success" and job.filename:
+                        installed_now[job.filename] = {"filename": job.filename}
+                done["v"] = bool(installed_now.get(v.get("filename")))
+                btn.disabled = job.busy or done["v"] or blocked
+                text.value = compact_status(job.text) if job.busy else (
+                    i18n.t("Installed") if done["v"] else "Try again" if job.result == "error" else label)
+                text.color = TEXT_DIM if job.busy else TEXT_FAINT if done["v"] else DANGER if job.result == "error" else fg
+                icon.name = ft.Icons.CHECK_ROUNDED if done["v"] and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
+                icon.color = text.color
+                btn.bgcolor = ROW_HOVER if job.busy else ACCENT_TINT if done["v"] or not big else ACCENT
+                btn.tooltip = job.text if job.busy or job.result == "error" else (
+                    "Choose a compatible mod loader on the Play tab first." if blocked else None)
 
-                def status(t):
-                    text.value = t
-                    thread_safe_ui.refresh(btn)
+            def on_click(e):
+                if done["v"] or blocked or not feedback.start(v.get("filename"), "Installing..."):
+                    return
 
                 def finished(fixed):
-                    busy["v"] = False
-                    done["v"] = True
-                    text.value = i18n.t("Installed")
-                    text.color = TEXT_FAINT
-                    icon.name = ft.Icons.CHECK_ROUNDED
-                    icon.color = TEXT_FAINT
-                    btn.bgcolor = ACCENT_TINT
-                    thread_safe_ui.refresh(btn)
+                    feedback.finish(v.get("filename"))
                     for _repaint in quick_state.get("repaints", []):
                         try:
                             _repaint()
                         except Exception:
                             pass
                     if fixed:
-                        dialogs.show_snack(
-                            page, f"Installed. Fixed {fixed} problem(s).",
-                            bgcolor=SURFACE_HI, text_color=TEXT)
+                        dialogs.show_snack(page, f"Installed. Fixed {fixed} problem(s).",
+                                           bgcolor=SURFACE_HI, text_color=TEXT)
 
                 def failed(ex):
-                    busy["v"] = False
-                    btn.disabled = False
-                    text.value = "Try again"
-                    text.color = DANGER
-                    icon.color = DANGER
-                    btn.bgcolor = ACCENT_TINT
-                    thread_safe_ui.refresh(btn)
+                    feedback.finish(v.get("filename"), error=f"Install failed: {ex}")
                     dialogs.show_snack(page, f"Install failed: {ex}",
                                        bgcolor=SURFACE_HI, text_color=TEXT)
 
-                _run_install(v, details, on_status=status,
+                _run_install(v, details, on_status=feedback.status,
                              on_done=finished, on_error=failed)
 
-            if not done["v"]:
-                btn.on_click = on_click
+            btn.on_click = on_click
+            feedback.watch(btn, paint)
             return btn
 
         def _gallery_strip(gallery):
@@ -2132,6 +2124,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             mod, current_mc_version_for_search(), state.get("mod_loader"))
             if row_content_type == "mod" else "")
         key = _row_key(mod.get("project_id") or mod.get("slug") or mod["title"])
+        feedback = install_registry.project(key[:4], mod.get("project_id") or mod.get("slug") or mod.get("title"), mod.get("slug"))
         cached = browse_rows.get(key)
         if cached and cached[0] == mod:
             cached[2](is_installed)
@@ -2173,11 +2166,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             selected_version = version_dropdown.value
             search_mc_version = current_mc_version_for_search()
             selected_loader = state.get("mod_loader")
-            download_btn.disabled = True
-            download_btn_text.value = "Finding file..."
-            download_btn_text.color = TEXT_DIM
-            download_btn.bgcolor = ROW_HOVER
-            thread_safe_ui.refresh(download_btn)
+            if row_state["installed"] or not feedback.start():
+                return
 
             def worker():
                 try:
@@ -2193,12 +2183,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     else:
                         file_info = core.get_content_download(content_type, mod["project_id"], mc_version=search_mc_version)
                     if not file_info:
-                        download_btn_text.value = "No matching file"
-                        thread_safe_ui.refresh(download_btn)
+                        feedback.finish(error="No matching file for this version and loader.")
                         return
 
-                    download_btn_text.value = "Downloading..."
-                    thread_safe_ui.refresh(download_btn)
+                    feedback.status("Downloading...")
                     # Progress on the button itself (bugs-and-flaws follow-up: a
                     # static "Downloading..." gave no way to tell a 2 MB shader
                     # from a 400 MB mod). Coalesced to whole percent so
@@ -2213,27 +2201,20 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         _eta = cubeon_eta.EtaEstimator()
 
                         def _report(done, total):
-                            if not total:
-                                return
-                            pct = int(done * 100 / total)
+                            pct = min(100, int(done * 100 / total)) if total else done // 65536
                             if pct == _pct["v"]:
                                 return
                             _pct["v"] = pct
-                            download_btn_text.value = label_fn(
-                                done, total, _eta.note(done, total))
-                            thread_safe_ui.refresh(download_btn)
+                            feedback.status(label_fn(done, total, _eta.note(done, total)))
                         return _report
 
                     def _bytes_label(done, total, eta=None):
-                        left = f" · {eta}" if eta else ""
-                        return f"Downloading… {int(done * 100 / total)}%{left}"
+                        return progress_text(done, total, eta=eta)
 
                     _progress = _reporter(_bytes_label)
-                    _batch_progress = _reporter(batch_progress_text)
-                    # Set for BOTH branches: the success line below appends it,
-                    # and the resource-pack/shader path used to reach that line
-                    # with no deps_note bound at all -> UnboundLocalError, caught
-                    # by the generic except and misreported as a failed install.
+                    _batch_progress = _reporter(lambda d, t, eta: progress_text(d, t, batch=True, eta=eta))
+                    # Keep dependency/repair details in the success tooltip;
+                    # the compact action label stays readable.
                     deps_note = ""
                     # Any compatibility repair the install needed, so the user
                     # is told why a pack they just installed was touched.
@@ -2253,8 +2234,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         # yet (Fabric API is the classic one), so a fresh click
                         # actually results in a mod that loads in-game.
                         def _dep_status(t):
-                            download_btn_text.value = status_text.human(t)
-                            thread_safe_ui.refresh(download_btn)
+                            feedback.status(t)
                         result = core.install_mod_with_dependencies(
                             file_info["url"], file_info["filename"],
                             mc_version=selected_mc, loader=selected_loader,
@@ -2266,11 +2246,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         deps_note = f" +{len(result['installed']) - 1} deps" \
                             if len(result["installed"]) > 1 else ""
                         if result["failed"]:
-                            download_btn_text.value = ("Installed, but failed: "
-                                                       + ", ".join(result["failed"]))
-                            download_btn_text.color = DANGER
-                            download_btn.bgcolor = ACCENT_TINT
-                            thread_safe_ui.refresh(download_btn)
+                            feedback.finish(file_info["filename"], error="Installed, but dependencies failed: " + ", ".join(result["failed"]))
                             refresh_mods_list()
                             return
                     else:
@@ -2294,16 +2270,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             title=mod.get("title"),
                             fix_cb=_note_fix)
 
-                    download_btn_text.value = ("Installed (pack format fixed)"
-                                               if fix_note["text"] else
-                                               "Installed" + deps_note)
-                    if fix_note["text"]:
-                        download_btn.tooltip = fix_note["text"]
-                    download_btn_text.color = TEXT_FAINT
-                    download_btn.bgcolor = None
-                    download_btn.content.controls[0].name = ft.Icons.CHECK_ROUNDED
-                    download_btn.content.controls[0].color = TEXT_FAINT
-                    thread_safe_ui.refresh(download_btn)
+                    feedback.finish(file_info["filename"], note=fix_note["text"] or (
+                        "Installed" + deps_note if deps_note else None))
                     refresh_mods_list()  # Update the installed list
                     # Automatic repair: catch a duplicate/missing dependency
                     # introduced by this install before it can crash a launch.
@@ -2316,11 +2284,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # file. net.DownloadError messages are already human-sized.
                     reason = (str(ex).strip().splitlines() or [""])[0] \
                         or type(ex).__name__
-                    download_btn_text.value = f"Failed - {status_text.human(reason)}"[:70]
-                    download_btn_text.color = DANGER
-                    download_btn.disabled = False
-                    download_btn.bgcolor = ACCENT_TINT
-                    thread_safe_ui.refresh(download_btn)
+                    feedback.finish(error=f"Failed - {status_text.human(reason)}")
 
             threading.Thread(target=worker, daemon=True).start()
 
@@ -2376,15 +2340,31 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         )
         row.on_click = lambda e: open_mod_detail(mod, row_content_type)
 
-        def sync_action(installed):
+        row_state = {"installed": is_installed, "result": feedback.result_id}
+        def paint(job):
+            if row_state["result"] != job.result_id:
+                row_state["result"] = job.result_id
+                if job.result == "success":
+                    row_state["installed"] = True
+            installed = row_state["installed"]
             icon = download_btn.content.controls[0]
-            icon.name = ft.Icons.CHECK_ROUNDED if installed else ft.Icons.DOWNLOAD_ROUNDED
-            icon.color = TEXT_FAINT if installed else ACCENT
-            download_btn_text.value = i18n.t("Installed") if installed else "Unavailable" if compatibility_note else "Download"
-            download_btn_text.color = TEXT_FAINT if installed else ACCENT
-            download_btn.bgcolor = None if installed else ACCENT_TINT
-            download_btn.disabled = installed or bool(compatibility_note) or not _can_install(row_content_type)
-            download_btn.on_click = None if installed else on_download
+            icon.name = ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
+            download_btn_text.value = compact_status(job.text) if job.busy else (
+                i18n.t("Installed") if installed else "Try again" if job.result == "error"
+                else "Unavailable" if compatibility_note else "Download")
+            download_btn_text.color = TEXT_DIM if job.busy else TEXT_FAINT if installed else DANGER if job.result == "error" else ACCENT
+            icon.color = download_btn_text.color
+            download_btn.bgcolor = ROW_HOVER if job.busy else None if installed else ACCENT_TINT
+            download_btn.disabled = job.busy or installed or bool(compatibility_note) or not _can_install(row_content_type)
+            download_btn.tooltip = job.text if job.busy or job.result == "error" else (
+                job.note if installed else compatibility_note or None)
+            download_btn.on_click = None if installed and not job.busy else on_download
+
+        def sync_action(installed):
+            row_state["installed"] = installed
+            paint(feedback)
+
+        feedback.watch(download_btn, paint)
 
         _remember_row(browse_rows, key, (dict(mod), row, sync_action))
         return row

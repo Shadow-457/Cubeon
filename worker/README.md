@@ -201,6 +201,8 @@ Re-run step 3 after any change to `cubeon-skins.js`, including after
 |---|---|---|
 | `POST /api/heartbeat` | `Authorization: Bearer <secret_token>` | claim/verify a UUID, repoint `<username>` at it |
 | `POST /api/skin` | `Authorization: Bearer <secret_token>` | publish a skin sheet against the caller's UUID |
+| `POST /api/cosmetics` | `Authorization: Bearer <secret_token>` | publish bundled back/shoulder IDs or null; heartbeat ownership required |
+| `GET /cosmetics/<name>.json` | none | selected Cubeon items, resolved through the existing username pointer |
 | `GET /skins/<name>.json` | none | CustomSkinAPI lookup for CSL: name → UUID → texture ids |
 | `GET /skins/textures/<id>` | none | the PNG CSL fetches for one content id (`root + "textures/" + <id>`) |
 | `GET /textures/<id>` | none | the same PNG bytes, alias kept for hand-seeding / old records |
@@ -212,6 +214,7 @@ KV layout:
 ```
 pointer:<lowercase-username> -> uuid                        (ephemeral name pointer)
 skin:<uuid>                  -> {"id":"<sha256>","model":"default"|"slim"}
+cosmetics:<uuid>             -> {"back": "<catalogue id>" | null, "shoulder": "<catalogue id>" | null}
 owner:<uuid>                 -> sha256(secret_token)        (TOFU ownership lock)
 texture:<sha256>             -> base64 PNG
 report:<uuid>                -> pending moderation report   (self-expiring)

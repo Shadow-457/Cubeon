@@ -483,36 +483,41 @@ def _wing_feather(start, end, width, curve=0, seed=0, molten=True, joined=False)
     return tile
 
 
-def _ember_wing():
-    canvas = Image.new("RGBA", WING_SIZE)
+def _ember_layers():
+    """Independent vanes and shoulder armour; never merge them into a sheet."""
+    layers = []
     # Long primary feathers, drawn trailing edge first. The rising upper
     # feathers and detached points give the wing its dramatic open fan.
     primaries = PRIMARY_FEATHERS
     for i, (start, end, width, curve) in enumerate(primaries):
-        canvas.alpha_composite(_wing_feather(start, end, width, curve, i,
-                                      joined=i < len(primaries) - 1))
+        layers.append(_wing_feather(start, end, width, curve, i))
     # Distinct shorter layers over the primary roots; these are darker, broad
     # armoured feathers with the same copper rim and warm vein language.
     coverts = COVERT_FEATHERS[:3]
     for i, (start, end, width, curve) in enumerate(coverts):
-        canvas.alpha_composite(_wing_feather(start, end, width, curve, i + 20, molten=i % 2 == 0))
+        layers.append(_wing_feather(start, end, width, curve, i + 20, molten=i % 2 == 0))
     for i, end in enumerate(((29, 69), (43, 36))):
-        canvas.alpha_composite(_wing_feather((5, 44), end, 7, -2, 40 + i, molten=False))
+        layers.append(_wing_feather((5, 44), end, 7, -2, 40 + i, molten=False))
     # Obsidian shoulder armour, with a molten eye/rune at its centre.
-    drawing = ImageDraw.Draw(canvas)
+    armour = Image.new("RGBA", WING_SIZE)
+    drawing = ImageDraw.Draw(armour)
     drawing.polygon([(3, 39), (9, 29), (19, 26), (28, 33), (27, 47), (17, 59), (6, 57)],
                     fill="#281a2d", outline="#ba5634", width=2)
     drawing.line([(7, 40), (12, 33), (18, 31), (24, 35)], fill="#ffc267", width=1)
     drawing.polygon([(10, 42), (18, 35), (23, 41), (18, 49)], fill="#7c2939", outline="#ff9a43")
     drawing.polygon([(14, 41), (18, 37), (21, 41), (18, 46)], fill="#ffe9b0")
     drawing.line([(7, 48), (12, 50), (16, 54), (23, 47)], fill="#d8723d", width=1)
+    layers.append(armour)
     # Tiny ember flecks stay inside the feathers and can be baked into texture.
     rng = random.Random(709)
     for _ in range(35):
         x, y = rng.randrange(25, 148), rng.randrange(10, 156)
-        if canvas.getpixel((x, y))[3] and canvas.getpixel((x, y))[0] < 160:
-            drawing.point((x, y), fill="#ffb965")
-    return canvas
+        for layer in reversed(layers):
+            if layer.getpixel((x, y))[3]:
+                if layer.getpixel((x, y))[0] < 160:
+                    ImageDraw.Draw(layer).point((x, y), fill="#ffb965")
+                break
+    return layers
 
 
 def small_wing_art(pal):
@@ -560,9 +565,7 @@ def small_wing_art(pal):
     return main, back
 
 
-def wing_art(pal):
-    """Approved V3 fan: six joined primary feathers with sealed pixel edges."""
-    image = _ember_wing()
+def _wing_theme(image, pal):
     theme = pal.get("wing_theme", "ember")
     if theme != "ember":
         ramp = WING_RAMPS[theme]
@@ -599,6 +602,43 @@ def wing_art(pal):
             for x, y in ((51, 52), (83, 63), (110, 85), (71, 120)):
                 for dx, dy in ((0, 0), (1, 0), (0, 1), (-1, 0)):
                     point(x + dx, y + dy, "#f5e993")
+    return image, image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+
+
+def _feather_mesh_art(image):
+    """Two-pixel contour grid with full-resolution paint inside each vane.
+
+    Interior colour detail stays native; merging tiny edge steps bounds the
+    number of closed walls when eleven feathers are real independent volumes.
+    """
+    mask = image.getchannel("A").resize((80, 88), Image.Resampling.BOX)
+    mask = mask.point(lambda value: 255 if value >= 128 else 0).resize(WING_SIZE, Image.Resampling.NEAREST)
+    result = image.copy()
+    source, pixels = image.load(), result.load()
+    for y in range(image.height):
+        for x in range(image.width):
+            if not mask.getpixel((x, y)):
+                pixels[x, y] = (0, 0, 0, 0)
+                continue
+            if mask.getpixel((x, y)) and not source[x, y][3]:
+                nearby = [(dx*dx + dy*dy, source[x+dx, y+dy])
+                          for dy in range(-2, 3) for dx in range(-2, 3)
+                          if 0 <= x+dx < image.width and 0 <= y+dy < image.height and source[x+dx, y+dy][3]]
+                if nearby:
+                    pixels[x, y] = min(nearby, key=lambda candidate: candidate[0])[1]
+    result.putalpha(mask)
+    return result
+
+
+def wing_layers(pal):
+    return [_feather_mesh_art(_wing_theme(image, pal)[0]) for image in _ember_layers()]
+
+
+def wing_art(pal):
+    """Front-view composite for artwork checks; geometry keeps these layers apart."""
+    image = Image.new("RGBA", WING_SIZE)
+    for layer in wing_layers(pal):
+        image.alpha_composite(layer)
     return image, image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
 
@@ -767,7 +807,7 @@ def _creature(item_id, name, blurb, pal):
     )
 
 
-def wing_rectangles(image, limit=36):
+def wing_rectangles(image, limit=36, strip=0):
     """Bounded opaque caps; no transparent slab, no hidden interior walls."""
     alpha = image.getchannel("A")
     used = set()
@@ -802,6 +842,18 @@ def wing_rectangles(image, limit=36):
                     mask.putpixel((x, y), (255, 255, 255, 255))
         for x, y, width, height in silhouette_rectangles(mask):
             output.append((x, y, width, height, [side]))
+    if strip:
+        # All caps and horizontal walls share the same X breakpoints. A curved
+        # feather is piecewise planar, so its cached three-anchor preview and
+        # game quads agree and no resting T-junction can open.
+        divided = []
+        for x, y, width, height, visible in output:
+            while width:
+                piece = min(width, strip - x % strip)
+                divided.append((x, y, piece, height, visible))
+                x += piece
+                width -= piece
+        return divided
     return output
 
 
@@ -811,35 +863,64 @@ def _wings(item_id, name, blurb, pal, small=False):
     if small:
         front, _ = small_wing_art(p)
         front = front.resize((40, 52), Image.Resampling.NEAREST)
-        y_origin, depth, hinge = 0, 2, [1, 0, 2.45]
+        y_origin, depth, hinge = 2, 2, [1, 2, 2.45]
         guides = [((1, 1), end, 2, 0) for end in ((12, 6), (14, 9), (11, 12), (7, 14), (2, 15))]
-        feathers = [dict(start=[1 + x * 2.5 / px, y * 3.25 / px],
-                         end=[1 + ex * 2.5 / px, ey * 3.25 / px],
+        feathers = [dict(start=[1 + x * 2.5 / px, y_origin + y * 3.25 / px],
+                         end=[1 + ex * 2.5 / px, y_origin + ey * 3.25 / px],
                          width=width * 2.5 / px, curve=0)
                     for (x, y), (ex, ey), width, curve in guides]
     else:
-        front, _ = wing_art(p)
-        y_origin, depth, hinge = -11, 3, [2, 0, 2.575]
+        layers = wing_layers(p)
+        y_origin, depth, hinge = -9, 1, [2, 2, 2.25]
         feathers = [dict(start=[1 + x / px, y_origin + y / px],
                          end=[1 + ex / px, y_origin + ey / px],
                          width=width / px, curve=curve / px)
                     for (x, y), (ex, ey), width, curve in PRIMARY_FEATHERS + COVERT_FEATHERS]
-    back = front.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        for index, feather in enumerate(feathers):
+            old_layer = 2.25 + index * .375 if index < 6 else 5.0 + (index - 6) * .25
+            root_layer = 2.125 + index / 64
+            tip_curl = 3.5 + index * .25 if index < 6 else 1 + (index - 6) * .125
+            # Keep the previous tip depth, but bring each root against the back.
+            # Tiny root offsets avoid coplanar fighting between overlapping vanes.
+            feather["curl"] = tip_curl + old_layer - root_layer
+            feather["tilt"] = (index - 2) / 64 if index < 6 else 0
+    surfaces = [(front, -1, 2.2)] if small else [
+        (layer, index if index < len(feathers) else -1,
+         2.125 + index / 64)
+        for index, layer in enumerate(layers)]
     boxes, painted = [], []
-    for left, top, width, height, visible in wing_rectangles(front):
-        face = front.crop((left, top, left + width, top + height))
-        rear = back.crop((front.width - left - width, top, front.width - left, top + height))
-        def cap(row):
-            return face.crop((0, row, width, row + 1)).resize((width, depth), Image.Resampling.NEAREST)
-        left_face = face.crop((width - 1, 0, width, height)).resize((depth, height), Image.Resampling.NEAREST)
-        right_face = face.crop((0, 0, 1, height)).resize((depth, height), Image.Resampling.NEAREST)
-        boxes.append(dict(origin=[1 + left / px, y_origin + top / px, 2.2],
-                          size=[width / px, height / px, depth / px], px=px,
-                          part=len(painted), mirror=True, faces=visible,
-                          motion="wing", pivot=hinge))
-        painted.append(faces(face, rear, left_face, right_face, cap(0), cap(height - 1)))
+    for front, feather_index, layer_z in surfaces:
+        back = front.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        for left, top, width, height, visible in wing_rectangles(front, strip=0 if small else 16):
+            face = front.crop((left, top, left + width, top + height))
+            rear = back.crop((front.width - left - width, top, front.width - left, top + height))
+            def cap(row):
+                return face.crop((0, row, width, row + 1)).resize((width, depth), Image.Resampling.NEAREST)
+            left_face = face.crop((width - 1, 0, width, height)).resize((depth, height), Image.Resampling.NEAREST)
+            right_face = face.crop((0, 0, 1, height)).resize((depth, height), Image.Resampling.NEAREST)
+            boxes.append(dict(origin=[1 + left / px, y_origin + top / px, layer_z],
+                              size=[width / px, height / px, depth / px], px=px,
+                              part=len(painted), mirror=True, faces=visible,
+                              motion="wing", pivot=hinge,
+                              **({"feather": feather_index} if not small else {})))
+            painted.append(faces(face, rear, left_face, right_face, cap(0), cap(height - 1)))
+    flat = None
+    if not small:
+        # Low-cost option: four alpha-cutout faces per pair, no volume walls or
+        # per-feather weights. Preserve the hinge and overall wing animation.
+        composite = Image.new("RGBA", WING_SIZE)
+        for layer in layers:
+            composite.alpha_composite(layer)
+        blank = Image.new("RGBA", (1, 1))
+        flat = dict(id=item_id, slot="back", name=name, blurb=blurb, wing_flare=True,
+                    boxes=[dict(origin=[1, y_origin, 2.125], size=[40, 44, .25], px=px,
+                                part=0, mirror=True, faces=["front", "back"],
+                                motion="wing", pivot=hinge)],
+                    _faces=[faces(composite, composite.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
+                                  blank, blank, blank, blank)])
     return dict(id=item_id, slot="back", name=name, blurb=blurb,
-                boxes=boxes, feathers=feathers, wing_flare=not small, _faces=painted)
+                boxes=boxes, feathers=feathers, wing_flare=not small,
+                **({"separate_feathers": True, "_flat": flat} if not small else {}), _faces=painted)
 
 
 def _pack(item_id, name, blurb, pal, emblem):
@@ -929,7 +1010,7 @@ def render_item(item):
     placements = {}
     if "feathers" in item:
         # Compact shelves keep even detailed giant wings below old GPU limits.
-        sheet_w = 256
+        sheet_w = 512 if item.get("separate_feathers") else 256
         x = y = shelf_height = 0
         for index in sorted(range(len(sizes)), key=lambda i: -sizes[i][1]):
             width, height = sizes[index]
@@ -974,6 +1055,7 @@ def render_item(item):
             "motion": box.get("motion", "none"),
             "pivot": box.get("pivot", [0, 0, 0]),
             **({"faces": box["faces"]} if "faces" in box else {}),
+            **({"feather": box["feather"]} if "feather" in box else {}),
         })
     return sheet, out_boxes
 
@@ -989,7 +1071,7 @@ def main():
         name = item["id"] + ".png"
         for folder in (LAUNCHER_DIR, MOD_TEXTURE_DIR):
             image.save(os.path.join(folder, name), optimize=True)
-        catalog["items"].append({
+        entry = {
             "id": item["id"],
             "slot": item["slot"],
             "name": item["name"],
@@ -1000,7 +1082,17 @@ def main():
             "boxes": boxes,
             **({"feathers": item["feathers"]} if "feathers" in item else {}),
             **({"wing_flare": item["wing_flare"]} if "wing_flare" in item else {}),
-        })
+            **({"separate_feathers": True} if item.get("separate_feathers") else {}),
+        }
+        if item.get("_flat"):
+            flat_image, flat_boxes = render_item(item["_flat"])
+            flat_name = item["id"] + "_flat.png"
+            for folder in (LAUNCHER_DIR, MOD_TEXTURE_DIR):
+                flat_image.save(os.path.join(folder, flat_name), optimize=True)
+            entry["flat"] = dict(id=item["id"], slot=item["slot"], name=item["name"],
+                                 texture=flat_name, tex_w=flat_image.width, tex_h=flat_image.height,
+                                 boxes=flat_boxes, wing_flare=True)
+        catalog["items"].append(entry)
 
     text = json.dumps(catalog, indent=2) + "\n"
     for folder in (LAUNCHER_DIR, MOD_CATALOG_DIR):

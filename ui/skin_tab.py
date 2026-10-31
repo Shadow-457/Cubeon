@@ -310,6 +310,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
 
     def _render_thumb(kind, filename):
         """PIL-heavy thumbnail render -> b64, or None. Worker-thread only."""
+        if kind == "cosmetic":
+            return _cosmetic_thumb(cosmetics.get(filename, appearance.cosmetics_dir))
         folder = core.SKINS_DIR if kind == "skin" else core.CAPES_DIR
         variant = ""
         if kind == "skin":
@@ -348,11 +350,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 b64 = _render_thumb(kind, fn)
                 if not b64:
                     continue
-                img.src = b64
-                img.visible = True
+                with thread_safe_ui.TREE_LOCK:
+                    img.src = b64
+                    img.visible = True
+                    if ph is not None:
+                        ph.visible = False
                 thread_safe_ui.refresh(img)
                 if ph is not None:
-                    ph.visible = False
                     thread_safe_ui.refresh(ph)
 
         threading.Thread(target=_worker, daemon=True,
@@ -825,7 +829,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             for item in cosmetics.items(slot, appearance.cosmetics_dir):
                 wing = bool(item.get("feathers"))
                 card = _owned_card(
-                    src=_cosmetic_thumb(item), label=item["name"].split(" (")[0] if wing else item["name"],
+                    src=_COSMETIC_MEMO.get(item["id"]), lazy_thumb=("cosmetic", item["id"]),
+                    label=item["name"].split(" (")[0] if wing else item["name"],
                     sublabel=("Small" if item["id"].endswith("_small") else "Giant") if wing else "",
                     active=active_id == item["id"],
                     on_use=lambda e, i=item["id"]: choose(i), on_delete=None,
@@ -848,6 +853,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             refresh()
             thread_safe_ui.refresh(grid)
             thread_safe_ui.refresh(status)
+            _flush_pending_thumbs()
             page.update()
 
         label = section_label("Your " + title)
@@ -857,12 +863,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             bgcolor=ACCENT_TINT, border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=6, vertical=2),
             data="cosmetic-beta-" + slot)], spacing=8)
-        refresh()
         controls = [heading, _grid_scroll(grid), status]
         if slot == "back":
             controls.append(ft.Text("Small wings move gently. Press N in Minecraft for a Giant-wing flare; K → Cosmetic motion turns movement off.",
                                     size=11, color=TEXT_DIM))
-        return ft.Column(controls, spacing=8)
+        pane = ft.Column(controls, spacing=8)
+        pane.load_items = refresh
+        return pane
 
     shoulder_pane = _cosmetic_pane("shoulder", "Shoulder Items")
     back_pane = _cosmetic_pane("back", "Back Items")
@@ -895,6 +902,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         active_pane["id"] = pid
         pane_holder.content = dict(
             (p[0], p[2]) for p in PANES)[pid]
+        load_items = getattr(pane_holder.content, "load_items", None)
+        if callable(load_items):
+            load_items()
         build_pane_tabs()
         if pid == "cape":
             appearance.turn(180 - appearance.yaw)
@@ -909,6 +919,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             appearance.turn(25 - appearance.yaw)
         thread_safe_ui.refresh(tab_row)
         thread_safe_ui.refresh(pane_holder)
+        _flush_pending_thumbs()
 
     build_pane_tabs()
 

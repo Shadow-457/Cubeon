@@ -39,6 +39,7 @@ from cubeon import instances as instance_info
 from cubeon import modpacks as modpacks_backend
 from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
 from ui.detail_dialog import open_project_detail
+from ui.install_feedback import InstallRegistry, compact_status
 from cubeon.paths import CUBEON_HOME
 
 
@@ -67,6 +68,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # thread, so the second click is refused before it touches the network.
     preparing = {"value": False}
     browse_rows = {}
+    install_registry = InstallRegistry()
+    active_feedback = {"job": None}
     installed_rows = {}
 
     def _remember_row(cache, key, entry):
@@ -183,6 +186,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         _check_cancel()
         install_status.value = _status_with_eta(text)
         install_status.color = TEXT
+        if active_feedback["job"]:
+            active_feedback["job"].status(install_status.value)
         # The core installer HIDES the target profile's _modpack.json marker
         # (renames it to .bak) the instant its rebuild starts, before
         # downloading the MC version. Refresh the list at that first step so a
@@ -201,15 +206,19 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def progress_cb(val):
         _check_cancel()
         mx = install_bar.data or 1
-        install_bar.value = (val / mx) if mx else None
+        install_bar.value = min(1, max(0, val / mx)) if mx else None
         _eta.note(val, mx)
         install_status.value = _status_with_eta(_status_line["text"])
+        if active_feedback["job"]:
+            active_feedback["job"].status(f"{int(install_bar.value * 100)}% · {install_status.value}")
         thread_safe_ui.refresh(install_bar)
         thread_safe_ui.refresh(install_status)
 
     def max_cb(val):
         _check_cancel()
         install_bar.data = val or 1
+        install_bar.value = None
+        _eta.reset()
         thread_safe_ui.refresh(install_bar)
 
     def _begin_install():
@@ -231,6 +240,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _end_install_ok(meta):
         preparing["value"] = False
         busy["value"] = False
+        if active_feedback["job"]:
+            active_feedback["job"].finish()
+            active_feedback["job"] = None
         install_cancel_btn.visible = False
         install_status.value = f"Installed {meta.get('name', 'modpack')} ✓"
         install_status.color = ACCENT
@@ -271,6 +283,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _end_install_err(message):
         preparing["value"] = False
         busy["value"] = False
+        if active_feedback["job"]:
+            active_feedback["job"].finish(error=message)
+            active_feedback["job"] = None
         install_cancel_btn.visible = False
         install_status.value = status_text.human(message)
         install_status.color = DANGER
@@ -284,6 +299,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         won't appear in the list until a completed install writes it back."""
         preparing["value"] = False
         busy["value"] = False
+        if active_feedback["job"]:
+            active_feedback["job"].finish(error="Install cancelled")
+            active_feedback["job"] = None
         install_cancel_btn.visible = False
         install_status.value = "Install cancelled - nothing was marked as installed."
         install_status.color = TEXT_DIM
@@ -291,7 +309,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         page.update()
 
     def run_install(*, url=None, file_path=None, cf_file=None, icon_url=None,
-                    source_id=None, preclaimed=False):
+                    source_id=None, preclaimed=False, feedback=None):
         """cf_file: a get_modpack_file() result with source='curseforge' -
         installed through the CF->mrpack converter instead of the raw-mrpack
         path (a CurseForge zip isn't an .mrpack). icon_url: the browse hit's
@@ -308,6 +326,13 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             if busy["value"] or preparing["value"]:
                 return False
             preparing["value"] = True
+        if feedback is not None:
+            if not preclaimed and not feedback.start(text="Preparing..."):
+                preparing["value"] = False
+                return False
+            active_feedback["job"] = feedback
+        elif not preclaimed:
+            active_feedback["job"] = None
         _begin_install()
 
         def worker():
@@ -899,6 +924,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         stack five loud buttons.
         """
         key = (pack.get("provider"), str(pack.get("project_id") or pack.get("slug") or pack["title"]))
+        feedback = install_registry.project(("modpack", pack.get("provider")), key[1], pack.get("slug"))
         cached = browse_rows.get(key)
         if cached:
             metadata, row, sync_action = cached
@@ -939,10 +965,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             # "it installed twice with different mod counts" report.
             if busy["value"] or preparing["value"]:
                 return
+            if is_installed or not feedback.start(text="Preparing..."):
+                return
+            active_feedback["job"] = feedback
             preparing["value"] = True
-            install_btn.disabled = True
-            install_btn_text.value = "Preparing..."
-            page.update()
+            thread_safe_ui.refresh(install_btn)
 
             def worker():
                 try:
@@ -981,12 +1008,6 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 except Exception as ex:
                     preparing["value"] = False
                     _end_install_err(f"Couldn't start install: {ex}"[:200])
-                finally:
-                    install_btn.disabled = False
-                    install_btn_text.value = i18n.t("Install")
-                    # No coalesced-progress flush needed: progress callbacks
-                    # repaint their own controls directly.
-                    page.update()
 
             threading.Thread(target=worker, daemon=True).start()
 
@@ -1013,7 +1034,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             if url:
                 run_install(url=url, icon_url=_pack.get("icon_url"),
                             source_id=(f"modrinth:{_pack['project_id']}"
-                                       if _pack.get("project_id") else None))
+                                       if _pack.get("project_id") else None), feedback=feedback)
 
         def _open_pack_detail(e=None, _pack=pack, _installed=is_installed,
                               _theme=_pack_theme, _install=on_install):
@@ -1024,11 +1045,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 icon_url=_pack.get("icon_url"),
                 blurb=_pack.get("description") or "",
                 install_label="Install",
-                on_install=None if _installed else _install,
-                install_disabled=_installed,
+                on_install=None if is_installed else _install,
+                install_disabled=is_installed,
+                install_feedback=feedback,
                 install_hint=("Installs its own Minecraft version and loader -"
                               " it doesn't have to match the Play tab."),
-                on_install_version=(None if _installed else
+                on_install_version=(None if is_installed else
                                     _install_chosen_version),
             )
 
@@ -1073,17 +1095,29 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             "transparent", ROW_HOVER,
         )
 
+        seen = {"result": feedback.result_id}
+        def paint(job):
+            nonlocal is_installed
+            if seen["result"] != job.result_id:
+                seen["result"] = job.result_id
+                if job.result == "success":
+                    is_installed = True
+            icon = install_btn.content.controls[0]
+            icon.name = ft.Icons.CHECK_ROUNDED if is_installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
+            install_btn_text.value = compact_status(job.text) if job.busy else i18n.t("Installed") if is_installed else i18n.t("Install")
+            install_btn_text.color = TEXT_DIM if job.busy else TEXT_FAINT if is_installed else ACCENT
+            icon.color = install_btn_text.color
+            install_btn.bgcolor = ROW_HOVER if job.busy else None if is_installed else ACCENT_TINT
+            install_btn.disabled = job.busy or is_installed
+            install_btn.tooltip = job.text if job.busy or job.result == "error" else None
+            install_btn.on_click = None if is_installed and not job.busy else on_install
+
         def sync_action(installed):
             nonlocal is_installed
             is_installed = installed
-            icon = install_btn.content.controls[0]
-            icon.name = ft.Icons.CHECK_ROUNDED if installed else ft.Icons.DOWNLOAD_ROUNDED
-            icon.color = TEXT_FAINT if installed else ACCENT
-            install_btn_text.value = i18n.t("Installed") if installed else i18n.t("Install")
-            install_btn_text.color = TEXT_FAINT if installed else ACCENT
-            install_btn.bgcolor = None if installed else ACCENT_TINT
-            install_btn.disabled = installed
-            install_btn.on_click = None if installed else on_install
+            paint(feedback)
+
+        feedback.watch(install_btn, paint)
 
         _remember_row(browse_rows, key, (pack, row, sync_action))
         return row

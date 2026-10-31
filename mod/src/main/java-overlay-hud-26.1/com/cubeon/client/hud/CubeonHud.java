@@ -80,13 +80,9 @@ public final class CubeonHud {
 
 		sampleClicks(client);
 
-		// While the position editor is open it draws its own live ghost instead.
-		// (26.1 has no Hud class, so the F1-hidden check vanilla added later is skipped here.)
-		if (client.getDebugOverlay().showDebugScreen()) {
-			return;
-		}
-
-		if (client.screen instanceof MoveOverlayScreen) {
+		// Debug tools (F3/F3+B) keep the HUD visible. F1 still hides it,
+		// and the position editor draws its own live ghost instead.
+		if (client.options.hideGui || client.screen instanceof MoveOverlayScreen) {
 			return;
 		}
 

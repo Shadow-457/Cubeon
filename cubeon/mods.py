@@ -3093,7 +3093,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
         if not progress_cb:
             return
         try:
-            frac = (done / total) if total else 0.0
+            frac = min(1.0, max(0.0, done / total)) if total else 0.0
             value = _batch["done"] + frac
             if value < _batch["floor"]:
                 value = _batch["floor"]
@@ -3107,6 +3107,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
                  slug=slug, mc_version=mc_version, loader=loader,
                  hashes=hashes, project_id=project_id, version_id=version_id)
     _batch["done"] = 1.0
+    _batch_progress(0, 1)
     installed.append(filename)
 
     for i, dep in enumerate(pending, start=2):
@@ -3133,6 +3134,7 @@ def install_mod_with_dependencies(download_url: str, filename: str,
             # slot - the UI's "Installed, but failed: ..." line is what carries
             # that message.
             _batch["done"] += 1.0
+            _batch_progress(0, 1)
             if dep_id:
                 have.add(dep_id)
         except Exception:

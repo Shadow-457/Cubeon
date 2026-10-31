@@ -23,6 +23,8 @@ package com.cubeon.client.hud;
 public class CubeonHudConfig {
     private static final CubeonHudConfig CONFIG = new CubeonHudConfig();
     public boolean cosmeticAnimations = true;
+    public boolean wingDepth = true;
+    public boolean showOtherCosmetics = false;
     public static CubeonHudConfig get() { return CONFIG; }
 }
 ''',
@@ -31,14 +33,28 @@ package net.minecraft.client;
 public class MinecraftClient {
     public static MinecraftClient instance = new MinecraftClient();
     public static MinecraftClient getInstance() { return instance; }
-    public Player player = new Player();
-    public Object world = new Object();
-    public static class Player {
-        public int getId() { return 42; }
-        public boolean isSprinting() { return false; }
-        public Object getDisplayName() { return "Player"; }
-        public net.minecraft.util.math.Vec3d getVelocity() { return new net.minecraft.util.math.Vec3d(); }
+    public net.minecraft.entity.player.PlayerEntity player = new net.minecraft.entity.player.PlayerEntity(42, "Local");
+    public World world = new World();
+    public static class World {
+        public net.minecraft.entity.player.PlayerEntity peer = new net.minecraft.entity.player.PlayerEntity(99, "Remote");
+        public Object getEntityById(int id) { return id == 42 ? instance.player : id == 99 ? peer : null; }
     }
+}''',
+    'net/minecraft/entity/player/PlayerEntity.java': '''
+package net.minecraft.entity.player;
+public class PlayerEntity {
+    public final int id; public final String name;
+    public boolean invisible, spectator; public double distance;
+    public PlayerEntity(int id, String name) { this.id=id; this.name=name; }
+    public int getId(){return id;}
+    public Name getName(){return new Name(name);}
+    public record Name(String value){public String getString(){return value;}}
+    public boolean isInvisible(){return invisible;}
+    public boolean isSpectator(){return spectator;}
+    public boolean isSprinting(){return false;}
+    public boolean isFallFlying(){return false;}
+    public double squaredDistanceTo(PlayerEntity other){return distance;}
+    public net.minecraft.util.math.Vec3d getVelocity(){return new net.minecraft.util.math.Vec3d();}
 }''',
     'net/minecraft/client/render/entity/state/PlayerEntityRenderState.java': '''
 package net.minecraft.client.render.entity.state;
@@ -164,7 +180,7 @@ package probe;
 import java.util.*;
 public class Draws { public static List<String> textures = new ArrayList<>(); public static int vertices; public static List<float[]> points = new ArrayList<>(); }
 ''',
-    'probe/RendererTest.java': '''
+    'probe/RendererTest.java': r'''
 package probe;
 import com.cubeon.client.cosmetics.*;
 import java.lang.reflect.*;
@@ -176,6 +192,9 @@ import net.minecraft.client.render.entity.state.PlayerEntityRenderState;
 import net.minecraft.client.util.math.MatrixStack;
 
 public class RendererTest {
+    static final java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
+    static final java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
+    static final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
     static final List<String> BOTH = List.of("textures/cosmetics/back_void_wings.png",
                                             "textures/cosmetics/shoulder_star_owl.png");
     static Object renderer;
@@ -200,7 +219,7 @@ public class RendererTest {
             float pitch = body.getField("pitch").getFloat(null);
             double c = Math.cos(pitch), sin = Math.sin(pitch);
             for (String idKey : List.of("back_void_wings", "shoulder_star_owl")) {
-                var item = catalog.get(idKey);
+                var item = catalog.get(idKey).forWingDepth(com.cubeon.client.hud.CubeonHudConfig.get().wingDepth);
                 var posed = new CosmeticAnimation.PosedQuad();
                 var animation = com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations
                         ? CosmeticAnimation.sample(state.age / 20, 0, false).forItem(item) : null;
@@ -222,6 +241,23 @@ public class RendererTest {
         }
     }
     public static void main(String[] args) throws Exception {
+        java.net.URL.setURLStreamHandlerFactory(protocol -> !protocol.equals("https") ? null : new java.net.URLStreamHandler() {
+            protected java.net.URLConnection openConnection(java.net.URL url) {
+                if (!url.getHost().equals("cubeon-skins.hamza-457-shahbaz.workers.dev")
+                        || !url.getPath().equals("/cosmetics/remote.json")) throw new AssertionError("Unexpected network target");
+                return new java.net.HttpURLConnection(url) {
+                    public void connect(){} public void disconnect(){} public boolean usingProxy(){return false;}
+                    public int getResponseCode() {
+                        requests.incrementAndGet(); started.countDown();
+                        try { if(!release.await(5,java.util.concurrent.TimeUnit.SECONDS))throw new AssertionError("Render waited for network"); }
+                        catch(InterruptedException error){throw new RuntimeException(error);}
+                        return 200;
+                    }
+                    public java.io.InputStream getInputStream(){return new java.io.ByteArrayInputStream(
+                        "{\"back\":\"back_void_wings\",\"shoulder\":\"shoulder_star_owl\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+                };
+            }
+        });
         CosmeticSelection.bind(Path.of(args[0]));
         String selection = Files.readString(Path.of(args[0]));
         if (!"back_void_wings".equals(CosmeticSelection.selectedWing()))
@@ -243,6 +279,24 @@ public class RendererTest {
         check(42, "[Team] Player", BOTH);            // Team/decorated text is irrelevant.
         check(99, "Player", List.of());              // Equal labels must not dress another player.
         check(99, null, List.of());
+        if(requests.get()!=0)throw new AssertionError("Disabled peer setting must cause no requests");
+        com.cubeon.client.hud.CubeonHudConfig.get().showOtherCosmetics=true;
+        check(99, null, List.of());                 // Loading returns immediately, never blocks rendering.
+        if(!started.await(2,java.util.concurrent.TimeUnit.SECONDS))throw new AssertionError("Peer lookup never started");
+        check(42, null, BOTH);                      // Local selection remains instant while network blocks.
+        release.countDown();
+        long deadline=System.nanoTime()+2_000_000_000L;
+        while(RemoteCosmetics.get("Remote").back()==null&&System.nanoTime()<deadline)Thread.sleep(5);
+        check(99, "[Team] Decoration", BOTH);       // Authenticated peer selection uses native player name.
+        check(99, null, BOTH);
+        if(requests.get()!=1)throw new AssertionError("Every frame must reuse one cached response");
+        var peer=MinecraftClient.instance.world.peer;
+        peer.invisible=true; check(99,null,List.of()); peer.invisible=false;
+        peer.spectator=true; check(99,null,List.of()); peer.spectator=false;
+        peer.distance=4097; check(99,null,List.of()); peer.distance=0;
+        com.cubeon.client.hud.CubeonHudConfig.get().showOtherCosmetics=false;
+        check(99,null,List.of());                   // Turning OFF immediately hides previously loaded peers.
+        check(42,null,BOTH);
         // Real model-space pose changes: standing body origin is zero, crouch moves
         // it down/back, swimming rotates it around X. Both items must follow.
         var body = net.minecraft.client.render.entity.model.PlayerEntityModel.Body.class;
@@ -259,11 +313,24 @@ public class RendererTest {
         check(42, null, BOTH);
         com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations = true;
         check(42, null, BOTH);
+        // Switching depth selects the four-quad mesh and matching texture instantly.
+        com.cubeon.client.hud.CubeonHudConfig.get().wingDepth = false;
+        var flatTextures = List.of("textures/cosmetics/back_void_wings_flat.png", BOTH.get(1));
+        check(42, null, flatTextures);
+        int flatCount = Draws.vertices;
+        int expectedFlat = 16 + CosmeticGeometry.quads(CosmeticCatalog.get().get("shoulder_star_owl"), -7).size() * 4;
+        if (flatCount != expectedFlat) throw new AssertionError("Flat wings must submit only sixteen vertices");
+        com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations = false;
+        check(42, null, flatTextures);
+        com.cubeon.client.hud.CubeonHudConfig.get().cosmeticAnimations = true;
+        com.cubeon.client.hud.CubeonHudConfig.get().wingDepth = true;
+        check(42, null, BOTH);
+        if (Draws.vertices <= flatCount * 10) throw new AssertionError("Depth OFF must reduce geometry work");
         MinecraftClient.instance.player = null;
         check(42, null, List.of());                  // Leaving a world is harmless.
         MinecraftClient.instance = null;
         check(42, null, List.of());
-        System.out.println("Standing/crouching/swimming positions and hidden/decorated names render both items; remote players and no-world states draw nothing.");
+        System.out.println("Body poses, player identity, motion OFF, and instant 3D/flat texture/mesh switching passed.");
     }
 }''',
 }
@@ -283,7 +350,8 @@ class CosmeticRendererTests(unittest.TestCase):
                     sources.append(str(path))
                 sources += [str(JAVA / 'com/cubeon/client/Json.java')]
                 sources += [str(JAVA / PACKAGE / (name + '.java')) for name in
-                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry', 'CosmeticAnimation', 'WingAction')]
+                            ('CosmeticCatalog', 'CosmeticSelection', 'CosmeticGeometry', 'CosmeticAnimation', 'WingAction', 'RemoteCosmetics', 'CosmeticView')]
+                sources += [str(ROOT / 'mod/src/main/java-overlay-api-yarn' / PACKAGE / 'CosmeticPlayers.java')]
                 sources += [str(ROOT / ('mod/src/main/java-overlay-cosmetics-' + overlay) /
                                 PACKAGE / 'CosmeticFeatureRenderer.java')]
                 classes = root / 'classes'

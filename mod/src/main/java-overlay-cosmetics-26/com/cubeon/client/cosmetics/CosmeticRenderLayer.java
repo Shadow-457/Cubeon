@@ -16,7 +16,7 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.Identifier;
 
 /**
- * Draws the local player's selected cosmetics (26.x).
+ * Draws selected local and opted-in peer cosmetics (26.x).
  *
  * <p>26.x queues all geometry through {@code SubmitNodeCollector}. The body
  * pose is applied before {@code submitCustomGeometry}, which snapshots it; the
@@ -32,30 +32,19 @@ public final class CosmeticRenderLayer
     }
 
     private final CosmeticAnimation.PosedQuad posed = new CosmeticAnimation.PosedQuad();
-    private final CosmeticAnimation.Tracker motion = new CosmeticAnimation.Tracker();
 
     @Override
     public void submit(PoseStack pose, SubmitNodeCollector collector, int light,
                        AvatarRenderState state, float limbAngle, float limbDistance) {
-        Minecraft client = Minecraft.getInstance();
-        if (client == null || client.player == null
-                || state.id != client.player.getId()) {
-            return;
-        }
+        CosmeticView view = CosmeticPlayers.view(state.id, state.ageInTicks / 20.0f, state.isFallFlying);
+        if (view == null) return;
         CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
-        if (catalog == null) {
-            return;
-        }
-        CosmeticAnimation.Frame animation = CubeonHudConfig.get().cosmeticAnimations
-                ? motion.sample(state.ageInTicks / 20.0f,
-                (float) client.player.getDeltaMovement().horizontalDistance() * 4, state.isFallFlying, client.player.isSprinting(),
-                WingAction.INSTANCE.elapsed(client.player, client.level, state.ageInTicks / 20.0f)) : motion.disabled();
-        CosmeticSelection.refresh();
+        if (catalog == null) return;
         pose.pushPose();
         getParentModel().body.translateAndRotate(pose);
         try {
-            drawItem(catalog, "back", pose, collector, light, animation);
-            drawItem(catalog, "shoulder", pose, collector, light, animation);
+            drawItem(catalog, "back", pose, collector, light, view);
+            drawItem(catalog, "shoulder", pose, collector, light, view);
         } finally {
             pose.popPose();
         }
@@ -63,12 +52,14 @@ public final class CosmeticRenderLayer
 
     private void drawItem(CosmeticCatalog.Catalog catalog, String slot,
                           PoseStack pose, SubmitNodeCollector collector, int light,
-                          CosmeticAnimation.Frame animation) {
-        CosmeticCatalog.Item item = catalog.get(CosmeticSelection.get(slot));
+                          CosmeticView view) {
+        CosmeticCatalog.Item selected = catalog.get(view.items().get(slot));
+        final CosmeticCatalog.Item item = selected == null ? null
+                : selected.forWingDepth(CubeonHudConfig.get().wingDepth);
         if (item == null) {
             return;
         }
-        final CosmeticAnimation.Frame itemAnimation = animation == null ? null : animation.forItem(item);
+        final CosmeticAnimation.Frame itemAnimation = view.animation() == null ? null : view.animation().forItem(item);
         Identifier texture = Identifier.fromNamespaceAndPath("cubeon-client",
                 "textures/cosmetics/" + item.texture);
         RenderType type = RenderTypes.entityCutout(texture, false);

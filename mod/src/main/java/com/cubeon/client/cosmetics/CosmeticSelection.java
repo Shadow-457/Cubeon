@@ -90,6 +90,20 @@ public final class CosmeticSelection {
         return "shoulder".equals(slot) ? shoulder : "back".equals(slot) ? back : null;
     }
 
+    /** Immutable selection captured before queued rendering. */
+    public record Items(String back, String shoulder) {
+        public String get(String slot) { return "back".equals(slot) ? back : "shoulder".equals(slot) ? shoulder : null; }
+        public static Items parse(Map<String, Object> root) {
+            return new Items(valid(Json.str(root, "back", null), "back"),
+                    valid(Json.str(root, "shoulder", null), "shoulder"));
+        }
+    }
+
+    public static synchronized Items snapshot() {
+        refresh();
+        return new Items(back, shoulder);
+    }
+
     /** Only rigged wings can play the N action; packs and unknown ids cannot. */
     public static String selectedWing() {
         String id = get("back");
