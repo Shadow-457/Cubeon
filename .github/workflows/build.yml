@@ -381,7 +381,7 @@ jobs:
 
       - name: Upload Linux AppImage Artifact
         # Publish artifacts only for tagged releases. A single run's
-        # artifacts (AppImage + Windows ZIP + macOS bundle) are ~400-500 MB,
+        # artifacts (AppImage + Windows installer + macOS bundle) are ~400-500 MB,
         # which is the WHOLE free Actions storage quota - uploading them on
         # every main push filled it up (19 GB of stale builds) and then made
         # every upload fail with "Artifact storage quota has been hit".
@@ -429,7 +429,7 @@ jobs:
         run: gh release upload "$RELEASE_TAG" dist/Cubeon-Linux-x86_64-Setup.sh --clobber
 
   build-windows-exe:
-    name: Build Windows EXE & ZIP
+    name: Build Windows installer
     needs: release
     runs-on: windows-latest
     permissions:
@@ -492,25 +492,8 @@ jobs:
         shell: bash
         run: python tools/write_cf_key.py
 
-      - name: Build Windows onedir + portable ZIP
+      - name: Build Windows installer payload
         run: python packaging/build_windows.py
-
-      - name: Publish Windows ZIP to the release
-        # Published BEFORE the NSIS installer step on purpose: the portable
-        # build still reaches the release even if the installer build fails.
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Windows-x64.zip --clobber
-
-      - name: Upload Windows Portable ZIP Artifact
-        if: startsWith(github.ref, 'refs/tags/v')
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          retention-days: 7
-          name: Cubeon-Windows-x64-ZIP
-          path: dist/Cubeon-Windows-x64.zip
 
       - name: Build Windows installer (NSIS)
         run: python packaging/build_windows_installer.py
@@ -593,7 +576,7 @@ jobs:
           set -euo pipefail
           have="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
           missing=0
-          for want in Cubeon-Windows-x64-Setup.exe Cubeon-Windows-x64.zip \
+          for want in Cubeon-Windows-x64-Setup.exe \
                       Cubeon-macOS.zip Cubeon-x86_64.AppImage \
                       Cubeon-Linux-x86_64-Setup.sh; do
             if ! grep -qxF "$want" <<<"$have"; then

@@ -686,19 +686,36 @@ consistent with the shared `THEME` contract.
 
 ### Windows, Java, and packaging
 
-- Startup launcher updates use one public Worker metadata check per process; a newer release opens
+- Startup launcher updates use one automatic public Worker metadata check per process; Settings →
+  System → Check for updates can retry offline checks or check the selected channel immediately. A newer release opens
   `ui/update_prompt.py` with Skip / Update. Skip lasts this launch; `update_notice_seen` limits only
-  OS toasts. `update_channel` defaults stable; beta includes prereleases and changes apply next start.
+  OS toasts. `update_channel` defaults stable; beta includes prereleases and changes apply to the next check.
   No installer bytes download before Update. `cubeon/update_install.py` verifies size/SHA-256 and
   handles registered Windows installs and x86_64 AppImages in writable directories, including mode
   0555 files; AppRun preserves the original path as `CUBEON_APPIMAGE_PATH`. Update never opens a browser;
   unverifiable downloads report an inline error. Unsupported builds have an explicit Download manually
-  action. Restart requires idle game/install/server state. Portable/macOS/source/package installs
-  still need manual installation.
+  action. Restart requires idle game/install/server state.
+  One Update click downloads, verifies, closes, installs and reopens; if a game/server starts while
+  downloading, the verified update stays ready until idle. Debian/Ubuntu `/opt/cubeon/Cubeon` builds
+  require exact `dpkg-query` package ownership and use PolicyKit + apt for authorized package updates.
+  Other package managers, macOS and source checkouts remain manual. Helper outcomes live in
+  `updates/install-result.txt` (UTF-8, including PowerShell BOM) and failures are reported on next start.
   Helpers start in the session exit path (including the window-gone watchdog), wait for process exit,
   and recheck bytes; never run a replacement or re-exec from inside a live Flet session. AppImages
   keep a `.cubeon-previous` copy (also replaced atomically if read-only) and reset PyInstaller's
   environment before reopening the updated executable. Native Windows installation still needs a Windows smoke check.
+- Windows distribution is installer-only: `packaging/build_windows.py` produces the internal onedir payload
+  (`Cubeon.exe` + `_internal`), NSIS stages and swaps it with rollback, and the workflow publishes
+  only `Cubeon-Windows-x64-Setup.exe`. Do not restore ZIP/single-file/public portable builders.
+  NSIS resolves InstallDirRegKey and `/D` before `.onInit`; do not override that directory again.
+  `/D` is last and unquoted. Uninstall removes only owned program entries and only clears registry/
+  shortcuts for that registered copy. `test_launcher_installers.py --wine` tests install, upgrade,
+  preserved timestamps, custom directories, incomplete-payload rejection, and data-safe uninstall.
+- `build_linux_installers.build_setup()` appends an AppImage/icon tarball to the setup script with
+  SHA-256 verification. Distribute the complete generated script, not `install_linux.sh` alone.
+  Its menu wrapper uses AppImage extraction mode without FUSE/libfuse2. Desktop Exec uses
+  `/usr/bin/env` before the quoted path: GLib checks the first executable before expanding `%%`,
+  which otherwise rejects a valid install path containing `%`. Installer tests run actual GIO launch.
 - Preserve all three Windows reveal paths: forced visible transition, `to_front()` call, and the native
   `winwindow.py` backstop. Flet's default-value suppression can make a plain `visible=True` assignment
   ineffective.
@@ -782,7 +799,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
-| Launcher updates | `test_launcher_updates.py`, `test_update_notice.py`, `node worker/test-downloads.mjs` |
+| Launcher updates / installers | `test_launcher_updates.py`, `test_launcher_installers.py` (`--wine` optional), `test_update_notice.py`, `node worker/test-downloads.mjs` |
 | Repository cleanliness | `test_repository_hygiene.py` |
 
 ## Releases and hosted services

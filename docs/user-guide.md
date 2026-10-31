@@ -8,9 +8,11 @@ Download the build for your operating system from
 [www.ylet.online/download](https://www.ylet.online/download).
 Packaged builds do not require a separate Python installation.
 
-- **Windows:** use the setup executable, or extract the portable ZIP before
-  running `Cubeon.exe`. Keep the portable folder's files together.
-- **Linux:** use the provided installer or package. For an AppImage, grant
+- **Windows:** open the setup executable. It installs Cubeon and adds a Start
+  menu entry without needing administrator rights.
+- **Linux:** run `bash Cubeon-Linux-x86_64-Setup.sh` to install Cubeon and its
+  app menu entry. The setup includes everything and supports systems without
+  FUSE. Alternatively use the Debian/Ubuntu package. For an AppImage, grant
   execute permission and launch it from your file manager or terminal.
 - **macOS:** extract the release archive and open the app. Unsigned builds
   may require approval through the operating system's security settings.
@@ -234,22 +236,25 @@ prompt offers **Skip** and **Update**. Skip continues this launch; Cubeon can
 offer the update again next time. Downloads start only after you choose Update.
 
 Choose **Stable** or **Beta** in **Settings → System → Updates**. Stable is
-the default; Beta also includes prereleases. The choice applies on the next launch.
+the default; Beta also includes prereleases. Use **Check for updates** to check
+the selected channel immediately or retry after reconnecting to the internet.
 
 Windows installations made with Cubeon's installer and Linux AppImages in
-writable folders download and verify the update inside Cubeon. Cancel stops
-the download. The progress bar shows the download. When it is verified,
-**Restart** closes Cubeon, installs the update, and opens the new version.
+writable folders download and verify the update inside Cubeon. One **Update**
+click downloads, verifies, closes Cubeon, installs and reopens the new version.
+Cancel stops the download. Debian/Ubuntu package installs can also update
+through the system authorization prompt when PolicyKit and apt are available.
 Close Minecraft and stop active installs or hosted servers first. Updating the
 AppImage keeps a `.cubeon-previous` copy beside it.
 
-Portable Windows builds, macOS, source checkouts and package-managed Linux
-installations offer an explicit **Download manually** action. Update never
+Legacy Windows portable copies should migrate by running the setup executable.
+macOS, source checkouts and unsupported Linux packages offer an explicit
+**Download manually** action. Update never
 opens a browser automatically. A missing checksum stays an error inside
 Cubeon; restart the launcher to check for a verified release again.
 
-Keep the launcher closed while replacing a portable build. Updating the
-app is different from deleting its data folders.
+Reinstalling Cubeon keeps its data folders. Windows setup stages files before
+replacement and restores the old program if replacement fails.
 
 ## Data and troubleshooting
 

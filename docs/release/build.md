@@ -48,7 +48,10 @@ python packaging/build_linux_installers.py
 
 Outputs include `dist/Cubeon-Linux-x86_64-Setup.sh` and
 `dist/cubeon_<version>_amd64.deb`. The setup script installs for the current
-user under `~/.local/opt/Cubeon`; the Debian package is a system package.
+user under `~/.local/opt/Cubeon`; it includes the AppImage and icon, verifies
+its payload, and adds a menu launcher with a fallback for systems without FUSE.
+Run it with `bash Cubeon-Linux-x86_64-Setup.sh`. The Debian package is a
+system package.
 
 ## Windows
 
@@ -58,18 +61,16 @@ Run in the project's Windows Python environment:
 python packaging/build_windows.py
 ```
 
-This produces `dist/Cubeon/` and `dist/Cubeon-Windows-x64.zip`. The portable
-app is the entire folder, not just `Cubeon.exe`.
+This produces `dist/Cubeon/`, the internal payload for the installer.
+Distribute the setup executable; Windows portable builds have been removed.
 
-For a setup executable, build the portable folder first, then run:
+To build the setup executable from that payload, run:
 
 ```powershell
 python packaging/build_windows_installer.py
 ```
 
-This produces `dist/Cubeon-Windows-x64-Setup.exe` and needs NSIS. An optional
-single-file portable build is available through
-`python packaging/build_windows_single.py`.
+This produces `dist/Cubeon-Windows-x64-Setup.exe` and needs NSIS.
 
 Windows Python can also run the build scripts under Wine. Use a configured
 Windows Python environment, not Linux Python with a Windows output name.
@@ -92,11 +93,10 @@ provided by a local PyInstaller build.
 
 ## Public builds
 
-Separate scripts produce builds with Friends disabled:
+A separate script produces Linux builds with Friends disabled:
 
 ```bash
 bash packaging/build_public_appimage.sh
-python packaging/build_public_windows.py
 ```
 
 They use a curated asset set and a no-Friends marker. The normal source and
@@ -146,7 +146,7 @@ The download Worker depends on these release asset names:
 | Platform | Release assets |
 | --- | --- |
 | Linux | `Cubeon-x86_64.AppImage`, `Cubeon-Linux-x86_64-Setup.sh`, `cubeon_<version>_amd64.deb` |
-| Windows | `Cubeon-Windows-x64-Setup.exe`, `Cubeon-Windows-x64.zip` |
+| Windows | `Cubeon-Windows-x64-Setup.exe` |
 | macOS | `Cubeon-macOS.zip` |
 
 Renaming an asset requires corresponding changes to the workflow and

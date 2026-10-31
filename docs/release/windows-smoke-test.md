@@ -49,25 +49,30 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
 10. **Settings**: change something obvious, close Cubeon completely, reopen it,
     and confirm the setting stuck. ☐
 
-## 3. The update nag (fixed on 2026-10-17 - worth re-checking)
+## 3. Automatic launcher updates
 
-11. Leave Cubeon open (or reopen it) while a **newer release exists** than the
-    one you installed. Every push mints one, so if you just installed the newest
-    and none is newer yet, redo this step after the next release. Within about
-    10 seconds a snackbar appears: **"Cubeon X.Y.Z is available"**. ☐
-12. Click **Get it**. The browser must open
-    **https://www.ylet.online/download**. ☐
-    - If it opens a github.com release page, or an auth wall, tell me - that is
-      the exact bug this was supposed to fix, and it would mean the installed
-      build is older than the fix.
+11. Install an older version, then reopen it while a **newer release exists
+    in its selected update channel**. Expect the Skip / Update prompt. Skip
+    should download nothing. Settings → System → **Check for updates** can
+    retry after an offline startup or a skip. ☐
+12. Close Minecraft and stop installs or hosted servers, then click **Update**
+    once. Expect download progress and checksum verification, followed by an
+    automatic close, installation and reopen. No browser or second Restart
+    click should be needed. Verify the new version in Windows Apps & features
+    and confirm settings/worlds remain. Repeat in a custom installation folder
+    and with a Windows username containing non-ASCII characters. ☐
+    - Cancel must leave the current installation usable. If a game starts
+      during download, the verified update should wait for it to finish.
+    - On a failed install, reopen Cubeon and expect a failure message. Keep
+      `updates/download-*/install.log` under the launcher data folder.
 
-## 4. Optional - the custom window frame (default OFF)
+## 4. Optional - the custom window frame (default ON)
 
 13. Settings -> turn on **Custom window frame**, restart Cubeon. Expect ONE
     header instead of two: your own top bar, custom minimise/maximise/close,
     dragging by the top bar, double-click to maximise, edges to resize. ☐
-    - This is off by default and has never been verified on real Windows, so a
-      failure here is not a blocker: leave it off and tell me what happened.
+    - This defaults on; a saved choice to switch it off is preserved. If it
+      fails on real Windows, switch it off and record what happened.
     - Try maximise -> restore -> minimise -> close, and confirm the window
       really closes rather than leaving a process behind.
 

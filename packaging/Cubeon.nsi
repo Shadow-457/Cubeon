@@ -79,6 +79,7 @@ VIAddVersionKey "LegalCopyright" "Cubeon"
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "WordFunc.nsh"
+!include "x64.nsh"
 
 !define APP_EXE "$INSTDIR\Cubeon.exe"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Cubeon"
@@ -93,6 +94,9 @@ Var IsUpdate
 ; restores it). Tracked so the update logic keys off the real old install, not
 ; a hardcoded default.
 Var OldInstDir
+Var StageDir
+Var SavedInternal
+Var SavedExe
 
 ; --- already-installed? ------------------------------------------------------
 ; Launching the setup over an existing Cubeon used to silently overwrite it: the
@@ -107,23 +111,26 @@ Var OldInstDir
 ; reliable than guessing from a window title - and the installer's own window
 ; is titled "Cubeon" too, so a title search would have matched itself.
 
-; CompareVer $0 $1 -> pushes "0" equal, "1" left newer, "2" right newer.
+; Compare incoming DISPLAY_VERSION with installed $0; push 0/1/2.
 ; Thin wrapper over WordFunc's ${VersionCompare}, which does a proper part-by-
 ; part dotted compare (a string compare gets "1.0.9" vs "1.0.10" backwards).
 ; It lives in a Function only so the .onInit code below reads as one call.
 Function CompareVer
-  ${VersionCompare} $0 $1 $2
+  ${VersionCompare} "${DISPLAY_VERSION}" $0 $2
   Push $2
 FunctionEnd
 
 Function .onInit
+  ${IfNot} ${RunningX64}
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Cubeon needs 64-bit Windows 10 or newer." /SD IDOK
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
   ; A previous install is the normal case only if the uninstall entry exists;
   ; a copied-over folder with no registry entry is still worth offering.
   ReadRegStr $0 HKCU "${UNINST_KEY}" "DisplayVersion"
-  ReadRegStr $1 HKCU "${SETTINGS_KEY}" "InstallDir"
-  ${If} $1 != ""
-    StrCpy $INSTDIR $1
-  ${EndIf}
+  ; NSIS applies InstallDirRegKey and then /D before .onInit. Keep that
+  ; resolved directory: reading the registry again would overwrite /D.
   ; Explicit gotos, not fallthrough: the "already installed" branch has to jump
   ; PAST the not-installed one, or finding an install would quietly return and
   ; skip the question entirely.
@@ -133,7 +140,7 @@ Function .onInit
   ; No registry entry - files on their own still count (interrupted install, or
   ; a folder somebody copied by hand). Offer a repair rather than pretend this
   ; is a first run.
-  IfFileExists "${APP_EXE}" not_installed ask
+  IfFileExists "${APP_EXE}" ask not_installed
 not_installed:
   Return
 
@@ -148,11 +155,8 @@ ask:
   ${If} $0 == ""
     StrCpy $2 "Cubeon is already installed on this computer, but there is no version information for it.$\r$\n$\r$\nRun the setup again to repair it?$\r$\n$\r$\nClick Yes to repair, No to exit."
   ${Else}
-    Push $0
-    Push "${DISPLAY_VERSION}"
     Call CompareVer
     Pop $3          ; 0 same, 1 incoming newer, 2 installed newer
-    Pop $0
     ${If} $3 == "1"
       StrCpy $2 "Update Cubeon?$\r$\n$\r$\nYou have Cubeon $0. This setup is Cubeon ${DISPLAY_VERSION}.$\r$\n$\r$\nClick Yes to update, No to exit."
     ${ElseIf} $3 == "2"
@@ -177,9 +181,9 @@ ask:
   ClearErrors
   FileOpen $4 "${APP_EXE}" "a"
   ${If} $4 == ""
-    MessageBox MB_OK|MB_ICONEXCLAMATION \
-      "Cubeon is still running.$\r$\n$\r$\nClose Cubeon, then run this setup again." \
-      /SD IDOK
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
+      "Cubeon is still running or its files are in use.$\r$\n$\r$\nClose every Cubeon window, then click Retry. Your games and settings will be kept." \
+      /SD IDCANCEL IDRETRY ask
     SetErrorLevel 1
     Quit
   ${EndIf}
@@ -194,12 +198,30 @@ exe_not_running:
 do_install:
 FunctionEnd
 
+Function VerifyInstallDir
+  StrLen $0 "$INSTDIR"
+  ${If} $0 <= 3
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Choose a separate Cubeon folder inside this location." /SD IDOK
+    Abort
+  ${EndIf}
+  ${If} $INSTDIR == "$PROFILE"
+  ${OrIf} $INSTDIR == "$LOCALAPPDATA"
+  ${OrIf} $INSTDIR == "$WINDIR"
+  ${OrIf} $INSTDIR == "$PROGRAMFILES"
+  ${OrIf} $INSTDIR == "$DESKTOP"
+  ${OrIf} $INSTDIR == "$DOCUMENTS"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Choose a separate Cubeon folder inside this location." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
 ; --- pages: welcome, where, install, done ---------------------------------
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Cubeon"
 !define MUI_WELCOMEPAGE_TEXT "Play Minecraft with friends easily. No technical setup, no port forwarding.$\r$\n$\r$\nThis installer will set up Cubeon in your user folder without needing administrator rights."
 !insertmacro MUI_PAGE_WELCOME
 
 !define MUI_DIRECTORYPAGE_TEXT_TOP "Cubeon will be installed in the folder below. Click Install to begin."
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE VerifyInstallDir
 !insertmacro MUI_PAGE_DIRECTORY
 
 !insertmacro MUI_PAGE_INSTFILES
@@ -216,34 +238,43 @@ FunctionEnd
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Cubeon" SEC_MAIN
-  ; Updates no longer wipe the folder first. The old flow did `RMDir /r
-  ; "$INSTDIR"` then `File /r`, i.e. delete and rewrite every one of the
-  ; hundreds of files - double the disk I/O and double the antivirus scan,
-  ; which is the "updating deletes for ages" the user reported. We now copy
-  ; over the top with `SetOverwrite ifdiff`: NSIS compares each file and only
-  ; writes the ones that actually changed, so the big unchanged pieces
-  ; (assets/jars ~62 MB, the bundled flet client ~40 MB, the DLLs) are skipped
-  ; entirely.
-  ;
-  ; `File /r` never deletes, so a file the new build DROPPED would linger. The
-  ; only spot that has bitten us is a stale `templates` package dir (the
-  ; seasonal palettes once shipped as data there). Clear just that small,
-  ; code-only path - never the large assets - so an update stays correct
-  ; without paying for a full wipe.
-  ;
-  ; Everything the user owns (settings, auth key, friends cache, downloaded
-  ; runtimes) lives in %USERPROFILE%\.cubeon_launcher and the game in
-  ; \.cubeon_minecraft, so this folder is program files only.
-  ${If} $IsUpdate == "1"
-    SetOverwrite ifdiff
-    RMDir /r "$INSTDIR\_internal\templates"
-  ${Else}
-    SetOverwrite on
-  ${EndIf}
-
-  SetOutPath "$INSTDIR"
-  File /r "${SOURCE_DIR}\*"
+  Call VerifyInstallDir
+  ; Extract completely before replacing anything. Timestamp-only ifdiff
+  ; cannot detect changed bytes with preserved timestamps, and copying over
+  ; a live tree leaves obsolete DLLs/packages from previous releases.
+  CreateDirectory "$INSTDIR"
+  GetTempFileName $StageDir "$INSTDIR"
+  Delete "$StageDir"
+  CreateDirectory "$StageDir"
+  SetOutPath "$StageDir"
   SetOverwrite on
+  ClearErrors
+  File /r "${SOURCE_DIR}\*"
+  IfErrors install_failed
+  IfFileExists "$StageDir\Cubeon.exe" 0 install_failed
+  IfFileExists "$StageDir\_internal\*" 0 install_failed
+  StrCpy $SavedInternal "0"
+  StrCpy $SavedExe "0"
+  IfFileExists "$INSTDIR\_internal\*" 0 save_exe
+  ClearErrors
+  Rename "$INSTDIR\_internal" "$StageDir\previous-internal"
+  IfErrors install_failed
+  StrCpy $SavedInternal "1"
+save_exe:
+  IfFileExists "${APP_EXE}" 0 place_internal
+  ClearErrors
+  Rename "${APP_EXE}" "$StageDir\previous.exe"
+  IfErrors restore_internal
+  StrCpy $SavedExe "1"
+place_internal:
+  ClearErrors
+  Rename "$StageDir\_internal" "$INSTDIR\_internal"
+  IfErrors restore_exe
+  ClearErrors
+  Rename "$StageDir\Cubeon.exe" "${APP_EXE}"
+  IfErrors remove_new_internal
+  SetOutPath "$INSTDIR"
+  RMDir /r "$StageDir"
 
   WriteRegStr HKCU "${SETTINGS_KEY}" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall Cubeon.exe"
@@ -251,7 +282,10 @@ Section "Cubeon" SEC_MAIN
   ; Shortcuts - icon index 0 of the app exe (the Cubeon logo).
   CreateDirectory "$SMPROGRAMS\Cubeon"
   CreateShortcut "$SMPROGRAMS\Cubeon\Cubeon.lnk" "${APP_EXE}" "" "${APP_EXE}" 0
-  CreateShortcut "$DESKTOP\Cubeon.lnk" "${APP_EXE}" "" "${APP_EXE}" 0
+  ; Respect removal of the desktop shortcut on updates.
+  ${If} $IsUpdate != "1"
+    CreateShortcut "$DESKTOP\Cubeon.lnk" "${APP_EXE}" "" "${APP_EXE}" 0
+  ${EndIf}
   CreateShortcut "$SMPROGRAMS\Cubeon\Uninstall Cubeon.lnk" "$INSTDIR\Uninstall Cubeon.exe"
 
   ; Programs & Features entry: uninstall from Windows Settings like any app.
@@ -262,24 +296,60 @@ Section "Cubeon" SEC_MAIN
   WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall Cubeon.exe"'
   WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall Cubeon.exe" /S'
   WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://cubeon.vercel.app"
+  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "https://www.ylet.online/"
   WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" ${ESTIMATED_SIZE_KB}
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
+  Goto install_done
+
+remove_new_internal:
+  RMDir /r "$INSTDIR\_internal"
+restore_exe:
+  ${If} $SavedExe == "1"
+    ClearErrors
+    Rename "$StageDir\previous.exe" "${APP_EXE}"
+    IfErrors rollback_failed
+  ${EndIf}
+restore_internal:
+  ${If} $SavedInternal == "1"
+    ClearErrors
+    Rename "$StageDir\previous-internal" "$INSTDIR\_internal"
+    IfErrors rollback_failed
+  ${EndIf}
+install_failed:
+  SetOutPath "$TEMP"
+  RMDir /r "$StageDir"
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Cubeon could not be installed. Check free disk space and close all Cubeon windows, then try again. Your previous installation and games have been kept." /SD IDOK
+  SetErrorLevel 1
+  Quit
+rollback_failed:
+  ; Preserve the backup if another process prevents restoration.
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Cubeon could not finish the update. Close all Cubeon windows and run setup again. The previous program files are kept in $StageDir. Your games and settings have been kept." /SD IDOK
+  SetErrorLevel 1
+  Quit
+install_done:
 SectionEnd
 
 Section "Uninstall"
-  Delete "$DESKTOP\Cubeon.lnk"
-  Delete "$SMPROGRAMS\Cubeon\Cubeon.lnk"
-  Delete "$SMPROGRAMS\Cubeon\Uninstall Cubeon.lnk"
-  RMDir "$SMPROGRAMS\Cubeon"
-  DeleteRegKey HKCU "${SETTINGS_KEY}"
-  DeleteRegKey HKCU "${UNINST_KEY}"
+  ReadRegStr $0 HKCU "${SETTINGS_KEY}" "InstallDir"
+  ${If} $0 == "$INSTDIR"
+    Delete "$DESKTOP\Cubeon.lnk"
+    Delete "$SMPROGRAMS\Cubeon\Cubeon.lnk"
+    Delete "$SMPROGRAMS\Cubeon\Uninstall Cubeon.lnk"
+    RMDir "$SMPROGRAMS\Cubeon"
+    DeleteRegKey HKCU "${SETTINGS_KEY}"
+    DeleteRegKey HKCU "${UNINST_KEY}"
+  ${EndIf}
   ; Only delete the folder when it is demonstrably OURS - our uninstaller and
   ; the app exe must both be present. A hand-edited or stale InstallDir must
   ; never make uninstall recursively delete an unrelated folder.
   IfFileExists "$INSTDIR\Uninstall Cubeon.exe" 0 uninstall_keep_folder
   IfFileExists "$INSTDIR\Cubeon.exe" 0 uninstall_keep_folder
-  RMDir /r "$INSTDIR"
+  ; A custom install folder can contain unrelated files. Remove only the
+  ; onedir program payload, then remove the root only if it is empty.
+  RMDir /r "$INSTDIR\_internal"
+  Delete "$INSTDIR\Cubeon.exe"
+  Delete "$INSTDIR\Uninstall Cubeon.exe"
+  RMDir "$INSTDIR"
 uninstall_keep_folder:
 SectionEnd

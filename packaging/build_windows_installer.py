@@ -104,6 +104,8 @@ def main() -> None:
         )
     if not ICON.is_file():
         raise SystemExit(f"Missing {ICON}. The installer needs the Cubeon icon.")
+    if {p.name for p in SOURCE.iterdir()} != {"Cubeon.exe", "_internal"}:
+        raise SystemExit("Expected a clean PyInstaller onedir payload: Cubeon.exe and _internal only.")
     command, _ = _compiler()
     numeric_version, display_version = _app_version()
 

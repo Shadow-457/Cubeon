@@ -7786,6 +7786,7 @@ async def main(page: ft.Page):
     settings_tab = build_settings_tab(
         page, cfg,
         on_replay_onboarding=lambda: _show_onboarding(replay=True),
+        on_check_updates=lambda: _check_app_update(),
         account_pane=account_pane,
         section_label=section_label, pixel_divider=pixel_divider,
         set_status=set_status,
@@ -8681,6 +8682,8 @@ async def main(page: ft.Page):
     _update_active = threading.Event()
     _update_active.set()
     _update_prompt = {"value": None}
+    _update_check_running = threading.Event()
+    _update_check_lock = threading.Lock()
 
     def _update_busy():
         from cubeon.update_install import application_busy
@@ -8738,13 +8741,41 @@ async def main(page: ft.Page):
         except Exception:
             logging.getLogger(__name__).debug("update prompt failed", exc_info=True)
 
+    def _check_app_update(manual=True):
+        with _update_check_lock:
+            if not _update_active.is_set() or _update_check_running.is_set():
+                return
+            current = _update_prompt.get("value")
+            if current and current.phase in {"offered", "downloading", "ready", "closing"}:
+                return
+            _update_check_running.set()
+        if manual:
+            set_status("Checking for launcher updates…")
+
+        def complete(info):
+            _update_check_running.clear()
+            if manual and _update_active.is_set():
+                set_status("A launcher update is available." if info else
+                           f"Cubeon {updater.APP_VERSION} is up to date.")
+
+        def failed(error):
+            _update_check_running.clear()
+            if manual and _update_active.is_set():
+                set_status("Couldn't check for updates. Check your connection and try again.")
+
+        updater.check_in_background(_announce_update, token=cfg.get("update_token"),
+                                   channel=cfg.get("update_channel", "stable"),
+                                   on_complete=complete, on_error=failed)
+
     try:
         from cubeon import updater
+        from cubeon.update_install import take_install_failure
+        last_update_error = take_install_failure()
+        if last_update_error:
+            set_status("Update failed: " + last_update_error)
         if not _session_runtime.get("update_check_started"):
             _session_runtime["update_check_started"] = True
-            updater.check_in_background(
-                _announce_update, token=cfg.get("update_token"),
-                channel=cfg.get("update_channel", "stable"))
+            _check_app_update(manual=False)
     except Exception:
         logging.getLogger(__name__).warning("background worker error", exc_info=True)
 

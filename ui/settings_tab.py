@@ -498,7 +498,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
                        screenshot_gallery=None, refresh_screenshot_gallery=None,
                        account_pane=None, on_replay_onboarding=None,
-                       doctor_target=None):
+                       doctor_target=None, on_check_updates=None):
     """Assembles the two-pane Settings tab from main.py's existing controls.
 
     `save_width_height_java` is main.py's save_settings() minus the button
@@ -907,8 +907,12 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 "Stable is the default. Beta also offers prereleases on the next launch.",
                 update_channel_chip),
             _body(ft.Text("A newer version shows Skip and Update when Cubeon starts. "
-                          "Downloads start only when you choose Update.", size=12,
+                          "Update downloads, installs and reopens Cubeon automatically.", size=12,
                           color=TEXT_DIM), pad_v=12),
+            *([row("Launcher updates", "Check again after reconnecting to the internet.",
+                   ft.TextButton("Check for updates", data="check-launcher-updates",
+                                 on_click=lambda e: on_check_updates()))]
+              if on_check_updates else []),
         ])),
         minecraft_files_pane,
         block(i18n.t("Backups"), group(backup_rows)),

@@ -12,7 +12,6 @@ import sys
 import tempfile
 import threading
 import time
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -21,6 +20,10 @@ from . import updater
 
 
 class UpdateCancelled(Exception):
+    pass
+
+
+class UpdateReleaseChanged(ValueError):
     pass
 
 
@@ -59,14 +62,13 @@ class InstallTarget:
 
 
 def installation_target() -> InstallTarget:
-    """Never replace a source checkout or a package-manager-owned program."""
+    """Use an installer for registered builds; never replace a source checkout."""
     if sys.platform == "win32":
         exe = Path(sys.executable).resolve()
         packaged = (getattr(sys, "frozen", False) and exe.name.lower() == "cubeon.exe"
                     and (exe.parent / "_internal").is_dir())
         if packaged and (exe.parent / "Uninstall Cubeon.exe").is_file():
-            # NSIS restores the registry's directory in .onInit. A copied
-            # installation must not silently update a different registered copy.
+            # A copied installation must not update a different registered copy.
             try:
                 import winreg
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Cubeon") as key:
@@ -76,9 +78,7 @@ def installation_target() -> InstallTarget:
             except (OSError, ImportError):
                 pass
             return InstallTarget("windows", reason="Run Cubeon from its installed folder, or reinstall it to repair its registration.")
-        if packaged and os.access(exe.parent, os.W_OK | os.X_OK):
-            return InstallTarget("windows-zip", exe.parent)
-        return InstallTarget("windows-zip", reason="Move the complete Cubeon folder to a writable location and reopen it to update.")
+        return InstallTarget("windows", reason="Install Cubeon using the Windows setup to enable automatic updates.")
     if sys.platform == "darwin":
         return InstallTarget("macos")
     image = os.environ.get("APPIMAGE") or os.environ.get("CUBEON_APPIMAGE_PATH")
@@ -89,6 +89,16 @@ def installation_target() -> InstallTarget:
         if path.is_file() and os.access(path.parent, os.W_OK | os.X_OK):
             return InstallTarget("linux", path)
         return InstallTarget("linux", reason="Move the Cubeon AppImage to a writable folder, reopen it, and try Update again.")
+    exe = Path(sys.executable).resolve()
+    if (getattr(sys, "frozen", False) and exe == Path("/opt/cubeon/Cubeon")
+            and all(shutil.which(command) for command in ("dpkg-query", "apt-get", "pkexec"))):
+        try:
+            owner = subprocess.run(["dpkg-query", "-S", str(exe)], capture_output=True,
+                                   text=True, timeout=5)
+            if owner.returncode == 0 and owner.stdout.strip() == "cubeon: /opt/cubeon/Cubeon":
+                return InstallTarget("linux-deb", exe)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     return InstallTarget("linux" if not getattr(sys, "frozen", False) else "linux-deb")
 
 
@@ -126,14 +136,14 @@ def download_update(info: dict, target: InstallTarget, cancel: threading.Event,
         directory = Path(CUBEON_HOME) / "updates"
     Path(directory).mkdir(parents=True, exist_ok=True)
     folder = Path(tempfile.mkdtemp(prefix="download-", dir=directory))
-    destination = folder / {"windows": "Cubeon-Setup.exe", "windows-zip": "Cubeon.zip",
+    destination = folder / {"windows": "Cubeon-Setup.exe", "linux-deb": "Cubeon.deb",
                             "linux": "Cubeon.AppImage"}.get(target.asset, "Cubeon.download")
     received, hasher = 0, hashlib.sha256()
     deadline = time.monotonic() + 1800
     try:
         with updater.requests.get(asset["url"], stream=True, timeout=(8, 15)) as response:
             if response.status_code == 409:
-                raise ValueError("A newer release became available. Restart Cubeon to check again.")
+                raise UpdateReleaseChanged("The release changed. Check for updates again in Settings.")
             response.raise_for_status()
             with destination.open("xb") as output:
                 for chunk in response.iter_content(chunk_size=256 * 1024):
@@ -161,38 +171,6 @@ def download_update(info: dict, target: InstallTarget, cancel: threading.Event,
         raise
 
 
-def stage_portable_update(download: Path, target: Path) -> Path:
-    """Extract verified onedir files beside the installation before closing it.
-
-    Only the two program-owned entries may be replaced. Games/settings and
-    anything else someone keeps beside a portable launcher remain untouched.
-    """
-    stage = Path(tempfile.mkdtemp(prefix=".cubeon-update-", dir=target))
-    try:
-        with zipfile.ZipFile(download) as archive:
-            entries = archive.infolist()
-            total = 0
-            for entry in entries:
-                name = entry.filename
-                parts = name.rstrip("/").split("/")
-                if ("\\" in name or ":" in name or any(p in {"", ".", ".."} for p in parts)
-                        or parts[0] != "Cubeon" or (len(parts) > 1 and parts[1] not in {"Cubeon.exe", "_internal"})
-                        or (len(parts) > 2 and parts[1] == "Cubeon.exe")
-                        or (entry.external_attr >> 16) & 0o170000 == 0o120000):
-                    raise ValueError("The portable update contains an invalid path.")
-                total += entry.file_size
-            if len(entries) > 30000 or total > 3 * 1024**3:
-                raise ValueError("The portable update is too large to install.")
-            archive.extractall(stage)
-        payload = stage / "Cubeon"
-        if not (payload / "Cubeon.exe").is_file() or not (payload / "_internal").is_dir():
-            raise ValueError("The portable update is missing launcher files.")
-        return stage
-    except BaseException:
-        shutil.rmtree(stage, ignore_errors=True)
-        raise
-
-
 # Fixed script text; paths/data are arguments or JSON, never interpolated code.
 # Both helpers have a bounded wait and recheck the downloaded bytes after exit.
 _APPIMAGE_HELPER = r'''#!/bin/sh
@@ -202,7 +180,18 @@ target=$2
 download=$3
 digest=$4
 reopen=$5
+result=$6
 remaining=120
+failed() {
+  rm -f -- "${replacement:-}" "${backup:-}"
+  printf 'failed\nThe update could not be installed. See the update install.log.\n' > "$result"
+  if [ "$reopen" = 1 ] && ! kill -0 "$parent" 2>/dev/null && [ -x "$target" ]; then
+    unset APPIMAGE APPDIR CUBEON_APPIMAGE_PATH
+    export PYINSTALLER_RESET_ENVIRONMENT=1
+    "$target" >/dev/null 2>&1 &
+  fi
+}
+trap failed EXIT
 while kill -0 "$parent" 2>/dev/null; do
   [ "$remaining" -gt 0 ] || exit 1
   sleep 1
@@ -212,13 +201,15 @@ actual=$(sha256sum -- "$download")
 [ "${actual%% *}" = "$digest" ] || exit 1
 replacement=$(mktemp "${target}.update.XXXXXX")
 backup=$(mktemp "${target}.previous.XXXXXX")
-trap 'rm -f -- "$replacement" "$backup"' EXIT
 cp -- "$download" "$replacement"
 chmod --reference="$target" "$replacement"
 chmod u+x "$replacement"
 cp -p -- "$target" "$backup"
 mv -f -- "$backup" "${target}.cubeon-previous"
 mv -f -- "$replacement" "$target"
+printf 'success\n' > "$result"
+trap 'rm -f -- "$replacement" "$backup"' EXIT
+rm -f -- "$download"
 if [ "$reopen" = 1 ]; then
   unset APPIMAGE APPDIR CUBEON_APPIMAGE_PATH
   export PYINSTALLER_RESET_ENVIRONMENT=1
@@ -228,7 +219,8 @@ fi
 
 _WINDOWS_HELPER = r'''param([string]$JobFile)
 $ErrorActionPreference = 'Stop'
-$job = Get-Content -LiteralPath $JobFile -Raw | ConvertFrom-Json
+$job = Get-Content -LiteralPath $JobFile -Raw -Encoding UTF8 | ConvertFrom-Json
+try {
 $deadline = (Get-Date).AddSeconds(120)
 while (Get-Process -Id $job.pid -ErrorAction SilentlyContinue) {
   if ((Get-Date) -ge $deadline) { throw 'Cubeon did not close; update cancelled.' }
@@ -237,40 +229,111 @@ while (Get-Process -Id $job.pid -ErrorAction SilentlyContinue) {
 if ((Get-FileHash -LiteralPath $job.download -Algorithm SHA256).Hash.ToLower() -ne $job.sha256) {
   throw 'The update checksum changed; update cancelled.'
 }
-# NSIS /D must be LAST and unquoted; it consumes the remaining command line.
+# /D must be LAST and unquoted; NSIS consumes the remaining command line.
 $arguments = '/S /D=' + $job.target
 $installer = Start-Process -FilePath $job.download -ArgumentList $arguments -Wait -PassThru
 if ($installer.ExitCode -ne 0) { throw 'The Cubeon installer failed.' }
+Set-Content -LiteralPath $job.result -Value 'success' -Encoding UTF8
+Remove-Item -LiteralPath $job.download -Force -ErrorAction SilentlyContinue
 if ($job.reopen) {
   $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
   Start-Process -FilePath (Join-Path $job.target 'Cubeon.exe')
 }
+} catch {
+  Set-Content -LiteralPath $job.result -Value ("failed`n" + $_.Exception.Message) -Encoding UTF8
+  if ($job.reopen -and -not (Get-Process -Id $job.pid -ErrorAction SilentlyContinue)) {
+    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
+    Start-Process -FilePath (Join-Path $job.target 'Cubeon.exe') -ErrorAction SilentlyContinue
+  }
+  throw
+}
+'''
+
+_DEB_HELPER = r'''#!/bin/sh
+set -eu
+parent=$1
+target=$2
+download=$3
+digest=$4
+reopen=$5
+result=$6
+authorize=$7
+apt=$8
+failed() {
+  printf 'failed\nPackage update was cancelled or failed. Please try again.\n' > "$result"
+  if [ "$reopen" = 1 ] && ! kill -0 "$parent" 2>/dev/null && [ -x "$target" ]; then
+    export PYINSTALLER_RESET_ENVIRONMENT=1
+    "$target" >/dev/null 2>&1 &
+  fi
+}
+trap failed EXIT
+remaining=120
+while kill -0 "$parent" 2>/dev/null; do
+  [ "$remaining" -gt 0 ] || exit 1
+  sleep 1
+  remaining=$((remaining - 1))
+done
+actual=$(sha256sum -- "$download")
+[ "${actual%% *}" = "$digest" ] || exit 1
+# apt resolves required system dependencies; PolicyKit presents the OS prompt.
+"$authorize" "$apt" install --assume-yes -- "$download"
+printf 'success\n' > "$result"
+trap - EXIT
+rm -f -- "$download"
+if [ "$reopen" = 1 ]; then
+  export PYINSTALLER_RESET_ENVIRONMENT=1
+  "$target" >/dev/null 2>&1 &
+fi
 '''
 
 
 def prepare_install(info: dict, target: InstallTarget, download: Path, *, reopen=True) -> dict:
     """Prepare a helper; preparing alone cannot replace files or run it."""
-    if not target.can_install or target.asset not in {"windows", "linux"}:
+    if not target.can_install or target.asset not in {"windows", "linux", "linux-deb"}:
         raise ValueError("This installation needs a manual update.")
     asset = release_asset(info, target)
-    if not asset or file_digest(download) != asset.get("sha256"):
+    if (not asset or download.stat().st_size != asset.get("size")
+            or file_digest(download) != str(asset.get("sha256") or "").lower()):
         raise ValueError("The update download could not be verified.")
     folder = download.parent
+    result = folder.parent / "install-result.txt"
     if target.asset == "windows":
         helper = folder / "install.ps1"
         helper.write_text(_WINDOWS_HELPER, encoding="utf-8")
         job = folder / "install.json"
         job.write_text(json.dumps({"pid": os.getpid(), "download": str(download),
                                   "target": str(target.path), "sha256": asset["sha256"],
-                                  "reopen": reopen}), encoding="utf-8")
+                                  "reopen": reopen, "asset": target.asset, "result": str(result),
+                                  }), encoding="utf-8")
         command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                    "-File", str(helper), str(job)]
     else:
         helper = folder / "install.sh"
-        helper.write_text(_APPIMAGE_HELPER, encoding="utf-8")
+        helper.write_text(_DEB_HELPER if target.asset == "linux-deb" else _APPIMAGE_HELPER,
+                          encoding="utf-8")
         command = ["sh", str(helper), str(os.getpid()), str(target.path), str(download),
-                   asset["sha256"], "1" if reopen else "0"]
-    return {"command": command, "log": str(folder / "install.log")}
+                   asset["sha256"], "1" if reopen else "0", str(result)]
+        if target.asset == "linux-deb":
+            authorize, apt = shutil.which("pkexec"), shutil.which("apt-get")
+            if not authorize or not apt:
+                raise ValueError("This system needs a manual package update.")
+            command += [authorize, apt]
+    return {"command": command, "log": str(folder / "install.log"), "result": str(result)}
+
+
+def take_install_failure(directory=None) -> str | None:
+    if directory is None:
+        from .paths import CUBEON_HOME
+        directory = Path(CUBEON_HOME) / "updates"
+    result = Path(directory) / "install-result.txt"
+    try:
+        message = result.read_text(encoding="utf-8-sig").strip()
+        result.unlink()
+        if message.startswith("failed"):
+            return message.partition("\n")[2] or "The last update did not finish. Please try Update again."
+    except OSError:
+        pass
+    return None
 
 
 def launch_install(job: dict):
@@ -281,6 +344,15 @@ def launch_install(job: dict):
                                     | subprocess.CREATE_NEW_PROCESS_GROUP)
     else:
         options["start_new_session"] = True
-    with open(job["log"], "ab") as output:
-        return subprocess.Popen(job["command"], stdin=subprocess.DEVNULL,
-                                stdout=output, stderr=output, **options)
+    try:
+        if job.get("result"):
+            # A helper killed before it can report must leave a retryable
+            # failure, rather than making an interrupted update disappear.
+            Path(job["result"]).write_text("failed\nThe last update did not finish. Please try Update again.", encoding="utf-8")
+        with open(job["log"], "ab") as output:
+            return subprocess.Popen(job["command"], stdin=subprocess.DEVNULL,
+                                    stdout=output, stderr=output, **options)
+    except Exception:
+        if job.get("result"):
+            Path(job["result"]).write_text("failed\nCouldn't start the update installer. Please try again.", encoding="utf-8")
+        raise

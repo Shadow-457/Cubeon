@@ -74,7 +74,6 @@ const FILES = {
 // asset lookup: the two cached channel lookups bound the GitHub API budget.
 const UPDATE_FILES = {
   windows: FILES["/windowsdownload"],
-  "windows-zip": "Cubeon-Windows-x64.zip",
   linux: FILES["/linuxdownload"],
   "linux-deb": FILES["/linuxdeb"],
   macos: "Cubeon-macOS.zip",

@@ -1,7 +1,7 @@
 """
-Build the Windows EXE + portable ZIP. Run from the repo root:
+Build the Windows installer payload. Run from the repo root:
     python packaging/build_windows.py
-Output: dist/Cubeon/ (standalone folder) and dist/Cubeon-Windows-x64.zip.
+Output: dist/Cubeon/ for build_windows_installer.py; distribute the setup executable.
 
 NOTE: --add-data assets is REQUIRED - assets/jars holds the Friends mod jars
 and the Connect plugin, and the launcher resolves them from there when
@@ -125,13 +125,7 @@ def main():
     # find its assets next to the executable (resolve_assets_dir handles both
     # dev and frozen layouts).
 
-    zip_path = os.path.join(ROOT, "dist", "Cubeon-Windows-x64.zip")
-    if os.path.exists(zip_path):
-        os.unlink(zip_path)
-    base = os.path.splitext(zip_path)[0]
-    print(f"+ zipping dist/Cubeon -> {zip_path}")
-    shutil.make_archive(base, "zip", os.path.join(ROOT, "dist"), "Cubeon")
-    print("Done: dist/Cubeon/ and dist/Cubeon-Windows-x64.zip")
+    print("Done: dist/Cubeon/ installer payload")
 
 
 if __name__ == "__main__":

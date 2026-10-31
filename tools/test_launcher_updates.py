@@ -144,7 +144,7 @@ class LauncherUpdates(unittest.TestCase):
             # A later startup can offer the SAME version; saved OS notice is irrelevant.
             UpdatePrompt(FakePage(), release(), busy=lambda: False, install=install).open()
 
-    def test_update_then_explicit_install_and_failed_close(self):
+    def test_one_update_click_installs_and_failed_close_is_retryable(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "Cubeon.AppImage"
             path.write_bytes(b"new app")
@@ -153,17 +153,15 @@ class LauncherUpdates(unittest.TestCase):
                                   target=update_install.InstallTarget("linux", Path(tmp)/"installed")).open()
             with patch.object(update_install, "download_update", return_value=path) as download, \
                     patch("ui.update_prompt.threading.Thread") as thread, \
+                    patch.object(update_install, "prepare_install", return_value={"job": "fixture"}), \
                     patch("ui.update_prompt.thread_safe_ui.refresh"):
                 thread.side_effect = lambda *, target, **kw: Mock(start=target)
                 prompt.update.on_click(None)
                 download.assert_called_once()
-                self.assertEqual(prompt.phase, "ready")
+                self.assertEqual(prompt.phase, "closing")
                 self.assertEqual(prompt.update.content, "Restart")
                 self.assertEqual(prompt.progress.value, 1)
-                install.assert_not_called()
-                with patch.object(update_install, "prepare_install", return_value={"job": "fixture"}):
-                    prompt.update.on_click(None)
-                    prompt.update.on_click(None)
+                prompt.update.on_click(None)
                 install.assert_called_once()
                 self.assertEqual(prompt.phase, "closing")
                 install.call_args.args[1]("close failed")
@@ -356,6 +354,7 @@ class LauncherUpdates(unittest.TestCase):
             folder = Path(tmp)
             exe = folder / "Cubeon.exe"
             exe.write_bytes(b"exe")
+            (folder / "_internal").mkdir()
             (folder/"Uninstall Cubeon.exe").write_bytes(b"uninstaller")
             registry = types.SimpleNamespace(HKEY_CURRENT_USER=1, OpenKey=Mock(), QueryValueEx=Mock())
             registry.OpenKey.return_value.__enter__ = Mock(return_value=1)
@@ -366,6 +365,155 @@ class LauncherUpdates(unittest.TestCase):
                 self.assertTrue(update_install.installation_target().can_install)
                 registry.QueryValueEx.return_value = (str(folder / "another copy"), 1)
                 self.assertFalse(update_install.installation_target().can_install)
+
+    def test_game_start_during_download_defers_install_until_idle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "download"
+            path.write_bytes(b"new app")
+            busy, install = Mock(return_value=False), Mock()
+            prompt = UpdatePrompt(FakePage(), release(), busy=busy, install=install,
+                                  target=update_install.InstallTarget("linux", Path(tmp) / "app"))
+            def download(*args):
+                busy.return_value = True
+                return path
+            with patch.object(update_install, "download_update", side_effect=download), \
+                    patch("ui.update_prompt.threading.Thread") as thread:
+                thread.side_effect = lambda *, target, **kw: Mock(start=target)
+                prompt._update()
+            self.assertEqual(prompt.phase, "ready")
+            install.assert_not_called()
+            busy.return_value = False
+            with patch.object(update_install, "prepare_install", return_value={"job": "fixture"}):
+                prompt._update()
+            install.assert_called_once()
+
+    def test_prepare_error_is_visible_and_retryable(self):
+        prompt = UpdatePrompt(FakePage(), release(), busy=lambda: False, install=Mock(),
+                              target=update_install.InstallTarget("linux", Path("/tmp/app")))
+        prompt.phase = "ready"
+        prompt.download = Path("/tmp/download")
+        with patch.object(update_install, "prepare_install", side_effect=OSError("Disk is full")):
+            prompt._update()
+        self.assertEqual(prompt.phase, "ready")
+        self.assertEqual(prompt.status.value, "Disk is full")
+        self.assertFalse(prompt.update.disabled)
+
+    def test_helper_failure_is_reported_once_on_next_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Path(tmp) / "install-result.txt"
+            result.write_text("\ufefffailed\nInstallation failed", encoding="utf-8")
+            self.assertEqual(update_install.take_install_failure(tmp), "Installation failed")
+            self.assertIsNone(update_install.take_install_failure(tmp))
+
+    def test_debian_detection_requires_package_ownership_and_authorizer(self):
+        with patch.object(sys, "platform", "linux"), \
+                patch.object(sys, "executable", "/opt/cubeon/Cubeon"), \
+                patch.object(sys, "frozen", True, create=True), \
+                patch.dict(os.environ, {"APPIMAGE": "", "CUBEON_APPIMAGE_PATH": ""}), \
+                patch("cubeon.update_install.shutil.which", side_effect=lambda name: "/usr/bin/" + name), \
+                patch("cubeon.update_install.subprocess.run", return_value=Mock(returncode=0, stdout="cubeon: /opt/cubeon/Cubeon\n")) as query:
+            self.assertEqual(update_install.installation_target().asset, "linux-deb")
+            self.assertTrue(update_install.installation_target().can_install)
+            query.return_value.stdout = "someone-else: /opt/cubeon/Cubeon\n"
+            self.assertFalse(update_install.installation_target().can_install)
+
+    def test_debian_helper_waits_verifies_and_invokes_package_manager(self):
+        with tempfile.TemporaryDirectory(prefix="cubeon deb '") as tmp:
+            root = Path(tmp)
+            download = root / "Cubeon.deb"
+            download.write_bytes(b"new app")
+            marker = root / "apt-arguments"
+            authorize, apt = root / "authorize", root / "apt"
+            authorize.write_text('#!/bin/sh\nexec "$@"\n')
+            apt.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$CUBEON_TEST_APT_ARGS"\n')
+            authorize.chmod(0o755)
+            apt.chmod(0o755)
+            with patch("cubeon.update_install.shutil.which", side_effect=lambda name: str(authorize if name == "pkexec" else apt)):
+                job = update_install.prepare_install(release(kind="linux-deb"),
+                    update_install.InstallTarget("linux-deb", Path("/opt/cubeon/Cubeon")), download, reopen=False)
+            job["command"][2] = "2147483647"
+            env = dict(os.environ, CUBEON_TEST_APT_ARGS=str(marker))
+            installed = subprocess.run(job["command"], env=env, capture_output=True, timeout=5)
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            self.assertEqual(marker.read_text().splitlines(), ["install", "--assume-yes", "--", str(download)])
+            self.assertFalse(download.exists())
+            self.assertEqual(Path(job["result"]).read_text().strip(), "success")
+            marker.unlink()
+            download.write_bytes(b"tampered")
+            failed = subprocess.run(job["command"], env=env, capture_output=True, timeout=5)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertTrue(Path(job["result"]).read_text().startswith("failed"))
+
+    def test_changed_release_refreshes_offer_and_completes_original_click(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "download"
+            path.write_bytes(b"new app")
+            install = Mock()
+            prompt = UpdatePrompt(FakePage(), release(), busy=lambda: False, install=install,
+                                  target=update_install.InstallTarget("linux", Path(tmp) / "app"))
+            prompt.phase = "downloading"
+            newer = release(version="2.0.1")
+            with patch.object(update_install, "download_update", side_effect=[update_install.UpdateReleaseChanged(), path]) as download, \
+                    patch.object(updater, "check_for_updates", return_value=newer), \
+                    patch.object(update_install, "prepare_install", return_value={"fixture": True}):
+                prompt._download()
+            self.assertEqual(download.call_count, 2)
+            self.assertEqual(prompt.info["version"], "2.0.1")
+            self.assertEqual(prompt.phase, "closing")
+            install.assert_called_once()
+
+    def test_background_check_reports_no_update_and_offline_failure(self):
+        complete, failed = Mock(), Mock()
+        with patch.object(updater, "check_for_updates", return_value=None):
+            updater.check_in_background(Mock(), on_complete=complete, on_error=failed).join(2)
+        complete.assert_called_once_with(None)
+        with patch.object(updater, "check_for_updates", side_effect=OSError("offline")):
+            updater.check_in_background(Mock(), on_complete=complete, on_error=failed).join(2)
+        failed.assert_called_once()
+
+    def test_settings_check_deduplicates_and_can_retry_after_offline(self):
+        active = threading.Event()
+        active.set()
+        running = threading.Event()
+        status = Mock()
+        namespace = {"_update_active": active, "_update_check_running": running,
+                     "_update_check_lock": threading.Lock(), "_update_prompt": {"value": None},
+                     "_announce_update": Mock(), "set_status": status, "updater": updater,
+                     "cfg": {"update_channel": "beta"}}
+        check = self.main_function("_check_app_update", namespace)
+        with patch.object(updater, "check_in_background") as background:
+            check()
+            check()
+            background.assert_called_once()
+            self.assertEqual(background.call_args.kwargs["channel"], "beta")
+            background.call_args.kwargs["on_error"](OSError("offline"))
+            self.assertFalse(running.is_set())
+            check()
+            self.assertEqual(background.call_count, 2)
+            background.call_args.kwargs["on_complete"](None)
+            self.assertIn("up to date", status.call_args.args[0])
+
+    def test_failed_appimage_update_reopens_previous_launcher(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, download, marker = root / "app", root / "download", root / "reopened"
+            old = b'#!/bin/sh\nprintf "old:%s" "$PYINSTALLER_RESET_ENVIRONMENT" > "$CUBEON_TEST_RECOVERY"\n'
+            app.write_bytes(old)
+            app.chmod(0o755)
+            download.write_bytes(b"new app")
+            job = update_install.prepare_install(release(), update_install.InstallTarget("linux", app), download)
+            job["command"][2] = "2147483647"
+            download.write_bytes(b"tampered")
+            failed = subprocess.run(job["command"], env=dict(os.environ, CUBEON_TEST_RECOVERY=str(marker)),
+                                    capture_output=True, timeout=5)
+            self.assertNotEqual(failed.returncode, 0)
+            deadline = time.monotonic() + 2
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(marker.read_text(), "old:1")
+            self.assertEqual(app.read_bytes(), old)
+            self.assertTrue(Path(job["result"]).read_text().startswith("failed"))
 
 
 if __name__ == "__main__":

@@ -120,7 +120,9 @@ def main() -> None:
         "Priority: optional\n"
         "Architecture: amd64\n"
         "Maintainer: Cubeon\n"
-        "Depends: libgtk-3-0, libglib2.0-0, libnss3, libxss1, libasound2, libgbm1\n"
+        "Depends: libgtk-3-0 | libgtk-3-0t64, libglib2.0-0 | libglib2.0-0t64, "
+        "libnss3, libxss1, libasound2 | libasound2t64, libgbm1\n"
+        "Recommends: pkexec\n"
         "Description: Cubeon Minecraft launcher\n"
         " A Minecraft launcher with a friends layer and Cubeon client integration.\n"
     ).encode()

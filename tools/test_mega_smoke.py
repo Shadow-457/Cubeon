@@ -340,10 +340,8 @@ def section_contracts():
     # submodules templates` silently collects NOTHING on the Windows build
     # interpreter (isolated WinPython sys.path) - the palette then falls back
     # to green and only Windows loses the colours (2026-10-05). Guard that all
-    # three Windows builders carry the explicit hidden imports.
-    win_builders = ["packaging/build_windows.py",
-                    "packaging/build_windows_single.py",
-                    "packaging/build_public_windows.py"]
+    # Windows installer builder carries the explicit hidden imports.
+    win_builders = ["packaging/build_windows.py"]
     palette_bad = [p for p in win_builders
                    if not os.path.exists(p)
                    or "templates.color_autumn" not in open(p, encoding="utf-8").read()
@@ -579,7 +577,7 @@ SUITES = [
     # offline/hermetic; the pipeline one extracts the real `run:` scripts out
     # of .github/workflows/build.yml, so a broken release is caught here.
     "test_release_version.py", "test_release_pipeline.py",
-    "test_update_notice.py", "test_launcher_updates.py",
+    "test_update_notice.py", "test_launcher_updates.py", "test_launcher_installers.py",
     # The FPS boost as the user experiences it (options.txt + Sodium's own
     # config/sodium-options.json), and the motion layer every hover goes
     # through. Both are offline and take a few seconds.

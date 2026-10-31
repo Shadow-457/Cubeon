@@ -8,7 +8,7 @@ import webbrowser
 
 import flet as ft
 
-from cubeon import dialogs, thread_safe_ui, update_install
+from cubeon import dialogs, thread_safe_ui, update_install, updater
 
 
 class UpdatePrompt:
@@ -24,6 +24,8 @@ class UpdatePrompt:
         self.can_install = self.target.can_install
         size = (asset or {}).get("size")
         detail = "Update will download, install and reopen Cubeon automatically."
+        if self.target.asset == "linux-deb" and self.can_install:
+            detail += " Linux will ask you to authorize the package installation."
         if not self.can_install:
             detail = self.target.reason or "This installation needs a manual update. You can download it below."
         self.status = ft.Text(detail, size=13)
@@ -130,7 +132,20 @@ class UpdatePrompt:
 
     def _download(self):
         try:
-            path = update_install.download_update(self.info, self.target, self.cancel, self._progress)
+            try:
+                path = update_install.download_update(self.info, self.target, self.cancel, self._progress)
+            except update_install.UpdateReleaseChanged:
+                if self.cancel.is_set():
+                    return
+                info = updater.check_for_updates(channel=self.info.get("channel", "stable"))
+                if not info:
+                    raise ValueError("The release changed. Check for updates again in Settings.")
+                with thread_safe_ui.TREE_LOCK:
+                    if self.phase != "downloading":
+                        return
+                    self.info = info
+                    self.dialog.title.value = f"Updating Cubeon to {info['version']}"
+                path = update_install.download_update(info, self.target, self.cancel, self._progress)
             with thread_safe_ui.TREE_LOCK:
                 if self.phase != "downloading":
                     shutil.rmtree(path.parent, ignore_errors=True)
@@ -163,7 +178,7 @@ class UpdatePrompt:
 
     def install_failed(self, message):
         with thread_safe_ui.TREE_LOCK:
-            if self.phase != "closing":
+            if self.phase not in {"closing", "ready"}:
                 return
             self.phase = "ready"
             self.skip.disabled = self.update.disabled = False

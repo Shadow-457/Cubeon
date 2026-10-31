@@ -37,7 +37,6 @@ body:
       options:
         - Installer or system package
         - AppImage
-        - Portable archive
         - Source checkout
         - Other
     validations:

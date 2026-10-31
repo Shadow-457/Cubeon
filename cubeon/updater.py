@@ -163,7 +163,8 @@ def check_for_updates(timeout: float = 8.0, feed_url: str | None = None,
 def check_in_background(on_update, feed_url: str | None = None,
                         token: str | None = None,
                         download_url: str | None = None,
-                        channel: str = "stable") -> threading.Thread:
+                        channel: str = "stable", *, on_complete=None,
+                        on_error=None) -> threading.Thread:
     """Run the check off the UI thread; on_update(dict) fires only on a
     POSITIVE result. Everything else - no update, no network, bad feed -
     stays in the log where it belongs."""
@@ -177,8 +178,12 @@ def check_in_background(on_update, feed_url: str | None = None,
             else:
                 log.info("update check: up to date (v%s, %s)",
                          APP_VERSION, channel)
+            if on_complete:
+                on_complete(info)
         except Exception as ex:  # noqa: BLE001 - never surface, just log
             log.info("update check skipped: %s", ex.__class__.__name__)
+            if on_error:
+                on_error(ex)
 
     t = threading.Thread(target=run, name="cubeon-update-check", daemon=True)
     t.start()
