@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 # Bump this with every release. The release feed's tag must match the same
 # scheme ("v1.2.3") or the comparison can't work.
-APP_VERSION = "1.3.31"
+APP_VERSION = "1.3.33"
 
 # Override with CUBEON_UPDATE_FEED for staging/testing. The public Worker
 # resolves GitHub releases without distributing repository credentials.
