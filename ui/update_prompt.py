@@ -1,4 +1,4 @@
-"""Startup Skip / Update prompt. Downloading always requires a click."""
+"""One Update click downloads, verifies, installs and reopens the launcher."""
 import shutil
 import re
 import logging
@@ -23,13 +23,14 @@ class UpdatePrompt:
         asset = update_install.release_asset(info, self.target)
         self.can_install = self.target.can_install
         size = (asset or {}).get("size")
-        detail = "Download the update now, or skip and keep using Cubeon."
+        detail = "Update will download, install and reopen Cubeon automatically."
         if not self.can_install:
             detail = self.target.reason or "This installation needs a manual update. You can download it below."
         self.status = ft.Text(detail, size=13)
         self.progress = ft.ProgressBar(value=0, visible=False)
         self.skip = ft.TextButton("Skip", on_click=self._skip, data="update-skip")
-        self.update = ft.FilledButton("Update", on_click=self._update, data="update-now")
+        self.update = ft.FilledButton("Update", on_click=self._update, data="update-now",
+                                     visible=self.can_install)
         self.manual = ft.TextButton("Download manually", on_click=self._manual_download,
                                     data="update-manual", visible=not self.can_install)
         content = [self.status]
@@ -142,6 +143,9 @@ class UpdatePrompt:
                 self.progress.value = 1
                 self.status.value = "Download verified. Restart to install the update and reopen Cubeon."
                 self._paint()
+            # Update is the user's authorization for the whole operation.
+            # Recheck busy state here: a game/server may have started during download.
+            self._update()
         except update_install.UpdateCancelled:
             return
         except Exception as error:

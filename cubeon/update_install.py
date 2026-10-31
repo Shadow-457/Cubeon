@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -61,8 +62,9 @@ def installation_target() -> InstallTarget:
     """Never replace a source checkout or a package-manager-owned program."""
     if sys.platform == "win32":
         exe = Path(sys.executable).resolve()
-        if (getattr(sys, "frozen", False) and exe.suffix.lower() == ".exe"
-                and (exe.parent / "Uninstall Cubeon.exe").is_file()):
+        packaged = (getattr(sys, "frozen", False) and exe.name.lower() == "cubeon.exe"
+                    and (exe.parent / "_internal").is_dir())
+        if packaged and (exe.parent / "Uninstall Cubeon.exe").is_file():
             # NSIS restores the registry's directory in .onInit. A copied
             # installation must not silently update a different registered copy.
             try:
@@ -73,7 +75,10 @@ def installation_target() -> InstallTarget:
                     return InstallTarget("windows", exe.parent)
             except (OSError, ImportError):
                 pass
-        return InstallTarget("windows-zip")
+            return InstallTarget("windows", reason="Run Cubeon from its installed folder, or reinstall it to repair its registration.")
+        if packaged and os.access(exe.parent, os.W_OK | os.X_OK):
+            return InstallTarget("windows-zip", exe.parent)
+        return InstallTarget("windows-zip", reason="Move the complete Cubeon folder to a writable location and reopen it to update.")
     if sys.platform == "darwin":
         return InstallTarget("macos")
     image = os.environ.get("APPIMAGE") or os.environ.get("CUBEON_APPIMAGE_PATH")
@@ -121,7 +126,8 @@ def download_update(info: dict, target: InstallTarget, cancel: threading.Event,
         directory = Path(CUBEON_HOME) / "updates"
     Path(directory).mkdir(parents=True, exist_ok=True)
     folder = Path(tempfile.mkdtemp(prefix="download-", dir=directory))
-    destination = folder / ("Cubeon-Setup.exe" if target.asset == "windows" else "Cubeon.AppImage")
+    destination = folder / {"windows": "Cubeon-Setup.exe", "windows-zip": "Cubeon.zip",
+                            "linux": "Cubeon.AppImage"}.get(target.asset, "Cubeon.download")
     received, hasher = 0, hashlib.sha256()
     deadline = time.monotonic() + 1800
     try:
@@ -152,6 +158,38 @@ def download_update(info: dict, target: InstallTarget, cancel: threading.Event,
         return destination
     except BaseException:
         shutil.rmtree(folder, ignore_errors=True)
+        raise
+
+
+def stage_portable_update(download: Path, target: Path) -> Path:
+    """Extract verified onedir files beside the installation before closing it.
+
+    Only the two program-owned entries may be replaced. Games/settings and
+    anything else someone keeps beside a portable launcher remain untouched.
+    """
+    stage = Path(tempfile.mkdtemp(prefix=".cubeon-update-", dir=target))
+    try:
+        with zipfile.ZipFile(download) as archive:
+            entries = archive.infolist()
+            total = 0
+            for entry in entries:
+                name = entry.filename
+                parts = name.rstrip("/").split("/")
+                if ("\\" in name or ":" in name or any(p in {"", ".", ".."} for p in parts)
+                        or parts[0] != "Cubeon" or (len(parts) > 1 and parts[1] not in {"Cubeon.exe", "_internal"})
+                        or (len(parts) > 2 and parts[1] == "Cubeon.exe")
+                        or (entry.external_attr >> 16) & 0o170000 == 0o120000):
+                    raise ValueError("The portable update contains an invalid path.")
+                total += entry.file_size
+            if len(entries) > 30000 or total > 3 * 1024**3:
+                raise ValueError("The portable update is too large to install.")
+            archive.extractall(stage)
+        payload = stage / "Cubeon"
+        if not (payload / "Cubeon.exe").is_file() or not (payload / "_internal").is_dir():
+            raise ValueError("The portable update is missing launcher files.")
+        return stage
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
         raise
 
 
