@@ -34,9 +34,9 @@ The launcher's normal mod sync then carries it into the game.
 already has them, so an existing install stops loading the pile instead of
 waiting for the user to delete eight jars by hand.
 
-Best-effort by design, because this runs inside the launch path: no build for
-this Minecraft version, a dead network, or a jar the user manages by hand all
-just mean there is no boost. Nothing here can stop the game from starting.
+Performance downloads are best-effort. Required dependencies are checked from
+the actual installed jars, including old profiles; Play refuses a known missing
+dependency after automatic repair fails, instead of spawning a guaranteed crash.
 """
 import json
 import os
@@ -387,7 +387,8 @@ def prune_retired_perf_mods(mc_version: str | None, loader: str | None,
 
 
 def ensure_installed(mc_version: str | None, loader: str | None,
-                     status_cb=None, version_id: str | None = None) -> dict:
+                     status_cb=None, version_id: str | None = None, *,
+                     repair_dependencies: bool = True) -> dict:
     """Installs any missing performance mod into the profile.
 
     Returns {"installed", "kept", "failed", "detail"} so the caller can log or
@@ -445,6 +446,23 @@ def ensure_installed(mc_version: str | None, loader: str | None,
             result["failed"].append(slug)
 
     parts = []
+    if repair_dependencies:
+        # Read the actual jars, including already-kept builds: old launchers
+        # installed More Culling without Cloth Config. Play defers this to its
+        # final Doctor gate so dependency repair runs only once per launch.
+        try:
+            from .mod_dependencies import run_dependency_doctor
+            dependencies = run_dependency_doctor(
+                mc_version, loader, version_id=version_id, status_cb=status_cb,
+                check_online=not network_down)
+            if dependencies["fixed"]:
+                parts.append("repaired dependencies: " + ", ".join(
+                    item["dependency"] for item in dependencies["fixed"]))
+            if dependencies["unfixed"]:
+                parts.append("dependencies need repair: " + "; ".join(
+                    item["detail"] for item in dependencies["unfixed"]))
+        except Exception as error:
+            parts.append(f"dependency check failed: {error}")
     if result["installed"]:
         parts.append("installed " + ", ".join(
             _LABELS.get(s, s) for s in result["installed"]))

@@ -141,7 +141,8 @@ jobs:
           $failed = 0
           $tests = @(
             "tools/test_startup.py",
-            "tools/test_winwindow.py"
+            "tools/test_winwindow.py",
+            "tools/test_mod_prelaunch_dependencies.py"
           )
           foreach ($t in $tests) {
             Write-Host "::group::$t"

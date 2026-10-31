@@ -1450,14 +1450,18 @@ LAUNCH_LOOKUP_ATTEMPTS = 1
 def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
                       loader: str = "fabric", *,
                       timeout: int | tuple = 10,
-                      attempts: int | None = None) -> dict | None:
+                      attempts: int | None = None,
+                      version_predicates=None) -> dict | None:
     """Finds the best matching version file for a mod, filtered by MC version
     and loader when given. Returns {filename, url, size} or None if no
     matching version exists.
 
     `timeout`/`attempts` exist for the launch path (see LAUNCH_LOOKUP_*):
     they bound the wait on a dead route. Everything else - the cache key
-    included - is unchanged, so both callers share one cache."""
+    included - is unchanged, so both callers share one cache.
+    `version_predicates` requires ALL requesters' constraints, and uses its own
+    cache entry so a pinned dependency cannot get an unconstrained latest jar.
+    """
     if attempts is None:
         attempts = net.DEFAULT_ATTEMPTS
     params = {}
@@ -1467,6 +1471,8 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
         params["game_versions"] = json.dumps([mc_version])
 
     cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 2}
+    if version_predicates is not None:
+        cache_key["predicates"] = list(version_predicates)
 
     def _fetch():
         versions = net.get_json(
@@ -1482,7 +1488,9 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
         # would return None and make the doctor wrongly DISABLE a mod that does
         # have a downloadable build. Take the newest version that actually has
         # a file.
-        latest = next((v for v in versions if v.get("files")), None)
+        latest = next((v for v in versions if v.get("files") and all(
+            version_satisfies(str(v.get("version_number") or ""), predicate)
+            for predicate in (version_predicates or ()))), None)
         if latest is None:
             return None
         files = latest.get("files") or []

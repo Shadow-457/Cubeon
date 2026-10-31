@@ -1186,7 +1186,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             from . import perf_mods
             report = perf_mods.ensure_installed(mc_version, loader,
                                                 status_cb=status_cb,
-                                                version_id=version_id)
+                                                version_id=version_id,
+                                                repair_dependencies=False)
             if report["installed"] and status_cb:
                 status_cb("FPS boost installed")
             # The suite was narrowed to Sodium only; remove the retired mods so
@@ -1347,12 +1348,11 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # doctor and just play" actually meant "wait for every dialog to time
     # out" - the launch was blocked by the very thing the user dismissed.
     #
-    # A launch must never wait on a question. All this pass does now is
-    # repair launcher-owned settings that make Java die before Minecraft
+    # A launch must never wait on a question. This config pass
+    # repairs launcher-owned settings that make Java die before Minecraft
     # starts (a bare token in custom JVM flags, a deleted Java path). It
-    # never touches installed content and never prompts. Mod dependency /
-    # conflict repair belongs to an explicit install or "Fix crash" action,
-    # not to the Play button.
+    # never prompts. The dependency-only Doctor gate below repairs required
+    # mods separately, with bounded lookups and verified jars, before staging.
     try:
         from .doctor import run_doctor
         report = run_doctor(mc_version, loader, auto_fix=True,
@@ -1366,6 +1366,16 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             "launch config check failed", exc_info=True)
     try:
         with _spawn_lock:
+            from .mod_dependencies import run_dependency_doctor
+            dependency_report = run_dependency_doctor(
+                mc_version, loader, version_id=version_id, status_cb=status_cb)
+            if dependency_report["unfixed"]:
+                details = "\n".join(
+                    f"{item['detail']}. {item['error']}"
+                    for item in dependency_report["unfixed"][:4])
+                raise RuntimeError("Doctor could not repair the required mods.\n" + details)
+            if dependency_report["fixed"] and status_cb:
+                status_cb("Doctor repaired and verified the required mods")
             try:
                 from .content import sync_content_to_game
                 sync_content_to_game(mc_version, loader, version_id)

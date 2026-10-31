@@ -26,7 +26,7 @@ substitute for current code.
 | Game installation and launch | `versions.py`, `mod_loaders.py`, `launch.py`, `jre.py` |
 | Instances | `instances.py`, `versions.py`, `content.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
-| Content compatibility | `packformat.py`, `doctor.py`, `content.py` |
+| Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `content.py` |
 | Download infrastructure | `net.py`, `global_mod_cache.py`, `local_cache.py` |
 | Friends ownership | `friends_service.py`, `friends.py`, `e2ee.py` |
 | Mod bridge | `local_api.py`, `cubeonfriends.py`, `mod/brackets.json` |
@@ -259,9 +259,15 @@ consistent with the shared `THEME` contract.
   Modrinth loader facet.
 - The local cache stores fetch timestamps, not a caller-independent expiry. Stale reads never mark data
   fresh; empty mod searches retry after one minute.
-- Launch-time checking is **config-only and non-interactive** (`include=("launch",)`, `check_online=False`,
-  no approver): it repairs launcher-owned settings that kill Java before Minecraft starts, never touches
-  content or waits on a question. Selecting an instance starts no scan; the doctor can never block a launch.
+- Launch checks never prompt: the config pass uses `include=("launch",)` / `check_online=False`;
+  `mod_dependencies.run_dependency_doctor` then repairs actual Fabric/Quilt JAR requirements under
+  `_spawn_lock`, before sync/spawn, using the selected `version_id`. Clean profiles make no network calls;
+  repairs use one bounded attempt, stop network probing after connection failure, and cap work at 16 repairs
+  / a 60s scheduling/transfer budget (socket timeouts can finish later). Nested providers count; all requesters'
+  version constraints must hold. Downloads are staged/hash-checked and actual JAR metadata validated before
+  replacement; old dependency JARs remain as backups with rollback on swap failure. Missing dependencies
+  stop Play with a named retryable error, never disable the requester. Performance installation also repairs
+  kept profiles; Play defers that repair to its final gate. `test_mod_prelaunch_dependencies.py` guards this.
 - Doctor runs without repair windows: Installed's "Check & repair" starts a scoped worker and the click
   authorizes reversible changes; passive checks use `check_online=False` and no approver, and install
   checks use no approver. Old jars are renamed, never deleted. Results stay inline; `repair_details`
@@ -725,7 +731,7 @@ consistent with the shared `THEME` contract.
   non-null `custom_window_chrome` config value wins, and the one-time `custom_window_chrome_chosen` marker keeps a
   user's OFF from being migrated back on. macOS keeps the native frame. Maximize/fullscreen need explicit
   state.
-- Verify Java by running it; the launch-time check is config-only and must never prompt. Do not blame Java
+- Verify Java by running it; the launch-time Java settings check must never prompt. Do not blame Java
   for a graphics failure without evidence.
 - The game must not inherit launcher-only software-graphics overrides. Crash text must not promise a fix
   that has not been verified.

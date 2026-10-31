@@ -162,7 +162,8 @@ def get_json(url: str, *, headers: dict | None = None, params: dict | None = Non
 
 
 def stream_to_file(resp: requests.Response, dest_path: str, *,
-                   progress_cb=None, hasher=None, resume_from: int = 0) -> int:
+                   progress_cb=None, hasher=None, resume_from: int = 0,
+                   deadline: float | None = None) -> int:
     """Write a streaming response body to dest_path (append mode when
     resuming). Returns bytes written this call. A dropped connection
     mid-body raises requests.RequestException, which callers treat as
@@ -179,8 +180,31 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
     last_cb = 0.0
     last_done = 0
     _now = time.monotonic
+
+    def chunks():
+        if deadline is None:
+            yield from resp.iter_content(chunk_size=1 << 16)
+            return
+        # iter_content/read tries to fill 64 KiB across many socket reads.
+        # A trickling peer can keep that one iteration alive indefinitely.
+        # read1 returns after a network read, so the deadline is checked even
+        # when the peer sends too slowly to ever fill a regular chunk.
+        while True:
+            if _now() >= deadline:
+                raise DownloadError("Download time limit reached; retry the download")
+            from urllib3.exceptions import HTTPError
+            try:
+                block = resp.raw.read1(1 << 16, decode_content=True)
+            except HTTPError as error:
+                raise DownloadError(human(f"Couldn't read the download: {error}")) from error
+            if _now() >= deadline:
+                raise DownloadError("Download time limit reached; retry the download")
+            if not block:
+                return
+            yield block
+
     with open(dest_path, mode) as fh:
-        for chunk in resp.iter_content(chunk_size=1 << 16):
+        for chunk in chunks():
             if not chunk:
                 continue
             fh.write(chunk)
@@ -205,7 +229,7 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
 def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                 timeout: int = 30, attempts: int = DEFAULT_ATTEMPTS,
                 expected_hash: tuple[str, str] | None = None,
-                progress_cb=None) -> int:
+                progress_cb=None, deadline: float | None = None) -> int:
     """Download url -> dest_path with retry + Range resume, capped by the
     global download gate. Verifies expected_hash=(algo, hexdigest) when
     given; a hash mismatch clears the partial file and raises (a resume
@@ -218,8 +242,14 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
     part_path = dest_path + ".part"
     last_err: Exception | None = None
 
-    with DOWNLOAD_GATE:
+    if deadline is None:
+        DOWNLOAD_GATE.acquire()
+    elif not DOWNLOAD_GATE.acquire(timeout=max(0, deadline - time.monotonic())):
+        raise DownloadError("Download time limit reached while waiting; retry the download")
+    try:
         for attempt in range(attempts):
+            if deadline is not None and time.monotonic() >= deadline:
+                raise DownloadError("Download time limit reached; retry the download")
             # Resume: if a partial file survived the last attempt, ask the
             # server for the remaining bytes. Servers that ignore Range send
             # a full 200 - we detect that and start over rather than append
@@ -248,8 +278,11 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                     if expected_hash and not hasher:
                         hasher = hashlib.new(expected_hash[0])
                     os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
-                    stream_to_file(resp, part_path, progress_cb=progress_cb,
-                                   hasher=hasher, resume_from=resume_from)
+                    stream_args = dict(progress_cb=progress_cb, hasher=hasher,
+                                       resume_from=resume_from)
+                    if deadline is not None:
+                        stream_args["deadline"] = deadline
+                    stream_to_file(resp, part_path, **stream_args)
                 finally:
                     resp.close()
                 if expected_hash and hasher.hexdigest().lower() != expected_hash[1].lower():
@@ -270,4 +303,6 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                 log.info("download %s: attempt %d failed (%s)",
                          url, attempt + 1, ex.__class__.__name__)
                 time.sleep(BACKOFF_BASE * (2 ** attempt))
+    finally:
+        DOWNLOAD_GATE.release()
     raise DownloadError(human(f"Couldn't download {url}: {last_err}"))
