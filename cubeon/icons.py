@@ -44,6 +44,7 @@ _HEADERS = modrinth_headers("modrinth cdn art")
 _lock = threading.Lock()
 _inflight = set()
 _sources = OrderedDict()
+_ready = {}
 _SOURCE_LIMIT = 128
 
 
@@ -102,6 +103,27 @@ def src(url: str | None) -> str | None:
         return url
 
 
+def peek_src(url):
+    """Memory-only lookup for hot UI paths; performs no filesystem work."""
+    if not url:
+        return None
+    with _lock:
+        cached = _sources.get(_dest(url))
+        return cached[1] if cached else None
+
+
+def load_source(url):
+    """Resolve cached/downloaded artwork on a worker, without a second CDN fetch."""
+    if not url:
+        return None
+    prefetch(url)
+    with _lock:
+        ready = _ready.get(_dest(url))
+    if ready:
+        ready.wait(12)
+    return src(url) if local_path(url) else None
+
+
 def prefetch(url: str | None) -> None:
     """Downloads the icon to the disk cache on a daemon thread if missing.
     Safe to call on every render: an existing copy (or an in-flight download)
@@ -113,6 +135,7 @@ def prefetch(url: str | None) -> None:
         if path in _inflight or local_path(url):
             return
         _inflight.add(path)
+        _ready[path] = ready = threading.Event()
 
     def _download():
         try:
@@ -130,9 +153,13 @@ def prefetch(url: str | None) -> None:
         finally:
             with _lock:
                 _inflight.discard(path)
+                _ready.pop(path, None)
+                ready.set()
 
     try:
         threading.Thread(target=_download, daemon=True).start()
     except Exception:
         with _lock:
             _inflight.discard(path)
+            _ready.pop(path, None)
+            ready.set()

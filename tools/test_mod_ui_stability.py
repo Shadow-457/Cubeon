@@ -198,7 +198,7 @@ with patch("ui.modpacks_tab.threading.Thread", QueuedThread), patch.object(icons
     check("Play-version changes update pack hints without reloading art", row.content.controls[0] is image and "installs its own" in row.content.controls[1].controls[2].value)
     check("pack action width stays fixed", action.width == 136 and action.height == 36)
     pack_scope = inspect.getclosurevars(functions["_render_installed_rows"]).nonlocals
-    inspect.getclosurevars(refresh_packs).nonlocals["active_view"]["value"] = "installed"
+    inspect.getclosurevars(functions["_apply_installed_packs"]).nonlocals["active_view"]["value"] = "installed"
     refresh_packs()
     installed_list = pack_scope["installed_view"]
     saved_row = installed_list.controls[0]

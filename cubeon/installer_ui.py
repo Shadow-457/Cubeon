@@ -1,4 +1,6 @@
 """Offline Linux setup, run by the installer AppImage before launcher startup."""
+import asyncio
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -60,6 +62,7 @@ class LinuxSetup:
     def __init__(self, page, source):
         self.page, self.source = page, source
         self.busy = False
+        self.closing = False
         self.launcher = None
         self.location = ft.TextField(label='Installation folder', value=str(Path.home() / '.local/opt/Cubeon'),
                                      color=theme.TEXT, label_style=ft.TextStyle(color=theme.TEXT_DIM),
@@ -165,7 +168,27 @@ class LinuxSetup:
             self.paint()
 
     async def _close(self):
-        await self.page.window.close()
+        if self.busy or self.closing:
+            return
+        self.closing = True
+        try:
+            # This is the confirmed close path after the install gate. A
+            # graceful close can be intercepted by the native close handler.
+            await self.page.window.destroy()
+        except RuntimeError as error:
+            if str(error) == 'Session closed':
+                return
+            self._close_failed()
+        except Exception:
+            self._close_failed()
+
+    def _close_failed(self):
+        logging.getLogger(__name__).exception('Could not close Cubeon Setup')
+        self.closing = False
+        with thread_safe_ui.TREE_LOCK:
+            self.page.window.prevent_close = True
+            self.status.value = 'Could not close setup. Try again.'
+            self.paint()
 
     def finish(self, _e=None):
         if not self.busy:
@@ -173,6 +196,8 @@ class LinuxSetup:
 
 
 def run_installer():
+    from .color_templates import apply_template
+    apply_template('green')
     source = os.environ.get('APPIMAGE') or os.environ.get('CUBEON_APPIMAGE_PATH')
     async def main(page):
         page.title = 'Cubeon Setup'
@@ -187,6 +212,13 @@ def run_installer():
         page.window.prevent_close = True
         page.window.on_event = lambda e: setup.finish() if e.type == ft.WindowEventType.CLOSE else None
         page.add(setup.control)
+        # Hidden desktop starts need a real property change, followed by the
+        # native show method; Flet can suppress writes of the True default.
+        page.window.visible = False
         page.window.visible = True
         page.update()
+        try:
+            await asyncio.wait_for(page.window.to_front(), timeout=5)
+        except Exception:
+            pass
     ft.run(main, assets_dir=str(bundle_root() / 'assets'), view=ft.AppView.FLET_APP_HIDDEN)

@@ -8791,10 +8791,12 @@ async def main(page: ft.Page):
                 except Exception:
                     pass
             from ui.update_prompt import UpdatePrompt
+            from cubeon.update_install import installation_target
+            target = installation_target()
             with thread_safe_ui.TREE_LOCK:
                 if _update_active.is_set():
                     _update_prompt["value"] = UpdatePrompt(
-                        page, info, busy=_update_busy, install=_install_app_update).open()
+                        page, info, busy=_update_busy, install=_install_app_update, target=target).open()
         except Exception:
             logging.getLogger(__name__).debug("update prompt failed", exc_info=True)
 

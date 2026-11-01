@@ -39,6 +39,7 @@ from cubeon import instances as instance_info
 from cubeon import modpacks as modpacks_backend
 from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
 from cubeon.background_refresh import BackgroundRefresh
+from cubeon.icon_loader import IconLoader
 from ui.detail_dialog import open_project_detail
 from ui.install_feedback import InstallRegistry, compact_status
 from ui.content_states import loading_rows, empty_state
@@ -73,6 +74,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     install_registry = InstallRegistry()
     active_feedback = {"job": None}
     installed_rows = {}
+    pack_art = IconLoader()
 
     def _remember_row(cache, key, entry):
         cache[key] = entry
@@ -91,13 +93,24 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         return description, line
 
     def _pack_icon(url, size):
-        _icons.prefetch(url)
         if url:
-            return ft.Image(src=_icons.src(url), width=size, height=size,
-                            border_radius=RADIUS, fit=ft.BoxFit.COVER, gapless_playback=True)
+            image = ft.Image(src=_icons.peek_src(url) or 'icon.svg', width=size, height=size,
+                             data=url, border_radius=RADIUS, fit=ft.BoxFit.COVER,
+                             gapless_playback=True)
+            _load_pack_icon(image, url)
+            return image
         return ft.Container(width=size, height=size, bgcolor=ROW_HOVER, border_radius=RADIUS,
                             content=ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=TEXT_FAINT, size=22),
                             alignment=ft.Alignment.CENTER)
+
+    def _load_pack_icon(image, url):
+        image.data = url
+        def ready(source):
+            if image.data == url and image.src != source:
+                image.src = source
+                thread_safe_ui.refresh(image)
+        if not _icons.peek_src(url):
+            pack_art.request(url, ready)
 
     def _sync_pack_icon(row, old_url, url, size, installed=False):
         if old_url == url:
@@ -105,8 +118,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         holder = row.content.controls[0]
         image = holder.content if installed else holder
         if isinstance(image, ft.Image) and url:
-            _icons.prefetch(url)
-            image.src = _icons.src(url)
+            image.src = _icons.peek_src(url) or 'icon.svg'
+            _load_pack_icon(image, url)
         elif installed:
             holder.content = _pack_icon(url, size)
         else:
@@ -668,7 +681,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         expand=True,
     )
 
-    results_view = ft.Column(spacing=8)
+    results_view = ft.ListView(spacing=8, expand=True, cache_extent=128,
+                               build_controls_on_demand=True)
     browse_status = ft.Text("", size=12, color=TEXT_DIM)
     browse_title = ft.Text("Popular modpacks", size=12,
                            color=TEXT_DIM, font_family=FONT_MONO)
@@ -741,7 +755,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 finished.add(provider)
                 if error:
                     failed.add(provider)
-                provider_results[provider] = hits or []
+                provider_results[provider] = (hits or [])[:PAGE_SIZE]
                 merged = core.merge_modpack_hits(
                     provider_results["modrinth"], provider_results["curseforge"], query)
                 # Keep loading until both providers finish when neither has
@@ -823,13 +837,15 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 # Not fetched yet: show loading and go get just this page.
                 if (not results_view.controls or isinstance(results_view.controls[0], (ft.Text, ft.Row))
                         or getattr(results_view.controls[0], "data", None) == "content-empty"):
-                    results_view.controls[:] = [loading_rows()]
-                results_view.disabled = True
+                    results_view.controls[:] = [loading_rows(fill=BORDER)]
+                results_view.disabled = getattr(results_view.controls[0], 'data', None) != 'content-loading'
+                browse_status.value = 'Loading modpacks…'
                 pager_row.visible = False
                 # Scoped paint: switch_tab already sent the shell. A full diff here
                 # made the first Modpacks visit do two whole-tree passes back to
                 # back (the reported tab-switch hitch).
                 thread_safe_ui.refresh(results_view)
+                thread_safe_ui.refresh(browse_status)
                 thread_safe_ui.refresh(pager_row)
                 _load_page(page_num, browse_state.get("gen"))
                 return
@@ -1148,7 +1164,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     # --- Installed packs -----------------------------------------------------
 
-    installed_view = ft.Column(spacing=8)
+    installed_view = ft.ListView(spacing=8, expand=True, cache_extent=128,
+                                 build_controls_on_demand=True)
     installed_count = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     delete_status = ft.Text("", size=12, color=TEXT_DIM)
 
@@ -1363,14 +1380,11 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     # prefetch, delete dialog, hover handlers) for every installed pack there
     # was pure stall - measured at ~43 ms for 40 packs before this.
     installed_cache = {"packs": None}
+    installed_limit = {"value": 25}
 
     def _scan_installed_packs():
-        if installed_cache["packs"] is None:
-            try:
-                installed_cache["packs"] = core.list_installed_modpacks()
-            except Exception:
-                installed_cache["packs"] = []
-        return installed_cache["packs"]
+        # Browse badge rendering runs under the UI lock; never scan there.
+        return installed_cache["packs"] or []
 
     def _render_installed_rows(packs):
         rows = []
@@ -1379,8 +1393,13 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                                     icon=ft.Icons.INVENTORY_2_ROUNDED, action_label="Browse",
                                     on_action=lambda e: on_view_change("browse")))
         else:
-            for meta in packs:
+            for meta in packs[:installed_limit['value']]:
                 rows.append(build_installed_row(meta))
+            if len(packs) > installed_limit['value']:
+                def more(_e):
+                    installed_limit['value'] += 25
+                    _render_installed_rows(installed_cache['packs'] or [])
+                rows.append(ft.TextButton('Show more installed packs', on_click=more))
         installed_view.controls[:] = rows
         # Scoped diff of this tab's list (not page.update(): switching TO
         # modpacks used to re-sync every mounted tab over the wire - the
@@ -1428,6 +1447,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         ],
         spacing=8,
         visible=True,
+        expand=True,
     )
 
     installed_pane = ft.Column(
@@ -1439,6 +1459,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         ],
         spacing=8,
         visible=False,
+        expand=True,
     )
 
     view_segment_row = ft.Row(spacing=16)
@@ -1518,7 +1539,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             installed_pane,
         ],
         spacing=8,
-        scroll=ft.ScrollMode.AUTO,
+        expand=True,
     )
 
     return modpacks_tab, refresh_installed_packs, load_popular

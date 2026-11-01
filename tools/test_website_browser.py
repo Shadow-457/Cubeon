@@ -23,7 +23,9 @@ def main():
                 request.abort()
                 return
             path = urlsplit(url).path.lstrip('/') or 'index.html'
-            if not Path(path).suffix:
+            if (ROOT / 'web' / path).is_dir():
+                path += '/index.html'
+            elif not Path(path).suffix:
                 path += '.html'
             file = ROOT / 'web' / path
             request.fulfill(path=str(file)) if file.is_file() else request.fulfill(status=404, body='Not found')
@@ -81,6 +83,30 @@ def main():
                     expect(page.locator('.project-facts')).to_contain_text('Minecraft Java Edition')
             assert not errors, errors
             page.close()
+        # Language choice must work without the optional consent feature.
+        # The translation edit accidentally removed a function terminator,
+        # disabling all shared JS and hiding every hero download pane.
+        for width in [1440, 390, 320]:
+            context = browser.new_context(viewport={'width': width, 'height': 1000},
+                                          locale='ar', reduced_motion='reduce')
+            page = context.new_page()
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.route('**/*', route)
+            page.goto('https://cubeon.test/ar/?time=night')
+            expect(page.locator('html')).to_have_attribute('dir', 'rtl')
+            expect(page.locator('.sign .pane.on .btn')).to_be_visible()
+            assert not page.evaluate('document.documentElement.scrollWidth > innerWidth + 1'), (width, 'Arabic overflow')
+            if width < 880:
+                page.locator('#navToggle').click()
+            page.locator('.lang-menu summary').click()
+            page.locator('.lang-menu a[hreflang="en"]').click()
+            expect(page.locator('html')).to_have_attribute('lang', 'en')
+            assert page.evaluate('localStorage.getItem("cubeon-lang")') == 'en'
+            page.goto('https://cubeon.test/download')
+            expect(page.locator('html')).to_have_attribute('lang', 'en')
+            assert not errors, errors
+            context.close()
         page = browser.new_page(java_script_enabled=False)
         page.route('**/*', route)
         page.goto('https://cubeon.test/')

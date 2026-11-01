@@ -6,13 +6,14 @@
 <meta name="robots" content="index, follow, max-image-preview:large" />
 <meta name="referrer" content="no-referrer" />
 <title>Cubeon Doctor - محلّل سجلات تعطل Minecraft &amp; أدوات الإصلاح</title>
-<meta name="description" conارفع سجل تعطل Minecraft إلى Cubeon Doctor. اكتشف أخطاء Java واعتماديات المودات المفقودة والتعارضات، ثم اتبع تعليمات إصلاح واضحة خطوة بخطوة.tions." />
-<meta property="og:title" conCubeon Doctor - محلّل سجلات تعطل Minecraft والحلول Fixes" />
-<meta property="og:description" conارفع سجل تعطل Minecraft إلى Cubeon Doctor. اكتشف أخطاء Java واعتماديات المودات المفقودة والتعارضات، ثم اتبع تعليمات إصلاح واضحة خطوة بخطوة.tions." />
+<meta name="description" content="ارفع سجل تعطل Minecraft إلى Cubeon Doctor. اكتشف أخطاء Java واعتماديات المودات المفقودة والتعارضات، ثم اتبع تعليمات إصلاح واضحة خطوة بخطوة." />
+<meta property="og:title" content="Cubeon Doctor - محلّل سجلات تعطل Minecraft والحلول" />
+<meta property="og:description" content="ارفع سجل تعطل Minecraft إلى Cubeon Doctor. اكتشف أخطاء Java واعتماديات المودات المفقودة والتعارضات، ثم اتبع تعليمات إصلاح واضحة خطوة بخطوة." />
 <meta property="og:site_name" content="Cubeon Launcher" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://www.ylet.online/assets/og.png" />
 <link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
+
 <!-- cubeon:auto-language -->
 <script>
 (function () {
@@ -56,6 +57,7 @@
 <link rel="stylesheet" href="/assets/doctor.css" />
 
 <script>document.documentElement.classList.add('js')</script>
+
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/doctor" />
 <link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/doctor" />
@@ -71,9 +73,9 @@
 <a class="skip" href="#content">تخطَّ إلى المحتوى</a>
 <header class="navbar">
   <div class="wrap">
-    <a class="brand" href="/ar" ariaالصفحة الرئيسية لـ Cubeoneon home"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
-    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" ariaالقائمةel="Menu">☰</button>
-    <nav class="nav-links" id="navSlots" ariaالرئيسيel="Main">
+    <a class="brand" href="/ar" aria-label="الصفحة الرئيسية لـ Cubeon"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="القائمة">☰</button>
+    <nav class="nav-links" id="navSlots" aria-label="الرئيسي">
       <!-- cubeon:language -->
 <div class="lang-menu">
   <details>
@@ -87,6 +89,7 @@
   </details>
 </div>
 <!-- /cubeon:language -->
+
       <a href="/ar">الرئيسية</a>
       <a href="/ar/download">تنزيل</a>
       <a href="/ar/docs">الوثائق</a>
@@ -111,14 +114,16 @@
       <details class="doc-editor" id="log-editor">
         <summary>الصق سجلًا أو راجع النص المرفوع</summary>
         <label class="doc-label" for="log-text">سجل التعطل</label>
-        <textarea id="log-text" spellcheck="false" maxlength="2000000" aria-describedby="file-note ai-privacy" placeholder="Paste your crash report or latest.log…"></textareaالصق تقرير التعطل أو latest.log…"doc-button doc-primary" type="button">تحليل السجل →</button>
+        <textarea id="log-text" spellcheck="false" maxlength="2000000" aria-describedby="file-note ai-privacy" placeholder="الصق تقرير التعطل أو latest.log…"></textarea>
+        <button id="ai-check" class="doc-button doc-primary" type="button">تحليل السجل →</button>
         <button id="local-check" class="doc-link" type="button">افحص على هذا الجهاز بدلًا من ذلك</button>
       </details>
       <details class="doc-help"><summary>من أين أحصل على سجلي؟</summary><p>في تقرير التعطل في Cubeon، اختر <strong>نسخ السجل</strong>. أو افتح <strong>اللعب → المجلد</strong> لنسختك وابحث في <code>logs/latest.log</code> أو <code>crash-reports</code>.</p></details>
       <p id="doctor-status" class="doc-status" role="status" aria-live="polite">جاهز لاستقبال سجلك.</p>
       <button id="cancel-check" class="doc-link" type="button" hidden>إيقاف التحليل</button>
     </section>
-    <section class="doc-output" aria-label="Crash diagnosis" aria-live="polite" aria-busy="false" id="docتشخيص التعطل    <div id="doctor-empty" class="doc-empty">
+    <section class="doc-output" aria-label="تشخيص التعطل" aria-live="polite" aria-busy="false" id="doctor-output">
+      <div id="doctor-empty" class="doc-empty">
         <p>لا يوجد سجل في متناول يدك؟ جرّب مثالًا.</p>
         <div class="doc-examples"><button data-example="memory" type="button">نفاد الذاكرة</button><button data-example="java" type="button">Java غير مناسب</button><button data-example="mods" type="button">مود مفقود</button></div>
       </div>
@@ -143,9 +148,9 @@
     </div>
     <div>
       <h4>Cubeon</h4>
-      <nav class="foot-links" aria-label="Pages">
+      <nav class="foot-links" aria-label="الصفحات">
         <a href="/ar">الرئيسية</a>
-        <a href="/ar/download">تنالصفحاتa>
+        <a href="/ar/download">تنزيل</a>
         <a href="/ar/docs">الوثائق</a>
         <a href="/ar/doctor">Doctor</a>
         <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a>
@@ -153,10 +158,10 @@
     </div>
     <div>
       <h4>الخصوصية &amp; القواعد</h4>
-      <nav class="foot-legal" aria-label="Legal">
+      <nav class="foot-legal" aria-label="قانوني">
         <a href="/ar/privacy">الخصوصية</a>
-        <a href="/terms.htقانونيلشروط</a>
-        <a href="refunds.html">الاسترداد</a>
+        <a href="/ar/terms">الشروط</a>
+        <a href="/ar/refunds">الاسترداد</a>
         <a href="/ar/cookies">ملفات تعريف الارتباط</a>
         <a href="/ar/licenses">الشكر والتقدير</a>
         <a href="/ar/privacy#delete">احذف بياناتي</a>

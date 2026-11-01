@@ -78,6 +78,7 @@ function installWorld({ cache = makeCache(), releaseFails = false, stableRelease
           { name: "Cubeon-Windows-x64-Setup.exe", url: "https://cdn.test/win", size: 11, id: 1 },
           { name: "Cubeon-x86_64.AppImage", url: "https://cdn.test/linux", size: 12, id: 2 },
           { name: "Cubeon-Linux-x86_64-Setup.sh", url: "https://cdn.test/sh", size: 13, id: 3 },
+          { name: "Cubeon-Linux-x86_64-Setup.AppImage", url: "https://cdn.test/setupimage", size: 13, id: 7 },
           { name: "cubeon_1.0.9_amd64.deb", url: "https://cdn.test/deb9", size: 14, id: 4 },
           { name: "cubeon_1.0.10_amd64.deb", url: "https://cdn.test/deb10", size: 15, id: 5 },
           { name: "cubeon_bad.deb", url: "https://cdn.test/debbad", size: 16, id: 6 },
@@ -147,6 +148,12 @@ check("the Linux route works too", res.status === 200, `status ${res.status}`);
 world = fresh();
 res = await get("/linuxsetup");
 check("the setup-script route works", res.status === 200, `status ${res.status}`);
+
+world = fresh();
+res = await get("/linuxinstaller");
+check("the graphical installer route works", res.status === 200 &&
+  res.headers.get("Content-Disposition") === 'attachment; filename="Cubeon-Linux-x86_64-Setup.AppImage"',
+  `status ${res.status}`);
 
 world = fresh();
 res = await get("/linuxdeb");

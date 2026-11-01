@@ -5,20 +5,21 @@ from cubeon.theme import (RADIUS, SURFACE_HI, TEXT, TEXT_DIM, FONT_BODY,
                           SPACE_SM, SPACE_MD, SPACE_LG, SPACE_XXL)
 
 
-def loading_rows(label="Loading…", count=3):
+def loading_rows(label="Loading…", count=3, *, fill=None):
+    fill = fill or SURFACE_HI
     rows = []
     for _ in range(count):
         lines = ft.Column([
-            ft.Row([ft.Container(height=12, expand=3, bgcolor=SURFACE_HI,
+            ft.Row([ft.Container(height=12, expand=3, bgcolor=fill,
                                  border_radius=RADIUS), ft.Container(expand=2)]),
-            ft.Row([ft.Container(height=8, expand=4, bgcolor=SURFACE_HI,
+            ft.Row([ft.Container(height=8, expand=4, bgcolor=fill,
                                  border_radius=RADIUS), ft.Container(expand=1)]),
         ], spacing=SPACE_SM, expand=True)
         rows.append(ft.Container(
             content=ft.Row([
-                ft.Container(width=48, height=48, bgcolor=SURFACE_HI, border_radius=RADIUS),
+                ft.Container(width=48, height=48, bgcolor=fill, border_radius=RADIUS),
                 lines,
-                ft.Container(width=96, height=32, bgcolor=SURFACE_HI, border_radius=RADIUS),
+                ft.Container(width=96, height=32, bgcolor=fill, border_radius=RADIUS),
             ], spacing=SPACE_LG),
             padding=ft.padding.Padding.symmetric(horizontal=SPACE_MD, vertical=SPACE_LG)))
     return ft.Column([ft.Text(i18n.t(label), size=12, color=TEXT_DIM, font_family=FONT_BODY), *rows],

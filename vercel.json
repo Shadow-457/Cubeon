@@ -45,6 +45,11 @@
       "permanent": false
     },
     {
+      "source": "/linuxinstaller",
+      "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/linuxinstaller",
+      "permanent": false
+    },
+    {
       "source": "/windowsdownload",
       "destination": "https://cubeon-downloads.hamza-457-shahbaz.workers.dev/windowsdownload",
       "permanent": false

@@ -40,18 +40,29 @@ With `dist/appimagetool` available, the script produces
 `dist/Cubeon-x86_64.AppImage`. Otherwise it produces
 `dist/Cubeon-Linux-x86_64.tar.gz` containing the AppDir.
 
-Build the setup script and Debian package from the prepared AppDir:
+Build the offline installers and Debian package from the prepared AppDir:
 
 ```bash
 python packaging/build_linux_installers.py
 ```
 
-Outputs include `dist/Cubeon-Linux-x86_64-Setup.sh` and
-`dist/cubeon_<version>_amd64.deb`. The setup script installs for the current
+Outputs include `dist/Cubeon-Linux-x86_64-Setup.AppImage`,
+`dist/Cubeon-Linux-x86_64-Setup.sh` and
+`dist/cubeon_<version>_amd64.deb`. Both installers install for the current
 user under `~/.local/opt/Cubeon`; it includes the AppImage and icon, verifies
 its payload, and adds a menu launcher with a fallback for systems without FUSE.
-Run it with `bash Cubeon-Linux-x86_64-Setup.sh`. The Debian package is a
-system package.
+The graphical AppImage lets you choose the folder and open Cubeon when setup
+finishes. Mark it executable, then open it. If FUSE is unavailable, run
+`APPIMAGE_EXTRACT_AND_RUN=1 ./Cubeon-Linux-x86_64-Setup.AppImage`.
+The terminal alternative is `bash Cubeon-Linux-x86_64-Setup.sh`. Installation
+works offline; AppImages still need Flet's system libraries. The Debian package
+is a system package.
+
+The graphical installer reuses the launcher runtime and installs its own image;
+the application-menu wrapper selects launcher mode. Updates replace that image
+with the normal launcher AppImage and keep the menu entry working. The release
+workflow publishes both installers. The downloads Worker adds `/linuxinstaller`
+for the graphical asset; deploy it before linking that route publicly.
 
 ## Windows
 
@@ -145,7 +156,7 @@ The download Worker depends on these release asset names:
 
 | Platform | Release assets |
 | --- | --- |
-| Linux | `Cubeon-x86_64.AppImage`, `Cubeon-Linux-x86_64-Setup.sh`, `cubeon_<version>_amd64.deb` |
+| Linux | `Cubeon-x86_64.AppImage`, `Cubeon-Linux-x86_64-Setup.AppImage`, `Cubeon-Linux-x86_64-Setup.sh`, `cubeon_<version>_amd64.deb` |
 | Windows | `Cubeon-Windows-x64-Setup.exe` |
 | macOS | `Cubeon-macOS.zip` |
 

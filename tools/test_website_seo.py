@@ -65,6 +65,11 @@ class SEOTests(unittest.TestCase):
     def setUp(self):
         self.pages = {path.stem: Page(path.read_text()) for path in WEB.glob('*.html')
                       if not re.fullmatch(r'google[0-9a-f]+', path.stem)}
+        self.localized = {}
+        for language in ('ar', 'uk', 'ru'):
+            for path in (WEB / language).glob('*.html'):
+                key = language + ('' if path.stem == 'index' else '/' + path.stem)
+                self.localized[key] = Page(path.read_text())
 
     def test_canonical_inventory_and_sitemap(self):
         expected = set()
@@ -87,6 +92,14 @@ class SEOTests(unittest.TestCase):
                 descriptions.append(page.meta['description'][0])
         self.assertEqual(len(titles), len(set(titles)))
         self.assertEqual(len(descriptions), len(set(descriptions)))
+        for key, page in self.localized.items():
+            if key.rsplit('/', 1)[-1].isdigit():
+                self.assertIn('noindex', ','.join(page.meta.get('robots', [])))
+                continue
+            url = ORIGIN + '/' + key
+            expected.add(url)
+            self.assertEqual(page.canonicals, [url])
+            self.assertEqual(page.meta['og:url'], [url])
         sitemap = ET.parse(WEB / 'sitemap.xml')
         locations = [entry.text for entry in sitemap.findall('./{*}url/{http://www.sitemaps.org/schemas/sitemap/0.9}loc')]
         self.assertEqual(len(locations), len(set(locations)))
@@ -106,7 +119,8 @@ class SEOTests(unittest.TestCase):
         for page in sitemap.findall('s:url', namespace):
             page_url = page.find('s:loc', namespace).text
             page_key = urlsplit(page_url).path.strip('/') or 'index'
-            html = self.pages[page_key]
+            html = (self.localized if '/' in page_key or page_key in ('ar', 'uk', 'ru')
+                    else self.pages)[page_key]
             for image in page.findall('image:image', namespace):
                 location = image.find('image:loc', namespace)
                 self.assertIsNotNone(location)

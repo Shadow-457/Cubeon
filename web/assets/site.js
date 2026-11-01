@@ -123,7 +123,7 @@
     /* Routes that hand over a file, mirroring the redirects in
        web/vercel.json - a test keeps the two lists equal. Links to the
        download PAGE are page views, not downloads. */
-    var ROUTES = ['/windowsdownload', '/linuxdownload', '/linuxdeb', '/linuxsetup'];
+    var ROUTES = ['/windowsdownload', '/linuxdownload', '/linuxdeb', '/linuxsetup', '/linuxinstaller'];
 
     /* ---- testing mode -----------------------------------------------------
        The owner's own test clicks shouldn't inflate the public number. Since
@@ -307,6 +307,7 @@
       try { localStorage.setItem(KEY, b.getAttribute('data-consent')); } catch (_) {}
       el.remove();
     });
+  })();
   /* ---- language menu: remember an explicit choice so the early redirect
      script in <head> does not send this visitor back to their browser
      language on the next English page. A quote-only failure is ignored. ---- */

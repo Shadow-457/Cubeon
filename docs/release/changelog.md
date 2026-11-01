@@ -1,5 +1,72 @@
 # Changelog
 
+## 2026-11-01 — Modpacks performance, graphical Linux setup and website recovery
+
+- Modpacks prepares icons outside the UI lock, coalesces duplicate artwork
+  requests and limits artwork workers to four. Rows reuse cached artwork and
+  reject stale image callbacks. Browse and installed lists render on demand;
+  each provider returns at most ten rows per page, and installed packs build
+  in batches of 25. The initial skeleton stays enabled and uses stronger
+  contrast, making it visible in native Flet. Refreshes preserve existing rows.
+- Server and installed-modpack metadata refreshes run on coalesced background
+  workers; stale selections cannot overwrite newer state. Server edits remain
+  protected while loading. Public-address lookup reads only the final 256 KiB
+  of its log. Server controls prewarm after first paint without network fetches.
+- Added an offline graphical `Cubeon-Linux-x86_64-Setup.AppImage` with folder
+  selection, progress, cancellation/error feedback and completion actions.
+  Setup always uses green, independent of seasonal themes or color arguments.
+  It shares the AppImage runtime and installs its own payload; application-menu
+  launches select launcher mode. Fixed hidden-window reveal and confirmed exit.
+  Build/release asset checks and `/linuxinstaller` download routing include it.
+- Windows setup uses specific welcome/finish feedback and removes the redundant
+  normal upgrade confirmation and unreliable append-mode executable probe.
+  Intentional downgrade confirmation and staged rollback remain available.
+- Updates perform target/busy probes, hashing, preparation and cleanup outside
+  the UI lock, check disk space before writes, recheck active work before
+  replacement and preserve payload ownership during cancellation. Preparation
+  failures restore a retry action. Release notes stay bounded and scrollable.
+- Dependency Doctor treats numeric `1.1` and `1.1.0` as equal, handles semantic
+  prereleases/build metadata and permits operator whitespace. Valid Ingenium
+  API no longer fails OldCannons' `>=1.1.0` constraint or triggers a download.
+- Restored shared website JavaScript after a missing closure disabled download
+  panes and language-choice persistence. Translation now applies body and
+  attribute edits against the same original offsets, preventing broken tags
+  and links. Regenerated Arabic pages, corrected locale artwork `srcset` paths,
+  fixed targeted catalogue checks and made sitemap regeneration idempotent.
+
+### Additional launcher fixes recorded from the preceding source checkpoints
+
+- Added consistent loading/empty/retry states, retained-pane fades and
+  background prewarming; saved window placement precedes splash reveal.
+  Fixed Chat's UI/socket lock inversion that could leave status disconnected
+  and prevent notice delivery. Existing skins, artwork and palette remain.
+- Custom controls support keyboard focus and Enter/Space activation. Dialogs
+  guard global shortcuts; Settings fades handle rapid reopen safely and its
+  navigation scrolls independently. Long names truncate with tooltips. Optional
+  launch/error sounds stay off by default and add no network or idle polling.
+- Play runs Java preflight on its worker and preserves loader/icon choices.
+  Installation, launch and running claims block duplicates and premature
+  state transitions; early exits and rapid relaunches reconcile correctly.
+  Version/profile validation rejects unsafe paths, external symlinks and cyclic
+  references before writes. Deletion checks active claims and dependencies,
+  runs outside the UI lock and preserves user-owned shared data. JVM probes
+  cache briefly; in-memory log buffers are bounded while disk logs stay complete.
+
+### Verification and limits
+
+- Focused Modpacks, navigation, dependency, updater, graphical-installer,
+  translation, release-pipeline, UI and smoke checks passed with Flet 0.86.5.
+  Arabic catalogue validation passed all 1,211 strings; English/Arabic browser
+  checks covered desktop/mobile, overflow, script execution and no-JS access.
+- The rebuilt graphical installer completed an actual isolated offline
+  installation, exact payload-hash and desktop-wrapper checks, and Done exit.
+  Native launcher captures confirmed the visible Modpacks skeleton. Windows
+  installer transaction checks passed under Wine; native Windows/macOS
+  rendering and the user's exact intermittent network condition remain unverified.
+- Ukrainian/Russian catalogues remain empty English fallbacks. Worker routing
+  needs its own deployment. The normal workflow assigns this push's release
+  version/channel; source verification is separate from completed public builds.
+
 ## 2026-11-01 — More Culling safety and Windows setup recovery
 
 - Removed More Culling from automatic performance installs. The default suite

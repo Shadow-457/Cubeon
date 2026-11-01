@@ -514,7 +514,7 @@ _mp_src = open(os.path.join(REPO, "ui", "modpacks_tab.py")).read()
 check("modpack refreshes do not replay an entrance cascade",
       "motion.stagger(results_view.controls)" not in _mp_src)
 check("... and loading uses static skeletons without a pulse worker",
-      "loading_rows()" in _mp_src and "motion.shimmer(" not in _mp_src)
+      "loading_rows(" in _mp_src and "motion.shimmer(" not in _mp_src)
 # The browse half of the tab is everything before the row builders; the install
 # path (later in the file) legitimately PREFERS the Play tab's version.
 _mp_browse_src = _mp_src.split("def build_pack_row")[0]

@@ -33,9 +33,9 @@ substitute for current code.
 | Player emotes | `emotes.py`, `mod/src/main/java/com/cubeon/client/emotes/`, `worker/cubeon-friends.js` |
 | World sharing | `p2p.py`, `invites.py`, `server.py`, `minekube.py`, `gate.py` |
 | Cosmetics | `cosmetics.py`, `skins.py`, `capes.py`, `gallery.py`, `profile.py`, `appearance.py`, `appearance_scene.py` |
-| Chat faces and artwork | `faces.py`, `icons.py`, `version_art.py` |
+| Chat faces and artwork | `faces.py`, `icons.py`, `icon_loader.py`, `version_art.py` |
 | Activity and screenshots | `milestones.py`, `activity.py`, `library_stats.py`, `screenshot_gallery.py` |
-| UI infrastructure | `thread_safe_ui.py`, `dialogs.py`, `motion.py`, `theme.py`, `scrolling.py` |
+| UI infrastructure | `thread_safe_ui.py`, `background_refresh.py`, `dialogs.py`, `motion.py`, `theme.py`, `scrolling.py` |
 | Window and crash handling | `window_close.py`, `winwindow.py`, `winchrome.py`, `incident.py`, `crash.py`, `logging_setup.py` |
 | Input and presentation | `shortcuts.py`, `seasonal.py`, `color_templates.py`, `status_text.py` |
 | Launcher language | `i18n.py`, `lang/` |
@@ -59,7 +59,7 @@ assuming a helper is UI-free: the package also contains Flet support modules.
 | Settings | `ui/settings_tab.py` |
 | Screenshot gallery | `ui/screenshot_gallery.py` |
 
-Tabs are retained. Mods and Modpacks control trees warm after first paint; catalogue requests
+Tabs are retained. Mods, Modpacks and Servers control trees warm after first paint; catalogue requests
 remain on demand. Other lazy builders stay lazy. Shared state and callbacks are wired in `main.py`;
 keep builders consistent with the shared `THEME` contract.
 
@@ -171,6 +171,10 @@ keep builders consistent with the shared `THEME` contract.
 - Instance selection is a scoped repaint too: `update_hero()` refreshes `hero_title`,
   `hero_version_text`, `hero_loader_chip_text` and `version_issue_text` itself. Do not add a
   `page.update()` to the row-click path to make a new hero label appear.
+- Navigation requests Server and Modpacks metadata snapshots through `background_refresh.py`:
+  reads run outside `TREE_LOCK`, application runs inside it, and only the latest generation paints.
+  Server selection/edit guards preserve user changes; public-address scans read only the final
+  256 KiB of the log. Do not restore synchronous backend reads to the tab-switch path.
 
 ### Navigation shell
 
@@ -210,6 +214,12 @@ keep builders consistent with the shared `THEME` contract.
   of completion order, retains healthy partial results, and offers Retry for failed empty
   results; stale generations cannot replace a newer search. Covered by
   `tools/test_content_search_recovery.py`.
+- Modpacks artwork construction uses memory-only `icons.peek_src()` or the bundled placeholder.
+  `icon_loader.IconLoader` coalesces URLs with at most four workers and 128 outstanding URLs;
+  download/file/base64 work stays outside `TREE_LOCK`, with stale URL guards at application.
+  Expanded lazy ListViews scroll the rows; provider pages cap at ten each and installed rows
+  build in batches of 25. Initial skeletons use `fill=BORDER` and stay enabled: disabling the
+  loading list makes native Flet dim the skeleton until it is effectively invisible.
 - **The version picker** is the one instance surface (2026-10-26): a right-hand slide-in panel
   (`ui/versions.py`, in `page.overlay`) with a 2-column grid of bundled SVG block/mob icons,
   title + subtitle below. The pencil chooses from 20 blocks and 20 mob heads in the same panel;
@@ -338,6 +348,9 @@ keep builders consistent with the shared `THEME` contract.
   replacement; old dependency JARs remain as backups with rollback on swap failure. Missing dependencies
   stop Play with a named retryable error, never disable the requester. Performance installation also repairs
   kept profiles; Play defers that repair to its final gate. `test_mod_prelaunch_dependencies.py` guards this.
+- Dependency numeric versions are zero-padded (`1.1` equals `1.1.0`); semantic prereleases
+  sort below releases, build metadata is ignored, and operator whitespace is accepted.
+  Keep the non-semantic fallback. This prevents Doctor replacing valid Ingenium API for OldCannons.
 - Doctor runs without repair windows: Installed's "Check & repair" starts a scoped worker and the click
   authorizes reversible changes; passive checks use `check_online=False` and no approver, and install
   checks use no approver. Old jars are renamed, never deleted. Results stay inline; `repair_details`
@@ -906,6 +919,9 @@ keep builders consistent with the shared `THEME` contract.
   and recheck bytes; never run a replacement or re-exec from inside a live Flet session. AppImages
   keep a `.cubeon-previous` copy (also replaced atomically if read-only) and reset PyInstaller's
   environment before reopening the updated executable. Native Windows installation still needs a Windows smoke check.
+- Update target probes, hashing, preparation and cleanup run outside `TREE_LOCK`; cancellation
+  must not delete a payload still being hashed. One worker rechecks busy state before handoff.
+  Target-drive and download free-space checks precede writes; preparation failures remain retryable.
 - Windows distribution is installer-only: `packaging/build_windows.py` produces the internal onedir payload
   (`Cubeon.exe` + `_internal`), NSIS stages and swaps it with rollback, and the workflow publishes
   only `Cubeon-Windows-x64-Setup.exe`. Do not restore ZIP/single-file/public portable builders.
@@ -931,6 +947,15 @@ keep builders consistent with the shared `THEME` contract.
   Its menu wrapper uses AppImage extraction mode without FUSE/libfuse2. Desktop Exec uses
   `/usr/bin/env` before the quoted path: GLib checks the first executable before expanding `%%`,
   which otherwise rejects a valid install path containing `%`. Installer tests run actual GIO launch.
+- `build_linux_installers.build_graphical_setup()` copies AppDir and reuses its runtime for
+  `Cubeon-Linux-x86_64-Setup.AppImage`; it does not nest another full image. Its default AppRun
+  enters `--cubeon-installer`; offline setup installs its own original image and the installed
+  wrapper exports `CUBEON_LAUNCH_INSTALLED=1`. Normal portable AppImage updates keep that wrapper
+  compatible. `/linuxinstaller` maps to the graphical asset in the download Worker.
+  Installer mode applies green in `cubeon/__init__.py` before seasonal resolution, even with a
+  color argument, and `installer_ui.run_installer()` applies green for source-mode use too.
+  Confirmed setup exit uses guarded `window.destroy()` because its close handler intercepts
+  graceful close; only exact Session-closed errors count as successful teardown.
 - Preserve all three Windows reveal paths: forced visible transition, `to_front()` call, and the native
   `winwindow.py` backstop. Flet's default-value suppression can make a plain `visible=True` assignment
   ineffective.
@@ -1003,12 +1028,13 @@ requires retrying with normal system access, not changing unrelated app code.
 | Keyboard and local feedback | `test_keyboard_shortcuts.py`, `test_keyboard_accessibility.py`, `test_ui_sounds.py` |
 | Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py`, `test_play_backend_audit.py` |
 | Play backend/path safety | `test_version_path_safety.py`, `test_launch_claim.py`, `test_launch_log_tail.py`, `test_instance_install_flow.py` |
-| Mods and artwork | `test_mod_ui_stability.py`, `test_loader_content_rules.py` |
+| Mods and artwork | `test_mod_ui_stability.py`, `test_modpack_performance.py`, `test_loader_content_rules.py` |
+| Navigation backend reads | `test_navigation_background.py`, `test_server_repaint_scope.py`, `test_tab_repaint_scope.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
-| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_launch_fixes.py` |
+| Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_mod_prelaunch_dependencies.py`, `test_launch_fixes.py` |
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
-| Website search visibility | `test_website_seo.py`, `test_website_browser.py` (optional Playwright) |
+| Website search visibility / translation | `test_website_seo.py`, `test_website_translation.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_chat_connection.py`, `test_chat_poll_locking.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
@@ -1019,11 +1045,18 @@ requires retrying with normal system access, not changing unrelated app code.
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
-| Launcher updates / installers | `test_launcher_updates.py`, `test_launcher_installers.py` (`--wine` optional), `test_update_notice.py`, `node worker/test-downloads.mjs` |
+| Launcher updates / installers | `test_launcher_updates.py`, `test_launcher_installers.py` (`--wine` optional), `test_linux_graphical_installer.py`, `test_update_notice.py`, `node worker/test-downloads.mjs` |
 | Repository cleanliness | `test_repository_hygiene.py` |
 
 ## Releases and hosted services
 
+- `tools/translate_website.py` applies body and attribute edits together in descending original
+  offsets; changing body lengths before attribute replacements corrupts tags and links. Relative
+  `srcset` entries must become root asset paths on locale pages. Arabic checks use `check --lang ar`;
+  UK/RU catalogues remain empty English fallbacks. Sitemap regeneration starts from English entries
+  only and deduplicates alternates: 19 canonical pages across four locales give 76 unique URLs,
+  not 19 total. Shared `site.js` consent closure must remain terminated; its syntax error hides
+  download panes and disables language persistence even on otherwise intact pages.
 - Public website canonicals use `https://www.ylet.online/` and clean, extensionless page paths.
   The displayed brand is Cubeon Launcher; Ylet publisher credits are removed. Bare `ylet.online`
   and the old `cubeon.ylet.online` host permanently redirect to the same www paths. Hosting already
@@ -1043,7 +1076,7 @@ requires retrying with normal system access, not changing unrelated app code.
   Public HTML, image URLs and the sitemap are shared by all visitors, with no Google-only responses.
 - `/about` is the official Cubeon product facts page; homepage/AboutPage schema share
   `https://www.ylet.online/#launcher` and the official GitHub source identity. The sitemap has
-  19 public pages. `tools/submit_website_indexnow.py` previews by default; `--submit` checks the
+  19 canonical public pages plus locale variants. `tools/submit_website_indexnow.py` previews by default; `--submit` checks the
   deployed key, sitemap, robots, indexing directives and exact HTML before notifying IndexNow.
   Unpublished HTML edits intentionally fail that check; run from the deployed checkout or select
   only matching canonical URLs. `web/indexnow-key.txt` is the public verification file. OAI-SearchBot

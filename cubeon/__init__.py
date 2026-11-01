@@ -79,6 +79,11 @@ def _color_arg(argv):
 def _load_color_template():
     import sys
 
+    if '--cubeon-installer' in sys.argv:
+        from cubeon.color_templates import apply_template
+        apply_template('green')
+        return
+
     name = _color_arg(sys.argv[1:])
     if name:
         # Pinned by the user for this launch: apply it and tell the seasonal

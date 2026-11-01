@@ -459,7 +459,7 @@ def read_page(page: str) -> str:
 
 
 def strip_generated(source: str) -> str:
-    source = re.sub(re.escape(LANG_BLOCK) + r".*?" + re.escape(LANG_END), "", source, flags=re.S)
+    source = re.sub(r'[ \t]*' + re.escape(LANG_BLOCK) + r".*?" + re.escape(LANG_END), "", source, flags=re.S)
     source = re.sub(re.escape(SEO_BLOCK) + r".*?" + re.escape(SEO_END), "", source, flags=re.S)
     source = re.sub(re.escape(EARLY_BLOCK) + r".*?" + re.escape(EARLY_END), "", source, flags=re.S)
     source = source.replace('<link rel="stylesheet" href="/assets/rtl.css" />\n', "")
@@ -681,7 +681,21 @@ def rewrite_links(source: str, lang: str) -> str:
             new += "#" + fragment
         return f"{prefix}{quote}{new}{quote}"
 
-    return re.sub(r'((?:href|src)=)(["\'])(.*?)\2', repl, source, flags=re.S)
+    source = re.sub(r'((?:href|src)=)(["\'])(.*?)\2', repl, source, flags=re.S)
+
+    def srcset(match):
+        quote, value = match.group(1), match.group(2)
+        if value.startswith('data:'):
+            return match.group(0)
+        candidates = []
+        for candidate in value.split(','):
+            parts = candidate.strip().split()
+            if parts and not parts[0].startswith(('/', 'https:', 'http:', 'data:')):
+                parts[0] = '/' + parts[0]
+            candidates.append(' '.join(parts))
+        return 'srcset=' + quote + ', '.join(candidates) + quote
+
+    return re.sub(r'srcset=(["\'])(.*?)\1', srcset, source, flags=re.S)
 
 
 def translate_jsonld(source: str, translator) -> str:
@@ -730,10 +744,17 @@ def translate_page(page: str, lang: str) -> tuple[str, set[str]]:
     attrs = collect_attrs(source)
     units = collect_units(source)
     renderer = Renderer(load_catalog(lang))
-    for unit in sorted(units, key=lambda u: u.start, reverse=True):
-        rendered = renderer.render_unit(unit)
-        source = source[:unit.start] + rendered + source[unit.end:]
-    source = apply_attrs(source, renderer, attrs)
+    # Both sets of offsets refer to the original HTML. Applying all body/title
+    # units first shifts later attributes and can delete closing quotes/tags.
+    replacements = [(unit.start, unit.end, renderer.render_unit(unit)) for unit in units]
+    for attr in attrs:
+        key = clean_text(unescape(attr.value))
+        if key and not SKIP_KEY.match(key):
+            value = renderer.t(key)
+            if value != key:
+                replacements.append((attr.start, attr.end, escape_attr(value)))
+    for start, end, rendered in sorted(replacements, reverse=True):
+        source = source[:start] + rendered + source[end:]
     source = translate_jsonld(source, renderer.t)
     source = rewrite_links(source, lang)
     source = patch_common(source, page, lang)
@@ -755,11 +776,18 @@ def write_sitemap():
     xhtml = "{http://www.w3.org/1999/xhtml}"
     original = list(root)
     root.clear()
+    seen = set()
     for url in original:
         loc = url.find(ns + "loc")
         if loc is None or not loc.text:
             continue
         loc_text = loc.text.rstrip("/")
+        # Regenerate alternates from English entries only; otherwise every
+        # build multiplies already generated language URLs and image records.
+        relative = loc_text.removeprefix(ORIGIN).strip('/')
+        if relative.split('/', 1)[0] in TRANSLATED or loc_text in seen:
+            continue
+        seen.add(loc_text)
         page = "index" if loc_text == ORIGIN else loc_text.rsplit("/", 1)[-1]
         if page not in PAGES:
             root.append(url)
@@ -776,7 +804,7 @@ def write_sitemap():
             if lang != "en":
                 continue
             for child in url:
-                if child.tag != ns + "loc":
+                if child.tag not in (ns + "loc", xhtml + "link"):
                     entry.append(child)
     tree.write(path, encoding="utf-8", xml_declaration=True)
     print("updated web/sitemap.xml with language alternates")
@@ -811,17 +839,19 @@ def build(langs: list[str], quiet: bool = False):
                 print(f"    ? {item[:100]}")
 
 
-def check():
+def check(langs=None):
     source = json.loads((I18N / "source.json").read_text(encoding="utf-8"))
     keys = {entry["key"] for entry in source["strings"]}
     status = 0
-    for lang in TRANSLATED:
+    for lang in (langs or TRANSLATED):
+        if lang == 'en':
+            continue
         catalog = load_catalog(lang)
         unknown = set(catalog) - keys
         missing = keys - set(catalog)
         bad = [key for key in keys & set(catalog)
                if set(PLACEHOLDER.findall(key)) != set(PLACEHOLDER.findall(catalog[key]))]
-        print(f"{lang}: {len(catalog & keys)}/{len(keys)} translated, "
+        print(f"{lang}: {len(set(catalog) & keys)}/{len(keys)} translated, "
               f"{len(missing)} missing, {len(unknown)} stale, {len(bad)} placeholder errors")
         for key in bad[:10]:
             print(f"    placeholder: {key[:90]}")
@@ -919,7 +949,7 @@ if __name__ == "__main__":
     elif args.command == "build":
         build(args.lang)
     elif args.command == "check":
-        sys.exit(check())
+        sys.exit(check(args.lang))
     elif args.command == "work":
         make_work(args.work_lang, args.chunks)
     elif args.command == "merge":

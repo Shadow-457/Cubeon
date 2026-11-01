@@ -470,7 +470,8 @@ try:
     section("7. publish refuses an incomplete release")
     COMPLETE = ["Cubeon-Windows-x64-Setup.exe",
                 "Cubeon-macOS.zip", "Cubeon-x86_64.AppImage",
-                "Cubeon-Linux-x86_64-Setup.sh", "cubeon_1.1.3_amd64.deb"]
+                "Cubeon-Linux-x86_64-Setup.sh", "Cubeon-Linux-x86_64-Setup.AppImage",
+                "cubeon_1.1.3_amd64.deb"]
     (sim.state / "assets" / "v1.1.3").write_text(
         "Cubeon-macOS.zip\n", encoding="utf-8")
     rc = sim.run_step(VERIFY_STEP, "refs/heads/main", TAG="v1.1.3")

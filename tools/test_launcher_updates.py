@@ -174,7 +174,9 @@ class LauncherUpdates(unittest.TestCase):
             prompt = UpdatePrompt(FakePage(), release(), busy=lambda: True, install=Mock(), target=target)
             with patch.object(update_install, "download_update") as download, \
                     patch("ui.update_prompt.thread_safe_ui.refresh"), \
-                    patch("ui.update_prompt.webbrowser.open") as browser:
+                    patch("ui.update_prompt.webbrowser.open") as browser, \
+                    patch("ui.update_prompt.threading.Thread") as worker:
+                worker.side_effect = lambda *, target, **kw: Mock(start=target)
                 prompt.update.on_click(None)
                 download.assert_not_called()
                 browser.assert_not_called()
@@ -383,7 +385,9 @@ class LauncherUpdates(unittest.TestCase):
             self.assertEqual(prompt.phase, "ready")
             install.assert_not_called()
             busy.return_value = False
-            with patch.object(update_install, "prepare_install", return_value={"job": "fixture"}):
+            with patch.object(update_install, "prepare_install", return_value={"job": "fixture"}), \
+                    patch("ui.update_prompt.threading.Thread") as worker:
+                worker.side_effect = lambda *, target, **kw: Mock(start=target)
                 prompt._update()
             install.assert_called_once()
 
@@ -392,11 +396,107 @@ class LauncherUpdates(unittest.TestCase):
                               target=update_install.InstallTarget("linux", Path("/tmp/app")))
         prompt.phase = "ready"
         prompt.download = Path("/tmp/download")
-        with patch.object(update_install, "prepare_install", side_effect=OSError("Disk is full")):
+        with patch.object(update_install, "prepare_install", side_effect=OSError("Disk is full")), \
+                patch("ui.update_prompt.threading.Thread") as worker:
+            worker.side_effect = lambda *, target, **kw: Mock(start=target)
             prompt._update()
         self.assertEqual(prompt.phase, "ready")
         self.assertEqual(prompt.status.value, "Disk is full")
         self.assertFalse(prompt.update.disabled)
+
+    def test_preparation_leaves_ui_responsive_and_cancel_prevents_handoff(self):
+        from cubeon import thread_safe_ui
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'download-1'
+            folder.mkdir()
+            download = folder / 'update'
+            download.write_bytes(b'new app')
+            entered, release_hash, finished = threading.Event(), threading.Event(), threading.Event()
+            install = Mock()
+            prompt = UpdatePrompt(FakePage(), release(), busy=lambda: False, install=install,
+                                  target=update_install.InstallTarget('linux', Path(tmp) / 'app'))
+            prompt.phase, prompt.download = 'ready', download
+            def prepare(*args):
+                entered.set()
+                release_hash.wait(3)
+                return {'job': 'fixture'}
+            def run_prepare():
+                try:
+                    prompt._prepare()
+                finally:
+                    finished.set()
+            with patch.object(update_install, 'prepare_install', side_effect=prepare), \
+                    patch('ui.update_prompt.thread_safe_ui.refresh'):
+                prompt.phase = 'preparing'
+                worker = threading.Thread(target=run_prepare)
+                worker.start()
+                self.assertTrue(entered.wait(2))
+                try:
+                    self.assertTrue(thread_safe_ui.TREE_LOCK.acquire(timeout=0.5))
+                    thread_safe_ui.TREE_LOCK.release()
+                    prompt._skip()
+                    self.assertTrue(download.exists(), 'do not delete bytes while hashing')
+                finally:
+                    release_hash.set()
+                    worker.join(3)
+                self.assertTrue(finished.is_set())
+                self.assertFalse(folder.exists())
+                install.assert_not_called()
+                self.assertEqual(prompt.phase, 'skipped')
+
+    def test_busy_probe_runs_on_worker_and_duplicate_clicks_are_ignored(self):
+        from cubeon import thread_safe_ui
+        entered, release_probe, completed = threading.Event(), threading.Event(), threading.Event()
+        def busy():
+            entered.set()
+            release_probe.wait(3)
+            completed.set()
+            return True
+        prompt = UpdatePrompt(FakePage(), release(), busy=busy, install=Mock(),
+                              target=update_install.InstallTarget('linux', Path('/tmp/app')))
+        with patch.object(update_install, 'download_update') as download:
+            prompt._update()
+            self.assertTrue(entered.wait(2))
+            try:
+                self.assertTrue(thread_safe_ui.TREE_LOCK.acquire(timeout=0.5))
+                thread_safe_ui.TREE_LOCK.release()
+                prompt._update()
+                self.assertEqual(prompt.phase, 'downloading')
+            finally:
+                release_probe.set()
+            self.assertTrue(completed.wait(2))
+            deadline = time.monotonic() + 2
+            while prompt.phase == 'downloading' and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(prompt.phase, 'offered')
+            download.assert_not_called()
+
+    def test_thread_start_failure_restores_retry_action(self):
+        prompt = UpdatePrompt(FakePage(), release(), busy=lambda: False, install=Mock(),
+                              target=update_install.InstallTarget('linux', Path('/tmp/app')))
+        with patch('ui.update_prompt.threading.Thread') as worker, self.assertLogs('ui.update_prompt'):
+            worker.return_value.start.side_effect = RuntimeError('no threads')
+            prompt._update()
+        self.assertEqual(prompt.phase, 'offered')
+        self.assertFalse(prompt.update.disabled)
+
+    def test_insufficient_space_stops_download_and_preserves_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / 'app'
+            app.write_bytes(b'old app')
+            target = update_install.InstallTarget('linux', app)
+            with patch('cubeon.update_install.shutil.disk_usage', return_value=types.SimpleNamespace(free=0)), \
+                    patch.object(updater.requests, 'get') as get:
+                with self.assertRaisesRegex(ValueError, 'space to download'):
+                    update_install.download_update(release(), target, threading.Event(), directory=tmp)
+                get.assert_not_called()
+            download = Path(tmp) / 'download'
+            download.write_bytes(b'new app')
+            with patch('cubeon.update_install.shutil.disk_usage', return_value=types.SimpleNamespace(free=0)):
+                with self.assertRaisesRegex(ValueError, 'keep a backup'):
+                    update_install.prepare_install(release(), target, download)
+            self.assertEqual(app.read_bytes(), b'old app')
+            self.assertEqual(download.read_bytes(), b'new app')
 
     def test_helper_failure_is_reported_once_on_next_start(self):
         with tempfile.TemporaryDirectory() as tmp:
