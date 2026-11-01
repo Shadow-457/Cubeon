@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-01 — v1.3.38 stable promotion
+
+- Promoted the existing v1.3.38 release to stable, preserving its tag and binaries.
+- Updated homepage and download-page version labels to 1.3.38 and recorded the
+  promotion in release tooling. Subsequent patch releases still default to beta.
+- Enabled the download page's macOS app-bundle link; the published asset replaces
+  the outdated “not available yet” placeholder.
+- This metadata/website update uses `[skip ci]` and does not create a new release.
+
 ## 2026-11-01 — Motion blur, notifications, request efficiency and rendering recovery
 
 This entry records the source and bundled-client changes included in this push.
