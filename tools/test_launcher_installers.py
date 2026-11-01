@@ -130,10 +130,20 @@ class LauncherInstallers(unittest.TestCase):
             setup = root / "Cubeon-Windows-x64-Setup.exe"
             win_target = winpath(target)
             win_setup = winpath(setup)
+            def setup_command(arguments):
+                # On Windows, passing a whole `cmd /c` program as a list
+                # argument applies Python's C-runtime quote escaping, which
+                # cmd does not understand. Invoke NSIS directly with its raw
+                # /D tail, just like the production Start-Process helper.
+                if os.name == 'nt':
+                    return f'"{win_setup}" {arguments}'
+                return command('cmd', '/c', f'start "" /wait "{win_setup}" {arguments}')
             def install(arguments):
                 # Match Start-Process's raw argument string: NSIS /D is LAST
                 # and unquoted, even when the directory contains spaces.
-                wine("cmd", "/c", f'start "" /wait "{win_setup}" {arguments}')
+                result = subprocess.run(setup_command(arguments), env=env,
+                                        capture_output=True, timeout=90)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             install("/S /D=" + win_target)
             self.assertTrue((target / "Cubeon.exe").is_file(),
                             f"Installer output: {list(root.rglob('Cubeon.exe'))}")
@@ -159,7 +169,7 @@ class LauncherInstallers(unittest.TestCase):
             (source / "_internal/new.dll").unlink()
             (source / "_internal").rmdir()
             build("2.0.2")
-            blocked = subprocess.run(command("cmd", "/c", f'start "" /wait "{win_setup}" /S'),
+            blocked = subprocess.run(setup_command('/S'),
                                      env=env, capture_output=True, timeout=30)
             self.assertNotEqual(blocked.returncode, 0)
             self.assertEqual((target / "Cubeon.exe").read_bytes(), b"new executable")
@@ -265,7 +275,7 @@ SectionEnd
             collision_script.write_text(original_script.replace('place_internal:\n',
                 'place_internal:\n  CreateDirectory "${APP_EXE}"\n', 1))
             build('2.0.2', collision_script)
-            blocked = subprocess.run(command('cmd', '/c', f'start "" /wait "{win_setup}" /S'),
+            blocked = subprocess.run(setup_command('/S'),
                                      env=env, capture_output=True, timeout=30)
             self.assertNotEqual(blocked.returncode, 0)
             # This external collision also blocks exe restoration: all previous
@@ -286,7 +296,7 @@ SectionEnd
             missing_script.write_text(original_script.replace('place_internal:\n',
                 'place_internal:\n  Delete "$StageDir\\Cubeon.exe"\n', 1))
             build('2.0.2', missing_script)
-            blocked = subprocess.run(command('cmd', '/c', f'start "" /wait "{win_setup}" /S'),
+            blocked = subprocess.run(setup_command('/S'),
                                      env=env, capture_output=True, timeout=30)
             self.assertNotEqual(blocked.returncode, 0)
             self.assertEqual((target / 'Cubeon.exe').read_bytes(), b'new executable')
@@ -305,7 +315,12 @@ SectionEnd
             install("/S /D=" + winpath(second))
             self.assertTrue((second / "Cubeon.exe").is_file())
             # Synchronous NSIS uninstall test avoids its detached self-copy.
-            wine(str(target / "Uninstall Cubeon.exe"), "/S", "_?=" + win_target)
+            if os.name == 'nt':
+                result = subprocess.run(f'"{target / "Uninstall Cubeon.exe"}" /S _?={win_target}',
+                                        env=env, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            else:
+                wine(str(target / "Uninstall Cubeon.exe"), "/S", "_?=" + win_target)
             self.assertEqual((target / "user-file.keep").read_text(), "keep me")
             self.assertFalse((target / "Cubeon.exe").exists())
             self.assertFalse((target / "_internal").exists())

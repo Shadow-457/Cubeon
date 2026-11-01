@@ -878,6 +878,10 @@ consistent with the shared `THEME` contract.
   runtime directories; `--native-windows` runs on the disposable Windows build
   runner before publishing. Wine does not faithfully enforce directory locks;
   its fixture uses actual file handles to verify sharing violations.
+  Native test launches must pass NSIS a raw Windows command line with `/D`
+  (or uninstall `_?=`) last and unquoted. A list argument containing an entire
+  `cmd /c` command is escaped for the C runtime, which cmd does not understand,
+  and can swallow `/S` and hang at the interactive wizard.
 - `build_linux_installers.build_setup()` appends an AppImage/icon tarball to the setup script with
   SHA-256 verification. Distribute the complete generated script, not `install_linux.sh` alone.
   Its menu wrapper uses AppImage extraction mode without FUSE/libfuse2. Desktop Exec uses

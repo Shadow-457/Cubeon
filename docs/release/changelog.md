@@ -21,6 +21,8 @@
   publishing. Wine checks use real file locks and cover temporary/persistent
   locks, incomplete payloads, placement/rollback failures, backup bytes, custom
   paths, empty runtime directories, upgrades and data-safe uninstall.
+- Native Windows fixtures launch setup directly with raw NSIS arguments;
+  corrected a `cmd /c` quoting issue that stalled the first Windows CI run.
 - Verification: performance retirement/removal 14 tests; performance/options
   100 checks; prelaunch dependencies 17 tests; lookup budget 12 checks; mod store
   27 checks; launch fixes 133 checks; updater 28 tests; release pipeline 61
