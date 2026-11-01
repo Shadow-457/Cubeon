@@ -52,6 +52,7 @@ from cubeon.config import stable_secret, stable_uuid                # noqa: E402
 from PIL import Image                                               # noqa: E402
 
 _original_publish_async = skins._publish_skin_async
+_original_post = skins._post
 
 failures = 0
 
@@ -81,9 +82,10 @@ _next = {"raise": False}
 
 
 class _FakeResp:
-    def __init__(self, status, payload=None):
+    def __init__(self, status, payload=None, headers=None):
         self.status_code = status
         self._payload = payload or {}
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -102,6 +104,14 @@ def _fake_post(url, json=None, headers=None, timeout=None):
 skins.requests = types.SimpleNamespace(
     post=_fake_post, RequestException=_real_requests.RequestException,
 )
+skins._post = lambda url, **kwargs: skins.requests.post(url, **kwargs)
+
+# Exercise the real transport seam without sending an authenticated request.
+from cubeon import net
+with patch.object(net, "_session") as pooled:
+    _original_post("https://service.example/api/skin", json={"skin": "test"}, headers={"Authorization": "Bearer test"})
+    check("skin writes use the existing pool once without transport retries",
+          pooled.return_value.post.call_count == 1)
 
 
 def reset_calls():
@@ -222,17 +232,17 @@ check("rename heartbeat still carries the SAME public_uuid",
       _calls and _calls[0]["json"]["uuid"] == stable_uuid())
 
 # A marker left by a *different* endpoint (a future API-base move) suppresses
-# nothing: the identity half re-syncs to the current one, while an unchanged
-# sheet correctly costs no re-upload.
+# nothing: all confirmed state belongs to the previous backend.
 skins._save_publish_state({"username": "TestUser", "uuid": stable_uuid(),
                            "model": "default", "hash": hashlib.sha256(png).hexdigest(),
                            "base": "https://old-worker.example"})
 reset_calls()
 ok_all()
 skins._publish_skin(default_cfg)
-check("a marker from a different endpoint re-syncs the pointer (no needless upload)",
-      len(_calls) == 2 and _calls[0]["url"] == skins._HEARTBEAT_URL
-      and _calls[1]["url"].endswith("/api/cosmetics"), len(_calls))
+check("a different endpoint needs pointer, cosmetics and skin in that backend",
+      len(_calls) == 3 and _calls[0]["url"] == skins._HEARTBEAT_URL
+      and _calls[1]["url"].endswith("/api/cosmetics")
+      and _calls[2]["url"] == skins._UPLOAD_URL, len(_calls))
 
 # ---------------------------------------------------------------------------
 # 4. Failure handling: 403 and network errors are swallowed, don't poison
@@ -630,9 +640,55 @@ try:
 finally:
     skins.requests.post = _orig_post
 marker = skins._load_publish_state()
-check("successful skin upload cannot erase a cosmetic failure cooldown",
-      marker.get("hash") is not None and marker.get("cosmetics") is None
-      and marker.get("retry_not_before", 0) > 0)
+check("cosmetic failure stops the batch before another quota-consuming skin request",
+      marker.get("hash") is None and marker.get("cosmetics") is None
+      and marker.get("retry_not_before", 0) > 0 and _seq["n"] == 2)
+
+# Quota/backoff behavior must survive a real marker reload, not just memory.
+reset_calls()
+clear_marker()
+next_response(200, {"status": "ok", "fresh_identity": True})
+skins._publish_skin({"username": "BrandNew", "active_skin": None})
+check("a confirmed new vanilla identity needs one request and no empty cosmetic write",
+      len(_calls) == 1 and skins._load_publish_state().get("cosmetics") == {"back": None, "shoulder": None})
+reset_calls()
+clear_marker()
+_responses_list = [_FakeResp(200), _FakeResp(200), _FakeResp(429,
+                   {"error": "kv_write_budget_exhausted"}, {"Retry-After": "7200"})]
+_seq["n"] = 0
+skins.requests.post = _sequenced_post
+try:
+    with patch.object(skins.time, "time", return_value=100000):
+        skins._publish_skin(default_cfg)
+finally:
+    skins.requests.post = _orig_post
+marker = skins._load_publish_state()
+check("failed upload keeps confirmed identity/cosmetics and backs off until the UTC quota reset",
+      marker.get("username") == "TestUser" and marker.get("cosmetics") is not None
+      and marker.get("hash") is None and marker.get("retry_not_before", 0) >= 172800)
+reset_calls()
+with patch.object(skins.time, "time", return_value=100001):
+    skins._publish_skin(default_cfg)
+check("reloaded daily-quota marker suppresses all repeat requests", _calls == [])
+marker = {}
+with patch.object(skins.time, "time", return_value=100000):
+    skins._record_publish_failure(marker, _FakeResp(503, headers={"Retry-After": "7200"}))
+check("server Retry-After is respected", marker["retry_not_before"] >= 107200)
+with patch.object(skins.time, "time", return_value=200000):
+    skins._record_publish_failure(marker)
+check("repeated failures increase the persisted retry delay", marker["retry_not_before"] >= 201200)
+
+# API/identity changes require the same image to be uploaded into its new namespace.
+clear_marker()
+ok_all()
+skins._publish_skin(default_cfg)
+marker = skins._load_publish_state()
+marker["base"] = "https://old.example"
+skins._save_publish_state(marker)
+reset_calls()
+skins._publish_skin(default_cfg)
+check("changing API base republishes the same image, not just the pointer",
+      len(_calls) == 3 and any(c["url"] == skins._UPLOAD_URL for c in _calls))
 
 import threading
 skins._publish_skin_async = _original_publish_async

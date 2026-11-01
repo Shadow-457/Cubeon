@@ -863,7 +863,8 @@ def _wings(item_id, name, blurb, pal, small=False):
     if small:
         front, _ = small_wing_art(p)
         front = front.resize((40, 52), Image.Resampling.NEAREST)
-        y_origin, depth, hinge = 2, 2, [1, 2, 2.45]
+        # Small wings already fit the shoulders at their original height.
+        y_origin, depth, hinge = 0, 2, [1, 0, 2.45]
         guides = [((1, 1), end, 2, 0) for end in ((12, 6), (14, 9), (11, 12), (7, 14), (2, 15))]
         feathers = [dict(start=[1 + x * 2.5 / px, y_origin + y * 3.25 / px],
                          end=[1 + ex * 2.5 / px, y_origin + ey * 3.25 / px],

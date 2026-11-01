@@ -392,6 +392,25 @@ def set_localskin_model(model: str) -> bool:
     return changed
 
 
+def configure_request_cache() -> bool:
+    """Raise CSL's untouched 30-second default to five minutes before launch.
+
+    Preserve custom cache values, provider order, local settings and all other
+    fields. Do not create a partial config before CSL seeds its own defaults.
+    Called only through managed registration, so the opt-out stays hands-off.
+    """
+    cfg = read_csl_config()
+    if not cfg or cfg.get("cacheExpiry", 30) != 30:
+        return False
+    cfg["cacheExpiry"] = 300
+    try:
+        from .atomicio import write_json
+        write_json(CSL_CONFIG_PATH, cfg)
+    except OSError:
+        return False
+    return True
+
+
 def write_extralist_entries() -> list[str]:
     """Drops an ExtraList file for each source not already registered or queued.
 
@@ -420,6 +439,7 @@ def write_extralist_entries() -> list[str]:
     # And correct a drifted Worker root in place (the /skins/ migration left
     # older installs pointing at a bare URL that 404s, killing the cape).
     refresh_stale_worker_entry()
+    configure_request_cache()
 
     have = registered_names()
     written = []

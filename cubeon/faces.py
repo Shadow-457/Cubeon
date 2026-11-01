@@ -25,6 +25,7 @@ and the next repaint shows the face.
 """
 import base64
 from collections import OrderedDict
+import json
 import os
 import re
 import threading
@@ -40,7 +41,7 @@ FACE_DIR = os.path.join(CUBEON_HOME, "cache", "faces")
 
 # Minecraft names only - the Worker's USERNAME_RE rejects anything wider
 # anyway, and this doubles as a path-safety guard for the cache filename.
-_NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 _HEADERS = modrinth_headers("modrinth cdn art")
 _DOWNLOAD_TIMEOUT = 10
 # How long a failed lookup stays negative before one retry is allowed.
@@ -49,11 +50,15 @@ _DOWNLOAD_TIMEOUT = 10
 # failures (a kill mid-write, a transient OSError) only earn _RETRY_LOCAL -
 # otherwise one flaky write poisons the name for the whole session and the
 # user sees "no faces until restart".
-_MISS_RETRY = 600.0
+_MISS_RETRY = 900.0
 _RETRY_LOCAL = 60.0
+_MAX_INFLIGHT = 4
+_FACE_FRESHNESS = 21600.0
+_service_retry_at = 0.0
+_service_loaded = False
 
 _lock = threading.Lock()
-_missed: dict[str, float] = {}   # lowercased name -> monotonic retry-at deadline
+_missed = OrderedDict()   # lowercased name -> monotonic retry-at deadline
 _inflight: set[str] = set()
 _sources = OrderedDict()
 _SOURCE_LIMIT = 128
@@ -88,25 +93,73 @@ def _dest(name: str) -> str:
     return os.path.join(FACE_DIR, f"{name.lower()}.png")
 
 
+def _get(url, **kwargs):
+    from .net import _session
+    return _session().get(url, **kwargs)
+
+
+def _saved_retry(path: str) -> float:
+    try:
+        with open(path, encoding="utf-8") as source:
+            state = json.load(source)
+        if state.get("base") == CUBEON_API_BASE:
+            return min(86400.0, max(0.0, float(state["until"]) - time.time()))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        pass
+    return 0.0
+
+
+def _save_retry(path: str, delay: float) -> None:
+    from .atomicio import write_json
+    try:
+        write_json(path, {"base": CUBEON_API_BASE, "until": time.time() + delay})
+    except OSError:
+        pass
+
+
+def _miss(name: str, delay: float, *, persist=False) -> None:
+    with _lock:
+        _missed[name.lower()] = time.monotonic() + delay
+        _missed.move_to_end(name.lower())
+        while len(_missed) > 256:
+            _missed.popitem(last=False)
+    if persist:
+        _save_retry(_dest(name) + ".retry.json", delay)
+
+
 def _schedule(name: str) -> None:
     """Starts one background download for this name, unless one is already
     in flight or the negative cache is still fresh. Fire-and-forget."""
+    global _service_loaded, _service_retry_at
     key = name.lower()
     now = time.monotonic()
     with _lock:
+        if not _service_loaded:
+            _service_retry_at = now + _saved_retry(os.path.join(FACE_DIR, "service-retry.json"))
+            _service_loaded = True
+        if now < _service_retry_at:
+            return
+        if key not in _missed:
+            delay = _saved_retry(_dest(name) + ".retry.json")
+            if delay:
+                _missed[key] = now + delay
         retry_at = _missed.get(key)  # deadline: don't ask again before this
         if retry_at is not None and now < retry_at:
             return
-        if key in _inflight:
+        if key in _inflight or len(_inflight) >= _MAX_INFLIGHT:
             return
         _inflight.add(key)
 
     def _download():
+        global _service_retry_at
         try:
             u = url(name)
             if u is None:
                 return
-            resp = requests.get(u, headers=_HEADERS, timeout=_DOWNLOAD_TIMEOUT)
+            with _lock:
+                if time.monotonic() < _service_retry_at:
+                    return
+            resp = _get(u, headers=_HEADERS, timeout=_DOWNLOAD_TIMEOUT)
             if resp.status_code == 200 and resp.content:
                 os.makedirs(FACE_DIR, exist_ok=True)
                 tmp = _dest(name) + ".tmp"
@@ -114,18 +167,34 @@ def _schedule(name: str) -> None:
                     f.write(resp.content)
                 os.replace(tmp, _dest(name))
                 _bump_revision()
+                with _lock:
+                    _missed.pop(key, None)
+                try:
+                    os.remove(_dest(name) + ".retry.json")
+                except OSError:
+                    pass
             else:
                 # A real miss (404: not a Cubeon name / no skin) - stay
                 # negative for a while so repaints don't re-hammer the Worker.
-                with _lock:
-                    _missed[key] = time.monotonic() + _MISS_RETRY
+                from .net import retry_after_seconds
+                delay = max(_MISS_RETRY, min(86400, retry_after_seconds(getattr(resp, "headers", {}).get("Retry-After"))))
+                _miss(name, delay, persist=True)
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    with _lock:
+                        _service_retry_at = time.monotonic() + delay
+                    _save_retry(os.path.join(FACE_DIR, "service-retry.json"), delay)
             # Local trouble (kill mid-write, transient OSError) is NOT the
             # same as a 404: poisoning the negative cache for 10 minutes
             # turned one flaky write into "no faces until restart". Retry
             # those after _RETRY_LOCAL seconds instead (see except).
-        except Exception:
-            with _lock:
-                _missed[key] = time.monotonic() + _RETRY_LOCAL
+        except Exception as error:
+            if isinstance(error, getattr(requests, "RequestException", ())):
+                _miss(name, _MISS_RETRY, persist=True)
+                with _lock:
+                    _service_retry_at = time.monotonic() + _MISS_RETRY
+                _save_retry(os.path.join(FACE_DIR, "service-retry.json"), _MISS_RETRY)
+            else:
+                _miss(name, _RETRY_LOCAL)
         finally:
             with _lock:
                 _inflight.discard(key)
@@ -146,6 +215,8 @@ def get_face_b64(name: str) -> "str | None":
     try:
         stat = os.stat(path)
         if stat.st_size > 0:
+            if time.time() - stat.st_mtime > _FACE_FRESHNESS:
+                _schedule(name)  # Revalidate old faces in the background, preserving visible pixels.
             stamp = (stat.st_mtime_ns, stat.st_size)
             with _lock:
                 cached = _sources.get(path)

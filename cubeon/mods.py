@@ -931,6 +931,10 @@ def delete_mod(mc_version: str | None, loader: str | None, filename: str,
         raise ValueError(
             "That mod is managed by Cubeon and can't be removed. "
             "Skins/capes and the Friends button depend on it.")
+    # Play automatically fills the performance suite. Remember an explicit
+    # removal before unlinking, otherwise the next Play silently brings it back.
+    from .perf_mods import remember_removal
+    remember_removal(profile_dir, filename, _read_meta(profile_dir, filename), loader)
     # lexists, not exists: a profile entry may be a dangling link into the
     # global mods store (the store's copy was deleted/moved). os.path.exists
     # is False for a dead link, so removing "the file" used to do nothing -

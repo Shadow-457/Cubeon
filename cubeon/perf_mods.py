@@ -40,11 +40,14 @@ dependency after automatic repair fails, instead of spawning a guaranteed crash.
 """
 import json
 import os
+import threading
 
 from . import net
+from .atomicio import write_json
 from .mod_loaders import MOD_CAPABLE_LOADERS
 from .mods import (LAUNCH_LOOKUP_ATTEMPTS, LAUNCH_LOOKUP_TIMEOUT, delete_mod,
-                   download_mod, get_mod_download, list_mods, name_stem)
+                   download_mod, get_mod_download, list_mods, name_stem,
+                   read_mod_metadata, resolve_profile_dir)
 
 # (Modrinth slug, Modrinth project id, display label), in install order.
 # Sodium first (biggest win, the one players recognise), then the companions.
@@ -71,6 +74,55 @@ RETIRED_PERF_MODS = (
 PERF_MOD_SLUGS = tuple(slug for slug, _pid, _label in PERF_MODS)
 
 _LABELS = {slug: label for slug, _pid, label in PERF_MODS}
+
+# Keep the choice beside the profile, rather than the shared jar store: removing
+# a performance mod from one instance must not remove it from another instance.
+REMOVED_MODS_FILE = ".cubeon-removed-performance-mods.json"
+_REMOVAL_LOCK = threading.RLock()
+
+
+def _matching_slugs(mod: dict) -> set[str]:
+    identities = {str(mod.get(key) or "").lower()
+                  for key in ("slug", "display_name", "project_id", "id", "name")}
+    identities.add(name_stem(mod.get("filename") or ""))
+    return {slug for slug, project_id, label in PERF_MODS
+            if identities & {slug, project_id.lower(), label.lower(),
+                             label.lower().replace(" ", "")}}
+
+
+def _read_removals(profile_dir: str) -> set[str]:
+    """Missing means no removals; unreadable preferences must not undo choices."""
+    with _REMOVAL_LOCK:
+        try:
+            with open(os.path.join(profile_dir, REMOVED_MODS_FILE), encoding="utf-8") as fh:
+                data = json.load(fh)
+        except FileNotFoundError:
+            return set()
+        if not isinstance(data, dict) or not isinstance(data.get("removed"), list):
+            raise ValueError("Invalid performance-mod removal preferences")
+        return {slug for slug in data["removed"]
+                if isinstance(slug, str) and slug in PERF_MOD_SLUGS}
+
+
+def remember_removal(profile_dir: str, filename: str, metadata: dict,
+                     loader: str | None) -> None:
+    """Persist a performance-mod opt-out BEFORE deleting its profile entry.
+
+    The descriptor handles renamed manual jars; sidecars/filenames still handle
+    broken store links. A failed write raises so the UI keeps the mod and can
+    report the failure, rather than claiming a removal Play will immediately undo.
+    """
+    declared = read_mod_metadata(os.path.join(profile_dir, filename), loader)
+    removed = _matching_slugs(declared) if declared else _matching_slugs(
+        dict(metadata or {}, filename=filename))
+    if not removed:
+        return
+    with _REMOVAL_LOCK:
+        previous = _read_removals(profile_dir)
+        if removed <= previous:
+            return
+        write_json(os.path.join(profile_dir, REMOVED_MODS_FILE),
+                   {"removed": sorted(previous | removed)})
 
 # EntityCulling's own whitelist arrays are a crash-on-start hazard. The mod is
 # no longer installed by the suite, but a profile that already has it (from an
@@ -337,12 +389,7 @@ def _present(mc_version: str | None, loader: str | None,
     except Exception:
         return found
     for mod in mods:
-        identities = {str(mod.get(key) or "").lower()
-                      for key in ("slug", "display_name", "project_id")}
-        identities.add(name_stem(mod.get("filename") or ""))
-        for slug, project_id, _label in PERF_MODS:
-            if slug in identities or project_id.lower() in identities:
-                found.add(slug)
+        found.update(_matching_slugs(mod))
     return found
 
 
@@ -391,11 +438,11 @@ def ensure_installed(mc_version: str | None, loader: str | None,
                      repair_dependencies: bool = True) -> dict:
     """Installs any missing performance mod into the profile.
 
-    Returns {"installed", "kept", "failed", "detail"} so the caller can log or
+    Returns {"installed", "kept", "skipped", "failed", "detail"} so the caller can log or
     show what actually happened. Never raises: every failure is reported as a
     slug in "failed" and the launch continues.
     """
-    result = {"installed": [], "kept": [], "failed": [], "detail": ""}
+    result = {"installed": [], "kept": [], "skipped": [], "failed": [], "detail": ""}
 
     if not mc_version:
         result["detail"] = "no Minecraft version selected"
@@ -407,6 +454,12 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         return result
 
     present = _present(mc_version, loader, version_id)
+    try:
+        removed = _read_removals(resolve_profile_dir(mc_version, loader, version_id))
+    except (OSError, ValueError) as error:
+        result["failed"] = [slug for slug in PERF_MOD_SLUGS if slug not in present]
+        result["detail"] = f"Couldn't read performance-mod removal preferences: {error}"
+        return result
     # Once a lookup fails at the connection level the route is down, and every
     # remaining mod would pay the same timeout again before Minecraft starts
     # (measured 3 s x 6 on a blackholed network). The answer for the rest of
@@ -416,6 +469,9 @@ def ensure_installed(mc_version: str | None, loader: str | None,
     for slug, project_id, label in PERF_MODS:
         if slug in present:
             result["kept"].append(slug)
+            continue
+        if slug in removed:
+            result["skipped"].append(slug)
             continue
         if network_down:
             result["failed"].append(slug)
@@ -469,6 +525,9 @@ def ensure_installed(mc_version: str | None, loader: str | None,
     if result["kept"]:
         parts.append("already had " + ", ".join(
             _LABELS.get(s, s) for s in result["kept"]))
+    if result["skipped"]:
+        parts.append("left removed by you: " + ", ".join(
+            _LABELS.get(s, s) for s in result["skipped"]))
     if result["failed"]:
         parts.append("couldn't get " + ", ".join(
             _LABELS.get(s, s) for s in result["failed"]))

@@ -193,6 +193,7 @@ import net.minecraft.client.util.math.MatrixStack;
 
 public class RendererTest {
     static final java.util.concurrent.atomic.AtomicInteger requests = new java.util.concurrent.atomic.AtomicInteger();
+    static final java.util.concurrent.atomic.AtomicInteger responseStatus = new java.util.concurrent.atomic.AtomicInteger(200);
     static final java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
     static final java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
     static final List<String> BOTH = List.of("textures/cosmetics/back_void_wings.png",
@@ -240,19 +241,39 @@ public class RendererTest {
             if (vertex != Draws.points.size()) throw new AssertionError("Unexpected geometry");
         }
     }
+    static void settled(String key) throws Exception {
+        var field = RemoteCosmetics.class.getDeclaredField("CACHE"); field.setAccessible(true);
+        long deadline = System.nanoTime() + 2_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            synchronized (RemoteCosmetics.class) {
+                Object entry = ((java.util.Map<?,?>)field.get(null)).get(key.toLowerCase(java.util.Locale.ROOT));
+                if (entry != null) {
+                    var pending = entry.getClass().getDeclaredMethod("pending"); pending.setAccessible(true);
+                    if (!(boolean)pending.invoke(entry)) return;
+                }
+            }
+            Thread.sleep(2);
+        }
+        throw new AssertionError("Peer lookup did not settle: " + key);
+    }
     public static void main(String[] args) throws Exception {
+        var testClock = new java.util.concurrent.atomic.AtomicLong(1_000_000_000L);
+        var clockField = RemoteCosmetics.class.getDeclaredField("clock"); clockField.setAccessible(true);
+        clockField.set(null, (java.util.function.LongSupplier)testClock::get);
         java.net.URL.setURLStreamHandlerFactory(protocol -> !protocol.equals("https") ? null : new java.net.URLStreamHandler() {
             protected java.net.URLConnection openConnection(java.net.URL url) {
                 if (!url.getHost().equals("cubeon-skins.hamza-457-shahbaz.workers.dev")
-                        || !url.getPath().equals("/cosmetics/remote.json")) throw new AssertionError("Unexpected network target");
+                        || !url.getPath().startsWith("/cosmetics/") || !url.getPath().endsWith(".json"))
+                    throw new AssertionError("Unexpected network target");
                 return new java.net.HttpURLConnection(url) {
                     public void connect(){} public void disconnect(){} public boolean usingProxy(){return false;}
                     public int getResponseCode() {
                         requests.incrementAndGet(); started.countDown();
                         try { if(!release.await(5,java.util.concurrent.TimeUnit.SECONDS))throw new AssertionError("Render waited for network"); }
                         catch(InterruptedException error){throw new RuntimeException(error);}
-                        return 200;
+                        return responseStatus.get();
                     }
+                    public String getHeaderField(String name){return name.equals("Retry-After") ? "3600" : null;}
                     public java.io.InputStream getInputStream(){return new java.io.ByteArrayInputStream(
                         "{\"back\":\"back_void_wings\",\"shoulder\":\"shoulder_star_owl\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));}
                 };
@@ -330,6 +351,49 @@ public class RendererTest {
         check(42, null, List.of());                  // Leaving a world is harmless.
         MinecraftClient.instance = null;
         check(42, null, List.of());
+        // Drive production expiry with a fake clock; no real-time sleeps for TTLs.
+        RemoteCosmetics.context(new Object(), true);
+        int before = requests.get();
+        RemoteCosmetics.get("Remote"); settled("Remote");
+        if (requests.get() != before) throw new AssertionError("World changes must reuse completed lookups");
+        for (int minute=1; minute<=120; minute++) {
+            testClock.addAndGet(java.util.concurrent.TimeUnit.MINUTES.toNanos(1));
+            RemoteCosmetics.context(new Object(), true);
+            RemoteCosmetics.get("Remote"); settled("Remote");
+        }
+        if (requests.get() - before != 24) throw new AssertionError("Two hours need 24 refreshes, not 120: " + (requests.get()-before));
+        responseStatus.set(404);
+        before = requests.get();
+        RemoteCosmetics.get("Unknown"); settled("Unknown");
+        for (int minute=1; minute<=120; minute++) {
+            testClock.addAndGet(java.util.concurrent.TimeUnit.MINUTES.toNanos(1));
+            RemoteCosmetics.get("Unknown"); settled("Unknown");
+        }
+        if (requests.get() - before != 9) throw new AssertionError("Missing players should cost one lookup plus eight refreshes");
+        responseStatus.set(429);
+        RemoteCosmetics.get("Limited"); settled("Limited");
+        before = requests.get();
+        RemoteCosmetics.context(new Object(), false);
+        RemoteCosmetics.context(new Object(), true);
+        for (int i=0;i<100;i++) RemoteCosmetics.get("Retry"+i);
+        if (requests.get() != before) throw new AssertionError("429 must stop the whole request queue across world/setting changes");
+        testClock.addAndGet(java.util.concurrent.TimeUnit.HOURS.toNanos(1));
+        responseStatus.set(200);
+        RemoteCosmetics.get("Recovered"); settled("Recovered");
+        if (requests.get()!=before+1 || RemoteCosmetics.get("Recovered").back()==null)
+            throw new AssertionError("Peer decorations should recover after service cooldown");
+        before = requests.get();
+        for(int i=0;i<1000;i++) RemoteCosmetics.get("Flood"+i);
+        var cacheField = RemoteCosmetics.class.getDeclaredField("CACHE"); cacheField.setAccessible(true);
+        for(int i=0;i<1000;i++) {
+            boolean queued;
+            synchronized(RemoteCosmetics.class) {
+                queued = ((java.util.Map<?,?>)cacheField.get(null)).containsKey("flood"+i);
+            }
+            if(queued) settled("Flood"+i);
+        }
+        if(requests.get()-before>39) throw new AssertionError("Distinct-name storms must obey the shared token budget");
+        System.out.println("Peer budget: 24 instead of 120 refreshes in two hours; missing-player cache, world reuse and 429 recovery passed.");
         System.out.println("Body poses, player identity, motion OFF, and instant 3D/flat texture/mesh switching passed.");
     }
 }''',

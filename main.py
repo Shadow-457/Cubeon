@@ -427,11 +427,20 @@ def _explain_exit(code: int, lines=None) -> str:
     # fix that had never worked, and left users relaunching a broken version
     # forever instead of reinstalling it (the reported "it says it fixed it but
     # it isn't actually fixed" confusion).
-    if "knotclient" in low or "knotserver" in low:
+    missing_classes = [match.group(1) for line in lines or []
+                       if (match := re.search(
+                           r"(?:classnotfoundexception:\s*|could not find or load main class\s+)"
+                           r"([\w.$/]+)", line.lower()))]
+    if any(name.replace("/", ".") in (
+            "net.fabricmc.loader.impl.launch.knot.knotclient",
+            "net.fabricmc.loader.impl.launch.knot.knotserver") for name in missing_classes):
         return ("Crashed: Fabric couldn't start - this version's files look "
                 "incomplete. If pressing Play again still crashes, reinstall "
                 "this version from the Play tab.")
-    if "classnotfoundexception" in low and "net.minecraft" in low:
+    if "mixin transformation" in low or "illegalclassloaderror" in low or "mixin apply" in low:
+        return ("Crashed: a mod failed during startup. Run Fix problems on the "
+                "Mods tab and check the crash report for the failing mod.")
+    if any(name.replace("/", ".").startswith("net.minecraft.") for name in missing_classes):
         return ("Crashed: the game files for this version look incomplete. "
                 "Reinstall it, or pick another version.")
 
@@ -3656,10 +3665,10 @@ async def main(page: ft.Page):
     threading.Thread(target=_bar_loop, daemon=True, name="ux-progress-bar").start()
 
     # The main play button - its appearance changes based on state (play/download/busy)
-    play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=18)
-    play_button_text = ft.Text(i18n.t("PLAY"), size=15, color=ON_ACCENT,
-                               weight=ft.FontWeight.W_700,
-                               style=ft.TextStyle(letter_spacing=0.5))
+    play_button_icon = ft.Icon(ft.Icons.PLAY_ARROW, color=ON_ACCENT, size=20)
+    play_button_text = ft.Text(i18n.t("PLAY"), size=16, color=ON_ACCENT,
+                               font_family=FONT_DISPLAY, weight=ft.FontWeight.W_400,
+                               max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
 
     # Soft red fill for the button's stop meanings (CANCEL / QUIT GAME): a
     # redstone tint over the dark surface, quiet enough to sit in the card
@@ -3726,19 +3735,10 @@ async def main(page: ft.Page):
         step. Only the live fills react; the disabled states (launching,
         cancelling, ending, incomplete) must not appear clickable.
 
-        motion.polish (below the button) calls this with the hover flag, and
-        that is also what supplies the lift, the press dip and the glass hover.
-        The FILL stays the button's own business because it depends on what the
-        button means right now (play / cancel / quit / installing), and the
-        sheen's own sweep is fired from here too - it is the one bit of the
-        button's response that is decoration rather than state.
+        The pixel frame stays fixed; only the semantic fill brightens.
         """
         if play_button.disabled:
             return
-        if hovering:
-            play_sheen.run()
-        else:
-            play_sheen.reset()
         value = play_button_text.value
         if value == i18n.t("PLAY"):
             play_button.bgcolor = ACCENT_HI if hovering else ACCENT
@@ -3754,42 +3754,29 @@ async def main(page: ft.Page):
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=ACCENT,
-        border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=14, horizontal=20),
+        border_radius=0,
+        height=64,
+        padding=0,
+        shadow=ft.BoxShadow(blur_radius=0, spread_radius=0,
+                            color="#66000000", offset=ft.Offset(4, 4)),
         alignment=ft.Alignment.CENTER,
         ink=False,
         on_click=_main_action_click,  # play / cancel / quit, by state
     )
-    # The launcher's one primary action gets the full affordance: the fill
-    # callback above, plus motion's hover lift, press dip and glass hover
-    # (Settings > Display > Motion turns the movement down). `active` is what
-    # stops a disabled button - launching, cancelling, incomplete - from lifting
-    # or dipping.
+    # Pixel chrome stays inside the action so the entire surface remains
+    # clickable. Its fixed bevel replaces the soft glass sweep.
     motion.polish(play_button, on_hover_fill=_on_play_hover,
                   active=lambda: not play_button.disabled,
-                  glass=theme.glass_hover())
-    # ... and the specular sheen that sweeps across it every time the pointer
-    # arrives (cubeon/motion.py's Sheen).
-    #
-    # HIT-TEST RULE (2026-10-19, this is why PLAY "didn't work"): the sheen
-    # must live INSIDE the button, never as a Stack sibling painted on top of
-    # it. As a sibling, the sweeping band is a full-size painted layer exactly
-    # over the button whenever the pointer is inside it (hover = opacity 1),
-    # and in a real window it absorbs the tap - the click never reached
-    # on_click (the session log showed ZERO handler activity while the user
-    # hammered PLAY; headless can't see it because there is no pointer). A
-    # descendant of the button's content is painted over the row too, but taps
-    # still belong to the widget that owns on_click. motion.Sheen's own doc
-    # says "under the content" for the same reason.
-    play_sheen = motion.sheen(radius=RADIUS)
+                  glass={})
     play_button.content = ft.Stack(
         [
-            ft.Row(
+            ft.Image(src="pixel_button_frame.svg", fit=ft.BoxFit.FILL,
+                     left=0, top=0, right=0, bottom=0),
+            ft.Container(left=16, right=16, top=0, bottom=4, content=ft.Row(
                 [play_button_icon, play_button_text],
                 alignment=ft.MainAxisAlignment.CENTER, spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            play_sheen.control,
+            )),
         ],
         expand=True,
     )
@@ -3902,19 +3889,19 @@ async def main(page: ft.Page):
 
         if mode == "play":
             paint(ACCENT, ON_ACCENT)
-            play_button_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
+            play_button_icon.icon = ft.Icons.PLAY_ARROW
             play_button_text.value = i18n.t("PLAY")
             play_button.disabled = False
         elif mode == "download":
             paint(INFO, ON_ACCENT)  # diamond cyan = download, not play (on-palette)
-            play_button_icon.name = ft.Icons.DOWNLOAD_ROUNDED
+            play_button_icon.icon = ft.Icons.DOWNLOAD_ROUNDED
             play_button_text.value = "DOWNLOAD & PLAY"
             play_button.disabled = False
         elif mode == "install_loader":
             # Same cyan as download: this arm's Play to fetch something new
             # (a mod loader) rather than relaunch what's already on disk.
             paint(INFO, ON_ACCENT)
-            play_button_icon.name = ft.Icons.DOWNLOAD_ROUNDED
+            play_button_icon.icon = ft.Icons.DOWNLOAD_ROUNDED
             _ldr_label = core.SUPPORTED_LOADERS.get(
                 state.get("mod_loader") or "", "loader").upper()
             play_button_text.value = f"INSTALL {_ldr_label} & PLAY"
@@ -3924,7 +3911,7 @@ async def main(page: ft.Page):
             # the old separate Cancel pill next to the progress bar competed
             # with the big button and was easy to miss.
             paint(_STOP_BG, DANGER)
-            play_button_icon.name = ft.Icons.CANCEL_ROUNDED
+            play_button_icon.icon = ft.Icons.CANCEL_ROUNDED
             play_button_text.value = i18n.t("CANCEL")
             play_button.disabled = False
         elif mode in ("launching", "cancelling", "ending"):
@@ -3934,7 +3921,7 @@ async def main(page: ft.Page):
             # aborting (cancelling), a quit was requested and the process is
             # going down (ending). Disabled, quiet, honest.
             paint(SURFACE_HI, TEXT_DIM)
-            play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
+            play_button_icon.icon = ft.Icons.HOURGLASS_TOP_ROUNDED
             play_button_text.value = {
                 "launching": "LAUNCHING...",
                 "cancelling": "CANCELLING...",
@@ -3946,7 +3933,7 @@ async def main(page: ft.Page):
             # The old disabled "GAME RUNNING..." left the user with no way
             # to end the game from the launcher at all.
             paint(_STOP_BG, DANGER)
-            play_button_icon.name = ft.Icons.STOP_CIRCLE_ROUNDED
+            play_button_icon.icon = ft.Icons.STOP_CIRCLE_ROUNDED
             play_button_text.value = i18n.t("QUIT GAME")
             play_button.disabled = False
             play_button.tooltip = ("Close Minecraft now. Unsaved progress "
@@ -3970,7 +3957,7 @@ async def main(page: ft.Page):
             # same doctor work on the critical path anyway. The button keeps
             # saying PLAY and simply explains what else is happening.
             paint(ACCENT, ON_ACCENT)
-            play_button_icon.name = ft.Icons.PLAY_ARROW_ROUNDED
+            play_button_icon.icon = ft.Icons.PLAY_ARROW
             play_button_text.value = i18n.t("PLAY")
             play_button.disabled = False
             play_button.tooltip = ("Cubeon is also checking this profile's "
@@ -3983,14 +3970,14 @@ async def main(page: ft.Page):
             # Cancel - so this is a disabled wait, never a lying CANCEL. Play
             # returns the moment the installer's listener clears the claim.
             paint(SURFACE_HI, TEXT_DIM)
-            play_button_icon.name = ft.Icons.HOURGLASS_TOP_ROUNDED
+            play_button_icon.icon = ft.Icons.HOURGLASS_TOP_ROUNDED
             play_button_text.value = i18n.t("INSTALLING...")
             play_button.disabled = True
             play_button.tooltip = ("Cubeon is still installing this instance - "
                                    "Play unlocks when it finishes.")
         else:  # incomplete
             paint(SURFACE_HI, DANGER)
-            play_button_icon.name = ft.Icons.ERROR_OUTLINE_ROUNDED
+            play_button_icon.icon = ft.Icons.ERROR_OUTLINE_ROUNDED
             play_button_text.value = "INCOMPLETE INSTALL"
             play_button.disabled = True
         if mode not in ("running", "working", "installing"):
@@ -6303,8 +6290,7 @@ async def main(page: ft.Page):
     # (The Fix crash tile that used to sit here was removed 2026-10-28; the
     # FPS boost tile is now the only quiet control under the PLAY row.)
 
-    # PLAY: taller and wider than anything else on the screen.
-    play_button.padding = ft.padding.Padding.symmetric(vertical=20, horizontal=20)
+    # PLAY keeps its 64px pixel frame; its label is inset inside that frame.
 
     # The readout shows the selected instance's loader, with a reserved
     # one-line slot for loader availability notices.
@@ -6644,12 +6630,15 @@ async def main(page: ft.Page):
             _session_runtime["friends_client"] = friends.FriendsClient()
             _session_runtime["friends_service"] = FriendsService(
                 cfg, state, _session_runtime["friends_client"])
+            _session_runtime["friends_service"].set_notice_handler(
+                lambda text, error=False: _show_snack(text))
             _session_runtime["friends_service"].start()
         else:
             _svc = _session_runtime["friends_service"]
             _svc.cfg = cfg
             _svc.state = state
             _svc._save_config = lambda: core.save_config(cfg)
+            _svc.set_notice_handler(lambda text, error=False: _show_snack(text))
         friends_client = _session_runtime["friends_client"]
         friends_service = _session_runtime["friends_service"]
         if friends_service is not None:
@@ -9028,6 +9017,9 @@ async def main(page: ft.Page):
     # _window_gone_finish if ft.run() never comes back, and otherwise the
     # session loop does it (which is what keeps "Restart to apply" working).
     def _on_page_gone(_e):
+        if friends_service is not None:
+            friends_service.set_notice_handler(None)
+        cubeon_toast.uninstall(page)
         _update_active.clear()
         if _update_prompt["value"] is not None:
             _update_prompt["value"].cancel.set()
@@ -9050,6 +9042,9 @@ async def main(page: ft.Page):
     # process is on its way out, so everything process-scoped is stopped
     # here - there is no windowless "background" state to stay alive for.
     def _do_session_end_cleanup():
+        if friends_service is not None:
+            friends_service.set_notice_handler(None)
+        cubeon_toast.uninstall(page)
         _update_active.clear()
         if _update_prompt["value"] is not None:
             _update_prompt["value"].cancel.set()

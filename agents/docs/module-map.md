@@ -105,8 +105,25 @@ consistent with the shared `THEME` contract.
   automatically closes isolated probes on both installed Flet versions (requires a GUI).
 - Use `cubeon.dialogs` for dialog-stack compatibility. Removed APIs include `ft.border.all`,
   `ft.padding.only`, and `ft.margin.only`.
+- Launcher notices route through `ui/toast.py`. Its stretched accent/body Row needs
+  `intrinsic_height=True` inside the shrink-wrapped Column; without it native Flet
+  produces an invalid transform and invisible cards. New overlay hosts must repaint
+  `page._overlay`, not the unattached host. Deduplication is per window; eviction/close
+  releases persistent notice waiters. FriendsService's optional `set_notice_handler`
+  pushes new events to the current launcher session outside its ring lock, without
+  network polling or replay; `main.py` binds it and unbinds on teardown.
+- `cubeon/render_compat.py` implements explicit Doctor → Rendering Apply/Restore,
+  scoped to the selected instance (`game_dir_for(..., create=False)`). It bypasses
+  EntityCulling entity/block/tick culling and ImmediatelyFast enhanced batching only
+  for existing known config keys. Originals are backed up before changes; restore
+  preserves later user edits. Normal launch never enables this workaround. Culling/
+  batching reports do not prove a user's exact cause, and FPS can decrease.
 - Local absolute paths are not valid `ft.Image.src` values. Use cached base64, bundled asset paths, or a
   real URL; do not restore blank local images.
+- `scrolling.follow_end` owns its coroutine completion and skips hidden/detached ancestors.
+  Only the exact native `scroll_to` listener timeout and session/detachment errors are quiet;
+  unrelated failures must propagate. Scheduling bare `ListView.scroll_to` lets Flet re-raise
+  asynchronous listener timeouts from its Future completion callback.
 - Reuse installed/browse rows and image controls during metadata updates; chat presence must not remount
   PFPs, and sources change only with real artwork.
 - Default hover/click effects are fill/rim fades, not scale or corner morphs; Mods and Modpacks do not
@@ -155,6 +172,9 @@ consistent with the shared `THEME` contract.
 - The hero PLAY click has a 0.35 s `_PLAY_CLICK_COOLDOWN` gate so a rapid double-press cannot run the
   username/config/Java pipeline twice; CANCEL/QUIT bypass it. A click that returns `False` releases the
   gate immediately (only a click that started work keeps it).
+- The 64px Play action uses `assets/pixel_button_frame.svg` and the bundled Minecraftia font;
+  keep frame/label descendants inside the clickable container and retain semantic fills. Flet 0.86
+  mode changes must assign `play_button_icon.icon` (a `.name` assignment never updates the glyph).
 - A launch has three ordered claims: `installing_version` (cancellable install) → `launching_version`
   (install done, game not spawned) → `running_version` (process live). `set_button_mode("play")`,
   `_main_action_click`, `on_play_click` and `_begin_install_and_launch` all honour them, so a repaint
@@ -358,6 +378,14 @@ consistent with the shared `THEME` contract.
 - `mods.toggle_mod()` refuses when both `x.jar` and `x.jar.disabled` exist (raise `ValueError`); do not
   go back to `os.rename` onto an existing file. `copy_mods_between_profiles` takes
   `src_version_id`/`dst_version_id` so isolated instances use their private profile.
+- `mods.delete_mod()` records performance-mod removals atomically in the profile's
+  `.cubeon-removed-performance-mods.json` before unlinking. `perf_mods.ensure_installed`
+  reports them as `skipped` and never looks them up/downloads them; disabled jars
+  still count as present. Explicit Mods-browser installs remain allowed. Failed
+  preference writes preserve the jar; unreadable preferences stop automatic suite
+  additions. This fixes More Culling returning after removal; use profile resolution,
+  never a global blacklist. `test_perf_mod_removal.py` covers repeated Play/sync,
+  isolated siblings, renamed manual jars, store links and explicit reinstalls.
 - `required_dependencies(..., filename=...)` picks the build whose `files[].filename` matches; without a
   match (or without the argument) it uses `versions[0]`. The install path must pass the jar filename.
 - `_write_meta` MERGES into `<jar>.cubeon.json` (never replace it with just the caller's fields);
@@ -556,8 +584,11 @@ consistent with the shared `THEME` contract.
   geometry from inside the queued callback. Position reset preserves this preference.
 - K → **Other cosmetics** saves `showOtherCosmetics` (default false). OFF skips peer lookups/drawing;
   ON shows known Cubeon back/shoulder selections from the skins Worker's `/cosmetics/<name>.json`.
-  `RemoteCosmetics` performs bounded background reads (2 workers, 64 queued, 128 entries, 60s cache),
-  invalidates on world/setting changes, and discards stale completions. Native `CosmeticPlayers` resolves
+  `RemoteCosmetics` performs bounded background reads (2 workers, 64 queued, 128 LRU entries,
+  5-minute positive / 15-minute missing-or-empty cache, 40 initial tokens refilling at 40/minute).
+  World/setting changes preserve completed lookups, cancel pending work and discard stale completions;
+  OFF performs no reads. Service failures pause the shared queue with exponential backoff and
+  Retry-After; cached decorations survive transient failures/revalidation. Native `CosmeticPlayers` resolves
   actual player identity, hides invisible/spectator/distant (>64 blocks) peers and keeps one weak animation
   tracker per player; queued rendering captures an immutable `CosmeticView`. N remains local.
   Launcher skin sync and cosmetic selection changes publish `/api/cosmetics` with the UUID's Bearer token;
@@ -567,16 +598,33 @@ consistent with the shared `THEME` contract.
   `worker/wrangler-skins.toml` must declare name/main/date before any TOML table; putting them after
   `[ratelimits.simple]` nests them inside the limiter and breaks deployment configuration.
   Never hide Minecraft capes, Elytra or shoulder parrots through this setting. Position reset preserves it.
+  Skin Worker public reads use Cache API canonical keys (case/query/texture-alias folding),
+  single-flight misses, 60s mutable/negative TTL, immutable hash textures and ETag/HEAD support.
+  `/faces/<name>.png` is mutable; only `/textures/<hash>` may use one-year caching.
+  Public caches never authorize writes or cache `/api/*`; raw Worker requests still count on cache hits.
+  `worker/test-skins-cache.mjs` counts KV operations and covers expiry/moderation/cache failure.
+  Skin publishing stops on any failed phase, persists backoff with jitter, honors Retry-After and
+  daily KV-reset time while retaining confirmed partial success. `fresh_identity` in heartbeat
+  acknowledgements permits skipping the empty initial cosmetic publication; old Workers keep working.
+  API/UUID changes must republish identical textures into their new namespace. `skin_net.json`
+  remains separate from config. Avatars keep six-hour local PNGs, 15-minute persisted misses and
+  service-wide outage cooldown; at most four daemon downloads share pooled connections.
+  Managed CSL registration raises only untouched `cacheExpiry=30` to 300 seconds;
+  custom expiry/provider order and management OFF remain hands-off. Configure only
+  an existing CSL config; `enableLocalProfileCache` is an offline fallback, not a TTL.
 - Preview (`preview_faces`) and Java `CosmeticGeometry.java` are ONE contract; `tools/test_cosmetics.py`
   compiles the Java classes and compares every quad and tile. Box space: +x left, +y down, -z front; pivot
   standing body pivot (0,0,0), torso Y=0..12; preview uses `y' = 24 - y`, `z' = -z`.
+  Renderers divide by 16 and apply the body pose directly; subtracting 12 after the body transform
+  raises items into the head. `test_cosmetic_renderers.py` records standing/crouching/swimming vertices.
 - Skin builds never rasterize bundled cosmetic thumbnails: Shoulder/Back populate only on opening,
   then worker-render/cache their cards. `AppearancePreview` uses one worker and caches visited angles;
   camera requests coalesce to the latest step, with no eager 60-angle orbit bake. First-frame readiness
   enables rotation immediately. Keep generation checks so old skin renders cannot overwrite a newer
   selection. `test_skin_loading.py` checks click-path work; `--native` probes pinned Flet timings/errors.
-  Renderers divide by 16 and apply the body pose directly; subtracting 12 after the body transform
-  raises items into the head. `test_cosmetic_renderers.py` records standing/crouching/swimming vertices.
+  Turntables and card thumbnails request `preview_faces(..., simplify=True)` to select Giant wings'
+  generated four-quad cutout with its matching texture; the default helper still emits full geometry
+  for renderer comparisons. Small wings/pets/packs and in-game selection/depth settings are unaffected.
 - Solid pet/pack faces must be opaque: transparent sprite margins on a cuboid punch holes in its body.
   Giant wings use eleven independent feather volumes plus shoulder armour, opaque caps and exposed
   silhouette walls (3,566 quads/pair, one 512×240 atlas per theme). Native 160×176 paint stays at
@@ -592,7 +640,8 @@ consistent with the shared `THEME` contract.
   maps to model Y=2; box Y starts at -9. Origins, hinges and feather guides move together when lowering
   wings (model +Y is down). Preserve float dimensions; integer parsing drops wings.
   Existing `back_<theme>_wings` IDs remain Giant; `back_<theme>_wings_small` restore the original
-  40×52 pixels/10×13 model units, Y origin 2, depth 0.5 and hinge `(1, 2, 2.45)` for all five themes.
+  40×52 pixels/10×13 model units, Y origin 0, depth 0.5 and hinge `(1, 0, 2.45)` for all five themes.
+  Small wings retain their original height; the two-unit lowering applies only to Giant/flat wings.
   `wing_flare=false` excludes Small from N input and strips a captured Giant flare from its item
   frame immediately; Small retains idle/sprint/glide motion. N is for Giant wings only.
   Optional `faces` default to all six; mirror left/right mask bits as well as tiles. Never determine
@@ -685,10 +734,44 @@ consistent with the shared `THEME` contract.
   `test_mod_matrix.py` also verifies every shipped favorites class/translation and the position-field
   overlay split; a compiled jar alone does not prove the bundled client was refreshed.
 
-- Motion blur and dynamic crosshair are removed from all versions: no config fields, menu rows,
-  render hooks or effect resources. Gson ignores old keys and drops them on the next HUD config save.
-  `tools/build_mod_jars.py` rejects leftover feature classes, config fields and assets before copying
-  any jar; `test_mod_matrix.py` checks the guard and all 24 packaged jars.
+- K → **Camera motion blur** persists `cameraMotionBlur`, default OFF, in every supported client.
+  **Blur intensity** persists `cameraBlurIntensity` (default 1.0, clamped 0.25–2.0;
+  nonfinite values restore 1.0). K cycles 25% steps through 200%, then 25%, and resets
+  renderer state on changes. All eight native screens/renderers share this setting;
+  exposure and its vector cap scale together. `HudMenu` now has 24 controls and a
+  compact layout below 382 panel pixels; keep intensity reachable at the minimum GUI scale.
+  `hud/CameraBlur.java` measures rendered yaw/pitch velocity against nanoseconds and a fixed 8 ms
+  exposure; smoothing and cut limits use seconds, not frame counts. The shader averages 12 samples
+  of the current scene only, before GUI rendering; there is no previous-image accumulation.
+  Changed camera samples set the velocity interval; repeat samples hold the vector for at most
+  12 ms so 125/1000 Hz mice do not flicker at 2000 FPS. Velocity smoothing uses 24 ms.
+  The renderer lives in `hud.blur`, hooks in `hud.blur.mixin`: ordinary helpers must stay outside
+  every Mixin config's package (including subpackages), or Fabric throws `IllegalClassLoadError`
+  even with the feature OFF. Compilation cannot catch this; verify real Fabric startup.
+  Zoom's cancellable FOV hook must also publish its final world FOV: cancellation bypasses later
+  return observers. `test_camera_blur.py --jars` runs the math from all actual packaged classes
+  and checks this zoom integration, so source tests cannot hide stale bundled JARs.
+  Eight `camera-blur-*` overlays cover native post effects (through 1.21.4), GPU pipelines (1.21.5+),
+  and RenderPearl (26.3). Texture views remain the sampler API through **1.21.10**; the sampler
+  cache/bindTexture split starts at **1.21.11**, independently of the HUD's 1.21.9 split.
+  Old native post programs use uniquely prefixed `minecraft:shaders/program/cubeon_camera_blur`
+  resources because their loader prefixes a string before parsing its namespace. GPU 1.21.5–1.21.10
+  shaders use GLSL 150 to retain the game's older OpenGL support.
+  Pipeline location/vertex/fragment setters' String overloads assume Minecraft's namespace;
+  use parsed `Identifier` objects for `cubeon-client:` resources, or the optional pass disables
+  itself with `minecraft:cubeon-client:...` path errors. Verify gameplay, not only the menu.
+  Off/menu/world-change/resize/reload/close release owned buffers; settings/reload request cleanup
+  on the render thread. Reuse the immutable pipeline descriptor: native shader caches key it by
+  object identity. Optional mixins use `required:false`/`defaultRequire:0`, renderer exceptions disable
+  only blur until reset, and idle/off frames execute no blur passes. Native resource caches stay
+  Minecraft-owned. `test_camera_blur.py --targets` checks 30–2000 FPS math and all mapped hooks;
+  `test_camera_blur_lifecycle.py` exercises production adapters and resource/failure handling;
+  `test_camera_blur_gpu.py` checks shader compilation/pixel readback using Linux EGL/PyOpenGL.
+  These checks and the full 24-version build do not replace in-game/GPU visual review.
+- Old frame-accumulation blur and dynamic crosshair remain removed. Gson ignores `motionBlur`/
+  `motionBlurStrength` and drops them on the next HUD config save; they never enable the new blur.
+  `tools/build_mod_jars.py` rejects these old classes/fields/assets and requires the new optional hooks,
+  setting, labels and exact shaders before copying a jar; `test_mod_matrix.py` checks all 24 bundles.
   The separate `CubeonHud.renderTargetHighlight` also drew an unconditional red plus when aiming at
   a player (1.21.6+ and 26.x); it is removed and covered by the same archive guard. Keep enemy health
   bars separate from crosshair changes.
@@ -794,6 +877,8 @@ consistent with the shared `THEME` contract.
   for a graphics failure without evidence.
 - The game must not inherit launcher-only software-graphics overrides. Crash text must not promise a fix
   that has not been verified.
+  `main._explain_exit` requires explicit same-line missing-entrypoint evidence before blaming
+  incomplete Fabric/Minecraft files; normal KnotClient or net.minecraft stack frames prove nothing.
 - `mod/brackets.json` is the version-routing authority. Per-version source overlays are intentional; do
   not collapse them as accidental duplication. The `zoom-double`/`zoom-float` split follows
   `GameRenderer.getFov`'s return type (double through 1.21.1, float from 1.21.2), not a HUD era.
@@ -847,7 +932,7 @@ requires retrying with normal system access, not changing unrelated app code.
 
 | Change | Focused checks in `tools/` |
 | --- | --- |
-| UI/tree contracts | `test_ui_smoke.py`, `test_motion.py`, `test_scrolling.py` |
+| UI/tree contracts | `test_ui_smoke.py`, `test_motion.py`, `test_scrolling.py`, `test_toast.py`, `test_render_compat.py` |
 | Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py` |
 | Mods and artwork | `test_mod_ui_stability.py`, `test_loader_content_rules.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
@@ -861,6 +946,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `node worker/test-cosmetics.mjs` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
+| Camera motion blur | `test_camera_blur.py --targets`, `test_camera_blur_lifecycle.py`, `test_camera_blur_gpu.py` (Linux EGL/PyOpenGL), full 24-version Gradle build |
 | Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
@@ -893,6 +979,12 @@ requires retrying with normal system access, not changing unrelated app code.
   Unpublished HTML edits intentionally fail that check; run from the deployed checkout or select
   only matching canonical URLs. `web/indexnow-key.txt` is the public verification file. OAI-SearchBot
   already inherits the public wildcard robots allowance; GPTBot training is independent of search.
+  Explicit OAI-SearchBot/ChatGPT-User/Claude-SearchBot/Claude-User groups retain `/api/`
+  exclusions. `tools/prepare_website_faq.py` regenerates homepage FAQPage answers from
+  visible `.q-a`/`.q-body` HTML; run it after FAQ edits. Answers also expand without JS.
+  `/llms.txt`, linked by About, is optional reference text, not an AI indexing requirement.
+  Browser/spoofed-UA HTTP 200 checks cannot verify real crawler-IP firewall access or
+  index inclusion; Bing Webmaster URL inspection requires the owner's account.
 - Website page counts use **Vercel Web Analytics** (cookieless, no personal data, visitor hash
   discarded after 24h). Every content page carries the HTML snippet
   (`window.vaq` + `/_vercel/insights/script.js`) before `</body>`; numeric status pages

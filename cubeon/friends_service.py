@@ -274,6 +274,7 @@ class FriendsService:
         # from at least six threads and must never wait on the state machine.
         self._notify_lock = threading.Lock()
         self._events = collections.deque(maxlen=_MAX_EVENTS)
+        self._notice_handler = None  # optional current launcher session sink
         self._seq = 0
         # text -> monotonic time of the last identical notice. Dedupes the two
         # independent sources of the "no such user" answer (the relay's own
@@ -427,6 +428,7 @@ class FriendsService:
         join - they die with the process.
         """
         FriendsService._active = None
+        self.set_notice_handler(None)
         # Get any not-yet-written chat ring onto disk BEFORE the process can
         # exit - the last chance to keep a just-sent message from disappearing
         # (see CHAT_STORE_PATH; sent messages have no relay-side copy).
@@ -496,6 +498,15 @@ class FriendsService:
             return False
         return True
 
+    def set_notice_handler(self, handler) -> None:
+        """Replace the launcher notice sink without replaying the event ring.
+
+        The service is process-scoped; each window binds its own sink and
+        clears it on close. Headless users still receive the same /events feed.
+        """
+        with self._notify_lock:
+            self._notice_handler = handler
+
     def _notify(self, text, error: bool = False) -> None:
         """One toast, addressed to whoever is drawing the UI now.
 
@@ -520,7 +531,15 @@ class FriendsService:
             self._events.append({"seq": self._seq, "text": text,
                                  "error": bool(error)})
             self._revision += 1
+            handler = self._notice_handler
         log.info("friends notice%s: %s", " (error)" if error else "", text)
+        if handler is not None:
+            try:
+                # Outside the ring lock: a UI callback may read events or
+                # rebind itself and must never deadlock the socket thread.
+                handler(text, bool(error))
+            except Exception:
+                log.debug("launcher notice delivery failed", exc_info=True)
 
     def notify(self, text: str, error: bool = False) -> None:
         """Public wrapper - lets main.py surface a launcher-side notice in the

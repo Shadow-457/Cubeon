@@ -170,7 +170,7 @@ check("one connection failure marks every mod failed",
       sorted(result["failed"]) == sorted(s for s, _p, _l in perf_mods.PERF_MODS),
       repr(result["failed"]))
 check("... and the launch still returns a normal result dict",
-      set(result) == {"installed", "kept", "failed", "detail"})
+      set(result) == {"installed", "kept", "skipped", "failed", "detail"})
 
 tabulated = []
 

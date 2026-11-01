@@ -30,21 +30,51 @@ docs index and GitHub README link to the facts page. Cubeon and the similarly
 named Cubion launcher are separate projects; do not put another product's URL
 in Cubeon's `sameAs` data. Keep visible facts and schema in agreement.
 
-The 2026-10-31 live check returned HTTP 200 for the homepage using an
-OAI-SearchBot user agent, robots.txt, and the sitemap using a Bingbot user agent,
-with no response-level noindex directive. These checks do not prove that real
-crawler IP ranges are allowed by a hosting firewall. Search through the research
-tool did not surface this official project for the tested name queries, and its
-page-fetch tool could not retrieve the homepage; those observations are limited
-to that tool and do not establish absence from every search index.
+The 2026-11-01 live check returned HTTP 200 for the homepage, `/about`,
+robots.txt and sitemap using normal-browser, OAI-SearchBot, ChatGPT-User,
+Claude-SearchBot, Claude-User and Bingbot user agents. Product pages contained
+readable Cubeon text and no response-level noindex directive. The deployed
+wildcard robots policy already allowed public pages. These checks do not prove
+that real crawler IP ranges are allowed by a hosting firewall. The Bing RSS
+search endpoint returned unrelated results for the tested project/domain
+queries, so that attempt was inconclusive; use Bing Webmaster URL inspection
+for indexing evidence. Google/Gemini finding the site does not establish its
+discovery or ranking in ChatGPT/Claude web search.
 
 [Official OpenAI crawler guidance](https://developers.openai.com/api/docs/bots)
 uses OAI-SearchBot for ChatGPT search. The existing wildcard robots rule already
-allows it; permitting GPTBot training is independent of search inclusion.
+allows it; the source also makes the search/retrieval allowances explicit while
+retaining `/api/` exclusions. Permitting GPTBot training is independent of search inclusion.
 If hosting adds bot protection, keep the published search crawler IP ranges
 allowed. A spoofed user agent alone cannot verify that configuration. Access and
 clear identity make discovery possible; they do not force ChatGPT to mention
-Cubeon or add it to a model's training data.
+Cubeon or add it to a model's training data. ChatGPT-User retrieves pages at a
+user's request; it does not determine search inclusion and robots.txt may not
+apply to those requests.
+
+[Anthropic's crawler guidance](https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler)
+distinguishes Claude-SearchBot (search), Claude-User (user-requested retrieval)
+and ClaudeBot (training). Keep public pages accessible to the first two if
+Claude search is desired. Training permission is separate. If a hosting
+firewall challenges real crawler requests, review its request logs and rules;
+these source edits cannot change hosting-account bot protection.
+
+The homepage includes direct answers about product identity and supported
+editions/loaders. Its FAQPage JSON-LD is generated from the same question and
+answer text shown in the page, not separately maintained marketing claims:
+
+```bash
+python3 tools/prepare_website_faq.py
+python3 tools/test_website_seo.py
+```
+
+Regenerate after changing any homepage FAQ. All 15 answers are in the initial
+HTML and are expanded when JavaScript is disabled. This schema supports
+machine-readable answers; it does not guarantee search-engine FAQ rich results
+or AI citations. `/llms.txt`, linked from `/about`, is an optional plain-text
+reference to product facts and canonical guides. It is not a required AI
+indexing file and does not enroll a site in ChatGPT or Claude search. Keep it
+consistent with visible facts, profiles/limitations and current download links.
 
 [Google's AI search guidance](https://developers.google.com/search/docs/appearance/ai-features)
 uses normal indexing, snippet eligibility, useful text, links and accurate
@@ -156,7 +186,7 @@ After publishing, submit or resubmit the existing `/sitemap.xml` in Search Conso
 
 ## After publishing
 
-1. Verify that the live homepage, `/download`, `/robots.txt` and `/sitemap.xml`
+1. Verify that the live homepage, `/about`, `/download`, `/llms.txt`, `/robots.txt` and `/sitemap.xml`
    return HTTP 200 on `www.ylet.online`. The deployed static output must
    contain the contents of `web/`, including the two crawl files.
 2. Open [Google Search Console](https://search.google.com/search-console).
@@ -171,7 +201,10 @@ After publishing, submit or resubmit the existing `/sitemap.xml` in Search Conso
    verifying the permanent redirects. Keep them for at least a year. The previous
    screenshot confirmed only the old homepage was indexed; inspect the www URL
    separately and check Google’s selected canonical after it recrawls.
-6. Monitor indexing and Performance queries such as “Cubeon launcher” and
+6. Import the verified Google property into Bing Webmaster Tools, submit the
+   sitemap and inspect `/`, `/about` and `/download`. This requires the owner's
+   account; do not infer Bing index status from an unreliable search endpoint.
+7. Monitor indexing and Performance queries such as “Cubeon launcher” and
    “Cubeon Minecraft launcher”. Keep release information and helpful guides
    accurate, and link to the canonical site from the real project profiles.
 

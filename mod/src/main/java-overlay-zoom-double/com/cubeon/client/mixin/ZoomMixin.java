@@ -26,5 +26,7 @@ public abstract class ZoomMixin {
 		if (factor != 1.0F) {
 			cir.setReturnValue(cir.getReturnValueD() * factor);
 		}
+		// A cancelled FOV return skips later observers; publish the final world FOV here.
+		if (changingFov) com.cubeon.client.hud.blur.CameraBlurRenderer.fov = cir.getReturnValueD();
 	}
 }

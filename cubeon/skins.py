@@ -189,8 +189,8 @@ _PUBLISH_STATE_PATH = os.path.join(CUBEON_HOME, "skin_net.json")
 # Failure backoff: when the Worker is unreachable or erroring (e.g. free-tier
 # KV writes exhausted for the day), don't hammer it on the next sync. The
 # cooldown is written into skin_net.json alongside the success state, so it
-# survives restarts. One failure = skip for 10 minutes; the state records
-# when retrying becomes worthwhile again.
+# survives restarts. Failures back off from ten minutes with jitter; quota
+# exhaustion waits for the UTC refill and Retry-After is respected.
 _PUBLISH_FAIL_COOLDOWN = 600.0
 
 
@@ -198,7 +198,8 @@ def _publish_on_cooldown(state: dict) -> bool:
     """True while a recent publish failure says 'don't try yet'."""
     until = state.get("retry_not_before", 0)
     try:
-        return float(until) > time.time()
+        import math
+        return math.isfinite(float(until)) and float(until) > time.time()
     except (TypeError, ValueError):
         return False
 
@@ -600,10 +601,29 @@ def _save_publish_state(state: dict) -> None:
         pass
 
 
-def _record_publish_failure(state: dict) -> None:
-    """Note 'don't retry for _PUBLISH_FAIL_COOLDOWN' without touching the
-    last-known-good identity fields, then persist. Never raises."""
-    state["retry_not_before"] = time.time() + _PUBLISH_FAIL_COOLDOWN
+def _record_publish_failure(state: dict, response=None) -> None:
+    """Persist service backoff across launches without losing confirmed writes."""
+    import random
+    from .net import retry_after_seconds
+    try:
+        failures = max(0, min(6, int(state.get("failure_count", 0)))) + 1
+    except (TypeError, ValueError, OverflowError):
+        failures = 1
+    delay = min(21600.0, _PUBLISH_FAIL_COOLDOWN * 2 ** (failures - 1))
+    delay += random.uniform(0, delay * .2)
+    if response is not None:
+        delay = max(delay, min(86400, retry_after_seconds(getattr(response, "headers", {}).get("Retry-After"))))
+        try:
+            error = response.json().get("error")
+        except Exception:
+            error = None
+        if error == "kv_write_budget_exhausted":
+            # Daily quota refills at midnight UTC; clicks/restarts cannot refill it.
+            delay = max(delay, 86400 - time.time() % 86400 + random.uniform(5, 60))
+        elif error == "name_move_cooldown":
+            delay = max(delay, 3600)
+    state["failure_count"] = failures
+    state["retry_not_before"] = time.time() + delay
     _save_publish_state(state)
 
 
@@ -611,6 +631,12 @@ _PUBLISH_LOCK = threading.Lock()
 _ASYNC_LOCK = threading.Lock()
 _ASYNC_PENDING = None
 _ASYNC_RUNNING = False
+
+
+def _post(url, **kwargs):
+    """Reuse connections without automatically retrying quota-consuming writes."""
+    from .net import _session
+    return _session().post(url, **kwargs)
 
 
 def _publish_skin(cfg: dict) -> None:
@@ -684,6 +710,8 @@ def _publish_skin_serial(cfg: dict) -> None:
             skin_changed = (
                 state.get("hash") != digest
                 or state.get("model") != model
+                or state.get("uuid") != machine_uuid
+                or state.get("base") != csl.CUBEON_API_BASE
             )
         else:
             skin_changed = False
@@ -697,7 +725,7 @@ def _publish_skin_serial(cfg: dict) -> None:
         # backend needs.
         if identity_changed:
             try:
-                resp = requests.post(
+                resp = _post(
                     _HEARTBEAT_URL,
                     json={"username": username, "uuid": machine_uuid},
                     headers=headers,
@@ -720,25 +748,32 @@ def _publish_skin_serial(cfg: dict) -> None:
                 # exempt server-side, so this never throttles that). Record
                 # nothing BUT the cooldown so the next sync (post-cooldown)
                 # retries.
-                _record_publish_failure(state)
+                _record_publish_failure(state, resp)
                 return
             # The Worker flags when a DIFFERENT identity held this name
             # recently (name collision). Persist it so the UI can warn; it
             # clears on the next uncontested success.
             try:
-                contested = bool(resp.json().get("name_contested"))
+                acknowledgement = resp.json()
+                contested = bool(acknowledgement.get("name_contested"))
             except Exception:
+                acknowledgement = {}
                 contested = False
             state.update({"username": username, "uuid": machine_uuid,
                           "base": csl.CUBEON_API_BASE,
                           "name_contested": contested})
             state.pop("retry_not_before", None)  # success clears cooldown
             _save_publish_state(state)
+            # Only a confirmed brand-new identity can have no prior selection.
+            # Old Workers, a lost marker or an existing identity still send clears.
+            if acknowledgement.get("fresh_identity") is True and not any(cosmetics.values()):
+                state["cosmetics"] = cosmetics
+                cosmetics_changed = False
+                _save_publish_state(state)
 
-        cosmetics_failed = False
         if cosmetics_changed:
             try:
-                resp = requests.post(
+                resp = _post(
                     csl.CUBEON_API_BASE + "/api/cosmetics",
                     json={"uuid": machine_uuid, **cosmetics}, headers=headers,
                     timeout=_NET_TIMEOUT,
@@ -748,11 +783,11 @@ def _publish_skin_serial(cfg: dict) -> None:
                     state.pop("retry_not_before", None)
                     _save_publish_state(state)
                 else:
-                    cosmetics_failed = True
-                    _record_publish_failure(state)
+                    _record_publish_failure(state, resp)
+                    return  # Stop this batch: do not spend another request on an unhealthy service.
             except requests.RequestException:
-                cosmetics_failed = True
                 _record_publish_failure(state)
+                return
 
         # 2. Then the sheet itself, if it moved. Skipped entirely when only
         # the name changed (the texture under the UUID didn't) and when
@@ -772,25 +807,30 @@ def _publish_skin_serial(cfg: dict) -> None:
             if face:
                 payload["face"] = base64.b64encode(face).decode("ascii")
             try:
-                resp = requests.post(
+                resp = _post(
                     _UPLOAD_URL, json=payload, headers=headers,
                     timeout=_NET_TIMEOUT,
                 )
             except requests.RequestException as error:
                 logging.getLogger(__name__).warning("skin upload failed: %s",
                                                      type(error).__name__)
-                return  # retried next time the sheet syncs
+                _record_publish_failure(state)
+                return
 
             if resp.status_code == 200:
                 state.update({"hash": digest, "model": model})
-                if not cosmetics_failed:
-                    state.pop("retry_not_before", None)
+                state.pop("retry_not_before", None)
                 _save_publish_state(state)
             else:
                 logging.getLogger(__name__).warning("skin upload failed: HTTP %s",
                                                      resp.status_code)
+                _record_publish_failure(state, resp)
+                return
             # A non-200 leaves hash/model unrecorded so the next sync retries;
             # the identity half already saved above stays accurate as-is.
+        state.pop("failure_count", None)
+        state.pop("retry_not_before", None)
+        _save_publish_state(state)
     except Exception:
         # Backstop only. A daemon thread that raised would dump a traceback to
         # the console over a purely cosmetic, best-effort feature - but the
@@ -847,7 +887,7 @@ def report_skin(username: str, reason: str = "") -> bool:
     if reason:
         payload["reason"] = reason
     try:
-        resp = requests.post(_REPORT_URL, json=payload, timeout=_NET_TIMEOUT)
+        resp = _post(_REPORT_URL, json=payload, timeout=_NET_TIMEOUT)
     except requests.RequestException:
         return False
     return resp.status_code == 200

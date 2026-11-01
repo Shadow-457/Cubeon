@@ -40,7 +40,7 @@
  * keys, no timestamps): a milestone unlock costs exactly ONE write ever -
  * the merge below only PUTs when the set GREW, so re-posting an identical
  * set, or a reinstall restoring its ledger from the server, costs zero
- * writes. Reads are free; the launcher caches them anyway.
+ * writes. Reads have a daily quota too; public caching reduces repeated reads.
  *
  * The plan's `skin:` value is a bare content id; we store {"id","model"} so
  * the CSL payload can put the id under the right key ("default" vs "slim")
@@ -177,11 +177,13 @@ export default {
     }
 
     if (path.startsWith("/cosmetics/") && path.endsWith(".json")) {
-      return serveCosmetics(path.slice("/cosmetics/".length, -5), env);
+      const name = path.slice("/cosmetics/".length, -5);
+      return publicRead(request, env, "cosmetics", name, () => serveCosmetics(name.toLowerCase(), env));
     }
 
     if (path.startsWith("/textures/")) {
-      return serveTexture(path.slice("/textures/".length), env);
+      const id = path.slice("/textures/".length);
+      return publicRead(request, env, "texture", id, () => serveTexture(id, env));
     }
 
     // CSL resolves profile texture values as `root + "textures/" + <id>` with
@@ -189,13 +191,14 @@ export default {
     // from. /textures/<id> above is kept as an alias (hand-seeding, old
     // records) but serves the exact same bytes.
     if (path.startsWith("/skins/textures/")) {
-      return serveTexture(path.slice("/skins/textures/".length), env);
+      const id = path.slice("/skins/textures/".length);
+      return publicRead(request, env, "texture", id, () => serveTexture(id, env));
     }
 
     // CustomSkinAPI route: /skins/<username>.json
     if (path.startsWith("/skins/") && path.endsWith(".json")) {
       const rawName = path.slice("/skins/".length, -".json".length);
-      return serveProfile(rawName, env);
+      return publicRead(request, env, "profile", rawName, () => serveProfile(rawName.toLowerCase(), env));
     }
 
     // Face avatars: /faces/<username>.png - the 8x8 head crop (hat layer
@@ -205,12 +208,69 @@ export default {
     // serveProfile: name -> pointer -> uuid -> face texture.
     if (path.startsWith("/faces/") && path.endsWith(".png")) {
       const rawName = path.slice("/faces/".length, -".png".length);
-      return serveFace(rawName, env);
+      return publicRead(request, env, "face", rawName, () => serveFace(rawName.toLowerCase(), env));
     }
 
     return notFound();
   },
 };
+
+// Cache only public reads. Query strings, aliases and letter case cannot create
+// duplicate KV lookups. No identity/authentication/moderation write is cached.
+// Cache API entries reduce KV reads; the incoming Worker invocation still counts.
+const publicInflight = new WeakMap();
+async function publicRead(request, env, kind, value, load) {
+  if (!(kind === "texture" ? TEXTURE_ID_RE : USERNAME_RE).test(value)) return notFound();
+  const url = new URL(request.url);
+  url.pathname = `/__cubeon_read_v1/${kind}/${value.toLowerCase()}`;
+  url.search = "";
+  const key = new Request(url.toString());
+  let cache;
+  try { cache = globalThis.caches?.default; } catch { /* Cache may be unavailable locally. */ }
+  let response;
+  try { response = cache && await cache.match(key); } catch { /* KV remains the fallback. */ }
+  if (!response) {
+    let pending = publicInflight.get(env);
+    if (!pending) { pending = new Map(); publicInflight.set(env, pending); }
+    let job = pending.get(key.url);
+    if (!job) {
+      job = (async () => {
+        const result = await load();
+        if (result.status === 200 && !result.headers.has("ETag"))
+          result.headers.set("ETag", `"${await sha256Hex(await result.clone().text())}"`);
+        if (result.status === 404) result.headers.set("Cache-Control", PROFILE_CACHE);
+        if (cache && (result.status === 200 || result.status === 404)) {
+          try { await cache.put(key, result.clone()); } catch { /* Never turn cache trouble into an outage. */ }
+        }
+        return result;
+      })();
+      // Bound in-isolate coordination even if many distinct players arrive.
+      if (pending.size < 256) pending.set(key.url, job);
+      try { response = await job; }
+      finally { if (pending.get(key.url) === job) pending.delete(key.url); }
+    } else response = await job;
+    response = response.clone();
+  }
+  // One canonical cached JSON can still echo each caller's exact spelling.
+  if (response.status === 200 && (kind === "profile" || kind === "cosmetics")) {
+    const body = await response.json();
+    body.username = value;
+    response = new Response(JSON.stringify(body), { headers: response.headers });
+    response.headers.delete("Content-Length");
+    // Case changes the representation. Preserve correct conditional GET semantics.
+    if (value !== value.toLowerCase())
+      response.headers.set("ETag", `"${await sha256Hex(JSON.stringify(body))}"`);
+  }
+  const etag = response.headers.get("ETag");
+  const matches = (request.headers.get("If-None-Match") || "").split(",")
+    .some(tag => tag.trim() === "*" || tag.trim().replace(/^W\//, "") === etag);
+  if (response.status === 200 && matches) {
+    const headers = new Headers(response.headers); headers.delete("Content-Length");
+    return new Response(null, { status: 304, headers });
+  }
+  return request.method === "HEAD"
+    ? new Response(null, { status: response.status, headers: response.headers }) : response;
+}
 
 // ------------------------------------------------------------------ abuse ---
 
@@ -567,7 +627,8 @@ async function handleHeartbeat(request, env) {
   // DIFFERENT identity that moved onto this name recently, we just took
   // the label away from them. The launcher surfaces this as a warning
   // instead of a silent last-writer-wins mystery.
-  return json({ status: "ok", name_contested: await nameContested(current, uuidLower, env) }, "no-store");
+  return json({ status: "ok", name_contested: await nameContested(current, uuidLower, env),
+    fresh_identity: claimed === "claimed" }, "no-store");
 }
 
 /**
@@ -705,12 +766,8 @@ async function handleSkinUpload(request, env) {
  * Returns true when the write budget was exhausted (caller -> 429).
  */
 async function putSkinRecord(env, uuid, { id, model, face, sheetB64, faceB64 }) {
-  if ((await env.SKINS.get(`texture:${id}`)) === null) {
-    if ((await putIfChanged(env, `texture:${id}`, sheetB64)) === "quota") return true;
-  }
-  if (face && (await env.SKINS.get(`texture:${face}`)) === null) {
-    if ((await putIfChanged(env, `texture:${face}`, faceB64)) === "quota") return true;
-  }
+  if ((await putIfChanged(env, `texture:${id}`, sheetB64)) === "quota") return true;
+  if (face && (await putIfChanged(env, `texture:${face}`, faceB64)) === "quota") return true;
   const recordJson = JSON.stringify({
     id,
     model,
@@ -927,7 +984,8 @@ async function serveProfile(username, env) {
  * Resolution: name -> pointer -> uuid -> skin record -> face id (falling
  * back to the full sheet id when the record predates face uploads - a
  * 64x64 sheet scaled by the client still reads fine as an avatar at
- * Discord's sizes). Cache: the face is content-addressed, so immutable.
+ * Discord's sizes). The username URL is mutable, even though its texture id
+ * is immutable; never cache this name URL for a year.
  */
 async function serveFace(username, env) {
   if (!USERNAME_RE.test(username)) return notFound();
@@ -945,7 +1003,7 @@ async function serveFace(username, env) {
 
   const b64 = await env.SKINS.get(`texture:${faceId}`, "text");
   if (!b64) return notFound();
-  return png(base64ToBytes(b64));
+  return png(base64ToBytes(b64), PROFILE_CACHE, faceId);
 }
 
 /** Serves one texture's PNG bytes by content id. */
@@ -953,14 +1011,14 @@ async function serveFace(username, env) {
 /** Serves one texture's PNG bytes by content id. */
 async function serveTexture(id, env) {
   if (id === CAPE_ID) {
-    return png(base64ToBytes(CAPE_B64));
+    return png(base64ToBytes(CAPE_B64), IMMUTABLE, id);
   }
   if (!TEXTURE_ID_RE.test(id)) return notFound();
 
   const b64 = await env.SKINS.get(`texture:${id}`, "text");
   if (!b64) return notFound();
 
-  return png(base64ToBytes(b64));
+  return png(base64ToBytes(b64), IMMUTABLE, id);
 }
 
 // --------------------------------------------------------------------- crypto
@@ -1013,9 +1071,10 @@ function isPngWithSize(bytes, w, h) {
 
 // -------------------------------------------------------------------- helpers
 
-function png(bytes) {
+function png(bytes, cacheControl = IMMUTABLE, id) {
   return new Response(bytes, {
-    headers: { "Content-Type": "image/png", "Cache-Control": IMMUTABLE },
+    headers: { "Content-Type": "image/png", "Cache-Control": cacheControl,
+      ...(id ? { ETag: `"${id}"` } : {}) },
   });
 }
 

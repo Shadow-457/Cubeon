@@ -40,6 +40,10 @@ public final class CubeonHudConfig {
 	public boolean wingDepth = true;
 	/** Saved opt-in for future peer cosmetics; current renderers remain local-only. */
 	public boolean showOtherCosmetics = false;
+	/** Fixed-exposure camera blur, opt-in; independent of frame rate. */
+	public boolean cameraMotionBlur = false;
+	/** Exposure multiplier: 1 preserves the original blur, 0.25–2 adjusts intensity. */
+	public float cameraBlurIntensity = 1.0F;
 	/** Receive and display player emotes, independent of decorative items. */
 	public boolean showEmotes = true;
 	/** Up to eight favorite names, ordered clockwise from the top of the wheel. */
@@ -212,6 +216,8 @@ public final class CubeonHudConfig {
 	}
 
 	private void clampAll() {
+		if (!Float.isFinite(cameraBlurIntensity)) cameraBlurIntensity = 1.0F;
+		cameraBlurIntensity = Math.max(.25F, Math.min(2.0F, cameraBlurIntensity));
 		emoteFavorites = com.cubeon.client.emotes.EmoteFavorites.normalize(emoteFavorites);
 		fpsX = clamp01(fpsX);
 		fpsY = clamp01(fpsY);

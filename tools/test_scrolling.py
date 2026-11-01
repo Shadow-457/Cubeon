@@ -2,6 +2,7 @@
 import asyncio
 import os
 import sys
+import weakref
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +28,7 @@ def check(label, condition):
 
 
 class ScrollPage:
+    parent = None
     def __init__(self):
         self.calls = []
 
@@ -37,6 +39,7 @@ class ScrollPage:
 
 page = ScrollPage()
 viewport = ft.ListView()
+viewport._parent = weakref.ref(page)
 commands = []
 
 
@@ -56,6 +59,45 @@ scrolling.follow_end(page, viewport)
 check("reduced motion takes effect on the very next scroll", commands[-1][1]["duration"] == 0)
 check("automatic following uses the same reduced-motion policy", scrolling.animation().duration == 0)
 motion.set_level("full")
+
+async def lost_listener(name, args):
+    raise RuntimeError(f"TimeoutException after 0:00:10.000000: Timeout waiting for invoke method listener for ListView({viewport._i}).scroll_to")
+
+viewport._invoke_method = lost_listener
+scrolling.follow_end(page, viewport)
+check("a disappearing native scroll listener completes quietly", True)
+for message in ("Session closed", f"ListView({viewport._i}) Control must be added to the page first"):
+    async def detached(name, args):
+        raise RuntimeError(message)
+    viewport._invoke_method = detached
+    scrolling.follow_end(page, viewport)
+check("session teardown and detachment complete quietly", True)
+
+for message in ("Unexpected renderer error", "TimeoutException after 0:00:10.000000: unrelated timeout"):
+    async def broken(name, args):
+        raise RuntimeError(message)
+    viewport._invoke_method = broken
+    try:
+        scrolling.follow_end(page, viewport)
+    except RuntimeError as error:
+        check("unrelated scroll failures stay visible", str(error) == message)
+    else:
+        check("unrelated scroll failures stay visible", False)
+
+viewport._invoke_method = record_method
+ancestor = ft.Column(visible=False)
+ancestor._parent = weakref.ref(page)
+viewport._parent = weakref.ref(ancestor)
+before = len(commands)
+scrolling.follow_end(page, viewport)
+check("hidden cached tabs do not request native scroll", len(commands) == before)
+ancestor.visible = True
+scrolling.follow_end(page, viewport)
+check("visible mounted ancestors allow native scroll", len(commands) == before + 1)
+viewport._parent = None
+before = len(commands)
+scrolling.follow_end(page, viewport)
+check("detached lists do not request native scroll", len(commands) == before)
 
 picker = VersionPicker(page, get_selected=lambda: None, label_for=None,
                        on_pick=lambda value: None, on_browse_online=lambda: None)

@@ -794,7 +794,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             return hit
         try:
             image = cosmetics.render_thumbnail(item, appearance.cosmetics_dir,
-                                               size=(76, 76))
+                                               size=(76, 76), simplify=True)
             buffer = BytesIO()
             image.save(buffer, format="PNG", compress_level=3)
             hit = base64.b64encode(buffer.getvalue()).decode("ascii")

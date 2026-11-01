@@ -4,7 +4,7 @@ import java.util.Arrays;
 
 /** Shared card layout, drawing and keyboard/pointer selection for all eight native screens. */
 public final class HudMenu {
-    public static final int EMOTES = 15, HEALTH = 16, ANIMATIONS = 17, WING_DEPTH = 18, OTHER_COSMETICS = 19, RESET = 20, DONE = 21, NONE = -1;
+    public static final int EMOTES = 15, HEALTH = 16, ANIMATIONS = 17, WING_DEPTH = 18, OTHER_COSMETICS = 19, CAMERA_BLUR = 20, BLUR_INTENSITY = 21, RESET = 22, DONE = 23, NONE = -1;
     public interface Settings {
         boolean visible(int overlay);
         float scale(int overlay);
@@ -12,6 +12,8 @@ public final class HudMenu {
         boolean animations();
         boolean wingDepth();
         boolean otherCosmetics();
+        boolean cameraBlur();
+        float blurIntensity();
     }
     public record Rect(int x, int y, int w, int h) {
         public boolean contains(double px, double py) { return px >= x && px < x + w && py >= y && py < y + h; }
@@ -28,17 +30,17 @@ public final class HudMenu {
     private long lastFrame = opened;
     public void layout(int w, int h) {
         if (w == width && h == height) return;
-        width = w; height = h; panelWidth = Math.min(600, w - 24); panelHeight = Math.min(352, h - 16);
+        width = w; height = h; panelWidth = Math.min(600, w - 24); panelHeight = Math.min(390, h - 16);
         x = (w - panelWidth) / 2; y = (h - panelHeight) / 2;
-        compact = panelWidth < 496 || panelHeight < 304;
+        compact = panelWidth < 496 || panelHeight < 382;
         int gap = compact ? 2 : 6;
         contentTop = y + (compact ? 30 : 68);
         int leftWidth = compact ? panelWidth - 24 : (panelWidth - 42) * 3 / 5;
-        int rowHeight = compact ? (panelHeight - 136) / 5 : 34;
+        int rowHeight = compact ? (panelHeight - 158) / 5 : 34;
         for (int i = 0; i < cards.length; i++) {
             int top = contentTop + i * (rowHeight + gap), left = x + 12;
             cards[i] = new Rect(left, top, leftWidth, rowHeight);
-            int buttonWidth = compact ? 42 : 48, buttonHeight = compact ? 14 : 22;
+            int buttonWidth = compact ? 42 : 48, buttonHeight = compact ? Math.min(14, rowHeight) : 22;
             int buttonTop = top + (rowHeight - buttonHeight) / 2;
             controls[i * 3] = new Rect(left, top, leftWidth - 2 * buttonWidth - 12, rowHeight);
             controls[i * 3 + 1] = new Rect(left + leftWidth - 2 * buttonWidth - 8, buttonTop, buttonWidth, buttonHeight);
@@ -48,15 +50,18 @@ public final class HudMenu {
         if (compact) {
             int bottom = contentTop + 5 * (rowHeight + gap) + 2;
             int cell = (panelWidth - 28) / 3;
-            int[] ids = {EMOTES, HEALTH, ANIMATIONS, WING_DEPTH, OTHER_COSMETICS};
+            int[] ids = {EMOTES, HEALTH, ANIMATIONS, WING_DEPTH, OTHER_COSMETICS, CAMERA_BLUR};
             for (int i = 0; i < ids.length; i++)
                 controls[ids[i]] = new Rect(x + 12 + (i % 3) * (cell + 2), bottom + (i / 3) * 22, cell, 20);
+            controls[BLUR_INTENSITY] = new Rect(x + 12, bottom + 44, panelWidth - 24, 20);
         } else {
             controls[ANIMATIONS] = new Rect(rightX, contentTop, rightWidth, 34);
             controls[WING_DEPTH] = new Rect(rightX, contentTop + 40, rightWidth, 34);
             controls[OTHER_COSMETICS] = new Rect(rightX, contentTop + 80, rightWidth, 34);
-            controls[HEALTH] = new Rect(rightX, contentTop + 148, rightWidth, 26);
-            controls[EMOTES] = new Rect(rightX, contentTop + 180, rightWidth, 26);
+            controls[CAMERA_BLUR] = new Rect(rightX, contentTop + 120, rightWidth, 34);
+            controls[BLUR_INTENSITY] = new Rect(rightX, contentTop + 160, rightWidth, 26);
+            controls[HEALTH] = new Rect(rightX, contentTop + 210, rightWidth, 26);
+            controls[EMOTES] = new Rect(rightX, contentTop + 242, rightWidth, 26);
         }
         int footerY = y + panelHeight - 44;
         int footerWidth = (panelWidth - 30) / 2;
@@ -82,12 +87,12 @@ public final class HudMenu {
         ClientUi.panel(canvas, x, y, panelWidth, panelHeight, 12, ClientUi.SURFACE, ClientUi.BORDER_HI, fade);
         ClientUi.mark(canvas, x + 12, y + 10, fade);
         ClientUi.left(canvas, canvas.translate("cubeonclient.menu.title"), x + 38, y + 12, ClientUi.alpha(ClientUi.TEXT, fade));
-        if (panelHeight >= 304)
+        if (!compact)
             ClientUi.left(canvas, canvas.translate("cubeonclient.hud.subtitle"), x + 38, y + 29, ClientUi.alpha(ClientUi.DIM, fade));
         if (!compact) {
             ClientUi.left(canvas, canvas.translate("cubeonclient.hud.section_overlays"), x + 12, y + 51, ClientUi.alpha(ClientUi.FAINT, fade));
             ClientUi.left(canvas, canvas.translate("cubeonclient.hud.section_cosmetics"), rightX, y + 51, ClientUi.alpha(ClientUi.FAINT, fade));
-            ClientUi.left(canvas, canvas.translate("cubeonclient.hud.section_tools"), rightX, contentTop + 130, ClientUi.alpha(ClientUi.FAINT, fade));
+            ClientUi.left(canvas, canvas.translate("cubeonclient.hud.section_tools"), rightX, contentTop + 196, ClientUi.alpha(ClientUi.FAINT, fade));
         }
         for (int i = 0; i < cards.length; i++) {
             Rect card = cards[i], toggle = controls[i * 3];
@@ -104,16 +109,26 @@ public final class HudMenu {
         utility(canvas, ANIMATIONS, "cubeonclient.hud.animations", settings.animations(), fade);
         utility(canvas, WING_DEPTH, "cubeonclient.hud.wing_depth", settings.wingDepth(), fade);
         utility(canvas, OTHER_COSMETICS, "cubeonclient.hud.other_cosmetics", settings.otherCosmetics(), fade);
+        utility(canvas, CAMERA_BLUR, "cubeonclient.hud.camera_blur", settings.cameraBlur(), fade);
+        action(canvas, BLUR_INTENSITY, canvas.translate("cubeonclient.hud.blur_intensity")
+                + ": " + Math.round(settings.blurIntensity() * 100) + "%", false, fade);
         action(canvas, EMOTES, canvas.translate("cubeonclient.hud.emotes"), false, fade);
         action(canvas, RESET, canvas.translate("cubeonclient.hud.reset"), false, fade);
         action(canvas, DONE, canvas.translate("cubeonclient.emotes.done"), true, fade);
         String hint = selection == RESET ? "cubeonclient.hud.reset_hint"
                 : selection == WING_DEPTH ? "cubeonclient.hud.wing_depth_hint"
                 : selection == OTHER_COSMETICS ? "cubeonclient.hud.other_cosmetics_hint"
+                : selection == CAMERA_BLUR ? "cubeonclient.hud.camera_blur_hint"
+                : selection == BLUR_INTENSITY ? "cubeonclient.hud.blur_intensity_hint"
                 : selection >= 0 && selection < EMOTES && selection % 3 == 2 ? "cubeonclient.hud.size_hint"
                 : "cubeonclient.hud.keyboard_hint";
         canvas.text(ClientUi.fit(canvas, canvas.translate(hint), panelWidth - 24), x + panelWidth / 2,
                 y + panelHeight - 11, ClientUi.alpha(ClientUi.DIM, fade));
+    }
+    /** Same 25% steps and wrap behavior in every native screen. */
+    public static float nextBlurIntensity(float value) {
+        int step = Float.isFinite(value) ? Math.round(value * 4) : 4;
+        return (Math.floorMod(Math.max(1, Math.min(8, step)), 8) + 1) / 4f;
     }
     private void action(ClientUi.Canvas canvas, int id, String text, boolean primary, float fade) {
         Rect rect = controls[id];

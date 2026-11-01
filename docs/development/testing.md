@@ -32,12 +32,12 @@ catalog; the scripts in `tools/` are the current inventory.
 
 | Area | Scripts |
 | --- | --- |
-| UI construction | `test_ui_smoke.py`, `test_version_ui.py` |
+| UI construction | `test_ui_smoke.py`, `test_version_ui.py`, `test_toast.py`, `test_render_compat.py` |
 | Navigation and input | `test_tab_navigation.py`, `test_keyboard_shortcuts.py` |
 | Motion and scrolling | `test_motion.py`, `test_scrolling.py` |
 | Artwork and avatars | `test_mod_ui_stability.py`, `test_chat_avatar_stability.py`, `test_faces.py` |
 | Cosmetics | `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py` |
-| Mods and packs | `test_modpacks.py`, `test_mod_store.py`, `test_loader_content_rules.py` |
+| Mods and packs | `test_modpacks.py`, `test_mod_store.py`, `test_loader_content_rules.py`, `test_perf_mod_removal.py` |
 | Content isolation | `test_content_instance.py`, `test_instances.py` |
 | Friends and chat | `test_friends.py`, `test_friends_service.py`, `test_chat_optimistic.py` |
 | Local bridge and mod | `test_mod_bridge.py`, `test_mod_compile.py`, `test_mod_matrix.py` |
@@ -55,6 +55,7 @@ Worker route and storage tests use Node.js and stubbed services:
 
 ```bash
 node worker/test-worker.mjs
+node worker/test-skins-cache.mjs
 ```
 
 Java compile checks need a JDK with `javac`. Stub compilation is not a

@@ -2,4 +2,12 @@ User-agent: *
 Allow: /
 Disallow: /api/
 
+# Search and user-requested page retrieval; keep private APIs excluded.
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+Allow: /
+Disallow: /api/
+
 Sitemap: https://www.ylet.online/sitemap.xml

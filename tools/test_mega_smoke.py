@@ -568,7 +568,7 @@ SUITES = [
     "test_instances.py", "test_version_art_cache.py", "test_version_ui.py",
     "test_install_cancel.py",
     "test_wedge_watchdog.py", "test_web_download_count.py",
-    "test_faces.py", "test_chat_optimistic.py", "test_chat_avatar_stability.py",
+    "test_faces.py", "test_chat_optimistic.py", "test_chat_avatar_stability.py", "test_toast.py", "test_render_compat.py",
     "test_osnotify.py",
     "test_i18n.py", "test_launcher_preferences.py", "test_doctor_background.py",
     "test_webdoctor.py",
@@ -581,11 +581,11 @@ SUITES = [
     # The FPS boost as the user experiences it (options.txt + Sodium's own
     # config/sodium-options.json), and the motion layer every hover goes
     # through. Both are offline and take a few seconds.
-    "test_perf_mods.py", "test_motion.py", "test_tab_navigation.py",
+    "test_perf_mods.py", "test_perf_mod_removal.py", "test_motion.py", "test_tab_navigation.py",
     "test_activity_stats.py", "test_keyboard_shortcuts.py", "test_milestones.py",
     "test_scrolling.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",
-    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_animation.py", "test_wing_action.py", "test_zoom.py", "test_freelook.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
+    "test_cosmetics.py", "test_cosmetic_renderers.py", "test_cosmetic_animation.py", "test_wing_action.py", "test_zoom.py", "test_freelook.py", "test_camera_blur.py", "test_camera_blur_lifecycle.py", "test_enemy_health.py", "test_emotes.py", "test_emote_models.py", "test_emote_wheel.py", "test_client_ui.py", "test_skin_models.py", "test_local_api_emotes.py", "test_window_close.py",
     "test_mod_ui_stability.py",
     "test_mod_search.py",
     "test_doctor_consent.py",

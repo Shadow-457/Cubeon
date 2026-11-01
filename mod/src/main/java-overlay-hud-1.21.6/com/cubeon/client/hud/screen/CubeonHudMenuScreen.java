@@ -28,6 +28,8 @@ public final class CubeonHudMenuScreen extends Screen {
         public boolean animations() { return CubeonHudConfig.get().cosmeticAnimations; }
         public boolean wingDepth() { return CubeonHudConfig.get().wingDepth; }
         public boolean otherCosmetics() { return CubeonHudConfig.get().showOtherCosmetics; }
+        public boolean cameraBlur() { return CubeonHudConfig.get().cameraMotionBlur; }
+        public float blurIntensity() { return CubeonHudConfig.get().cameraBlurIntensity; }
     };
     public CubeonHudMenuScreen() { super(Text.translatable("cubeonclient.menu.title")); }
     @Override protected void init() { menu.layout(this.width, this.height); }
@@ -104,6 +106,10 @@ public final class CubeonHudMenuScreen extends Screen {
             case HudMenu.ANIMATIONS -> { config.cosmeticAnimations = !config.cosmeticAnimations; CubeonHudConfig.save(); }
             case HudMenu.WING_DEPTH -> { config.wingDepth = !config.wingDepth; CubeonHudConfig.save(); }
             case HudMenu.OTHER_COSMETICS -> { config.showOtherCosmetics = !config.showOtherCosmetics; CubeonHudConfig.save(); }
+            case HudMenu.CAMERA_BLUR -> { config.cameraMotionBlur = !config.cameraMotionBlur;
+                com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
+            case HudMenu.BLUR_INTENSITY -> { config.cameraBlurIntensity = HudMenu.nextBlurIntensity(config.cameraBlurIntensity);
+                com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
             case HudMenu.RESET -> { CubeonHudConfig.resetPositions(); CubeonHudConfig.save(); }
             case HudMenu.DONE -> close();
         }

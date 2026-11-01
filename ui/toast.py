@@ -19,6 +19,7 @@ Behaviour
 import logging
 import threading
 import time
+import weakref
 
 import flet as ft
 
@@ -43,8 +44,8 @@ _ERROR_WORDS = ("failed", "couldn't", "could not", "can't", "cannot", "error",
 _OK_WORDS = ("fixed", "installed", "ready", "saved", "done", "connected",
              "copied", "restored", "no problems")
 
-_hosts: dict = {}
-_active: set = set()
+_hosts = weakref.WeakValueDictionary()
+_active: dict = {}  # (page identity, text) -> dismissal Event
 _lock = threading.Lock()
 
 
@@ -58,16 +59,26 @@ def _kind(text):
 
 
 def _ensure_host(page):
-    host = _hosts.get(id(page))
-    if host is not None:
-        return host
-    column = ft.Column([], spacing=10, tight=True,
-                       horizontal_alignment=ft.CrossAxisAlignment.END)
-    host = ft.Container(content=column, top=TOP_OFFSET, right=RIGHT_OFFSET,
-                        width=TOAST_W, data="toast-host")
-    page.overlay.append(host)
-    _hosts[id(page)] = host
-    thread_safe_ui.refresh(host)
+    with thread_safe_ui.TREE_LOCK:
+        host = _hosts.get(id(page))
+        if host is None:
+            column = ft.Column([], spacing=10, tight=True,
+                               horizontal_alignment=ft.CrossAxisAlignment.END)
+            host = ft.Container(content=column, top=TOP_OFFSET, right=RIGHT_OFFSET,
+                                width=TOAST_W, data="toast-host")
+            _hosts[id(page)] = host
+        if page.overlay and page.overlay[-1] is host:
+            return host
+        if host in page.overlay:
+            page.overlay.remove(host)
+        page.overlay.append(host)
+        # A new host is unattached: updating it cannot mount it. Patch its
+        # overlay parent, also keeping notices above later launcher panels.
+        overlay = getattr(page, "_overlay", None)
+        if overlay is not None:
+            thread_safe_ui.refresh(overlay)
+        else:
+            page.update()
     return host
 
 
@@ -120,6 +131,9 @@ def _build(text, action, action_label, dismissed):
                 ),
             ],
             spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+            # The host Column gives children unbounded vertical space. Measure
+            # the body first so STRETCH can size the accent stripe finitely.
+            intrinsic_height=True,
         ),
         width=TOAST_W,
         bgcolor=SURFACE_HI,
@@ -138,19 +152,22 @@ def _build(text, action, action_label, dismissed):
     )
 
 
-def _life(host, wrap, text, duration):
+def _life(host, wrap, key, duration):
     column = host.content
     dismissed = wrap.data
     try:
         with thread_safe_ui.TREE_LOCK:
+            if dismissed.is_set():
+                return
             column.controls.append(wrap)
             while len(column.controls) > MAX_VISIBLE:
-                column.controls.pop(0)
+                column.controls.pop(0).data.set()
         thread_safe_ui.refresh(column)
         time.sleep(0.04)
         with thread_safe_ui.TREE_LOCK:
-            wrap.offset = ft.Offset(0, 0)
-            wrap.opacity = 1
+            if not dismissed.is_set():
+                wrap.offset = ft.Offset(0, 0)
+                wrap.opacity = 1
         thread_safe_ui.refresh(wrap)
 
         dismissed.wait(timeout=(duration / 1000.0) if duration and duration > 0 else None)
@@ -168,28 +185,32 @@ def _life(host, wrap, text, duration):
         log.warning("toast lifecycle error", exc_info=True)
     finally:
         with _lock:
-            _active.discard(text)
+            if _active.get(key) is dismissed:
+                _active.pop(key, None)
 
 
 def show(page, message, duration=4000, action=None, action_label=None,
          bgcolor=None, text_color=None, **_ignored):
     """Drop-in replacement for ``cubeon.dialogs.show_snack`` (extra styling
     arguments are accepted and ignored - the toast has its own look)."""
+    key = None
+    dismissed = threading.Event()
     try:
         text = str(message)
+        key = (id(page), text)
         with _lock:
-            if text in _active:
+            if key in _active:
                 return
-            _active.add(text)
+            _active[key] = dismissed
         host = _ensure_host(page)
-        dismissed = threading.Event()
         wrap = _build(text, action, action_label, dismissed)
         wrap.data = dismissed
-        threading.Thread(target=_life, args=(host, wrap, text, duration),
+        threading.Thread(target=_life, args=(host, wrap, key, duration),
                          daemon=True, name="ux-toast").start()
     except Exception:
         with _lock:
-            _active.discard(str(message))
+            if _active.get(key) is dismissed:
+                _active.pop(key, None)
         log.warning("toast failed", exc_info=True)
 
 
@@ -197,3 +218,16 @@ def install(page):
     """Route every ``dialogs.show_snack`` call through the toast."""
     _ensure_host(page)
     cubeon_dialogs.show_snack = show
+
+
+def uninstall(page):
+    """Release persistent notices when the window session ends."""
+    with thread_safe_ui.TREE_LOCK:
+        host = _hosts.pop(id(page), None)
+        if host is not None and host in page.overlay:
+            page.overlay.remove(host)
+    with _lock:
+        for key, dismissed in list(_active.items()):
+            if key[0] == id(page):
+                dismissed.set()
+                _active.pop(key, None)

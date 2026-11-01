@@ -74,5 +74,10 @@
   "cubeonclient.hud.health_compact": "Health",
   "cubeonclient.hud.animations_compact": "Motion",
   "cubeonclient.hud.wing_depth_compact": "3D wings",
-  "cubeonclient.hud.other_cosmetics_compact": "Others"
+  "cubeonclient.hud.other_cosmetics_compact": "Others",
+  "cubeonclient.hud.camera_blur": "Camera motion blur",
+  "cubeonclient.hud.camera_blur_compact": "Blur",
+  "cubeonclient.hud.camera_blur_hint": "Fixed exposure across frame rates. Stationary views and menus stay sharp.",
+  "cubeonclient.hud.blur_intensity": "Blur intensity",
+  "cubeonclient.hud.blur_intensity_hint": "Click to increase intensity by 25%; after 200% it returns to 25%."
 }

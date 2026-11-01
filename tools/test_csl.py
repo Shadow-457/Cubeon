@@ -374,5 +374,33 @@ check("...and with no override the deployed Worker is used",
       csl.CUBEON_API_BASE == "https://cubeon-skins.hamza-457-shahbaz.workers.dev",
       csl.CUBEON_API_BASE)
 
+with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
+    json.dump({"cacheExpiry": 30, "enableLocalProfileCache": False,
+               "loadlist": [{"name": "CustomProvider", "root": "https://custom.example/"}],
+               "custom_option": "keep"}, stream)
+check("managed CSL default cache becomes five minutes", csl.configure_request_cache())
+configured = csl.read_csl_config()
+check("only default expiry changes; custom providers and preferences are preserved",
+      configured == {"cacheExpiry": 300, "enableLocalProfileCache": False,
+                     "loadlist": [{"name": "CustomProvider", "root": "https://custom.example/"}],
+                     "custom_option": "keep"})
+stamp = os.stat(CSL_CONFIG_PATH).st_mtime_ns
+check("cache configuration is idempotent without rewriting",
+      not csl.configure_request_cache() and os.stat(CSL_CONFIG_PATH).st_mtime_ns == stamp)
+for expiry in (60, 600):
+    configured["cacheExpiry"] = expiry
+    with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
+        json.dump(configured, stream)
+    check("a hand-tuned cache value is preserved", not csl.configure_request_cache()
+          and csl.read_csl_config()["cacheExpiry"] == expiry)
+configured["cacheExpiry"] = 30
+with open(CSL_CONFIG_PATH, "w", encoding="utf-8") as stream:
+    json.dump(configured, stream)
+csl.ensure_ready(None, None, manage=False)
+check("management OFF does not change cache settings", csl.read_csl_config()["cacheExpiry"] == 30)
+os.unlink(CSL_CONFIG_PATH)
+check("no partial config is created before CSL writes its defaults",
+      not csl.configure_request_cache() and not os.path.exists(CSL_CONFIG_PATH))
+
 print(f"\n{failures} CHECK(S) FAILED" if failures else "\nALL CSL CHECKS PASSED")
 sys.exit(1 if failures else 0)

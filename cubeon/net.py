@@ -54,6 +54,20 @@ _SESSION = None
 _SESSION_LOCK = threading.Lock()
 
 
+def retry_after_seconds(value, *, now=None) -> float:
+    """A service's Retry-After delay, including HTTP dates; invalid values are zero."""
+    import math
+    from email.utils import parsedate_to_datetime
+    try:
+        delay = float(value)
+    except (TypeError, ValueError):
+        try:
+            delay = parsedate_to_datetime(value).timestamp() - (time.time() if now is None else now)
+        except (TypeError, ValueError, OverflowError, AttributeError):
+            return 0.0
+    return max(0.0, delay) if math.isfinite(delay) else 0.0
+
+
 def _session():
     global _SESSION
     if _SESSION is None:

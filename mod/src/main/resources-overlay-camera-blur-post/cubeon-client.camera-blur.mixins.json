@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.cubeon.client.hud.blur.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "CameraBlurMixin",
+    "CameraBlurReloadMixin",
+    "CameraBlurPasses"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

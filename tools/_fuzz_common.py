@@ -372,6 +372,13 @@ def install_safe_stubs(verbose=False):
         {"id": "1.21.11", "type": "release"}, {"id": "1.20.1", "type": "release"}]
     versions.get_latest_release = lambda: "1.21.11"
     csl.ensure_ready = lambda *a, **k: None
+    # Cosmetic sync must not claim throwaway identities or spend the live skin
+    # Worker's quota while this harness exercises uploads/names/settings.
+    import cubeon.skins as skins_mod
+    skins_mod._publish_skin_async = lambda *a, **k: None
+    skins_mod._post = lambda *a, **k: types.SimpleNamespace(status_code=503, headers={})
+    import cubeon.faces as faces_mod
+    faces_mod._get = lambda *a, **k: types.SimpleNamespace(status_code=404, content=b"", headers={})
 
     # No real socket to the (undeployed) friends worker, and don't auto-connect.
     import cubeon.friends as friends_mod

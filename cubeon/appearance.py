@@ -200,7 +200,7 @@ class CharacterModel:
         for key in ("active_back_item", "active_shoulder_item"):
             item = cosmetics.get(cfg.get(key), cosmetics_dir)
             if item is not None:
-                worn.extend(cosmetics.preview_faces(item, cosmetics_dir))
+                worn.extend(cosmetics.preview_faces(item, cosmetics_dir, simplify=True))
         return cls(sheet, slim=slim, cape=cape, cosmetics_faces=worn)
 
     def project(self, yaw=25, pitch=10, size=(320, 440)):

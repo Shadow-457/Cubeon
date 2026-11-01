@@ -31,6 +31,65 @@ They're separate Workers because the friends one needs a **Durable Object**
 for its live WebSocket hub, so unlike the KV-only ones it is deployed with
 `wrangler`, not the dashboard editor (see its section below).
 
+## Skin request and KV budget
+
+Public skin profiles, cosmetics and username avatars use the Workers Cache API
+for 60 seconds. Missing/blocked profiles use the same short negative cache;
+hashed texture URLs cache immutably for a year. Texture aliases, username case
+and query strings share canonical entries, and concurrent misses share one KV
+lookup. Profiles still echo the requested spelling. Conditional requests use
+ETags and HEAD returns headers without a body. Cached profiles can lag uploads
+or dashboard moderation by up to 60 seconds, in addition to KV propagation and
+client cache time. Username avatar URLs are mutable and must never use the
+one-year texture policy. Cache failure falls back to KV without changing auth.
+
+Cache API reads and fills use no KV writes. **Every incoming request still
+counts as a Worker invocation**, including cache hits and rate-limit refusals.
+These changes reduce normal usage; they cannot guarantee an account-wide
+request cap for arbitrary user counts or public-endpoint floods. Inspect actual
+Workers and KV usage in the Cloudflare dashboard when sizing the free tier.
+
+The updated launcher makes no publish request for unchanged confirmed state.
+It reuses HTTP connections and sends a single heartbeat for a confirmed new
+vanilla identity, omitting the unnecessary empty-cosmetics write. Existing
+identities and old Workers still receive explicit clears when needed. New
+textures use one compare/read per content key, preserving zero-write reuploads.
+Any failed publish step stops the batch and persists exponential backoff with
+jitter (starting at ten minutes), honors Retry-After up to 24 hours, and waits
+until at least the next midnight UTC after a daily KV-quota refusal. Confirmed
+partial writes survive failure. There is no timer repeatedly retrying writes.
+
+Launcher avatars reuse local PNGs for six hours and revalidate in the background,
+keeping their visible pixels. Missing avatars cache for 15 minutes on disk as
+well as in memory; 429/5xx/network outages pause all avatar requests across
+restarts. Downloads use at most four daemon threads and reuse connections.
+Local disk errors use a shorter one-minute retry rather than poisoning the
+network cache. In-game peer cosmetics are demand-driven: known selections
+refresh at most every five minutes, missing/empty selections every 15 minutes.
+Completed lookups survive world/setting changes, OFF sends no requests, and
+queued results from an old context are discarded. A per-client token budget
+allows 40 queued lookups initially and refills at 40/minute; service errors
+pause the queue with increasing backoff and Retry-After. Existing decorations
+stay visible during revalidation/transient failures. Remote updates can take
+five to fifteen minutes to appear; local selection still changes immediately.
+
+Offline verification:
+
+```bash
+node worker/test-worker.mjs
+node worker/test-cosmetics.mjs
+node worker/test-skins-cache.mjs
+python3 tools/test_skins_net.py
+python3 tools/test_faces.py
+python3 tools/test_cosmetic_renderers.py
+```
+
+The cache test measures 80 profile requests sharing three KV reads. The peer
+test drives two simulated hours: 24 refreshes instead of 120. These are fixture
+measurements, not production-account traffic claims. Deploy the skins Worker
+and distribute updated launcher/client binaries to apply both halves; old
+clients benefit from the server cache but keep their earlier request cadence.
+
 ---
 
 # Abuse protection (what a fork can and cannot do)

@@ -28,6 +28,7 @@ os.environ["HOME"] = _tmp
 os.environ["USERPROFILE"] = _tmp  # Windows equivalent, for Path.home()
 
 from cubeon import faces  # noqa: E402
+faces._get = lambda url, **kwargs: faces.requests.get(url, **kwargs)
 
 _CHECKS = []
 
@@ -165,6 +166,54 @@ def main():
     check("a local failure retries soon instead of poisoning for 10 min",
           deadline is not None and deadline - base <= faces._RETRY_LOCAL + 1.0,
           f"retry in {deadline - base:.1f}s" if deadline else "no deadline")
+
+    # Negative caches survive a fresh process's in-memory state.
+    for repeat in range(200):
+        if not faces._inflight:
+            break
+        time.sleep(.01)
+    faces._missed.clear()
+    with patch.object(faces, "_get") as network:
+        faces.get_face_b64(ghost)
+        time.sleep(.05)
+        check("persisted 404 cache survives memory reset without another Worker request", network.call_count == 0)
+
+    class _Limited:
+        status_code = 429
+        content = b""
+        headers = {"Retry-After": "7200"}
+    with patch.object(faces, "_get", return_value=_Limited()) as network:
+        faces.get_face_b64("LimitedFace")
+        for repeat in range(200):
+            if not faces._inflight:
+                break
+            time.sleep(.01)
+        after_limit = network.call_count
+        for index in range(100):
+            faces.get_face_b64(f"Another{index}")
+        check("429 pauses all avatar names, not just the failed one", network.call_count == after_limit == 1)
+        faces._service_loaded = False
+        faces._service_retry_at = 0
+        faces._missed.clear()
+        faces.get_face_b64("AfterRestart")
+        check("service Retry-After persists across memory reset", network.call_count == 1
+              and faces._service_retry_at - time.monotonic() > 7190)
+    faces._service_retry_at = 0
+    faces._service_loaded = True
+    release.clear()
+    def _burst_get(url, **kwargs):
+        release.wait(2)
+        return _Limited()
+    with patch.object(faces, "_get", side_effect=_burst_get) as network:
+        for index in range(50):
+            faces.get_face_b64(f"Burst{index}")
+        check("a large roster keeps at most four daemon downloads in flight",
+              len(faces._inflight) <= 4 and network.call_count <= 4)
+        release.set()
+        for repeat in range(200):
+            if not faces._inflight:
+                break
+            time.sleep(.01)
 
     print()
     total, failed = len(_CHECKS), _CHECKS.count(False)

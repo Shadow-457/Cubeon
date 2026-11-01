@@ -277,6 +277,23 @@ check("the Fabric crash message does not claim a fix that never happened",
 check("the Fabric crash message names the real recovery step",
       "reinstall" in _fabric_line, f"got {_fabric_line!r}")
 
+_mod_failure = app._explain_exit(1, [
+    "java.lang.RuntimeException: Mixin transformation of com.cubeon.client.hud.blur.CameraBlurRenderer failed",
+    "at net.fabricmc.loader.impl.launch.knot.KnotClient.main(KnotClient.java:23)",
+    "Caused by: org.spongepowered.asm.mixin.transformer.throwables.IllegalClassLoadError: renderer is in a defined mixin package",
+]).lower()
+check("normal Fabric stack frames do not blame incomplete installation",
+      "mod" in _mod_failure and "incomplete" not in _mod_failure and "reinstall" not in _mod_failure,
+      _mod_failure)
+_unrelated_missing = app._explain_exit(1, [
+    "ClassNotFoundException: example.mod.OptionalHelper",
+    "at net.minecraft.client.main.Main.main(Main.java:250)",
+    "at net.fabricmc.loader.impl.launch.knot.KnotClient.main(KnotClient.java:23)",
+]).lower()
+check("missing mod helpers do not blame normal Minecraft stack frames",
+      "incomplete" not in _unrelated_missing and "reinstall" not in _unrelated_missing,
+      _unrelated_missing)
+
 check("unknown crash still names the error",
       "boom" in app._explain_exit(1, ["Exception: boom"]).lower())
 check("no output still returns something useful",

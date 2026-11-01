@@ -145,14 +145,20 @@ def _feather_depth(guide: dict, x: float) -> float:
     return math.floor(value * 4096 + .5) / 4096
 
 
-def preview_faces(item: dict, directory: str | None = None) -> list[tuple]:
+def preview_faces(item: dict, directory: str | None = None, *, simplify=False) -> list[tuple]:
     """``(vertices, normal, texture)`` triples in the preview's space.
 
     Preview space is the one ``cubeon.appearance.CharacterModel`` already
     renders in: +y is up with the feet at 0 and the head top at 32, and +z is
     the player's front. Minecraft model space is y-down with -z as the front,
     so the conversion is ``y' = 24 - y`` and ``z' = -z``.
+
+    Launcher turntables can use the generated Giant-wing cutout via
+    ``simplify=True``. Its matching texture preserves the whole silhouette
+    with four quads. The catalogue and full game geometry remain untouched.
     """
+    if simplify:
+        item = item.get("flat") or item
     sheet = texture(item, directory)
     anchor_x = ANCHORS[item["slot"]][0]
     result = []
@@ -217,7 +223,7 @@ def preview_faces(item: dict, directory: str | None = None) -> list[tuple]:
 
 def render_thumbnail(item: dict, directory: str | None = None,
                      size: tuple[int, int] = (96, 96), yaw: float = 35.0,
-                     pitch: float = 12.0) -> Image.Image:
+                     pitch: float = 12.0, *, simplify=False) -> Image.Image:
     """A small isometric render of one item, for the Cosmetics cards.
 
     Painter's algorithm is enough here: every cosmetic is a handful of convex,
@@ -226,7 +232,7 @@ def render_thumbnail(item: dict, directory: str | None = None,
     """
     import math
 
-    faces = preview_faces(item, directory)
+    faces = preview_faces(item, directory, simplify=simplify)
     if not faces:
         return Image.new("RGBA", size, (0, 0, 0, 0))
     vertices = [vertex for face in faces for vertex in face[0]]

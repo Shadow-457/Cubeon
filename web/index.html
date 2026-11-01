@@ -24,6 +24,8 @@
 if(m[q.get('time')]!==undefined)h=m[q.get('time')];else if(q.get('hour')!==null&&!isNaN(+q.get('hour')))h=((+q.get('hour'))%24+24)%24;
 var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.documentElement;d.dataset.tod=p;window.__tod={phase:p,h:h}})()</script>
 <style>
+  html:not(.js) .q-body{grid-template-rows:1fr}
+  html:not(.js) .q-a .plus{display:none}
   @media(max-width:520px){.strip-in{grid-template-columns:1fr}.fact{min-width:0}}
   /* hero download picker: one pane per OS, "Not your system?" swaps them
      (the switching logic lives in shared assets/site.js) */
@@ -154,6 +156,140 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
       "targetProduct": {
         "@id": "https://www.ylet.online/#launcher"
       }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://www.ylet.online/#faq",
+      "url": "https://www.ylet.online/#faq",
+      "name": "Cubeon Launcher questions and answers",
+      "about": {
+        "@id": "https://www.ylet.online/#launcher"
+      },
+      "isPartOf": {
+        "@id": "https://www.ylet.online/#webpage"
+      },
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is Cubeon Launcher?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows, Linux and macOS. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is www.ylet.online and the source repository is Shadow-457/Cubeon on GitHub. Read the official project facts for supported profiles, downloads and limitations."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which Minecraft edition and mod loaders does Cubeon support?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Cubeon launches Minecraft Java Edition with Vanilla, Fabric, Quilt, Forge or NeoForge instances. It does not launch Bedrock Edition. Mods must match the selected Minecraft version and loader; shaders also need a compatible setup such as Iris. See the mods and shaders guide."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is it really free?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Every feature works without paying and there are no adverts. Playing with your friends will never sit behind a paywall."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I need a Minecraft account?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Cubeon uses local/offline player profiles: pick a name of three to sixteen characters. It does not provide Microsoft account sign-in. Servers requiring Microsoft authentication cannot accept these profiles; see the multiplayer guide."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I play with friends?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Add friends by their Cubeon name and the launcher keeps the conversation, showing who's online and what they're playing. To share an actual world, open Servers, install a server for the version you picked and hand out the free public address it gives you - set a join password and only the people you tell can get in. No server to rent, nothing to change on anyone's computer."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is it fast?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "We measured it rather than claiming it. On the same PC, same Minecraft version, Cubeon averaged 206 FPS in game against 152 for FastClient and 119 for SKLauncher - and its worst single second was 102 FPS, where the other two dropped to 37 and 33. The benchmarks page has every number, the charts, and the caveats that weaken the comparison."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I bring my own mods or modpacks?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Open Settings, go to Import, and point it at the folder your mods live in. Cubeon lists everything it finds - mods, resource packs, shader packs, modpacks and worlds - and installs what you pick for the version you chose."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What does my computer need?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Packaged builds are available for Windows 10 and 11, 64-bit Linux, and macOS. Choose the file for your system on the download page; macOS app bundles are also on the latest stable release. Minecraft itself needs compatible Java and graphics drivers."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Where are my name and skins kept, and who sees them?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "On your computer, in the .cubeon_launcher folder inside your user folder. Your skin and cape are shared so other Cubeon players see them when you play together. Change or remove them whenever you like."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Will you email me?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. Cubeon never asks for an email address, so there is nothing to unsubscribe from."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Which file should I download?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Windows: the Setup.exe installer. Linux: the AppImage, Linux setup installer or Debian/Ubuntu package. macOS: the app bundle from the stable GitHub release. Download only from the official site or repository."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "The game won't start",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Minecraft needs Java. Cubeon uses a Java it finds on your computer when it's new enough, and offers to download a free one for you when it isn't - so usually there's nothing to install. If a launch still fails, install Java free from adoptium.net and try again."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "My computer warns me about the file",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Unsigned independent apps can trigger a Windows SmartScreen or macOS Gatekeeper warning. Check that the file came from this site or the official GitHub releases, and read the platform help for the warning you see."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "A friend can't get in, or I can't find them",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "A friend's name only exists once they've opened Cubeon at least once, so ask them to run it first. If someone can't join a server you're running, check the address and password from the Servers section, and make sure you're both on the same Minecraft version and the newest Cubeon."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Something else entirely",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Email hamza.457.shahbaz@gmail.com with what you were doing. Attaching the small log in the .cubeon_launcher folder makes a fix much faster."
+          }
+        }
+      ]
     }
   ]
 }
@@ -347,6 +483,8 @@ var p=(h<5||h>=20)?'night':h<8?'sunrise':h<17?'day':'sunset';var d=document.docu
 
     <h3 class="faq-h">The basics</h3>
     <div class="faq">
+      <div class="q" id="what-is-cubeon-launcher"><button class="q-a" type="button" aria-expanded="false">What is Cubeon Launcher?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows, Linux and macOS. It manages game versions, modded instances, mods, modpacks, skins, cosmetics, friends and local servers. The official website is <a href="https://www.ylet.online/">www.ylet.online</a> and the source repository is <a href="https://github.com/Shadow-457/Cubeon">Shadow-457/Cubeon on GitHub</a>. Read the <a href="about.html">official project facts</a> for supported profiles, downloads and limitations.</p></div></div></div>
+      <div class="q" id="cubeon-supported-loaders"><button class="q-a" type="button" aria-expanded="false">Which Minecraft edition and mod loaders does Cubeon support?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon launches Minecraft Java Edition with Vanilla, Fabric, Quilt, Forge or NeoForge instances. It does not launch Bedrock Edition. Mods must match the selected Minecraft version and loader; shaders also need a compatible setup such as Iris. See the <a href="mods.html">mods and shaders guide</a>.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Is it really free?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Yes. Every feature works without paying and there are no adverts. Playing with your friends will never sit behind a paywall.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">Do I need a Minecraft account?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Cubeon uses local/offline player profiles: pick a name of three to sixteen characters. It does not provide Microsoft account sign-in. Servers requiring Microsoft authentication cannot accept these profiles; see the <a href="multiplayer.html#offline">multiplayer guide</a>.</p></div></div></div>
       <div class="q"><button class="q-a" type="button" aria-expanded="false">How do I play with friends?<span class="plus" aria-hidden="true">+</span></button><div class="q-body"><div><p>Add friends by their Cubeon name and the launcher keeps the conversation, showing who's online and what they're playing. To share an actual world, open <strong>Servers</strong>, install a server for the version you picked and hand out the free public address it gives you - set a join password and only the people you tell can get in. No server to rent, nothing to change on anyone's computer.</p></div></div></div>

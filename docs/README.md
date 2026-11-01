@@ -39,6 +39,7 @@ source and contract tests when changing a route or message format.
 
 ## Builds and releases
 
+- [Changelog](release/changelog.md)
 - [Build guide](release/build.md)
 - [Release checklist](release/release-checklist.md)
 - [Windows smoke test](release/windows-smoke-test.md)

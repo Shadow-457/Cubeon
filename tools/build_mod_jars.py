@@ -132,9 +132,19 @@ REQUIRED_ENTRIES_26X = ("cubeon-client-hud.mixins.json",
                         "com/cubeon/client/mixin/FreelookLookMixin.class",
                         "com/cubeon/client/hud/mixin/ClientPacketListenerMixin.class")
 
-# Removed game effects must stay absent from every version, including unused
-# shared classes, config fields and shaders that a stale build could retain.
-REMOVED_FEATURE_MARKERS = (b"motionblur", b"motion_blur", b"dynamiccrosshair",
+# The old frame-accumulation blur and removed crosshair effects stay absent.
+# cameraMotionBlur is a separate opt-in current-scene effect.
+REQUIRED_ENTRIES_CAMERA_BLUR = (
+    "cubeon-client.camera-blur.mixins.json",
+    "com/cubeon/client/hud/CameraBlur.class",
+    "com/cubeon/client/hud/blur/CameraBlurRenderer.class",
+    "com/cubeon/client/hud/blur/mixin/CameraBlurMixin.class",
+    "com/cubeon/client/hud/blur/mixin/CameraBlurReloadMixin.class",
+)
+REQUIRED_ENTRIES += REQUIRED_ENTRIES_CAMERA_BLUR
+
+REMOVED_FEATURE_MARKERS = (b"/motionblur", b"motionblurmixin", b"motionblurstrength",
+                           b'"motionblur"', b"\x00\x0amotionblur", b"motion_blur", b"dynamiccrosshair",
                            b"dynamic_crosshair", b"crosshairscale", b"crosshairmixin",
                            b"cubeon-client-crosshair", b"rendertargethighlight")
 
@@ -248,6 +258,7 @@ def verify(jar_path, bracket=None):
             meta = zf.read("fabric.mod.json").decode("utf-8")
             freelook = json.loads(zf.read("cubeon-client.freelook.mixins.json"))
             labels = json.loads(zf.read("assets/cubeon-client/lang/en_us.json"))
+            camera_blur = json.loads(zf.read("cubeon-client.camera-blur.mixins.json"))
     except (OSError, zipfile.BadZipFile, KeyError, ValueError) as exc:
         return f"jar is unreadable ({exc})"
     left = re.findall(r"\$\{(\w+)\}", meta)
@@ -263,6 +274,20 @@ def verify(jar_path, bracket=None):
                for entry in parsed.get("mixins", [])]
     if "cubeon-client.freelook.mixins.json" not in configs:
         return "freelook mixin config is not registered"
+    if "cubeon-client.camera-blur.mixins.json" not in configs:
+        return "camera blur mixin config is not registered"
+    camera_hooks = ["CameraBlurMixin", "CameraBlurReloadMixin"]
+    camera_overlay = next((str(o) for o in (bracket or {}).get("overlays", [])
+                           if str(o).startswith("camera-blur-")), None)
+    if camera_overlay in ("camera-blur-legacy", "camera-blur-post"):
+        camera_hooks.append("CameraBlurPasses")
+    if (not isinstance(camera_blur, dict)
+            or camera_blur.get("required") is not False
+            or camera_blur.get("package") != "com.cubeon.client.hud.blur.mixin"
+            or camera_blur.get("client") != camera_hooks
+            or not isinstance(camera_blur.get("injectors"), dict)
+            or camera_blur["injectors"].get("defaultRequire") != 0):
+        return "camera blur must register the correct optional hooks"
     expected = ["FreelookCameraMixin", "FreelookScrollMixin"]
     if bracket and bracket.get("mappings") == "none":
         expected.append("FreelookLookMixin")
@@ -290,6 +315,27 @@ def verify(jar_path, bracket=None):
             entry = "assets/cubeon-client/textures/cosmetics/" + name
             if entry not in jar.namelist() or jar.read(entry) != Path(os.path.join(ROOT, "assets/cosmetics", name)).read_bytes():
                 return "wing texture is missing or stale: " + name
+        if b"cameraMotionBlur" not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
+            return "camera blur setting is missing"
+        if b"cameraBlurIntensity" not in jar.read("com/cubeon/client/hud/CubeonHudConfig.class"):
+            return "camera blur intensity setting is missing"
+        if not labels.get("cubeonclient.hud.camera_blur"):
+            return "camera blur setting label is missing"
+        if not labels.get("cubeonclient.hud.blur_intensity") or not labels.get("cubeonclient.hud.blur_intensity_hint"):
+            return "camera blur intensity label or hint is missing"
+        if camera_overlay:
+            resource_root = Path(MOD_DIR, "src/main/resources-overlay-" + camera_overlay)
+            for source in resource_root.rglob("*"):
+                if not source.is_file():
+                    continue
+                entry = source.relative_to(resource_root).as_posix()
+                if entry not in jar.namelist() or jar.read(entry) != source.read_bytes():
+                    return "camera blur resource is missing or stale: " + entry
+            if "CameraBlurPasses" in camera_hooks and "com/cubeon/client/hud/blur/mixin/CameraBlurPasses.class" not in jar.namelist():
+                return "camera blur post-processing accessor is missing"
+        if bracket and any(str(o).startswith("zoom-") for o in bracket.get("overlays", [])):
+            if b"com/cubeon/client/hud/blur/CameraBlurRenderer" not in jar.read("com/cubeon/client/mixin/ZoomMixin.class"):
+                return "camera blur zoom FOV integration is missing"
     return None
 
 

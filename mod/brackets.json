@@ -82,7 +82,8 @@
         "health-legacy",
         "cubeon-emote-entity",
         "freelook-yarn",
-        "freelook-camera-double"
+        "freelook-camera-double",
+        "camera-blur-legacy"
       ],
       "java": ">=17",
       "min": "1.20",
@@ -104,7 +105,8 @@
         "health-legacy",
         "cubeon-emote-entity",
         "freelook-yarn",
-        "freelook-camera-double"
+        "freelook-camera-double",
+        "camera-blur-legacy"
       ],
       "java": ">=17",
       "min": "1.20.1",
@@ -127,7 +129,8 @@
         "cubeon-emote-entity",
         "ui-texture-legacy",
         "freelook-yarn",
-        "freelook-camera-double"
+        "freelook-camera-double",
+        "camera-blur-legacy"
       ],
       "java": ">=17",
       "min": "1.20.2",
@@ -150,7 +153,8 @@
         "cubeon-emote-entity",
         "ui-texture-legacy",
         "freelook-yarn",
-        "freelook-camera-double"
+        "freelook-camera-double",
+        "camera-blur-legacy"
       ],
       "java": ">=17",
       "min": "1.20.3",
@@ -173,7 +177,8 @@
         "cubeon-emote-entity",
         "ui-texture-legacy",
         "freelook-yarn",
-        "freelook-camera-double"
+        "freelook-camera-double",
+        "camera-blur-legacy"
       ],
       "java": ">=17",
       "min": "1.20.4",
@@ -196,7 +201,8 @@
         "cubeon-emote-entity",
         "ui-texture-legacy",
         "freelook-yarn",
-        "freelook-camera-double"
+        "freelook-camera-double",
+        "camera-blur-legacy"
       ],
       "java": ">=17",
       "min": "1.20.5",
@@ -219,7 +225,8 @@
         "cubeon-emote-entity",
         "ui-texture-legacy",
         "freelook-yarn",
-        "freelook-camera-double"
+        "freelook-camera-double",
+        "camera-blur-legacy"
       ],
       "java": ">=17",
       "min": "1.20.6",
@@ -242,7 +249,8 @@
         "cubeon-emote-entity",
         "ui-texture-legacy",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-legacy"
       ],
       "java": ">=21",
       "min": "1.21",
@@ -265,7 +273,8 @@
         "cubeon-emote-entity",
         "ui-texture-legacy",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-legacy"
       ],
       "java": ">=21",
       "min": "1.21.1",
@@ -288,7 +297,8 @@
         "cubeon-emote-state",
         "ui-texture-layer",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-post"
       ],
       "java": ">=21",
       "min": "1.21.2",
@@ -311,7 +321,8 @@
         "cubeon-emote-state",
         "ui-texture-layer",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-post"
       ],
       "java": ">=21",
       "min": "1.21.3",
@@ -334,7 +345,8 @@
         "cubeon-emote-state",
         "ui-texture-layer",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-post"
       ],
       "java": ">=21",
       "min": "1.21.4",
@@ -357,7 +369,8 @@
         "cubeon-emote-origin",
         "ui-texture-layer",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-gpu5"
       ],
       "java": ">=21",
       "min": "1.21.5",
@@ -378,7 +391,8 @@
         "cosmetics-1.21.5",
         "cubeon-emote-origin",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-gpu6"
       ],
       "java": ">=21",
       "min": "1.21.6",
@@ -399,7 +413,8 @@
         "cosmetics-1.21.5",
         "cubeon-emote-origin",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-gpu6"
       ],
       "java": ">=21",
       "min": "1.21.7",
@@ -420,7 +435,8 @@
         "cosmetics-1.21.5",
         "cubeon-emote-origin",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-gpu6"
       ],
       "java": ">=21",
       "min": "1.21.8",
@@ -441,7 +457,8 @@
         "cosmetics-1.21.9",
         "cubeon-emote-origin",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-gpu6"
       ],
       "java": ">=21",
       "min": "1.21.9",
@@ -462,7 +479,8 @@
         "cosmetics-1.21.9",
         "cubeon-emote-origin",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-gpu6"
       ],
       "java": ">=21",
       "min": "1.21.10",
@@ -483,7 +501,8 @@
         "cosmetics-1.21.11",
         "cubeon-emote-origin",
         "freelook-yarn",
-        "freelook-camera-float"
+        "freelook-camera-float",
+        "camera-blur-gpu9"
       ],
       "java": ">=21",
       "min": "1.21.11",
@@ -501,7 +520,8 @@
         "hud-26.1",
         "cosmetics-26",
         "cubeon-emote-mojang",
-        "freelook-mojang"
+        "freelook-mojang",
+        "camera-blur-26.1"
       ],
       "java": ">=25",
       "min": "26.1",
@@ -519,7 +539,8 @@
         "hud-26.1",
         "cosmetics-26",
         "cubeon-emote-mojang",
-        "freelook-mojang"
+        "freelook-mojang",
+        "camera-blur-26.1"
       ],
       "java": ">=25",
       "min": "26.1.1",
@@ -537,7 +558,8 @@
         "hud-26.1",
         "cosmetics-26",
         "cubeon-emote-mojang",
-        "freelook-mojang"
+        "freelook-mojang",
+        "camera-blur-26.1"
       ],
       "java": ">=25",
       "min": "26.1.2",
@@ -555,7 +577,8 @@
         "hud-26.2",
         "cosmetics-26",
         "cubeon-emote-mojang",
-        "freelook-mojang"
+        "freelook-mojang",
+        "camera-blur-26.2"
       ],
       "java": ">=25",
       "min": "26.2",
@@ -573,7 +596,8 @@
         "hud-26.3",
         "cosmetics-26",
         "cubeon-emote-mojang",
-        "freelook-mojang"
+        "freelook-mojang",
+        "camera-blur-26.3"
       ],
       "java": ">=25",
       "min": "26.3",

@@ -24,6 +24,13 @@ def check(cond, msg):
         print(f"  FAIL: {msg}")
 
 
+check(net.retry_after_seconds("120") == 120, "service Retry-After accepts numeric seconds")
+check(net.retry_after_seconds("Thu, 01 Jan 1970 00:02:00 GMT", now=60) == 60,
+      "service Retry-After accepts an HTTP date")
+check(all(net.retry_after_seconds(value) == 0 for value in (None, "bad", "NaN", "inf", "-10")),
+      "invalid service Retry-After values never produce invalid sleeps")
+
+
 class FakeResp:
     def __init__(self, chunks, status=200, headers=None, error_after=None,
                  json_body=None):

@@ -11,7 +11,7 @@ activity.
 
 These checks are static (source-shape) because the failure mode only exists
 with a real pointer. They pin the invariant:
-  1. play_sheen.control is a DESCENDANT of play_button's content (taps land
+  1. decorative chrome is a DESCENDANT of play_button's content (taps land
      on the widget that owns on_click), and
   2. nothing is painted as a sibling behind or above the button in the footer.
 
@@ -38,23 +38,22 @@ def ok(condition, message):
 
 
 # --------------------------------------------------------------------------
-print("sheen placement (the real-window click eater)")
+print("decorative frame placement (the real-window click eater)")
 
 # Extract the play_button creation block.
 m = re.search(r"    play_button = ft\.Container\(.*?\n    \)\n", src, re.S)
 ok(m is not None, "play_button block found")
 button_block = m.group(0) if m else ""
 
-# The sheen must be built AFTER the button (it wraps the content) and the
-# content must become a Stack holding the row AND the sheen.
+# The pixel frame must live inside the button alongside its label.
 m2 = re.search(
-    r"    play_button\.content = ft\.Stack\(\s*\[.*?play_sheen\.control,",
+    r'    play_button\.content = ft\.Stack\(\s*\[.*?src="pixel_button_frame\.svg"',
     src, re.S)
 ok(m2 is not None,
-   "play_button.content is a Stack that CONTAINS play_sheen.control "
+   "play_button.content is a Stack that CONTAINS the pixel frame "
    "(a descendant, so taps reach on_click)")
 
-# ...and the sheen must NOT be a sibling painted after the button anywhere.
+# ...and decorative chrome must NOT be a sibling painted after the button.
 # The Play tab mounts the button directly in a footer Row (next to the
 # instance picker); look at that mount window instead of pinning the exact
 # row order, which changes whenever the Play card is rearranged.
@@ -62,8 +61,8 @@ mount_at = src.find("ft.Container(content=play_button")
 ok(mount_at != -1,
    "the footer mounts the button directly (no painted layer behind/above it)")
 footer_block = src[max(0, mount_at - 1200):mount_at + 200]
-ok("play_sheen" not in footer_block,
-   "the footer no longer paints play_sheen ON TOP of the button")
+ok("play_sheen" not in footer_block and "pixel_button_frame.svg" not in footer_block,
+   "the footer paints no decorative layer ON TOP of the button")
 # The permanent Fix crash button was removed from the Play footer (repair now
 # lives in Installed's Check & repair / the Doctor). Keep it from creeping back.
 ok("fix_crash_button" not in src and 'data="play-fix-crash"' not in src,

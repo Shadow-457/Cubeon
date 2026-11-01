@@ -1078,8 +1078,38 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     if not callable(doctor_target):
         doctor_run_btn.disabled = True
 
+    def _rendering_compat(restore=False):
+        target = _doctor_target()
+        if not target or not target[2]:
+            _doctor_set_status('Pick the affected instance on the Play tab first')
+            return
+        try:
+            from cubeon.paths import game_dir_for
+            from cubeon.render_compat import apply
+            changed = apply(game_dir_for(target[2], create=False), restore=restore)
+        except (OSError, ValueError) as error:
+            _doctor_set_status(f"Couldn't change rendering settings: {error}")
+            return
+        _doctor_set_status(('Previous rendering settings restored. Restart Minecraft.' if restore else
+                            'Rendering compatibility applied. Restart Minecraft; FPS may be lower.')
+                           if changed else 'No rendering settings needed changing.')
+
+    rendering_recovery = block('Rendering', group([
+        _body(ft.Column([
+            ft.Text('Use if entities disappear or skins flicker. Close Minecraft before applying.',
+                    size=12.5, color=TEXT_DIM),
+            ft.Row([
+                _doctor_button('Apply compatibility', ft.Icons.BUILD_ROUNDED,
+                               lambda e: _rendering_compat()),
+                _doctor_button('Restore settings', ft.Icons.RESTORE_ROUNDED,
+                               lambda e: _rendering_compat(True)),
+            ], wrap=True),
+        ], spacing=8)),
+    ]))
+
     doctor_pane = pane(
         i18n.t("Doctor"),
+        rendering_recovery,
         ft.Text(
             "Checks launch settings, mods, resource packs, shaders, modpacks "
             "and server plugins for the selected instance. Problems are fixed "

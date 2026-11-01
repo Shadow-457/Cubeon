@@ -8,6 +8,7 @@ import struct
 import unittest
 from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
+from prepare_website_faq import Answers
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -236,10 +237,38 @@ class SEOTests(unittest.TestCase):
     def test_search_crawlers_can_read_pages_but_not_private_api(self):
         policy = RobotFileParser()
         policy.parse((WEB / 'robots.txt').read_text().splitlines())
-        for crawler in ('Googlebot', 'bingbot', 'OAI-SearchBot', 'ChatGPT-User'):
-            for page in ('/', '/about', '/download', '/assets/favicon.png'):
+        for crawler in ('Googlebot', 'bingbot', 'OAI-SearchBot', 'ChatGPT-User', 'Claude-SearchBot', 'Claude-User'):
+            for page in ('/', '/about', '/download', '/llms.txt', '/assets/favicon.png'):
                 self.assertTrue(policy.can_fetch(crawler, ORIGIN + page), (crawler, page))
             self.assertFalse(policy.can_fetch(crawler, ORIGIN + '/api/doctor'))
+
+    def test_faq_answers_match_visible_text(self):
+        source = (WEB / 'index.html').read_text()
+        visible = Answers(source).answers
+        schema, = self.pages['index'].schemas
+        faq, = [node for node in json.loads(schema)['@graph'] if node['@type'] == 'FAQPage']
+        self.assertEqual(faq['mainEntity'], visible)
+        self.assertGreaterEqual(len(visible), 10)
+        self.assertEqual(faq['about'], {'@id': ORIGIN + '/#launcher'})
+        self.assertEqual(visible[0]['name'], 'What is Cubeon Launcher?')
+        self.assertIn('Minecraft Java Edition', visible[0]['acceptedAnswer']['text'])
+
+    def test_plain_text_project_guide_uses_public_official_sources(self):
+        guide = (WEB / 'llms.txt').read_text()
+        self.assertTrue(guide.startswith('# Cubeon Launcher\n'))
+        self.assertIn('Apache 2.0', guide)
+        self.assertIn('local/offline', guide)
+        self.assertIn('Microsoft account sign-in is not available', guide)
+        self.assertIn('/llms.txt', self.pages['about'].links)
+        urls = re.findall(r'\]\((https://[^)]+)\)', guide)
+        self.assertGreaterEqual(len(urls), 15)
+        for url in urls:
+            parts = urlsplit(url)
+            self.assertIn(parts.netloc, ('www.ylet.online', 'github.com', 'discord.gg'))
+            if parts.netloc == 'www.ylet.online':
+                stem = parts.path.strip('/') or 'index'
+                self.assertIn(stem, self.pages, url)
+                self.assertNotIn('noindex', ','.join(self.pages[stem].meta['robots']))
 
 
     def test_analytics_is_disclosed_and_wired(self):

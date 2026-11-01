@@ -288,10 +288,10 @@ def test_wing_thickness():
     }
     for item in wings:
         small = item["id"].endswith("_small")
-        y_origin = 2 if small else -9
-        hinge = [1, 2, 2.45] if small else [2, 2, 2.25]
+        y_origin = 0 if small else -9
+        hinge = [1, 0, 2.45] if small else [2, 2, 2.25]
         if any(box["pivot"] != hinge for box in item["boxes"]):
-            problems.append((item["id"], "wrong lowered shoulder attachment"))
+            problems.append((item["id"], "wrong size-specific shoulder attachment"))
         if not small:
             flat_boxes = item["flat"]["boxes"]
             if len(flat_boxes) != 1 or flat_boxes[0]["origin"] != [1, -9, 2.125] or flat_boxes[0]["pivot"] != hinge:

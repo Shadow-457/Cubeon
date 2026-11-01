@@ -70,15 +70,16 @@ public class UiTest {
  public static void main(String[] args)throws Exception {
   Font font=Font.createFont(Font.TRUETYPE_FONT,new File(args[1])).deriveFont(10f);
   Properties labels=new Properties();try(var reader=new InputStreamReader(new FileInputStream(args[0]),StandardCharsets.UTF_8)){labels.load(reader);}
+  check(HudMenu.nextBlurIntensity(1)==1.25f && HudMenu.nextBlurIntensity(2)==.25f,"Blur intensity advances and wraps predictably");
   HudMenu.Settings settings=new HudMenu.Settings(){
    public boolean visible(int overlay){return overlay%2==0;}public float scale(int overlay){return new float[]{1,.75f,1.5f,1.25f,2}[overlay];}
-   public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}
+   public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}public boolean cameraBlur(){return false;}public float blurIntensity(){return 1f;}
   };
   for(int[] size:new int[][]{{320,240},{520,304},{640,360},{960,540}}) {
    int w=size[0],h=size[1];HudMenu menu=new HudMenu();menu.layout(w,h);
    for(int id=0;id<=HudMenu.DONE;id++) {
     var rect=menu.control(id);
-    check(rect.w()>0&&rect.h()>0&&rect.x()>=0&&rect.y()>=0&&rect.x()+rect.w()<=w&&rect.y()+rect.h()<=h,"All twenty-two controls fit at every GUI scale");
+    check(rect.w()>0&&rect.h()>0&&rect.x()>=0&&rect.y()>=0&&rect.x()+rect.w()<=w&&rect.y()+rect.h()<=h,"All twenty-four controls fit at every GUI scale");
     check(menu.hit(rect.x()+rect.w()/2,rect.y()+rect.h()/2)==id,"Each toggle, move, size, utility and footer action has its own hit target");
     for(int other=0;other<id;other++) {
      var previous=menu.control(other);
@@ -117,7 +118,7 @@ public class UiTest {
     Canvas variantCanvas=new Canvas(w,h,font,labels);variant.render(variantCanvas,w,h,0,0,true,true);
    }
   }
-  System.out.println("Custom font, all twenty-two controls including cosmetic preferences, minimum GUI scale, text/draw bounds, keyboard/pointer focus, resize, drag toolbar/edge frames and wheel previews passed.");
+  System.out.println("Custom font, all twenty-four controls including cosmetic preferences, minimum GUI scale, text/draw bounds, keyboard/pointer focus, resize, drag toolbar/edge frames and wheel previews passed.");
  }
 }
 ''', encoding="utf-8")

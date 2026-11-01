@@ -1069,6 +1069,40 @@ def test_world_not_server_fallback():
        "the joiner sees the address in their Minecraft chat")
 
 
+def test_launcher_notice_handler():
+    section("launcher notice sink (no polling or backlog)")
+    service, client, _ = build()
+    service.notify('Before window')
+    delivered = []
+
+    def sink(text, error):
+        delivered.append((text, error))
+        # Reentrant event reads must not deadlock the notification ring.
+        service.events_since(-1)
+
+    service.set_notice_handler(sink)
+    ok(delivered == [], 'binding a window does not replay old notices')
+    thread = threading.Thread(target=service.notify, args=('New notice', True))
+    thread.start()
+    thread.join(timeout=2)
+    ok(not thread.is_alive() and delivered == [('New notice', True)],
+       'worker notice reaches current launcher sink outside the ring lock')
+    service.notify('New notice', error=True)
+    ok(len(delivered) == 1, 'duplicate notices are suppressed before both sinks')
+    replacement = []
+    service.set_notice_handler(lambda text, error: replacement.append(text))
+    service.notify('New window')
+    ok(len(delivered) == 1 and replacement == ['New window'],
+       'new session replaces the old callback')
+    service.set_notice_handler(lambda *_: (_ for _ in ()).throw(RuntimeError('gone')))
+    service.notify('UI failed')
+    ok(any(e['text'] == 'UI failed' for e in service.events_since(0)['events']),
+       'UI failure never loses the in-game event')
+    service.set_notice_handler(None)
+    service.notify('Window closed')
+    ok(replacement == ['New window'], 'closed window no longer receives notices')
+
+
 def test_notify_active():
     """The Server tab's seam into the mod's Minecraft chat."""
     section("notify_active (chat push from other modules)")
@@ -2339,6 +2373,7 @@ def main():
         test_worldgate_joiner()
         test_world_not_server_fallback()
         test_notify_active()
+        test_launcher_notice_handler()
         test_sync_report_version_callout()
         test_pending_rooms_pruned()
         test_profile_mismatch()

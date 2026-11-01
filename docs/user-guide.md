@@ -55,7 +55,9 @@ Microsoft/Mojang account.
 ## Mods, packs, and cosmetics
 
 - **Mods:** select a compatible modded instance first. A Fabric mod does not
-  work just because another loader is installed.
+  work just because another loader is installed. Disable or remove optional
+  performance mods such as More Culling in **Mods → Installed**; Play respects
+  that choice for this instance. You can install them again from the Mods browser.
 - **Resource packs:** work with Vanilla as well as modded instances, subject
   to Minecraft version compatibility. Enable them in the game's settings.
 - **Shaders:** require a compatible loader and shader runtime, such as Iris
@@ -98,7 +100,13 @@ Microsoft/Mojang account.
   behind walls and teammates are hidden. **Cosmetic motion** starts on;
   switch it off to keep pets, wings and packs still, including individual feather
   movement and the N flare. This skips animation calculations.
-  The choice is saved. **Reset layout** restores overlay positions and sizes.
+  **Camera motion blur** starts off and is available in every supported client
+  version. It softens the scene while turning the camera using a fixed 8 ms
+  exposure, so its strength does not scale with FPS or VSync. The HUD and menus
+  stay sharp. Turning it off frees its scene buffer and skips blur rendering.
+  **Blur intensity** adjusts the strength from 25% to 200% in 25% steps;
+  click it to advance, with 100% preserving the original effect. After 200% it
+  returns to 25%. Both choices are saved. **Reset layout** restores overlay positions and sizes.
   Tab/arrows select controls; Enter activates them. In the drag editor,
   release the mouse to save and choose Done or press Enter to return.
   Hold Z to zoom in; scroll the wheel to adjust it.
@@ -165,6 +173,13 @@ Automatic checks stay local and quiet: no approval or result windows. They leave
 existing mods enabled unless you explicitly request repair. Install-time checks can
 fetch missing dependencies without replacing an existing build. The **Fix crash** buttons have been removed from Play and crash reports.
 Crash reports offer the website Doctor, Copy log, and Discord support.
+
+If entities disappear or skins flicker, close Minecraft and select the affected
+instance on Play. **Settings → Doctor → Rendering → Apply compatibility** turns
+off extra entity culling and enhanced batching in existing mod configs. Other
+preferences and skin files stay intact. Restart Minecraft to test it; FPS may
+decrease. **Restore settings** restores the saved values while preserving later
+edits. This is an optional workaround, not a diagnosis of every rendering bug.
 
 Doctor cannot repair arbitrary bugs inside a mod or make it support an incompatible
 Minecraft version. Launch-time checks remain limited to safe launcher configuration

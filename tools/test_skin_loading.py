@@ -1,5 +1,6 @@
 """Skin opening stays off the raster path; --native probes the pinned desktop UI."""
 import asyncio
+import inspect
 import os
 from pathlib import Path
 import sys
@@ -90,6 +91,19 @@ async def native(page):
     assert scene.controls, 'No initial character frame appeared.'
     print('FIRST_FRAME_SECONDS', round(time.monotonic() - began, 3), flush=True)
     assert len(scene.controls) == 2, 'Opening baked unrequested orbit frames.'
+    rotate = next(c for c in fz.walk(root) if getattr(c, 'tooltip', None) == 'Rotate right')
+    preview = inspect.getclosurevars(rotate.on_click).nonlocals['self']
+    assert len(preview._model.faces) < 150, 'The turntable loaded the full Giant feather mesh.'
+    for _ in range(3):
+        target = (preview.yaw + 30) % 360
+        step = preview._step_for(target)
+        start = time.monotonic()
+        rotate.on_click(None)
+        deadline = start + 3
+        while (preview._shown != step or abs(preview.yaw - target) > .001) and time.monotonic() < deadline:
+            await asyncio.sleep(.01)
+        assert preview._shown == step and abs(preview.yaw - target) < .001, 'The Giant-wing rotation did not finish.'
+        print('WING_ROTATION_SECONDS', round(time.monotonic() - start, 3), flush=True)
     for name in ('Back', 'Shoulder', 'Cape', 'Skin'):
         start = time.monotonic()
         tab(root, name).on_click(None)

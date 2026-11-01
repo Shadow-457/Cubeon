@@ -1,5 +1,6 @@
 """Offline camera, per-pixel occlusion, and preview frame lifecycle checks."""
 import inspect
+import copy
 import os
 import sys
 from unittest.mock import patch
@@ -62,6 +63,27 @@ for yaw in range(0, 360, 30):
     scales.append(round(abs((face.points[2][1] - face.points[0][1])
                             / (face.vertices[2][1] - face.vertices[0][1])), 6))
 check("turning giant wings keeps one fixed camera scale", len(set(scales)) == 1)
+
+# Launcher turntables use the generated cutout texture; the full feather mesh
+# remains the default for geometry/game comparisons above.
+for theme in ("ember", "frost", "leaf", "void", "aurora"):
+    item = cosmetics.get(f"back_{theme}_wings")
+    original = copy.deepcopy(item)
+    cfg = {"active_back_item": item["id"], "hide_cubeon_cape": True}
+    compact = CharacterModel.from_config(cfg)
+    check(f"{theme}: launcher Giant wings add only four cutout faces",
+          len(compact.faces) == len(model.faces) + 4)
+    check(f"{theme}: simplifying keeps the full catalogue and choice intact",
+          item == original and cfg["active_back_item"] == item["id"])
+    check(f"{theme}: compressed wings remain visible throughout rotation",
+          all(compact.render(yaw, 10).getbbox() for yaw in (0, 45, 90, 180, 270)))
+    small_item = cosmetics.get(f"back_{theme}_wings_small")
+    check(f"{theme}: Small wings keep their original geometry",
+          len(cosmetics.preview_faces(small_item, simplify=True)) == len(cosmetics.preview_faces(small_item)))
+pet = cosmetics.get("shoulder_ember_fox")
+pet_model = CharacterModel.from_config({"active_shoulder_item": pet["id"], "hide_cubeon_cape": True})
+check("the lightweight turntable preserves shoulder pets",
+      len(pet_model.faces) == len(model.faces) + len(cosmetics.preview_faces(pet)))
 
 # The outer atlas must remain separate from the base and have texel walls,
 # including around holes. These use the real turntable rasteriser.

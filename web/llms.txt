@@ -1,0 +1,42 @@
+# Cubeon Launcher
+
+> Cubeon Launcher is a free, Apache 2.0 open-source desktop launcher for Minecraft Java Edition on Windows, Linux and macOS. The official website is https://www.ylet.online/ and the official repository is https://github.com/Shadow-457/Cubeon.
+
+## Product facts
+
+- Also called Cubeon Minecraft Launcher. Cubeon is a separate project from the similarly named Cubion launcher.
+- Manages Minecraft Java versions, instances, mods, modpacks, skins, cosmetics, friends and local servers.
+- Supports Vanilla, Fabric, Quilt, Forge and NeoForge instances. Mods must match the Minecraft version and loader.
+- Uses local/offline player profiles. Microsoft account sign-in is not available; servers requiring Microsoft authentication cannot accept these profiles.
+- Does not launch Minecraft Bedrock Edition. Cubeon is an independent fan project, not affiliated with Mojang or Microsoft.
+- Windows distribution uses the Setup.exe installer. Linux offers an AppImage, setup installer and Debian/Ubuntu package. macOS release assets include an app bundle.
+- The launcher is free. Minecraft requires compatible Java and graphics drivers. Source and bundled components retain their respective licenses.
+- Available binaries and stable/beta status are listed on the download page and GitHub releases; check those sources for current versions.
+
+## Official sources
+
+- [Project facts](https://www.ylet.online/about): product identity, platforms, profiles and limitations.
+- [Downloads](https://www.ylet.online/download): official platform downloads.
+- [Source code](https://github.com/Shadow-457/Cubeon): source and build instructions.
+- [Releases](https://github.com/Shadow-457/Cubeon/releases): current binaries, release notes and beta labels.
+- [License](https://github.com/Shadow-457/Cubeon/blob/main/LICENSE): Apache License 2.0 source license.
+
+## Player documentation
+
+- [Documentation index](https://www.ylet.online/docs): player guides and screenshots.
+- [Getting started](https://www.ylet.online/getting-started): installation and first launch.
+- [Mods and shaders](https://www.ylet.online/mods): loaders, compatibility and dependencies.
+- [Modpacks](https://www.ylet.online/modpacks): packs and imports.
+- [Multiplayer](https://www.ylet.online/multiplayer): friends, local servers and offline-profile limitations.
+- [Cosmetics](https://www.ylet.online/cosmetics): skins, capes and decorative items.
+- [Troubleshooting](https://www.ylet.online/troubleshooting): launch and installation problems.
+- [Cubeon Doctor](https://www.ylet.online/doctor): crash-report analysis.
+- [Benchmarks](https://www.ylet.online/benchmarks): measurements and their comparison limits.
+- [Help](https://www.ylet.online/help): common questions and platform help.
+
+## Support and policies
+
+- [Issues](https://github.com/Shadow-457/Cubeon/issues): bug reports.
+- [Official community](https://discord.gg/DTbG8P3Ru9): Cubeon Discord support.
+- [Privacy](https://www.ylet.online/privacy): data handling.
+- [Third-party credits](https://www.ylet.online/licenses): bundled component licenses.

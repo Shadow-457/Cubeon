@@ -398,7 +398,7 @@ def test_resources(matrix):
 
     # Source, config and resources must all drop the removed effects.
     pattern = re.compile(
-        r"motion[_-]?blur|dynamic[_-]?crosshair|crosshair(?:scale|mixin)|renderTargetHighlight", re.I)
+        r"(?<!camera)motion[_-]?blur|dynamic[_-]?crosshair|crosshair(?:scale|mixin)|renderTargetHighlight", re.I)
     leftovers = []
     for path in Path(MOD, "src", "main").rglob("*"):
         if path.suffix not in {".java", ".json", ".fsh"}:
@@ -419,16 +419,23 @@ def test_removed_effect_guard():
         def write(extra):
             entries = dict.fromkeys(REQUIRED_ENTRIES, b"fixture")
             entries["fabric.mod.json"] = json.dumps({"depends": {"minecraft": "*"},
-                "mixins": ["cubeon-client.freelook.mixins.json"]}).encode()
+                "mixins": ["cubeon-client.freelook.mixins.json", "cubeon-client.camera-blur.mixins.json"]}).encode()
+            entries["cubeon-client.camera-blur.mixins.json"] = json.dumps({
+                "required": False, "package": "com.cubeon.client.hud.blur.mixin",
+                "client": ["CameraBlurMixin", "CameraBlurReloadMixin"],
+                "injectors": {"defaultRequire": 0}}).encode()
             entries["cubeon-client.freelook.mixins.json"] = json.dumps({
                 "package": "com.cubeon.client.mixin",
                 "client": ["FreelookCameraMixin", "FreelookScrollMixin"]}).encode()
             entries["assets/cubeon-client/lang/en_us.json"] = json.dumps({
                 "key.cubeon-client.freelook": "Hold to Freelook",
                 "cubeonclient.hud.wing_depth": "3D wings",
+                "cubeonclient.hud.camera_blur": "Camera motion blur",
+                "cubeonclient.hud.blur_intensity": "Blur intensity",
+                "cubeonclient.hud.blur_intensity_hint": "Click to increase intensity",
                 "key.cubeon-client.wing_flare": "Dragon Wing Flare"}).encode()
             entries["com/cubeon/client/hud/CubeonHudKeybinds.class"] = b"wing_flare"
-            entries["com/cubeon/client/hud/CubeonHudConfig.class"] = b"wingDepth"
+            entries["com/cubeon/client/hud/CubeonHudConfig.class"] = b"wingDepth cameraMotionBlur cameraBlurIntensity"
             entries["assets/cubeon-client/cosmetics/catalog.json"] = Path(ROOT, "assets/cosmetics/catalog.json").read_bytes()
             names = ["back_" + wing + "_wings" + size + ".png"
                      for wing in ("ember", "frost", "leaf", "void", "aurora") for size in ("", "_small", "_flat")]
@@ -441,6 +448,13 @@ def test_removed_effect_guard():
 
         write({"com/cubeon/client/hud/CubeonHud.class": b"crosshairTarget"})
         ok(verify(path) is None, "normal vanilla crosshair references remain valid")
+        write({"cubeon-client.camera-blur.mixins.json": json.dumps({
+            "required": False, "package": "com.cubeon.client.hud.blur",
+            "client": ["CameraBlurMixin", "CameraBlurReloadMixin"],
+            "injectors": {"defaultRequire": 0}}).encode()})
+        error = verify(path)
+        ok(error is not None and "camera blur" in error.lower(),
+           "verification rejects a Mixin package that would reserve the ordinary blur renderer")
         for entry, data, why in (
             ("com/cubeon/client/hud/CubeonHudKeybinds.class", b"old_bindings", "key binding"),
             ("assets/cubeon-client/cosmetics/catalog.json", b"{}", "catalogue is stale"),
