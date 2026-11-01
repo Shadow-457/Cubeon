@@ -35,9 +35,9 @@ other (see modpacks._extract_overrides).
 Mods already solved exactly this with the store + link + launch-sync pattern,
 so packs now use it too. Two deliberate differences from mods:
 
-  - No enabled/disabled toggle. A pack in a profile is simply present, and
-    which packs are actually APPLIED stays the game's business (its own menu /
-    options.txt) - the launcher never rewrites that choice.
+  - Enable/disable controls profile availability by renaming to `.disabled`.
+    Launch staging excludes disabled entries. Selecting an available pack
+    stays in the game's own menus; the launcher does not rewrite that choice.
   - Hand-dropped files are ADOPTED, never deleted. A .zip sitting in the game
     folder that Cubeon didn't stage is moved into the store and linked into
     the profile being played (see _adopt_foreign_entries), so a user who
@@ -52,6 +52,11 @@ import json
 import os
 import shutil
 import tempfile
+import threading
+import zipfile
+
+from .atomicio import write_json
+from .file_safety import child_directory, download_name, entry_name, inside, replace_directory
 
 from .paths import (APP_NAME, CUBEON_HOME, GLOBAL_CONTENT_DIR, RESOURCEPACKS_DIR,
                     SHADERPACKS_DIR, modrinth_headers)
@@ -62,7 +67,7 @@ from . import packformat
 # Reuse the exact same Modrinth browse-sort / relevance-banding logic the Mods
 # tab uses, so "browse" and search behave identically across content types
 # instead of drifting into two subtly different rankings.
-from .mods import MODRINTH_API, modrinth_search_index, rank_search_hits
+from .mods import MODRINTH_API, modrinth_search_index, rank_search_hits, _select_download
 # The per-instance plumbing is shared with mods on purpose: same profile
 # folders (get_profile_dir), same link-into-place engine, same loud failure
 # when a caller forgets which profile it is acting on.
@@ -166,7 +171,7 @@ _COLLISION_TAG = 8
 def store_dir(content_type: str) -> str:
     """The global, human-browsable store this content type shares with every
     profile - the packs/shaders twin of GLOBAL_MODS_DIR."""
-    d = os.path.join(GLOBAL_CONTENT_DIR, _cfg(content_type)["subdir"])
+    d = child_directory(GLOBAL_CONTENT_DIR, _cfg(content_type)["subdir"])
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -175,8 +180,8 @@ def resolve_content_profile_dir(content_type: str, mc_version: str | None,
                                 loader: str | None,
                                 version_id: str | None = None) -> str:
     require_loader_and_version(mc_version, loader, "read content")
-    return os.path.join(resolve_profile_dir(mc_version, loader, version_id),
-                        _cfg(content_type)["subdir"])
+    root = resolve_profile_dir(mc_version, loader, version_id)
+    return child_directory(root, _cfg(content_type)["subdir"])
 
 
 def profile_dir(content_type: str, mc_version: str | None,
@@ -190,8 +195,8 @@ def profile_dir(content_type: str, mc_version: str | None,
     the game never looks."""
     require_loader_and_version(
         mc_version, loader, f"manage {_cfg(content_type)['label_plural'].lower()}")
-    d = os.path.join(get_profile_dir(mc_version, loader, version_id),
-                     _cfg(content_type)["subdir"])
+    d = child_directory(get_profile_dir(mc_version, loader, version_id),
+                        _cfg(content_type)["subdir"])
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -212,6 +217,10 @@ def _dir_sha256(path: str) -> str:
     import hashlib
     h = hashlib.sha256()
     for dirpath, dirnames, filenames in os.walk(path):
+        for child in (*dirnames, *filenames):
+            full = os.path.join(dirpath, child)
+            if os.path.islink(full) and not inside(path, full):
+                raise ValueError('This pack contains a link outside its folder.')
         dirnames.sort()
         for fname in sorted(filenames):
             full = os.path.join(dirpath, fname)
@@ -258,12 +267,22 @@ def origin_hash(stored_path: str) -> str | None:
         with open(_origin_path(stored_path), "r", encoding="ascii") as f:
             h = f.read().strip()
         return h or None
-    except OSError:
+    except (OSError, ValueError):
         return None
+
+
+_STORE_LOCK = threading.RLock()
 
 
 def _store_entry(content_type: str, src_path: str,
                  human_name: str | None = None) -> str:
+    # A shared store name must never be replaced between collision detection
+    # and publication. Downloads themselves remain parallel.
+    with _STORE_LOCK:
+        return _store_entry_locked(content_type, src_path, human_name)
+
+
+def _store_entry_locked(content_type, src_path, human_name=None):
     """Puts a real pack file/folder into the global store, returning the stored
     path. Reuses the stored copy when the exact same bytes are already there
     (hashed first, so nothing is copied just to find that out)."""
@@ -271,20 +290,31 @@ def _store_entry(content_type: str, src_path: str,
     name = (human_name or os.path.basename(src_path.rstrip("/\\"))).strip()
     if not name:
         name = _cfg(content_type)["subdir"] + ".zip"
+    entry_name(name)
     src_hash = _entry_hash(src_path)
 
     candidate = os.path.join(store, name)
-    if os.path.exists(candidate):
+    if os.path.lexists(candidate):
         try:
-            if _entry_hash(candidate) == src_hash:
+            if inside(store, candidate) and _entry_hash(candidate) == src_hash:
                 return candidate          # exact-match reuse, no copy
         except OSError:
             pass
         stem, ext = os.path.splitext(name)
         candidate = os.path.join(store, f"{stem}.{src_hash[:_COLLISION_TAG]}{ext}")
 
-    if os.path.exists(candidate):
-        return candidate                  # same bytes, already disambiguated
+    # A truncated hash suffix is not proof that the bytes match. A preexisting
+    # collision (or dangling link) gets another name, never reused blindly.
+    stem, ext = os.path.splitext(name)
+    suffix = 0
+    while os.path.lexists(candidate):
+        try:
+            if inside(store, candidate) and _entry_hash(candidate) == src_hash:
+                return candidate
+        except OSError:
+            pass
+        suffix += 1
+        candidate = os.path.join(store, f"{stem}.{src_hash}.{suffix}{ext}")
 
     if os.path.isdir(src_path):
         tmp = tempfile.mkdtemp(prefix=".store-", dir=store)
@@ -313,26 +343,27 @@ def link_into_profile(content_type: str, stored_path: str,
     Links (symlink, then hardlink, then copy - global_mod_cache.link_into_place)
     rather than copying: the profile stays cheap metadata and the store stays
     the single place the bytes actually live."""
-    dest = os.path.join(profile_dir(content_type, mc_version, loader, version_id),
-                        os.path.basename(stored_path))
+    if not inside(store_dir(content_type), stored_path):
+        raise ValueError('The stored pack points outside its content store.')
+    name = entry_name(os.path.basename(stored_path))
+    dest = os.path.join(profile_dir(content_type, mc_version, loader, version_id), name)
     if os.path.isdir(stored_path):
         # link_into_place handles files only, so a folder pack is linked as a
         # symlink to the stored folder (or copied where symlinks are refused).
-        if os.path.islink(dest) or os.path.isfile(dest):
-            os.remove(dest)
-        elif os.path.isdir(dest):
-            shutil.rmtree(dest)
-        try:
-            os.symlink(stored_path, dest)
-        except OSError:
-            shutil.copytree(stored_path, dest)
+        with tempfile.TemporaryDirectory(prefix='.link-', dir=os.path.dirname(dest)) as work:
+            staged = os.path.join(work, 'pack')
+            try:
+                os.symlink(stored_path, staged, target_is_directory=True)
+            except OSError:
+                shutil.copytree(stored_path, staged)
+            replace_directory(staged, dest)
         return dest
     global_mod_cache.link_into_place(stored_path, dest)
     return dest
 
 
 # ---------------------------------------------------------------------------
-# Installed-content CRUD (over the shared game folder - no profiles)
+# Installed-content CRUD (per-instance links into a shared store)
 # ---------------------------------------------------------------------------
 
 # Packs and shaders are installed as bare .zips, so (unlike mods) nothing on
@@ -343,6 +374,7 @@ def link_into_profile(content_type: str, stored_path: str,
 # Best-effort: a pack installed before this existed, or dropped in by hand,
 # simply has no art and falls back to the placeholder icon.
 _CONTENT_META_PATH = os.path.join(CUBEON_HOME, "content_meta.json")
+_CONTENT_META_LOCK = threading.RLock()
 
 
 def _read_content_meta() -> dict:
@@ -355,12 +387,8 @@ def _read_content_meta() -> dict:
 
 
 def _write_content_meta(data: dict) -> None:
-    tmp = _CONTENT_META_PATH + ".tmp"
     try:
-        os.makedirs(CUBEON_HOME, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(data, fh)
-        os.replace(tmp, _CONTENT_META_PATH)
+        write_json(_CONTENT_META_PATH, data)
     except OSError:
         log.debug("couldn't write content metadata", exc_info=True)
 
@@ -373,47 +401,47 @@ def remember_content_meta(content_type: str, filename: str, *,
     filename. Called by download_content(); a no-op when nothing is known."""
     if not filename or not (icon_url or slug or title):
         return
-    data = _read_content_meta()
-    bucket = data.setdefault(content_type, {})
-    entry = bucket.get(filename) or {}
-    if icon_url:
-        entry["icon_url"] = icon_url
-    if slug:
-        entry["slug"] = slug
-    if title:
-        entry["title"] = title
-    bucket[filename] = entry
-    _write_content_meta(data)
+    with _CONTENT_META_LOCK:
+        data = _read_content_meta()
+        bucket = data.get(content_type)
+        if not isinstance(bucket, dict):
+            bucket = data[content_type] = {}
+        entry = bucket.get(filename)
+        entry = dict(entry) if isinstance(entry, dict) else {}
+        for key, value in (("icon_url", icon_url), ("slug", slug), ("title", title)):
+            if value:
+                entry[key] = value
+        bucket[filename] = entry
+        _write_content_meta(data)
 
 
 def forget_content_meta(content_type: str, filename: str) -> None:
     """Drops a removed pack's metadata so a later pack that happens to reuse
     the filename doesn't inherit a stranger's thumbnail."""
-    data = _read_content_meta()
-    bucket = data.get(content_type)
-    if not isinstance(bucket, dict) or filename not in bucket:
-        return
-    bucket.pop(filename, None)
-    _write_content_meta(data)
+    with _CONTENT_META_LOCK:
+        data = _read_content_meta()
+        bucket = data.get(content_type)
+        if not isinstance(bucket, dict) or filename not in bucket:
+            return
+        bucket.pop(filename, None)
+        _write_content_meta(data)
 
 
-def _attach_content_meta(content_type: str, item: dict) -> None:
-    entry = _read_content_meta().get(content_type, {}).get(item["filename"])
+def _attach_content_meta(content_type: str, item: dict, metadata=None) -> None:
+    bucket = (metadata if metadata is not None else _read_content_meta()).get(content_type)
+    name = item['filename'].removesuffix('.disabled')
+    entry = bucket.get(name) if isinstance(bucket, dict) else None
     if isinstance(entry, dict):
-        if entry.get("icon_url"):
-            item["icon_url"] = entry["icon_url"]
-        if entry.get("slug"):
-            item["slug"] = entry["slug"]
-        if entry.get("title"):
-            item["title"] = entry["title"]
+        for key in ('icon_url', 'slug', 'title'):
+            if isinstance(entry.get(key), str) and entry[key]:
+                item[key] = entry[key]
 
 
 def list_content(content_type: str, mc_version: str | None = None, *,
                  version_id: str | None = None, loader: str | None = None) -> list[dict]:
-    """Every pack/shader installed for THIS instance. No enabled/disabled state:
-    a pack in the profile is present, and the game itself decides which packs
-    are actually applied (its own menu / options.txt) - the launcher never
-    rewrites that choice.
+    """Every pack/shader installed for THIS instance, including disabled entries.
+    Enabled means available at next launch. Application/order are chosen in
+    Minecraft's own settings, which the launcher never rewrites.
 
     Needs mc_version AND loader: without them there is no instance to report
     on, so the answer is an empty list rather than a misleading union of every
@@ -427,7 +455,12 @@ def list_content(content_type: str, mc_version: str | None = None, *,
         return []
     exts = _cfg(content_type)["exts"]
     items = []
+    metadata = _read_content_meta()
     for fname in sorted(os.listdir(d)):
+        try:
+            entry_name(fname)
+        except ValueError:
+            continue
         full = os.path.join(d, fname)
         if fname.startswith("."):
             continue
@@ -435,13 +468,14 @@ def list_content(content_type: str, mc_version: str | None = None, *,
             # A folder pack: the game accepts unpacked packs, so it belongs
             # in the list (and the doctor's verdicts cover it too).
             pass
-        elif os.path.isfile(full) and fname.lower().endswith(exts):
+        elif os.path.isfile(full) and fname.removesuffix('.disabled').lower().endswith(exts):
             pass
         else:
             continue
         item = {
             "filename": fname,
-            "display_name": os.path.splitext(fname)[0],
+            "display_name": os.path.splitext(fname.removesuffix('.disabled'))[0],
+            "enabled": not fname.endswith('.disabled'),
             "size_kb": round(_path_size(full) / 1024, 1),
             "folder": os.path.isdir(full),
             # A link whose target is gone (store file deleted, or a profile
@@ -452,7 +486,7 @@ def list_content(content_type: str, mc_version: str | None = None, *,
         if mc_version or version_id:
             item["compat"] = content_compat(content_type, fname, mc_version,
                                             version_id, loader)
-        _attach_content_meta(content_type, item)
+        _attach_content_meta(content_type, item, metadata)
         items.append(item)
     return items
 
@@ -486,15 +520,20 @@ def delete_content(content_type: str, filename: str,
     Guards against a filename that escapes the content folder (a caller passing
     '../something'), the same path-escape check delete_version uses, since this
     deletes real files."""
-    d = profile_dir(content_type, mc_version, loader, version_id)
+    entry_name(filename)
+    d = resolve_content_profile_dir(content_type, mc_version, loader, version_id)
     target = os.path.join(d, filename)
     if os.path.dirname(os.path.abspath(target)) != os.path.abspath(d):
         raise ValueError("Refusing to delete a path outside the content folder.")
     stored = _store_target_of(target) if purge_store else None
+    if stored and not inside(store_dir(content_type), stored):
+        raise ValueError('Refusing to purge files outside the content store.')
     if os.path.isdir(target) and not os.path.islink(target):
         shutil.rmtree(target)
     elif os.path.isfile(target) or os.path.islink(target):
         os.remove(target)
+    if stored and _store_referenced(stored):
+        stored = None
     if stored:
         try:
             if os.path.isdir(stored):
@@ -503,7 +542,40 @@ def delete_content(content_type: str, filename: str,
                 os.remove(stored)
         except OSError:
             log.debug("couldn't purge stored pack %s", stored, exc_info=True)
-    forget_content_meta(content_type, filename)
+    # Metadata describes the shared stored filename. Removing one profile's
+    # link must not remove thumbnails/identity from sibling profiles.
+    if stored:
+        forget_content_meta(content_type, filename.removesuffix('.disabled'))
+
+
+def _store_referenced(stored):
+    from .mods import PROFILES_DIR
+    for root, directories, files in os.walk(PROFILES_DIR, followlinks=False):
+        for name in directories + files:
+            try:
+                if os.path.samefile(os.path.join(root, name), stored):
+                    return True
+            except OSError:
+                pass
+    return False
+
+
+def toggle_content(content_type, filename, mc_version, loader, *, version_id=None):
+    """Change only this profile's availability, retaining shared stored bytes."""
+    entry_name(filename)
+    with _STORE_LOCK:
+        directory = resolve_content_profile_dir(content_type, mc_version, loader, version_id)
+        source = os.path.join(directory, filename)
+        if not os.path.lexists(source):
+            raise ValueError('This content is no longer on disk. Refresh the list.')
+        if not os.path.isdir(source) and not filename.removesuffix('.disabled').lower().endswith(_cfg(content_type)['exts']):
+            raise ValueError('This is not a pack or shader entry.')
+        name = filename.removesuffix('.disabled') if filename.endswith('.disabled') else filename + '.disabled'
+        destination = os.path.join(directory, name)
+        if os.path.lexists(destination):
+            raise ValueError('Both enabled and disabled copies exist. Remove one first.')
+        os.rename(source, destination)
+        return name
 
 
 def _store_target_of(link_path: str) -> str | None:
@@ -535,7 +607,7 @@ def install_local_content(content_type: str, src_path: str,
     linked as (disambiguated in the store rather than clobbering an existing
     pack with the same name).
 
-    The stored copy is then checked against the profile's version and repaired
+    A private prepared copy is checked against the profile's version and repaired
     if the game would have rejected it (a pack.mcmeta format that doesn't cover
     the version being played is the classic "Incompatible" report), so a pack
     added by hand lands in a state the game accepts."""
@@ -546,6 +618,8 @@ def install_local_content(content_type: str, src_path: str,
         raise ValueError(f"That's not a {label} (.zip) file.")
     if not os.path.isfile(src_path):
         raise ValueError("Couldn't find that file.")
+    if not zipfile.is_zipfile(src_path):
+        raise ValueError('That content is not a readable ZIP archive.')
 
     # Hash BEFORE storing: _verify_and_fix may rewrite the stored copy (it can
     # even hardlink back onto the source), and the origin record must describe
@@ -555,11 +629,18 @@ def install_local_content(content_type: str, src_path: str,
     except OSError:
         src_hash = None
 
-    stored = _store_entry(content_type, src_path)
+    # Repair a private temporary copy. Repairing a profile directory symlink
+    # can otherwise rewrite bytes shared with a different instance.
+    with tempfile.TemporaryDirectory(prefix='.prepare-', dir=store_dir(content_type)) as work:
+        prepared = os.path.join(work, 'payload.zip')
+        shutil.copyfile(src_path, prepared)
+        _verify_and_fix(content_type, prepared, mc_version, version_id, fix_cb)
+        if content_type == 'shader' and not packformat.shader_verdict(prepared)['ok']:
+            raise ValueError('This archive has no readable shaders/ folder.')
+        stored = _store_entry(content_type, prepared, human_name=os.path.basename(src_path))
     if src_hash:
         _write_origin_hash(stored, src_hash)
     dest = link_into_profile(content_type, stored, mc_version, loader, version_id)
-    _verify_and_fix(content_type, dest, mc_version, version_id, fix_cb)
     return os.path.basename(dest)
 
 
@@ -592,6 +673,7 @@ def is_installed(content_type: str, filename: str,
                  version_id: str | None = None) -> bool:
     """Is this pack in the active instance's profile? (A folder pack counts -
     the game accepts unpacked packs, and list_content lists them.)"""
+    entry_name(filename)
     if mc_version and loader:
         target = os.path.join(resolve_content_profile_dir(
             content_type, mc_version, loader, version_id), filename)
@@ -630,6 +712,8 @@ def _verify_and_fix(content_type: str, path: str, mc_version: str | None = None,
                                     "the game can find it")
             else:
                 report["reason"] = verdict["reason"]
+            if report['changed'] and fix_cb:
+                fix_cb(report)
             return report
 
         # Resource pack. The targets are the version that OWNS this pack: now
@@ -787,31 +871,14 @@ def get_content_download(content_type: str, project_id_or_slug: str,
     if mc_version:
         params["game_versions"] = json.dumps([mc_version])
 
-    cache_key = {"type": content_type, "project": project_id_or_slug, "mc_version": mc_version}
+    cache_key = {"type": content_type, "project": project_id_or_slug, "mc_version": mc_version, 'revision': 2}
 
     def _fetch():
         versions = net.get_json(
             f"{MODRINTH_API}/project/{project_id_or_slug}/version",
             params=params, headers=modrinth_headers(), timeout=15,
         )
-        if not versions:
-            return None
-
-        latest = versions[0]
-        files = latest.get("files", [])
-        primary = next((f for f in files if f.get("primary")), files[0] if files else None)
-        if not primary:
-            return None
-
-        return {
-            "filename": primary.get("filename"),
-            "url": primary.get("url"),
-            "size_kb": round(primary.get("size", 0) / 1024, 1),
-            "version_number": latest.get("version_number"),
-            # Modrinth publishes sha512/sha1 per file; carrying them here lets
-            # download_content reject a corrupted/truncated transfer outright.
-            "hashes": primary.get("hashes") or {},
-        }
+        return _select_download(versions, mc_version=mc_version, extensions=_cfg(content_type)['exts'])
 
     # Between click and download start - 24h fresh, then SWR, offline fallback.
     return local_cache.cached_call("content_download", cache_key, _fetch, max_age=86400)
@@ -840,28 +907,40 @@ def download_content(content_type: str, download_url: str, filename: str,
     store never holds a pack the game would reject. progress_cb(downloaded,
     total) is throttled inside net. Returns the profile path it was linked at."""
     _require_install_target(content_type, mc_version, loader)
-    store = store_dir(content_type)
-    tmp = os.path.join(store, f".fetch-{os.getpid()}-{os.path.basename(filename)}.part")
+    filename = download_name(filename, _cfg(content_type)["exts"])
+    from .modpacks import _host_allowed
+    if not _host_allowed(download_url or ''):
+        raise ValueError('Refusing a content download from an untrusted host.')
     algo, expected = None, None
-    for a in ("sha512", "sha1"):
+    for a in ("sha512", "sha256", "sha1"):
         if (hashes or {}).get(a):
+            if not isinstance(hashes[a], str):
+                raise ValueError('The download has an invalid published hash.')
             algo, expected = a, hashes[a].lower()
             break
     expected_pair = (algo, expected) if algo and expected else None
+    store = store_dir(content_type)
+    fd, tmp = tempfile.mkstemp(prefix='.fetch-', suffix='.zip', dir=store)
+    os.close(fd)
     try:
         net.download_to(tmp, download_url, headers=modrinth_headers(), timeout=60,
-                        expected_hash=expected_pair, progress_cb=progress_cb)
+                        expected_hash=expected_pair, progress_cb=progress_cb,
+                        url_validator=_host_allowed)
+        if not zipfile.is_zipfile(tmp):
+            raise ValueError('The downloaded content is not a readable ZIP archive.')
         # Last step before the bytes are kept: make sure the game will accept
         # them. Modrinth's metadata says which Minecraft versions the AUTHOR
         # thinks a pack supports; the pack's own pack.mcmeta is what the game
         # reads, and the two disagree often enough that this is the difference
         # between "installed" and "shows Incompatible in game".
         _verify_and_fix(content_type, tmp, mc_version, version_id, fix_cb)
+        if content_type == 'shader' and not packformat.shader_verdict(tmp)['ok']:
+            raise ValueError('This archive has no readable shaders/ folder.')
         stored = _store_entry(content_type, tmp, human_name=filename)
     finally:
-        if os.path.exists(tmp):
+        for leftover in (tmp, tmp + '.part'):
             try:
-                os.remove(tmp)
+                os.remove(leftover)
             except OSError:
                 pass
     linked = link_into_profile(content_type, stored, mc_version, loader, version_id)
@@ -885,7 +964,13 @@ def _read_staged(content_type: str) -> list[str]:
                   "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, list):
-            return [n for n in data if isinstance(n, str)]
+            names = []
+            for name in data:
+                try:
+                    names.append(entry_name(name))
+                except ValueError:
+                    continue
+            return names
     except (OSError, ValueError):
         pass
     return []
@@ -893,11 +978,8 @@ def _read_staged(content_type: str) -> list[str]:
 
 def _write_staged(content_type: str, names: list[str]) -> None:
     path = os.path.join(content_dir(content_type), _STAGED_MARKER)
-    tmp = path + ".tmp"
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(sorted(names), f)
-        os.replace(tmp, path)
+        write_json(path, sorted(names))
     except OSError:
         log.debug("couldn't record staged %s", content_type, exc_info=True)
 
@@ -905,21 +987,14 @@ def _write_staged(content_type: str, names: list[str]) -> None:
 def _store_from_game_folder(content_type: str, path: str, name: str) -> str:
     """Moves a game-folder entry into the store, returning the stored path.
 
-    A link already pointing into the store just resolves; a real file/folder
-    (hand-dropped, or left by a Cubeon build that had no profiles) is ingested,
-    and the original is removed only AFTER the store has the bytes - so a
-    failure leaves the user's file exactly where it was instead of losing it."""
+    A link already pointing into the store just resolves. Originals remain
+    until the caller successfully publishes a profile link."""
     if os.path.islink(path):
         real = os.path.realpath(path)
         store_root = os.path.realpath(store_dir(content_type))
         if os.path.exists(real) and real.startswith(store_root + os.sep):
             return real
     stored = _store_entry(content_type, path, human_name=name)
-    if os.path.realpath(stored) != os.path.realpath(path):
-        if os.path.isdir(path) and not os.path.islink(path):
-            shutil.rmtree(path)
-        else:
-            os.remove(path)
     return stored
 
 
@@ -951,6 +1026,12 @@ def _adopt_foreign_entries(content_type: str, staged: list[str],
         try:
             stored = _store_from_game_folder(content_type, full, fname)
             link_into_profile(content_type, stored, mc_version, loader, version_id)
+            # Only retire the original after the profile link succeeds.
+            if os.path.realpath(full) != os.path.realpath(stored):
+                if os.path.isdir(full) and not os.path.islink(full):
+                    shutil.rmtree(full)
+                else:
+                    os.remove(full)
             adopted += 1
         except Exception:      # noqa: BLE001 - never break a launch over this
             log.warning("couldn't adopt %s from the game folder", full,
@@ -988,7 +1069,12 @@ def _sync_content_type(content_type: str, mc_version: str,
     _adopt_foreign_entries(content_type, staged, mc_version, loader, version_id)
 
     profile = profile_dir(content_type, mc_version, loader, version_id)
-    wanted = [n for n in sorted(os.listdir(profile)) if not n.startswith(".")]
+    wanted = [n for n in sorted(os.listdir(profile))
+              if not n.startswith('.') and not n.endswith('.disabled')
+              and (os.path.isdir(os.path.join(profile, n))
+                   or n.lower().endswith(_cfg(content_type)['exts']))]
+    wanted = [n for n in wanted if _valid_entry(n)]
+    published = set()
 
     # Drop what we staged for an instance that is no longer selected. Only ever
     # an entry we recorded - a file we didn't stage is never a candidate here.
@@ -999,9 +1085,10 @@ def _sync_content_type(content_type: str, mc_version: str,
         try:
             if os.path.isdir(leftover) and not os.path.islink(leftover):
                 shutil.rmtree(leftover)
-            elif os.path.exists(leftover):
+            elif os.path.lexists(leftover):
                 os.remove(leftover)
         except OSError:
+            published.add(fname)  # Keep ownership of a failed removal.
             log.debug("couldn't unstage %s", leftover, exc_info=True)
 
     for fname in wanted:
@@ -1014,6 +1101,7 @@ def _sync_content_type(content_type: str, mc_version: str,
                 continue
             try:
                 if os.path.samefile(src, dst):
+                    published.add(fname)
                     continue
             except OSError:
                 pass
@@ -1042,10 +1130,23 @@ def _sync_content_type(content_type: str, mc_version: str,
                 shutil.rmtree(backup)
             else:
                 os.replace(tmp, dst)
+            published.add(fname)
+        except OSError:
+            if fname in staged and os.path.lexists(dst):
+                published.add(fname)
+            log.warning('couldn\'t stage %s', dst, exc_info=True)
         finally:
             if os.path.isdir(tmp) and not os.path.islink(tmp):
                 shutil.rmtree(tmp)
             elif os.path.lexists(tmp):
                 os.remove(tmp)
 
-    _write_staged(content_type, wanted)
+    _write_staged(content_type, list(published))
+
+
+def _valid_entry(name):
+    try:
+        entry_name(name)
+        return True
+    except ValueError:
+        return False

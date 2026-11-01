@@ -102,7 +102,7 @@ page = DriverPage()
 with patch("ui.mods_tab.threading.Thread", QueuedThread), patch.object(icons, "prefetch"):
     root, refresh, load, browse_refresh = build_mods_tab(
         page, {}, state, ft.Dropdown(value="1.21.1"), section_label=section_label, **THEME)
-    scope = inspect.getclosurevars(refresh).nonlocals
+    scope = inspect.getclosurevars(inspect.getclosurevars(refresh).nonlocals['_render_installed_snapshot']).nonlocals
     refresh()
     rows = tuple(scope["mods_list_view"].controls)
     for repeat in range(3):

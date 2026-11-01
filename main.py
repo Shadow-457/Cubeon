@@ -239,13 +239,14 @@ from ui.stats_tab import build_stats_tab  # Stats tab: playtime/library/cosmetic
 from ui.activity_widgets import build_badges
 from ui.settings_tab import build_settings_tab  # Settings tab: two-pane section rail + content
 from ui.import_section import build_import_section  # Settings -> Import: scan a folder, import what it finds
-from ui.seasonal_ui import (  # Seasonal badge/companion/ambience (the runtime half of cubeon/seasonal.py)
-    SeasonalAnimator, build_ambience, build_badge as build_season_badge,
-    build_perch as build_season_perch, icon_for as season_icon,
-    pet_src as season_pet_src, quip_for as season_quip,
-    reflow_ambience as season_reflow_ambience,
+from ui.seasonal_ui import (  # Seasonal badge/companion (runtime half of cubeon/seasonal.py)
+    SeasonalAnimator, build_badge as build_season_badge,
+    icon_for as season_icon,
+    pet_src as season_pet_src,
     update_badge as season_update_badge, update_pet as season_update_pet,
 )
+from ui.play_seasons import PlaySeasonOverlay
+from ui.launcher_pet import LauncherPet
 from ui.onboarding import build_onboarding  # First-run full-screen welcome/tour
 from ui.crash_report import show_crash_dialog  # Game-crash report + log copy
 from cubeon import seasonal as cubeon_seasonal  # Season detection/caching; the palette half runs in cubeon/__init__
@@ -1639,10 +1640,8 @@ async def main(page: ft.Page):
     # that very decision - cached, not re-detected - so the badge can never
     # advertise a season the window isn't actually wearing.
     #
-    # The badge and the companion are built HERE, before the top bar, because
-    # the bar mounts them. Their click handlers are late-bound lambdas (the
-    # account button does the same): _open_seasonal_settings and _on_pet_clicked
-    # are defined further down, next to the Settings tab they belong to.
+    # The badge and roaming companion are built before the shell. The pet
+    # mounts below dialogs in page.overlay and ignores pointer interactions.
     # -----------------------------------------------------------------
     season_info = cubeon_seasonal.current()
     # Built but NOT mounted in the top bar (user request: the chip cluttered
@@ -1650,14 +1649,11 @@ async def main(page: ft.Page):
     # keep it correct; the Seasonal pane in Settings is the way in.
     season_badge = build_season_badge(
         season_info, on_click=lambda e: _open_seasonal_settings())
-    # The companion lives on a perch lane (a short clipped strip) so it can
-    # WANDER - walk, pause, turn around - instead of hopping in place.
-    # season_perch is what the bar mounts; season_pet_ctrl is the sprite
-    # inside it (kept named for the click bounce and the visibility toggle);
-    # season_pet is the state dict the animator's wander machine drives.
-    season_perch, season_pet = build_season_perch(
-        season_info, on_click=lambda e: _on_pet_clicked())
-    season_pet_ctrl = season_pet["ctrl"]
+    # The companion follows frame rails and valid page-specific perches.
+    # Retain the pet dict for the live season updater; motion uses its scene.
+    season_roamer = LauncherPet(season_info)
+    season_perch, season_pet = season_roamer.control, season_roamer.pet
+    page.overlay.append(season_roamer.control)
     # Decoration must be off when the layer is off: "Seasonal look: off" plus a
     # seasonal fox in the bar would read as a bug.
     season_perch.visible = bool(cfg.get("season_pet", False)) and season_info.seasonal
@@ -1965,7 +1961,6 @@ async def main(page: ft.Page):
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     # The seasonal companion (off unless enabled in Settings).
-                    ft.Row([season_perch], alignment=ft.MainAxisAlignment.CENTER),
                     *foot,
                 ],
                 spacing=8,
@@ -6387,10 +6382,15 @@ async def main(page: ft.Page):
         data="play-config-panel",
     )
 
+    play_season = PlaySeasonOverlay(
+        season_info, width=max(360, int(_gw or 1380) - 116),
+        height=max(440, int(_gh or 836) - 64),
+    )
     play_tab = ft.Stack(
         [
             hero_art_layer,
             hero_art_scrim,
+            play_season.control,
             ft.Container(
                 left=0, top=0, right=0, bottom=0,
                 padding=32,
@@ -6548,7 +6548,7 @@ async def main(page: ft.Page):
             **THEME,
         )
         mods_tab.content = content
-        _tab_cbs["mods"] = {"refresh": refresh, "recommend": recommend,
+        _tab_cbs["mods"] = {"refresh": lambda: refresh(background=True), "recommend": recommend,
                             "browse": browse}
 
     # -----------------------------------------------------------------
@@ -7488,13 +7488,11 @@ async def main(page: ft.Page):
     # start - and the Restart button does it (module-level `_relaunch`, honoured
     # by the __main__ session loop).
     #
-    # `_season_rt` holds the runtime pieces the LAYOUT section builds later (the
-    # ambience band, its particles, the one shared ticker). The handlers below
+    # `_season_rt` holds the shared ticker built in the LAYOUT section. The handlers below
     # reach into it at CLICK time, never at definition time, which is why an
     # empty dict here is fine.
     # -----------------------------------------------------------------
-    _season_rt = {"animator": None, "band": None, "strip": None,
-                  "particles": None, "bounds": None}
+    _season_rt = {"animator": None}
 
     _SEASON_CHOICES = [("auto", "Auto (from my timezone)")] + [
         (key, cubeon_seasonal.PRETTY[key]) for key in cubeon_seasonal.SEASONS
@@ -7529,7 +7527,7 @@ async def main(page: ft.Page):
                      seasonal_source_text):
             thread_safe_ui.refresh(ctrl)
         # The RUNTIME half follows the new season immediately - badge chip,
-        # companion sprite, weather strip - so picking a season visibly does
+        # companion sprite and Play scenery - so picking a season visibly does
         # something even though the palette itself waits for a relaunch (see
         # the module map: tokens are bound at import; don't fight that).
         season_update_badge(season_badge, info)
@@ -7552,8 +7550,8 @@ async def main(page: ft.Page):
     season_pet_switch = ft.Checkbox(
         label="", value=bool(cfg.get("season_pet", False)), active_color=ACCENT,
     )
-    season_ambience_switch = ft.Checkbox(
-        label="", value=bool(cfg.get("season_ambience", False)), active_color=ACCENT,
+    season_overlay_switch = ft.Checkbox(
+        label="", value=bool(cfg.get("season_overlay", True)), active_color=ACCENT,
     )
 
     # Full-window "Restarting…" cover, shown the instant the Restart button is
@@ -7760,20 +7758,18 @@ async def main(page: ft.Page):
             pass
         _season_runtime_apply()
 
-    def _on_season_ambience_toggle(e=None):
-        cfg["season_ambience"] = bool(season_ambience_switch.value)
+    def _on_season_overlay_toggle(e=None):
+        cfg["season_overlay"] = bool(season_overlay_switch.value)
         try:
             core.save_config(cfg)
         except Exception:
-            pass
+            set_status("Couldn't save the scenery setting")
         _season_runtime_apply()
-        set_status("Weather effects on" if season_ambience_switch.value
-                   else "Weather effects off")
 
     seasonal_switch.on_change = _on_seasonal_toggle
     season_dropdown.on_select = _on_season_change
     season_pet_switch.on_change = _on_season_pet_toggle
-    season_ambience_switch.on_change = _on_season_ambience_toggle
+    season_overlay_switch.on_change = _on_season_overlay_toggle
     _season_controls_sync(season_info)
 
     # The Import section's target: whatever version + loader the player has
@@ -7890,7 +7886,8 @@ async def main(page: ft.Page):
         seasonal_restart_note=seasonal_restart_note,
         season_pin_note=season_pin_note,
         season_pet_switch=season_pet_switch,
-        season_ambience_switch=season_ambience_switch,
+        season_overlay_switch=season_overlay_switch,
+        on_motion_change=lambda: _season_runtime_apply(),
         doctor_target=lambda: (state.get("selected_mc_version"),
                                state.get("mod_loader") or "vanilla",
                                state.get("selected_version")),
@@ -8039,6 +8036,8 @@ async def main(page: ft.Page):
             active_tab["value"] = key
             state["active_tab"] = key   # see the note where active_tab is made
             switch_controls = []
+            if season_roamer.tab_changed(key, repaint=False):
+                switch_controls.append(season_roamer.control)
             # Update nav button styles
             for k, btn in nav_buttons.items():
                 is_active = k == key or (k == SERVER_TOP_KEY and key in SERVER_GROUP_KEYS)
@@ -8084,6 +8083,10 @@ async def main(page: ft.Page):
             page.update(*switch_controls)
             view.opacity = 1.0
             thread_safe_ui.refresh(view)
+
+        # Hidden Play views drop their particle registration. An empty shared
+        # ticker blocks on its Condition; navigation never joins a UI worker.
+        _season_runtime_apply()
 
         # Per-tab refreshes run after the shell is on screen. Each one repaints
         # only its own region (thread_safe_ui.refresh), so none of them needs
@@ -8150,76 +8153,36 @@ async def main(page: ft.Page):
         expand=True,
     )
 
-    # --- SEASONAL RUNTIME (the ambience band + the one shared ticker) --------
-    # The weather lives in its OWN LAYOUT BAND between the top bar and the
-    # content surface, not as an overlay on top of the tabs. An overlay in the
-    # corner would sit over the content surface and swallow clicks in whatever
-    # happened to be underneath it - and a decoration must never eat an
-    # interaction. A 56px band costs nothing, is always visible, and reads as
-    # weather across the top of the window rather than as a stray box.
-    #
-    # `width` is the window width at build time: particles are spread over it
-    # once, and keep their positions if the window is later resized (they wrap
-    # within that width). Re-flowing them on every resize would mean listening
-    # to window events for a decoration.
-    # Uses the SAVED width (_gw), not page.window.width: during startup the
-    # window is still sized as the loading splash, so reading it here would
-    # spread the particles over 360px instead of the real window.
-    _season_strip_w = max(360, int(_gw or 1180) - 40)
-    season_strip, season_particles, season_bounds = build_ambience(
-        season_info, width=_season_strip_w, height=56,
-    )
-    season_band = ft.Container(
-        content=season_strip,
-        height=56,
-        visible=False,          # flipped by _season_runtime_apply() below
-        padding=ft.padding.Padding.only(left=12, right=12),
-        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-    )
-    _season_rt.update({"band": season_band, "strip": season_strip,
-                       "particles": season_particles, "bounds": season_bounds,
-                       "season": season_info.season})
+    # --- SEASONAL RUNTIME: Play artwork and one shared motion ticker ---------
+    # Bundled trees/grass and bounded particles follow Seasonal look, live
+    # inside Play, and never create a separate layout band.
     season_animator = SeasonalAnimator()
     _season_rt["animator"] = season_animator
 
     def _season_runtime_apply():
-        """Applies the seasonal runtime switches (pet, weather) immediately.
-
-        These two are the halves of the feature that do NOT need a relaunch -
-        only the palette does - so toggling them must be instant. Registration
-        is rebuilt from cfg rather than diffed: there are at most two entries,
-        and rebuilding can't drift out of sync with the checkboxes.
-        """
+        """Apply live artwork/particle preferences without remounting Play."""
         info = cubeon_seasonal.current()
         pet_on = bool(cfg.get("season_pet", True)) and info.seasonal
-        weather_on = bool(cfg.get("season_ambience")) and info.seasonal
-
-        if season_perch.visible != pet_on:
-            season_perch.visible = pet_on
-            thread_safe_ui.refresh(season_perch)
-        if _season_rt["band"].visible != weather_on:
-            _season_rt["band"].visible = weather_on
-            thread_safe_ui.refresh(_season_rt["band"])
-
         animator = _season_rt["animator"]
-        animator.clear()
-        if weather_on and _season_rt.get("season") != info.season:
-            # A live season change re-seeds the weather for the new season
-            # (same particle controls, new palette/behavior) - the palette
-            # itself still waits for a relaunch.
-            _season_rt["bounds"] = season_reflow_ambience(
-                _season_rt["particles"], _season_rt["bounds"], info)
-            _season_rt["season"] = info.season
-            thread_safe_ui.refresh(_season_rt["strip"])
-        if pet_on:
-            animator.add_pet(season_pet)
-        if weather_on:
-            animator.add_ambience(_season_rt["strip"], _season_rt["particles"],
-                                  _season_rt["bounds"])
+        with thread_safe_ui.TREE_LOCK:
+            if season_perch.visible != pet_on:
+                season_perch.visible = pet_on
+                thread_safe_ui.refresh(season_perch)
+            season_roamer.configure(info, enabled=pet_on,
+                                    active_tab=state.get("active_tab", "play"))
+            play_season.configure(
+                info, weather=True,
+                active=state.get("active_tab", "play") == "play",
+                enabled=bool(cfg.get("season_overlay", True)),
+            )
+            animator.clear()
+            if season_roamer.animating:
+                animator.add_scene(season_roamer)
+            if play_season.animating:
+                animator.add_scene(play_season)
+        # An empty ticker parks on its Condition; only session-end joins it.
         if animator.has_work:
             animator.start()
-        else:
-            animator.stop()
 
     _season_runtime_apply()
 
@@ -8235,35 +8198,6 @@ async def main(page: ft.Page):
             settings_tab.select_section("seasonal")
         except Exception:
             traceback.print_exc()
-
-    def _on_pet_clicked(e=None):
-        """The companion is a mood, never a feature: it bounces and says one
-        line. The bounce lifts the sprite inside its perch lane (top, like the
-        animator's idle hops) so it can't fight the wander machine.
-
-        Every step is guarded - decoration that can raise is worse than no
-        decoration, and this runs off a click in the top bar.
-        """
-        try:
-            season_pet_ctrl.top = -10
-            thread_safe_ui.refresh(season_pet_ctrl)
-
-            def _settle():
-                try:
-                    season_pet_ctrl.top = 0
-                    thread_safe_ui.refresh(season_pet_ctrl)
-                except Exception:
-                    pass  # window gone mid-hop - the hop is over anyway
-
-            _t = threading.Timer(0.22, _settle)
-            _t.daemon = True
-            _t.start()
-        except Exception:
-            pass
-        try:
-            _show_snack(season_quip(cubeon_seasonal.current()), duration=3500)
-        except Exception:
-            pass
 
     # Swap the loading splash for the real UI. The window is already mapped
     # (showing the splash), so this swap IS the transition the user sees -
@@ -8307,7 +8241,7 @@ async def main(page: ft.Page):
             _top_region = ft.WindowDragArea(content=top_bar, maximizable=True)
         except Exception:
             _top_region = top_bar  # a frame that can't be dragged beats none
-    _main_column = ft.Column([_top_region, subnav_bar, season_band, content_surface],
+    _main_column = ft.Column([_top_region, subnav_bar, content_surface],
                              expand=True, spacing=0)
     _root_content = ft.Row([sidebar, _main_column], expand=True,
                            spacing=0,
@@ -8482,9 +8416,7 @@ async def main(page: ft.Page):
         def _onboard_season_toggle(on):
             # The onboarding speaks about "the seasonal look" as one thing, so
             # the switch owns both halves that make it visible: the palette
-            # (next start) and the top-bar companion (immediately). Ambience
-            # stays off - it is the one part with a repaint clock and the
-            # Settings pane still treats it as opt-in.
+            # (next start), companion and Play overlay (immediately).
             cfg["seasonal_theme"] = bool(on)
             cfg["season_pet"] = bool(on)
             try:
@@ -8958,14 +8890,15 @@ async def main(page: ft.Page):
             pass
 
     def _season_animator_pause(paused):
-        """Minimize/hide: freeze the seasonal ticker. Restore/show/focus: resume.
+        """Minimize/hide/blur: freeze motion. Restore/show/focus: resume.
 
         A minimized window is invisible, so every frame the ticker produces is
         a repaint nobody can see - measured 8.2 frames/s with the window
         minimized, for as long as it stays that way (the common case: the
         launcher sits minimized while the game runs). The ticker blocks on a
         Condition while paused, so this costs zero wakeups; on restore the pet
-        continues from the pose it was in, so nothing changes on screen.
+        continues from the position it was in. Freeze its GIF codec too, using
+        the bundled resting pose until the window is active again.
         """
         animator = _season_rt.get("animator")
         if animator is None:
@@ -8975,6 +8908,9 @@ async def main(page: ft.Page):
                 animator.pause()
             else:
                 animator.resume()
+            season_roamer.set_paused(paused)
+            if not paused:
+                _season_runtime_apply()
         except Exception:
             pass
 
@@ -8995,6 +8931,8 @@ async def main(page: ft.Page):
                 _season_animator_pause(True)
             elif ev in ("restore", "show", "focus"):
                 _season_animator_pause(False)
+            elif ev == "blur":
+                _season_animator_pause(True)
             if ev in ("close", "hide", "disconnect"):
                 # Flet 0.86 reality check: on this build the native X button
                 # tears the window down WITHOUT delivering a "close" event to

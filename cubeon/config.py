@@ -250,22 +250,19 @@ DEFAULT_CONFIG = {
     # pane says so, and offers to do it. Turning it off just keeps the normal
     # green identity. ON BY DEFAULT (2026-10-23 user ask): the seasonal look is
     # the launcher's identity now, and a first run should wear it rather than
-    # looking like every other green launcher. Ambience stays opt-in below.
+    # looking like every other green launcher. Extras can be disabled below.
     "seasonal_theme": True,
     # "auto" = follow the detected season. A season name overrides the guess,
     # for the two cases detection can't win: a user who disagrees with it, and
     # the tropics/equator, where "autumn" is a fiction either way. The Settings
     # override ALWAYS outranks the timezone tables.
     "season_override": "auto",
-    # The little companion in the top bar (assets/pets/<season>.gif). Pure
-    # decoration - it costs no timer of its own, the GIF animates itself.
+    # The roaming companion (assets/pets/<season>.gif). Pure
+    # decoration - its route shares the seasonal ticker; idle poses are static.
     # On with the seasonal look by default.
     "season_pet": True,
-    # Falling leaves / snow / petals / fireflies in the corner. Opt-in AND
-    # off by default: it is the only part of the seasonal layer that needs a
-    # repaint clock, so it ships disabled until it has been measured on real
-    # hardware (CUBEON_PERF=1).
-    "season_ambience": False,
+    # Independent from the palette and buddy; off removes all Play scenery.
+    "season_overlay": True,
     # "2026-autumn" - the last season the greeting card was shown for, so the
     # once-a-season hello happens once, including across the Dec->Jan boundary
     # (see seasonal.season_year).

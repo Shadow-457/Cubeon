@@ -16,6 +16,7 @@ import re          # For turning mod names into comparable "slugs"
 import logging
 import threading   # For running network calls in the background without freezing the UI
 import time        # Throttle for the automatic problem check
+import weakref
 
 # Flet imports - Flet is a UI framework for Python (like Flutter)
 import flet as ft
@@ -39,6 +40,8 @@ from cubeon import dialogs  # open/close dialogs across Flet versions
 from cubeon import instances as instance_info  # the selected instance's real loader
 from ui.install_feedback import InstallRegistry, compact_status, progress_text
 from ui.content_states import loading_rows, empty_state
+from cubeon.background_refresh import BackgroundRefresh
+from cubeon.icon_loader import IconLoader
 
 
 def batch_progress_text(value: float, total: float, eta: "str | None" = None) -> str:
@@ -115,10 +118,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # --- UI elements for the Mods tab ---
 
     # List of installed mods (will be populated by refresh_mods_list)
-    mods_list_view = ft.Column(spacing=8)
+    mods_list_view = ft.ListView(spacing=8, expand=True, cache_extent=128,
+                                build_controls_on_demand=True)
     installed_count_text = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     installed_show_all = {"value": False}
+    installed_limit = {"value": 25}
+    installed_snapshots = {}
+    artwork = IconLoader()
+    local_install_busy = {'value': False}
+    picker_target = {'value': None}
     installed_rows = {}
+    installed_collisions = set()
     browse_rows = {}
     install_registry = InstallRegistry()
 
@@ -138,9 +148,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                font_family=FONT_MONO, visible=False)
 
     def _set_installed_status(t):
-        installed_status.value = t
-        installed_status.visible = True
-        thread_safe_ui.refresh(installed_status)
+        with thread_safe_ui.TREE_LOCK:
+            installed_status.value = t
+            installed_status.visible = True
+            thread_safe_ui.refresh(installed_status)
 
     # --- Installed-mod icons -------------------------------------------------
     # Installed jars only record their Modrinth *slug* in a sidecar file - the
@@ -152,18 +163,23 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     pending_icon_holders = {}  # slug -> [placeholder Containers awaiting art]
     icon_inflight = set()
 
-    def _icon_image(url):
-        # Disk-cached art: the first-ever render uses the remote URL (exactly
-        # as before) while a background thread files the bytes away; every
-        # render after that shows the cached file (base64 src - Flet can't
-        # load our absolute cache path directly) - instant and offline-safe.
-        from cubeon import icons as _icons
-        _icons.prefetch(url)
-        return ft.Image(
-            src=_icons.src(url), width=34, height=34, border_radius=RADIUS,
+    def _art_image(url, width=34, height=34, radius=RADIUS):
+        image = ft.Image(
+            src=_icons.peek_src(url) or 'icon.svg', width=width, height=height, border_radius=radius,
             fit=ft.BoxFit.COVER, gapless_playback=True,
+            data=url,
             error_content=ft.Icon(ft.Icons.EXTENSION_OUTLINED, color=TEXT_FAINT, size=18),
         )
+        def ready(source):
+            if image.data == url and image.src != source:
+                image.src = source
+                thread_safe_ui.refresh(image)
+        if url and not _icons.peek_src(url):
+            artwork.request(url, ready)
+        return image
+
+    def _icon_image(url):
+        return _art_image(url)
 
     def _make_installed_icon(m):
         """The 34px leading icon for an installed-mod row: real art when we
@@ -179,8 +195,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             holder.content = _icon_image(url)
         else:
             holder.content = ft.Icon(ft.Icons.EXTENSION_OUTLINED, color=TEXT_FAINT, size=18)
-            if slug:
-                pending_icon_holders.setdefault(slug, []).append(holder)
+            if slug and slug not in installed_icon_urls:
+                pending_icon_holders.setdefault(slug, []).append(weakref.ref(holder))
         return holder
 
     def _fetch_missing_icons():
@@ -211,8 +227,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     holders = pending_icon_holders.pop(s, [])
                     if not url:
                         continue
-                    for holder in holders:
-                        holder.content = _icon_image(url)
+                    for holder_ref in holders:
+                        holder = holder_ref()
+                        if holder is not None:
+                            holder.content = _icon_image(url)
                 icon_inflight.difference_update(slugs)
             # Control-level repaint scoped to the list region only: a
             # full-tree update from a worker thread is the redundant-diff
@@ -220,7 +238,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # TREE_LOCK above).
             thread_safe_ui.refresh(mods_list_view)
 
-        threading.Thread(target=worker, daemon=True).start()
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            with thread_safe_ui.TREE_LOCK:
+                icon_inflight.difference_update(slugs)
+            logging.getLogger(__name__).warning('icon lookup could not start', exc_info=True)
 
     # --- Category filters: collapsed behind a "..." button ------------------
     # A wrapped strip of a dozen chips ate a lot of vertical space above the
@@ -235,7 +258,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         filters_button.icon_color = (
             ACCENT if (filters_open["value"] or active_category["value"]) else TEXT_DIM
         )
-        page.update()
+        thread_safe_ui.refresh(category_chips_container)
+        thread_safe_ui.refresh(filters_button)
 
     filters_button = ft.IconButton(
         ft.Icons.MORE_VERT_ROUNDED, icon_color=TEXT_DIM, icon_size=20,
@@ -254,7 +278,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         tree, so take the shared lock (see cubeon/thread_safe_ui.py)."""
         try:
             with thread_safe_ui.TREE_LOCK:
-                refresh_mods_list()
+                _render_installed_snapshot(_cached_installed())
         except Exception:
             pass
 
@@ -270,7 +294,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         pending = _filter_debounce["timer"]
         if pending is not None:
             pending.cancel()
-        refresh_mods_list()
+        _run_mods_filter()
 
     installed_filter_field = ft.TextField(
         hint_text="Search installed mods...",
@@ -305,8 +329,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         mods.
         """
         names = set()
-        for m in core.list_mods(state["selected_mc_version"], state["mod_loader"],
-                                version_id=version_dropdown.value):
+        for m in _cached_installed('mod'):
             inst_slug = (m.get("slug") or "").lower()
             if inst_slug:
                 names.add(inst_slug)
@@ -335,19 +358,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         return names
 
     def content_installed_tokens() -> set:
-        """Compact, punctuation-free tokens of installed pack/shader filenames,
-        used to mark a browse result as already installed. Resource packs and
-        shaders have no stored Modrinth slug (they're just .zips in a shared
-        folder), so we can't match on an exact slug the way mods do - instead
-        we check whether a project's compacted slug appears inside an installed
-        filename (e.g. "complementaryreimagined" inside
-        "ComplementaryReimagined_r5.5.zip"). Best-effort, never wrong in a way
-        that blocks a download: a miss just shows "Download" again."""
+        """Cached per-instance filenames and recorded project identities.
+
+        Filename tokens also recognize content installed without a sidecar.
+        Disabled entries remain installed and can be re-enabled in Installed.
+        """
         tokens = set()
-        for it in core.list_content(_ct(), state["selected_mc_version"],
-                                    version_id=version_dropdown.value,
-                                    loader=loader_for_content()):
+        for it in _cached_installed():
             tokens.add(re.sub(r"[^a-z0-9]+", "", it["display_name"].lower()))
+            for identity in (it.get('slug'), it.get('title')):
+                if identity:
+                    tokens.add(re.sub(r"[^a-z0-9]+", "", identity.lower()))
         return tokens
 
     def shader_requirement_installed() -> bool:
@@ -357,31 +378,98 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         'install Iris' notice is only useful before this point, so it retires
         itself instead of nagging someone who already did it."""
         try:
-            mods = core.list_mods(state["selected_mc_version"], state["mod_loader"],
-                                  version_id=version_dropdown.value)
+            mods = _cached_installed('mod')
         except Exception:
             return False
         for m in mods:
+            if not m.get('enabled'):
+                continue
             name = re.sub(r"[^a-z0-9]+", "", (m.get("display_name") or "").lower())
-            if "iris" in name or "optifine" in name or "oculus" in name:
+            stem = str(m.get('stem') or m.get('slug') or '').lower()
+            if stem in ('iris', 'optifine', 'oculus') or name.startswith(('iris', 'optifine', 'oculus')):
                 return True
         return False
 
-    def refresh_mods_list():
+    def _installed_target(kind=None):
+        return (kind or _ct(), state.get('selected_mc_version'),
+                state.get('mod_loader'), version_dropdown.value)
+
+    def _cached_installed(kind=None):
+        return installed_snapshots.get(_installed_target(kind), [])
+
+    def _read_installed_snapshot(target):
+        kind, mc, loader, version = target
+        mods = core.list_mods(mc, loader, version_id=version) if kind in ('mod', 'shader') else None
+        items = mods if kind == 'mod' else core.list_content(kind, mc, loader=loader, version_id=version)
+        return target, items, mods
+
+    def _apply_installed_snapshot(snapshot):
+        target, items, mods = snapshot
+        installed_snapshots[target] = items
+        if mods is not None:
+            installed_snapshots[('mod', *target[1:])] = mods
+        while len(installed_snapshots) > 12:
+            installed_snapshots.pop(next(iter(installed_snapshots)))
+        if target == _installed_target():
+            _render_installed_snapshot(items)
+            _render_browse_page()
+
+    def _installed_failed(error):
+        _set_installed_status(f"Couldn't read installed content: {error}")
+        mods_list_view.controls[:] = [empty_state('Couldn\'t read installed content',
+                                                 'Try refreshing this instance.'),
+                                     quiet_chip('Retry', on_click=lambda e: refresh_mods_list(background=True))]
+        thread_safe_ui.refresh(mods_list_view)
+
+    installed_refresh = BackgroundRefresh(_read_installed_snapshot, _apply_installed_snapshot,
+                                         name='mods-refresh', failed=_installed_failed)
+
+    def refresh_mods_list(*, background=False):
+        target = _installed_target()
+        if background:
+            # Cached rows can paint immediately; filesystem/archive reads stay
+            # on the worker even when this callback holds the UI tree lock.
+            with thread_safe_ui.TREE_LOCK:
+                _render_installed_snapshot(_cached_installed(), loading=target not in installed_snapshots)
+            try:
+                installed_refresh.request(target)
+            except Exception as error:
+                _set_installed_status(f"Couldn't refresh installed content: {error}")
+            return
+        installed_refresh.invalidate()
+        snapshot = _read_installed_snapshot(target)
+        with thread_safe_ui.TREE_LOCK:
+            _apply_installed_snapshot(snapshot)
+
+    def _refresh_after_install(target):
+        # The installation has already succeeded. A repaint failure must not
+        # turn that result into a failed download or encourage a second one.
+        try:
+            snapshot = _read_installed_snapshot(target)
+            with thread_safe_ui.TREE_LOCK:
+                if target == _installed_target():
+                    installed_refresh.invalidate()
+                    _apply_installed_snapshot(snapshot)
+        except Exception:
+            logging.getLogger(__name__).warning('post-install refresh failed', exc_info=True)
+
+    def _render_installed_snapshot(all_mods, *, loading=False):
         """
         Reloads the installed list for whatever content type is active and
         updates the UI. Mods come from the per-(version, loader) profile;
-        resource packs / shaders come from their single shared game folder.
+        resource packs / shaders come from their per-instance content profile.
         Applies the filter from the installed_filter_field.
         """
-        local_install_btn.disabled = not _can_install()
+        names = [m.get('filename', '').removesuffix('.disabled') for m in all_mods]
+        from collections import Counter
+        installed_collisions.clear()
+        installed_collisions.update(name for name, count in Counter(names).items() if count > 1)
+        local_install_btn.disabled = local_install_busy['value'] or not _can_install()
         local_install_btn.tooltip = None if _can_install() else "Choose a mod loader on the Play tab first."
         _apply_type_labels()
         if _is_mod():
             vanilla_mods_notice.visible = (state["mod_loader"] == "vanilla")
             shader_notice.visible = False
-            all_mods = core.list_mods(state["selected_mc_version"], state["mod_loader"],
-                                      version_id=version_dropdown.value)
         else:
             vanilla_mods_notice.visible = False
             shader_notice.visible = (_ct() == "shader"
@@ -392,19 +480,18 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             # will actually accept it (see cubeon/packformat.py). The list is
             # this instance's profile: packs follow the version+loader now,
             # exactly like mods do.
-            all_mods = core.list_content(
-                _ct(), state["selected_mc_version"], version_id=version_dropdown.value,
-                loader=loader_for_content())
         query = installed_filter_field.value.strip().lower()
         mods = [m for m in all_mods if query in m["display_name"].lower()] if query else all_mods
 
         rows = []
-        installed_count_text.value = (
+        installed_count_text.value = 'Checking installed content...' if loading else (
             f"{len(all_mods)} installed" if not query else f"{len(mods)} of {len(all_mods)} shown"
         )
 
         # If nothing installed, show a placeholder worded for the active type.
-        if not all_mods:
+        if loading:
+            rows.append(loading_rows(fill=BORDER))
+        elif not all_mods:
             if _is_mod():
                 empty_icon = ft.Icons.EXTENSION_OFF_ROUNDED
                 empty_title = "No mods installed yet"
@@ -422,29 +509,43 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             )
         else:
             # Build a row for each mod
-            visible_mods = mods if query or installed_show_all["value"] else mods[:5]
+            limit = installed_limit['value'] if query or installed_show_all['value'] else 5
+            visible_mods = mods[:limit]
             for m in visible_mods:
                 rows.append(build_installed_row(m))
-            if not query and len(mods) > 5:
-                hidden = len(mods) - 5
+            if len(mods) > len(visible_mods):
+                hidden = len(mods) - len(visible_mods)
+                def more(e):
+                    if installed_show_all['value'] or query:
+                        installed_limit['value'] += 25
+                    installed_show_all['value'] = True
+                    _render_installed_snapshot(_cached_installed())
                 rows.append(
                     attach_hover(ft.Container(
                         content=ft.Text(
-                            "Show fewer" if installed_show_all["value"] else f"Show all installed ({hidden} more)",
+                            f"Show more installed ({hidden} more)",
                             size=12, color=ACCENT, weight=ft.FontWeight.W_700,
                         ),
                         padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
                         border_radius=RADIUS,
                         ink=False,
-                        on_click=lambda e: (installed_show_all.update({"value": not installed_show_all["value"]}), refresh_mods_list()),
+                        on_click=more,
                     ), None, SURFACE_HI)
                 )
+            if installed_show_all['value'] and not query:
+                rows.append(quiet_chip('Show fewer', on_click=lambda e: (
+                    installed_show_all.update(value=False), installed_limit.update(value=25),
+                    _render_installed_snapshot(_cached_installed()))))
         mods_list_view.controls[:] = rows
         _fetch_missing_icons()
         # Rebuilt the list: repaint just the list region + count, not the
         # full tree (this fires per keystroke of the installed filter).
         thread_safe_ui.refresh(mods_list_view)
         thread_safe_ui.refresh(installed_count_text)
+        thread_safe_ui.refresh(installed_filter_field)
+        thread_safe_ui.refresh(local_install_btn)
+        thread_safe_ui.refresh(vanilla_mods_notice)
+        thread_safe_ui.refresh(shader_notice)
         # Keep the "Installed (N)" tab label in step with reality.
         _build_view_segment()
 
@@ -595,18 +696,60 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             "Can't check the format for this version", size=10.5,
             color=TEXT_FAINT, tooltip=detail)]
 
+    row_actions = set()
+
+    def _run_row_action(target, row, action, success):
+        # Folder removal and post-action archive scans must not stall Flet.
+        key = (target, id(row))
+        with thread_safe_ui.TREE_LOCK:
+            if key in row_actions:
+                return
+            row_actions.add(key)
+            row.disabled = True
+            thread_safe_ui.refresh(row)
+
+        def worker():
+            try:
+                action()
+                message = success
+            except Exception as error:
+                message = str(error)
+            try:
+                snapshot = _read_installed_snapshot(target)
+            except Exception as error:
+                snapshot = None
+                message += f" Couldn't refresh the list: {error}"
+            with thread_safe_ui.TREE_LOCK:
+                row_actions.discard(key)
+                row.disabled = False
+                if target == _installed_target():
+                    if snapshot is not None:
+                        installed_refresh.invalidate()
+                        _apply_installed_snapshot(snapshot)
+                    _set_installed_status(message)
+                    thread_safe_ui.refresh(row)
+
+        try:
+            threading.Thread(target=worker, daemon=True, name='mods-row-action').start()
+        except Exception as error:
+            with thread_safe_ui.TREE_LOCK:
+                row_actions.discard(key)
+                row.disabled = False
+                _set_installed_status(f"Couldn't start this action: {error}")
+                thread_safe_ui.refresh(row)
+
     def build_installed_row(m):
         """
-        Creates a single row widget for an installed item. Mods get an
-        enable/disable switch (they're synced per profile); resource packs and
-        shaders don't - the game itself decides which are active - so they get
-        just a name, size, and remove button.
+        Installed items expose per-instance availability and removal.
 
         Deliberately NOT a boxed card: rows are transparent and lift only on
         hover, so the list reads as one calm surface instead of a stack of
         rectangles inside the enclosing rectangle.
         """
-        key = _row_key((m.get("filename") or m.get("id") or m["display_name"]).removesuffix(".disabled"))
+        row_target = _installed_target()
+        identity = m.get('filename') or m.get('id') or m['display_name']
+        key = _row_key(identity if identity.removesuffix('.disabled') in installed_collisions
+                       else identity.removesuffix('.disabled'))
         cached = installed_rows.get(key)
         if cached:
             metadata, row = cached
@@ -626,28 +769,36 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 return row
             if metadata == m:
                 return row
+            if not _is_mod() and {k: v for k, v in metadata.items() if k not in ('enabled', 'filename')} == {
+                    k: v for k, v in m.items() if k not in ('enabled', 'filename')}:
+                metadata.clear()
+                metadata.update(m)
+                labels = row.content.controls[1].controls
+                labels[0].color = TEXT if m.get('enabled', True) else TEXT_DIM
+                labels[1].value = f"{m['size_kb']:,.0f} KB · {'Enabled' if m.get('enabled', True) else 'Disabled'}"
+                row.content.controls[2].value = m.get('enabled', True)
+                row.content.controls[2].tooltip = ('Disable for this instance on next launch' if m.get('enabled', True)
+                                                   else 'Enable for this instance on next launch')
+                return row
         m = dict(m)
         if not _is_mod():
-            def on_delete_content(e):
-                # Stale-UI guard: the row is a snapshot; the pack may already
-                # be gone (deleted elsewhere, folder moved). core.delete_content
-                # raises for that and for anything suspicious - show it instead
-                # of letting the exception die inside Flet (dead button).
-                try:
-                    core.delete_content(_ct(), m["filename"],
-                                        state["selected_mc_version"],
-                                        version_id=version_dropdown.value,
-                                        loader=loader_for_content())
-                except Exception as ex:
-                    _set_installed_status(f"Couldn't remove: {ex}")
+            def on_toggle_content(e):
+                if row_target != _installed_target():
                     return
-                _set_installed_status(f"Removed '{m['display_name']}'.")
-                refresh_mods_list()
-                # The browse section above still shows this item as Installed
-                # (a disabled checkmark) until it is re-rendered against the
-                # live installed state - without this there is no way to see
-                # its Download button again short of re-running the search.
-                _render_browse_page()
+                def action():
+                    core.toggle_content(row_target[0], m['filename'], row_target[1], row_target[2],
+                                        version_id=row_target[3])
+                _run_row_action(row_target, row, action,
+                                f"{'Disabled' if m.get('enabled', True) else 'Enabled'} '{m['display_name']}'.")
+
+            def on_delete_content(e):
+                if row_target != _installed_target():
+                    _set_installed_status('This row belongs to another instance. Refresh the list.')
+                    return
+                def action():
+                    core.delete_content(row_target[0], m["filename"], row_target[1],
+                                        version_id=row_target[3], loader=row_target[2])
+                _run_row_action(row_target, row, action, f"Removed '{m['display_name']}'.")
 
             # The Modrinth thumbnail recorded at install time (see
             # content.remember_content_meta) so an installed pack is as easy to
@@ -672,14 +823,20 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             row_icon,
                             ft.Column(
                                 [
-                                    ft.Text(m["display_name"], size=13.5, color=TEXT,
-                                            weight=ft.FontWeight.W_600),
-                                    ft.Text(f"{m['size_kb']:,.0f} KB", size=10.5,
+                                    ft.Text(m["display_name"], size=13.5,
+                                            color=TEXT if m.get('enabled', True) else TEXT_DIM,
+                                            weight=ft.FontWeight.W_600, max_lines=1,
+                                            overflow=ft.TextOverflow.ELLIPSIS, tooltip=m['display_name']),
+                                    ft.Text(f"{m['size_kb']:,.0f} KB · {'Enabled' if m.get('enabled', True) else 'Disabled'}", size=10.5,
                                             color=ft.Colors.with_opacity(0.7, TEXT), font_family=FONT_MONO),
                                     *_compat_lines(m),
                                 ],
                                 spacing=4, expand=True,
                             ),
+                            animated_switch(value=m.get('enabled', True), active_color=ACCENT,
+                                            on_change=on_toggle_content, scale=0.85,
+                                            tooltip='Disable for this instance on next launch' if m.get('enabled', True)
+                                            else 'Enable for this instance on next launch'),
                             ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_color=TEXT_FAINT,
                                           icon_size=17, tooltip=i18n.t("Remove"),
                                           on_click=on_delete_content),
@@ -695,43 +852,25 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             return row
 
         def on_toggle(e):
+            if row_target != _installed_target():
+                return
             if m.get("protected"):
                 return  # Cubeon-managed mod - core would refuse anyway
-            # Stale-UI guard: core.toggle_mod raises ValueError when the jar
-            # already left the disk between render and click (or the mod is
-            # protected). That used to escape the handler, Flet swallowed it,
-            # and the switch silently did nothing. Say what happened, and
-            # re-sync the list either way so a stale row can't linger.
-            try:
-                core.toggle_mod(state["selected_mc_version"],
-                                state["mod_loader"], m["filename"],
-                                version_id=version_dropdown.value)
-            except Exception as ex:
-                _set_installed_status(str(ex))
-                refresh_mods_list()
-                return
-            _set_installed_status(
-                f"{'Disabled' if m['enabled'] else 'Enabled'} '{m['display_name']}'.")
-            refresh_mods_list()
+            def action():
+                core.toggle_mod(row_target[1], row_target[2], m["filename"],
+                                version_id=row_target[3])
+            _run_row_action(row_target, row, action,
+                            f"{'Disabled' if m['enabled'] else 'Enabled'} '{m['display_name']}'.")
 
         def on_delete(e):
+            if row_target != _installed_target():
+                return
             if m.get("protected"):
                 return  # Cubeon-managed mod - core would refuse anyway
-            # Same stale-UI guard as on_toggle; delete is a no-op in core when
-            # the file is already gone, but protected/other failures surface.
-            try:
-                core.delete_mod(state["selected_mc_version"],
-                                state["mod_loader"], m["filename"],
-                                version_id=version_dropdown.value)
-            except Exception as ex:
-                _set_installed_status(f"Couldn't remove: {ex}")
-                refresh_mods_list()
-                return
-            _set_installed_status(f"Removed '{m['display_name']}'.")
-            refresh_mods_list()
-            # A deleted mod must stop reading as Installed on the browse page
-            # (same re-render the content delete path already did).
-            _render_browse_page()
+            def action():
+                core.delete_mod(row_target[1], row_target[2], m["filename"],
+                                version_id=row_target[3])
+            _run_row_action(row_target, row, action, f"Removed '{m['display_name']}'.")
 
         row = attach_hover(
             ft.Container(
@@ -810,6 +949,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     def handle_local_mod_files(files):
         if not files:
+            picker_target['value'] = None
+            return
+        if local_install_busy['value']:
+            return
+        target = picker_target['value'] or _installed_target()
+        picker_target['value'] = None
+        if target != _installed_target():
+            local_install_status.value = 'The selected instance changed. Choose the file again.'
+            local_install_status.visible = True
+            thread_safe_ui.refresh(local_install_status)
             return
         if not _can_install():
             local_install_status.value = "Choose a compatible mod loader on the Play tab first. Texture packs work in vanilla."
@@ -817,6 +966,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             thread_safe_ui.refresh(local_install_status)
             return
         picked = files[0]
+        local_install_busy['value'] = True
         local_install_status.value = "Installing..."
         local_install_status.visible = True
         thread_safe_ui.refresh(local_install_status)
@@ -830,17 +980,15 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         # even does network checks - none of it belongs on the UI thread
         # (same treatment the cosmetics uploads got).
         def worker():
+            message = None
             try:
-                if _is_mod():
-                    core.install_local_mod(picked.path, state["selected_mc_version"],
-                                           state["mod_loader"],
-                                           version_id=version_dropdown.value)
+                if target[0] == 'mod':
+                    core.install_local_mod(picked.path, target[1], target[2], version_id=target[3])
                 else:
                     core.install_local_content(
-                        _ct(), picked.path, state["selected_mc_version"],
-                        version_dropdown.value, loader_for_content())
-                local_install_status.value = f"Installed '{picked.name}'."
-                refresh_mods_list()
+                        target[0], picked.path, target[1], target[3], target[2])
+                message = f"Installed '{picked.name}'."
+                _refresh_after_install(target)
                 # Phase 7: a local OS toast so a slow install can finish while
                 # the launcher is behind another window. Best-effort by
                 # construction (see cubeon/osnotify.py) - and it never names a
@@ -848,25 +996,39 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 # the texture-pack one).
                 try:
                     from cubeon import osnotify
-                    osnotify.install_finished(osnotify.content_kind(_ct()),
+                    osnotify.install_finished(osnotify.content_kind(target[0]),
                                               picked.name)
                 except Exception:
                     pass
-                if _is_mod():
+                if target[0] == 'mod' and target == _installed_target():
                     # A just-added file is the classic moment for a duplicate
                     # or a missing dependency to bite - check and fix quietly.
-                    run_mod_repair()
+                    try:
+                        run_mod_repair()
+                    except Exception:
+                        logging.getLogger(__name__).warning('post-install check failed', exc_info=True)
             except ValueError as ve:
-                local_install_status.value = str(ve)
+                message = str(ve)
             except Exception as ex:
-                local_install_status.value = f"Install failed: {ex}"
-            local_install_status.visible = True
-            thread_safe_ui.refresh(local_install_status)
-            local_install_btn.disabled = not _can_install()
-            thread_safe_ui.refresh(local_install_btn)
+                message = f"Install failed: {ex}"
+            finally:
+                with thread_safe_ui.TREE_LOCK:
+                    if target == _installed_target():
+                        local_install_status.value = message
+                        local_install_status.visible = True
+                        thread_safe_ui.refresh(local_install_status)
+                    local_install_busy['value'] = False
+                    local_install_btn.disabled = not _can_install()
+                    thread_safe_ui.refresh(local_install_btn)
 
-        threading.Thread(target=worker, daemon=True,
-                         name="cubeon-local-mod-install").start()
+        try:
+            threading.Thread(target=worker, daemon=True, name="cubeon-local-mod-install").start()
+        except Exception as error:
+            local_install_busy['value'] = False
+            local_install_status.value = f"Couldn't start installation: {error}"
+            local_install_btn.disabled = not _can_install()
+            thread_safe_ui.refresh(local_install_status)
+            thread_safe_ui.refresh(local_install_btn)
 
     def on_local_mod_picked(e):
         # Old-Flet path: pick_files() ran synchronously and the result
@@ -906,6 +1068,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             pass
 
     def open_local_mod_picker(e):
+        if local_install_busy['value']:
+            return
         if not _can_install():
             local_install_status.value = "Mods and shaders need a compatible mod loader. Choose one on the Play tab."
             local_install_status.visible = True
@@ -925,6 +1089,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             exts, title = ["jar"], "Choose a mod .jar"
         else:
             exts, title = ["zip"], f"Choose a {_type_label()} .zip"
+        picker_target['value'] = _installed_target()
         core.run_file_picker(
             page, local_mod_file_picker,
             on_files=handle_local_mod_files,
@@ -976,7 +1141,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
     mod_search_field.on_change = _schedule_live_search
 
-    browse_results_view = ft.Column(spacing=8)  # Will hold the search/recommendation results
+    browse_results_view = ft.ListView(spacing=8, expand=True, cache_extent=128,
+                                     build_controls_on_demand=True)
     browse_status_text = ft.Text("", size=12, color=TEXT_DIM)
     # One page of 10 results, up to 10 pages (100 hits) - Modrinth's own
     # per-request cap. Pages are fetched ON DEMAND (see _fetch_browse_page):
@@ -1181,6 +1347,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         thread_safe_ui.refresh(content_segment_row)
 
     def _apply_type_labels():
+        installed_filter_field.hint_text = ('Search installed mods...' if _is_mod()
+                                            else 'Search installed resource packs...' if _ct() == 'resourcepack'
+                                            else 'Search installed shaders...')
         """Refreshes the header/search/notice text to match the active type.
         Kept in one place so every type-dependent label switches together."""
         header_title.value = dict(CONTENT_TABS)[_ct()]
@@ -1192,7 +1361,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             header_subtitle.value = "Texture packs work in vanilla and modded Minecraft."
             mod_search_field.hint_text = "Search resource packs... e.g. faithful, stay true"
         else:
-            header_subtitle.value = "Download shaders - they need Iris or OptiFine to run."
+            header_subtitle.value = "Download shaders - they need Iris, Oculus, or OptiFine to run."
             mod_search_field.hint_text = "Search shaders... e.g. complementary, BSL, sildurs"
         compatible_only.visible = _is_mod()
 
@@ -1209,7 +1378,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         build_content_segment()
         build_category_chips()
         _apply_type_labels()
-        refresh_mods_list()
+        refresh_mods_list(background=True)
         load_recommended_mods()
         # Repaint the handful of controls _apply_type_labels just rewrote,
         # instead of diffing every mounted tab while the new section loads.
@@ -1225,7 +1394,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         v = version_dropdown.value
         if not v:
             return None
-        return core.extract_mc_version(v)
+        return state.get('selected_mc_version') or core.extract_mc_version(v)
 
     def browse_loader() -> str:
         """The loader to filter Modrinth results by. Vanilla can't load mods
@@ -1259,6 +1428,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         browse_scope_text.value = label
 
     browse_generation = {"value": 0}
+    browse_inflight = set()
 
     def _browse_key():
         return (mod_search_field.value.strip(), state.get("selected_mc_version"),
@@ -1291,16 +1461,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         return not (_is_mod() and not _browse_query()
                     and not active_category["value"])
 
-    def _browse_fetch(page_num: int):
+    def _browse_fetch(page_num: int, key=None):
         """One page of results for the CURRENT browse key. Runs on a worker
         thread. May return fewer than BROWSE_PAGE_SIZE hits, which the caller
         treats as the last page."""
-        content_type = _ct()
-        query = _browse_query()
-        mc_version, loader = current_mc_version_for_search(), browse_loader()
-        if content_type == "mod" and not search_scope["compatible"]:
+        query, mc_version, version, loader, content_type, cat, compatible = key or _browse_key()
+        loader = loader if loader and loader != 'vanilla' else 'fabric'
+        if content_type == "mod" and not compatible:
             mc_version, loader = None, None
-        cat = active_category["value"]
         offset = page_num * BROWSE_PAGE_SIZE
         if content_type == "mod":
             if query:
@@ -1326,39 +1494,55 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         if page_num in browse_state["pages"]:
             _render_browse_page()
             return
+        request = (token, page_num)
+        if request in browse_inflight:
+            return
+        browse_inflight.add(request)
         browse_status_text.value = "Loading..."
         thread_safe_ui.refresh(browse_status_text)
 
         def worker():
             try:
-                items = _browse_fetch(page_num)
+                items = _browse_fetch(page_num, token[1])
+                key = token[1]
+                snapshot = _read_installed_snapshot((key[4], key[1], key[3], key[2]))
             except Exception as ex:
-                if not _browse_current(token):
-                    return
                 logging.getLogger(__name__).warning("%s: %s", error_prefix, ex, exc_info=True)
-                browse_status_text.value = "Search unavailable"
                 with thread_safe_ui.TREE_LOCK:
+                    browse_inflight.discard(request)
+                    if not _browse_current(token):
+                        return
+                    browse_status_text.value = "Search unavailable"
                     browse_results_view.disabled = False
                     browse_results_view.controls[:] = [
                         empty_state("Search unavailable", "Check your connection, then try again.",
-                                    icon=ft.Icons.WIFI_OFF_ROUNDED, action_label="Retry",
-                                    on_action=lambda event: run_mod_search_safe()),
+                                    icon=ft.Icons.WIFI_OFF_ROUNDED),
+                        quiet_chip('Retry', on_click=lambda event: run_mod_search_safe()),
                     ]
                 thread_safe_ui.refresh(browse_status_text)
                 thread_safe_ui.refresh(browse_results_view)
                 return
-            if not _browse_current(token):
-                return  # a newer search/type/category took over while we fetched
-            items = items or []
-            browse_state["pages"][page_num] = items
-            # A short page is the end of the result set. A full one leaves the
-            # advertised page count alone - we never fetch ahead to find out.
-            if len(items) < BROWSE_PAGE_SIZE:
-                browse_state["total_pages"] = min(
-                    browse_state["total_pages"], page_num + 1)
-            _render_browse_page()
+            with thread_safe_ui.TREE_LOCK:
+                browse_inflight.discard(request)
+                if not _browse_current(token):
+                    return
+                items = items or []
+                if browse_state['paged']:
+                    items = items[:BROWSE_PAGE_SIZE]
+                browse_state["pages"][page_num] = items
+                if len(items) < BROWSE_PAGE_SIZE:
+                    browse_state["total_pages"] = min(browse_state["total_pages"], page_num + 1)
+                _apply_installed_snapshot(snapshot)
+                _render_browse_page()
 
-        threading.Thread(target=worker, daemon=True).start()
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception as error:
+            browse_inflight.discard(request)
+            browse_results_view.disabled = False
+            browse_status_text.value = f"Couldn't start search: {error}"
+            thread_safe_ui.refresh(browse_results_view)
+            thread_safe_ui.refresh(browse_status_text)
 
     def render_browse_results(empty_msg):
         """
@@ -1419,8 +1603,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         can't be clicked while the real one is in flight."""
         if (not browse_results_view.controls or isinstance(browse_results_view.controls[0], (ft.Text, ft.Row))
                 or getattr(browse_results_view.controls[0], "data", None) == "content-empty"):
-            browse_results_view.controls[:] = [loading_rows()]
-        browse_results_view.disabled = True
+            browse_results_view.controls[:] = [loading_rows(fill=BORDER)]
+        browse_results_view.disabled = getattr(browse_results_view.controls[0], 'data', None) != 'content-loading'
         browse_pager_row.visible = False
         # Scoped: a full page.update() here re-synced every mounted tab right
         # after switch_tab had already painted the shell - that double diff is
@@ -1585,9 +1769,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             dialogs.close_dialog(page, dlg)
 
         def _hero(url, *, width, height, radius=RADIUS):
-            _icons.prefetch(url)
-            return ft.Image(src=_icons.src(url), width=width, height=height,
-                            border_radius=radius, fit=ft.BoxFit.COVER)
+            return _art_image(url, width, height, radius)
 
         dlg = ft.AlertDialog(
             modal=False, bgcolor=SURFACE,
@@ -1635,10 +1817,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         installed_now = {}
         try:
-            items = (core.list_mods(detail_mc, detail_loader,
-                                    version_id=detail_version) if content_type == "mod"
-                     else core.list_content(content_type, detail_mc,
-                                            version_id=detail_version, loader=detail_loader))
+            items = _cached_installed(content_type)
             for m in items:
                 if m.get("filename"):
                     installed_now[m["filename"]] = m
@@ -1707,7 +1886,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             title=details.get("title"),
                             progress_cb=lambda done, total: on_status(progress_text(done, total)))
                     if result.get("failed"):
-                        refresh_mods_list()
+                        _refresh_after_install((content_type, detail_mc, detail_loader, detail_version))
                         on_error(RuntimeError("Installed, but dependencies failed: "
                                               + ", ".join(result["failed"])))
                         return
@@ -1723,20 +1902,30 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         fixed = len(report.get("fixed") or [])
                     except Exception:
                         fixed = 0
-                    installed_now[v["filename"]] = {"filename": v["filename"]}
-                    refresh_mods_list()
-                    _render_browse_page()
-                    on_done(fixed)
+                    _refresh_after_install((content_type, detail_mc, detail_loader, detail_version))
+                    with thread_safe_ui.TREE_LOCK:
+                        installed_now[v["filename"]] = {"filename": v["filename"]}
+                        on_done(fixed)
                 except Exception as ex:
                     on_error(ex)
-            threading.Thread(target=worker, daemon=True).start()
+            try:
+                threading.Thread(target=worker, daemon=True).start()
+            except Exception as error:
+                on_error(error)
 
         quick_state = {"repaints": []}
 
         def _install_button(v, details, *, label="Install", big=False):
             """An Install button that owns its busy / done / error states."""
             done = {"v": bool(installed_now.get(v.get("filename")))}
-            blocked = content_type != "resourcepack" and detail_loader not in MOD_CAPABLE_LOADERS
+            blocked = (not detail_mc or not detail_loader or not detail_version
+                       or not v.get('url') or not v.get('filename')
+                       or (content_type != "resourcepack" and detail_loader not in MOD_CAPABLE_LOADERS)
+                       or v.get('compatible') is False)
+            blocked_note = ('This release has no downloadable file.' if not v.get('url') or not v.get('filename') else
+                            "This build doesn't match this instance's Minecraft version or loader."
+                            if v.get('compatible') is False else
+                            'Choose a compatible mod loader on the Play tab first.')
             fg = ON_ACCENT if big else ACCENT
             text = ft.Text(label, size=13 if big else 12,
                            weight=ft.FontWeight.W_700,
@@ -1753,7 +1942,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 padding=ft.padding.Padding.symmetric(
                     horizontal=16 if big else 12, vertical=12 if big else 8),
                 ink=False, disabled=done["v"] or blocked,
-                tooltip="Choose a compatible mod loader on the Play tab first." if blocked else None,
+                tooltip=blocked_note if blocked else None,
             )
 
             seen = {"result": feedback.result_id}
@@ -1767,11 +1956,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 text.value = compact_status(job.text) if job.busy else (
                     i18n.t("Installed") if done["v"] else "Try again" if job.result == "error" else label)
                 text.color = TEXT_DIM if job.busy else TEXT_FAINT if done["v"] else DANGER if job.result == "error" else fg
-                icon.name = ft.Icons.CHECK_ROUNDED if done["v"] and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
+                icon.icon = ft.Icons.CHECK_ROUNDED if done["v"] and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
                 icon.color = text.color
                 btn.bgcolor = ROW_HOVER if job.busy else ACCENT_TINT if done["v"] or not big else ACCENT
                 btn.tooltip = job.text if job.busy or job.result == "error" else (
-                    "Choose a compatible mod loader on the Play tab first." if blocked else None)
+                    blocked_note if blocked else None)
 
             def on_click(e):
                 if done["v"] or blocked or not feedback.start(v.get("filename"), "Installing..."):
@@ -1805,11 +1994,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             one image made the menu feel like it was hiding the rest."""
             tiles = []
             for g in gallery[:8]:
-                _icons.prefetch(g["url"])
                 tiles.append(ft.Container(
-                    content=ft.Image(src=_icons.src(g["url"]), width=300,
-                                     height=170, fit=ft.BoxFit.COVER,
-                                     border_radius=RADIUS),
+                    content=_art_image(g['url'], 300, 170),
                     border_radius=RADIUS,
                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                     border=ft.border.Border.all(1, CARD_BORDER),
@@ -1941,7 +2127,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             compat.sort(key=lambda v: v.get("date_published") or "", reverse=True)
             others = [v for v in versions if not v.get("compatible")]
             others.sort(key=lambda v: v.get("date_published") or "", reverse=True)
-            shown_all = {"v": False}
+            version_limit = {'value': 8}
             list_holder = ft.Column(spacing=4)
             more_text = ft.Text("", size=12, color=ACCENT,
                                 weight=ft.FontWeight.W_700)
@@ -1954,19 +2140,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     rows.append(ft.Text("No versions are available for this mod.",
                                         size=12.5, color=TEXT_DIM))
                 else:
-                    for v in (compat if shown_all["v"] else compat[:8]):
+                    ordered = compat + others
+                    for v in ordered[:version_limit['value']]:
                         rows.append(_build_version_row(v, details))
-                    if shown_all["v"]:
-                        for v in others:
-                            rows.append(_build_version_row(v, details))
-                    hidden = ((len(compat) - 8 if len(compat) > 8 else 0)
-                              + len(others))
-                    if shown_all["v"]:
+                    hidden = max(0, len(ordered) - version_limit['value'])
+                    if not hidden and version_limit['value'] > 8:
                         more.visible = True
                         more_text.value = "Show fewer versions"
                     elif hidden > 0:
                         more.visible = True
-                        more_text.value = f"Show all {len(versions)} versions"
+                        more_text.value = f"Show more versions ({hidden} more)"
                     else:
                         more.visible = False
                 list_holder.controls = rows
@@ -1977,7 +2160,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     pass
 
             def _toggle(e=None):
-                shown_all["v"] = not shown_all["v"]
+                version_limit['value'] = (version_limit['value'] + 25
+                                          if version_limit['value'] < len(versions) else 8)
                 _paint()
 
             more.on_click = _toggle
@@ -2067,6 +2251,15 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     loader=detail_loader if content_type == "mod" else None)
             except Exception:
                 versions = []
+            try:
+                _target, items, _mods = _read_installed_snapshot(
+                    (content_type, detail_mc, detail_loader, detail_version))
+                with thread_safe_ui.TREE_LOCK:
+                    installed_now.clear()
+                    installed_now.update((m['filename'].removesuffix('.disabled'), m)
+                                         for m in items if m.get('filename'))
+            except Exception:
+                logging.getLogger(__name__).debug('detail installed scan failed', exc_info=True)
             if not details and not versions:
                 def _failed():
                     detail_body.controls.clear()
@@ -2074,11 +2267,18 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         "Couldn't load this mod's details. Check your "
                         "connection and try again.", size=13, color=TEXT_DIM))
                     thread_safe_ui.refresh(detail_body)
-                _failed()
+                with thread_safe_ui.TREE_LOCK:
+                    _failed()
                 return
-            _render_details(details, versions)
+            with thread_safe_ui.TREE_LOCK:
+                _render_details(details, versions)
 
-        threading.Thread(target=worker, daemon=True).start()
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception as error:
+            with thread_safe_ui.TREE_LOCK:
+                detail_body.controls[:] = [empty_state('Couldn\'t load details', str(error))]
+                thread_safe_ui.refresh(detail_body)
 
     def _browse_page_prev(e=None):
         if browse_state["page"] > 0:
@@ -2106,6 +2306,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         rows don't stack five loud buttons.
         """
         row_content_type = _ct()
+        row_target = _installed_target(row_content_type)
         compatibility_note = (mod_compatibility_note(
             mod, current_mc_version_for_search(), state.get("mod_loader"))
             if row_content_type == "mod" else "")
@@ -2145,6 +2346,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             current Minecraft version and loader), then downloads it and refreshes the installed list.
             """
             content_type = row_content_type
+            if row_target != _installed_target(row_content_type):
+                return
             if not _can_install(content_type) or (content_type == "mod" and mod_compatibility_note(
                     mod, current_mc_version_for_search(), state.get("mod_loader"))):
                 return
@@ -2162,8 +2365,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     # download under state["selected_mc_version"] + loader - the
                     # exact keys list_mods()/sync_mods_to_game() use - so the
                     # mod ends up in the profile the game reads. Resource packs
-                    # and shaders have no profile: they go straight into their
-                    # shared game folder.
+                    # and shaders also use the captured instance's profile.
                     if content_type == "mod":
                         file_info = core.get_mod_download(mod["project_id"], mc_version=search_mc_version, loader=selected_loader)
                     else:
@@ -2233,7 +2435,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             if len(result["installed"]) > 1 else ""
                         if result["failed"]:
                             feedback.finish(file_info["filename"], error="Installed, but dependencies failed: " + ", ".join(result["failed"]))
-                            refresh_mods_list()
+                            _refresh_after_install((content_type, selected_mc, selected_loader, selected_version))
                             return
                     else:
                         # hashes = Modrinth's per-file sha512/sha1; passing them
@@ -2258,11 +2460,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
                     feedback.finish(file_info["filename"], note=fix_note["text"] or (
                         "Installed" + deps_note if deps_note else None))
-                    refresh_mods_list()  # Update the installed list
+                    _refresh_after_install((content_type, selected_mc, selected_loader, selected_version))
                     # Automatic repair: catch a duplicate/missing dependency
                     # introduced by this install before it can crash a launch.
                     if (content_type == "mod" and selected_mc == state["selected_mc_version"]
-                            and selected_loader == browse_loader()):
+                            and selected_loader == browse_loader()
+                            and selected_version == version_dropdown.value):
                         run_mod_repair()
                 except Exception as ex:
                     # Say WHY in one line - "Failed" alone left the user with
@@ -2272,7 +2475,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                         or type(ex).__name__
                     feedback.finish(error=f"Failed - {status_text.human(reason)}")
 
-            threading.Thread(target=worker, daemon=True).start()
+            try:
+                threading.Thread(target=worker, daemon=True).start()
+            except Exception as error:
+                feedback.finish(error=f"Couldn't start installation: {error}")
 
         if not is_installed:
             download_btn.on_click = on_download
@@ -2280,7 +2486,6 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         description = (mod.get("description") or "").strip()
 
         # Cache this row's art for the next render (no-op if already cached).
-        _icons.prefetch(mod.get("icon_url"))
 
         # Hover lift: transparent at rest, faint surface under the cursor -
         # affordance without another permanent rectangle. Clicking anywhere on
@@ -2290,10 +2495,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 content=ft.Row(
                     [
                         # Mod icon (or placeholder if none) - disk-cached art
-                        (ft.Image(src=_icons.src(mod.get("icon_url")),
-                                  width=48, height=48,
-                                  border_radius=RADIUS, fit=ft.BoxFit.COVER,
-                                  gapless_playback=True)
+                        (_art_image(mod.get("icon_url"), 48, 48)
                          if mod.get("icon_url") else
                          ft.Container(width=48, height=48, bgcolor=CARD_FILL, border_radius=RADIUS,
                                       content=ft.Icon(ft.Icons.EXTENSION_OUTLINED, color=TEXT_FAINT, size=22),
@@ -2334,7 +2536,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     row_state["installed"] = True
             installed = row_state["installed"]
             icon = download_btn.content.controls[0]
-            icon.name = ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
+            icon.icon = ft.Icons.CHECK_ROUNDED if installed and not job.busy else ft.Icons.DOWNLOAD_ROUNDED
             download_btn_text.value = compact_status(job.text) if job.busy else (
                 i18n.t("Installed") if installed else "Try again" if job.result == "error"
                 else "Unavailable" if compatibility_note else "Download")
@@ -2401,48 +2603,46 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     )
 
     def _sync_shader_notice():
-        """Words + button for the Shaders tab. Plain Vanilla can't run shader
-        packs at all, so instead of a dead (greyed-out) Download button the
-        user gets one click that makes the instance shader-ready."""
-        if state.get("mod_loader") in ("fabric", "quilt"):
+        """Describe shader support without promising an instance conversion."""
+        loader = state.get('mod_loader')
+        shader_setup_btn.disabled = setup_busy['v'] or not _can_install('shader')
+        if loader in ("fabric", "quilt", 'neoforge'):
             shader_notice_text.value = ("Shaders need Iris (with Sodium) to run. "
-                                        "One click installs both for this instance.")
+                                        "Install the compatible build for this instance.")
             shader_setup_label.value = "Install Iris"
+        elif loader == 'forge':
+            shader_notice_text.value = 'Shaders need Oculus and its dependencies. Availability depends on your Minecraft version.'
+            shader_setup_label.value = 'Install Oculus'
         else:
-            shader_notice_text.value = ("Shaders can't run on plain Vanilla. One click switches this "
-                                        "instance to Fabric and installs Iris + Sodium - "
-                                        "then every shader below works.")
+            shader_notice_text.value = 'Shaders need a mod loader. Create or choose a Fabric instance on Play first.'
             shader_setup_label.value = "Set up shaders"
 
     setup_busy = {"v": False}
 
     def _setup_shaders():
-        """Make this instance shader-capable: Fabric (or Quilt) + Iris + Sodium.
+        """Install Iris or Oculus and required dependencies for this loader.
 
-        Mods are stored per (Minecraft version, loader) profile and staged at
-        launch, so Iris can be installed into the Fabric profile right away.
-        If Fabric itself isn't installed yet, Play installs it on the next
-        launch (the same path as picking Fabric on the Play tab)."""
+        Resolve compatible builds without changing the selected instance.
+        """
         if setup_busy["v"]:
             return
+        target = _installed_target()
 
         def say(text, bad=False):
-            local_install_status.value = text
-            local_install_status.color = DANGER if bad else TEXT_DIM
-            local_install_status.visible = True
-            thread_safe_ui.refresh(local_install_status)
+            with thread_safe_ui.TREE_LOCK:
+                if target != _installed_target():
+                    return
+                local_install_status.value = text
+                local_install_status.color = DANGER if bad else TEXT_DIM
+                local_install_status.visible = True
+                thread_safe_ui.refresh(local_install_status)
 
         if not state.get("selected_mc_version") or not version_dropdown.value:
             say("Pick a Minecraft version on the Play tab first.", bad=True)
             return
-        # The loader switch touches the Play tab's controls, so it happens HERE
-        # on the UI thread; only the network work goes to the background.
-        if state.get("mod_loader") not in ("fabric", "quilt"):
-            say("Switching to Fabric...")
-            if not switch_loader or not switch_loader("fabric"):
-                say("Fabric isn't available for this Minecraft version, "
-                    "so shaders can't be set up here. Try another version.", bad=True)
-                return
+        if not _can_install('shader'):
+            say('Choose a mod-loader instance on Play first.', bad=True)
+            return
         setup_busy["v"] = True
         shader_setup_btn.disabled = True
         shader_setup_label.value = "Setting up..."
@@ -2450,43 +2650,45 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         def worker():
             try:
-                loader = state.get("mod_loader")
-                mc = state["selected_mc_version"]
-                version_id = version_dropdown.value
-                search_mc = current_mc_version_for_search() or mc
-                say("Finding Iris...")
-                info = core.get_mod_download("iris", mc_version=search_mc, loader=loader)
+                loader, mc, version_id, search_mc = setup_target
+                project = 'oculus' if loader == 'forge' else 'iris'
+                label = project.title()
+                say(f"Finding {label}...")
+                info = core.get_mod_download(project, mc_version=search_mc, loader=loader)
                 if not info:
-                    say(f"Iris has no build for Minecraft {search_mc} yet. "
-                        "Try an older version.", bad=True)
+                    say(f"{label} has no build for Minecraft {search_mc} with {loader.title()}. Choose another compatible instance.", bad=True)
                     return
                 result = core.install_mod_with_dependencies(
                     info["url"], info["filename"],
                     mc_version=mc, loader=loader, version_id=version_id,
-                    slug="iris", project_id=info.get("project_id") or "iris",
+                    slug=project, project_id=info.get("project_id") or project,
                     hashes=info.get("hashes"),
                     status_cb=lambda t: say(status_text.human(t)),
                     progress_cb=lambda done, total: say(
-                        f"Installing Iris + Sodium... {int(done * 100 / total)}%") if total else None,
+                        f"Installing {label} and dependencies... {int(done * 100 / total)}%") if total else None,
                 )
-                refresh_mods_list()
+                _refresh_after_install(target)
                 if result.get("failed"):
                     say("Installed, but these failed: " + ", ".join(result["failed"]), bad=True)
                 else:
-                    say("Shaders are ready. Install a shader pack below, then press Play"
-                        + (" (Fabric finishes installing on first launch)."
-                           if not core.find_installed_loader_version(
-                               state["installed"], loader,
-                               core.extract_mc_version(version_id) or version_id) else "."))
+                    say(f"{label} is installed. Add a shader pack, press Play, then select it in the game's shader settings.")
             except Exception as ex:
                 say(f"Couldn't set up shaders: {ex}", bad=True)
             finally:
-                setup_busy["v"] = False
-                shader_setup_btn.disabled = False
-                _sync_shader_notice()
-                thread_safe_ui.refresh(shader_notice)
+                with thread_safe_ui.TREE_LOCK:
+                    setup_busy["v"] = False
+                    _sync_shader_notice()
+                    thread_safe_ui.refresh(shader_notice)
 
-        threading.Thread(target=worker, daemon=True, name="ux-shader-setup").start()
+        setup_target = (state.get('mod_loader'), state['selected_mc_version'],
+                        version_dropdown.value, current_mc_version_for_search())
+        try:
+            threading.Thread(target=worker, daemon=True, name="ux-shader-setup").start()
+        except Exception as error:
+            setup_busy['v'] = False
+            shader_setup_btn.disabled = False
+            say(f"Couldn't start shader setup: {error}", bad=True)
+            _sync_shader_notice()
 
     # Tracks the (version, loader) profile the browse section currently
     # reflects, so we only re-fetch recommendations/search when it's
@@ -2512,6 +2714,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         ],
         spacing=12,
         visible=True,
+        expand=True,
     )
 
     installed_pane = ft.Column(
@@ -2531,6 +2734,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         ],
         spacing=12,
         visible=False,
+        expand=True,
     )
 
     view_segment_row = ft.Row(spacing=24)
@@ -2543,12 +2747,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 # Live-ish count on the tab itself: cheap to compute here
                 # because refresh_mods_list also calls _build_view_segment.
                 try:
-                    n = len(core.list_mods(state["selected_mc_version"], state["mod_loader"],
-                                           version_id=version_dropdown.value)) \
-                        if _is_mod() else len(core.list_content(
-                            _ct(), state["selected_mc_version"],
-                            version_id=version_dropdown.value,
-                            loader=loader_for_content()))
+                    n = len(_cached_installed())
                     count_note = f" ({n})" if n else ""
                 except Exception:
                     count_note = ""
@@ -2571,7 +2770,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         thread_safe_ui.refresh(compatible_only)
         _build_view_segment()
         if new_view == "installed":
-            refresh_mods_list()
+            refresh_mods_list(background=True)
             auto_check()
         thread_safe_ui.refresh(browse_pane)
         thread_safe_ui.refresh(installed_pane)
@@ -2586,7 +2785,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         which could be the wrong version or not even support the new loader.
         This re-fetches so Browse always matches what's actually selected.
         """
-        key = (state.get("selected_mc_version"), state.get("mod_loader"))
+        key = (state.get("selected_mc_version"), state.get("mod_loader"), version_dropdown.value)
         if key == browse_profile["key"]:
             return  # nothing actually changed for browse purposes
         browse_profile["key"] = key
@@ -2667,7 +2866,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             installed_pane,
         ],
         spacing=0,
-        scroll=ft.ScrollMode.AUTO,
+        expand=True,
     )
 
     def open_hook():

@@ -493,12 +493,13 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                        seasonal_status_text, seasonal_source_text,
                        seasonal_restart_btn, seasonal_restart_note,
                        season_pin_note,
-                       season_pet_switch, season_ambience_switch,
+                       season_pet_switch, season_overlay_switch,
                        BG, SURFACE, SURFACE_HI, BORDER, ACCENT, ACCENT_DIM,
                        TEXT, TEXT_DIM, DANGER, FONT_DISPLAY, FONT_MONO,
                        screenshot_gallery=None, refresh_screenshot_gallery=None,
                        account_pane=None, on_replay_onboarding=None,
-                       doctor_target=None, on_check_updates=None):
+                       doctor_target=None, on_check_updates=None,
+                       on_motion_change=None):
     """Assembles the two-pane Settings tab from main.py's existing controls.
 
     `save_width_height_java` is main.py's save_settings() minus the button
@@ -585,6 +586,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         level = motion.set_level("full" if sw.value else "reduced")
         sw.value = motion.transforms()      # the truth, not the click
         cfg["motion_level"] = level
+        if on_motion_change is not None:
+            on_motion_change()
         try:
             from cubeon import config as _config
             _config.save_config(cfg)
@@ -762,10 +765,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             ), pad_v=10),
         ])),
         block(i18n.t("Extras"), group([
-            row("Seasonal buddy", "A little companion on the sidebar",
+            row("Play scenery", "Seasonal trees, grass and drifting particles on Play",
+                season_overlay_switch),
+            row("Seasonal buddy", "Wanders the frame, climbs edges and rests above Play",
                 season_pet_switch),
-            row("Weather effects", "Leaves, snow or petals drifting across the top",
-                season_ambience_switch),
         ])),
     )
 

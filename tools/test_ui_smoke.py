@@ -1363,20 +1363,23 @@ check("view toggle flips pane visibility only",
 _toggle_src = _fn_src(_mods_src, "on_toggle")
 _delete_src = _fn_src(_mods_src, "on_delete")
 _delcontent_src = _fn_src(_mods_src, "on_delete_content")
+_rowaction_src = _fn_src(_mods_src, '_run_row_action')
+_snapshot_src = _fn_src(_mods_src, '_apply_installed_snapshot')
 check("installed toggle surfaces its failure",
-      "try:" in _toggle_src and "_set_installed_status" in _toggle_src
-      and "except Exception" in _toggle_src,
+      '_run_row_action' in _toggle_src and '_set_installed_status' in _rowaction_src
+      and 'except Exception' in _rowaction_src,
       "on_toggle must guard core.toggle_mod and show the reason")
 check("installed delete surfaces its failure",
-      "try:" in _delete_src and "_set_installed_status" in _delete_src,
+      '_run_row_action' in _delete_src and '_set_installed_status' in _rowaction_src,
       "on_delete must guard core.delete_mod and show the reason")
 check("content delete surfaces its failure",
-      "try:" in _delcontent_src and "_set_installed_status" in _delcontent_src,
+      '_run_row_action' in _delcontent_src and '_set_installed_status' in _rowaction_src,
       "on_delete_content must guard core.delete_content")
 # A deleted mod used to keep reading as Installed on the browse page (only
 # the pack/shader delete re-rendered it) - the Download button stayed hidden.
 check("mod delete re-renders the browse page",
-      "_render_browse_page()" in _delete_src,
+      '_run_row_action' in _delete_src and '_apply_installed_snapshot' in _rowaction_src
+      and '_render_browse_page()' in _snapshot_src,
       "on_delete must refresh the browse view like on_delete_content does")
 
 # --- local 'Install from file' must not run on the UI thread --------------------

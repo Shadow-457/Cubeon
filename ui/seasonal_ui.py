@@ -1,6 +1,6 @@
 """
-Seasonal furniture: the top-bar badge, the little companion, and the ambient
-weather strip.
+Seasonal badge, companion assets, shared ticker and legacy perch/strip helpers.
+Play scenery and the roaming pet live in play_seasons.py and launcher_pet.py.
 
 These are the *runtime* half of the seasonal layer. The palette half lives at
 import time (cubeon/seasonal.py + templates/color_<season>.py) and cannot change
@@ -9,8 +9,8 @@ tokens that were already chosen.
 
 ANIMATION BUDGET - the rules this file obeys
 --------------------------------------------
-1. The pet's own motion lives in its animated GIF. Flutter loops it with ZERO
-   Python involvement, so a pet costs nothing per frame.
+1. Flutter decodes the pet's walking GIF without a Python frame timer. The
+   roaming pet switches to a static PNG when resting, reduced or paused.
 2. Anything that genuinely needs a clock shares ONE daemon ticker
    (SeasonalAnimator). It is not one thread per effect.
 3. Every tick paints with a single thread_safe_ui.refresh(<one container>) -
@@ -18,13 +18,13 @@ ANIMATION BUDGET - the rules this file obeys
    the difference between ~1 diff per frame and ~10.
 4. The ticker never raises: a lost repaint is not worth a traceback, and the
    session-end hook (main.py) stops it so a closed window stops costing CPU.
-5. The pet WANDERS a short perch lane next to the wordmark: walk at a fixed
+5. The legacy perch helper wanders a short lane: walk at a fixed
    amble, pause a jittered while (sometimes with an idle hop), turn around at
    the lane's ends and walk back. Predictable by character, never by clock -
    a companion that bobs in lockstep with a clock reads as a screensaver.
 
-Ambient particles are opt-in (cfg["season_ambience"]) and default to OFF until
-measured with CUBEON_PERF=1; see the module map.
+Play particles follow Seasonal look and reduced motion. Hidden Play panes
+drop their scene registration; an empty ticker blocks rather than polling.
 """
 from __future__ import annotations
 
@@ -110,9 +110,7 @@ TROPIC_QUIPS = {
     seasonal.SUMMER: "Dry season. Sun's out, palette's warm.",
 }
 
-# Ticker cadence. 0.12s is smooth enough for slow-drifting leaves and slow
-# enough that a laptop fan never notices; the GIF pets add motion of their own
-# in between.
+# Shared ticker cadence; Play scenes advance only every other tick (~4.17/s).
 TICK = 0.12
 # The perch lane: the pet strolls back and forth inside a short strip mounted
 # next to the wordmark (PERCH_W px wide, pet sprite PERCH_CELL px). Offsets are
@@ -383,6 +381,7 @@ class SeasonalAnimator:
         self._lifecycle_lock = threading.Lock()
         self._pets = []
         self._windows = []
+        self._scenes = []
         self._lock = threading.Lock()
         self._tick = 0
         self._rng = random.Random()
@@ -403,15 +402,28 @@ class SeasonalAnimator:
                     "lane_w": 0, "rest_left": 20, "rest_right": 46,
                     "legacy_hop": True,
                 })
+        self._wake()
 
     def add_ambience(self, strip, particles, bounds) -> None:
         with self._lock:
             self._windows.append({"ctrl": strip, "particles": particles,
                                   "bounds": bounds})
+        self._wake()
+
+    def add_scene(self, scene) -> None:
+        """Register Play's bounded sprite layer with the existing ticker."""
+        with self._lock:
+            self._scenes.append(scene)
+        self._wake()
+
+    def _wake(self):
+        with self._gate:
+            self._gate.notify_all()
 
     @property
     def has_work(self) -> bool:
-        return bool(self._pets or self._windows)
+        with self._lock:
+            return bool(self._pets or self._windows or self._scenes)
 
     @property
     def running(self) -> bool:
@@ -475,18 +487,21 @@ class SeasonalAnimator:
         Used when a setting changes: the caller rebuilds the (one or two)
         registrations from the new state rather than diffing them, so there is
         no way for the ticker to keep holding a control the user just hid.
-        The ticker itself keeps running until stop() - callers follow this with
-        start()/stop() as appropriate.
+        An empty ticker blocks on its Condition until another registration or
+        stop(). There is no join during settings/tab handlers, which can hold
+        TREE_LOCK while an in-flight frame needs it.
         """
         with self._lock:
             self._pets.clear()
             self._windows.clear()
+            self._scenes.clear()
+        self._wake()
 
     # --- one frame --------------------------------------------------------
     def _run(self, stop) -> None:
         while not stop.is_set():
             with self._gate:
-                while self._paused and not stop.is_set():
+                while (self._paused or not self.has_work) and not stop.is_set():
                     # Minimized/hidden window: block here (zero wakeups) until
                     # resume() or stop() notifies.
                     self._gate.wait()
@@ -504,14 +519,19 @@ class SeasonalAnimator:
     def _frame(self) -> None:
         with self._lock:
             pets, windows = list(self._pets), list(self._windows)
-        for pet in pets:
-            if pet.get("legacy_hop"):
-                self._legacy_hop(pet)
-            else:
-                self._wander(pet)
-        for win in windows:
-            step_ambience(win["particles"], win["bounds"], self._tick)
-            thread_safe_ui.refresh(win["ctrl"])
+            scenes = list(self._scenes)
+        with thread_safe_ui.TREE_LOCK:
+            for pet in pets:
+                if pet.get("legacy_hop"):
+                    self._legacy_hop(pet)
+                else:
+                    self._wander(pet)
+            for win in windows:
+                step_ambience(win["particles"], win["bounds"], self._tick)
+                thread_safe_ui.refresh(win["ctrl"])
+            for scene in scenes:
+                if scene.step():
+                    thread_safe_ui.refresh(scene.particle_layer)
 
     def _legacy_hop(self, pet: dict) -> None:
         """The old in-place hop, kept for bare-control registrations."""

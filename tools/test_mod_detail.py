@@ -569,7 +569,7 @@ if _row_click is not None:
           and "Show less" in _after, f"{_after[:15]}")
 
     # 7b. a mod with hundreds of releases must not render them all at once.
-    print("\n7b. a huge version list is grouped behind a 'Show all' control")
+    print("\n7b. a huge version list is shown in bounded batches")
 
     def _mkver(i, compatible):
         return {"id": f"v{i}", "version_number": f"1.{i}", "name": f"1.{i}",
@@ -602,15 +602,15 @@ if _row_click is not None:
     check("only a handful of versions render at first",
           _t2.count("match") == 8 and "other version" not in _t2,
           f"match={_t2.count('match')} other={_t2.count('other version')}")
-    check("a 'Show all' control exposes the rest",
-          any(t.startswith("Show all") and t.endswith("versions") for t in _t2),
+    check("a 'Show more' control exposes the next batch",
+          any(t.startswith("Show more versions") for t in _t2),
           f"{[t for t in _t2 if 'version' in t]}")
 
     _showmore = None
     for _c in _walk(_dialog2):
         _content = getattr(_c, "content", None)
         if (getattr(_c, "on_click", None) is not None
-                and (getattr(_content, "value", "") or "").startswith("Show all")):
+                and (getattr(_content, "value", "") or "").startswith("Show more versions")):
             _showmore = _c.on_click
             break
     if _showmore is not None:
@@ -901,9 +901,13 @@ with patch.object(ui_mods.threading, "Thread", QueuedThread), patch.object(icons
         state.update(selected_mc_version="1.20.1", mod_loader="fabric")
         QueuedThread.queue.clear()
     active["type"] = "resourcepack"
-    with patch.object(_core, "list_content", return_value=[{"display_name": "test", "filename": "test.zip"}]) as listing:
+    with patch.object(_core, "list_content", return_value=[{"display_name": "test", "filename": "test.zip", 'size_kb': 1}]) as listing:
+        refresh()
+        listing.reset_mock()
         check("installed-content tokens pass loader by keyword", fns["content_installed_tokens"]() == {"test"}
-              and listing.call_args.kwargs["loader"] == "fabric")
+              and not listing.called)
+        refresh()
+        check('installed snapshot passes loader by keyword', listing.call_args.kwargs['loader'] == 'fabric')
     packs, pack_refresh, popular = ui_packs.build_modpacks_tab(
         page, {}, state, section_label=_theme.section_label, go_to_pack=lambda m: None, **_theme.THEME)
     pack_search = next(c for c in _walk(packs) if isinstance(c, ft.TextField) and (c.hint_text or "").startswith("Search modpacks"))

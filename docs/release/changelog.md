@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased — Seasonal Play artwork
+
+- Added the approved pixel-art trees, tilted sapling and ground artwork for all
+  four seasons. Responsive images use bundled transparent assets and retain
+  access to Play, version, username and instance actions.
+- Added **Play scenery** to hide the overlay independently of the seasonal
+  colors and buddy. Removed the old Weather effects option and separate band.
+  Particles are capped at twelve (nine autumn leaves), updating about four times
+  per second. Reduced motion keeps artwork static; hidden Play panes stop particle
+  work. Minimized and unfocused windows pause animation; an empty shared ticker
+  blocks without polling.
+- The seasonal buddy wanders launcher edges, climbs borders and rests above Play.
+  Tab changes return it to the floor before the new pane appears, fixing floating
+  pets over a vanished button. Resizing also retires unavailable button perches.
+  Resting, reduced-motion and paused buddies use bundled static poses.
+- Fixed a native Flet layout failure that rendered the overlay as a gray panel:
+  the size listener now belongs to the inner Stack, outside the positioned host.
+
+## Unreleased — Mods, Resource Packs and Shaders audit
+
+- Added per-instance enable/disable switches for resource packs and shaders,
+  including unpacked folders. Disabled entries stay recoverable and are excluded
+  from launch staging. Shared bytes and sibling-instance metadata remain intact.
+- Installed scans and row actions run in background workers; browse and installed
+  lists render on demand, with bounded expansion and reused cached artwork.
+  Fixed a duplicate browse request, stale-instance actions, hidden initial
+  skeletons, worker-start recovery and misleading post-install failure feedback.
+- Downloads use unique preparation files, validate archives and redirect hosts,
+  clean failed partials and avoid overwriting shared name collisions. Cached mod
+  bytes are checked against requested hashes, including cache-alias lookups.
+  Path checks reject traversal and escaped profile/store directories; failed
+  folder adoption retains the original and shared-store purges retain live references.
+- Pack repairs stream assets and detach shared folder links before changes.
+  Mod descriptors and nested-JAR scans have memory budgets. File discovery skips
+  malformed/empty releases; shader setup respects the selected loader and offers
+  Oculus on Forge rather than promising to convert the instance to Fabric.
+
 ## 2026-11-01 — Modpacks performance, graphical Linux setup and website recovery
 
 - Modpacks prepares icons outside the UI lock, coalesces duplicate artwork

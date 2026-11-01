@@ -101,7 +101,7 @@ controls = list(fz.every_control(page))
 field = next(c for c in controls
              if (getattr(c, "hint_text", "") or "") == "Search installed mods...")
 scope = inspect.getclosurevars(
-    function_from_controls(controls, "refresh_mods_list")).nonlocals
+    function_from_controls(controls, "_render_installed_snapshot")).nonlocals
 list_view = scope["mods_list_view"]
 tab_label_row = inspect.getclosurevars(
     scope["_build_view_segment"]).nonlocals["view_segment_row"]

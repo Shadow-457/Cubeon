@@ -377,6 +377,8 @@ def read_pack_meta(zip_path: str) -> tuple:
             meta = None
             if entry:
                 try:
+                    if zf.getinfo(entry).file_size > 1024 * 1024:
+                        return None, entry, wrapper
                     meta = json.loads(zf.read(entry).decode("utf-8-sig", "replace"))
                 except (ValueError, KeyError):
                     meta = None
@@ -409,7 +411,10 @@ def _read_pack_meta_dir(pack_dir: str) -> tuple:
     if entry:
         try:
             with open(os.path.join(pack_dir, *entry.split("/")), "rb") as fh:
-                meta = json.loads(fh.read().decode("utf-8-sig", "replace"))
+                payload = fh.read(1024 * 1024 + 1)
+                if len(payload) > 1024 * 1024:
+                    return None, entry, wrapper
+                meta = json.loads(payload.decode("utf-8-sig", "replace"))
         except (OSError, ValueError):
             meta = None
     return (meta if isinstance(meta, dict) else None), entry, wrapper
@@ -420,7 +425,14 @@ def _flatten_dir(pack_dir: str, wrapper: str) -> bool:
     `wrapper/` up one level. Refuses to merge over an existing root entry -
     a blind move could overwrite real files, so the pack stays nested and
     keeps being reported instead."""
+    from .file_safety import entry_name, inside
+    try:
+        entry_name(wrapper)
+    except ValueError:
+        return False
     inner = os.path.join(pack_dir, wrapper)
+    if not inside(pack_dir, inner):
+        return False
     if not os.path.isdir(inner):
         return False
     try:
@@ -440,13 +452,30 @@ def _flatten_dir(pack_dir: str, wrapper: str) -> bool:
 def _repair_dir(pack_dir: str, wrapper: str | None, payload: bytes) -> None:
     """Write a repaired pack.mcmeta at a FOLDER pack's root (atomically),
     after flattening a wrapper subfolder if there is one."""
+    # Folder profiles link into a shared store. Detach the repaired instance's
+    # copy so its format change cannot affect another instance's pack.
+    if os.path.islink(pack_dir):
+        import tempfile
+        import shutil
+        from .file_safety import replace_directory
+        with tempfile.TemporaryDirectory(prefix='.repair-', dir=os.path.dirname(pack_dir)) as work:
+            prepared = os.path.join(work, 'pack')
+            shutil.copytree(pack_dir, prepared)
+            _repair_dir(prepared, wrapper, payload)
+            replace_directory(prepared, pack_dir)
+        return
     if wrapper:
         _flatten_dir(pack_dir, wrapper)
     target = os.path.join(pack_dir, "pack.mcmeta")
-    tmp = target + ".cubeon-new"
-    with open(tmp, "wb") as fh:
-        fh.write(payload)
-    os.replace(tmp, target)
+    import tempfile
+    fd, tmp = tempfile.mkstemp(prefix='.repair-', dir=pack_dir)
+    try:
+        with os.fdopen(fd, 'wb') as fh:
+            fh.write(payload)
+        os.replace(tmp, target)
+    finally:
+        if os.path.lexists(tmp):
+            os.remove(tmp)
     log.info("resource pack folder repaired: %s",
              os.path.basename(pack_dir))
 
@@ -577,12 +606,17 @@ def _rewrite_zip(zip_path: str, *, wrapper: str | None = None,
                     rel = name[len(wrapper) + 1:]
                 if not rel:
                     continue
-                data = replace[1] if (replace and rel == replace[0]) \
-                    else zin.read(name)
                 new_info = zipfile.ZipInfo(rel, date_time=info.date_time)
                 new_info.compress_type = info.compress_type
                 new_info.external_attr = info.external_attr
-                zout.writestr(new_info, data)
+                if replace and rel == replace[0]:
+                    zout.writestr(new_info, replace[1])
+                else:
+                    import shutil
+                    # Copy textures incrementally instead of materializing
+                    # each decompressed asset in Python's heap.
+                    with zin.open(info) as source, zout.open(new_info, 'w') as target:
+                        shutil.copyfileobj(source, target, length=64 * 1024)
             for name, data in (add or []):
                 zout.writestr(name, data)
         # The pack (or its folder) can disappear mid-repair - a user deleting a
@@ -738,6 +772,17 @@ def flatten_pack(zip_path: str, wrapper: str | None = None) -> bool:
             _meta, _entry, wrapper = read_pack_meta(zip_path)
         if not wrapper:
             return False
+        if os.path.islink(zip_path):
+            import tempfile
+            import shutil
+            from .file_safety import replace_directory
+            with tempfile.TemporaryDirectory(prefix='.flatten-', dir=os.path.dirname(zip_path)) as work:
+                prepared = os.path.join(work, 'pack')
+                shutil.copytree(zip_path, prepared)
+                changed = flatten_pack(prepared, wrapper)
+                if changed:
+                    replace_directory(prepared, zip_path)
+                return changed
         moved = _flatten_dir(zip_path, wrapper)
         if moved:
             log.info("flattened wrapped folder pack: %s (removed '%s/')",

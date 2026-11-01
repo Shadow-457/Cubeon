@@ -527,7 +527,7 @@ _mods_src = open(os.path.join(REPO, "ui", "mods_tab.py")).read()
 check("mod browse refreshes do not replay an entrance cascade",
       "motion.stagger(browse_results_view.controls)" not in _mods_src)
 check("... and loading uses static skeletons without a pulse worker",
-      "loading_rows()" in _mods_src and "motion.shimmer(" not in _mods_src)
+      "loading_rows(" in _mods_src and "motion.shimmer(" not in _mods_src)
 
 _set_src = open(os.path.join(REPO, "ui", "settings_tab.py")).read()
 check("the Settings row exists", '"Animations",' in _set_src)

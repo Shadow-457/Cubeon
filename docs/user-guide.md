@@ -166,6 +166,12 @@ project published only elsewhere will not appear in these results.
 
 ### Fixing installed content
 
+Choose the instance on Play, then open **Mods → Resource Packs** or **Shaders → Installed**.
+Each row has an enable/disable switch. Disabling keeps the file and applies to
+that instance on the next launch; re-enable it with the same switch. Other
+instances keep their own state. Enabled packs are available to select in
+Minecraft's resource-pack or shader settings; the launcher does not select them.
+
 **Check & repair** in **Mods → Installed** runs Cubeon's local Doctor in the
 background. The same button checks resource packs and shaders in their installed
 views. It checks duplicate jars, required dependencies, loader/version compatibility,
@@ -246,6 +252,18 @@ Arabic, Urdu, Persian, and Pashto use a right-to-left layout.
 **Custom title bar** defaults on for Windows (including Windows 10) and Linux. An
 explicit saved choice to switch it off is preserved. Restart after changing it.
 
+**Settings → Seasonal → Seasonal look** enables the seasonal palette and extras.
+Switch off **Play scenery** in that section to hide the trees, grass and particles
+while keeping the seasonal colors and buddy. Spring has blossoms and petals; summer has green trees,
+butterflies and fireflies; autumn has falling leaves; winter has snow. The tilted
+tree appears in every season. A season selection updates the artwork immediately;
+the launcher's color palette applies after a restart. Turn off **Full motion** in
+Display to retain static artwork without moving particles. The **Seasonal buddy**
+wanders the launcher edges, climbs borders and rests above Play; changing tabs
+returns it to the bottom edge. Turning off Full motion also keeps the buddy static.
+Particles stop while Play is hidden. All seasonal animation pauses when the window
+is minimized or loses focus. There is no separate Weather effects option.
+
 In **Settings → Performance → Java**, expand **Cubeon's default flags** to see the
 options derived from your memory setting and hardware, with explanations and skipped
 options. This readout updates when you change RAM or custom flags. Custom flags go
@@ -302,9 +320,10 @@ files private.
 Each installed version plays in its own folder under
 `~/.cubeon_minecraft/instances/<instance>/`. Its worlds (`saves/`), mod configs
 (`config/`) and `options.txt` live there, so a world or a video setting in one
-instance never shows up in another. The mod store, resource packs and shaders
-stay shared and are linked into every instance folder, so installed content
-still applies everywhere. Deleting an instance does not delete its world
+instance never shows up in another. Mod, resource-pack and shader bytes use
+shared stores, while each instance's profile records its installed and enabled
+content. Launch stages that profile's enabled entries, so installing or disabling
+content in one instance does not change another. Deleting an instance does not delete its world
 folder; remove that folder yourself once you are sure.
 
 If the app will not start, run it from a terminal and record the error.

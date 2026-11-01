@@ -659,8 +659,9 @@ check("a folder-in-shaders that is a resource pack is reported",
 # overrides below point the profile subdir at the doctor's scratch packs so
 # the listing sees exactly what the doctor just repaired.
 from cubeon import content as content_mod
-content_mod.CONTENT_TYPES["resourcepack"]["subdir"] = DOC_PACKS
-content_mod.CONTENT_TYPES["shader"]["subdir"] = DOC_SHADERS
+# Inject the resolver instead of putting an absolute path in a storage
+# subdirectory name, which production now correctly refuses.
+content_mod.resolve_content_profile_dir = lambda kind, *a, **kw: DOC_PACKS if kind == 'resourcepack' else DOC_SHADERS
 listing = content_mod.list_content("resourcepack", "1.21.11", loader="fabric")
 names = {i["filename"] for i in listing}
 check("folder packs appear in the installed list",

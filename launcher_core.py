@@ -95,7 +95,7 @@ from cubeon.modpacks import (
 # into the game folders at launch - exactly like mods) ---
 from cubeon.content import (
     CONTENT_TYPES, content_dir, store_dir, profile_dir, category_choices,
-    list_content, delete_content, install_local_content, open_content_folder,
+    list_content, toggle_content, delete_content, install_local_content, open_content_folder,
     is_installed as content_installed, content_compat, sync_content_to_game,
     search_content, get_recommended_content, get_content_download, download_content,
 )

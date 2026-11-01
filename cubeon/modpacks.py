@@ -518,9 +518,11 @@ def _relocate_non_mod_jar(dest: str, mc_version: str, loader: str,
 def _host_allowed(url: str) -> bool:
     try:
         parts = urlparse(url)
-    except ValueError:
+        port = parts.port
+    except (ValueError, TypeError):
         return False
-    if parts.scheme != "https" or not parts.hostname:
+    if (parts.scheme != "https" or not parts.hostname or port not in (None, 443)
+            or parts.username is not None or parts.password is not None):
         return False
     host = parts.hostname.lower()
     return any(host == d or host.endswith("." + d) for d in ALLOWED_DOWNLOAD_DOMAINS)

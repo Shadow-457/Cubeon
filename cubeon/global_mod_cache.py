@@ -67,8 +67,10 @@ def _load_index() -> dict:
     try:
         with open(_HASH_INDEX_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and all(k in data for k in _INDEX_STRUCT):
-            return data
+        if isinstance(data, dict):
+            return {key: {k: v for k, v in data.get(key, {}).items()
+                          if isinstance(k, str) and isinstance(v, str)}
+                    if isinstance(data.get(key), dict) else {} for key in _INDEX_STRUCT}
     except (OSError, ValueError):
         pass
     return {k: {} for k in _INDEX_STRUCT}
@@ -76,10 +78,8 @@ def _load_index() -> dict:
 
 def _save_index(index: dict) -> None:
     os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
-    tmp = _HASH_INDEX_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(index, f)
-    os.replace(tmp, _HASH_INDEX_PATH)
+    from .atomicio import write_json
+    write_json(_HASH_INDEX_PATH, index)
 
 
 def _filename_for_sha(sha256_hex: str) -> "str | None":
@@ -87,7 +87,30 @@ def _filename_for_sha(sha256_hex: str) -> "str | None":
 
 
 def _store_path(filename: str) -> str:
-    return os.path.join(GLOBAL_MODS_DIR, filename)
+    from .file_safety import entry_name, inside
+    path = os.path.join(GLOBAL_MODS_DIR, entry_name(filename))
+    if not inside(GLOBAL_MODS_DIR, path):
+        raise ValueError('The cached file points outside its mod store.')
+    return path
+
+
+from functools import lru_cache
+
+
+@lru_cache(maxsize=256)
+def _verified_hash(path, stamp, algorithm='sha256'):
+    return _hash_file(path, algorithm)
+
+
+def _matches_hashes(path, hashes):
+    try:
+        stat = os.stat(path)
+        stamp = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        return all(_verified_hash(path, stamp, algo) == str(digest).lower()
+                   for algo, digest in (hashes or {}).items()
+                   if algo in ('sha256', 'sha512', 'sha1') and digest)
+    except OSError:
+        return False
 
 
 def cache_path_if_present(sha256_hex: str) -> "str | None":
@@ -97,8 +120,13 @@ def cache_path_if_present(sha256_hex: str) -> "str | None":
     filename = _filename_for_sha(sha256_hex)
     if not filename:
         return None
-    path = _store_path(filename)
-    return path if os.path.isfile(path) else None
+    try:
+        path = _store_path(filename)
+        stat = os.stat(path)
+        stamp = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        return path if _verified_hash(path, stamp) == sha256_hex.lower() else None
+    except (OSError, ValueError):
+        return None
 
 
 def _resolve_manifest_hash(hashes: dict):
@@ -106,19 +134,19 @@ def _resolve_manifest_hash(hashes: dict):
     we've already saved, or None if we've never seen that exact jar."""
     if not hashes:
         return None
-    sha_map = _load_index()["sha256"]
-    manifest = _load_index()["manifest"]
+    index = _load_index()
+    sha_map, manifest = index['sha256'], index['manifest']
     for algo in ("sha512", "sha1"):
         digest = (hashes or {}).get(algo)
-        if not digest:
+        if not isinstance(digest, str) or not digest:
             continue
         sha256_hex = manifest.get(digest.lower())
         if not sha256_hex:
             continue
         filename = sha_map.get(sha256_hex)
         if filename:
-            path = _store_path(filename)
-            if os.path.isfile(path):
+            path = cache_path_if_present(sha256_hex)
+            if path and _matches_hashes(path, hashes):
                 return path
     return None
 
@@ -155,7 +183,12 @@ def _choose_store_name(sha256_hex: str, human_name: str | None, index: dict) -> 
     jar. Returns a name that does not currently exist as a file."""
     existing = index["sha256"].get(sha256_hex)
     if existing:
-        return existing
+        try:
+            path = _store_path(existing)
+            if not os.path.lexists(path) or _hash_file(path) == sha256_hex:
+                return existing
+        except (OSError, ValueError):
+            pass
 
     base = (human_name or "").strip()
     if not base:
@@ -163,18 +196,26 @@ def _choose_store_name(sha256_hex: str, human_name: str | None, index: dict) -> 
     # The caller hands us basenames of profile entries; be defensive anyway -
     # the store must never be written outside itself.
     base = os.path.basename(base.replace("\\", "/"))
+    from .file_safety import download_name
+    base = download_name(base, ('.jar', '.disabled'))
 
     candidate = base
+    collision = 0
     while True:
-        path = _store_path(candidate)
-        if not os.path.isfile(path):
-            return candidate
-        if _hash_file(path, "sha256") == sha256_hex:
-            return candidate  # same bytes under a different name already stored
+        try:
+            path = _store_path(candidate)
+            if not os.path.lexists(path):
+                return candidate
+            if _hash_file(path, "sha256") == sha256_hex:
+                return candidate
+        except (OSError, ValueError):
+            pass
         stem, dot, ext = base.rpartition(".")
         if not dot:
             stem, ext = base, ""
-        candidate = f"{stem}.{sha256_hex[:8]}{dot}{ext}"
+        collision += 1
+        tag = sha256_hex[:8] if collision == 1 else f'{sha256_hex}.{collision}'
+        candidate = f"{stem}.{tag}{dot}{ext}"
 
 
 def _record(sha256_hex: str, filename: str, hashes: dict) -> None:
@@ -197,14 +238,17 @@ def _ingest(tmp_path: str, human_name: str | None, hashes: dict) -> str:
     name-choice + move + index update are serialized, so two threads can't
     pick the same store filename for different bytes."""
     sha256_hex = _hash_file(tmp_path, "sha256")
+    for algorithm in ('sha256', 'sha512', 'sha1'):
+        expected = (hashes or {}).get(algorithm)
+        if expected and _hash_file(tmp_path, algorithm) != str(expected).lower():
+            raise ValueError('The mod does not match its published content hash.')
 
     with _INDEX_LOCK:
-        existing = _filename_for_sha(sha256_hex)
+        existing = cache_path_if_present(sha256_hex)
         if existing:
-            stored = _store_path(existing)
-            if os.path.isfile(stored):
-                os.remove(tmp_path)  # someone already stored this exact jar
-                return stored
+            _record(sha256_hex, os.path.basename(existing), hashes)
+            os.remove(tmp_path)
+            return existing
 
         os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
         filename = _choose_store_name(sha256_hex, human_name, _load_index())
@@ -244,7 +288,7 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
     if not cached:
         sha256_hex = (hashes or {}).get("sha256")
         cached = cache_path_if_present(sha256_hex) if sha256_hex else None
-    if cached:
+    if cached and _matches_hashes(cached, hashes):
         link_into_place(cached, dest_path)
         return dest_path
 
@@ -257,9 +301,9 @@ def get_or_fetch(dest_path: str, fetch_fn, hashes: dict = None,
         fetch_fn(tmp_path)
         stored = _ingest(tmp_path, human_name, hashes)
     finally:
-        if os.path.exists(tmp_path):
+        for partial in (tmp_path, tmp_path + '.part'):
             try:
-                os.remove(tmp_path)
+                os.remove(partial)
             except OSError:
                 pass
     link_into_place(stored, dest_path)
@@ -276,12 +320,12 @@ def put_file(src_path: str, dest_path: str, hashes: dict = None) -> str:
     dest_path."""
     hashes = hashes or {}
     sha256_hex = _hash_file(src_path, "sha256")
-    filename = _filename_for_sha(sha256_hex)
-    if filename:
-        stored = _store_path(filename)
-        if os.path.isfile(stored):
-            link_into_place(stored, dest_path)
-            return dest_path
+    if not _matches_hashes(src_path, hashes):
+        raise ValueError('The mod does not match its published content hash.')
+    stored = cache_path_if_present(sha256_hex)
+    if stored:
+        link_into_place(stored, dest_path)
+        return dest_path
 
     os.makedirs(GLOBAL_MODS_DIR, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(prefix=".fetch-", suffix=".part", dir=GLOBAL_MODS_DIR)

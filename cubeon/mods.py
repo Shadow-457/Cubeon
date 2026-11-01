@@ -320,8 +320,8 @@ def profile_key_for(mc_version: str | None, loader: str | None,
 
 def resolve_profile_dir(mc_version: str | None, loader: str | None,
                         version_id: str | None = None) -> str:
-    return os.path.join(PROFILES_DIR,
-                        profile_key_for(mc_version, loader, version_id))
+    from .file_safety import child_directory
+    return child_directory(PROFILES_DIR, profile_key_for(mc_version, loader, version_id))
 
 
 def get_profile_dir(mc_version: str | None, loader: str | None,
@@ -341,7 +341,11 @@ def profile_dir_for_key(key: str | None) -> str | None:
     if key in (".", "..") or os.path.basename(key) != key \
             or "/" in key or "\\" in key:
         return None
-    return os.path.join(PROFILES_DIR, key)
+    from .file_safety import child_directory
+    try:
+        return child_directory(PROFILES_DIR, key)
+    except ValueError:
+        return None
 
 
 def _profile_size_bytes(path: str) -> int:
@@ -599,6 +603,8 @@ def record_mod_source(profile_dir: str, filename: str, slug: str | None = None,
 
 
 def _meta_path(profile_dir: str, filename: str) -> str:
+    from .file_safety import entry_name
+    entry_name(filename, extensions=(".jar", ".jar.disabled"))
     base = filename[:-len(".disabled")] if filename.endswith(".disabled") else filename
     return os.path.join(profile_dir, base + MOD_META_SUFFIX)
 
@@ -607,7 +613,16 @@ def _read_meta(profile_dir: str, filename: str) -> dict | None:
     return _read_sidecar_json(_meta_path(profile_dir, filename))
 
 
+_META_WRITE_LOCK = threading.RLock()
+
+
 def _write_meta(profile_dir: str, filename: str, slug: str | None,
+                project_id: str | None = None, url: str | None = None) -> None:
+    with _META_WRITE_LOCK:
+        _write_meta_locked(profile_dir, filename, slug, project_id, url)
+
+
+def _write_meta_locked(profile_dir: str, filename: str, slug: str | None,
                 project_id: str | None = None, url: str | None = None) -> None:
     """Record what a jar actually IS, next to it.
 
@@ -644,8 +659,7 @@ def _write_meta(profile_dir: str, filename: str, slug: str | None,
     if not changed:
         return
     path = _meta_path(profile_dir, filename)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(meta, f)
+    write_json(path, meta)
     # The mtime/size key is usually enough, but two same-size rewrites inside
     # one mtime tick would look identical - drop the entry explicitly.
     _forget_sidecar(path)
@@ -799,6 +813,10 @@ def supersede_older_copies(profile_dir: str, filename: str,
                 if os.path.exists(meta):
                     os.remove(meta)
             elif not name.endswith(".disabled"):
+                if os.path.lexists(src + '.disabled'):
+                    # Preserve both variants rather than overwriting a disabled
+                    # backup on POSIX during a guessed-stem replacement.
+                    continue
                 os.rename(src, src + ".disabled")
             else:
                 continue  # already disabled, nothing to do
@@ -872,17 +890,23 @@ def list_mods(mc_version: str | None, loader: str | None,
             continue
         full = os.path.join(profile_dir, fname)
         if os.path.isfile(full) and (fname.endswith(".jar") or fname.endswith(".jar.disabled")):
+            from .file_safety import entry_name
+            try:
+                entry_name(fname)
+                size = os.path.getsize(full)
+            except (ValueError, OSError):
+                continue
             enabled = not fname.endswith(".disabled")
             meta = _read_meta(profile_dir, fname) or {}
             mods.append({
                 "filename": fname,
                 "display_name": fname.replace(".jar.disabled", "").replace(".jar", ""),
                 "enabled": enabled,
-                "size_kb": round(os.path.getsize(full) / 1024, 1),
-                "slug": meta.get("slug"),  # None for manually dropped-in jars
+                "size_kb": round(size / 1024, 1),
+                "slug": meta.get("slug") if isinstance(meta.get('slug'), str) else None,
                 # Modrinth's opaque id. A modpack manifest gives us only this,
                 # so it's often the sole thing identifying a pack-installed mod.
-                "project_id": meta.get("project_id"),
+                "project_id": meta.get("project_id") if isinstance(meta.get('project_id'), str) else None,
                 "stem": name_stem(fname),
                 # Cubeon-managed mods (CustomSkinLoader, Cubeon Friends) -
                 # the Mods UI hides their controls and the core refuses to
@@ -894,6 +918,8 @@ def list_mods(mc_version: str | None, loader: str | None,
 
 def toggle_mod(mc_version: str | None, loader: str | None, filename: str,
                version_id: str | None = None) -> None:
+    from .file_safety import entry_name
+    entry_name(filename, extensions=(".jar", ".jar.disabled"))
     profile_dir = get_profile_dir(mc_version, loader, version_id)
     full = os.path.join(profile_dir, filename)
     # Stale-UI guard: the mod list is a snapshot; the file can vanish (user
@@ -920,6 +946,8 @@ def toggle_mod(mc_version: str | None, loader: str | None, filename: str,
 
 def delete_mod(mc_version: str | None, loader: str | None, filename: str,
                version_id: str | None = None) -> None:
+    from .file_safety import entry_name
+    entry_name(filename, extensions=(".jar", ".jar.disabled"))
     profile_dir = get_profile_dir(mc_version, loader, version_id)
     full = os.path.join(profile_dir, filename)
     # Same stale-UI guard as toggle_mod(): deleting an already-gone entry is a
@@ -1016,6 +1044,9 @@ def install_local_mod(src_path: str, mc_version: str | None, loader: str | None,
     if not os.path.isfile(src_path):
         raise ValueError("Couldn't find that file.")
     require_mod_loader(mc_version, loader, "install a mod")
+    import zipfile
+    if not zipfile.is_zipfile(src_path):
+        raise ValueError("That mod is not a readable JAR archive.")
 
     profile_dir = get_profile_dir(mc_version, loader, version_id)
     filename = _safe_jar_filename(os.path.basename(src_path))
@@ -1451,6 +1482,35 @@ LAUNCH_LOOKUP_TIMEOUT = (3, 10)   # (connect, read); read stays generous
 LAUNCH_LOOKUP_ATTEMPTS = 1
 
 
+def _select_download(versions, *, mc_version=None, loader=None, predicates=(), extensions=('.jar',)):
+    """Newest usable provider file; malformed/empty releases are skipped."""
+    if not isinstance(versions, list):
+        return None
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        if any(wanted and key in version and (not isinstance(version.get(key), list) or wanted not in version[key])
+               for key, wanted in (('game_versions', mc_version), ('loaders', loader))):
+            continue
+        if not all(version_satisfies(str(version.get('version_number') or ''), p) for p in (predicates or ())):
+            continue
+        files = version.get('files')
+        if not isinstance(files, list):
+            continue
+        files = [f for f in files if isinstance(f, dict) and isinstance(f.get('filename'), str)
+                 and f['filename'].lower().endswith(extensions)
+                 and isinstance(f.get('url'), str) and f['url']]
+        if not files:
+            continue
+        chosen = next((f for f in files if f.get('primary')), files[0])
+        size = chosen.get('size', 0)
+        return {'filename': chosen['filename'], 'url': chosen['url'],
+                'size_kb': round(max(0, size) / 1024, 1) if isinstance(size, (int, float)) else 0,
+                'version_number': version.get('version_number'),
+                'hashes': chosen['hashes'] if isinstance(chosen.get('hashes'), dict) else {}}
+    return None
+
+
 def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
                       loader: str = "fabric", *,
                       timeout: int | tuple = 10,
@@ -1474,7 +1534,7 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
     if mc_version:
         params["game_versions"] = json.dumps([mc_version])
 
-    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 2}
+    cache_key = {"project": project_id_or_slug, "mc_version": mc_version, "loader": loader, "revision": 3}
     if version_predicates is not None:
         cache_key["predicates"] = list(version_predicates)
 
@@ -1484,31 +1544,8 @@ def get_mod_download(project_id_or_slug: str, mc_version: str | None = None,
             params=params, headers=modrinth_headers(), timeout=timeout,
             attempts=attempts,
         )
-        if not versions:
-            return None
-
-        # Versions come back newest-first. A release occasionally has an empty
-        # `files` list (or only non-primary files); blindly using versions[0]
-        # would return None and make the doctor wrongly DISABLE a mod that does
-        # have a downloadable build. Take the newest version that actually has
-        # a file.
-        latest = next((v for v in versions if v.get("files") and all(
-            version_satisfies(str(v.get("version_number") or ""), predicate)
-            for predicate in (version_predicates or ()))), None)
-        if latest is None:
-            return None
-        files = latest.get("files") or []
-        primary = next((f for f in files if f.get("primary")), files[0])
-        if not primary:
-            return None
-
-        return {
-            "filename": primary.get("filename"),
-            "url": primary.get("url"),
-            "size_kb": round(primary.get("size", 0) / 1024, 1),
-            "version_number": latest.get("version_number"),
-            "hashes": primary.get("hashes") or {},
-        }
+        return _select_download(versions, mc_version=mc_version, loader=loader,
+                                predicates=version_predicates)
 
     # File resolution is what runs between the click on "Download" and the
     # download starting - it must feel instant. 24h fresh, then serve stale
@@ -1862,30 +1899,41 @@ def _nested_mod_metadata(jar_path: str, *, max_depth: int = 2, loader: str | Non
 
     out: dict = {}
 
-    def _scan(blob: bytes, depth: int) -> None:
+    budget = {'bytes': 128 * 1024 * 1024, 'entries': 256}
+
+    def _scan(source, depth: int) -> None:
         if depth > max_depth:
             return
         try:
-            with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            with zipfile.ZipFile(source) as z:
                 names = set(z.namelist())
-                meta = read_mod_metadata(io.BytesIO(blob), loader)
+                if hasattr(source, 'seek'):
+                    source.seek(0)
+                meta = read_mod_metadata(source, loader)
                 if meta and (not loader or loader in meta.get("loaders", [])):
                     if isinstance(meta.get("id"), str) and meta["id"]:
                         out.setdefault(meta["id"].lower(), str(meta.get("version") or ""))
                     for identity, version in (meta.get("provided") or {}).items():
                         out.setdefault(identity.lower(), version)
-                for name in names:
-                    if name.startswith("META-INF/jars/") and name.endswith(".jar"):
+                for name in sorted(names):
+                    if depth < max_depth and name.startswith("META-INF/jars/") and name.endswith(".jar"):
                         try:
-                            _scan(z.read(name), depth + 1)
+                            size = z.getinfo(name).file_size
+                            if budget['entries'] <= 0 or size > min(64 * 1024 * 1024, budget['bytes']):
+                                continue
+                            budget['entries'] -= 1
+                            budget['bytes'] -= size
+                            with z.open(name) as entry:
+                                blob = entry.read(size + 1)
+                            if len(blob) == size:
+                                _scan(io.BytesIO(blob), depth + 1)
                         except Exception:
                             continue
         except Exception:
             return
 
     try:
-        with open(jar_path, "rb") as fh:
-            _scan(fh.read(), 1)
+        _scan(jar_path, 1)
     except Exception:
         return {}
     return out
@@ -1900,6 +1948,14 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
     import zipfile
     try:
         with zipfile.ZipFile(jar_path) as z:
+            def descriptor_bytes(name):
+                if z.getinfo(name).file_size > 1024 * 1024:
+                    raise ValueError('Mod metadata is too large.')
+                with z.open(name) as entry:
+                    payload = entry.read(1024 * 1024 + 1)
+                if len(payload) > 1024 * 1024:
+                    raise ValueError('Mod metadata is too large.')
+                return payload
             names = set(z.namelist())
             preferred = {
                 "forge": ("META-INF/mods.toml",),
@@ -1913,7 +1969,7 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                                   "META-INF/neoforge.mods.toml", "META-INF/mods.toml")
                                   if name in names), None)
             if descriptor == "fabric.mod.json":
-                d = json.loads(z.read("fabric.mod.json").decode("utf-8", "replace"))
+                d = json.loads(descriptor_bytes("fabric.mod.json").decode("utf-8", "replace"))
                 return {
                     "id": d.get("id"),
                     "version": str(d.get("version") or ""),
@@ -1925,7 +1981,7 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                                  for identity in d.get("provides", []) if isinstance(identity, str)},
                 }
             if descriptor == "quilt.mod.json":
-                d = json.loads(z.read("quilt.mod.json").decode("utf-8", "replace"))
+                d = json.loads(descriptor_bytes("quilt.mod.json").decode("utf-8", "replace"))
                 q = d.get("quilt_loader") or {}
                 def _pairs(items):
                     out = {}
@@ -1943,7 +1999,7 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                 }
             if descriptor:
                 import tomllib
-                data = tomllib.loads(z.read(descriptor).decode("utf-8"))
+                data = tomllib.loads(descriptor_bytes(descriptor).decode("utf-8"))
                 declared = data.get("mods") or []
                 if not declared:
                     return None
@@ -1951,7 +2007,7 @@ def read_mod_metadata(jar_path: str, loader: str | None = None) -> dict | None:
                 dependencies = (data.get("dependencies") or {}).get(primary.get("modId"), [])
                 dependencies = [entry for entry in dependencies
                                 if str(entry.get("side", "BOTH")).upper() != "SERVER"]
-                manifest = z.read("META-INF/MANIFEST.MF").decode("utf-8", "replace") if "META-INF/MANIFEST.MF" in names else ""
+                manifest = descriptor_bytes("META-INF/MANIFEST.MF").decode("utf-8", "replace") if "META-INF/MANIFEST.MF" in names else ""
                 implementation = re.search(r"(?m)^Implementation-Version:\s*(.+)$", manifest)
                 def mod_version(entry):
                     value = str(entry.get("version") or "")
@@ -1978,19 +2034,23 @@ def _read_remote_mod_metadata(download_url: str, loader: str | None = None) -> d
     conflict resolution. The bytes are discarded; nothing is installed."""
     import tempfile
     from . import net
+    from .modpacks import _host_allowed
+    if not _host_allowed(download_url):
+        return None
     fd, tmp = tempfile.mkstemp(suffix=".jar")
     os.close(fd)
     try:
         net.download_to(tmp, download_url, headers=modrinth_headers(),
-                        timeout=25, attempts=2)
+                        timeout=25, attempts=2, url_validator=_host_allowed)
         return read_mod_metadata(tmp, loader)
     except Exception:
         return None
     finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        for partial in (tmp, tmp + '.part'):
+            try:
+                os.remove(partial)
+            except OSError:
+                pass
 
 
 def _mod_ref(mod: dict) -> str | None:
@@ -3233,7 +3293,10 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
         try:
             net.download_to(tmp_path, download_url, headers=modrinth_headers(),
                             timeout=15, expected_hash=expected,
-                            progress_cb=progress_cb)
+                            progress_cb=progress_cb, url_validator=_host_allowed)
+            import zipfile
+            if not zipfile.is_zipfile(tmp_path):
+                raise ValueError('The downloaded mod is not a readable JAR archive.')
         except net.DownloadError as ex:
             raise RuntimeError(str(ex)) from ex
 

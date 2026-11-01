@@ -72,7 +72,7 @@ page = DriverPage()
 state = {"selected_mc_version": "1.21.1", "mod_loader": "vanilla"}
 root, refresh, _recommend, _browse = build_mods_tab(page, {}, state, ft.Dropdown(value="1.21.1"), section_label=section_label, **THEME)
 refresh()
-closure = inspect.getclosurevars(refresh).nonlocals
+closure = inspect.getclosurevars(inspect.getclosurevars(refresh).nonlocals['_render_installed_snapshot']).nonlocals
 install_button = closure["local_install_btn"]
 check("the vanilla Mods install button is disabled", install_button.disabled)
 choose_type = inspect.getclosurevars(closure["_can_install"]).nonlocals["_ct"]

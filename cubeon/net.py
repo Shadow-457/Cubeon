@@ -111,7 +111,7 @@ class HTTPStatusError(DownloadError):
 
 def get_with_retry(url: str, *, headers: dict | None = None,
                    params: dict | None = None, timeout: int = 30,
-                   attempts: int = DEFAULT_ATTEMPTS) -> requests.Response:
+                   attempts: int = DEFAULT_ATTEMPTS, url_validator=None) -> requests.Response:
     """GET with exponential backoff on transient failures. The response is
     returned fully-connected (stream=True) and the caller must close it.
 
@@ -122,8 +122,24 @@ def get_with_retry(url: str, *, headers: dict | None = None,
     last_err: Exception | None = None
     for attempt in range(attempts):
         try:
-            resp = _do_get(url, headers=headers, params=params, stream=True,
-                           timeout=timeout)
+            if url_validator is None:
+                resp = _do_get(url, headers=headers, params=params, stream=True,
+                               timeout=timeout)
+            else:
+                from urllib.parse import urljoin
+                current = url
+                for hop in range(6):
+                    if not url_validator(current):
+                        raise DownloadError('The download redirects to an untrusted host.')
+                    resp = _do_get(current, headers=headers, params=params if hop == 0 else None,
+                                   stream=True, timeout=timeout, allow_redirects=False)
+                    if resp.status_code not in (301, 302, 303, 307, 308):
+                        break
+                    location = resp.headers.get('Location')
+                    resp.close()
+                    if not location or hop == 5:
+                        raise DownloadError('The download redirect is incomplete or loops.')
+                    current = urljoin(current, location)
             if resp.status_code in (429, 500, 502, 503, 504) and attempt < attempts - 1:
                 retry_after = resp.headers.get("Retry-After")
                 try:
@@ -243,7 +259,7 @@ def stream_to_file(resp: requests.Response, dest_path: str, *,
 def download_to(dest_path: str, url: str, *, headers: dict | None = None,
                 timeout: int = 30, attempts: int = DEFAULT_ATTEMPTS,
                 expected_hash: tuple[str, str] | None = None,
-                progress_cb=None, deadline: float | None = None) -> int:
+                progress_cb=None, deadline: float | None = None, url_validator=None) -> int:
     """Download url -> dest_path with retry + Range resume, capped by the
     global download gate. Verifies expected_hash=(algo, hexdigest) when
     given; a hash mismatch clears the partial file and raises (a resume
@@ -283,8 +299,11 @@ def download_to(dest_path: str, url: str, *, headers: dict | None = None,
             if resume_from:
                 req_headers["Range"] = f"bytes={resume_from}-"
             try:
-                resp = get_with_retry(url, headers=req_headers, timeout=timeout,
-                                      attempts=max(1, attempts - attempt))
+                get_args = dict(headers=req_headers, timeout=timeout,
+                                attempts=max(1, attempts - attempt))
+                if url_validator is not None:
+                    get_args['url_validator'] = url_validator
+                resp = get_with_retry(url, **get_args)
                 try:
                     if resume_from and resp.status_code != 206:
                         resume_from = 0  # server ignored Range: full body coming
