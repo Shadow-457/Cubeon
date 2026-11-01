@@ -250,20 +250,22 @@ with tempfile.TemporaryDirectory() as tmp:
         first.start()
         spawn_gate.wait(5)
         second_result = {}
-        second = threading.Thread(target=lambda: second_result.update(
-            proc=launch.launch_game("1.21.1", "B", 800, 600, 400, None,
-                                    mc_version="1.21.1", loader="vanilla")))
+        def try_second():
+            try:
+                second_result['proc'] = launch.launch_game(
+                    "1.21.1", "B", 800, 600, 400, None,
+                    mc_version="1.21.1", loader="vanilla")
+            except RuntimeError as error:
+                second_result['refused'] = 'already running' in str(error)
+        second = threading.Thread(target=try_second)
         second.start()
         time.sleep(0.1)
         spawn_released.set()
         second.join(15)
         first.join(15)
-        proc = second_result.get("proc")
-        check(proc is not None, "second launch completed after first")
-        # The lock is held across staging: the second launch's staging can only
-        # begin after the first's Popen completed (first staged -> then both).
-        check(len(staged) == 2 and staged[0][0] == "1.20.1" and staged[1][0] == "1.21.1",
-              "staging serialized in launch order", str(staged))
+        check(second_result.get('refused'), "second launch is refused after first spawns")
+        check(staged == [('1.20.1', 'fabric')],
+              "a second launch never changes the live game's staging", str(staged))
         for t in threading.enumerate():
             if t.name.startswith("mc-stdout") or "watch" in repr(t.name).lower():
                 t.join(timeout=5)
@@ -860,6 +862,7 @@ from cubeon import local_cache  # noqa: E402
 with patch.object(content, "sync_content_to_game", lambda *a: None), \
         patch.object(launch, "sync_mods_to_game", lambda *a: None), \
         patch.object(launch, "build_launch_command", lambda *a, **k: ["java", "game"]), \
+        patch.object(watchdog, "stale_session", return_value=None), \
         patch.object(launch.subprocess, "Popen", side_effect=lambda *a, **k: GameProcess(777)), \
         patch.object(milestones, "begin_play_session", lambda *a, **k: None), \
         patch.object(FriendsService, "reconcile_username_active", lambda: None, create=True):
@@ -898,6 +901,7 @@ print("\nM2. ignoring Doctor never blocks Minecraft from launching")
 with patch.object(content, "sync_content_to_game", lambda *args: None), \
         patch.object(launch, "sync_mods_to_game", lambda *args: None), \
         patch.object(launch, "build_launch_command", lambda *args, **kwargs: ["java", "game"]), \
+        patch.object(watchdog, "stale_session", return_value=None), \
         patch.object(launch.subprocess, "Popen") as spawn:
     spawn.reset_mock()
     approver = lambda change: False

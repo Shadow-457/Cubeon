@@ -38,6 +38,7 @@ import launcher_core as core
 from cubeon import instances as instance_info
 from cubeon import modpacks as modpacks_backend
 from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
+from cubeon.background_refresh import BackgroundRefresh
 from ui.detail_dialog import open_project_detail
 from ui.install_feedback import InstallRegistry, compact_status
 from ui.content_states import loading_rows, empty_state
@@ -1386,14 +1387,25 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         # frame hitch on each tab switch).
         thread_safe_ui.refresh(installed_view)
 
-    def refresh_installed_packs():
-        installed_cache["packs"] = None  # force a fresh scan
-        packs = _scan_installed_packs()
+    def _apply_installed_packs(packs):
+        installed_cache["packs"] = packs
         installed_count.value = f"{len(packs)} installed" if packs else ""
         if active_view["value"] == "installed":
             _render_installed_rows(packs)
         thread_safe_ui.refresh(installed_count)
         _build_view_segment(len(packs))  # keep "Installed (N)" tab count fresh
+
+    pack_refresh = BackgroundRefresh(core.list_installed_modpacks, _apply_installed_packs,
+                                     name='modpacks-refresh')
+
+    def refresh_installed_packs(*, background=False):
+        if background:
+            pack_refresh.request()
+            return
+        pack_refresh.invalidate()
+        packs = core.list_installed_modpacks()
+        with thread_safe_ui.TREE_LOCK:
+            _apply_installed_packs(packs)
 
     # --- Browse / Installed view tabs ---------------------------------------
     # Same pattern as the Mods tab: the catalog and the installed list each
@@ -1434,7 +1446,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _build_view_segment(n_packs=None):
         view_segment_row.controls.clear()
         if n_packs is None:
-            n_packs = len(_scan_installed_packs())
+            n_packs = len(installed_cache["packs"] or [])
         for vid, vlabel in (("browse", "Browse"), ("installed", "Installed")):
             count_note = f" ({n_packs})" if (vid == "installed" and n_packs) else ""
             view_segment_row.controls.append(
@@ -1452,7 +1464,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         installed_pane.visible = (new_view == "installed")
         _build_view_segment()
         if new_view == "installed":
-            refresh_installed_packs()
+            refresh_installed_packs(background=True)
         thread_safe_ui.refresh(browse_pane)
         thread_safe_ui.refresh(installed_pane)
 

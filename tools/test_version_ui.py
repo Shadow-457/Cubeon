@@ -34,6 +34,7 @@ import _fuzz_common as fz                                     # noqa: E402
 from _fuzz_common import every_control, subtree_text, walk    # noqa: E402
 from _fuzz_common import ctrl_text                            # noqa: E402
 import app_driver                                             # noqa: E402
+import threading
 
 passed = 0
 failed = 0
@@ -449,6 +450,9 @@ if page.opened:
 check("the hero Delete asks for confirmation", confirm is not None)
 if confirm is not None:
     driver._fire_named(confirm, "on_click", "confirm hero delete")
+    for thread in threading.enumerate():
+        if thread.name == 'delete-instance':
+            thread.join(timeout=10)
 
 check("the hero delete really removed it", not _remaining, str(_remaining))
 check("the hero delete raised nothing", not driver.errors, str(driver.errors[:3]))
@@ -516,6 +520,9 @@ if page.opened:
 check("the vanished instance still asks for confirmation", confirm is not None)
 if confirm is not None:
     driver._fire_named(confirm, "on_click", "confirm vanished delete")
+    for thread in threading.enumerate():
+        if thread.name == 'delete-instance':
+            thread.join(timeout=10)
 
 check("'folder no longer exists' is treated as success, not an error",
       not driver.errors, str(driver.errors[:3]))

@@ -94,6 +94,25 @@ class DependencyTests(unittest.TestCase):
         self.assertEqual(self.run_doctor()["fixed"], [])
         self.assertEqual(self.lookups, [])
 
+    def test_ingenium_short_version_satisfies_oldcannons_without_network(self):
+        self.profile.joinpath('cloth.jar').write_bytes(jar('cloth-config', '16.0.141'))
+        self.profile.joinpath('oldcannons.jar').write_bytes(jar('oldcannons', '1.0.5', {'ingeniumapi': '>=1.1.0'}))
+        self.profile.joinpath('ingenium.jar').write_bytes(jar('ingeniumapi', '1.1'))
+        report = self.run_doctor()
+        self.assertEqual(report['unfixed'], [])
+        self.assertEqual(self.lookups, [])
+        self.assertEqual(self.downloads, [])
+
+    def test_semantic_zero_padding_and_prerelease_ordering(self):
+        for version in ('1.1', '1.1.0', '1.1.0.0', '1.1+fabric'):
+            self.assertTrue(mods.version_satisfies(version, '>=1.1.0'))
+            self.assertEqual(mods._cmp_versions(version, '1.1.0'), 0)
+        self.assertFalse(mods.version_satisfies('1.1-rc.1', '>=1.1.0'))
+        self.assertFalse(mods.version_satisfies('1.0.9', '>=1.1.0'))
+        self.assertTrue(mods.version_satisfies('1.2', '>= 1.1.0 < 2.0'))
+        self.assertLess(mods._cmp_versions('1.1-rc.2', '1.1-rc.10'), 0)
+        self.assertLess(mods._cmp_versions('1.1-1', '1.1-alpha'), 0)
+
     def test_outdated_dependency_is_replaced_with_byte_identical_backup(self):
         old = jar("cloth-config", "15.0.1")
         self.profile.joinpath("cloth-old.jar").write_bytes(old)
@@ -269,7 +288,9 @@ class DependencyTests(unittest.TestCase):
         source = Path(__file__).resolve().parents[1].joinpath("cubeon/launch.py").read_text()
         gate = next(node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.With)
                     and any(isinstance(item.context_expr, ast.Name)
-                            and item.context_expr.id == "_spawn_lock" for item in node.items))
+                            and item.context_expr.id == "_spawn_lock" for item in node.items)
+                    and any(isinstance(child, ast.Name) and child.id == 'run_dependency_doctor'
+                            for child in ast.walk(node)))
         module = ast.Module(body=[gate], type_ignores=[])
         from threading import Lock
         from types import SimpleNamespace
@@ -281,7 +302,7 @@ class DependencyTests(unittest.TestCase):
                      status_cb=None, command=[], game_dir=str(self.profile), log_fh=None, log_path="unused",
                      popen_kwargs={}, session_id="test", username="test", _active_logs=set(),
                      _prune_game_logs=lambda: None, subprocess=SimpleNamespace(Popen=spawn, DEVNULL=-1, STDOUT=-2),
-                     watchdog=SimpleNamespace(register=lambda *a, **kw:None),
+                     watchdog=SimpleNamespace(register=lambda *a, **kw:None, stale_session=lambda:None),
                      sync_mods_to_game=lambda *a:events.append("sync"), __name__="cubeon.launch", __package__="cubeon")
         from cubeon import content
         self.remote_jar("cloth-config")

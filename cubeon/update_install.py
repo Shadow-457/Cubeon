@@ -135,6 +135,8 @@ def download_update(info: dict, target: InstallTarget, cancel: threading.Event,
         from .paths import CUBEON_HOME
         directory = Path(CUBEON_HOME) / "updates"
     Path(directory).mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(directory).free < total + 1024**2:
+        raise ValueError("Not enough space to download this update. Free space on Cubeon's data drive and try again.")
     folder = Path(tempfile.mkdtemp(prefix="download-", dir=directory))
     destination = folder / {"windows": "Cubeon-Setup.exe", "linux-deb": "Cubeon.deb",
                             "linux": "Cubeon.AppImage"}.get(target.asset, "Cubeon.download")
@@ -296,6 +298,10 @@ def prepare_install(info: dict, target: InstallTarget, download: Path, *, reopen
             or file_digest(download) != str(asset.get("sha256") or "").lower()):
         raise ValueError("The update download could not be verified.")
     folder = download.parent
+    if target.asset == 'linux':
+        needed = download.stat().st_size + target.path.stat().st_size + 1024**2
+        if shutil.disk_usage(target.path.parent).free < needed:
+            raise ValueError("Not enough space to install this update and keep a backup. Free space on Cubeon's installation drive and try again.")
     result = folder.parent / "install-result.txt"
     if target.asset == "windows":
         helper = folder / "install.ps1"

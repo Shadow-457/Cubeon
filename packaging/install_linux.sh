@@ -64,6 +64,7 @@ cat > "$PREFIX/cubeon" <<'LAUNCHER'
 set -e
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 export CUBEON_APPIMAGE_PATH="$HERE/Cubeon.AppImage"
+export CUBEON_LAUNCH_INSTALLED=1
 if [[ ! -r /dev/fuse || ! -w /dev/fuse ]] || ! ldconfig -p 2>/dev/null | grep -q 'libfuse.so.2'; then
   export APPIMAGE_EXTRACT_AND_RUN=1
 fi

@@ -19,6 +19,10 @@ import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
 import subprocess  # Detached launcher fallback when execv cannot replace us
 import re          # For regular expressions (used to clean mod slugs and parse version strings)
 import sys         # For runtime platform detection and PyInstaller bundle paths
+if __name__ == '__main__' and '--cubeon-installer' in sys.argv:
+    from cubeon.installer_ui import run_installer
+    run_installer()
+    raise SystemExit(0)
 import threading   # For running long tasks (e.g., network calls, game launch) without freezing the UI
 import time        # For the scheduled-backup timer loop
 import signal      # For ending the leftover flet client process on session end
@@ -4152,6 +4156,7 @@ async def main(page: ft.Page):
 
     # Selection is read-only. Downloads start only through the main action.
     _deleted_versions: set[str] = set()
+    _deleting_versions: set[str] = set()
 
     class _InstallCancelled(Exception):
         """Raised from an install progress callback to abort a cancelled
@@ -4216,7 +4221,7 @@ async def main(page: ft.Page):
             ("pack badge", update_pack_badge),
             ("hero", update_hero),   # hero title/meta follow the selection
             ("server tab", lambda: (
-                refresh_server_tab()
+                refresh_server_tab(background=True)
                 if active_tab["value"] in {"server_console", "server_plugins",
                                            "server_settings"} else None)),
         ):
@@ -4587,16 +4592,16 @@ async def main(page: ft.Page):
 
         threading.Thread(target=_work, daemon=True, name="quit-game").start()
 
-    def _begin_install_and_launch(version_id, username, ensure_java_major=None):
+    def _begin_install_and_launch(version_id, username, ensure_java_major=None,
+                                  install_loader=None, icon_choice=None):
         """Paints the busy state and hands off to the install worker.
 
-        Split out of on_play_click so the Java prompt can run FIRST and still
-        end up in exactly this state once the user answers - otherwise the
-        button would paint "busy" for a question the user has not been asked
-        yet, and declining would leave it stuck on a spinner.
+        Both a Play click and the Java prompt's accepted answer enter here.
+        The worker probes Java before writing files and releases its claim
+        before asking for a missing runtime, so declining cannot strand it.
 
         `ensure_java_major` makes the worker install a managed runtime before
-        anything else; None means Java is already known to be fine.
+        anything else; None means the worker will check the installed Java.
         """
         # Claim the install slot for this version before painting anything
         # busy. This is the single funnel for both ways in - a direct click
@@ -4610,8 +4615,14 @@ async def main(page: ft.Page):
         #
         # The progress card and cancel button describe one attempt. Claim
         # their slot atomically, including requests from the Java prompt.
-        with _launch_state_lock:
+        with thread_safe_ui.TREE_LOCK, _launch_state_lock:
             if state.get("updating_launcher"):
+                return False
+            if _deleting_versions:
+                _show_snack("An instance is being deleted. Wait for it to finish before playing.")
+                return False
+            if state.get("running_version"):
+                _show_snack("Minecraft is already running. Quit it before playing another instance.")
                 return False
             if state.get("installing_version"):
                 _show_snack("An installation is already in progress", duration=4000)
@@ -4641,7 +4652,9 @@ async def main(page: ft.Page):
                             "to finish, then press Play", duration=5000)
                 return False
             _deleted_versions.discard(version_id)  # explicit reinstall
-            install_loader = state.get("mod_loader") or "vanilla"
+            install_loader = install_loader or state.get("mod_loader") or "vanilla"
+            icon_choice = dict(icon_choice if icon_choice is not None else
+                               state.get("pending_instance_icon") or {})
             _cancel_event(version_id).clear()
             state["installing_version"] = version_id
 
@@ -4679,7 +4692,7 @@ async def main(page: ft.Page):
             threading.Thread(
                 target=lambda: do_install_and_launch(version_id, username,
                                                      ensure_java_major,
-                                                     install_loader),
+                                                     install_loader, icon_choice),
                 daemon=True).start()
         except Exception:
             if state.get("installing_version") == version_id:
@@ -4694,7 +4707,8 @@ async def main(page: ft.Page):
 
         return True
 
-    def _prompt_for_java(version_id, username, mc_version, jstatus):
+    def _prompt_for_java(version_id, username, mc_version, jstatus,
+                         install_loader=None, icon_choice=None):
         """Asks whether Cubeon may download the Java this version needs.
 
         Three answers, and each one must leave the launcher in a sane state:
@@ -4721,7 +4735,8 @@ async def main(page: ft.Page):
         def _install(dlg):
             _close_dialog(dlg=dlg)
             _begin_install_and_launch(version_id, username,
-                                      ensure_java_major=required)
+                                      ensure_java_major=required,
+                                      install_loader=install_loader, icon_choice=icon_choice)
 
         def _not_now(dlg):
             _close_dialog(dlg=dlg)
@@ -4823,7 +4838,7 @@ async def main(page: ft.Page):
         # watchdog before committing. Exceptions count as "maybe alive" -
         # refusing a launch is recoverable, launching a second copy of the
         # same instance (profile lock contention, double playtime) is not.
-        if state.get("running_version") == version_id:
+        if state.get("running_version"):
             try:
                 from cubeon import watchdog as _watchdog
                 live = _watchdog.stale_session()
@@ -4845,29 +4860,11 @@ async def main(page: ft.Page):
             except Exception:
                 logging.getLogger(__name__).debug("username reconciliation failed", exc_info=True)
 
-        # --- Java check, BEFORE anything is painted busy --------------------
-        # Minecraft needs a Java new enough for the SELECTED version, and
-        # before this existed a machine with no JDK just got an error banner
-        # and a link to read. So ask instead, and offer to fetch a Temurin
-        # runtime. The check is skipped when the game is already installed and
-        # we are only relaunching it: that machine demonstrably ran this
-        # version before, so re-asking on every launch would be noise.
-        #
-        # `version_id` can be a loader row ("fabric-loader-0.19.5-26.1.2"), so
-        # the numeric base is what the Java requirement is keyed off - same
-        # reason the loader checks further down use it.
-        mc_version = core.resolve_mc_version(version_id)
-        if mc_version:
-            try:
-                jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
-            except Exception:
-                jstatus = {"ok": True, "required": 0, "found": None}
-            if not jstatus.get("ok") and jstatus.get("required"):
-                _prompt_for_java(version_id, username, mc_version, jstatus)
-                return True  # the dialog's action calls back into the install
+        # The worker checks Java before installing files; the UI stays responsive.
         return _begin_install_and_launch(version_id, username)
 
     _launch_state_lock = threading.RLock()
+    _running_liveness = {"stop": None}
 
     def _reset_button_after_worker(version_id):
         """Repaint the main button after an install worker ends in cancel or
@@ -4886,7 +4883,7 @@ async def main(page: ft.Page):
                 _sync_play_button()
 
     def do_install_and_launch(version_id, username, ensure_java_major=None,
-                              install_loader=None):
+                              install_loader=None, icon_choice=None):
         """
         This runs in a background thread. It handles:
           - Installing a managed Java runtime first, if the user agreed to one
@@ -4899,7 +4896,9 @@ async def main(page: ft.Page):
         # always clean it up. Registered on state so on_cancel_install finds
         # the right version even if the user changes the dropdown mid-install.
         cancel = _cancel_event(version_id)
-        icon_choice = dict(state.get("pending_instance_icon") or {})
+        icon_choice = dict(icon_choice if icon_choice is not None else
+                           state.get("pending_instance_icon") or {})
+        java_prompt = None
         cancellable = {"on": True}  # disarmed once the launch phase begins
 
         def _check_cancel():
@@ -4916,8 +4915,24 @@ async def main(page: ft.Page):
         try:
             target_version = version_id
             loader_id = install_loader or state["mod_loader"]
-            if loader_id != "vanilla" and not core.is_loader_supported(
-                    loader_id, core.resolve_mc_version(version_id)):
+            # Java probes can take seconds per executable. Keep them off the
+            # click handler, cancellable, and before any game-file writes.
+            _check_cancel()
+            if not ensure_java_major:
+                mc_version = core.resolve_mc_version(version_id)
+                jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
+                _check_cancel()
+                if not jstatus.get("ok") and jstatus.get("required"):
+                    java_prompt = (mc_version, jstatus, loader_id)
+                    return
+            installed_choice = instance_info.describe(
+                version_id, (state.get("installed_meta") or {}).get(version_id),
+                with_mods=False, play_store={})
+            keep_loader = (version_id in state["installed"] and
+                           installed_choice["loader"] == loader_id and
+                           not installed_choice["incomplete"])
+            if (loader_id != "vanilla" and not keep_loader and
+                    not core.is_loader_supported(loader_id, core.resolve_mc_version(version_id))):
                 raise RuntimeError(
                     f"{core.SUPPORTED_LOADERS.get(loader_id, loader_id)} does not support "
                     f"Minecraft {core.resolve_mc_version(version_id)}. "
@@ -5158,6 +5173,7 @@ async def main(page: ft.Page):
             # last - see the guarded block after launch_game() returns.
             exited = {"done": False}
             _exit_lock = threading.Lock()
+            _liveness_done = threading.Event()
 
             # Define callback when game process exits - this is the only place
             # that should put the button back to "play", since launch_game()
@@ -5194,19 +5210,19 @@ async def main(page: ft.Page):
                                 log_text = full
                         except OSError:
                             pass  # keep the in-memory tail
-                label = f"Minecraft {core.resolve_mc_version(version_id) or version_id}"
+                label = f"Minecraft {core.resolve_mc_version(target_version) or version_id}"
                 try:
-                    mc_version = (core.extract_mc_version(version_id)
-                                  if version_id else None)
+                    mc_version = (core.resolve_mc_version(target_version)
+                                  if target_version else None)
                 except Exception:
                     mc_version = None
                 try:
-                    loader = instance_info.detect_loader(version_id)
+                    loader = instance_info.detect_loader(target_version)
                 except Exception:
                     loader = "vanilla"
                 try:
                     state["last_crash"] = {
-                        "version_id": version_id,
+                        "version_id": target_version,
                         "reason": reason,
                         "log_text": log_text,
                         "log_path": log_path,
@@ -5220,7 +5236,7 @@ async def main(page: ft.Page):
                         version_label=label, log_path=log_path,
                         show_snack=_show_snack,
                         mc_version=mc_version, loader=loader,
-                        version_id=version_id)
+                        version_id=target_version)
 
                 # Mounting a dialog from the watcher thread must happen on the
                 # UI loop; fall back to a direct call on harnesses without one
@@ -5238,6 +5254,10 @@ async def main(page: ft.Page):
                     _handle_game_exit(code, lines, session_id)
                 # Repaints can run as soon as the tree lock is released.
                 # Optional presence/IPC cleanup must not hold that lock.
+                try:
+                    core.milestones_end_play_session(session_id=session_id)
+                except Exception:
+                    pass  # bookkeeping must never break the exit path
                 if not state.get("running_version") and not state.get("launching_version"):
                     try:
                         if friends_service is not None:
@@ -5253,6 +5273,7 @@ async def main(page: ft.Page):
                 # this launch is already over and leave the result alone.
                 with _exit_lock:
                     exited["done"] = True
+                    _liveness_done.set()
                 # Did the user end this game from the QUIT GAME button? SIGTERM
                 # gives a negative exit code, which looks exactly like a crash;
                 # consuming the marker here is what keeps a requested quit from
@@ -5263,12 +5284,6 @@ async def main(page: ft.Page):
                         session_id)
                 except Exception:
                     intentional_stop = False
-                # Credit THIS session's playtime (clamped inside). Session-keyed:
-                # an older game's exit must not end a newer one's record.
-                try:
-                    core.milestones_end_play_session(session_id=session_id)
-                except Exception:
-                    pass  # cosmetic - never let it break the exit path
                 # A newer game may still be live (overlapping launches): only
                 # the latest live session may clear the shared running state.
                 try:
@@ -5286,7 +5301,7 @@ async def main(page: ft.Page):
                     try:
                         with _launch_state_lock:
                             state["running_version"] = None
-                        if version_dropdown.value == version_id:
+                        if version_dropdown.value == target_version:
                             _sync_play_button()
                         thread_safe_ui.refresh(progress_card)
                     except Exception:
@@ -5325,7 +5340,7 @@ async def main(page: ft.Page):
                     # unrelated selection forced a recompute. Reset only when
                     # the user is still looking at this launch's version
                     # (otherwise the selection handler owns the button).
-                    if version_dropdown.value == version_id:
+                    if version_dropdown.value == target_version:
                         _sync_play_button()
                     thread_safe_ui.refresh(progress_card)
                 except Exception:
@@ -5335,72 +5350,7 @@ async def main(page: ft.Page):
                     traceback.print_exc()
                     _exit_fallback_reset()
 
-            # launch_game() returns as soon as the process has *started* - it
-            # does not wait for the game to close. So the button must switch
-            # to "running" right here, not after this call returns.
-            # mc_version/loader are passed explicitly (not left to default)
-            # so the right profile's mods actually get synced before this
-            # launch - see cubeon/launch.py and cubeon/mods.py for why that
-            # used to silently fail. cfg is passed so the launch also
-            # installs CustomSkinLoader and re-mirrors the active skin under
-            # the current username - without that mod, offline players see
-            # Steve/Alex and no Cubeon cape (see cubeon/csl.py).
-            # Switch to "running" BEFORE spawning, not after. on_exit fires from
-            # a watcher thread, and a game that dies immediately (bad Java, mod
-            # conflict) can reach it before this line would otherwise run -
-            # which would overwrite the crash message with a "running" state.
-            # NOTE: we do NOT set the "Minecraft is running" text here on
-            # purpose - launch_game() below calls status_cb (e.g. "Installing
-            # CustomSkinLoader...") while it sets up, and its status calls
-            # would overwrite it. The running indicator is set only after
-            # launch_game() returns, once the game process has actually
-            # started (see below).
-            with _exit_lock:
-                if exited["done"]:
-                    return
-            set_button_mode("running")
-            with _launch_state_lock:
-                state["launching_version"] = None
-                state["running_version"] = version_id  # block deleting it mid-game
-            thread_safe_ui.refresh(progress_card)
-
-            # Belt-and-braces liveness watch: on_exit() is the normal path,
-            # but a single callback must never be a single point of failure -
-            # if its thread dies, or the game is killed in a way the watcher
-            # misses, the button would sit on GAME RUNNING... forever. This
-            # daemon polls the watchdog every 5s ONLY while this launch's
-            # claim is live (a psutil probe, no disk, no network) and
-            # self-heals via the same reconcile the Play tab uses if the
-            # game dies without on_exit ever clearing the claim. At most one
-            # such thread exists per process.
-            if not any(t.name == "running-liveness" and t.is_alive()
-                       for t in threading.enumerate()):
-                def _liveness_watch():
-                    while True:
-                        time.sleep(5)
-                        claimed = state.get("running_version")
-                        if claimed != version_id:
-                            return  # on_exit handled this launch (or a newer one)
-                        try:
-                            from cubeon import watchdog as _watchdog
-                            if _watchdog.stale_session() is not None:
-                                # Still alive - keep the claim visible. This
-                                # loop is the only watcher while the game runs,
-                                # so it is also the last line of defence against
-                                # a stray repaint leaving PLAY on screen (the
-                                # 2026-10-16 "game is running but it shows the
-                                # play button" report): clicking that button
-                                # QUITS the live game, not starts one.
-                                if play_button_text.value != i18n.t("QUIT GAME"):
-                                    set_button_mode("running")
-                                continue  # still alive
-                        except Exception:
-                            return  # watchdog unavailable: on_exit stays the owner
-                        _reconcile_running_button()
-                        return
-                threading.Thread(target=_liveness_watch,
-                                 name="running-liveness", daemon=True).start()
-
+            # Keep LAUNCHING claimed throughout backend setup and spawning.
             # The pack lookup above may have changed the resolved loader; carry
             # that SAME loader into launch_game so a vanilla fallback or pack
             # override cannot stage one loader and launch with another.
@@ -5480,12 +5430,57 @@ async def main(page: ft.Page):
                 cfg=cfg, status_cb=status_cb, log_cb=_game_log_cb,
             )
 
+            # Use the same lock order as on_exit: tree, exit, launch state.
+            # An immediate exit owns its result; it must never be repainted RUNNING.
+            with thread_safe_ui.TREE_LOCK:
+                with _exit_lock:
+                    with _launch_state_lock:
+                        if exited["done"]:
+                            return
+                        state["launching_version"] = None
+                        state["running_version"] = target_version
+                        previous_watch = _running_liveness["stop"]
+                        if previous_watch is not None:
+                            previous_watch.set()
+                        _running_liveness["stop"] = _liveness_done
+                    set_button_mode("running")
+                    thread_safe_ui.refresh(progress_card)
+
+            # Belt-and-braces liveness watch: on_exit() is the normal path,
+            # but a single callback must never be a single point of failure -
+            # if its thread dies, or the game is killed in a way the watcher
+            # misses, the button would sit on GAME RUNNING... forever. This
+            # daemon polls the watchdog every 5s ONLY while this launch's
+            # claim is live (a psutil probe, no disk, no network) and
+            # self-heals via the same reconcile the Play tab uses if the
+            # game dies without on_exit ever clearing the claim. Each launch
+            # wakes/retires its previous watcher, including a rapid same-instance
+            # relaunch. A sleeping old thread must not suppress the new watcher.
+            def _liveness_watch():
+                while not _liveness_done.wait(5):
+                    with thread_safe_ui.TREE_LOCK:
+                        if (_liveness_done.is_set() or
+                                _running_liveness["stop"] is not _liveness_done or
+                                state.get("running_version") != target_version):
+                            return
+                        _reconcile_running_button()
+                        if state.get("running_version") != target_version:
+                            return
+            try:
+                threading.Thread(target=_liveness_watch,
+                                 name="running-liveness", daemon=True).start()
+            except Exception:
+                logging.getLogger(__name__).warning("game liveness watcher unavailable", exc_info=True)
+
             # Remember this launch for the instance panel's "played" label (see
             # cubeon/instances.py). `target_version` is what actually launched,
             # not `version_id`: selecting vanilla can redirect to an installed
             # loader sibling, and the old call stamped the wrong card with
             # "just now". Best-effort - never blocks the launch.
-            instance_info.mark_played(target_version)
+            try:
+                instance_info.mark_played(target_version)
+            except Exception:
+                logging.getLogger(__name__).debug("instance play date update failed", exc_info=True)
             try:
                 # The panel's rows carry "played <time>"; if it is open, keep
                 # that label live instead of waiting for the next reopen.
@@ -5503,14 +5498,16 @@ async def main(page: ft.Page):
             # is the human MC version (not the loader-specific target id), which
             # is what a friend wants to see in their list. Guarded like the
             # on_exit path above: public builds have no Friends service.
-            with _launch_state_lock:
-                if friends_service is not None and not exited["done"]:
+            if friends_service is not None and not exited["done"]:
+                try:
                     friends_service.set_version(version_id)
+                except Exception:
+                    logging.getLogger(__name__).debug("game friends presence failed", exc_info=True)
 
             # Discord Rich Presence: show the game as being played, with an
             # elapsed timer. Best-effort - no-op if Discord isn't running.
-            with _launch_state_lock:
-                if not exited["done"]:
+            if not exited["done"]:
+                try:
                     _rpc.set_activity(
                         details="Cubeon",
                         state=f"Playing Minecraft {launch_mc} ({core.SUPPORTED_LOADERS.get(loader_id, loader_id)})",
@@ -5518,6 +5515,8 @@ async def main(page: ft.Page):
                         large_image=_discord_img,
                         large_text=_discord_img_text,
                     )
+                except Exception:
+                    logging.getLogger(__name__).debug("game Discord presence failed", exc_info=True)
 
             # launch_game() has returned, so the game process is up and any
             # setup (incl. CustomSkinLoader install) is done. The loading bar
@@ -5529,7 +5528,7 @@ async def main(page: ft.Page):
             # real reason. Overwriting it with "Minecraft is running" would
             # strand a wrong status forever and destroy the only explanation
             # the user ever gets.
-            with _exit_lock:
+            with thread_safe_ui.TREE_LOCK, _exit_lock:
                 if not exited["done"]:
                     progress_bar.visible = False  # loading is over - no more bar
                     set_bar(0, instant=True)
@@ -5600,6 +5599,12 @@ async def main(page: ft.Page):
                 if state.get("launching_version") == version_id:
                     state["launching_version"] = None
             _reset_button_after_worker(version_id)
+            if java_prompt is not None:
+                async def _ask_java():
+                    with thread_safe_ui.TREE_LOCK:
+                        _prompt_for_java(version_id, username, *java_prompt,
+                                         icon_choice=icon_choice)
+                page.run_task(_ask_java)
 
     # --- Server status panel - the right column below the grass block was
     # dead space, and "is my server running" is a genuinely useful thing to
@@ -5813,23 +5818,34 @@ async def main(page: ft.Page):
                 out.append(other)
         return out
 
+    def _delete_blocker(vid):
+        """Never remove a base needed by a live launch, even after confirmation."""
+        try:
+            affected = {vid, *core.dependents_of(vid)}
+            from cubeon import watchdog
+            record = watchdog.stale_session()
+            live = {state.get("running_version"), state.get("installing_version"),
+                    state.get("launching_version")}
+            if record:
+                live.add(record.get("version"))
+            if affected & live:
+                return "Can't delete this instance while it or a dependent instance is in use."
+            if any(core.pack_install_for_instance(v) for v in affected):
+                return "Can't delete this instance while a modpack is installing it or a dependent instance."
+        except Exception:
+            logging.getLogger(__name__).warning("delete safety check failed", exc_info=True)
+            return "Couldn't verify whether this instance is in use. Try deleting it again."
+        return None
+
     def on_delete_instance(e=None, vid=None):
         vid = vid or _selected_installed_id()
         if not vid:
             set_status("Install this version before deleting it")
             return
-        if state.get("running_version") == vid:
-            set_status("Can't delete a version while it's running")
+        blocker = _delete_blocker(vid)
+        if blocker:
+            set_status(blocker)
             return
-        if state.get("installing_version") == vid:
-            set_status("Can't delete a version while it's installing")
-            return
-        try:
-            if core.pack_install_for_instance(vid):
-                set_status("Can't delete a version while a modpack is installing it")
-                return
-        except Exception:
-            pass
         meta = state["installed_meta"].get(vid, {})
         label = (cfg.get("version_labels") or {}).get(vid) or meta.get("display_name", vid)
         # A vanilla base owns its loader installs: deleting "1.21.11" must also
@@ -5864,14 +5880,7 @@ async def main(page: ft.Page):
         ) if private_profile else None
 
         def _forget_one(dead):
-            """Drop a deleted id from every in-memory/config surface."""
-            _deleted_versions.add(dead)
-            state["installed"].discard(dead)
-            (state.get("installed_meta") or {}).pop(dead, None)
-            if version_dropdown.value == dead:
-                version_dropdown.value = None
-            version_dropdown.options = [
-                o for o in (version_dropdown.options or []) if o.key != dead]
+            """Forget disk metadata off the UI lock, then reconcile controls."""
             try:
                 core.forget_modpack_for_version(dead)
             except Exception:
@@ -5880,31 +5889,65 @@ async def main(page: ft.Page):
                 instance_info.forget_played(dead)
             except Exception:
                 pass
-            labels = dict(cfg.get("version_labels") or {})
-            if labels.pop(dead, None) is not None:
-                cfg["version_labels"] = labels
-            icons = cfg.get('instance_icons')
-            if isinstance(icons,dict) and dead in icons:
-                cfg['instance_icons'] = {k:v for k,v in icons.items() if k != dead}
-            if cfg.get("last_version") == dead:
-                cfg["last_version"] = None
-            if state.get("selected_version") == dead:
-                state["selected_version"] = None
+            with thread_safe_ui.TREE_LOCK:
+                _deleted_versions.add(dead)
+                state["installed"].discard(dead)
+                (state.get("installed_meta") or {}).pop(dead, None)
+                if version_dropdown.value == dead:
+                    version_dropdown.value = None
+                version_dropdown.options = [
+                    o for o in (version_dropdown.options or []) if o.key != dead]
+                labels = dict(cfg.get("version_labels") or {})
+                if labels.pop(dead, None) is not None:
+                    cfg["version_labels"] = labels
+                icons = cfg.get('instance_icons')
+                if isinstance(icons,dict) and dead in icons:
+                    cfg['instance_icons'] = {k:v for k,v in icons.items() if k != dead}
+                if cfg.get("last_version") == dead:
+                    cfg["last_version"] = None
+                if state.get("selected_version") == dead:
+                    state["selected_version"] = None
 
         def confirm(e=None):
             _close_dialog(dlg)
-            # Re-check the live claims: a background prefetch or a pack install
-            # can start between opening this dialog and confirming it, and
-            # rmtree() racing an installer writes a half-deleted folder.
-            if state.get("installing_version") == vid:
-                set_status("Can't delete a version while it's installing")
-                return
-            try:
-                if core.pack_install_for_instance(vid):
-                    set_status("Can't delete a version while a modpack is installing it")
+            with thread_safe_ui.TREE_LOCK, _launch_state_lock:
+                if _deleting_versions:
+                    set_status("An instance is already being deleted")
                     return
+                blocker = _delete_blocker(vid)
+                if blocker:
+                    set_status(blocker)
+                    return
+                _deleting_versions.add(vid)
+            # Only the explicit checkbox authorizes private-profile removal.
+            remove_profile = bool(delete_profile_cb and delete_profile_cb.value)
+            set_status(f"Deleting {label}", busy=True)
+
+            def work():
+                try:
+                    _delete_confirmed(remove_profile)
+                except Exception:
+                    logging.getLogger(__name__).exception("instance deletion failed")
+                    set_status("Couldn't finish deleting the instance. Check the launcher log and try again.")
+                finally:
+                    with _launch_state_lock:
+                        _deleting_versions.discard(vid)
+
+            try:
+                threading.Thread(target=work, daemon=True, name="delete-instance").start()
             except Exception:
-                pass
+                with _launch_state_lock:
+                    _deleting_versions.discard(vid)
+                set_status("Couldn't start deleting the instance. Try again.")
+
+        def _delete_confirmed(remove_profile):
+            blocker = _delete_blocker(vid)
+            if blocker:
+                set_status(blocker)
+                return
+            # Re-read ownership before deleting the sidecar; another instance
+            # may have begun sharing this profile while the dialog was open.
+            current_profile = core.private_profile_for_deletion(vid) if remove_profile else None
             # Delete the vanilla base first; if THAT fails for a real reason,
             # its loader installs are left intact too (nothing half-cascaded).
             try:
@@ -5928,7 +5971,7 @@ async def main(page: ft.Page):
             if is_vanilla:
                 for dep in _loader_installs_for(vid):
                     if dep in (state.get("running_version"),
-                               state.get("installing_version")):
+                               state.get("installing_version"), state.get("launching_version")):
                         logging.getLogger(__name__).info(
                             "cascade: keeping %s (in use)", dep)
                         continue
@@ -5947,40 +5990,53 @@ async def main(page: ft.Page):
             # Explicit tick only. `private_profile_for_deletion` already
             # refused shared/legacy profiles, and a second instance using the
             # same key makes it return None.
-            if private_profile and delete_profile_cb is not None \
-                    and delete_profile_cb.value:
+            if (remove_profile and current_profile and private_profile
+                    and current_profile[0] == private_profile[0]):
                 try:
-                    core.delete_instance_profile(private_profile[0])
+                    core.delete_instance_profile(current_profile[0])
                 except ValueError as ex:
                     logging.getLogger(__name__).warning(
                         "could not delete instance profile: %s", ex)
             # Remove the deleted id from every selection/config surface.
             _forget_one(vid)
-            try:
-                refresh_installed_packs()
-            except Exception:
-                pass
-            try:
-                core.save_config(cfg)
-            except Exception:
-                logging.getLogger(__name__).warning(
-                    "could not save config after delete", exc_info=True)
-            try:
-                refresh_version_list()
-            except Exception:
-                # The scan/repaint must never leave the Play tab pointing at
-                # the deleted instance. Pick whatever is still installed.
-                logging.getLogger(__name__).warning(
-                    "refresh after delete failed", exc_info=True)
-                remaining = [i for i in (state.get("installed_meta") or {})
-                             if i != vid]
-                if remaining:
-                    try:
-                        _pick_version(remaining[0])
-                    except Exception:
-                        logging.getLogger(__name__).warning(
-                            "fallback selection after delete failed",
-                            exc_info=True)
+            with thread_safe_ui.TREE_LOCK:
+                try:
+                    refresh_installed_packs()
+                except Exception:
+                    pass
+                try:
+                    core.save_config(cfg)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "could not save config after delete", exc_info=True)
+                try:
+                    refresh_version_list()
+                except Exception:
+                    # The scan/repaint must never leave the Play tab pointing at
+                    # the deleted instance. Pick whatever is still installed.
+                    logging.getLogger(__name__).warning(
+                        "refresh after delete failed", exc_info=True)
+                    remaining = [i for i in (state.get("installed_meta") or {})
+                                 if i != vid]
+                    if remaining:
+                        try:
+                            _pick_version(remaining[0])
+                        except Exception:
+                            logging.getLogger(__name__).warning(
+                                "fallback selection after delete failed",
+                                exc_info=True)
+                            try:
+                                update_hero()
+                            except Exception:
+                                pass
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                    else:
+                        version_dropdown.value = None
+                        state["selected_version"] = None
+                        _sync_instance_actions(None)
                         try:
                             update_hero()
                         except Exception:
@@ -5989,28 +6045,16 @@ async def main(page: ft.Page):
                             page.update()
                         except Exception:
                             pass
-                else:
-                    version_dropdown.value = None
-                    state["selected_version"] = None
-                    _sync_instance_actions(None)
-                    try:
-                        update_hero()
-                    except Exception:
-                        pass
-                    try:
-                        page.update()
-                    except Exception:
-                        pass
-            # Re-draw the panel rows unconditionally. When the sheet is closed
-            # this clears the old children, so a stale row can never be clicked
-            # later (that click used to select - and silently re-download - the
-            # instance that had just been deleted).
-            try:
-                picker.rebuild()
-            except Exception:
-                logging.getLogger(__name__).warning(
-                    "instance panel repaint after delete failed", exc_info=True)
-            set_status(f"Deleted {label}")
+                # Re-draw the panel rows unconditionally. When the sheet is closed
+                # this clears the old children, so a stale row can never be clicked
+                # later (that click used to select - and silently re-download - the
+                # instance that had just been deleted).
+                try:
+                    picker.rebuild()
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "instance panel repaint after delete failed", exc_info=True)
+                set_status(f"Deleted {label}")
 
         dlg = ft.AlertDialog(
             modal=True, bgcolor=SURFACE,
@@ -6189,6 +6233,7 @@ async def main(page: ft.Page):
     # stuck on the placeholder forever.
     _art_watchers: dict = {}
     _art_inflight: set = set()
+    _art_lock = threading.Lock()
 
     def _request_art(base, apply_fn):
         """Ensure the best available art for `base` lands in `apply_fn(value)`
@@ -6200,32 +6245,36 @@ async def main(page: ft.Page):
         if version_art.has_official(base):
             apply_fn(version_art.src(base))
             return
-        _art_watchers.setdefault(base, []).append(apply_fn)
-        if base in _art_inflight:
-            return
-        _art_inflight.add(base)
+        with _art_lock:
+            _art_watchers.setdefault(base, []).append(apply_fn)
+            if base in _art_inflight:
+                return
+            _art_inflight.add(base)
 
         def _done(value):
-            _art_inflight.discard(base)
-            for fn in _art_watchers.pop(base, []):
+            with _art_lock:
+                _art_inflight.discard(base)
+                watchers = _art_watchers.pop(base, [])
+            for fn in watchers:
                 fn(value)
 
         version_art.prefetch(base, _done)
 
     def _refresh_hero_banner(version):
-        base = core.extract_mc_version(version) or version
-        _hero_art_uid["value"] = version
-
-        cached = version_art.src(base) if base else None
-        hero_art.set_source(cached)
+        base = core.resolve_mc_version(version) or version
+        with thread_safe_ui.TREE_LOCK:
+            _hero_art_uid["value"] = version
+            cached = version_art.src(base) if base else None
+            hero_art.set_source(cached)
         uid = version
 
         def _ready(value):
             # A download that finished after the user switched versions is
             # stale - drop it rather than flash the wrong art.
-            if uid != _hero_art_uid["value"]:
-                return
-            hero_art.set_source(value)
+            with thread_safe_ui.TREE_LOCK:
+                if uid != _hero_art_uid["value"]:
+                    return
+                hero_art.set_source(value)
 
         _request_art(base, _ready)
 
@@ -8048,14 +8097,14 @@ async def main(page: ft.Page):
                     state["mods_recommendations_loaded"] = True
                     load_recommended_mods()
             elif key == "modpacks":
-                refresh_installed_packs()
+                refresh_installed_packs(background=True)
                 if not state.get("modpacks_loaded"):
                     state["modpacks_loaded"] = True
                     load_popular_modpacks()
             elif key == "profile":
                 refresh_profile_tab()
             elif key in SERVER_GROUP_KEYS:
-                refresh_server_tab()
+                refresh_server_tab(background=True)
             elif key == "stats":
                 _cb("stats", "refresh")()
             elif key == "chat":
@@ -8506,7 +8555,7 @@ async def main(page: ft.Page):
         # Prepare the two frequent destinations after the first paint. Their
         # builders create controls only; catalogue requests remain on demand.
         await asyncio.sleep(0.25)
-        for key in ("mods", "modpacks"):
+        for key in ("mods", "modpacks", "server"):
             with thread_safe_ui.TREE_LOCK:
                 _ensure_tab(key)
             await asyncio.sleep(0)
@@ -8531,19 +8580,14 @@ async def main(page: ft.Page):
             traceback.print_exc()
         friends_client.connect()
 
-    # Java resolution is ~1.5s the first time on a cold machine: mll probes
-    # every JVM it can find by running `java -version` on each. on_play_click
-    # runs that on the UI THREAD, before it can so much as paint "Preparing",
-    # so the first click on Play froze the window for a second or more. Do the
-    # first, expensive probe here instead, off the UI thread, and the click's
-    # own call is the cheap warm one. Strictly best-effort: a failure here
-    # leaves the click paying exactly what it always paid.
+    # Warm Java resolution after first paint. Play also probes on its worker;
+    # successful executable probes are cached by stat fingerprint for 60s.
     def _warm_java_check():
         try:
             selected = version_dropdown.value or state.get("selected_version")
             if not selected:
                 return
-            core.jre.java_status(core.extract_mc_version(selected),
+            core.jre.java_status(core.resolve_mc_version(selected),
                                  cfg.get("java_path"))
         except Exception:
             pass
@@ -8759,7 +8803,7 @@ async def main(page: ft.Page):
             if not _update_active.is_set() or _update_check_running.is_set():
                 return
             current = _update_prompt.get("value")
-            if current and current.phase in {"offered", "downloading", "ready", "closing"}:
+            if current and current.phase in {"offered", "downloading", "preparing", "ready", "closing"}:
                 return
             _update_check_running.set()
         if manual:

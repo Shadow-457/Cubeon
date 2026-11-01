@@ -8,7 +8,7 @@ import webbrowser
 
 import flet as ft
 
-from cubeon import dialogs, thread_safe_ui, update_install, updater
+from cubeon import dialogs, thread_safe_ui, update_install, updater, theme
 
 
 class UpdatePrompt:
@@ -28,22 +28,28 @@ class UpdatePrompt:
             detail += " Linux will ask you to authorize the package installation."
         if not self.can_install:
             detail = self.target.reason or "This installation needs a manual update. You can download it below."
-        self.status = ft.Text(detail, size=13)
-        self.progress = ft.ProgressBar(value=0, visible=False)
+        self.status = ft.Text(detail, size=13, color=theme.TEXT)
+        self.progress = ft.ProgressBar(value=0, visible=False, color=theme.ACCENT, bgcolor=theme.SURFACE_HI)
         self.skip = ft.TextButton("Skip", on_click=self._skip, data="update-skip")
         self.update = ft.FilledButton("Update", on_click=self._update, data="update-now",
-                                     visible=self.can_install)
+                                     visible=self.can_install, height=44,
+                                     style=ft.ButtonStyle(bgcolor=theme.ACCENT, color=theme.ON_ACCENT,
+                                                          shape=theme.block()))
         self.manual = ft.TextButton("Download manually", on_click=self._manual_download,
                                     data="update-manual", visible=not self.can_install)
         content = [self.status]
         if isinstance(size, int) and size > 0:
-            content.append(ft.Text(f"Download: {size / 1024**2:.0f} MB", size=12))
+            content.append(ft.Text(f"Download: {size / 1024**2:.0f} MB", size=12, color=theme.TEXT_DIM))
         if info.get("notes"):
-            content.append(ft.Text(info["notes"], size=12, selectable=True))
+            content.append(ft.Container(height=160, bgcolor=theme.BG, border_radius=theme.RADIUS, padding=12,
+                                        content=ft.Column([ft.Text(info["notes"], size=12, color=theme.TEXT_DIM,
+                                                                   selectable=True)], scroll=ft.ScrollMode.AUTO)))
         content.append(self.progress)
         self.dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text(f"Cubeon {info['version']} is available"),
+            modal=True, bgcolor=theme.SURFACE, shape=theme.block(),
+            content_padding=24, actions_padding=16,
+            title=ft.Text(f"Cubeon {info['version']} is available", size=22, color=theme.TEXT,
+                          weight=ft.FontWeight.W_600),
             content=ft.Container(width=440, content=ft.Column(content, tight=True, spacing=12)),
             actions=[self.skip, self.update, self.manual],
             on_dismiss=self._skip,
@@ -57,16 +63,30 @@ class UpdatePrompt:
     def _paint(self):
         thread_safe_ui.refresh(self.dialog)
 
+    def _cleanup(self, path):
+        if path:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
     def _skip(self, _e=None):
         with thread_safe_ui.TREE_LOCK:
             if self.phase in {"skipped", "closing"}:
                 return
+            # An active worker owns its bytes until hashing/downloading ends.
+            cleanup = self.download if self.phase == "ready" else None
             self.phase = "skipped"
             self.cancel.set()
             dialogs.close_dialog(self.page, self.dialog)
-            if self.download:
-                shutil.rmtree(self.download.parent, ignore_errors=True)
+            if cleanup:
                 self.download = None
+        if cleanup:
+            self._start_worker(lambda: self._cleanup(cleanup), 'cubeon-update-cleanup')
+
+    def _start_worker(self, target, name):
+        try:
+            threading.Thread(target=target, daemon=True, name=name).start()
+        except Exception:
+            logging.getLogger(__name__).exception("Could not start update worker")
+            self._work_failed("Couldn't start the update. Try again.")
 
     def _update(self, _e=None):
         with thread_safe_ui.TREE_LOCK:
@@ -81,28 +101,69 @@ class UpdatePrompt:
                 self.status.value = "This release is missing a verified update. Restart Cubeon to check again."
                 self._paint()
                 return
-            if self.busy():
-                self.status.value = "Close Minecraft and stop any active installs or servers, then try again."
-                self._paint()
-                return
-            if self.phase == "ready":
-                try:
-                    job = update_install.prepare_install(self.info, self.target, self.download)
-                    self.phase = "closing"
-                    self.update.disabled = self.skip.disabled = True
-                    self.status.value = "Closing Cubeon to install the update…"
-                    self._paint()
-                    self.install(job, self.install_failed)
-                except Exception as error:
-                    self.install_failed(str(error))
-                return
-            self.phase = "downloading"
+            ready = self.phase == "ready"
+            self.phase = "preparing" if ready else "downloading"
             self.update.disabled = True
             self.skip.content = "Cancel"
             self.progress.visible = True
-            self.status.value = "Downloading update…"
+            self.status.value = "Preparing the update…" if ready else "Checking before download…"
             self._paint()
-            threading.Thread(target=self._download, daemon=True, name="cubeon-update-download").start()
+        self._start_worker(self._prepare if ready else self._begin_download, 'cubeon-update')
+
+    def _idle(self):
+        # Process/disk checks must run outside the UI tree lock.
+        busy = self.busy()
+        with thread_safe_ui.TREE_LOCK:
+            if self.cancel.is_set() or self.phase == "skipped":
+                return False
+            if busy:
+                self.phase = "ready" if self.download else "offered"
+                self.update.disabled = False
+                self.skip.content = "Skip"
+                self.progress.visible = bool(self.download)
+                self.status.value = "Close Minecraft and stop any active installs or servers, then try again."
+                self._paint()
+            return not busy
+
+    def _begin_download(self):
+        try:
+            if self._idle():
+                self._download()
+        except Exception as error:
+            self._work_failed(str(error))
+
+    def _prepare(self):
+        try:
+            if not self._idle():
+                return
+            job = update_install.prepare_install(self.info, self.target, self.download)
+            if not self._idle():
+                return
+            with thread_safe_ui.TREE_LOCK:
+                if self.phase != "preparing" or self.cancel.is_set():
+                    return
+                self.phase = "closing"
+                self.update.disabled = self.skip.disabled = True
+                self.status.value = "Closing Cubeon to install the update…"
+                self._paint()
+            self.install(job, self.install_failed)
+        except Exception as error:
+            self._work_failed(str(error))
+        finally:
+            if self.cancel.is_set():
+                self._cleanup(self.download)
+                self.download = None
+
+    def _work_failed(self, message):
+        with thread_safe_ui.TREE_LOCK:
+            if self.phase not in {"downloading", "preparing", "closing"}:
+                return
+            self.phase = "ready" if self.download else "offered"
+            self.update.disabled = self.skip.disabled = False
+            self.skip.content = "Skip"
+            self.progress.visible = bool(self.download)
+            self.status.value = message
+            self._paint()
 
     def _manual_download(self, _e=None):
         with thread_safe_ui.TREE_LOCK:
@@ -147,20 +208,18 @@ class UpdatePrompt:
                     self.dialog.title.value = f"Updating Cubeon to {info['version']}"
                 path = update_install.download_update(info, self.target, self.cancel, self._progress)
             with thread_safe_ui.TREE_LOCK:
-                if self.phase != "downloading":
-                    shutil.rmtree(path.parent, ignore_errors=True)
-                    return
-                self.download = path
-                self.phase = "ready"
-                self.update.content = "Restart"
-                self.update.disabled = False
-                self.skip.content = "Skip"
-                self.progress.value = 1
-                self.status.value = "Download verified. Restart to install the update and reopen Cubeon."
-                self._paint()
-            # Update is the user's authorization for the whole operation.
-            # Recheck busy state here: a game/server may have started during download.
-            self._update()
+                stale = self.phase != "downloading" or self.cancel.is_set()
+                if not stale:
+                    self.download = path
+                    self.phase = "preparing"
+                    self.update.content = "Restart"
+                    self.progress.value = 1
+                    self.status.value = "Download verified. Preparing to restart Cubeon…"
+                    self._paint()
+            if stale:
+                self._cleanup(path)
+                return
+            self._prepare()
         except update_install.UpdateCancelled:
             return
         except Exception as error:

@@ -27,6 +27,7 @@ import launcher_core as core
 from cubeon import icons as _icons  # disk cache for Modrinth project art
 from ui.detail_dialog import open_project_detail
 from cubeon import thread_safe_ui  # Makes page.update() safe from background threads
+from cubeon.background_refresh import BackgroundRefresh
 from cubeon import eta as cubeon_eta  # measured "time left" for downloads
 from ui.install_feedback import InstallRegistry, compact_status, progress_text
 
@@ -283,13 +284,13 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     whitelist_status = ft.Text("", size=11, color=TEXT_DIM)
     whitelist_list = ft.Column(spacing=8, wrap=True)
 
-    def refresh_whitelist_list():
+    def refresh_whitelist_list(names=None):
         version_id = active_version["value"]
         whitelist_list.controls.clear()
         if not version_id:
             thread_safe_ui.refresh(whitelist_list)
             return
-        names = core.get_whitelist(version_id)
+        names = core.get_whitelist(version_id) if names is None else names
         if not names:
             whitelist_list.controls.append(ft.Text(
                 "Nobody whitelisted yet.", size=11, color=TEXT_DIM,
@@ -355,15 +356,16 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 "out, starting at 10 minutes.")
     gate_status = ft.Text("", size=11, color=TEXT_DIM)
 
-    def update_gate_status():
+    def update_gate_status(password=None):
         version_id = active_version["value"]
         if not version_id:
             gate_status.value = ""
             return
+        password = core.gate.has_password(version_id) if password is None else password
         gate_status.value = ("Password is set - players verify once to join."
-                             if core.gate.has_password(version_id)
+                             if password
                              else "No password - anyone who reaches this server can join.")
-        gate_status.color = ACCENT if core.gate.has_password(version_id) else DANGER
+        gate_status.color = ACCENT if password else DANGER
 
     def on_gate_set(e=None):
         version_id = active_version["value"]
@@ -1107,7 +1109,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         spacing=8, wrap=True,
     )
 
-    def set_running_ui(running: bool, busy=False, busy_label="Starting..."):
+    def set_running_ui(running: bool, busy=False, busy_label="Starting...", snapshot=None):
         if busy:
             status_dot.bgcolor = ACCENT_DIM
             status_text.value, status_text.color = busy_label, TEXT_DIM
@@ -1125,14 +1127,15 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         send_command_button.disabled = not running
         version_id = active_version["value"]
         if running and version_id:
-            props = core.get_server_properties(version_id)
+            props = snapshot['props'] if snapshot is not None else core.get_server_properties(version_id)
             port = props.get("server-port", "25565")
-            address_text.value = f"LAN address: {core.get_local_lan_address()}:{port}"
-            _refresh_public_address_line()
+            lan = snapshot['lan'] if snapshot is not None else core.get_local_lan_address()
+            address_text.value = f"LAN address: {lan}:{port}"
+            _refresh_public_address_line(snapshot)
         else:
             address_text.value = ""
-            _refresh_public_address_line()
-        refresh_controls_enabled()
+            _refresh_public_address_line(snapshot)
+        refresh_controls_enabled(snapshot)
         # Everything above lives in these two columns: the status/start/stop bar
         # and console feed in console_view, the settings fields it enables or
         # disables in settings_view. Refreshing them beats a full-tree diff.
@@ -1161,14 +1164,13 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             return "Accept the Minecraft EULA in Servers > Settings first."
         return None
 
-    def refresh_controls_enabled():
+    def refresh_controls_enabled(snapshot=None):
         """Settings/install/eula/start controls are only meaningful once a
         version is selected, and starting needs the jar + EULA in place."""
         version_id = active_version["value"]
         has_version = bool(version_id)
-        installed = has_version and core.is_server_installed(version_id)
-        accepted = has_version and core.eula_accepted(version_id)
-        running = has_version and core.is_server_running(version_id)
+        installed = has_version and (snapshot['installed'] if snapshot is not None else core.is_server_installed(version_id))
+        running = has_version and (snapshot['running'] if snapshot is not None else core.is_server_running(version_id))
 
         install_button.disabled = (not has_version) or install_in_progress["value"]
         eula_checkbox.disabled = not has_version
@@ -1347,11 +1349,12 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     orphan_notice = ft.Text("", size=12, color=DANGER, font_family=FONT_MONO,
                             visible=False)
 
-    def refresh_orphan_notice():
+    def refresh_orphan_notice(snapshot=None):
         """Surfaces a server Cubeon lost track of, instead of letting the next
         Start die on `session.lock: already locked` with no explanation."""
         version_id = active_version["value"]
-        pid = core.is_server_orphaned(version_id) if version_id else None
+        pid = (snapshot['orphan'] if snapshot is not None else
+               core.is_server_orphaned(version_id)) if version_id else None
         stop_orphan_button.visible = bool(pid)
         orphan_notice.visible = bool(pid)
         if pid:
@@ -1482,16 +1485,17 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     plugins_browse_pane = None   # constructed below, once the market controls exist
     plugins_installed_pane = None
 
-    def refresh_plugins_list():
+    def refresh_plugins_list(snapshot=None):
         version_id = active_version["value"]
         installed_plugins_list.controls.clear()
-        if not version_id or core.get_server_type(version_id) != core.SERVER_TYPE_PAPER:
+        server_type = snapshot['type'] if snapshot is not None else core.get_server_type(version_id) if version_id else None
+        if not version_id or server_type != core.SERVER_TYPE_PAPER:
             installed_plugins_count.value = ""
             thread_safe_ui.refresh(installed_plugins_list)
             thread_safe_ui.refresh(installed_plugins_count)
-            _build_plugins_view_segment()
+            _build_plugins_view_segment(0)
             return
-        plugins = core.list_plugins(version_id)
+        plugins = snapshot['plugins'] if snapshot is not None else core.list_plugins(version_id)
         installed_plugins_count.value = f"{len(plugins)} plugin(s)"
         if not plugins:
             installed_plugins_list.controls.append(
@@ -1538,7 +1542,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         # Scoped diff (page.update() re-synced every mounted tab).
         thread_safe_ui.refresh(installed_plugins_list)
         thread_safe_ui.refresh(installed_plugins_count)
-        _build_plugins_view_segment()  # keep "Installed (N)" tab count fresh
+        _build_plugins_view_segment(len(plugins))  # keep "Installed (N)" tab count fresh
 
     def _plugin_row(p: dict):
         def on_toggle(e):
@@ -1960,11 +1964,12 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     plugins_view_segment_row = ft.Row(spacing=16)
 
-    def _build_plugins_view_segment():
+    def _build_plugins_view_segment(n_plugs=None):
         plugins_view_segment_row.controls.clear()
         try:
             v = active_version["value"]
-            n_plugs = len(core.list_plugins(v)) if (v and core.get_server_type(v) == core.SERVER_TYPE_PAPER) else 0
+            if n_plugs is None:
+                n_plugs = len(core.list_plugins(v)) if (v and core.get_server_type(v) == core.SERVER_TYPE_PAPER) else 0
         except Exception:
             n_plugs = 0
         for vid, vlabel in (("browse", "Browse"), ("installed", "Installed")):
@@ -2047,23 +2052,24 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                           weight=ft.FontWeight.W_600, selectable=True)
     public_hint_text = ft.Text("", size=11, color=TEXT_DIM, font_family=FONT_MONO)
 
-    def _refresh_public_address_line():
-        """Disk reads only (log tail + config) - safe on the UI thread."""
+    def _refresh_public_address_line(snapshot=None):
+        """Apply a collected address snapshot, or refresh it for server events."""
         version_id = active_version["value"]
-        if not version_id or not core.is_server_installed(version_id):
+        if not version_id or not (snapshot['installed'] if snapshot is not None else core.is_server_installed(version_id)):
             public_text.value = ""
             public_hint_text.value = ""
             return
-        endpoint = core.minekube.get_endpoint(version_id)
+        endpoint = snapshot['endpoint'] if snapshot is not None else core.minekube.get_endpoint(version_id)
         named = core.minekube.public_address(endpoint)
-        addr = core.minekube.read_public_address(version_id)
-        if core.is_server_running(version_id) and addr:
+        addr = snapshot['public'] if snapshot is not None else core.minekube.read_public_address(version_id)
+        running = snapshot['running'] if snapshot is not None else core.is_server_running(version_id)
+        if running and addr:
             public_text.value = f"Public address: {addr}"
             public_hint_text.value = "Share this with friends. No port forwarding needed."
         elif named:
             public_text.value = f"Public address: {named}"
             public_hint_text.value = "Goes live when the server starts."
-        elif core.is_server_running(version_id):
+        elif running:
             public_text.value = "Public address: starting..."
             public_hint_text.value = "Minekube announces it right after startup."
         else:
@@ -2219,11 +2225,31 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         scroll=ft.ScrollMode.AUTO,
     )
 
-    def refresh_server_tab():
-        """Called by main.py when the Server tab becomes visible, and
-        whenever the selected version changes elsewhere in the app -
-        reloads everything for whichever version is now selected."""
-        version_id = state.get("selected_version")
+    def _read_server_snapshot(version_id, fields):
+        if not version_id:
+            return {'version': None, 'fields': fields}
+        installed = core.is_server_installed(version_id)
+        running = core.is_server_running(version_id)
+        server_type = core.get_server_type(version_id)
+        return {
+            'version': version_id, 'fields': fields,
+            'installed': installed, 'running': running, 'type': server_type,
+            'props': core.get_server_properties(version_id),
+            'high_ping': core.high_ping_optimization_enabled(version_id),
+            'endpoint': core.minekube.get_endpoint(version_id),
+            'password': core.gate.has_password(version_id),
+            'whitelist': core.get_whitelist(version_id),
+            'eula': core.eula_accepted(version_id),
+            'orphan': core.is_server_orphaned(version_id),
+            'plugins': core.list_plugins(version_id) if server_type == core.SERVER_TYPE_PAPER else [],
+            'public': core.minekube.read_public_address(version_id) if installed else None,
+            'lan': core.get_local_lan_address() if running else None,
+        }
+
+    def _apply_server_snapshot(snapshot):
+        version_id = snapshot['version']
+        if version_id != state.get('selected_version'):
+            return
         active_version["value"] = version_id
 
         if not version_id:
@@ -2238,7 +2264,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             public_hint_text.value = ""
             refresh_plugins_visibility()
             refresh_controls_enabled()
-            page.update()
+            thread_safe_ui.refresh(console_view)
+            thread_safe_ui.refresh(settings_view)
             return
 
         no_version_notice.visible = False
@@ -2246,7 +2273,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         version_text.value = f"Hosting version: {version_id}"
         version_text_settings.value = f"Hosting version: {version_id}"
 
-        props = core.get_server_properties(version_id)
+        # Preserve edits made while the read was in flight.
+        changed = [(control, control.value) for control, old in snapshot['fields']
+                   if control.value != old]
+        props = snapshot['props']
         motd_field.value = props.get("motd", "")
         port_field.value = props.get("server-port", "25565")
         max_players_field.value = props.get("max-players", "20")
@@ -2265,24 +2295,61 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         whitelist_switch.value = props.get("white-list", "false") == "true"
         online_mode_switch.value = props.get("online-mode", "false") == "true"
         allow_flight_switch.value = props.get("allow-flight", "false") == "true"
-        high_ping_switch.value = core.high_ping_optimization_enabled(version_id)
-        endpoint_field.value = core.minekube.get_endpoint(version_id)
-        update_gate_status()
-        refresh_whitelist_list()
+        high_ping_switch.value = snapshot['high_ping']
+        endpoint_field.value = snapshot['endpoint']
+        for control, value in changed:
+            control.value = value
+        update_gate_status(snapshot['password'])
+        refresh_whitelist_list(snapshot['whitelist'])
 
-        plugins_tab_visible["value"] = core.is_server_installed(version_id)
+        plugins_tab_visible["value"] = snapshot['installed']
         refresh_plugins_visibility()
 
-        eula_checkbox.value = core.eula_accepted(version_id)
+        eula_checkbox.value = snapshot['eula']
         if not install_in_progress["value"]:
-            install_button.content.value = install_button_label()
-            install_status.value = i18n.t("Installed") if core.is_server_installed(version_id) else "Not installed yet"
+            install_button.content.value = 'Update server' if snapshot['installed'] else 'Install server'
+            install_status.value = i18n.t("Installed") if snapshot['installed'] else "Not installed yet"
             install_progress.visible = False
 
-        set_running_ui(core.is_server_running(version_id))
-        refresh_orphan_notice()
-        refresh_plugins_list()
+        set_running_ui(snapshot['running'], snapshot=snapshot)
+        refresh_orphan_notice(snapshot)
+        refresh_plugins_list(snapshot)
         if plugins_tab_visible["value"] and not plugin_results_list.controls:
             run_plugin_search()
+
+    def _server_read_failed(error):
+        refresh_controls_enabled({'installed': False, 'running': False})
+        install_status.value = "Couldn't load this server. Open Servers again to retry."
+        install_status.color = DANGER
+        thread_safe_ui.refresh(console_view)
+        thread_safe_ui.refresh(settings_view)
+
+    server_refresh = BackgroundRefresh(_read_server_snapshot, _apply_server_snapshot,
+                                       name='server-refresh', failed=_server_read_failed)
+
+    def refresh_server_tab(*, background=False):
+        with thread_safe_ui.TREE_LOCK:
+            version_id = state.get('selected_version')
+            active_version['value'] = version_id
+            fields = [(control, control.value) for control in (
+                motd_field, port_field, max_players_field, seed_field,
+                view_distance_dropdown, sim_distance_dropdown, gamemode_dropdown,
+                difficulty_dropdown, pvp_switch, whitelist_switch, online_mode_switch,
+                allow_flight_switch, high_ping_switch, endpoint_field)]
+        if background:
+            with thread_safe_ui.TREE_LOCK:
+                for control, _ in fields:
+                    control.disabled = True
+                save_settings_button.disabled = True
+                start_stop_button.disabled = install_button.disabled = True
+                restart_button.disabled = eula_checkbox.disabled = True
+                thread_safe_ui.refresh(console_view)
+                thread_safe_ui.refresh(settings_view)
+            server_refresh.request(version_id, fields)
+            return
+        server_refresh.invalidate()
+        snapshot = _read_server_snapshot(version_id, fields)
+        with thread_safe_ui.TREE_LOCK:
+            _apply_server_snapshot(snapshot)
 
     return console_view, settings_view, plugins_view, refresh_server_tab

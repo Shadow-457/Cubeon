@@ -21,6 +21,7 @@ echo "+ bundled flet client: $APP_DIR/$CLIENT_TAR"
 python -m PyInstaller --noconfirm --clean --onedir --name Cubeon \
   --add-data "assets:assets" \
   --add-data "mod/brackets.json:mod" \
+  --add-data "packaging/install_linux.sh:setup" \
   --collect-data flet \
   --collect-submodules flet \
   --collect-binaries flet \

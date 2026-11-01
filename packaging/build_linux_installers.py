@@ -1,4 +1,4 @@
-"""Build the Linux setup bundle and Debian package from dist/AppDir."""
+"""Build offline graphical/shell Linux installers and a Debian package."""
 from __future__ import annotations
 
 import shutil
@@ -11,6 +11,30 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
+
+INSTALLER_RUN = '''#!/bin/bash
+HERE="$(dirname "$(readlink -f "$0")")"
+export CUBEON_APPIMAGE_PATH="${APPIMAGE:-${CUBEON_APPIMAGE_PATH:-}}"
+if [ "${CUBEON_LAUNCH_INSTALLED:-}" = 1 ]; then
+  exec "$HERE/usr/bin/Cubeon" "$@"
+fi
+exec "$HERE/usr/bin/Cubeon" --cubeon-installer "$@"
+'''
+
+
+def build_graphical_setup(appdir: Path, tool: Path, output: Path) -> None:
+    """Reuse the runtime without nesting a second full AppImage payload."""
+    with tempfile.TemporaryDirectory(prefix="cubeon-graphical-setup-") as tmp:
+        stage = Path(tmp) / "CubeonSetup.AppDir"
+        shutil.copytree(appdir, stage, copy_function=shutil.copy2)
+        (stage / "AppRun").write_text(INSTALLER_RUN)
+        (stage / "AppRun").chmod(0o755)
+        (stage / "cubeon.desktop").write_text(
+            '[Desktop Entry]\nName=Cubeon Setup\nExec=AppRun\nIcon=cubeon\n'
+            'Type=Application\nCategories=Game;\nComment=Install Cubeon for this user\n')
+        import os
+        env = dict(os.environ, APPIMAGE_EXTRACT_AND_RUN="1", ARCH="x86_64")
+        subprocess.run([str(tool.resolve()), str(stage), str(output.resolve())], env=env, check=True)
 
 
 def build_setup(appimage: Path, icon: Path, setup: Path) -> None:
@@ -40,8 +64,11 @@ def main() -> None:
         raise SystemExit("Run packaging/build_appimage.sh first.")
     setup = DIST / "Cubeon-Linux-x86_64-Setup.sh"
     build_setup(appimage, ROOT / "assets" / "icon_256.png", setup)
+    graphical = DIST / "Cubeon-Linux-x86_64-Setup.AppImage"
+    build_graphical_setup(appdir, DIST / "appimagetool", graphical)
     subprocess.run([sys.executable, str(ROOT / "packaging" / "build_deb.py")], check=True)
     print(f"Built {setup}")
+    print(f"Built {graphical}")
 
 
 if __name__ == "__main__":

@@ -49,16 +49,28 @@ from .skins import sync_local_skin_to_csl
 # to contain a Java stack trace or a mod-loading error without holding the whole
 # log (Minecraft writes megabytes) in memory.
 GAME_LOG_TAIL = 200
-_spawn_lock = threading.Lock()
+_spawn_lock = threading.RLock()
 _client_json_lock = threading.RLock()
 _active_logs = set()
 GAME_LOG_LIMIT = 8
+_java_probe_lock = threading.Lock()
+_java_probe_cache = collections.OrderedDict()
 
 
 def _client_json_transaction(fn):
     @wraps(fn)
     def locked(*args, **kwargs):
         with _client_json_lock:
+            return fn(*args, **kwargs)
+    return locked
+
+
+def _launch_transaction(fn):
+    @wraps(fn)
+    def locked(*args, **kwargs):
+        # Setup also writes shared skin/content state. Serialize it with
+        # staging and recheck liveness before any writes in a second request.
+        with _spawn_lock:
             return fn(*args, **kwargs)
     return locked
 
@@ -152,8 +164,8 @@ def required_java_major(version_id: str) -> int:
     pasted)."""
     # Loader and isolated instance ids are not release numbers. Resolve their
     # own base before choosing a JVM (fabric-loader-... previously chose Java 8).
-    from .versions import extract_mc_version
-    ver = _parse_version(extract_mc_version(version_id))
+    from .versions import resolve_mc_version
+    ver = _parse_version(resolve_mc_version(version_id))
     if ver >= (26, 1):
         return 25
     if ver >= (1, 20, 5):
@@ -169,10 +181,23 @@ def required_java_major(version_id: str) -> int:
 
 def java_major_version(java_path: str) -> int | None:
     """Major version of a Java executable, or None if it can't be probed."""
+    executable = shutil.which(java_path) or java_path
+    fingerprint = None
+    try:
+        st = os.stat(executable)
+        fingerprint = (st.st_mtime_ns, st.st_size, st.st_ino, st.st_mode)
+    except OSError:
+        pass
+    if fingerprint is not None:
+        with _java_probe_lock:
+            cached = _java_probe_cache.get(executable)
+            if cached and cached[0] == fingerprint and cached[1] > time.monotonic():
+                _java_probe_cache.move_to_end(executable)
+                return cached[2]
     try:
         from .winproc import hidden
         out = subprocess.run(
-            [java_path, "-version"], capture_output=True, text=True,
+            [executable, "-version"], capture_output=True, text=True,
             timeout=8, **hidden(),
         ).stderr
     except (OSError, subprocess.SubprocessError):
@@ -184,9 +209,17 @@ def java_major_version(java_path: str) -> int | None:
     if raw.startswith("1."):
         # Old style: "1.8.0_..." -> 8
         tail = raw.split(".")[1] if len(raw.split(".")) > 1 else ""
-        return int(tail) if tail.isdigit() else None
-    head = raw.split(".")[0]
-    return int(head) if head.isdigit() else None
+        major = int(tail) if tail.isdigit() else None
+    else:
+        head = raw.split(".")[0]
+        major = int(head) if head.isdigit() else None
+    if major is not None and fingerprint is not None:
+        with _java_probe_lock:
+            _java_probe_cache[executable] = (fingerprint, time.monotonic() + 60, major)
+            _java_probe_cache.move_to_end(executable)
+            while len(_java_probe_cache) > 64:
+                _java_probe_cache.popitem(last=False)
+    return major
 
 
 def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
@@ -932,6 +965,8 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     """The full java command. `game_dir` is the instance's own folder (see
     paths.game_dir_for); omitted -> the shared root, which is what every
     non-launch caller and the tests still want."""
+    from .versions import validate_launch_profile
+    validate_launch_profile(version_id)
     _sanitize_client_json(version_id)
     # Undo the damage done by the sanitizer Cubeon used to ship, for anyone
     # whose install it already emptied. No-op on healthy versions.
@@ -1049,6 +1084,7 @@ def build_launch_command(version_id: str, username: str, ram_mb: int,
     return command
 
 
+@_launch_transaction
 def launch_game(version_id: str, username: str, ram_mb: int, width: int, height: int,
                  java_path: str | None, on_exit=None,
                  *, mc_version: str, loader: str,
@@ -1074,6 +1110,11 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     (returncode, last_lines) so a crash can be explained; a one-argument
     on_exit(returncode) is still accepted.
     """
+    from .versions import validate_launch_profile
+    validate_launch_profile(version_id)
+    from . import watchdog
+    if watchdog.stale_session() is not None:
+        raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
     if cfg is not None:
         # Each install plays in its OWN game folder (worlds, configs,
         # options.txt), with the shared staging folders linked into it - see
@@ -1377,6 +1418,8 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
             "launch config check failed", exc_info=True)
     try:
         with _spawn_lock:
+            if watchdog.stale_session() is not None:
+                raise RuntimeError("Minecraft is already running. Close it before starting another instance.")
             from .mod_dependencies import run_dependency_doctor
             dependency_report = run_dependency_doctor(
                 mc_version, loader, version_id=version_id, status_cb=status_cb)
@@ -1439,11 +1482,14 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
         buffer = ""
 
         def emit(text):
-            text = text.rstrip()
+            text = text[-64 * 1024:].rstrip()
             if text:
                 recent.append(text)
                 if log_cb:
-                    log_cb(text)
+                    try:
+                        log_cb(text)
+                    except Exception:
+                        logging.getLogger(__name__).debug("game log callback failed", exc_info=True)
 
         try:
             with open(log_path, "r", encoding="utf-8", errors="replace") as fh:
@@ -1454,6 +1500,10 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                         while "\n" in buffer:
                             line, buffer = buffer.split("\n", 1)
                             emit(line)
+                        # A mod can write an unbounded line without a newline.
+                        # Keep its tail bounded while the full bytes stay on disk.
+                        if len(buffer) > 64 * 1024:
+                            buffer = buffer[-64 * 1024:]
                         continue
                     if process.poll() is not None:
                         # Dead: flush the final (possibly newline-less) line so
@@ -1473,7 +1523,10 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     # launcher is re-exec'd/crashes first, the next startup reconciles it (see
     # milestones.reconcile_play_session) so the game's time isn't lost.
     from . import milestones
-    milestones.begin_play_session(process.pid, None, session_id)
+    try:
+        milestones.begin_play_session(process.pid, None, session_id)
+    except Exception:
+        logging.getLogger(__name__).warning("game playtime start failed", exc_info=True)
 
     def _watch():
         process.wait()

@@ -172,19 +172,7 @@ Function RecordSetupFailure
   ${EndIf}
 FunctionEnd
 
-; --- already-installed? ------------------------------------------------------
-; Launching the setup over an existing Cubeon used to silently overwrite it: the
-; user got no idea an older build was being replaced, and - worse - if Cubeon
-; was RUNNING, the copy fought the locked .exe and failed halfway with an
-; unhelpful error. So .onInit works out what is actually on the machine and
-; asks, in plain words, before touching anything.
-;
-; There is no process-listing plugin available to this NSIS build, so "is it
-; running?" is answered the way Windows answers it: try to open the exe for
-; writing. A running app holds that file locked, and the open fails. Far more
-; reliable than guessing from a window title - and the installer's own window
-; is titled "Cubeon" too, so a title search would have matched itself.
-
+; Detect update/repair for welcome copy; native staged swaps report real locks.
 ; Compare incoming DISPLAY_VERSION with installed $0; push 0/1/2.
 ; Thin wrapper over WordFunc's ${VersionCompare}, which does a proper part-by-
 ; part dotted compare (a string compare gets "1.0.9" vs "1.0.10" backwards).
@@ -224,51 +212,19 @@ ask:
   ; default we just resolved). The section below uses this instead of assuming
   ; $LOCALAPPDATA\Cubeon.
   StrCpy $OldInstDir "$INSTDIR"
-  ; Word the prompt by what will actually happen to the files. $0 is empty when
-  ; the files were found with no registry entry to read a version from.
-  ${If} $0 == ""
-    StrCpy $2 "Cubeon is already installed on this computer, but there is no version information for it.$\r$\n$\r$\nRun the setup again to repair it?$\r$\n$\r$\nClick Yes to repair, No to exit."
-  ${Else}
+  ; Only a downgrade needs a separate choice. Normal updates/repairs use
+  ; the wizard, and /S remains suitable for the authorized update handoff.
+  ${If} $0 != ""
     Call CompareVer
-    Pop $3          ; 0 same, 1 incoming newer, 2 installed newer
-    ${If} $3 == "1"
-      StrCpy $2 "Update Cubeon?$\r$\n$\r$\nYou have Cubeon $0. This setup is Cubeon ${DISPLAY_VERSION}.$\r$\n$\r$\nClick Yes to update, No to exit."
-    ${ElseIf} $3 == "2"
-      StrCpy $2 "Cubeon $0 is already installed, and this setup is the OLDER Cubeon ${DISPLAY_VERSION}.$\r$\n$\r$\nClick Yes to install it anyway (this downgrades Cubeon), No to exit."
-    ${Else}
-      StrCpy $2 "Cubeon ${DISPLAY_VERSION} is already installed.$\r$\n$\r$\nClick Yes to reinstall it, No to exit."
+    Pop $3
+    ${If} $3 == "2"
+      MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 \
+        "Cubeon $0 is installed. This setup installs the older ${DISPLAY_VERSION}.$\r$\n$\r$\nInstall the older version? Your games and settings will be kept." \
+        /SD IDYES IDYES do_install
+      SetErrorLevel 1
+      Quit
     ${EndIf}
   ${EndIf}
-
-  ; A running launcher holds its own .exe open against writing, and
-  ; overwriting a locked file fails halfway through with a raw Windows error.
-  ; There is no process-listing plugin in this NSIS build, so the probe is the
-  ; one Windows itself answers with: try to open the file for writing. Opened
-  ; in APPEND mode so a successful probe cannot truncate anything - it only
-  ; proves the file is not locked. (Searching for a window by title would be
-  ; worse than useless here: the installer's own window is titled "Cubeon"
-  ; too, so it would always match itself.)
-  ;
-  ; Only worth asking when the exe is actually there - a registry entry with no
-  ; files is a broken install, and "close Cubeon first" would be a lie.
-  IfFileExists "${APP_EXE}" 0 exe_not_running
-  ClearErrors
-  FileOpen $4 "${APP_EXE}" "a"
-  ${If} $4 == ""
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-      "Cubeon is still running or its files are in use.$\r$\n$\r$\nClose every Cubeon window, then click Retry. Your games and settings will be kept." \
-      /SD IDCANCEL IDRETRY ask
-    SetErrorLevel 1
-    Quit
-  ${EndIf}
-  FileClose $4
-exe_not_running:
-
-  ; /SD keeps unattended installs (the release CI, `setup /S`) going: there is
-  ; nobody to answer a dialog, so "proceed" is the only sensible default.
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON1 "$2" /SD IDYES IDYES do_install
-  SetErrorLevel 1
-  Quit
 do_install:
 FunctionEnd
 
@@ -291,7 +247,7 @@ FunctionEnd
 
 ; --- pages: welcome, where, install, done ---------------------------------
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Cubeon"
-!define MUI_WELCOMEPAGE_TEXT "Play Minecraft with friends easily. No technical setup, no port forwarding.$\r$\n$\r$\nThis installer will set up Cubeon in your user folder without needing administrator rights."
+!define MUI_WELCOMEPAGE_TEXT "Install Cubeon ${DISPLAY_VERSION} and start playing Minecraft with friends.$\r$\n$\r$\nSetup adds Cubeon to your Start Menu without an administrator password. Existing installations are updated or repaired; your games, worlds and settings are kept.$\r$\n$\r$\nClose Cubeon before installing."
 !insertmacro MUI_PAGE_WELCOME
 
 !define MUI_DIRECTORYPAGE_TEXT_TOP "Cubeon will be installed in the folder below. Click Install to begin."
@@ -300,7 +256,7 @@ FunctionEnd
 
 !insertmacro MUI_PAGE_INSTFILES
 
-!define MUI_FINISHPAGE_TITLE "Cubeon is Ready"
+!define MUI_FINISHPAGE_TITLE "Cubeon is ready"
 !define MUI_FINISHPAGE_TEXT "Cubeon has been installed successfully.$\r$\n$\r$\nYou can launch it right now or find it anytime in your Start Menu."
 !define MUI_FINISHPAGE_RUN "${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Launch Cubeon"

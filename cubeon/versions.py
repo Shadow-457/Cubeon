@@ -65,8 +65,50 @@ def _active_install(version_id: str):
 
 
 def _plain_filename(name: str) -> bool:
-    return bool(name) and name not in (".", "..") \
-        and os.sep not in name and not (os.altsep and os.altsep in name)
+    # Check both platform separators: exported profiles move between OSes.
+    return isinstance(name, str) and bool(name) and name not in (".", "..") \
+        and not any(c in name for c in '/\\:\x00') \
+        and not any(ord(c) < 32 for c in name)
+
+
+def version_folder(version_id: str) -> str:
+    """One owned version directory; refuse traversal and external symlinks."""
+    if not _plain_filename(version_id):
+        raise ValueError("Invalid version id: choose an instance from the version picker.")
+    root = os.path.realpath(os.path.join(MINECRAFT_DIR, "versions"))
+    folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+    for path in (folder, os.path.join(folder, version_id + '.json'),
+                 os.path.join(folder, version_id + '.jar')):
+        resolved = os.path.realpath(path)
+        if os.path.commonpath((root, resolved)) != root or resolved == root:
+            raise ValueError("Refusing a version path outside the versions folder.")
+    return folder
+
+
+def validate_launch_profile(version_id: str) -> None:
+    """Validate references before mll follows them or a sanitizer writes files."""
+    pending = [(version_id, ())]
+    seen = set()
+    while pending:
+        current, ancestors = pending.pop()
+        if len(ancestors) > _MAX_INHERITS_DEPTH or current in ancestors:
+            raise ValueError("This instance has a cyclic or overly deep version reference.")
+        if current in seen:
+            continue
+        seen.add(current)
+        folder = version_folder(current)
+        data = _load_version_json(folder, current + '.json')
+        if data is None:
+            continue  # command/install code owns the missing-metadata message
+        for key in ('inheritsFrom', 'jar'):
+            ref = data.get(key)
+            if ref is None:
+                continue
+            version_folder(ref)
+            if ref != current:
+                pending.append((ref, (*ancestors, current)))
+            elif key == 'inheritsFrom':
+                raise ValueError("This instance inherits from itself.")
 
 
 def _load_version_json(folder_path: str, filename: str) -> "dict | None":
@@ -272,10 +314,21 @@ def get_installed_versions() -> list[dict]:
 
 def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
     found = {}
+    root = os.path.realpath(versions_dir)
+
+    def owned_file(folder_path, name):
+        if not _plain_filename(name):
+            return False
+        resolved = os.path.realpath(os.path.join(folder_path, name))
+        return os.path.commonpath((root, resolved)) == root and resolved != root
 
     # Pass 1: mll's strict, well-formed scan (fast path, always correct)
     try:
         for v in mll.utils.get_installed_versions(MINECRAFT_DIR):
+            try:
+                version_folder(v["id"])
+            except ValueError:
+                continue
             found[v["id"]] = {
                 "id": v["id"],
                 # Never surface the raw launch id ("fabric-loader-0.19.5-26.1.2")
@@ -309,8 +362,15 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
         parsed_json[path] = data
         return data
 
-    for folder in os.listdir(versions_dir):
-        folder_path = os.path.join(versions_dir, folder)
+    try:
+        folders = os.listdir(versions_dir)
+    except OSError:
+        return []  # the root may have disappeared after the fingerprint scan
+    for folder in folders:
+        try:
+            folder_path = version_folder(folder)
+        except ValueError:
+            continue
         if not os.path.isdir(folder_path):
             continue
         if folder in active:
@@ -321,9 +381,14 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
             # install worker rescans when it actually finishes.
             continue
 
-        json_files = sorted(f for f in os.listdir(folder_path)
-                            if f.endswith(".json"))
-        jar_files = [f for f in os.listdir(folder_path) if f.endswith(".jar")]
+        try:
+            filenames = os.listdir(folder_path)
+        except OSError:
+            continue  # external deletion/permissions must not break the picker
+        json_files = sorted(f for f in filenames if f.endswith(".json")
+                            and owned_file(folder_path, f))
+        jar_files = [f for f in filenames if f.endswith(".jar")
+                     and owned_file(folder_path, f)]
         if not json_files:
             continue  # not a version folder at all, nothing to go on
         if folder in found:
@@ -383,13 +448,22 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
         # an arbitrary first-picked jar could be an unrelated decoy.
         expected_json = os.path.join(folder_path, folder + ".json")
         expected_jar = os.path.join(folder_path, folder + ".jar")
-        if not os.path.isfile(expected_json):
-            shutil.copy(json_path, expected_json)
-        if not os.path.isfile(expected_jar) and isinstance(real_id, str) \
-                and _plain_filename(real_id):
-            id_jar = os.path.join(folder_path, real_id + ".jar")
-            if os.path.isfile(id_jar):
-                shutil.copy(id_jar, expected_jar)
+        try:
+            if not os.path.isfile(expected_json):
+                shutil.copy(json_path, expected_json)
+            if not os.path.isfile(expected_jar) and isinstance(real_id, str) \
+                    and _plain_filename(real_id):
+                id_jar = os.path.join(folder_path, real_id + ".jar")
+                if real_id + ".jar" in jar_files and os.path.isfile(id_jar):
+                    shutil.copy(id_jar, expected_jar)
+        except OSError:
+            # A read-only custom install cannot be normalized. Keep other
+            # instances usable rather than failing the whole version scan.
+            found[folder] = _demote_incomplete(
+                {"id": folder, "folder": folder, "type": "release",
+                 "display_name": suggest_friendly_name(real_id, folder)},
+                "Couldn't prepare this instance's files. Check the folder's permissions.")
+            continue
 
         vtype = data.get("type")
         found[folder] = {
@@ -408,9 +482,10 @@ def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
         if entry.get("incomplete"):
             continue
         folder_path = os.path.join(versions_dir, entry["folder"])
-        jsons = sorted(f for f in os.listdir(folder_path)
-                       if f.endswith(".json")) \
-            if os.path.isdir(folder_path) else []
+        try:
+            jsons = sorted(f for f in os.listdir(folder_path) if f.endswith(".json"))
+        except OSError:
+            jsons = []
         if not jsons:
             if vid in active or entry.get("folder") in active:
                 found.pop(vid, None)  # mid-install, not a broken install
@@ -478,16 +553,17 @@ def delete_version(version_id: str) -> None:
     Raises ValueError with a readable message on anything the UI should
     surface (unknown id, path escape attempt, or an OS failure to remove).
     """
-    if not version_id:
-        raise ValueError("No version selected.")
-
-    versions_dir = os.path.join(MINECRAFT_DIR, "versions")
-    target = os.path.join(versions_dir, version_id)
-
-    # Guard against a crafted id ("../..") escaping the versions folder.
-    if os.path.abspath(target) != os.path.normpath(os.path.join(os.path.abspath(versions_dir), version_id)) \
-            or not os.path.abspath(target).startswith(os.path.abspath(versions_dir) + os.sep):
-        raise ValueError("Refusing to delete a path outside the versions folder.")
+    target = version_folder(version_id)
+    affected = {version_id, *dependents_of(version_id)}
+    if affected & active_installs():
+        raise ValueError("Can't delete a version while it's installing.")
+    from . import watchdog
+    try:
+        running = watchdog.stale_session()
+    except Exception as ex:
+        raise ValueError("Couldn't verify whether Minecraft is using this version.") from ex
+    if running and running.get('version') in affected:
+        raise ValueError("Can't delete a version while Minecraft is using it.")
 
     if not os.path.isdir(target):
         raise ValueError("That version folder no longer exists.")
@@ -499,8 +575,7 @@ def delete_version(version_id: str) -> None:
 
 
 def dependents_of(version_id: str) -> list[str]:
-    """Installed version ids whose launch JSON declares `inheritsFrom`
-    `version_id`.
+    """Installed ids that directly or transitively inherit/use this version's jar.
 
     A vanilla base and every loader install built on it are separate folders;
     deleting the base without them leaves "needs Minecraft X, which is
@@ -514,19 +589,25 @@ def dependents_of(version_id: str) -> list[str]:
         names = sorted(os.listdir(versions_dir))
     except OSError:
         return []
-    out = []
+    references = {}
     for name in names:
-        if name == version_id:
-            continue
-        meta_path = os.path.join(versions_dir, name, name + ".json")
         try:
-            with open(meta_path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
+            folder = version_folder(name)
+        except ValueError:
             continue
-        if isinstance(data, dict) and data.get("inheritsFrom") == version_id:
-            out.append(name)
-    return out
+        data = _load_version_json(folder, name + ".json")
+        if isinstance(data, dict):
+            references[name] = {ref for key in ('inheritsFrom', 'jar')
+                                if _plain_filename(ref := data.get(key))}
+    # Transitive closure: a running loader may inherit another loader that
+    # inherits the vanilla base. Removing any ancestor still breaks that game.
+    affected = {version_id}
+    while True:
+        added = {name for name, refs in references.items()
+                 if name not in affected and refs & affected}
+        if not added:
+            return sorted(affected - {version_id})
+        affected.update(added)
 
 
 # --- Unfinished-install cleanup --------------------------------------------
@@ -1549,6 +1630,7 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
         hand-placed jar - are never touched: a failed reinstall must not
         destroy a working install (or the user's own files).
     """
+    validate_launch_profile(version_id)
     # Every callback is wrapped: the status one so the asset phase reports
     # something readable instead of a sha1 (see _FriendlyStatus), and all three
     # so the cancel bridge sees which thread is downloading.
@@ -1584,7 +1666,7 @@ def install_version(version_id: str, progress_cb, status_cb, max_cb,
                     "setMax": _noted(_maximum)}
     else:
         bridge = None
-    folder = os.path.join(MINECRAFT_DIR, "versions", version_id)
+    folder = version_folder(version_id)
     json_path = os.path.join(folder, version_id + ".json")
     # Did this attempt create the version folder, or is it re-installing over
     # one that was already there? A failed FRESH install must leave nothing

@@ -402,8 +402,14 @@ def read_public_address(version_id: str, *, log_lines: str | None = None) -> str
     if log_lines is None:
         path = os.path.join(get_server_dir(version_id), "logs", "latest.log")
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                log_lines = "".join(f.readlines()[-400:])
+            with open(path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                start = max(0, f.tell() - 256 * 1024)
+                f.seek(start)
+                tail = f.read().decode('utf-8', errors='replace')
+                if start:
+                    tail = tail.partition('\n')[2]
+                log_lines = '\n'.join(tail.splitlines()[-400:])
         except OSError:
             return None
 

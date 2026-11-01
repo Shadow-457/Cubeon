@@ -1695,6 +1695,32 @@ def _cmp_versions(a: str, b: str) -> int:
     """Maven-ish ordering: numeric vs numeric by value, a numeric run beats an
     alpha one (1.0 > 1.0-rc), a longer version beats its own prefix
     (1.0.1 > 1.0) unless the extra bit is a qualifier (1.0-rc < 1.0)."""
+    semantic = r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?"
+    sa, sb = re.fullmatch(semantic, str(a).strip()), re.fullmatch(semantic, str(b).strip())
+    if sa and sb:
+        na, nb = [int(n) for n in sa[1].split('.')], [int(n) for n in sb[1].split('.')]
+        length = max(len(na), len(nb))
+        na += [0] * (length - len(na))
+        nb += [0] * (length - len(nb))
+        if na != nb:
+            return -1 if na < nb else 1
+        qa, qb = sa[2], sb[2]
+        if qa == qb:
+            return 0
+        if qa is None or qb is None:
+            return 1 if qa is None else -1
+        pa, pb = qa.split('.'), qb.split('.')
+        for x, y in zip(pa, pb):
+            if x == y:
+                continue
+            if x.isdigit() and y.isdigit():
+                if int(x) == int(y):
+                    continue
+                return -1 if int(x) < int(y) else 1
+            if x.isdigit() != y.isdigit():
+                return -1 if x.isdigit() else 1
+            return -1 if x < y else 1
+        return (len(pa) > len(pb)) - (len(pa) < len(pb))
     pa, pb = _version_parts(a), _version_parts(b)
     for i in range(max(len(pa), len(pb))):
         x = pa[i] if i < len(pa) else None
@@ -1809,6 +1835,7 @@ def version_satisfies(version: str, predicate) -> bool:
             if _satisfies_range(version, alt):
                 return True
             continue
+        alt = re.sub(r'(<=|>=|!=|==|=|<|>|~|\^)\s+(?=\d)', r'\1', alt)
         if all(_satisfies_term(version, t) for t in alt.split()):
             return True
     return False

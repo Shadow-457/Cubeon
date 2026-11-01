@@ -57,9 +57,9 @@ ok(m2 is not None,
 # The Play tab mounts the button directly in a footer Row (next to the
 # instance picker); look at that mount window instead of pinning the exact
 # row order, which changes whenever the Play card is rearranged.
-mount_at = src.find("ft.Container(content=play_button")
+mount_at = src.find("ft.Container(content=theme.keyboard_target(play_button")
 ok(mount_at != -1,
-   "the footer mounts the button directly (no painted layer behind/above it)")
+   "the footer mounts the button with its native keyboard target")
 footer_block = src[max(0, mount_at - 1200):mount_at + 200]
 ok("play_sheen" not in footer_block and "pixel_button_frame.svg" not in footer_block,
    "the footer paints no decorative layer ON TOP of the button")

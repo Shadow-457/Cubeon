@@ -51,7 +51,7 @@ def check(label, condition, extra=""):
           f"{(' - ' + extra) if extra and not condition else ''}")
 
 
-def stub_launch(exit_cb, *, fail_playtime=False):
+def stub_launch(exit_cb, *, fail_playtime=False, fail_playtime_start=False):
     """Run launch_game with a real child process and no side effects."""
     import cubeon.content as content
     import cubeon.cubeonfriends as friends
@@ -75,8 +75,10 @@ def stub_launch(exit_cb, *, fail_playtime=False):
                                      lambda *a, **k: {"removed": 0, "detail": ""}))
     stack.enter_context(patch.object(watchdog, "register", lambda *a, **k: None))
     stack.enter_context(patch.object(watchdog, "clear", lambda *a, **k: None))
-    stack.enter_context(patch.object(milestones, "begin_play_session",
-                                     lambda *a, **k: None))
+    def begin_play_session(*args, **kwargs):
+        if fail_playtime_start:
+            raise OSError("disk full")
+    stack.enter_context(patch.object(milestones, "begin_play_session", begin_play_session))
     def end_play_session(*args, **kwargs):
         if fail_playtime:
             raise OSError("disk full")
@@ -89,7 +91,7 @@ def stub_launch(exit_cb, *, fail_playtime=False):
     return stack
 
 
-def run_once(on_exit, **options):
+def run_once(on_exit, log_cb=None, **options):
     done = threading.Event()
 
     def wrapped(code, lines, session_id=None):
@@ -101,7 +103,7 @@ def run_once(on_exit, **options):
     with stub_launch(wrapped, **options):
         proc = launch.launch_game(
             "1.20.1", "tester", 1024, 854, 480, None,
-            mc_version="1.20.1", loader="fabric", on_exit=wrapped)
+            mc_version="1.20.1", loader="fabric", on_exit=wrapped, log_cb=log_cb)
         proc.wait(timeout=30)
     if not done.wait(timeout=10):
         raise RuntimeError("on_exit was never called")
@@ -115,6 +117,7 @@ def main():
     def capture(code, lines, session_id=None):
         seen["code"] = code
         seen["lines"] = list(lines)
+        seen["session_id"] = session_id
 
     code = run_once(capture)
     check("the exit code reaches on_exit", code == 3 or seen.get("code") == 3,
@@ -132,6 +135,23 @@ def main():
         check("failed log cleanup still delivers on_exit", code == 3)
     code = run_once(capture, fail_playtime=True)
     check("failed playtime cleanup still delivers on_exit", code == 3)
+    code = run_once(capture, fail_playtime_start=True)
+    check("failed playtime start still installs the exit watcher", code == 3)
+    def broken_log_callback(line):
+        raise RuntimeError("log consumer failed")
+    run_once(capture, log_cb=broken_log_callback)
+    check("a failed log consumer does not stop log draining",
+          seen['lines'] == ['CRASH line one continued', 'OK line'])
+    with patch.dict(globals(), CHILD=(
+            "import sys, time\n"
+            "sys.stdout.write('x' * (2 * 1024 * 1024)); sys.stdout.flush()\n"
+            "time.sleep(.2)\n"
+            "sys.stdout.write('\\nDONE\\n'); sys.stdout.flush()\n")):
+        run_once(capture)
+    check("newline-less output has a bounded in-memory tail",
+          seen['lines'][-1] == 'DONE' and max(map(len, seen['lines'])) <= 64 * 1024)
+    log_path = os.path.join(launch.CUBEON_HOME, f"game-{seen['session_id']}.log")
+    check("the complete long output remains on disk", os.path.getsize(log_path) > 2 * 1024 * 1024)
 
     # --- 2. a raising on_exit is logged, not an uncaught dead thread -------
     records = []

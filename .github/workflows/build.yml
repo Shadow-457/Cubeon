@@ -423,11 +423,11 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" "${debs[@]}" --clobber
 
-      - name: Attach Linux setup script to the GitHub release
+      - name: Attach Linux offline installers to the GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Linux-x86_64-Setup.sh --clobber
+        run: gh release upload "$RELEASE_TAG" dist/Cubeon-Linux-x86_64-Setup.sh dist/Cubeon-Linux-x86_64-Setup.AppImage --clobber
 
   build-windows-exe:
     name: Build Windows installer
@@ -582,7 +582,7 @@ jobs:
           missing=0
           for want in Cubeon-Windows-x64-Setup.exe \
                       Cubeon-macOS.zip Cubeon-x86_64.AppImage \
-                      Cubeon-Linux-x86_64-Setup.sh; do
+                      Cubeon-Linux-x86_64-Setup.sh Cubeon-Linux-x86_64-Setup.AppImage; do
             if ! grep -qxF "$want" <<<"$have"; then
               echo "::error::$TAG is missing $want"
               missing=1

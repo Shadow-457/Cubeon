@@ -11,6 +11,7 @@
  *   GET /linuxdownload    -> streams Cubeon-x86_64.AppImage
  *   GET /linuxdeb         -> streams the .deb for the current APP_VERSION
  *   GET /linuxsetup       -> streams Cubeon-Linux-x86_64-Setup.sh
+ *   GET /linuxinstaller   -> streams Cubeon-Linux-x86_64-Setup.AppImage
  *   GET /count            -> {"value": N}: how many distinct visitors downloaded
  *   GET /count/hit        -> records this IP (once ever) and returns the total
  *   GET /health           -> plain-text OK, for debugging by hand
@@ -68,6 +69,7 @@ const FILES = {
   "/linuxdownload": "Cubeon-x86_64.AppImage",
   "/linuxdeb": { prefix: "cubeon_", suffix: "_amd64.deb" },
   "/linuxsetup": "Cubeon-Linux-x86_64-Setup.sh",
+  "/linuxinstaller": "Cubeon-Linux-x86_64-Setup.AppImage",
 };
 
 // Only these release files are exposed to the launcher. No arbitrary tag or

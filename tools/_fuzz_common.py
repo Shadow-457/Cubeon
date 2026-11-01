@@ -422,6 +422,9 @@ def install_safe_stubs(verbose=False):
     core.get_loader_minecraft_versions = lambda loader: [
         version["id"] for version in core.get_available_versions()]
     core.get_latest_release = versions.get_latest_release
+    # The worker's Java preflight must not execute a system JVM in UI fixtures.
+    # Missing-Java tests override this safe result explicitly.
+    core.jre.java_status = lambda *a, **k: {"ok": True, "required": 17, "found": 17}
 
     # Redirect the one profile-dir choke point (which does makedirs + writes a
     # meta file) into a throwaway temp dir, and stub the disk-reading list calls,

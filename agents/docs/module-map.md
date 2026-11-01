@@ -195,6 +195,10 @@ keep builders consistent with the shared `THEME` contract.
   `_main_action_click`, `on_play_click` and `_begin_install_and_launch` all honour them, so a repaint
   inside the handover window cannot show PLAY or start a second game. `launching_version` is set under
   `_launch_state_lock` when `installing_version` clears and released in the worker's `finally`.
+  It remains claimed through all backend setup; only successful spawning hands it to the actual
+  `target_version`. Spawn/exit UI uses lock order `TREE_LOCK` → exit lock → launch-state lock.
+  Per-launch liveness Events wake on exit and retire the previous watcher; do not suppress a new
+  watcher because an older same-named thread is still alive.
 - Quit owns `state["ending_session"]` until its worker reconciles watchdog liveness, on success or
   failure. Recovered games have no `on_exit`, so termination must restore the button itself. Optional
   playtime/log/presence cleanup must never prevent the exit callback or hold the UI tree lock.
@@ -229,6 +233,23 @@ keep builders consistent with the shared `THEME` contract.
 - `instances.describe()` is the single source of instance metadata (reads the last-played sidecar through
   the caller's `play_store`). Render from one `list_installed()` call; `mod_count()` is a cheap `scandir`.
   `mark_played()` records the instance that actually launched.
+- Play's Java preflight runs on the install worker before game-file writes. A missing-Java prompt
+  opens after releasing the claim and retains that attempt's loader/icon choices. Use
+  `resolve_mc_version` for renamed-instance Java/artwork, not a number parsed from its label.
+  Healthy installed loaders do not require the online support catalogue to launch.
+- `versions.version_folder` and `validate_launch_profile` guard install/launch/delete paths before
+  mll or sanitizers write: reject traversal, external directory/canonical-file symlinks and unsafe,
+  cyclic or overly deep `inheritsFrom`/`jar` references. The tolerant scan also rejects external
+  alternate-name JSON/JAR links before normalization, and tolerates disappearing/read-only folders.
+- Play deletion rechecks running/installing/launching claims, modpack installs and transitive
+  `inheritsFrom`/`jar` dependents at confirmation and worker start. Watchdog records use `version`.
+  Registry/liveness errors refuse deletion; recursive removal runs outside `TREE_LOCK` on
+  `delete-instance`, while a deletion claim blocks Play. Re-read private-profile ownership before
+  checkbox-authorized removal; preserve existing world/shared-profile behavior.
+- `launch_game` holds its reentrant `_spawn_lock` across setup, shared staging and spawning, and
+  rejects a live game before writes. Successful Java executable probes have a bounded 64-entry,
+  60s stat-fingerprint cache. Log tail lines/remainders are capped at 64 KiB while full output stays
+  on disk; optional log callbacks/playtime bookkeeping must not prevent exit monitoring.
 - Discord's playing status uses the launch worker's `launch_mc` and `loader_id` (for example
   `Playing Minecraft 1.21.11 (Fabric)`), never a later selection's shared `state["mod_loader"]`.
 - A completed loader install must ADOPT its resulting instance: `do_install_and_launch` calls
@@ -250,6 +271,9 @@ keep builders consistent with the shared `THEME` contract.
 - Reserve the loader-status slot and keep hero labels single-line; a notice appearing must not change hero
   height. Late artwork must never replace a newer selection (the banner is an opacity-only 180 ms
   transition).
+  Artwork watcher/inflight bookkeeping has its own lock; release it before UI callbacks. Selection
+  identity and delayed source application share `TREE_LOCK`. Native screenshots need image-decode
+  settling time: the tour's early capture can be flat while a later capture shows the existing art.
 - Vanilla accepts resource packs, not mods or shader packs. Other loaders are valid when compatible;
   shaders also require Iris/Oculus-style support.
 - Content install gating uses the selected INSTANCE's real loader (`ui/mods_tab._instance_mod_capable` ->
@@ -977,7 +1001,8 @@ requires retrying with normal system access, not changing unrelated app code.
 | --- | --- |
 | UI/tree contracts | `test_ui_smoke.py`, `test_motion.py`, `test_scrolling.py`, `test_toast.py`, `test_render_compat.py` |
 | Keyboard and local feedback | `test_keyboard_shortcuts.py`, `test_keyboard_accessibility.py`, `test_ui_sounds.py` |
-| Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py` |
+| Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py`, `test_play_backend_audit.py` |
+| Play backend/path safety | `test_version_path_safety.py`, `test_launch_claim.py`, `test_launch_log_tail.py`, `test_instance_install_flow.py` |
 | Mods and artwork | `test_mod_ui_stability.py`, `test_loader_content_rules.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
