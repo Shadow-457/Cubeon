@@ -1,11 +1,10 @@
 # Windows smoke test
 
-CI proves the Windows **installer builds**. It has never run the real Windows
-app: the `Startup tests (Windows)` job fails in the test harness itself (those
-tests ban every socket and read the event loop's internals, which a Windows
-`ProactorEventLoop` does not have), so a green run there would not mean much
-anyway. That makes this 5-minute pass on a real Windows machine the only thing
-standing between "it builds" and "it works for other people".
+The Windows build runs installer transaction fixtures before publishing: custom
+paths, upgrades, file locks, rollback, recovery and uninstall. These fixtures use
+small program payloads and do not run the complete frozen launcher or certify
+hardware rendering. Complete this pass on a real Windows machine or VM before
+claiming the full desktop experience works.
 
 Do it once, on a clean-ish machine or VM, the way a new person would.
 
@@ -28,6 +27,12 @@ Do it once, on a clean-ish machine or VM, the way a new person would.
 
 4. The installer should finish without asking for administrator rights and
    without a reboot. ☐
+   - Repeat over an existing install after closing Cubeon, including a custom
+     folder on another writable drive. Temporary file locks should retry.
+     If setup fails, its message must name the failed step/path and Windows
+     error; keep `Cubeon-Setup.log` in the installation folder. Rollback must
+     restore the old program, or retain its files in the named recovery folder.
+     A generic warning does not prove a disk-space problem. ☐
 5. Launch Cubeon. Expect a normal window with the Cubeon UI. ☐
    - **Watch closely here.** The window does a hidden start and is revealed
      later (see `agents/docs/module-map.md`); if it flashes and disappears, or

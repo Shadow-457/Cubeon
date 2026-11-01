@@ -1172,11 +1172,24 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
     if cfg is None:
         game_dir = MINECRAFT_DIR
 
+    # Retire the old optional culling default even when the suite/client toggle
+    # is now off. Stop on a failed migration; do not silently launch its old jar.
+    if cfg is not None:
+        from . import perf_mods
+        try:
+            disabled_culling = perf_mods.retire_legacy_more_culling(
+                mc_version, loader, version_id)
+        except (OSError, ValueError) as error:
+            raise RuntimeError("Couldn't disable legacy More Culling. Close Minecraft, "
+                               "disable More Culling in Mods → Installed, and retry Play. "
+                               f"Details: {error}") from error
+        if disabled_culling and status_cb:
+            status_cb("More Culling disabled for compatibility; kept in Mods as Disabled")
+
     # The Cubeon Client is a social mod and draws almost nothing; the actual
     # frame-rate win comes from the client performance mod suite (Sodium,
-    # Lithium, ImmediatelyFast, EntityCulling, MoreCulling, ...) fetched here
-    # for the same profile, plus unlocking Minecraft's own Vsync/FPS-cap
-    # options so those mods can actually be seen. Tied to the client toggle
+    # Lithium, ImmediatelyFast, EntityCulling, FerriteCore) fetched here
+    # for the same profile. Tied to the client toggle
     # (there is no separate switch in Settings - the user asked for that gone;
     # `perf_mods_enabled` remains a config-only opt-out), and always before
     # the mods sync so a jar fetched right now is live this launch.
@@ -1190,9 +1203,7 @@ def launch_game(version_id: str, username: str, ram_mb: int, width: int, height:
                                                 repair_dependencies=False)
             if report["installed"] and status_cb:
                 status_cb("FPS boost installed")
-            # The suite was narrowed to Sodium only; remove the retired mods so
-            # an existing profile stops loading the pile instead of leaving the
-            # user to delete eight jars by hand.
+            # Clean up the four previously retired automatic performance mods.
             pruned = perf_mods.prune_retired_perf_mods(mc_version, loader,
                                                        version_id=version_id)
             if pruned and status_cb:

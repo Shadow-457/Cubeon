@@ -24,6 +24,9 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _sandbox_home
+_sandbox_home.isolate()
 
 passed = failed = 0
 

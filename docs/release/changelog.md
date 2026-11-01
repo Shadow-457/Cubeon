@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-11-01 — More Culling safety and Windows setup recovery
+
+- Removed More Culling from automatic performance installs. The default suite
+  retains Sodium, Lithium, ImmediatelyFast, EntityCulling and FerriteCore.
+- Before Play, disable legacy Modrinth-managed More Culling once in ordinary
+  profiles, preserving JAR bytes and metadata. This runs even with the client
+  or performance suite disabled. Explicit new installs/re-enables, manual
+  untracked jars, modpack profiles and required More Culling dependencies are
+  preserved. Old automatic and browser installs share metadata, so either may
+  be disabled once. Pending migrations recheck identity; errors block launch.
+- Windows setup leaves its staged runtime directory before swapping files,
+  retries temporary access/sharing errors for under five seconds per move,
+  handles empty runtime directories and reports the failed phase/path/native
+  error instead of attributing every failure to disk space or open windows.
+- Rollback moves new runtime files aside and preserves previous program files
+  if restoration is blocked. `Cubeon-Setup.log` retains initial and rollback
+  details; corrected NSIS append positioning to avoid overwriting earlier errors.
+- Added Windows installer transaction fixtures to the Windows build before
+  publishing. Wine checks use real file locks and cover temporary/persistent
+  locks, incomplete payloads, placement/rollback failures, backup bytes, custom
+  paths, empty runtime directories, upgrades and data-safe uninstall.
+- Verification: performance retirement/removal 14 tests; performance/options
+  100 checks; prelaunch dependencies 17 tests; lookup budget 12 checks; mod store
+  27 checks; launch fixes 133 checks; updater 28 tests; release pipeline 61
+  checks; installer suite including Wine 3 tests; launcher smoke 23 checks.
+- No affected user's exact upstream More Culling conflict or Windows failure
+  has been reproduced. Native Windows runner results are separate from Wine
+  verification. This source push follows the ordinary beta channel policy;
+  v1.3.38 stable remains unchanged until a later explicit promotion.
+
 ## 2026-11-01 — v1.3.38 stable promotion
 
 - Promoted the existing v1.3.38 release to stable, preserving its tag and binaries.

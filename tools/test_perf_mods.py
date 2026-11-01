@@ -4,7 +4,7 @@ and the options.txt appliers (cubeon/game_options.py).
 
 The point of the feature: the Cubeon Client is a social mod, so "activate
 Cubeon Client" must also bring the mods that actually raise frame rate
-(Sodium, Lithium, ImmediatelyFast, EntityCulling, MoreCulling, ...). It must
+(Sodium, Lithium, ImmediatelyFast, EntityCulling, FerriteCore). It must
 NOT touch Vsync/maxFps - those belong to the player. These tests pin the
 install/skip/fail behaviour and the options rewrite with no network and no
 real profile:

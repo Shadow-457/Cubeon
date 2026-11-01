@@ -6,7 +6,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+
+if "--native-windows" in sys.argv:
+    os.environ["CUBEON_TEST_WINDOWS"] = "1"
+    sys.argv.remove("--native-windows")
 
 if "--wine" in sys.argv:
     os.environ["CUBEON_TEST_WINE"] = "1"
@@ -19,6 +24,7 @@ spec.loader.exec_module(builders)
 
 
 class LauncherInstallers(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "Linux installer test")
     def test_self_contained_setup_install_repair_and_damaged_download(self):
         with tempfile.TemporaryDirectory(prefix="cubeon-installers-") as tmp:
             root = Path(tmp)
@@ -90,7 +96,8 @@ class LauncherInstallers(unittest.TestCase):
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
             self.assertTrue((root / "Cubeon-Windows-x64-Setup.exe").is_file())
 
-    @unittest.skipUnless(os.environ.get("CUBEON_TEST_WINE"), "opt-in Wine installation smoke")
+    @unittest.skipUnless(os.environ.get("CUBEON_TEST_WINE") or os.environ.get("CUBEON_TEST_WINDOWS"),
+                         "opt-in Windows/Wine installation smoke")
     def test_windows_install_upgrade_custom_directory_and_uninstall(self):
         cached = Path.home() / ".cache/electron-builder/nsis/nsis-3.0.4.1"
         compiler = shutil.which("makensis") or str(cached / "linux/makensis")
@@ -98,6 +105,12 @@ class LauncherInstallers(unittest.TestCase):
             root = Path(tmp)
             env = dict(os.environ, WINEPREFIX=str(root / "wine"), WINEDEBUG="-all", NSISDIR=str(cached),
                        WINEDLLOVERRIDES="mscoree,mshtml=")
+            if os.name == "nt":
+                env = dict(os.environ)
+            def winpath(path):
+                return str(path) if os.name == "nt" else "Z:" + str(path).replace("/", "\\")
+            def command(*args):
+                return list(args) if os.name == "nt" else ["wine", *args]
             source = root / "source"
             (source / "_internal").mkdir(parents=True)
             exe = source / "Cubeon.exe"
@@ -105,18 +118,18 @@ class LauncherInstallers(unittest.TestCase):
             (source / "_internal/old.dll").write_bytes(b"old runtime")
             target = root / "Games with spaces" / "Cubeon"
             def wine(*args):
-                result = subprocess.run(["wine", *args], env=env, capture_output=True, timeout=90)
+                result = subprocess.run(command(*args), env=env, capture_output=True, timeout=90)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 return result.stdout.decode(errors="replace")
-            def build(version):
+            def build(version, script=ROOT / "packaging/Cubeon.nsi"):
                 subprocess.run([compiler, "-V2", f"-DSOURCE_DIR={source}", f"-DOUTPUT_DIR={root}",
                                 f"-DICON_FILE={ROOT / 'assets/icon.ico'}", f"-DDISPLAY_VERSION={version}",
-                                f"-DAPP_VERSION={version}.0", str(ROOT / "packaging/Cubeon.nsi")],
+                                f"-DAPP_VERSION={version}.0", str(script)],
                                env=env, check=True, capture_output=True)
             build("2.0.0")
             setup = root / "Cubeon-Windows-x64-Setup.exe"
-            win_target = "Z:" + str(target).replace("/", "\\")
-            win_setup = "Z:" + str(setup).replace("/", "\\")
+            win_target = winpath(target)
+            win_setup = winpath(setup)
             def install(arguments):
                 # Match Start-Process's raw argument string: NSIS /D is LAST
                 # and unquoted, even when the directory contains spaces.
@@ -146,19 +159,150 @@ class LauncherInstallers(unittest.TestCase):
             (source / "_internal/new.dll").unlink()
             (source / "_internal").rmdir()
             build("2.0.2")
-            blocked = subprocess.run(["wine", "cmd", "/c", f'start "" /wait "{win_setup}" /S'],
+            blocked = subprocess.run(command("cmd", "/c", f'start "" /wait "{win_setup}" /S'),
                                      env=env, capture_output=True, timeout=30)
             self.assertNotEqual(blocked.returncode, 0)
             self.assertEqual((target / "Cubeon.exe").read_bytes(), b"new executable")
             self.assertEqual(runtime.read_bytes(), b"new runtime")
             self.assertEqual({p.name for p in target.iterdir()},
-                             {"Cubeon.exe", "_internal", "Uninstall Cubeon.exe", "user-file.keep"})
+                             {"Cubeon.exe", "_internal", "Uninstall Cubeon.exe", "user-file.keep",
+                              "Cubeon-Setup.log"})
             (source / "_internal").mkdir()
             (source / "_internal/new.dll").write_bytes(b"new runtime")
             build("2.0.1")
+            # Compile a small program with the actual MoveProgramEntry body.
+            # Wine does not emulate Windows directory-handle locking faithfully;
+            # a file handle does enforce the same native sharing-violation code.
+            move_source = root / 'move-source.bin'
+            move_target = root / 'move-target.bin'
+            ready = root / 'lock-ready'
+            locker_script, locker = root / 'locker.nsi', root / 'locker.exe'
+            def start_lock(duration):
+                ready.unlink(missing_ok=True)
+                locker_script.write_text(r'''
+Unicode True
+Name "Cubeon installer lock fixture"
+OutFile "LOCK_EXE"
+RequestExecutionLevel user
+SilentInstall silent
+Section
+  System::Call 'kernel32::CreateFileW(w "LOCK_TARGET", i 0x80000000, i 1, p 0, i 3, i 0, p 0) p.r0'
+  IntCmp $0 -1 failed
+  FileOpen $1 "LOCK_READY" "w"
+  FileWrite $1 "ready"
+  FileClose $1
+  Sleep LOCK_MS
+  System::Call 'kernel32::CloseHandle(p r0)'
+  Goto done
+failed:
+  SetErrorLevel 7
+done:
+SectionEnd
+'''.replace('LOCK_EXE', str(locker)).replace('LOCK_TARGET', winpath(move_source))
+                    .replace('LOCK_READY', winpath(ready)).replace('LOCK_MS', str(duration)))
+                subprocess.run([compiler, '-V2', str(locker_script)], env=env,
+                               capture_output=True, check=True)
+                process = subprocess.Popen(command(str(locker), '/S'), env=env,
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Always reap the helper, including on assertion failure.
+                self.addCleanup(lambda: process.wait(timeout=15))
+                deadline = time.monotonic() + 10
+                while not ready.exists() and time.monotonic() < deadline:
+                    if process.poll() is not None:
+                        break
+                    time.sleep(.02)
+                self.assertTrue(ready.exists(), f'Lock helper exit: {process.poll()}')
+                return process
+            original_script = (ROOT / 'packaging/Cubeon.nsi').read_text()
+            move_body = original_script.split('Function MoveProgramEntry', 1)[1].split('FunctionEnd', 1)[0]
+            mover_script, mover = root / 'mover.nsi', root / 'mover.exe'
+            result_file = root / 'move-result.txt'
+            mover_script.write_text(r'''
+Unicode True
+Name "Cubeon move fixture"
+OutFile "MOVE_EXE"
+RequestExecutionLevel user
+SilentInstall silent
+!include "LogicLib.nsh"
+Var MoveSource
+Var MoveTarget
+Var MoveError
+Var MoveAttempts
+Function MoveProgramEntry
+MOVE_BODY
+FunctionEnd
+Section
+  StrCpy $MoveSource "MOVE_SOURCE"
+  StrCpy $MoveTarget "MOVE_TARGET"
+  Call MoveProgramEntry
+  FileOpen $1 "RESULT_FILE" "w"
+  FileWrite $1 "$MoveError"
+  FileClose $1
+  SetErrorLevel $MoveError
+SectionEnd
+'''.replace('MOVE_EXE', str(mover)).replace('MOVE_BODY', move_body)
+                .replace('MOVE_SOURCE', winpath(move_source)).replace('MOVE_TARGET', winpath(move_target))
+                .replace('RESULT_FILE', winpath(result_file)))
+            subprocess.run([compiler, '-V2', str(mover_script)], env=env,
+                           capture_output=True, check=True)
+            for duration, expected in ((1200, 0), (8000, 32)):
+                move_source.write_bytes(b'keep these bytes')
+                move_target.unlink(missing_ok=True)
+                lock = start_lock(duration)
+                try:
+                    result = subprocess.run(command(str(mover), '/S'), env=env,
+                                            capture_output=True, timeout=30)
+                finally:
+                    lock.wait(timeout=15)
+                self.assertEqual(result_file.read_text(), str(expected))
+                self.assertEqual(result.returncode, expected)
+                self.assertEqual((move_target if expected == 0 else move_source).read_bytes(),
+                                 b'keep these bytes')
+            # Force a late placement collision after old entries were backed up.
+            # The real rollback must restore the old exe AND runtime and retain
+            # unrelated user files, with phase/path/native-code diagnostics.
+            collision_script = root / 'collision.nsi'
+            collision_script.write_text(original_script.replace('place_internal:\n',
+                'place_internal:\n  CreateDirectory "${APP_EXE}"\n', 1))
+            build('2.0.2', collision_script)
+            blocked = subprocess.run(command('cmd', '/c', f'start "" /wait "{win_setup}" /S'),
+                                     env=env, capture_output=True, timeout=30)
+            self.assertNotEqual(blocked.returncode, 0)
+            # This external collision also blocks exe restoration: all previous
+            # bytes must remain in the recovery folder instead of being deleted.
+            stages = list(target.glob('ns*.tmp'))
+            self.assertEqual(len(stages), 1)
+            self.assertEqual((stages[0] / 'previous.exe').read_bytes(), b'new executable')
+            self.assertEqual((stages[0] / 'previous-internal/new.dll').read_bytes(), b'new runtime')
+            log = (target / 'Cubeon-Setup.log').read_text()
+            self.assertIn('place the new launcher', log)
+            self.assertIn('Rollback error:', log)
+            self.assertIn(win_target, log)
+            (target / 'Cubeon.exe').rmdir()
+            (stages[0] / 'previous.exe').replace(target / 'Cubeon.exe')
+            (stages[0] / 'previous-internal').replace(target / '_internal')
+            shutil.rmtree(stages[0])
+            missing_script = root / 'missing.nsi'
+            missing_script.write_text(original_script.replace('place_internal:\n',
+                'place_internal:\n  Delete "$StageDir\\Cubeon.exe"\n', 1))
+            build('2.0.2', missing_script)
+            blocked = subprocess.run(command('cmd', '/c', f'start "" /wait "{win_setup}" /S'),
+                                     env=env, capture_output=True, timeout=30)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertEqual((target / 'Cubeon.exe').read_bytes(), b'new executable')
+            self.assertEqual((target / '_internal/new.dll').read_bytes(), b'new runtime')
+            self.assertEqual((target / 'user-file.keep').read_text(), 'keep me')
+            self.assertFalse(list(target.glob('ns*.tmp')))
+            self.assertIn('Windows error: 2', (target / 'Cubeon-Setup.log').read_text())
+            build('2.0.1')
+            # An interrupted setup can leave an empty runtime directory.
+            empty_target = root / 'empty Cubeon'
+            (empty_target / '_internal').mkdir(parents=True)
+            install('/S /D=' + winpath(empty_target))
+            self.assertEqual((empty_target / '_internal/new.dll').read_bytes(), b'new runtime')
             # An explicit /D must override a different registry installation.
             second = root / "second Cubeon"
-            install("/S /D=Z:" + str(second).replace("/", "\\"))
+            install("/S /D=" + winpath(second))
             self.assertTrue((second / "Cubeon.exe").is_file())
             # Synchronous NSIS uninstall test avoids its detached self-copy.
             wine(str(target / "Uninstall Cubeon.exe"), "/S", "_?=" + win_target)

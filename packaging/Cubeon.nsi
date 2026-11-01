@@ -97,6 +97,80 @@ Var OldInstDir
 Var StageDir
 Var SavedInternal
 Var SavedExe
+Var MoveSource
+Var MoveTarget
+Var MoveError
+Var MoveAttempts
+Var FailureStep
+Var FailurePath
+Var FailureCode
+Var FailureAdvice
+Var SetupLog
+
+; Directory swaps can race the exiting desktop client or a scanner. Capture
+; the native error immediately and retry only transient sharing/access errors.
+; Never replace an existing destination or schedule a replacement at reboot.
+Function MoveProgramEntry
+  StrCpy $MoveAttempts "20"
+move_retry:
+  System::Call 'kernel32::MoveFileW(w "$MoveSource", w "$MoveTarget") i.r0 ?e'
+  Pop $MoveError
+  ${If} $0 != 0
+    StrCpy $MoveError "0"
+    Return
+  ${EndIf}
+  IntOp $MoveAttempts $MoveAttempts - 1
+  ${If} $MoveAttempts > 0
+  ${AndIf} $MoveError == 5
+    Sleep 250
+    Goto move_retry
+  ${ElseIf} $MoveAttempts > 0
+  ${AndIf} $MoveError == 32
+    Sleep 250
+    Goto move_retry
+  ${ElseIf} $MoveAttempts > 0
+  ${AndIf} $MoveError == 33
+    Sleep 250
+    Goto move_retry
+  ${EndIf}
+FunctionEnd
+
+!macro MoveProgram SOURCE TARGET STEP FAILED
+  StrCpy $MoveSource "${SOURCE}"
+  StrCpy $MoveTarget "${TARGET}"
+  Call MoveProgramEntry
+  ${If} $MoveError != 0
+    StrCpy $FailureStep "${STEP}"
+    StrCpy $FailurePath "$MoveSource -> $MoveTarget"
+    StrCpy $FailureCode "$MoveError"
+    Goto ${FAILED}
+  ${EndIf}
+!macroend
+
+Function RecordSetupFailure
+  StrCpy $FailureAdvice "Try setup again, or choose a separate Cubeon folder you can write to."
+  ${If} $FailureCode == 5
+    StrCpy $FailureAdvice "Windows denied access. Choose a folder you can write to, or check whether another process is using these files."
+  ${ElseIf} $FailureCode == 32
+  ${OrIf} $FailureCode == 33
+    StrCpy $FailureAdvice "Another process is using these files. End any remaining Cubeon.exe or flet.exe belonging to Cubeon in Task Manager, then retry setup."
+  ${ElseIf} $FailureCode == 112
+    StrCpy $FailureAdvice "The destination or temporary drive is full. Free space on that drive, then retry setup."
+  ${ElseIf} $FailureCode == 183
+    StrCpy $FailureAdvice "A conflicting file or folder already exists. Choose a new Cubeon installation folder."
+  ${ElseIf} $FailureCode == 206
+    StrCpy $FailureAdvice "The installation path is too long. Choose a shorter Cubeon folder path."
+  ${EndIf}
+  DetailPrint "Setup failed: $FailureStep ($FailureCode): $FailurePath"
+  ClearErrors
+  FileOpen $SetupLog "$INSTDIR\Cubeon-Setup.log" "a"
+  ${If} $SetupLog != ""
+    ; NSIS 'a' preserves contents but does not position at EOF.
+    FileSeek $SetupLog 0 END
+    FileWrite $SetupLog "Cubeon ${DISPLAY_VERSION}: $FailureStep$\r$\nWindows error: $FailureCode$\r$\nPath: $FailurePath$\r$\n$FailureAdvice$\r$\nBackup/stage: $StageDir$\r$\n$\r$\n"
+    FileClose $SetupLog
+  ${EndIf}
+FunctionEnd
 
 ; --- already-installed? ------------------------------------------------------
 ; Launching the setup over an existing Cubeon used to silently overwrite it: the
@@ -242,37 +316,46 @@ Section "Cubeon" SEC_MAIN
   ; Extract completely before replacing anything. Timestamp-only ifdiff
   ; cannot detect changed bytes with preserved timestamps, and copying over
   ; a live tree leaves obsolete DLLs/packages from previous releases.
-  CreateDirectory "$INSTDIR"
-  GetTempFileName $StageDir "$INSTDIR"
-  Delete "$StageDir"
-  CreateDirectory "$StageDir"
-  SetOutPath "$StageDir"
-  SetOverwrite on
-  ClearErrors
-  File /r "${SOURCE_DIR}\*"
-  IfErrors install_failed
-  IfFileExists "$StageDir\Cubeon.exe" 0 install_failed
-  IfFileExists "$StageDir\_internal\*" 0 install_failed
+  StrCpy $FailureStep "create the installation folder"
+  StrCpy $FailurePath "$INSTDIR"
+  StrCpy $FailureCode "not available"
+  StrCpy $StageDir ""
   StrCpy $SavedInternal "0"
   StrCpy $SavedExe "0"
-  IfFileExists "$INSTDIR\_internal\*" 0 save_exe
   ClearErrors
-  Rename "$INSTDIR\_internal" "$StageDir\previous-internal"
-  IfErrors install_failed
+  CreateDirectory "$INSTDIR"
+  IfErrors prepare_failed
+  GetTempFileName $StageDir "$INSTDIR"
+  IfErrors prepare_failed
+  Delete "$StageDir"
+  IfErrors prepare_failed
+  CreateDirectory "$StageDir"
+  IfErrors prepare_failed
+  SetOutPath "$StageDir"
+  SetOverwrite on
+  StrCpy $FailureStep "extract the new program files"
+  StrCpy $FailurePath "$StageDir"
+  ClearErrors
+  File /r "${SOURCE_DIR}\*"
+  IfErrors extract_failed
+  ; File /r may enter runtime subdirectories. Leave the staged tree BEFORE
+  ; renaming it: Windows holds a process's current directory open.
+  SetOutPath "$INSTDIR"
+  StrCpy $FailureStep "verify the downloaded program files"
+  StrCpy $FailureCode "not available"
+  IfFileExists "$StageDir\Cubeon.exe" 0 install_failed
+  IfFileExists "$StageDir\_internal\*" 0 install_failed
+  ; Include an empty runtime directory left by an interrupted setup.
+  IfFileExists "$INSTDIR\_internal\." 0 save_exe
+  !insertmacro MoveProgram "$INSTDIR\_internal" "$StageDir\previous-internal" "back up the previous runtime" install_failed
   StrCpy $SavedInternal "1"
 save_exe:
   IfFileExists "${APP_EXE}" 0 place_internal
-  ClearErrors
-  Rename "${APP_EXE}" "$StageDir\previous.exe"
-  IfErrors restore_internal
+  !insertmacro MoveProgram "${APP_EXE}" "$StageDir\previous.exe" "back up the previous launcher" restore_internal
   StrCpy $SavedExe "1"
 place_internal:
-  ClearErrors
-  Rename "$StageDir\_internal" "$INSTDIR\_internal"
-  IfErrors restore_exe
-  ClearErrors
-  Rename "$StageDir\Cubeon.exe" "${APP_EXE}"
-  IfErrors remove_new_internal
+  !insertmacro MoveProgram "$StageDir\_internal" "$INSTDIR\_internal" "place the new runtime" restore_exe
+  !insertmacro MoveProgram "$StageDir\Cubeon.exe" "${APP_EXE}" "place the new launcher" remove_new_internal
   SetOutPath "$INSTDIR"
   RMDir /r "$StageDir"
 
@@ -303,28 +386,58 @@ place_internal:
   Goto install_done
 
 remove_new_internal:
-  RMDir /r "$INSTDIR\_internal"
+  ; Move the new tree aside rather than deleting it during rollback.
+  StrCpy $MoveSource "$INSTDIR\_internal"
+  StrCpy $MoveTarget "$StageDir\_internal"
+  Call MoveProgramEntry
+  ${If} $MoveError != 0
+    Goto rollback_failed
+  ${EndIf}
 restore_exe:
   ${If} $SavedExe == "1"
-    ClearErrors
-    Rename "$StageDir\previous.exe" "${APP_EXE}"
-    IfErrors rollback_failed
+    StrCpy $MoveSource "$StageDir\previous.exe"
+    StrCpy $MoveTarget "${APP_EXE}"
+    Call MoveProgramEntry
+    ${If} $MoveError != 0
+      Goto rollback_failed
+    ${EndIf}
   ${EndIf}
 restore_internal:
   ${If} $SavedInternal == "1"
-    ClearErrors
-    Rename "$StageDir\previous-internal" "$INSTDIR\_internal"
-    IfErrors rollback_failed
+    StrCpy $MoveSource "$StageDir\previous-internal"
+    StrCpy $MoveTarget "$INSTDIR\_internal"
+    Call MoveProgramEntry
+    ${If} $MoveError != 0
+      Goto rollback_failed
+    ${EndIf}
+  ${EndIf}
+  Goto install_failed
+prepare_failed:
+extract_failed:
+  System::Call 'kernel32::GetLastError() i.r0'
+  ${If} $0 != 0
+    StrCpy $FailureCode "$0"
   ${EndIf}
 install_failed:
+  Call RecordSetupFailure
   SetOutPath "$TEMP"
-  RMDir /r "$StageDir"
-  MessageBox MB_OK|MB_ICONEXCLAMATION "Cubeon could not be installed. Check free disk space and close all Cubeon windows, then try again. Your previous installation and games have been kept." /SD IDOK
+  ${If} $StageDir != ""
+    RMDir /r "$StageDir"
+  ${EndIf}
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Setup could not $FailureStep.$\r$\n$\r$\nWindows error: $FailureCode$\r$\n$FailurePath$\r$\n$\r$\n$FailureAdvice$\r$\n$\r$\nDetails are in $INSTDIR\Cubeon-Setup.log (if the folder is writable). Your previous installation and games have been kept." /SD IDOK
   SetErrorLevel 1
   Quit
 rollback_failed:
   ; Preserve the backup if another process prevents restoration.
-  MessageBox MB_OK|MB_ICONEXCLAMATION "Cubeon could not finish the update. Close all Cubeon windows and run setup again. The previous program files are kept in $StageDir. Your games and settings have been kept." /SD IDOK
+  Call RecordSetupFailure
+  DetailPrint "Rollback failed ($MoveError): $MoveSource -> $MoveTarget"
+  FileOpen $SetupLog "$INSTDIR\Cubeon-Setup.log" "a"
+  ${If} $SetupLog != ""
+    FileSeek $SetupLog 0 END
+    FileWrite $SetupLog "Rollback error: $MoveError$\r$\n$MoveSource -> $MoveTarget$\r$\n"
+    FileClose $SetupLog
+  ${EndIf}
+  MessageBox MB_OK|MB_ICONEXCLAMATION "Setup could not $FailureStep (Windows error $FailureCode), and could not restore the previous program files (Windows error $MoveError).$\r$\n$\r$\n$FailureAdvice$\r$\n$\r$\nThe previous program files are kept in $StageDir. Details are in $INSTDIR\Cubeon-Setup.log. Your games and settings have been kept." /SD IDOK
   SetErrorLevel 1
   Quit
 install_done:
@@ -350,6 +463,7 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\_internal"
   Delete "$INSTDIR\Cubeon.exe"
   Delete "$INSTDIR\Uninstall Cubeon.exe"
+  Delete "$INSTDIR\Cubeon-Setup.log"
   RMDir "$INSTDIR"
 uninstall_keep_folder:
 SectionEnd

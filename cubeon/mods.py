@@ -3190,6 +3190,10 @@ def download_mod(download_url: str, filename: str, progress_cb=None,
 
     profile_dir = get_profile_dir(mc_version, loader, version_id)
     dest = os.path.join(profile_dir, filename)
+    if (str(slug or "").lower() == "moreculling"
+            or str(project_id or "").lower() == "51shyzvl"):
+        from .perf_mods import allow_explicit_more_culling
+        allow_explicit_more_culling(profile_dir)
 
     def fetch_fn(tmp_path):
         from . import net

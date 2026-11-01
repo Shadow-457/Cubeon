@@ -1,5 +1,6 @@
 """Exercise performance-mod removal across repeated Play preparation and sync."""
 import json
+import ast
 from pathlib import Path
 import sys
 import tempfile
@@ -33,6 +34,8 @@ class PerformanceRemovalTests(unittest.TestCase):
         self.profile = Path(mods.get_profile_dir('1.21.11', 'fabric', 'selected'))
         for slug in perf_mods.PERF_MOD_SLUGS:
             self.write_jar(self.profile / (slug + '.jar'), slug)
+        if not (self.profile / 'moreculling.jar').exists():
+            self.write_jar(self.profile / 'moreculling.jar', 'moreculling')
 
     def write_jar(self, path, identity):
         with zipfile.ZipFile(path, 'w') as archive:
@@ -126,6 +129,116 @@ class PerformanceRemovalTests(unittest.TestCase):
             self.assertIn('removal preferences', report['detail'])
             self.assertEqual(self.lookups, [])
             self.assertFalse((self.profile / 'moreculling.jar').exists())
+
+    def test_clean_profile_does_not_download_more_culling(self):
+        self.play('clean')
+        self.assertNotIn('moreculling', self.lookups)
+        self.assertEqual(set(self.lookups), set(perf_mods.PERF_MOD_SLUGS))
+
+    def test_legacy_managed_more_culling_is_disabled_once_and_not_synced(self):
+        mods._write_meta(str(self.profile), 'moreculling.jar', 'moreculling',
+                         project_id='51shyZVL')
+        original = (self.profile / 'moreculling.jar').read_bytes()
+        report = self.play()
+        self.assertIn('disabled legacy More Culling', report['detail'])
+        disabled = self.profile / 'moreculling.jar.disabled'
+        self.assertEqual(disabled.read_bytes(), original)
+        self.assertEqual(self.lookups, [])
+        mods.sync_mods_to_game('1.21.11', 'fabric', version_id='selected')
+        self.assertFalse((self.root / 'game-mods' / 'moreculling.jar').exists())
+        self.play()
+        # Deliberately re-enabling is respected on subsequent launches.
+        mods.toggle_mod('1.21.11', 'fabric', disabled.name, version_id='selected')
+        self.play()
+        self.assertEqual((self.profile / 'moreculling.jar').read_bytes(), original)
+        self.assertFalse(disabled.exists())
+
+    def test_manual_pack_and_required_more_culling_are_preserved(self):
+        for kind in ('manual', 'pack', 'required'):
+            with self.subTest(kind=kind):
+                profile = Path(mods.get_profile_dir('1.21.11', 'fabric', kind))
+                for slug in (*perf_mods.PERF_MOD_SLUGS, 'moreculling'):
+                    self.write_jar(profile / (slug + '.jar'), slug)
+                if kind != 'manual':
+                    mods._write_meta(str(profile), 'moreculling.jar', 'moreculling')
+                if kind == 'pack':
+                    (profile / '_modpack.json').write_text('{"jars":["moreculling.jar"]}')
+                if kind == 'required':
+                    with zipfile.ZipFile(profile / 'needs-culling.jar', 'w') as archive:
+                        archive.writestr('fabric.mod.json', json.dumps({
+                            'schemaVersion': 1, 'id': 'needs-culling', 'version': '1.0',
+                            'depends': {'moreculling': '*'}}))
+                self.play(kind)
+                self.assertTrue((profile / 'moreculling.jar').exists())
+                self.assertFalse((profile / 'moreculling.jar.disabled').exists())
+        self.assertEqual(self.lookups, [])
+
+    def test_retirement_failure_preserves_files_and_pending_operation_can_resume(self):
+        mods._write_meta(str(self.profile), 'moreculling.jar', 'moreculling')
+        with patch.object(perf_mods, 'write_json', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                perf_mods.retire_legacy_more_culling('1.21.11', 'fabric', 'selected')
+        self.assertTrue((self.profile / 'moreculling.jar').exists())
+        with patch.object(perf_mods, 'toggle_mod', side_effect=OSError('file locked')):
+            with self.assertRaises(OSError):
+                perf_mods.retire_legacy_more_culling('1.21.11', 'fabric', 'selected')
+        self.assertTrue((self.profile / 'moreculling.jar').exists())
+        result = perf_mods.retire_legacy_more_culling('1.21.11', 'fabric', 'selected')
+        self.assertEqual(result, ['moreculling.jar'])
+        self.assertTrue((self.profile / 'moreculling.jar.disabled').exists())
+
+    def test_retirement_cannot_overwrite_an_existing_disabled_copy(self):
+        mods._write_meta(str(self.profile), 'moreculling.jar', 'moreculling')
+        saved = self.profile / 'moreculling.jar.disabled'
+        saved.write_bytes(b'original disabled backup')
+        with self.assertRaises(ValueError):
+            perf_mods.retire_legacy_more_culling('1.21.11', 'fabric', 'selected')
+        self.assertTrue((self.profile / 'moreculling.jar').exists())
+        self.assertEqual(saved.read_bytes(), b'original disabled backup')
+
+    def test_explicit_download_before_first_launch_is_preserved(self):
+        (self.profile / 'moreculling.jar').unlink()
+        with patch.object(mods.global_mod_cache, 'get_or_fetch',
+                          side_effect=lambda dest, *_: self.write_jar(dest, 'moreculling')):
+            mods.download_mod('https://cdn.modrinth.com/test.jar', 'chosen.jar',
+                              project_id='51shyZVL', slug='moreculling',
+                              mc_version='1.21.11', loader='fabric', version_id='selected')
+        self.play()
+        self.assertTrue((self.profile / 'chosen.jar').exists())
+        self.assertFalse((self.profile / 'chosen.jar.disabled').exists())
+
+    def test_pending_migration_does_not_disable_a_replaced_filename(self):
+        mods._write_meta(str(self.profile), 'moreculling.jar', 'moreculling')
+        with patch.object(perf_mods, 'toggle_mod', side_effect=OSError('file locked')):
+            with self.assertRaises(OSError):
+                perf_mods.retire_legacy_more_culling('1.21.11', 'fabric', 'selected')
+        self.write_jar(self.profile / 'moreculling.jar', 'other-mod')
+        self.assertEqual(perf_mods.retire_legacy_more_culling(
+            '1.21.11', 'fabric', 'selected'), [])
+        self.assertTrue((self.profile / 'moreculling.jar').exists())
+
+    def test_launch_retires_even_with_both_toggles_off_and_blocks_failed_migration(self):
+        # Execute the actual prelaunch block without starting a JVM/network.
+        source = Path(mods.__file__).with_name('launch.py').read_text()
+        tree = ast.parse(source)
+        launch = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                      and n.name == 'launch_game')
+        block = next(n for n in launch.body if isinstance(n, ast.If)
+                     and 'retire_legacy_more_culling' in ast.unparse(n))
+        code = compile(ast.Module(body=[block], type_ignores=[]), 'launch.py', 'exec')
+        statuses = []
+        context = {'__package__': 'cubeon', 'cfg': {'client_mod_enabled': False,
+                    'perf_mods_enabled': False}, 'mc_version': '1.21.11',
+                   'loader': 'fabric', 'version_id': 'selected',
+                   'status_cb': statuses.append}
+        mods._write_meta(str(self.profile), 'moreculling.jar', 'moreculling')
+        with patch.object(perf_mods, 'toggle_mod', side_effect=OSError('locked')):
+            with self.assertRaisesRegex(RuntimeError, 'disable More Culling in Mods'):
+                exec(code, context)
+        self.assertTrue((self.profile / 'moreculling.jar').exists())
+        exec(code, context)
+        self.assertTrue((self.profile / 'moreculling.jar.disabled').exists())
+        self.assertTrue(statuses)
 
 
 if __name__ == '__main__':

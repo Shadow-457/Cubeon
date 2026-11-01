@@ -144,15 +144,14 @@ DEFAULT_CONFIG = {
     "client_mod_enabled": True,
     # With the Cubeon Client on, also make sure the client performance mods
     # that actually raise frame rate (Sodium, Lithium, ImmediatelyFast,
-    # EntityCulling, MoreCulling, BadOptimizations, Krypton, ThreadTweak,
-    # Dynamic FPS - fetched from Modrinth like any other mod) are present in
-    # the Fabric/Quilt profile. It does NOT touch Vsync/maxFps (2026-10-24):
+    # EntityCulling and FerriteCore - fetched from Modrinth like any other mod)
+    # are present in the Fabric/Quilt profile. It does NOT touch Vsync/maxFps:
     # those are the player's frame pacing, and a fresh install keeps
     # Minecraft's own defaults (Vsync ON). See cubeon/game_options.py.
     # The Cubeon Client itself is a social mod and draws nothing expensive;
     # this is what turns "activate Cubeon Client" into a real FPS win.
-    # Turning it off leaves the mod set and the game's options exactly as the
-    # user built them.
+    # Turning it off skips automatic additions/options tuning. The one-time
+    # retirement of legacy managed More Culling still runs before Play.
     "perf_mods_enabled": True,
     # FPS boost (the Play-menu toggle): with the perf mods on, also set
     # Minecraft's own speed-only graphics options (Fast graphics, minimal

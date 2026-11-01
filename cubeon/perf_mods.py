@@ -7,7 +7,7 @@ Minecraft render any faster - so "activate Cubeon Client" would otherwise get
 the button and nothing else. This module closes that gap by installing **Sodium**
 (Modrinth `sodium`) into the same (mc_version, loader) profile.
 
-**Six mods (2026-10-14).** Sodium alone was the 2026-10-05 answer ("no more
+**Five mods.** Sodium alone was the 2026-10-05 answer ("no more
 mods"), but the user then asked for "twice as much FPS as any launcher", which
 Sodium alone cannot deliver - its win is the terrain/entity renderer, and the
 rest of the frame budget lives elsewhere. The suite is therefore the proven
@@ -18,7 +18,10 @@ companion set, each with a distinct job and measured gains on top of Sodium:
   - ImmediatelyFast   HUD/text/entity immediate-mode rendering
   - Entity Culling    skips drawing entities/blocks the camera can't see
   - FerriteCore       memory footprint (smaller heap -> shorter GC pauses)
-  - More Culling      culls block faces/particles the camera can't see
+
+More Culling is retired from automatic installs after repeated incompatibility
+reports. Legacy launcher-managed copies are disabled once, with their bytes
+preserved; explicit installs, pack content and required dependencies stay usable.
 
 ThreadTweak, BadOptimizations, Krypton and Dynamic FPS stay retired: measured
 to add little on this stack and each is more third-party crash surface. This
@@ -47,7 +50,7 @@ from .atomicio import write_json
 from .mod_loaders import MOD_CAPABLE_LOADERS
 from .mods import (LAUNCH_LOOKUP_ATTEMPTS, LAUNCH_LOOKUP_TIMEOUT, delete_mod,
                    download_mod, get_mod_download, list_mods, name_stem,
-                   read_mod_metadata, resolve_profile_dir)
+                   read_mod_metadata, resolve_profile_dir, toggle_mod)
 
 # (Modrinth slug, Modrinth project id, display label), in install order.
 # Sodium first (biggest win, the one players recognise), then the companions.
@@ -57,8 +60,9 @@ PERF_MODS = (
     ("immediatelyfast", "5ZwdcRci", "ImmediatelyFast"),
     ("entityculling", "NNAgCjsB", "Entity Culling"),
     ("ferrite-core", "uXXizFIs", "FerriteCore"),
-    ("moreculling", "51shyZVL", "More Culling"),
 )
+_MORE_CULLING = ("moreculling", "51shyZVL", "More Culling")
+_KNOWN_PERF_MODS = PERF_MODS + (_MORE_CULLING,)
 
 # The perf mods the suite used to install (2026-10-05 - 2026-10-14), kept here
 # so an existing profile can be cleaned up (see prune_retired_perf_mods). Do
@@ -73,11 +77,12 @@ RETIRED_PERF_MODS = (
 # Kept as its own name: tests and callers refer to the slug tuple.
 PERF_MOD_SLUGS = tuple(slug for slug, _pid, _label in PERF_MODS)
 
-_LABELS = {slug: label for slug, _pid, label in PERF_MODS}
+_LABELS = {slug: label for slug, _pid, label in _KNOWN_PERF_MODS}
 
 # Keep the choice beside the profile, rather than the shared jar store: removing
 # a performance mod from one instance must not remove it from another instance.
 REMOVED_MODS_FILE = ".cubeon-removed-performance-mods.json"
+MORE_CULLING_MIGRATION = ".cubeon-moreculling-retirement.json"
 _REMOVAL_LOCK = threading.RLock()
 
 
@@ -85,7 +90,7 @@ def _matching_slugs(mod: dict) -> set[str]:
     identities = {str(mod.get(key) or "").lower()
                   for key in ("slug", "display_name", "project_id", "id", "name")}
     identities.add(name_stem(mod.get("filename") or ""))
-    return {slug for slug, project_id, label in PERF_MODS
+    return {slug for slug, project_id, label in _KNOWN_PERF_MODS
             if identities & {slug, project_id.lower(), label.lower(),
                              label.lower().replace(" ", "")}}
 
@@ -101,7 +106,73 @@ def _read_removals(profile_dir: str) -> set[str]:
         if not isinstance(data, dict) or not isinstance(data.get("removed"), list):
             raise ValueError("Invalid performance-mod removal preferences")
         return {slug for slug in data["removed"]
-                if isinstance(slug, str) and slug in PERF_MOD_SLUGS}
+                if isinstance(slug, str) and slug in _LABELS}
+
+
+def allow_explicit_more_culling(profile_dir: str) -> None:
+    """A deliberate new install must not be treated as an old default."""
+    with _REMOVAL_LOCK:
+        write_json(os.path.join(profile_dir, MORE_CULLING_MIGRATION), {"completed": True})
+
+
+def retire_legacy_more_culling(mc_version: str | None, loader: str | None,
+                              version_id: str | None = None) -> list[str]:
+    """Disable legacy launcher-managed More Culling once; never delete a jar.
+
+    Preserve untracked manual jars, modpack profiles and profiles with an enabled
+    mod requiring More Culling. Old Modrinth sidecars do not distinguish automatic
+    installs from old browse installs, so both migrate once; a user can re-enable
+    the retained file afterwards. Persist pending filenames before renaming so
+    failed/interrupted migrations can resume without overwriting backups.
+    """
+    if not mc_version or loader not in ("fabric", "quilt"):
+        return []
+    profile = resolve_profile_dir(mc_version, loader, version_id)
+    if not os.path.isdir(profile) or os.path.lexists(os.path.join(profile, "_modpack.json")):
+        return []
+    marker = os.path.join(profile, MORE_CULLING_MIGRATION)
+    with _REMOVAL_LOCK:
+        try:
+            with open(marker, encoding="utf-8") as fh:
+                state = json.load(fh)
+        except FileNotFoundError:
+            state = {}
+        if not isinstance(state, dict):
+            raise ValueError("Invalid More Culling migration state")
+        if state.get("completed") is True:
+            return []
+        installed = list_mods(mc_version, loader, version_id=version_id)
+        eligible = set()
+        for item in installed:
+            if not item.get("enabled"):
+                continue
+            descriptor = read_mod_metadata(os.path.join(profile, item["filename"]), loader)
+            if descriptor and "moreculling" in (descriptor.get("depends") or {}):
+                allow_explicit_more_culling(profile)
+                return []
+            if (str(item.get("slug") or "").lower() == _MORE_CULLING[0]
+                    or str(item.get("project_id") or "").lower() == _MORE_CULLING[1].lower()):
+                # A descriptor wins over a misleading/stale sidecar, including
+                # when a pending filename was replaced after an interruption.
+                if descriptor is None or descriptor.get("id") == "moreculling":
+                    eligible.add(item["filename"])
+        pending = state.get("pending")
+        if pending is None:
+            pending = sorted(eligible)
+            write_json(marker, {"pending": pending, "completed": False})
+        if not isinstance(pending, list) or any(
+                not isinstance(name, str) or os.path.basename(name) != name
+                or "/" in name or "\\" in name or not name.endswith(".jar")
+                for name in pending):
+            raise ValueError("Invalid More Culling migration filenames")
+        changed = []
+        for filename in pending:
+            source = os.path.join(profile, filename)
+            if filename in eligible and os.path.lexists(source):
+                toggle_mod(mc_version, loader, filename, version_id=version_id)
+                changed.append(filename)
+        write_json(marker, {"completed": True})
+        return changed
 
 
 def remember_removal(profile_dir: str, filename: str, metadata: dict,
@@ -439,8 +510,8 @@ def ensure_installed(mc_version: str | None, loader: str | None,
     """Installs any missing performance mod into the profile.
 
     Returns {"installed", "kept", "skipped", "failed", "detail"} so the caller can log or
-    show what actually happened. Never raises: every failure is reported as a
-    slug in "failed" and the launch continues.
+    show what actually happened. Download failures are reported; failed legacy
+    retirement raises so Play can stop before loading an unsafe profile.
     """
     result = {"installed": [], "kept": [], "skipped": [], "failed": [], "detail": ""}
 
@@ -453,13 +524,16 @@ def ensure_installed(mc_version: str | None, loader: str | None,
         result["detail"] = "performance mods need a Fabric or Quilt profile"
         return result
 
+    retired = retire_legacy_more_culling(mc_version, loader, version_id)
     present = _present(mc_version, loader, version_id)
+    result["kept"] = sorted(present - set(PERF_MOD_SLUGS))
     try:
         removed = _read_removals(resolve_profile_dir(mc_version, loader, version_id))
     except (OSError, ValueError) as error:
         result["failed"] = [slug for slug in PERF_MOD_SLUGS if slug not in present]
         result["detail"] = f"Couldn't read performance-mod removal preferences: {error}"
         return result
+    result["skipped"] = sorted(removed - set(PERF_MOD_SLUGS) - present)
     # Once a lookup fails at the connection level the route is down, and every
     # remaining mod would pay the same timeout again before Minecraft starts
     # (measured 3 s x 6 on a blackholed network). The answer for the rest of
@@ -502,6 +576,8 @@ def ensure_installed(mc_version: str | None, loader: str | None,
             result["failed"].append(slug)
 
     parts = []
+    if retired:
+        parts.append("disabled legacy More Culling (kept in Mods as Disabled)")
     if repair_dependencies:
         # Read the actual jars, including already-kept builds: old launchers
         # installed More Culling without Cloth Config. Play defers this to its

@@ -386,6 +386,16 @@ consistent with the shared `THEME` contract.
   additions. This fixes More Culling returning after removal; use profile resolution,
   never a global blacklist. `test_perf_mod_removal.py` covers repeated Play/sync,
   isolated siblings, renamed manual jars, store links and explicit reinstalls.
+- The automatic performance suite now has five mods: Sodium, Lithium,
+  ImmediatelyFast, EntityCulling and FerriteCore. More Culling is excluded.
+  `.cubeon-moreculling-retirement.json` disables legacy Modrinth-managed copies
+  once before sync, even with the client/suite toggles off; bytes and sidecars
+  remain recoverable. Old sidecars cannot distinguish automatic from old browse
+  installs. New explicit installs/re-enables, untracked jars, modpack profiles
+  and enabled mods requiring More Culling are preserved. Pending migrations
+  recheck jar identity and dependencies; failures block Play. Lookup harnesses
+  must isolate HOME before imports because performance preparation can migrate
+  profile files (`test_launch_lookup_budget.py`, `test_perf_mod_removal.py`).
 - `required_dependencies(..., filename=...)` picks the build whose `files[].filename` matches; without a
   match (or without the argument) it uses `versions[0]`. The install path must pass the jar filename.
 - `_write_meta` MERGES into `<jar>.cubeon.json` (never replace it with just the caller's fields);
@@ -859,6 +869,15 @@ consistent with the shared `THEME` contract.
   `/D` is last and unquoted. Uninstall removes only owned program entries and only clears registry/
   shortcuts for that registered copy. `test_launcher_installers.py --wine` tests install, upgrade,
   preserved timestamps, custom directories, incomplete-payload rejection, and data-safe uninstall.
+- NSIS must leave the staged runtime tree before moving it; Windows keeps the
+  current directory open. Program swaps use native MoveFileW with bounded
+  retries for errors 5/32/33 and preserve backups on rollback failure. Setup
+  records the phase/path/native code in `Cubeon-Setup.log` beside the installed
+  executable. NSIS `FileOpen ... a` requires `FileSeek ... END` to append.
+  Installer regressions cover file locks, rollback, recovery bytes and empty
+  runtime directories; `--native-windows` runs on the disposable Windows build
+  runner before publishing. Wine does not faithfully enforce directory locks;
+  its fixture uses actual file handles to verify sharing violations.
 - `build_linux_installers.build_setup()` appends an AppImage/icon tarball to the setup script with
   SHA-256 verification. Distribute the complete generated script, not `install_linux.sh` alone.
   Its menu wrapper uses AppImage extraction mode without FUSE/libfuse2. Desktop Exec uses

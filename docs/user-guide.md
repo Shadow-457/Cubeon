@@ -58,6 +58,12 @@ Microsoft/Mojang account.
   work just because another loader is installed. Disable or remove optional
   performance mods such as More Culling in **Mods → Installed**; Play respects
   that choice for this instance. You can install them again from the Mods browser.
+  More Culling is excluded from Cubeon's automatic performance setup. On first
+  Play after updating, old launcher-managed copies in ordinary profiles are
+  disabled once and remain recoverable in Installed. Manual jars, modpack
+  content, and mods requiring More Culling are preserved. An old browser install
+  may also be disabled because its saved metadata matches automatic installs;
+  deliberately installing or re-enabling it is respected.
 - **Resource packs:** work with Vanilla as well as modded instances, subject
   to Minecraft version compatibility. Enable them in the game's settings.
 - **Shaders:** require a compatible loader and shader runtime, such as Iris
