@@ -151,14 +151,14 @@ check("wiring: a native fullscreen change is adopted",
       and "_adopt_fullscreen_state(" in src,
       "the WM can leave fullscreen without us")
 check("wiring: Ctrl+Enter can't bypass a disabled Play",
-      "if not play_button.disabled:" in src
+      "if not play_button.disabled and not _shortcut_overlay_open():" in src
       and "_main_action_click()" in src,
       "the mouse path is blocked by disabled; the keyboard must be too")
 check("wiring: Shift+N indexes the LIVE nav list",
       "switch_tab(top_nav_items[n - 1][0])" in src,
       "a hardcoded table would desync when the Chat tab is absent")
 check("wiring: Escape closes the help dialog before other things",
-      'if _dialog_mounted(_shortcuts_dlg["dlg"]):' in src
+      'elif _dialog_mounted(_shortcuts_dlg["dlg"]):' in src
       and "cubeon_dialogs.close_dialog(page, _shortcuts_dlg[\"dlg\"])" in src)
 check("wiring: F1 opens the shortcut list from the shared catalogue",
       "def _show_shortcuts(e=None):" in src

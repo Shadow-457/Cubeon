@@ -12,7 +12,7 @@ THE COMBOS (kept deliberately small and conventional)
 
   F1                   the shortcut list itself
   F11                  fullscreen on / off
-  Esc                  leave fullscreen, else close the account panel
+  Esc                  close the top dialog/panel, otherwise leave fullscreen
   Shift+1 … Shift+9    jump to that tab in the top bar
   Ctrl+,               Settings
   Ctrl+Enter           the big button: Play / Cancel / Quit
@@ -50,7 +50,7 @@ TAB_PREFIX = "tab:"
 CATALOGUE = (
     ("F1", "Show this shortcut list"),
     ("F11", "Fullscreen on / off"),
-    ("Esc", "Leave fullscreen, or close the account panel"),
+    ("Esc", "Close a dialog or panel, or leave fullscreen"),
     ("Shift + 1 … 9", "Jump to that tab in the top bar"),
     ("Ctrl + ,", "Settings"),
     ("Ctrl + Enter", "Play / cancel / quit the selected instance"),

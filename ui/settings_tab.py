@@ -865,6 +865,19 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         row(i18n.t(label), sub, _notify_switch(key))
         for kind, key, label, sub in osnotify.KINDS
     ]
+    sound_switch = ft.Switch(value=bool(cfg.get("ui_sounds", False)), active_color=ACCENT,
+                             scale=0.85)
+
+    def _sound_changed(e):
+        from cubeon import ui_sounds
+        cfg["ui_sounds"] = bool(sound_switch.value)
+        _save_notify_setting()
+        if sound_switch.value:
+            ui_sounds.play("launch")
+
+    sound_switch.on_change = _sound_changed
+    notification_rows.append(row(
+        "Sound feedback", "Quiet cues when Minecraft starts or an action fails.", sound_switch))
     notification_rows.append(row(
         "Test notification",
         (f"Using {notify_backend}" if notify_backend
@@ -1184,7 +1197,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
                     ROW_HOVER=ROW_HOVER, TEXT=TEXT, TEXT_DIM=TEXT_DIM)
                 rail_items[key] = item
-                rail.controls.append(item)
+                from cubeon.theme import keyboard_target
+                rail.controls.append(keyboard_target(item, i18n.t(label)))
         for key, item in rail_items.items():
             _apply_rail_state(item, key == active_section["value"],
                               ACCENT=ACCENT, ACCENT_TINT=ACCENT_TINT,
@@ -1192,7 +1206,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     _rebuild_rail()
 
-    # Only the CONTENT pane scrolls; the rail stays put beside it.
+    # Content and rail scroll independently, so every section stays reachable.
     pane_host = ft.Container(
         content=ft.Column(
             [panes[k] for k, _, _ in sections],
@@ -1202,7 +1216,8 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         padding=ft.padding.Padding.only(right=8),
     )
 
-    rail_host = ft.Container(content=rail, width=184)
+    rail_host = ft.Container(content=ft.Column([rail], scroll=ft.ScrollMode.AUTO,
+                                              expand=True), width=184)
     settings_tab = ft.Row(
         [
             rail_host,

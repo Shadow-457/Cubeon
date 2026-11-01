@@ -102,6 +102,7 @@ DEFAULT_CONFIG = {
     # English rather than failing to start.
     "ui_language": None,
     "notify_message": True,
+    "ui_sounds": False,
     # Extra JVM flags appended after Cubeon's own tuned defaults on every
     # client launch, e.g. "-Dsome.prop=value -XX:MaxGCPauseMillis=100". One
     # string, split on whitespace (quotes respected). A custom collector wins

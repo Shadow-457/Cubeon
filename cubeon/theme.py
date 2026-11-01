@@ -311,6 +311,53 @@ def attach_hover(container, base_bg, hover_bg):
     return motion.polish(container, base_bg, hover_bg)
 
 
+def keyboard_target(control, label=None):
+    """Give custom button artwork native keyboard focus without changing its tree.
+
+    A transparent, tightly positioned native button handles Tab/Enter/Space.
+    Keep the original control (and its dynamic handlers) intact for scoped
+    repaints. The ink path is unsuitable here: pinned Flet applies an
+    animated Container's padding twice on that path.
+    """
+    from flet.controls.control_event import Event
+
+    def allowed():
+        ancestor = control
+        while ancestor is not None:
+            if getattr(ancestor, "disabled", False) or not getattr(ancestor, "visible", True):
+                return False
+            ancestor = getattr(ancestor, "parent", None)
+        return True
+
+    def click(e):
+        handler = control.on_click
+        if allowed() and callable(handler):
+            handler(Event("click", control, data=getattr(e, "data", None)))
+
+    def hover(e):
+        handler = control.on_hover
+        if allowed() and callable(handler):
+            handler(Event("hover", control, data=getattr(e, "data", None)))
+
+    target = ft.TextButton(
+        content=ft.Semantics(content=ft.Container(width=0, height=0),
+                             label=label or control.tooltip, button=True),
+        left=0, top=0, right=0, bottom=0,
+        tooltip=control.tooltip, disabled=control.disabled,
+        on_click=click, on_hover=hover,
+        style=ft.ButtonStyle(
+            padding=0, shape=block(RADIUS if control.border_radius is None else control.border_radius),
+            overlay_color={ft.ControlState.FOCUSED: ACCENT_TINT_HI,
+                           ft.ControlState.DEFAULT: "transparent"},
+            side={ft.ControlState.FOCUSED: ft.BorderSide(1, ACCENT),
+                  ft.ControlState.DEFAULT: ft.BorderSide(1, "transparent")},
+        ),
+    )
+    control.cubeon_keyboard_button = target
+    return ft.Stack([control, target], width=control.width, height=control.height,
+                    expand=control.expand, clip_behavior=ft.ClipBehavior.NONE)
+
+
 def apply_page_theme(page):
     """Install the design system onto the Page.
 
@@ -337,6 +384,8 @@ def apply_page_theme(page):
         shape=shape,
         color=TEXT,
         overlay_color=ft.Colors.with_opacity(0.10, ACCENT),
+        side={ft.ControlState.FOCUSED: ft.BorderSide(1, ACCENT),
+              ft.ControlState.DEFAULT: ft.BorderSide(1, "transparent")},
     )
     shaped_btn = ft.ButtonStyle(shape=shape)
 
@@ -383,6 +432,7 @@ def apply_page_theme(page):
             title_text_style=ft.TextStyle(
                 color=TEXT, font_family=FONT_DISPLAY, size=20),
             content_text_style=ft.TextStyle(color=TEXT_DIM, font_family=FONT_BODY, size=13),
+            barrier_color=ft.Colors.with_opacity(0.62, "#000000"),
         ),
         # All button families share the app corner; text buttons default neutral.
         text_button_theme=ft.TextButtonTheme(style=neutral_btn),
@@ -439,8 +489,10 @@ def quiet_chip(label, selected=False, on_click=None):
         on_click=on_click,
         animate=150,
     )
-    return attach_hover(control, control.bgcolor,
-                        ACCENT_TINT_HI if selected else ROW_HOVER) if on_click else control
+    if not on_click:
+        return control
+    attach_hover(control, control.bgcolor, ACCENT_TINT_HI if selected else ROW_HOVER)
+    return keyboard_target(control, label)
 
 
 def text_tab(label, selected=False, on_click=None):
@@ -465,7 +517,10 @@ def text_tab(label, selected=False, on_click=None):
         border_radius=RADIUS,
         on_click=on_click,
     )
-    return attach_hover(control, None, ROW_HOVER) if on_click else control
+    if not on_click:
+        return control
+    attach_hover(control, None, ROW_HOVER)
+    return keyboard_target(control, label)
 
 
 def _toggle_pop(switch, base_scale):

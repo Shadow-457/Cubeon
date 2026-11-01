@@ -203,6 +203,9 @@ def show(page, message, duration=4000, action=None, action_label=None,
                 return
             _active[key] = dismissed
         host = _ensure_host(page)
+        if _kind(text) == "error":
+            from cubeon import ui_sounds
+            ui_sounds.play("error")
         wrap = _build(text, action, action_label, dismissed)
         wrap.data = dismissed
         threading.Thread(target=_life, args=(host, wrap, key, duration),
@@ -222,6 +225,8 @@ def install(page):
 
 def uninstall(page):
     """Release persistent notices when the window session ends."""
+    from cubeon import ui_sounds
+    ui_sounds.configure(None, None)
     with thread_safe_ui.TREE_LOCK:
         host = _hosts.pop(id(page), None)
         if host is not None and host in page.overlay:

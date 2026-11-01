@@ -230,7 +230,9 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                                       max_lines=2,
                                       overflow=ft.TextOverflow.ELLIPSIS),
                               ft.Text(blurb or "", size=12.5,
-                                      color=theme.get("TEXT_DIM"), max_lines=2)],
+                                      color=theme.get("TEXT_DIM"), max_lines=2,
+                                      overflow=ft.TextOverflow.ELLIPSIS,
+                                      style=ft.TextStyle(height=1.45))],
                              spacing=4, expand=True)],
                         spacing=16,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -245,7 +247,8 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
         if not ref:
             detail_body.controls.clear()
             detail_body.controls.append(ft.Text(
-                blurb or "", size=12.5, color=theme.get("TEXT_DIM")))
+                blurb or "", size=12.5, color=theme.get("TEXT_DIM"),
+                style=ft.TextStyle(height=1.45)))
             thread_safe_ui.refresh(detail_body)
             return
         details, versions = None, []
@@ -296,7 +299,8 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
             # what the row already knew rather than an empty dialog.
             if blurb:
                 controls.append(ft.Text(blurb, size=12.5,
-                                        color=theme.get("TEXT_DIM")))
+                                        color=theme.get("TEXT_DIM"),
+                                        style=ft.TextStyle(height=1.45)))
             controls.append(ft.Text(
                 "Full details aren't available for this project right now.",
                 size=12, color=theme.get("TEXT_FAINT")))

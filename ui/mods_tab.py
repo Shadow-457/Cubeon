@@ -1751,7 +1751,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 else (ACCENT if big else ACCENT_TINT),
                 border_radius=RADIUS,
                 padding=ft.padding.Padding.symmetric(
-                    horizontal=16 if big else 12, vertical=10 if big else 7),
+                    horizontal=16 if big else 12, vertical=12 if big else 8),
                 ink=False, disabled=done["v"] or blocked,
                 tooltip="Choose a compatible mod loader on the Play tab first." if blocked else None,
             )

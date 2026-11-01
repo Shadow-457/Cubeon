@@ -87,7 +87,7 @@ def _headline(text: str, size: int = 46) -> ft.Text:
 
 
 def _body(text: str) -> ft.Text:
-    return ft.Text(text, size=14, color=TEXT_DIM)
+    return ft.Text(text, size=14, color=TEXT_DIM, style=ft.TextStyle(height=1.45))
 
 
 def _prop_glow() -> ft.Container:

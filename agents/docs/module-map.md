@@ -39,7 +39,7 @@ substitute for current code.
 | Window and crash handling | `window_close.py`, `winwindow.py`, `winchrome.py`, `incident.py`, `crash.py`, `logging_setup.py` |
 | Input and presentation | `shortcuts.py`, `seasonal.py`, `color_templates.py`, `status_text.py` |
 | Launcher language | `i18n.py`, `lang/` |
-| Release and optional features | `updater.py`, `features.py`, `osnotify.py`, `voice.py` |
+| Release and optional features | `updater.py`, `features.py`, `osnotify.py`, `ui_sounds.py`, `voice.py` |
 
 Except for explicit paths, names in this table are relative to `cubeon/`. Check source ownership before
 assuming a helper is UI-free: the package also contains Flet support modules.
@@ -51,6 +51,7 @@ assuming a helper is UI-free: the package also contains Flet support modules.
 | Play version panel, banner, instance rows | `ui/versions.py` |
 | Mods, resource packs, shaders | `ui/mods_tab.py` |
 | Modpacks | `ui/modpacks_tab.py` |
+| Content loading / empty / retry states | `ui/content_states.py` |
 | Chat | `ui/chat_tab.py` |
 | Cosmetics and account previews | `ui/skin_tab.py`, `ui/appearance_preview.py` |
 | Servers | `ui/server_tab.py` |
@@ -58,8 +59,9 @@ assuming a helper is UI-free: the package also contains Flet support modules.
 | Settings | `ui/settings_tab.py` |
 | Screenshot gallery | `ui/screenshot_gallery.py` |
 
-Tabs are lazy-built and retained. Shared state and callbacks are wired in `main.py`; keep builders
-consistent with the shared `THEME` contract.
+Tabs are retained. Mods and Modpacks control trees warm after first paint; catalogue requests
+remain on demand. Other lazy builders stay lazy. Shared state and callbacks are wired in `main.py`;
+keep builders consistent with the shared `THEME` contract.
 
 ## Contracts to preserve
 
@@ -69,6 +71,14 @@ consistent with the shared `THEME` contract.
   version is not the release environment.
 - Mutate shared control trees under `thread_safe_ui.TREE_LOCK`; request scoped repaints through
   `thread_safe_ui.refresh()`. Background threads must not invoke a whole-page update directly.
+- Chat polling reads connection/events/history and updates service viewing/read state outside
+  `TREE_LOCK`. Socket lifecycle callbacks can deliver launcher notices that need that lock;
+  reading `roster_payload()` while holding it deadlocks connection updates. Keep control
+  mutations locked; `tools/test_chat_poll_locking.py` reproduces the opposing lock order.
+- Apply saved window geometry before revealing the branded splash. `_reveal_window()` only
+  reapplies geometry as an interrupted-setup fallback; never recenter the visible finished UI.
+  Do not map Linux windows with native `window.opacity=0`: GTK can stall waiting for frames.
+  Entrance/page fades use control opacity, with the existing motion preference.
 - Idle daemons block on an Event, they do not sleep-poll: `main._bar_loop` waits on `_bar_wake`
   (set by `set_bar`, the only thing that starts a progress animation) and `_wedge_watchdog` waits on
   `_wedge_wake` (set by `_wedge_arm`). Each clears its event *before* re-reading the state, so a
@@ -105,6 +115,17 @@ consistent with the shared `THEME` contract.
   automatically closes isolated probes on both installed Flet versions (requires a GUI).
 - Use `cubeon.dialogs` for dialog-stack compatibility. Removed APIs include `ft.border.all`,
   `ft.padding.only`, and `ft.margin.only`.
+- `theme.keyboard_target` adds native Tab/Enter/Space and focus outlines over custom button
+  artwork while retaining the original control/handlers for scoped repaint. Forward events with
+  the original control; preserve its tooltip, dimensions and disabled action gate. Play mode
+  changes also synchronize its keyboard target's disabled flag, tooltip and accessible label.
+  Pinned Flet's animated `Container.ink` path double-applies padding; do not use it for these
+  targets. Native `Semantics` requires a content control, even for a transparent button.
+- Global navigation/Play shortcuts are blocked behind managed dialogs, onboarding, the version
+  picker and Settings. Escape dismisses the top dialog, then panels, then fullscreen; F1 toggles
+  its own help. Settings entrance/retirement use generation and open-state guards, never opacity
+  alone: a newly reopened popup starts at opacity 0. Its rail and content scroll independently.
+  `tools/test_keyboard_accessibility.py` covers action gates, help Close and delayed fade races.
 - Launcher notices route through `ui/toast.py`. Its stretched accent/body Row needs
   `intrinsic_height=True` inside the shrink-wrapped Column; without it native Flet
   produces an invalid transform and invisible cards. New overlay hosts must repaint
@@ -112,6 +133,11 @@ consistent with the shared `THEME` contract.
   releases persistent notice waiters. FriendsService's optional `set_notice_handler`
   pushes new events to the current launcher session outside its ring lock, without
   network polling or replay; `main.py` binds it and unbinds on teardown.
+- Optional `ui_sounds` stays off by default. Bundled launch/error WAVs play on one daemon with
+  a 2s cooldown; off returns before filesystem/backend work. Configure with the live config and
+  resolved assets after installing toasts, clear on teardown. Uses Windows winsound, macOS afplay,
+  or Linux paplay/aplay when available; subprocess playback is bounded to 2s. No added dependency,
+  network or polling. `tools/test_ui_sounds.py` verifies defaults and concurrency bounds.
 - `cubeon/render_compat.py` implements explicit Doctor → Rendering Apply/Restore,
   scoped to the selected instance (`game_dir_for(..., create=False)`). It bypasses
   EntityCulling entity/block/tick culling and ImmediatelyFast enhanced batching only
@@ -148,27 +174,16 @@ consistent with the shared `THEME` contract.
 
 ### Navigation shell
 
-- The nav is a **compact left icon rail**: `_build_sidebar()` builds fixed-size tiles (`NAV_BTN_W/H/GAP`,
-  icon over an uppercase label); `nav_blob` slides **vertically** (`_move_nav_blob` uses `Offset(0, idx *
-  (H+GAP) / H)`). The nav area scrolls between the top bar and the pinned account strip, so a short window
-  never clips it.
+- The nav is a fixed **92 px left icon rail**: `_build_sidebar()` builds fixed-size tiles,
+  icon over label; `nav_blob` slides vertically. The nav area scrolls above pinned Settings
+  and the seasonal perch, so short windows remain usable. The previous resize grip is gone.
 - `top_bar` is the **brand strip** (cube mark + wordmark, moved out of the sidebar 2026-10-26) and, under
-  the custom frame, the title bar. Always 52 px; the min/max/close cluster rides it only when
+  the custom frame, the title bar. It is 44 px; Account lives on the right, and the min/max/close cluster rides it only when
   `_custom_chrome` is on. `ft.WindowDragArea(content=top_bar, ...)` is load-bearing for the smoke test.
-- The rail resizes by dragging its right edge (`sidebar_resize` / `_set_sidebar_width`), clamped to
-  116..220 px (default 120), no toggle. Account + Settings share a compact foot strip; the 96 px perch
-  sets the min.
-- The edge uses **horizontal drag**, not pan, and computes the width from `global_position.x - start_x`
-  anchored to the drag-start width. Flet's drag events carry **per-event** deltas (`local_delta` is the
-  movement since the previous event despite its "since the start" docstring), and a pan recogniser sends
-  no `primary_delta` at all — accumulating pan events as if they were cumulative makes the rail look
-  un-resizable. The grip is a 10 px transparent strip that tints on hover; double-click resets the default
-  width. Width changes mutate the existing controls in place (`button widths`, `nav_blob.width`,
-  `nav_stack.width`) and repaint only the sidebar box - never rebuild the nav rows per resize or hide
-  labels per width.
 - `switch_tab()` runs under `thread_safe_ui.TREE_LOCK` and sets **every** cached `_tab_views` pane to
   `visible = (k == key)`; hiding only the previous pane let a raced/worker transition leave two tabs on
   screen (2026-10-25). Paint the swap before per-tab refreshes; build lazy tabs before mounting.
+  The new pane fades over `motion.BASE` (180 ms) without remounting cached controls or images.
 - The hero PLAY click has a 0.35 s `_PLAY_CLICK_COOLDOWN` gate so a rapid double-press cannot run the
   username/config/Java pipeline twice; CANCEL/QUIT bypass it. A click that returns `False` releases the
   gate immediately (only a click that started work keeps it).
@@ -186,6 +201,11 @@ consistent with the shared `THEME` contract.
 
 ### Play and content
 
+- Mods/Modpacks use static skeletons from `ui/content_states.py`, with no shimmer daemon.
+  Preserve existing rows/artwork while refreshing. Modpacks merges both providers regardless
+  of completion order, retains healthy partial results, and offers Retry for failed empty
+  results; stale generations cannot replace a newer search. Covered by
+  `tools/test_content_search_recovery.py`.
 - **The version picker** is the one instance surface (2026-10-26): a right-hand slide-in panel
   (`ui/versions.py`, in `page.overlay`) with a 2-column grid of bundled SVG block/mob icons,
   title + subtitle below. The pencil chooses from 20 blocks and 20 mob heads in the same panel;
@@ -956,6 +976,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Change | Focused checks in `tools/` |
 | --- | --- |
 | UI/tree contracts | `test_ui_smoke.py`, `test_motion.py`, `test_scrolling.py`, `test_toast.py`, `test_render_compat.py` |
+| Keyboard and local feedback | `test_keyboard_shortcuts.py`, `test_keyboard_accessibility.py`, `test_ui_sounds.py` |
 | Play/selection/banner | `test_version_ui.py`, `test_version_art_cache.py` |
 | Mods and artwork | `test_mod_ui_stability.py`, `test_loader_content_rules.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
@@ -964,7 +985,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
 | Website search visibility | `test_website_seo.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
-| Chat | `test_chat_connection.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
+| Chat | `test_chat_connection.py`, `test_chat_poll_locking.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
 | Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `node worker/test-cosmetics.mjs` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |

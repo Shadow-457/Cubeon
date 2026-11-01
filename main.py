@@ -783,9 +783,6 @@ async def main(page: ft.Page):
     # translucent window background can never make the loading screen hard
     # to read.
     page.window.bgcolor = BG
-    # Map the native window transparently so its initial WM placement settles
-    # before the branded splash becomes visible.
-    page.window.opacity = 0.0
     page.bgcolor = BG
     page.padding = 0
     # The window process must ALREADY be started hidden (see ft.run below,
@@ -921,9 +918,8 @@ async def main(page: ft.Page):
     def _apply_real_geometry():
         """Applies the user's saved window size/position to the HIDDEN window.
 
-        Called right before the splash is revealed, and again on the finished
-        UI where every value is already correct (an unchanged size is a no-op
-        for the client, so nothing resizes). It must never be the first thing
+        Called before the splash is revealed; the finished UI only needs a
+        fallback if setup was interrupted. It must never be the first thing
         a VISIBLE window hears: resizing a visible flet window makes the
         desktop client wait for an OpenGL frame at the new size, and on some
         Mesa/GTK setups that wait times out - "Timed out waiting for OpenGL
@@ -969,8 +965,8 @@ async def main(page: ft.Page):
                     if size:
                         page.window.left = max(0, (size[0] - int(_gw)) // 2)
                         page.window.top = max(0, (size[1] - int(_gh)) // 2)
-                # When screen probing fails, _reveal_window() awaits the native
-                # async center method after mapping. This function is synchronous
+                # When screen probing fails, _reveal_splash() awaits the native
+                # async center method before showing. This function is synchronous
                 # and must not call Window.center() without awaiting it.
             page.window.maximized = False
         # Glass mode: translucent window + glass canvas. Only the BACKGROUND
@@ -1227,14 +1223,7 @@ async def main(page: ft.Page):
                 page.window.wait_until_ready_to_show(), timeout=5)
         except Exception:
             pass  # non-desktop, an odd runtime, or a slow client: visible still applies
-        _show_window()
-        # Belt: the property patch above. Braces: the method call that cannot
-        # be skipped, and (on Windows) the OS-level ShowWindow. See each
-        # helper's docstring - the window must never be left to one message.
-        _nudge_window_to_front()
-        _backstop_window_visible()
         try:
-            await asyncio.sleep(0.15)
             if not _saved_maximized:
                 if _needs_center:
                     await asyncio.wait_for(page.window.center(), timeout=1)
@@ -1244,9 +1233,10 @@ async def main(page: ft.Page):
                     page.window.update()
         except Exception:
             pass  # keep the pre-set geometry if native positioning fails
-        finally:
-            page.window.opacity = 1.0
-            page.window.update()
+        _show_window()
+        # Preserve all three reveal paths after hidden-window placement.
+        _nudge_window_to_front()
+        _backstop_window_visible()
 
     # AWAIT the reveal instead of scheduling it. This is the whole fix: awaiting
     # hands control back to Flet's event loop, which flushes the queued splash
@@ -1259,7 +1249,6 @@ async def main(page: ft.Page):
         await _reveal_splash()
     except Exception:
         # Belt-and-braces for an odd runtime: still try the synchronous show.
-        page.window.opacity = 1.0
         _show_window()
     # Give the client a beat to paint the first splash frame while we still hold
     # the loop. Bounded and best-effort: a client that never answers must not
@@ -1546,7 +1535,7 @@ async def main(page: ft.Page):
         )
         btn.cubeon_top_icon = True
         nav_buttons[key] = btn
-        return btn
+        return theme.keyboard_target(btn, label)
 
     # ------------------------------------------------------------------
     # Geometry is fixed by construction: every sidebar row is a fixed
@@ -1946,7 +1935,7 @@ async def main(page: ft.Page):
             None, ROW_HOVER,
         )
 
-        foot = [settings_btn]
+        foot = [theme.keyboard_target(settings_btn, i18n.t("Settings"))]
         if _inspector_enabled:
             # Dev-only UI inspector (CUBEON_INSPECT=1).
             foot.append(ft.IconButton(
@@ -2017,7 +2006,8 @@ async def main(page: ft.Page):
             ),
             None, ROW_HOVER,
         )
-        children = [brand, ft.Container(expand=True), account_chip]
+        children = [brand, ft.Container(expand=True),
+                    theme.keyboard_target(account_chip, i18n.t("Account"))]
         if chrome_row is not None:
             children += [ft.Container(width=8), chrome_row]
         return ft.Container(
@@ -2574,25 +2564,30 @@ async def main(page: ft.Page):
     def _close_account_panel(e=None):
         # Fade the card out with the scrim, then unmount it so it cannot eat
         # clicks while invisible (the same failure mode the scrim had).
+        state["account_open"] = False
+        account_badge_state["generation"] += 1
+        generation = account_badge_state["generation"]
         account_panel.opacity = 0
         account_scrim.opacity = 0
 
         def _retire_scrim():
-            # Guard: if the popup was REOPENED inside the 0.25s window, the
-            # scrim/panel are legitimately visible again - hiding them now
-            # would leave an open popup with no dim and no click-catcher.
-            if account_panel.opacity != 0:
-                return
-            try:
-                account_panel.visible = False
-                state["account_open"] = False
-                account_scrim.visible = False
-                thread_safe_ui.refresh(account_panel)
-                thread_safe_ui.refresh(account_scrim)
-            except Exception:
-                pass  # a late hide must never surface as an error
+            with thread_safe_ui.TREE_LOCK:
+                # Reopening may still have opacity 0 during its entrance.
+                # Generation/state, rather than opacity, owns this timer.
+                if (state["account_open"] or
+                        account_badge_state["generation"] != generation):
+                    return
+                try:
+                    account_panel.visible = False
+                    account_scrim.visible = False
+                    thread_safe_ui.refresh(account_panel)
+                    thread_safe_ui.refresh(account_scrim)
+                except Exception:
+                    pass  # a late hide must never surface as an error
 
-        threading.Timer(0.25, _retire_scrim).start()
+        retire = threading.Timer(0.25, _retire_scrim)
+        retire.daemon = True
+        retire.start()
         # Per-control diff, NOT page.update(): a whole-page update re-syncs
         # every control in the tree (all tabs, the console, everything) -
         # visually a full-app reload and the direct cause of the jank when
@@ -2681,13 +2676,14 @@ async def main(page: ft.Page):
         account_badges.controls[:] = build_badges(cubeon_milestones.load_state(), account_badge_state["counts"])
         account_badges.visible = bool(account_badges.controls)
         account_badge_state["generation"] += 1
+        generation = account_badge_state["generation"]
         account_scrim.visible = True
         account_scrim.opacity = 1
         # Reopening during the close fade: cancel the fade target so the
         # retire timer sees an open popup and leaves it mounted.
         account_panel.visible = True
         state["account_open"] = True
-        account_panel.opacity = 1
+        account_panel.opacity = 0
         # The account fields are shared with the old panel; sync them so a
         # rename done on the Play tab shows up here too.
         profile_dialog_username.value = cfg["username"]
@@ -2699,6 +2695,15 @@ async def main(page: ft.Page):
         # was the "whole app reloads" jank - it re-synced every mounted tab.
         thread_safe_ui.refresh(account_scrim)
         thread_safe_ui.refresh(account_panel)
+
+        async def _fade_account_in():
+            await asyncio.sleep(0.03)
+            with thread_safe_ui.TREE_LOCK:
+                if state["account_open"] and account_badge_state["generation"] == generation:
+                    account_panel.opacity = 1
+                    thread_safe_ui.refresh(account_panel)
+
+        page.run_task(_fade_account_in)
         threading.Thread(target=_scan_account_badges,
                          args=(account_badge_state["generation"],), daemon=True,
                          name="ux-account-badges").start()
@@ -3553,7 +3558,7 @@ async def main(page: ft.Page):
         # Only one side sheet at a time: opening Versions folds Account away.
         on_open=lambda: _close_account_panel() if _account_panel_is_open() else None,
     )
-    version_dropdown_button = picker.button
+    version_dropdown_button = theme.keyboard_target(picker.button, "Choose a Minecraft version")
 
     # Progress bar and label shown during installation/launch
     progress_bar = ft.ProgressBar(
@@ -4000,6 +4005,12 @@ async def main(page: ft.Page):
             play_button.disabled = True
         if mode not in ("running", "working", "installing"):
             play_button.tooltip = None
+        keyboard_button = getattr(play_button, "cubeon_keyboard_button", None)
+        if keyboard_button is not None:
+            keyboard_button.disabled = play_button.disabled
+            keyboard_button.tooltip = play_button.tooltip
+            keyboard_button.content.label = play_button_text.value
+            thread_safe_ui.refresh(keyboard_button)
         # Scoped repaint: every icon/text/fill mutated above lives inside
         # play_button, so diffing just its subtree (~3 controls) paints the
         # change instead of page.update()'s whole-page diff (~hundreds of
@@ -5527,6 +5538,8 @@ async def main(page: ft.Page):
                     progress_spinner.visible = False
                     progress_stage.value = "RUNNING"
                     thread_safe_ui.refresh(progress_card)
+                    from cubeon import ui_sounds
+                    ui_sounds.play("launch")
 
         except Exception as ex:
             # A cancel arrives here as a generic error: install_version wraps
@@ -5657,6 +5670,8 @@ async def main(page: ft.Page):
 
     # Every dialogs.show_snack(...) in the app now slides in top-right.
     cubeon_toast.install(page)
+    from cubeon import ui_sounds
+    ui_sounds.configure(cfg, resolve_assets_dir())
 
     def _show_snack(msg, *, duration=4000, action=None, action_label=None):
         """Toast popup used everywhere (thread-safe, never raises).
@@ -6385,7 +6400,7 @@ async def main(page: ft.Page):
                                      ft.Container(content=username_field, width=220)],
                                     spacing=0),
                                 ft.Container(expand=True),
-                                ft.Container(content=play_button, width=300),
+                                ft.Container(content=theme.keyboard_target(play_button, play_button_text.value), width=300),
                             ],
                             spacing=16,
                             vertical_alignment=ft.CrossAxisAlignment.END,
@@ -7784,7 +7799,7 @@ async def main(page: ft.Page):
             spacing=0,
         ),
         bgcolor=SURFACE_HI, border_radius=RADIUS_LG,
-        padding=ft.padding.Padding.all(20),
+        padding=ft.padding.Padding.all(24),
     )
 
     # Build the Settings tab UI - two panes (section rail + content), all
@@ -7998,7 +8013,8 @@ async def main(page: ft.Page):
             view = _tab_views.get(key)
             if view is None:
                 view = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
-                    horizontal=32, vertical=24), expand=True)
+                    horizontal=32, vertical=24), expand=True,
+                    opacity=0.0, animate_opacity=motion.BASE)
                 _tab_views[key] = view
                 tab_switcher.controls.append(view)
                 switch_controls.append(tab_switcher)
@@ -8006,6 +8022,8 @@ async def main(page: ft.Page):
             # repair for any pane a previous interrupted switch left visible.
             for k, pane in _tab_views.items():
                 want = k == key
+                if want:
+                    pane.opacity = 0.0
                 if pane.visible != want:
                     pane.visible = want
                     switch_controls.append(pane)
@@ -8015,6 +8033,8 @@ async def main(page: ft.Page):
             # frozen, and a refresh that raised could strand the visibility
             # change entirely.
             page.update(*switch_controls)
+            view.opacity = 1.0
+            thread_safe_ui.refresh(view)
 
         # Per-tab refreshes run after the shell is on screen. Each one repaints
         # only its own region (thread_safe_ui.refresh), so none of them needs
@@ -8055,7 +8075,8 @@ async def main(page: ft.Page):
             traceback.print_exc()
 
     # Initialize content area with the Play tab
-    _tab_views["play"] = ft.Container(play_tab, padding=0, expand=True)
+    _tab_views["play"] = ft.Container(play_tab, padding=0, expand=True,
+                                     animate_opacity=motion.BASE)
     tab_switcher.controls.append(_tab_views["play"])
 
     # -----------------------------------------------------------------
@@ -8312,7 +8333,7 @@ async def main(page: ft.Page):
             thread_safe_ui.refresh(_app_root)
         except Exception:
             pass
-        # Position settled during the transparent splash mapping; do not
+        # Position settled before revealing the splash; do not
         # resize or recenter the now-visible finished launcher.
         # First successful paint: clear any GPU-crash flag so the NEXT run
         # trusts hardware GL again (see the exit watcher under __main__).
@@ -9144,7 +9165,7 @@ async def main(page: ft.Page):
                     ),
                     actions=[ft.TextButton(
                         i18n.t("Close"),
-                        on_click=lambda _e, d=dlg: cubeon_dialogs.close_dialog(page, d))],
+                        on_click=lambda _e: cubeon_dialogs.close_dialog(page, _shortcuts_dlg["dlg"]))],
                 )
                 _shortcuts_dlg["dlg"] = dlg
             if _dialog_mounted(dlg):
@@ -9168,6 +9189,12 @@ async def main(page: ft.Page):
         if 1 <= n <= len(top_nav_items):
             switch_tab(top_nav_items[n - 1][0])
 
+    def _shortcut_overlay_open():
+        # Keep launcher commands behind dialogs, the tour and retained panes.
+        dialogs = getattr(getattr(page, "_dialogs", None), "controls", []) or getattr(page, "opened", [])
+        tour = _onboard_overlay is not None and _onboard_overlay.visible
+        return bool(dialogs) or tour or _account_panel_is_open() or picker.is_open()
+
     def _on_key(e):
         try:
             # flet 0.86+ spells the payload `key`; keeps `data` as a fallback
@@ -9188,34 +9215,40 @@ async def main(page: ft.Page):
                 return
             if action == cubeon_shortcuts.ESCAPE:
                 # Close the topmost thing, the way Escape is expected to
-                # behave: the help dialog, then fullscreen, then the panel.
-                if _dialog_mounted(_shortcuts_dlg["dlg"]):
+                # behave: a managed dialog, a panel, then fullscreen.
+                _top_dialogs = list(getattr(getattr(page, "_dialogs", None), "controls", []) or
+                                    getattr(page, "opened", []) or [])
+                if _top_dialogs:
+                    cubeon_dialogs.close_dialog(page, _top_dialogs[-1])
+                elif _dialog_mounted(_shortcuts_dlg["dlg"]):
                     cubeon_dialogs.close_dialog(page, _shortcuts_dlg["dlg"])
-                elif _fullscreen["active"]:
-                    _set_fullscreen(False)
                 elif picker.is_open():
                     picker.close()
                 elif _account_panel_is_open():
                     _close_account_panel()
+                elif _fullscreen["active"]:
+                    _set_fullscreen(False)
             elif action == cubeon_shortcuts.FULLSCREEN:
                 _toggle_fullscreen()
             elif action == cubeon_shortcuts.HELP:
-                _show_shortcuts()
+                if not _shortcut_overlay_open() or _dialog_mounted(_shortcuts_dlg["dlg"]):
+                    _show_shortcuts()
             elif action == cubeon_shortcuts.SETTINGS:
-                switch_tab("settings")
+                if not _shortcut_overlay_open():
+                    switch_tab("settings")
             elif action == cubeon_shortcuts.MAIN_ACTION:
                 # Only when the big button is actually actionable: the mouse
                 # path is blocked by `disabled`, and the keyboard must not be
                 # a way around a disabled Play (incomplete install, launching,
                 # a running game...). Whatever is live is handled by
                 # _main_action_click's own state routing.
-                if not play_button.disabled:
+                if not play_button.disabled and not _shortcut_overlay_open():
                     _main_action_click()
             elif action == cubeon_shortcuts.QUIT:
                 _chrome_close()
             else:
                 tab = cubeon_shortcuts.tab_index(action)
-                if tab:
+                if tab and not _shortcut_overlay_open():
                     _jump_to_tab(tab)
         except Exception:
             pass

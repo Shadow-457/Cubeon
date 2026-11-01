@@ -57,6 +57,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import _sandbox_home
+_sandbox_home.isolate()
 import _fuzz_common as fz
 from _fuzz_common import (
     FakePage, FakeEvent, every_control, ctrl_text, subtree_text,
@@ -64,6 +66,8 @@ from _fuzz_common import (
 )
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CAPTURE_WIDTH = int(os.environ.get("CUBEON_UX_WIDTH", "1440"))
+CAPTURE_HEIGHT = int(os.environ.get("CUBEON_UX_HEIGHT", "900"))
 
 # The tabs we tour, in a natural top-to-bottom order. Keys match nav_items /
 # server_group_items in main.py; we navigate by key (never by the ambiguous
@@ -88,21 +92,16 @@ def discover_nav(page):
         if callable(h) and isinstance(d, tuple) and len(d) == 1 \
                 and isinstance(d[0], str) and d[0] in KNOWN_KEYS:
             out.setdefault(d[0], c)
-    # Settings and Account share the retained account/settings popup.
+    # The retained Settings popup has no handler key default. Prefer its
+    # actual rail button to similarly named controls inside hidden panes.
+    for c in every_control(page):
+        if (type(c).__name__ in {"IconButton", "Container"}
+                and (getattr(c, "tooltip", "") or "") == "Settings"
+                and callable(getattr(c, "on_click", None))):
+            out["settings"] = c
+            break
     if "settings" not in out and "account" in out:
         out["settings"] = out["account"]
-    # The top bar's Settings gear is `lambda e: switch_tab("settings")` - no
-    # key default to discover above, so it was MISSING from every past tour.
-    # Match it by control type + tooltip; nav rows (server_settings etc.) are
-    # Containers, the gear is an IconButton, so the two "Settings" tooltips
-    # can't be confused - and only fall back when the key wasn't found at all.
-    if "settings" not in out:
-        for c in every_control(page):
-            if (type(c).__name__ in {"IconButton", "Container"}
-                    and (getattr(c, "tooltip", "") or "") == "Settings"
-                    and callable(getattr(c, "on_click", None))):
-                out["settings"] = c
-                break
     return out
 
 
@@ -118,7 +117,8 @@ def _click(ctrl):
             h()
         except Exception:
             return False
-    except Exception:
+    except Exception as error:
+        print(f"  ! click {getattr(ctrl, 'tooltip', '')}: {type(error).__name__}: {error}")
         return False
     return True
 
@@ -165,6 +165,13 @@ def _subtab(page, key, max_nodes=8):
     Verified against the live tree.
     """
     for c in every_control(page):
+        # Cached tabs stay mounted; a hidden Mods "Installed" button must
+        # never win while the tour is inside Modpacks.
+        ancestor = c
+        while ancestor is not None and getattr(ancestor, "visible", True):
+            ancestor = getattr(ancestor, "parent", None)
+        if ancestor is not None:
+            continue
         h = getattr(c, "on_click", None)
         d = getattr(h, "__defaults__", None)
         if callable(h) and isinstance(d, tuple) and d and d[0] == key \
@@ -452,9 +459,10 @@ def seed_rich():
             seeded.append(name)
 
     # Modpacks + plugins (their own readers).
-    for name in ("search_modpacks", "get_popular_modpacks"):
+    for name in ("search_modpacks", "get_popular_modpacks", "search_modpacks_modrinth"):
         if _stub_all(name, lambda *a, **k: _hits("modpack")):
             seeded.append(name)
+    _stub_all("search_modpacks_curseforge", lambda *a, **k: [])
     for name in ("search_plugins", "get_recommended_plugins"):
         if _stub_all(name, lambda *a, **k: _hits("plugin")):
             seeded.append(name)
@@ -535,7 +543,8 @@ def close_account_panel(page):
     """Close the Account panel via its X. It is NOT an overlay dialog, so
     dismiss_transient can't retire it - the panel lives in the overlay from
     build time. Its Close button calls the same path as the scrim."""
-    for btn in find(page, lambda c: (getattr(c, "tooltip", "") or "") == "Close"):
+    for btn in find(page, lambda c: getattr(
+            getattr(c, "on_click", None), "__name__", "") == "_close_account_panel"):
         if _click(btn):
             return True
     return False
@@ -783,9 +792,7 @@ def build_plan(nav, empty=False):
         if fn is None:
             continue
         if empty and (name.startswith("dialog_")
-                      or name.startswith("mods_installed_")
-                      or name in ("mods_fix_problems", "modpacks_installed",
-                                  "server_plugins_installed")):
+                      or name == "mods_fix_problems"):
             continue      # no installed content / nothing to open
         plan.append((name, cat, note, (lambda p, n, f=fn, x=extra: f(p, n, *x))))
     return plan
@@ -843,6 +850,13 @@ def _prepare(page, empty):
     """Install the safety stubs and seed/pour the fixture data, then return the
     stubs namespace. Shared by both entry points below."""
     stubs = fz.install_safe_stubs()
+    load_config = stubs.core.load_config
+    from cubeon import seasonal
+    stubs.core.load_config = lambda: dict(
+        load_config(), onboarded=True, ui_language="en", season_seen=seasonal.current().slug)
+    # Capture at its final size from the hidden start, with no live resize.
+    stubs.core.load_window_geometry = lambda: {
+        "width": CAPTURE_WIDTH, "height": CAPTURE_HEIGHT, "left": 100, "top": 100}
     if empty:
         force_empty(stubs.core)
     else:
@@ -864,8 +878,8 @@ def _after_build(page, outdir, pixel_ratio, empty, only):
     if only:
         plan = [s for s in plan if any(t in s[0] for t in only)]
 
-    for attr, val in (("enable_screenshots", True), ("window.width", 1440),
-                      ("window.height", 900)):
+    for attr, val in (("enable_screenshots", True), ("window.width", CAPTURE_WIDTH),
+                      ("window.height", CAPTURE_HEIGHT)):
         try:
             if attr == "enable_screenshots":
                 page.enable_screenshots = val
@@ -905,7 +919,7 @@ def _after_build(page, outdir, pixel_ratio, empty, only):
             manifest.append({"index": idx, "state": name, "category": cat,
                              "note": note, "file": fname,
                              "reached": reached, "captured": ok})
-            if name == "panel_account":
+            if name in {"panel_account", "tab_settings"}:
                 close_account_panel(page)
                 try:
                     page.update()
@@ -971,8 +985,10 @@ def _run_windowed(outdir, pixel_ratio, empty, only, software):
     from functools import partial
     # Both pinned Flet 0.86 and 1.x invoke targets on their event loop and
     # accept coroutine functions. run_sync is only for headless FakePage.
-    fz.run_app(partial(capture_main_async, outdir=outdir, pixel_ratio=pixel_ratio,
-                       empty=empty, only=only))
+    import flet as ft
+    ft.run(partial(capture_main_async, outdir=outdir, pixel_ratio=pixel_ratio,
+                   empty=empty, only=only), assets_dir=os.path.join(REPO, "assets"),
+           view=ft.AppView.FLET_APP_HIDDEN)
 
 
 def _count_new_pngs(outdir, since):

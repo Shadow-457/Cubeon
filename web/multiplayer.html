@@ -19,7 +19,7 @@
 <!-- cubeon:auto-language -->
 <script>
 (function () {
-  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  var names = { en: 1, ar: 1 }, cur = document.documentElement.lang || 'en';
   if (location.protocol === 'file:') return;
   if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
   var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
@@ -59,10 +59,7 @@
 <script>document.documentElement.classList.add('js')</script>
 <!-- cubeon:seo -->
 <link rel="alternate" hreflang="en" href="https://www.ylet.online/multiplayer" />
-<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/multiplayer" />
-<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/multiplayer" />
-<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/multiplayer" />
-<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/multiplayer" />
+<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/multiplayer" /><link rel="alternate" hreflang="x-default" href="https://www.ylet.online/multiplayer" />
 <link rel="canonical" href="https://www.ylet.online/multiplayer" />
 <meta property="og:url" content="https://www.ylet.online/multiplayer" />
 <!-- /cubeon:seo -->
@@ -81,10 +78,7 @@
     <summary aria-label="Language: English"><span aria-hidden="true">🌐</span> EN</summary>
     <nav class="lang-list" aria-label="Language">
           <a href="/multiplayer" hreflang="en" lang="en" aria-current="true">English</a>
-          <a href="/ar/multiplayer" hreflang="ar" lang="ar">العربية</a>
-          <a href="/uk/multiplayer" hreflang="uk" lang="uk">Українська</a>
-          <a href="/ru/multiplayer" hreflang="ru" lang="ru">Русский</a>
-    </nav>
+          <a href="/ar/multiplayer" hreflang="ar" lang="ar">العربية</a>    </nav>
   </details>
 </div>
 <!-- /cubeon:language -->

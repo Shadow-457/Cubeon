@@ -499,7 +499,8 @@ def install_safe_stubs(verbose=False):
 
     # --- network readers: shape-correct empties (no Modrinth calls) ---------
     for _name in ("get_recommended_plugins", "search_plugins",
-                  "search_modpacks", "get_popular_modpacks"):
+                  "search_modpacks", "get_popular_modpacks",
+                  "search_modpacks_modrinth", "search_modpacks_curseforge"):
         if hasattr(core, _name):
             setattr(core, _name, (lambda *a, **k: []))
 

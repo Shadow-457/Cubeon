@@ -493,28 +493,28 @@ check("the startup pass applies the saved level before any widget is built",
       in _main_src)
 check("the Play/QUIT aura is gone (2026-10-23 user ask: no glow behind it)",
       "hero_glow" not in _main_src and "hero_ambient" not in _main_src)
-check("the Play sheen still lives INSIDE the button's own Stack",
+check("the Play pixel frame lives inside the button's own Stack",
       "play_button.content = ft.Stack(" in _main_src
-      and "play_sheen.control," in _main_src)
-check("the sheen is built with the button's own radius",
-      "play_sheen = motion.sheen(radius=RADIUS)" in _main_src)
-check("hovering the Play button fires the sweep, leaving it fires the reset",
-      "play_sheen.run()" in _main_src and "play_sheen.reset()" in _main_src)
+      and 'src="pixel_button_frame.svg"' in _main_src)
+check("the pixel button keeps its fixed square corners",
+      "border_radius=0," in _main_src)
+check("Play feedback brightens the semantic fill without a glass sweep",
+      "ACCENT_HI if hovering else ACCENT" in _main_src and "play_sheen" not in _main_src)
 check("the Play button gets the fill callback, not a bgcolor pair",
       "motion.polish(play_button, on_hover_fill=_on_play_hover,"
       in _main_src)
 check("so a disabled Play button neither lifts nor dips",
       "active=lambda: not play_button.disabled" in _main_src)
-check("the Play button also takes the glass hover style",
-      "glass=theme.glass_hover()" in _main_src)
+check("the pixel button keeps its own chrome on hover",
+      "glass={}" in _main_src)
 check("the old inline play-button hover wiring is gone",
       "on_hover=_on_play_hover," not in _main_src)
 
 _mp_src = open(os.path.join(REPO, "ui", "modpacks_tab.py")).read()
 check("modpack refreshes do not replay an entrance cascade",
       "motion.stagger(results_view.controls)" not in _mp_src)
-check("... and loading uses a native spinner without a pulse worker",
-      "ft.ProgressRing(" in _mp_src and "motion.shimmer(" not in _mp_src)
+check("... and loading uses static skeletons without a pulse worker",
+      "loading_rows()" in _mp_src and "motion.shimmer(" not in _mp_src)
 # The browse half of the tab is everything before the row builders; the install
 # path (later in the file) legitimately PREFERS the Play tab's version.
 _mp_browse_src = _mp_src.split("def build_pack_row")[0]
@@ -526,8 +526,8 @@ check("the modpack browse is NOT filtered by the Play tab's version "
 _mods_src = open(os.path.join(REPO, "ui", "mods_tab.py")).read()
 check("mod browse refreshes do not replay an entrance cascade",
       "motion.stagger(browse_results_view.controls)" not in _mods_src)
-check("... and loading uses a native spinner without a pulse worker",
-      "ft.ProgressRing(" in _mods_src and "motion.shimmer(" not in _mods_src)
+check("... and loading uses static skeletons without a pulse worker",
+      "loading_rows()" in _mods_src and "motion.shimmer(" not in _mods_src)
 
 _set_src = open(os.path.join(REPO, "ui", "settings_tab.py")).read()
 check("the Settings row exists", '"Animations",' in _set_src)

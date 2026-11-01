@@ -452,7 +452,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         bgcolor=SURFACE_HI,
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.all(6),
+        padding=ft.padding.Padding.all(8),
         visible=False,
     )
     composer_status = ft.Text("", size=11, color=DANGER, max_lines=2,

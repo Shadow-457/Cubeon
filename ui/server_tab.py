@@ -12,6 +12,7 @@ up with the selected version (switching to the tab, changing versions).
 """
 
 import re
+import logging
 import threading
 
 import flet as ft
@@ -103,7 +104,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         install_button.disabled = busy
         install_button.content.value = "Installing..." if busy else install_button_label()
         install_progress.visible = busy
-        page.update()
+        thread_safe_ui.refresh(install_button)
+        thread_safe_ui.refresh(install_progress)
 
     def install_button_label():
         v = active_version["value"]
@@ -152,8 +154,14 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             except Exception as ex:
                 if active_version["value"] == version_id:
                     _set_install_busy(False)
-                    install_status.value = f"Install failed: {ex}"
-                    page.update()
+                    if isinstance(ex, PermissionError):
+                        install_status.value = "Couldn't write the server files. Check the folder's permissions."
+                    elif isinstance(ex, OSError) and ex.errno == 28:
+                        install_status.value = "Not enough space to install Paper. Free up space and try again."
+                    else:
+                        install_status.value = "Couldn't install Paper. Try again, or check the launcher log for details."
+                    logging.getLogger(__name__).warning("Paper installation failed", exc_info=True)
+                    thread_safe_ui.refresh(install_status)
                 return
             if active_version["value"] == version_id:
                 _set_install_busy(False)
@@ -1852,8 +1860,9 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 plugin_search_status.value = f"{len(hits)} result(s)" if query.strip() else "Featured picks"
                 _render_plugin_page()
             except Exception as ex:
-                plugin_search_status.value = f"Search failed: {ex}"
-                page.update()
+                plugin_search_status.value = "Plugin search is unavailable. Try again in a moment."
+                logging.getLogger(__name__).warning("Plugin search failed", exc_info=True)
+                thread_safe_ui.refresh(plugin_search_status)
 
         threading.Thread(target=worker, daemon=True).start()
 

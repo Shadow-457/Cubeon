@@ -483,11 +483,11 @@ check("both flet spellings of window move/resize are captured",
       and '"resized", "resize", "move", "moved"' in _main_src,
       "WindowEventType has MOVE/MOVED and RESIZE/RESIZED - saving on only "
       "one spelling loses every drag")
-check("the reveal re-asserts a saved position after the first frame",
-      "not _saved_maximized and _gl is not None and _gt is not None"
-      in _main_src,
-      "a saved left/top must be re-applied once the WM owns the mapped "
-      "window, or the window lands at (0, 0)")
+check("saved placement settles in the splash stage",
+      "page.window.left = int(_gl)" in _main_src
+      and _main_src.index("page.window.left = int(_gl)")
+      < _main_src.index("await _reveal_splash()"),
+      "native placement must settle before the user sees the window")
 check("the stale-placeholder capture guard is still in place",
       "if not _geometry_ready:" in _main_src,
       "the splash's placeholder geometry must never be saved")
