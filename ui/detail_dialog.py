@@ -49,7 +49,7 @@ def _badge(text, *, accent=False, theme=None):
                         font_family=theme.get("FONT_MONO")),
         bgcolor=theme.get("ACCENT_TINT") if accent else CARD_FILL,
         border_radius=theme.get("RADIUS"),
-        padding=ft.padding.Padding.symmetric(horizontal=7, vertical=3),
+        padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
         border=None if accent else ft.border.Border.all(1, theme.get("CARD_BORDER")),
     )
 
@@ -57,7 +57,7 @@ def _badge(text, *, accent=False, theme=None):
 def _loading_row(theme):
     return ft.Row([ft.ProgressRing(width=18, height=18, stroke_width=2.5),
                    ft.Text("Loading details...", size=13,
-                           color=theme.get("TEXT_DIM"))], spacing=10)
+                           color=theme.get("TEXT_DIM"))], spacing=12)
 
 
 def _icon_ctrl(url, theme, size=64):
@@ -91,7 +91,7 @@ def _versions_section(versions, theme, on_install_version=None, install_feedback
                                 weight=ft.FontWeight.W_700),
                 bgcolor=theme.get("ACCENT_TINT"),
                 border_radius=theme.get("RADIUS"),
-                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=5),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
             )
             v_install.on_click = lambda e, _v=v, button=v_install: on_install_version(_v) if not button.disabled else None
             if install_feedback is not None:
@@ -112,13 +112,13 @@ def _versions_section(versions, theme, on_install_version=None, install_feedback
                              weight=ft.FontWeight.W_700),
                      ft.Text(tag, size=11, color=theme.get("TEXT_FAINT"),
                              font_family=theme.get("FONT_MONO"), max_lines=1)],
-                    spacing=2, expand=True),
+                    spacing=4, expand=True),
                  ft.Text(date, size=11, color=theme.get("TEXT_FAINT"),
                          font_family=theme.get("FONT_MONO")),
                  *((v_install,) if v_install is not None else ())],
                 spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=theme.get("CARD_FILL"), border_radius=theme.get("RADIUS"),
-            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=7)))
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=8)))
     if not rows:
         return None
     controls = [ft.Text("Recent versions", size=15, color=theme.get("TEXT"),
@@ -128,7 +128,7 @@ def _versions_section(versions, theme, on_install_version=None, install_feedback
         controls.append(ft.Text(f"\u2026and {len(versions) - 8} more",
                                 size=12, color=theme.get("TEXT_FAINT"),
                                 font_family=theme.get("FONT_MONO")))
-    return ft.Column(controls, spacing=6)
+    return ft.Column(controls, spacing=8)
 
 
 def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
@@ -162,7 +162,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
 
     detail_body = ft.Column(
         [_loading_row(theme)],
-        spacing=14, width=680, height=_body_h,
+        spacing=16, width=680, height=_body_h,
         scroll=ft.ScrollMode.AUTO,
     )
 
@@ -180,10 +180,10 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                          size=13, weight=ft.FontWeight.W_700,
                          color=theme.get("TEXT_FAINT") if install_disabled
                          else theme.get("ON_ACCENT") or theme.get("BG"))],
-                spacing=6, tight=True),
+                spacing=8, tight=True),
             bgcolor=None if install_disabled else theme.get("ACCENT"),
             border_radius=theme.get("RADIUS"),
-            padding=ft.padding.Padding.symmetric(horizontal=18, vertical=9),
+            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8),
             on_click=None if install_disabled else
             (lambda e: (dialogs.close_dialog(page, dlg), on_install(e))[1]),
         )
@@ -212,7 +212,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
          else ft.Container(expand=True),
          ft.TextButton(i18n.t("Close"), on_click=_close),
          *((install_btn,) if install_btn is not None else ())],
-        alignment=ft.MainAxisAlignment.END, spacing=10)
+        alignment=ft.MainAxisAlignment.END, spacing=12)
 
     dlg = ft.AlertDialog(
         modal=False, bgcolor=theme.get("SURFACE"),
@@ -232,13 +232,13 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                               ft.Text(blurb or "", size=12.5,
                                       color=theme.get("TEXT_DIM"), max_lines=2)],
                              spacing=4, expand=True)],
-                        spacing=14,
+                        spacing=16,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ft.Container(height=2),
+                    ft.Container(height=4),
                     detail_body,
                     ft.Container(height=4),
                     footer,
-                ], spacing=10, tight=True)))
+                ], spacing=12, tight=True)))
     dialogs.open_dialog(page, dlg)
 
     def worker():
@@ -276,11 +276,11 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                                     + ("\u2026" if len(gvs) > 3 else ""),
                                     theme=theme))
             if pills:
-                controls.append(ft.Row(pills, spacing=6, run_spacing=6,
+                controls.append(ft.Row(pills, spacing=8, run_spacing=8,
                                        wrap=True))
             body = (details.get("body") or "").strip()
             if body:
-                controls.append(ft.Container(height=2))
+                controls.append(ft.Container(height=4))
                 controls.append(ft.Markdown(
                     body, selectable=True,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
@@ -289,7 +289,7 @@ def open_project_detail(page: ft.Page, *, ref: str, theme: dict,
                                    on_install_version=on_install_version,
                                    install_feedback=install_feedback)
             if vs is not None:
-                controls.append(ft.Container(height=2))
+                controls.append(ft.Container(height=4))
                 controls.append(vs)
         else:
             # Unresolvable (CurseForge-only entry, offline, deleted): show

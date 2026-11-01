@@ -68,10 +68,10 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         selected_index=0,
         thumb_color=ACCENT_TINT_HI,
         bgcolor=SURFACE_HI,
-        padding=3,
+        padding=4,
         controls=[ft.Container(ft.Text(f"{days} days", size=12, color=TEXT,
                                        weight=ft.FontWeight.W_600),
-                               padding=ft.padding.Padding.symmetric(horizontal=8, vertical=2))
+                               padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4))
                   for days in RANGES],
         on_change=lambda event: set_range(event.control.selected_index),
     )
@@ -79,10 +79,10 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
     stats_tab = ft.Column([
         ft.Text(i18n.t("Stats"), size=28, color=TEXT, font_family=FONT_DISPLAY),
         ft.Text("Your time in game, day by day.", size=13, color=TEXT_DIM),
-        ft.Container(height=14),
+        ft.Container(height=16),
         playtime,
         ft.Text("Total playtime", size=11, color=TEXT_DIM),
-        ft.Container(height=14),
+        ft.Container(height=16),
         ft.Row([chart_title, range_picker],
                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                vertical_alignment=ft.CrossAxisAlignment.CENTER, wrap=True),
@@ -90,5 +90,5 @@ def build_stats_tab(page: ft.Page, cfg: dict, state: dict, *,
         histogram.control,
         bar_note,
         note,
-    ], spacing=6, scroll=ft.ScrollMode.AUTO)
+    ], spacing=8, scroll=ft.ScrollMode.AUTO)
     return stats_tab, refresh_stats

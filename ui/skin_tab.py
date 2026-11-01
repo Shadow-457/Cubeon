@@ -123,7 +123,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Installed items render as a wrapping card grid (see _owned_card below),
     # wrapped in a fixed-height scroll region so it never becomes an endless
     # scroll.
-    skins_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
+    skins_list_col = ft.Row(spacing=12, wrap=True, run_spacing=12)
 
     def render_preview_for(filename):
         appearance.refresh(invalidate=True)
@@ -215,14 +215,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                 weight=ft.FontWeight.W_700,
                                 style=ft.TextStyle(letter_spacing=0.8)),
                 border=ft.border.Border.all(1, ACCENT), border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=9, vertical=5),
+                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
             )
             if active else
             ft.Container(
                 content=ft.Text("Use", size=11, color=ACCENT,
                                 weight=ft.FontWeight.W_700),
                 bgcolor=ACCENT_TINT, border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=5),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
                 ink=False, on_click=on_use,
             ),
         ]
@@ -234,7 +234,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 alignment=ft.Alignment.CENTER, ink=False, on_click=on_delete,
                 tooltip=i18n.t("Delete"),
             ))
-        footer = ft.Row(actions, spacing=6,
+        footer = ft.Row(actions, spacing=8,
                         alignment=ft.MainAxisAlignment.CENTER)
         card = ft.Container(
             content=ft.Column(
@@ -260,13 +260,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                     ft.Container(height=4),
                     footer,
                 ],
-                spacing=3, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             width=158,
             bgcolor=ACCENT_TINT if active else CARD_FILL,
             border=ft.border.Border.all(1, ACCENT if active else CARD_BORDER),
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=12),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
         )
         return attach_hover(card,
                             ACCENT_TINT if active else CARD_FILL,
@@ -504,7 +504,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ),
         border=ft.border.Border.all(1, ACCENT_DIM),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=18),
+        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=16),
         alignment=ft.Alignment.CENTER,
         ink=False,
         on_click=open_picker,
@@ -543,7 +543,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                 color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
     cape_status = ft.Text("", size=12, color=TEXT_DIM)
     # Wrapping card grid, same as the skins installed list (see _owned_card).
-    capes_list_col = ft.Row(spacing=10, wrap=True, run_spacing=10)
+    capes_list_col = ft.Row(spacing=12, wrap=True, run_spacing=12)
 
     def render_cape_preview_for(filename):
         appearance.refresh(invalidate=True)
@@ -725,7 +725,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ),
         border=ft.border.Border.all(1, ACCENT_DIM),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=18),
+        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=16),
         alignment=ft.Alignment.CENTER,
         ink=False,
         on_click=open_cape_picker,
@@ -814,7 +814,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 "follows sneaking, swimming and elytra flight.")
 
     def _cosmetic_pane(slot, title):
-        grid = ft.Row(spacing=10, wrap=True, run_spacing=10)
+        grid = ft.Row(spacing=12, wrap=True, run_spacing=12)
         status = ft.Text("", size=12, color=TEXT_DIM)
         key = "active_shoulder_item" if slot == "shoulder" else "active_back_item"
 
@@ -861,7 +861,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         heading = ft.Row([label, ft.Container(
             content=ft.Text("BETA", size=9, color=ACCENT, weight=ft.FontWeight.W_800),
             bgcolor=ACCENT_TINT, border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=6, vertical=2),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
             data="cosmetic-beta-" + slot)], spacing=8)
         controls = [heading, _grid_scroll(grid), status]
         if slot == "back":
@@ -886,7 +886,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         ("back", "Back", back_pane),
     ]
     pane_holder = ft.Container(content=skin_pane)
-    tab_row = ft.Row(spacing=18)
+    tab_row = ft.Row(spacing=16)
 
     def build_pane_tabs():
         tab_row.controls.clear()
@@ -940,11 +940,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             ft.Container(height=8),
             ft.ResponsiveRow([
                 ft.Container(content=appearance.control, col={"xs": 12, "md": 6}),
-                ft.Container(content=ft.Column([tab_row, ft.Container(height=10), pane_holder], spacing=8),
+                ft.Container(content=ft.Column([tab_row, ft.Container(height=12), pane_holder], spacing=8),
                              col={"xs": 12, "md": 6}),
-            ], spacing=24, run_spacing=20),
+            ], spacing=24, run_spacing=24),
         ],
-        spacing=6,
+        spacing=8,
     )
 
     appearance.refresh()

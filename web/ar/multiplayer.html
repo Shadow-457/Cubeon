@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<title>اللعب مع الأصدقاء في Minecraft عبر Cubeon — الخوادم والانضمام والإصلاحات</title>
+<meta name="description" conأضف أصدقاءك بالاسم، واستضف خادمًا مجانيًا من حاسوبك، وشارك العنوان، وأصلح الأسباب المعتادة التي تمنع أحدهم من الانضمام - القائمة البيضاء، الإصدار، المودات، جدار الحماية.ewall." />
+<meta property="og:title" conاللعب معًا في CubeonCubeon" />
+<meta property="og:description" conأصدقاء بالاسم، وخادم مجاني على حاسوبك، وقائمة تحقق لكل طريقة قد يفشل بها الانضمام. fail." />
+<meta property="og:site_name" content="Cubeon Launcher" />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://www.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" conمشغّل Cubeon معروض فوق عالم Minecraft: منتقي إصدار، واسم حساب، وزر تشغيل أخضر كبير.utton." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
+<!-- cubeon:auto-language -->
+<script>
+(function () {
+  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  if (location.protocol === 'file:') return;
+  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
+  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
+  if (m) cur = m[1];
+  function search() {
+    var out = '', q;
+    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
+    return (out ? '?' + out : '') + location.hash;
+  }
+  function urlFor(code) {
+    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
+    if (rest === '/index.html') rest = '/';
+    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
+    return (code === 'en' ? '' : '/' + code) + rest + search();
+  }
+  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
+  var q = null;
+  try { q = new URLSearchParams(location.search); } catch (e) {}
+  if (q && q.get('lang') && names[q.get('lang')]) {
+    pref = q.get('lang');
+    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
+    location.replace(urlFor(pref));
+    return;
+  }
+  if (!pref) {
+    var list = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var code = String(list[i]).toLowerCase().split('-')[0];
+      if (names[code]) { pref = code; break; }
+    }
+  }
+  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
+})();
+</script>
+<!-- /cubeon:auto-language -->
+<link rel="stylesheet" href="/assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+<!-- cubeon:seo -->
+<link rel="alternate" hreflang="en" href="https://www.ylet.online/multiplayer" />
+<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/multiplayer" />
+<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/multiplayer" />
+<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/multiplayer" />
+<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/multiplayer" />
+<link rel="canonical" href="https://www.ylet.online/ar/multiplayer" />
+<meta property="og:url" content="https://www.ylet.online/ar/multiplayer" />
+<!-- /cubeon:seo -->
+<link rel="stylesheet" href="/assets/rtl.css" />
+</head>
+<body>
+<a class="skip" href="#content">تخطَّ إلى المحتوى</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/ar" ariaالصفحة الرئيسية لـ Cubeoneon home"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" ariaالقائمةel="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" ariaالرئيسيel="Main">
+      <!-- cubeon:language -->
+<div class="lang-menu">
+  <details>
+    <summary aria-label="اللغة: العربية"><span aria-hidden="true">🌐</span> AR</summary>
+    <nav class="lang-list" aria-label="اللغة">
+          <a href="/multiplayer" hreflang="en" lang="en">English</a>
+          <a href="/ar/multiplayer" hreflang="ar" lang="ar" aria-current="true">العربية</a>
+          <a href="/uk/multiplayer" hreflang="uk" lang="uk">Українська</a>
+          <a href="/ru/multiplayer" hreflang="ru" lang="ru">Русский</a>
+    </nav>
+  </details>
+</div>
+<!-- /cubeon:language -->
+      <a href="/ar">الرئيسية</a>
+      <a href="/ar/download">تنزيل</a>
+      <a href="/ar/docs" aria-current="page">الوثائق</a>
+      <a href="/ar/doctor">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/ar/download">احصل على Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/ar">الرئيسية</a> / <a href="/ar/docs">المستندات</a> / اللعب معًا</p>
+      <h1>اللعب معًا</h1>
+      <p class="lede">أضف أصدقاء بالاسم، وافتح خادمًا من جهازك، وامنح الناس عنوانًا يمكنهم كتابته. تضم هذه الصفحة أيضًا قائمة تعمل عليها عندما يتعذر على أحدهم الدخول.</p>
+      <p class="updated">تحديث 28 أكتوبر 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">التنقل في الأدلةa-label="Docs guides">
+   أدلة الوثائقlass="docs-nav-group">
+          <span class="docs-nav-label">الأدلة</span>
+          <a class="docs-nav-link" href="/ar/docs">كل الأدلة</a>
+          <a class="docs-nav-link" href="/ar/getting-started">البدء</a>
+          <a class="docs-nav-link" href="/ar/mods">المودات والمحتوى</a>
+          <a class="docs-nav-link" href="/ar/modpacks">حزم المودات</a>
+          <a class="docs-nav-link" href="/ar/multiplayer" aria-current="page">اللعب معًا</a>
+          <a class="docs-nav-link" href="/ar/cosmetics">السكنات والمستلزمات التجميلية</a>
+          <a class="docs-nav-link" href="/ar/troubleshooting">التعطلات والإصلاحات</a>
+          <a class="docs-nav-link" href="/ar/files">الملفات والنسخ الاحتياطية</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">في هذه الصفحة</span>
+          <a class="docs-nav-link" href="#friends">الأصدقاء والدردشة</a>
+          <a class="docs-nav-link" href="#host">استضافة عالم</a>
+          <a class="docs-nav-link" href="#join">الانضمام إلى خادم</a>
+          <a class="docs-nav-link" href="#whitelist">القائمة البيضاء وكلمة المرور</a>
+          <a class="docs-nav-link" href="#cant-join">«لا أستطيع الانضمام»</a>
+          <a class="docs-nav-link" href="#offline">الأسماء غير المتصلة والخوادم المميزة</a>
+          <a class="docs-nav-link" href="#skins">الأسكنة أثناء اللعب</a>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="docs-main">
+
+      <div class="docs-section" id="friends">
+        <span class="docs-section-eyebrow">ابدأ من هنا</span>
+        <h2>الأصدقاء والدردشة</h2>
+        <p>تُرسل طلبات الصداقة بـ<strong>اسم Cubeon</strong>، لا بحساب Minecraft — فلا يوجد بريد للبحث عنه ولا رمز لتبادله. اكتب الاسم في قائمة الأصدقاء وأرسل الطلب.</p>
+        <ul>
+          <li>يجب أن يكون الشخص الآخر قد فتح Cubeon مرة واحدة على الأقل. قبل ذلك، لا يكون الاسم موجودًا بعد.</li>
+          <li>الأسماء تُمنح لمن يأتي أولًا. إذا كان الاسم الذي تريده محجوزًا، فهو محجوز.</li>
+          <li>بمجرد أن تصيرا صديقين، يعرض المشغّل من هو متصل وأي نسخة Minecraft يلعب، ويحفظ محادثتكما.</li>
+          <li>في اللعبة، يُوسم لاعبو Cubeon في قائمة اللاعبين الخاصة بـ Minecraft — اضغط باستمرار على <strong>Tab</strong>.</li>
+        </ul>
+        <p>الدردشة موسومة BETA في المشغّل. تُحفظ الرسائل للمحادثة، والمحادثة المفتوحة لا تطلق تنبيهًا واردًا لك (فأنت تقرأها بالفعل).</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="host">
+        <h2>استضافة عالم</h2>
+        <p>يمكن لـ Cubeon تشغيل خادم Minecraft حقيقي على جهازك ومنحه عنوانًا عامًا، فلا يحتاج أصدقاؤك إلى تغيير أي شيء من جهتهم ولا يدفع أحد مقابل الاستضافة.</p>
+        <ol>
+          <li>افتح <strong>الخوادم</strong> واختر نسخة Minecraft التي تريد استضافتها.</li>
+          <li>اضغط <strong>تثبيت</strong> لتلك النسخة إن لم تكن موجودة بعد.</li>
+          <li>شغّله. وبمجرد أن يعمل، تعرض البطاقة <strong>العنوان العام</strong> — انسخه وأرسله إلى أصدقائك.</li>
+          <li>اختياريًا، حدّد <strong>كلمة مرور انضمام</strong>. من لا يملكها لا يدخل، حتى مع العنوان.</li>
+        </ol>
+        <p>ثلاثة أشياء يجب معرفتها قبل أن تعد أحدًا بلعبة:</p>
+        <ul>
+          <li><strong>جهازك هو الخادم.</strong> يجب أن يظل مفعّلًا ومستيقظًا، ويجب أن يظل Cubeon (أو الخادم على الأقل) قيد التشغيل. الحاسوب المحمول النائم خادم ميت.</li>
+          <li><strong>أول بدء بطيء.</strong> يولّد الخادم عالمه قبل أن يقبل اللاعبين.</li>
+          <li><strong>قد يُحجب النفق.</strong> بعض الشبكات وجدران الحماية تقطع العنوان المشترك. إذا لم يعمل أبدًا، فجرّب شبكة أخرى، أو اسأل على <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a> مع ما تقوله وحدة التحكم.</li>
+        </ul>
+        <p><strong>وحدة التحكم</strong> و<strong>الإضافات</strong> و<strong>الإعدادات</strong> تقع تحت بطاقة الخادم. الإعدادات هي مكان الذاكرة RAM — الافتراضي جيد لعدد قليل من الأصدقاء؛ ارفعه إن كان الخادم يعاني، لا افتراضيًا.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="join">
+        <h2>الانضمام إلى خادم</h2>
+        <p>في Minecraft، افتح <strong>تعدد اللاعبين</strong> &gt; <strong>إضافة خادم</strong>، وألصق العنوان، وانضم. العنوان من Cubeon يتضمن المنفذ بالفعل، فألصق الكل بدلًا من تقسيمه.</p>
+        <p>إذا جاء العنوان مع كلمة مرور انضمام، فسيُطلب منك إدخالها أثناء الدخول.</p>
+        <p>لتنضم، يجب أن تتحاذى <strong>ثلاثة</strong> أشياء:</p>
+        <ul>
+          <li><strong>نسخة Minecraft</strong> — نفس النسخة التي يعمل بها الخادم.</li>
+          <li><strong>المحمّل</strong> — خادم Fabric يريد عميل Fabric؛ والفانيليا تريد الفانيليا.</li>
+          <li><strong>المودات</strong> — إذا كان الخادم يتطلب مودات، فثبّت المودات نفسها. عميل فانيليا على خادم معدّل عدم تطابق حتى عندما تتطابق نسخة Minecraft.</li>
+        </ul>
+        <p>يعرض المشغّل النسخة التي يلعبها صديق، وهي أسرع طريقة لمعرفة سبب تعذر لقائكما.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="whitelist">
+        <h2>القائمة البيضاء وكلمة المرور</h2>
+        <p>قفلان مختلفان، ويفشلان بشكل مختلف:</p>
+        <ul>
+          <li><strong>كلمة مرور الانضمام</strong> — تُحدد في الخوادم، وتُفحص قبل وصولك إلى العالم. كلمة مرور خاطئة أو مفقودة تعني رفض الاتصال.</li>
+          <li><strong>القائمة البيضاء</strong> — قائمة بأسماء مسموح لها بالدخول، تُدار في الخوادم. من ليس فيها يُرفض <em>بعد</em> الاتصال، برسالة «You are not white-listed on this server!».</li>
+        </ul>
+        <p>أضف الأسماء كما تظهر في اللعبة بالضبط، بالأحرف الكبيرة والصغيرة، ثم أعد تشغيل الخادم لتُكتب القائمة. وإن كنت أنت من يُرفض، فاطلب من المالك التحقق من التهجئة — مسافة زائدة تكفي للفشل.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="cant-join">
+        <h2>«لا أستطيع الانضمام»</h2>
+        <p>اعثر على الرسالة التي تلقيتها، أو النقطة التي توقف عندها، وابدأ من هناك:</p>
+        <div class="docs-table-wrap">
+          <table class="docs-table">
+            <thead>
+              <tr><th scope="col">العَرَض</th><th scope="col">يعني عادةً</th><th scope="col">الإصلاح</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>You are not white-listed on this server</td><td>الاسم ليس في قائمة الخادم</td><td>يضيف المالك الاسم بالضبط في الخوادم، ثم يعيد التشغيل</td></tr>
+              <tr><td>Outdated client / Outdated server</td><td>نسخ Minecraft مختلفة</td><td>ينتقل الطرفان إلى النسخة نفسها</td></tr>
+              <tr><td>Incompatible client</td><td>المحمّل أو المودات المطلوبة مختلفة</td><td>طابق المحمّل وقائمة مودات الخادم</td></tr>
+              <tr><td>Unknown host</td><td>العنوان خاطئ أو لم يعد يعمل</td><td>أعد لصقه من الخوادم؛ يتغير عنوان النفق إذا أُعيد تشغيل الخادم</td></tr>
+              <tr><td>Connection timed out / Connection refused</td><td>الخادم مغلق، أو ما زال يبدأ، أو حاسوب المالك نائم</td><td>اطلب من المالك تشغيله وانتظر العنوان</td></tr>
+              <tr><td>Failed to verify username / Invalid session</td><td>يتطلب الخادم حساب Microsoft حقيقيًا</td><td>انظر <a href="#offline">الأسماء غير المتصلة</a> — هذا لا يمكنك إصلاحه من العميل</td></tr>
+              <tr><td>ينقطع الاتصال بعد ثانية من الانضمام</td><td>قائمة بيضاء، أو عدم تطابق مودات، أو تعطل خادم</td><td>افحص وحدة تحكم الخادم — فهي تذكر السبب</td></tr>
+              <tr><td>يتعلق عند «Connecting to the server»</td><td>النفق أو شبكتك يحجبه</td><td>أعد المحاولة، أو جرّب شبكة أخرى، أو اسأل في Discord</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>ما زلت عالقًا؟ يمكن لمن يستضيف أن يقرأ السبب الدقيق في بطاقة <strong>وحدة التحكم</strong> للخادم — ذلك السطر أثمن من التخمين، فاطلبه.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="offline">
+        <h2>الأسماء غير المتصلة والخوادم المميزة</h2>
+        <p>يلعب Cubeon باسم محلي، لا بتسجيل دخول Microsoft. هذا لا بأس به لخوادمك الخاصة ولمن ينضم إليك، لكنه يعني:</p>
+        <ul>
+          <li>الخوادم العامة الكبيرة التي تتطلب حساب Minecraft حقيقي سترفضك، بخطأ جلسة أو تحقق؛</li>
+          <li>الخوادم التي تتحقق من الأسكنة والعباءات لدى Mojang لن تعرف سكن Cubeon الخاص بك — انظر <a href="#skins">أدناه</a>؛</li>
+          <li>الاسم الذي يطابق حسابًا مميزًا حقيقيًا ليس لك لتطالب به على تلك الخوادم.</li>
+        </ul>
+        <p>هذه مقايضة متعمدة مقابل «اختر اسمًا والعب». إذا كان خادم عام معين هو كل ما تريده، فذلك الخادم هو ما يريد حسابًا مدفوعًا — لا المشغّل.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="skins">
+        <h2>الأسكنة أثناء اللعب</h2>
+        <p>الأسكنة والعباءات أمر خاص بـ Cubeon. يراها لاعبو Cubeon الآخرون؛ أما اللاعب على الفانيليا، أو على مشغّل آخر بلا دعم أسكنة، فيرى النموذج الافتراضي. <a href="/ar/cosmetics#not-showing">السكن لا يظهر</a> يستعرض الحالات التي لا يرى فيها حتى لاعب Cubeon سكنك.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="next">
+        <h2>التالي</h2>
+        <div class="docs-guide-links">
+          <a href="/ar/cosmetics">الأسكنة والعباءات</a>
+          <a href="/ar/mods#wont-load">المودات على خادم</a>
+          <a href="/ar/troubleshooting">تتعطل اللعبة عند الانضمام</a>
+          <a href="/ar/files#logs">أي سجل يجب إرساله</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="/ar"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>مشغّل مجاني يجعل لعب Minecraft مع أصدقائك سهلاً - بلا حساب، وبلا خادم مستأجر، وبلا أي تعقيد.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="/ar">الرئيسية</a>
+        <a href="/ar/download">تنزيل</a>
+        <a href="/ar/docs">الوثائق</a>
+        <a href="/ar/doctor">Doctor</a>
+      <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>الخصوصية &amp; القواعد</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="/ar/privacy">الخصوصية</a>
+        <a href="/ar/terms">الشروط</a>
+        <a href="/ar/refunds">الاسترداد</a>
+        <a href="/ar/cookies">ملفات تعريف الارتباط</a>
+        <a href="/ar/licenses">الشكر والتقدير</a>
+        <a href="/ar/privacy#delete">احذف بياناتي</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>Cubeon Launcher. للتواصل: <a href="mailto:hamza.457.shahbaz@gmail.الصفحاتhamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon مشروع معجبين غير رسمي - غير تابع لـ Mojang أو Microsoft. وMinecraft علامة تجارية لـ Mojang AB. آخر تحديث للسياسات في 20 سبتمبر 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+<script src="/assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (wiقانونيvaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

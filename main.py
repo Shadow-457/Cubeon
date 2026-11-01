@@ -783,6 +783,9 @@ async def main(page: ft.Page):
     # translucent window background can never make the loading screen hard
     # to read.
     page.window.bgcolor = BG
+    # Map the native window transparently so its initial WM placement settles
+    # before the branded splash becomes visible.
+    page.window.opacity = 0.0
     page.bgcolor = BG
     page.padding = 0
     # The window process must ALREADY be started hidden (see ft.run below,
@@ -1101,9 +1104,9 @@ async def main(page: ft.Page):
             [
                 ft.Container(
                     content=ft.Image(
-                        src=os.path.join(resolve_assets_dir(), "icon_256.png"),
+                        src="icon_256.png",
                         width=72, height=72, fit=ft.BoxFit.CONTAIN),
-                    border_radius=20,
+                    border_radius=RADIUS_LG,
                     shadow=ft.BoxShadow(
                         blur_radius=30, spread_radius=1,
                         color=ft.Colors.with_opacity(0.45, ACCENT),
@@ -1115,7 +1118,7 @@ async def main(page: ft.Page):
                 ft.ProgressRing(width=18, height=18, stroke_width=2,
                                 color=ACCENT),
             ],
-            spacing=10, tight=True,
+            spacing=12, tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             alignment=ft.MainAxisAlignment.CENTER,
         ),
@@ -1230,6 +1233,20 @@ async def main(page: ft.Page):
         # helper's docstring - the window must never be left to one message.
         _nudge_window_to_front()
         _backstop_window_visible()
+        try:
+            await asyncio.sleep(0.15)
+            if not _saved_maximized:
+                if _needs_center:
+                    await asyncio.wait_for(page.window.center(), timeout=1)
+                elif _gl is not None and _gt is not None:
+                    page.window.left = int(_gl)
+                    page.window.top = int(_gt)
+                    page.window.update()
+        except Exception:
+            pass  # keep the pre-set geometry if native positioning fails
+        finally:
+            page.window.opacity = 1.0
+            page.window.update()
 
     # AWAIT the reveal instead of scheduling it. This is the whole fix: awaiting
     # hands control back to Flet's event loop, which flushes the queued splash
@@ -1242,6 +1259,7 @@ async def main(page: ft.Page):
         await _reveal_splash()
     except Exception:
         # Belt-and-braces for an odd runtime: still try the synchronous show.
+        page.window.opacity = 1.0
         _show_window()
     # Give the client a beat to paint the first splash frame while we still hold
     # the loop. Bounded and best-effort: a client that never answers must not
@@ -1508,7 +1526,7 @@ async def main(page: ft.Page):
         btn = ft.Container(
             content=ft.Column(
                 [icon_ctrl, label_ctrl],
-                spacing=3,
+                spacing=4,
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
@@ -1599,7 +1617,7 @@ async def main(page: ft.Page):
             ),
             bgcolor=ACCENT_TINT if is_active else "transparent",
             border_radius=RADIUS,
-            padding=ft.padding.Padding.only(left=12 + indent, right=10, top=10, bottom=10),
+            padding=ft.padding.Padding.only(left=12 + indent, right=12, top=12, bottom=12),
             data=is_active,
             on_click=lambda e, k=key: switch_tab(k),
             on_hover=_on_nav_hover,
@@ -1617,7 +1635,7 @@ async def main(page: ft.Page):
     subnav_bar = ft.Container(
         content=ft.Row([ft.Container(width=16), server_subnav], spacing=0),
         visible=False,
-        padding=ft.padding.Padding.only(left=12, top=10, bottom=2),
+        padding=ft.padding.Padding.only(left=12, top=12, bottom=4),
     )
 
     # -----------------------------------------------------------------
@@ -1913,7 +1931,7 @@ async def main(page: ft.Page):
                         ft.Text(i18n.t("Settings"), size=11, color=TEXT_DIM,
                                 weight=ft.FontWeight.W_500),
                     ],
-                    spacing=3, tight=True,
+                    spacing=4, tight=True,
                     alignment=ft.MainAxisAlignment.CENTER,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -1943,7 +1961,7 @@ async def main(page: ft.Page):
         box = ft.Container(
             content=ft.Column(
                 [
-                    ft.Container(height=6),
+                    ft.Container(height=8),
                     # The nav takes the flexible middle and scrolls when the
                     # window is short; Settings stays pinned at the bottom.
                     ft.Column(
@@ -1957,12 +1975,12 @@ async def main(page: ft.Page):
                     ft.Row([season_perch], alignment=ft.MainAxisAlignment.CENTER),
                     *foot,
                 ],
-                spacing=6,
+                spacing=8,
                 expand=True,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             width=SIDEBAR_W,
-            padding=ft.padding.Padding.only(left=8, right=8, top=8, bottom=10),
+            padding=ft.padding.Padding.only(left=8, right=8, top=8, bottom=12),
             bgcolor=SURFACE,
             border=ft.border.Border.only(right=ft.BorderSide(1, BORDER)),
         )
@@ -1991,7 +2009,7 @@ async def main(page: ft.Page):
                     spacing=8, tight=True,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                padding=ft.padding.Padding.only(left=6, right=12, top=4, bottom=4),
+                padding=ft.padding.Padding.only(left=8, right=12, top=4, bottom=4),
                 border_radius=RADIUS_LG,
                 ink=False,
                 tooltip=i18n.t("Account"),
@@ -2008,7 +2026,7 @@ async def main(page: ft.Page):
             height=44,
             bgcolor=SURFACE,
             border=ft.border.Border.only(bottom=ft.BorderSide(1, BORDER)),
-            padding=ft.padding.Padding.only(right=6),
+            padding=ft.padding.Padding.only(right=8),
         )
 
     # "Signed in as" widgets - pulled out as named variables so the
@@ -2435,16 +2453,16 @@ async def main(page: ft.Page):
                 ft.Icon(ft.Icons.UPLOAD_ROUNDED, color=ON_ACCENT, size=14),
                 ft.Text("Upload", color=ON_ACCENT, weight=ft.FontWeight.W_700, size=12),
             ],
-            alignment=ft.MainAxisAlignment.CENTER, spacing=5, tight=True,
+            alignment=ft.MainAxisAlignment.CENTER, spacing=4, tight=True,
         ),
         bgcolor=ACCENT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=7, horizontal=12),
+        padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
         ink=False, on_click=open_pfp_picker,
     )
     profile_pfp_remove_btn = ft.Container(
         content=ft.Text(i18n.t("Remove"), color=DANGER, weight=ft.FontWeight.W_700, size=12),
         border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=7, horizontal=12),
+        padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
         ink=False, on_click=on_remove_pfp, alignment=ft.Alignment.CENTER,
     )
 
@@ -2609,7 +2627,7 @@ async def main(page: ft.Page):
             color=ft.Colors.with_opacity(0.55, "#000000"),
             offset=ft.Offset(0, 14),
         ),
-        padding=ft.padding.Padding.only(left=24, right=24, top=20, bottom=18),
+        padding=ft.padding.Padding.only(left=24, right=24, top=24, bottom=16),
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
         # Filled in once the Settings control tree exists (see
         # _build_account_settings_body below): account on top, settings below.
@@ -2725,7 +2743,7 @@ async def main(page: ft.Page):
             ft.Image(src="cube.svg", width=24, height=24, fit=ft.BoxFit.CONTAIN),
             ft.Text("Cubeon", size=17, color=TEXT, font_family=FONT_DISPLAY),
         ],
-        spacing=10,
+        spacing=12,
     )
 
     # Compact left icon rail (nav + Account/Settings) and the branded top bar
@@ -2807,7 +2825,7 @@ async def main(page: ft.Page):
     ]
     loader_segment_columns = [
         ft.Column([loader_segment_labels[i], loader_segment_dots[i]],
-                   horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3, tight=True)
+                   horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4, tight=True)
         for i in range(len(LOADER_IDS))
     ]
 
@@ -3310,12 +3328,12 @@ async def main(page: ft.Page):
                 ft.Icon(ft.Icons.HISTORY_ROUNDED, color=TEXT_DIM, size=14),
                 legacy_btn_label,
             ],
-            spacing=6,
+            spacing=8,
         ),
         on_click=on_enable_legacy,
         ink=False,
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         tooltip="Show or hide versions below 1.20",
     )
 
@@ -3577,7 +3595,7 @@ async def main(page: ft.Page):
         content=ft.Column([
             ft.Row([progress_title, progress_stage], spacing=8),
             progress_row, progress_bar,
-        ], spacing=7),
+        ], spacing=8),
     )
 
     # ------------------------------------------------------------------
@@ -3797,7 +3815,7 @@ async def main(page: ft.Page):
     pack_name_badge = ft.Container(
         content=ft.Row(
             [ft.Icon(ft.Icons.INVENTORY_2_ROUNDED, color=ACCENT, size=15), pack_name_text],
-            spacing=6,
+            spacing=8,
         ),
         visible=False,
     )
@@ -5615,10 +5633,10 @@ async def main(page: ft.Page):
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 server_status_open_console,
             ],
-            spacing=10,
+            spacing=12,
         ),
         bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER),
-        border_radius=RADIUS, padding=20, width=280,
+        border_radius=RADIUS, padding=24, width=280,
     )
 
     # -----------------------------------------------------------------
@@ -6065,10 +6083,10 @@ async def main(page: ft.Page):
                             color=TEXT_DIM),
                     ft.Text(i18n.t("Folder"), size=12, color=TEXT_DIM),
                 ],
-                spacing=6,
+                spacing=8,
             ),
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             tooltip=("Open the Minecraft game folder "
                      "(versions, mods, saves, screenshots)"),
         ),
@@ -6099,7 +6117,7 @@ async def main(page: ft.Page):
     hero_loader_chip = ft.Container(
         content=hero_loader_chip_text,
         bgcolor=ACCENT_TINT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=8, vertical=3),
+        padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
     )
 
     # -----------------------------------------------------------------
@@ -6281,7 +6299,7 @@ async def main(page: ft.Page):
         bgcolor=ft.Colors.with_opacity(0.55, BG),
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.only(left=12, right=4, top=2, bottom=2),
+        padding=ft.padding.Padding.only(left=12, right=4, top=4, bottom=4),
         tooltip=("Max FPS at launch. Off restores vanilla graphics (fancy, "
                  "smooth lighting, shadows) on the next launch."),
         data="play-fps-tile",
@@ -6323,7 +6341,7 @@ async def main(page: ft.Page):
                                         ft.Row(
                                             [hero_loader_chip, pack_name_badge,
                                              hero_version_text],
-                                            spacing=10,
+                                            spacing=12,
                                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                         ),
                                         version_issue_text,
@@ -6336,14 +6354,14 @@ async def main(page: ft.Page):
                                     content=ft.Row(
                                         [folder_instance_btn, rename_instance_btn,
                                          delete_instance_btn],
-                                        spacing=2, tight=True,
+                                        spacing=4, tight=True,
                                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                     ),
                                     bgcolor=ft.Colors.with_opacity(0.72, BG),
                                     border=ft.border.Border.all(1, CARD_BORDER),
                                     border_radius=RADIUS_LG,
                                     padding=ft.padding.Padding.symmetric(
-                                        horizontal=6, vertical=4),
+                                        horizontal=8, vertical=4),
                                 ),
                             ],
                             vertical_alignment=ft.CrossAxisAlignment.START,
@@ -6358,29 +6376,29 @@ async def main(page: ft.Page):
                         ft.Row(
                             [
                                 ft.Column(
-                                    [section_label(i18n.t("Version")), ft.Container(height=6),
+                                    [section_label(i18n.t("Version")), ft.Container(height=8),
                                      ft.Container(content=version_dropdown_button,
                                                   width=300)],
                                     spacing=0),
                                 ft.Column(
-                                    [section_label(i18n.t("Username")), ft.Container(height=6),
+                                    [section_label(i18n.t("Username")), ft.Container(height=8),
                                      ft.Container(content=username_field, width=220)],
                                     spacing=0),
                                 ft.Container(expand=True),
                                 ft.Container(content=play_button, width=300),
                             ],
-                            spacing=14,
+                            spacing=16,
                             vertical_alignment=ft.CrossAxisAlignment.END,
                         ),
 
-                        ft.Container(height=14),
+                        ft.Container(height=16),
                         ft.Row(
                             [fps_boost_tile],
-                            spacing=10,
+                            spacing=12,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
 
-                        ft.Container(height=10),
+                        ft.Container(height=12),
                         ft.Container(content=progress_card, height=100),
                     ],
                     spacing=0,
@@ -6921,7 +6939,7 @@ async def main(page: ft.Page):
     tidy_btn = ft.Container(
         content=ft.Text("Tidy up files", color=TEXT, weight=ft.FontWeight.W_600, size=14),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=11),
+        padding=ft.padding.Padding.symmetric(vertical=12),
         alignment=ft.Alignment.CENTER, ink=False, on_click=run_tidy_up,
     )
 
@@ -7039,7 +7057,7 @@ async def main(page: ft.Page):
 
     backup_now_btn = ft.Container(
         content=ft.Text("Back up now", color=BG, weight=ft.FontWeight.W_700, size=14),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=13),
+        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=12),
         alignment=ft.Alignment.CENTER, ink=False, on_click=run_backup_now, expand=True,
     )
 
@@ -7063,7 +7081,7 @@ async def main(page: ft.Page):
     open_folder_btn = ft.Container(
         content=ft.Text("Open backups folder", color=TEXT, weight=ft.FontWeight.W_600, size=14),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=13),
+        padding=ft.padding.Padding.symmetric(vertical=12),
         alignment=ft.Alignment.CENTER, ink=False, on_click=open_backups_folder, expand=True,
     )
 
@@ -7130,7 +7148,7 @@ async def main(page: ft.Page):
                         [ft.Text(label, size=13.5, color=TEXT,
                                  weight=ft.FontWeight.W_600),
                          ft.Text(hint, size=11.5, color=TEXT_DIM)],
-                        spacing=1, expand=True,
+                        spacing=4, expand=True,
                     ),
                     ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=17, color=TEXT_DIM),
                 ],
@@ -7138,7 +7156,7 @@ async def main(page: ft.Page):
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor="transparent", border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=9),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             on_click=lambda e=None, g=getter, l=label: _open_any_folder(g(), l),
         )
         try:
@@ -7151,7 +7169,7 @@ async def main(page: ft.Page):
     minecraft_files_pane = ft.Column(
         [
             section_label("Minecraft files"),
-            ft.Container(height=2),
+            ft.Container(height=4),
             ft.Text(
                 "Open the folders Cubeon and Minecraft use. Anything you drop "
                 "into Mods, Resource packs or Shaders is picked up on the next "
@@ -7162,7 +7180,7 @@ async def main(page: ft.Page):
             ft.Container(
                 content=ft.Column(
                     [_folder_button(*row) for row in _FOLDER_ROWS],
-                    spacing=2,
+                    spacing=4,
                 ),
                 bgcolor=SURFACE_HI, border_radius=RADIUS, padding=8,
                 border=ft.border.Border.all(1, BORDER),
@@ -7252,10 +7270,10 @@ async def main(page: ft.Page):
                 ft.Text("Restore from a backup zip...", color=TEXT_DIM,
                         weight=ft.FontWeight.W_600, size=13),
             ],
-            spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+            spacing=8, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         ),
         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=9),
+        padding=ft.padding.Padding.symmetric(vertical=8),
         alignment=ft.Alignment.CENTER, ink=False, on_click=pick_restore_file,
     )
 
@@ -7305,7 +7323,7 @@ async def main(page: ft.Page):
                             ft.Text("Why Cubeon backs them", size=11,
                                     color=TEXT_DIM),
                         ],
-                        spacing=2, tight=True,
+                        spacing=4, tight=True,
                     ),
                 ],
                 spacing=12,
@@ -7322,7 +7340,7 @@ async def main(page: ft.Page):
                             "for anyone.",
                             size=13, color=TEXT_DIM,
                         ),
-                        ft.Container(height=2),
+                        ft.Container(height=4),
                         ft.Text(
                             "Our server sharing runs on their network, and "
                             "that's why Cubeon backs them. If hosting with "
@@ -7379,9 +7397,9 @@ async def main(page: ft.Page):
                 ft.Text("Cubeon Web", size=13, color=TEXT_DIM,
                         weight=ft.FontWeight.W_500),
             ],
-            spacing=10, tight=True,
+            spacing=12, tight=True,
         ),
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         border_radius=RADIUS,
         ink=False,
         tooltip=CUBEON_WEB_URL,
@@ -7491,7 +7509,7 @@ async def main(page: ft.Page):
             [
                 ft.ProgressRing(width=26, height=26, stroke_width=3,
                                 color=ACCENT),
-                ft.Container(height=2),
+                ft.Container(height=4),
                 ft.Text("Restarting Cubeon…", size=14, color=TEXT,
                         font_family=FONT_DISPLAY),
                 ft.Text(i18n.t("Applying your settings."), size=11.5,
@@ -7598,10 +7616,10 @@ async def main(page: ft.Page):
                 ft.Text(i18n.t("Restart to apply"), color=ON_ACCENT,
                         weight=ft.FontWeight.W_700, size=13),
             ],
-            spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+            spacing=8, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         ),
         bgcolor=ACCENT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=10, horizontal=16),
+        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=16),
         ink=False, on_click=_on_restart_click,
     )
     seasonal_restart_note = ft.Text(
@@ -7750,12 +7768,12 @@ async def main(page: ft.Page):
                             spacing=4, tight=True,
                         ),
                     ],
-                    spacing=14,
+                    spacing=16,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.Container(height=14),
+                ft.Container(height=16),
                 profile_username_field,
-                ft.Container(height=10),
+                ft.Container(height=12),
                 ft.Row(
                     [profile_pfp_upload_btn, profile_pfp_remove_btn,
                      profile_pfp_status],
@@ -7980,7 +7998,7 @@ async def main(page: ft.Page):
             view = _tab_views.get(key)
             if view is None:
                 view = ft.Container(tabs[key], padding=ft.padding.Padding.symmetric(
-                    horizontal=28, vertical=24), expand=True)
+                    horizontal=32, vertical=24), expand=True)
                 _tab_views[key] = view
                 tab_switcher.controls.append(view)
                 switch_controls.append(tab_switcher)
@@ -8245,7 +8263,7 @@ async def main(page: ft.Page):
         # The values below are the safety net - if the reveal task never runs,
         # opacity is forced to 1 there too, so the UI can never stay invisible.
         opacity=0.0,
-        animate_opacity=ft.Animation(260, ft.AnimationCurve.EASE_OUT),
+        animate_opacity=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
         **_bg_kwargs,
     )
     page.controls.clear()
@@ -8274,7 +8292,8 @@ async def main(page: ft.Page):
     # wait_until_ready_to_show() is the desktop-shell handshake that the
     # first frame is actually in the window's back buffer.
     async def _reveal_window():
-        _apply_real_geometry()
+        if not _geometry_ready:
+            _apply_real_geometry()
         try:
             await asyncio.wait_for(
                 page.window.wait_until_ready_to_show(), timeout=5)
@@ -8293,35 +8312,8 @@ async def main(page: ft.Page):
             thread_safe_ui.refresh(_app_root)
         except Exception:
             pass
-        # Some desktop clients apply their native default position when the
-        # hidden window is first mapped, after the earlier geometry call. That
-        # late native write is why the launcher could still appear at (0, 0)
-        # even though the splash and real geometry both requested centering.
-        # Correct it after the first visible frame, when the window manager
-        # owns the mapped window. Only do this for the no-position case; an
-        # intentional saved position must remain untouched.
-        if _needs_center:
-            try:
-                await asyncio.sleep(0.15)
-                await page.window.center()
-                page.window.update()
-            except Exception:
-                pass
-        elif not _saved_maximized and _gl is not None and _gt is not None:
-            # Re-assert the SAVED position after the first frame. The same
-            # late native write that used to stomp centering (see above) also
-            # stomps a restored position on some Linux builds - the window
-            # then opens at (0, 0) top-left no matter where it was closed.
-            # Setting left/top again while the WM owns the mapped window wins.
-            try:
-                await asyncio.sleep(0.15)
-                page.window.left = int(_gl)
-                page.window.top = int(_gt)
-                page.window.width = int(_gw)
-                page.window.height = int(_gh)
-                page.window.update()
-            except Exception:
-                pass
+        # Position settled during the transparent splash mapping; do not
+        # resize or recenter the now-visible finished launcher.
         # First successful paint: clear any GPU-crash flag so the NEXT run
         # trusts hardware GL again (see the exit watcher under __main__).
         # _CUBEON_HOME lives in the __main__ block, not in main()'s scope -
@@ -8488,6 +8480,17 @@ async def main(page: ft.Page):
             thread_safe_ui.refresh(_onboard_overlay)
         except Exception:
             pass
+
+    async def _prewarm_content_tabs():
+        # Prepare the two frequent destinations after the first paint. Their
+        # builders create controls only; catalogue requests remain on demand.
+        await asyncio.sleep(0.25)
+        for key in ("mods", "modpacks"):
+            with thread_safe_ui.TREE_LOCK:
+                _ensure_tab(key)
+            await asyncio.sleep(0)
+
+    page.run_task(_prewarm_content_tabs)
 
     # The Cubeon name is automatic now: ensure_identity() mints the
     # secret-derived handle (no claim prompt) and the server binds it on the
@@ -8824,7 +8827,7 @@ async def main(page: ft.Page):
                             ft.Text(cubeon_seasonal.describe_source(_greet_info),
                                     size=11.5, color=TEXT_FAINT),
                         ],
-                        tight=True, spacing=10,
+                        tight=True, spacing=12,
                     ),
                     width=380,
                 ),
@@ -9137,7 +9140,7 @@ async def main(page: ft.Page):
                         content=ft.Column(
                             [_shortcut_row(combo, what)
                              for combo, what in cubeon_shortcuts.CATALOGUE],
-                            spacing=10, tight=True),
+                            spacing=12, tight=True),
                     ),
                     actions=[ft.TextButton(
                         i18n.t("Close"),

@@ -84,7 +84,7 @@ def _rail_item(key, icon, label, active, on_click, *, ACCENT, ACCENT_TINT,
             ),
             bgcolor=ACCENT_TINT if active else None,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=11),
+            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
             ink=False,
             on_click=on_click,
             animate=RAIL_ANIM,
@@ -107,13 +107,13 @@ def _row(title, subtitle, control, *, TEXT, TEXT_DIM):
                         *([ft.Text(i18n.t(subtitle), size=12, color=TEXT_DIM)]
                           if subtitle else []),
                     ],
-                    spacing=2, expand=True,
+                    spacing=4, expand=True,
                 ),
                 control,
             ],
             spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=ft.padding.Padding.symmetric(horizontal=18, vertical=13),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
     )
 
 
@@ -122,7 +122,7 @@ def _body(control, *, pad_v=14):
     a title/control pair)."""
     return ft.Container(
         content=control,
-        padding=ft.padding.Padding.symmetric(horizontal=18, vertical=pad_v),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=pad_v),
     )
 
 
@@ -155,11 +155,11 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
             "Inter", "Noto Arabic", "Noto Devanagari", "Noto Bengali", "Cubeon Language CJK"]),
         label_style=ft.TextStyle(font_family=ui_font, color=TEXT_DIM),
     )
-    choices = ft.ListView(height=252, spacing=3, data="language-options")
+    choices = ft.ListView(height=252, spacing=4, data="language-options")
     no_results = ft.Text(i18n.t("No languages found"), color=TEXT_DIM,
                          size=12, visible=False, font_family=ui_font)
     dropdown = ft.Container(
-        content=ft.Column([search, choices, no_results], spacing=10,
+        content=ft.Column([search, choices, no_results], spacing=12,
                           horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         visible=False, padding=12, border=ft.border.Border.all(1, BORDER),
         border_radius=RADIUS, bgcolor=BG,
@@ -224,11 +224,11 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
                     labels.append(ft.Text(english, size=11.5, color=TEXT_DIM, rtl=False, font_family="Inter"))
                 rows.append(ft.Container(
                     content=ft.Row([
-                        ft.Column(labels, spacing=2, expand=True),
+                        ft.Column(labels, spacing=4, expand=True),
                         ft.Icon(ft.Icons.CHECK_ROUNDED, size=18, color=ACCENT,
                                 visible=code == selected()),
-                    ], spacing=10),
-                    padding=ft.padding.Padding.symmetric(horizontal=10, vertical=9),
+                    ], spacing=12),
+                    padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
                     bgcolor=ACCENT_TINT if code == selected() else None,
                     border_radius=RADIUS, ink=False,
                     on_click=lambda e, code=code: choose(code),
@@ -252,7 +252,7 @@ def _language_picker(cfg, *, on_restart, set_status, BG, BORDER, ACCENT,
     selector = ft.Container(
         content=ft.Row([
             ft.Icon(ft.Icons.LANGUAGE_ROUNDED, size=20, color=ACCENT),
-            ft.Column([native_text, english_text], spacing=2, expand=True), chevron,
+            ft.Column([native_text, english_text], spacing=4, expand=True), chevron,
         ], spacing=12),
         on_click=toggle, data="language-picker-toggle",
         padding=12, bgcolor=ft.Colors.with_opacity(.35, BG),
@@ -291,7 +291,7 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
     enabled = ft.Switch(value=settings.get(enabled_key, True), active_color=ACCENT,
                         data="default-jvm-flags-enabled")
 
-    rows = ft.ListView(spacing=1, height=288, visible=False)
+    rows = ft.ListView(spacing=4, height=288, visible=False)
     chevron = ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT_DIM)
     summary = ft.Text("", size=11.5, color=TEXT_FAINT)
     open_state = {"v": False}
@@ -355,11 +355,11 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                                         else i18n.t("Not added on this machine"),
                                         size=10, color=TEXT_FAINT)]
                                if dropped else [])],
-                            spacing=1, expand=True, tight=True),
+                            spacing=4, expand=True, tight=True),
                     ],
                     spacing=12, vertical_alignment=ft.CrossAxisAlignment.START,
                 ),
-                padding=ft.padding.Padding.symmetric(horizontal=18, vertical=5),
+                padding=ft.padding.Padding.symmetric(horizontal=16, vertical=4),
             ))
         applied = sum(1 for e in report
                       if (e.get("source") or "always") != "dropped")
@@ -405,9 +405,9 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                 ft.Text(i18n.t("Use Cubeon's default Java flags"), size=13, color=TEXT),
                 ft.Text(i18n.t("Turn off to use only your custom flags. The RAM slider then stops setting the Java heap."),
                         size=11.5, color=TEXT_DIM),
-            ], spacing=3, expand=True), enabled,
+            ], spacing=4, expand=True), enabled,
         ], spacing=12),
-        padding=ft.padding.Padding.symmetric(horizontal=18, vertical=12))
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12))
 
     def _toggle(e=None):
         with thread_safe_ui.TREE_LOCK:
@@ -430,7 +430,7 @@ def _java_defaults_panel(*, ram_slider, custom_jvm_field, BORDER, ACCENT,
                  summary],
                 spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.padding.Padding.symmetric(horizontal=18, vertical=12),
+            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
             ink=False, on_click=_toggle,
             tooltip="The JVM options Cubeon passes to Java on every launch, "
                     "and why each one is there",
@@ -539,14 +539,14 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
 
     def pane(title, *children):
         return ft.Column(
-            [heading(title), ft.Container(height=2), *children],
-            spacing=18, visible=False,
+            [heading(title), ft.Container(height=4), *children],
+            spacing=16, visible=False,
         )
 
     def compact(btn):
         """Shrink a full-width button to a row-sized one."""
         try:
-            btn.padding = ft.padding.Padding.symmetric(horizontal=18, vertical=9)
+            btn.padding = ft.padding.Padding.symmetric(horizontal=16, vertical=8)
             if isinstance(btn.content, ft.Text):
                 btn.content.size = 13
         except Exception:
@@ -667,7 +667,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                                    "Allocated shows the memory Java has reserved so far and can be lower."),
                             size=11.5, color=TEXT_FAINT),
                 ],
-                spacing=6,
+                spacing=8,
             )),
         ])),
         block(i18n.t("Java"), group([
@@ -681,7 +681,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                     ft.Text(i18n.t("Extra flags go after Cubeon's defaults. "
                             "Leave both fields blank unless you need them."),
                             size=11.5, color=TEXT_FAINT),
-                    ft.Container(height=6),
+                    ft.Container(height=8),
                     # "Which flags does Cubeon apply by default?" - collapsed,
                     # and built from launch.py so it cannot go stale.
                     _java_defaults_panel(
@@ -692,7 +692,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                         TEXT=TEXT, TEXT_DIM=TEXT_DIM, TEXT_FAINT=TEXT_FAINT,
                         FONT_MONO=FONT_MONO),
                 ],
-                spacing=6,
+                spacing=8,
             )),
         ])),
     )
@@ -726,7 +726,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         block(i18n.t("Game window"), group([
             row("Window size", "Resolution Minecraft opens at",
                 ft.Row([width_field, ft.Text("x", color=TEXT_DIM),
-                        height_field], spacing=10,
+                        height_field], spacing=12,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER)),
         ])),
         block(i18n.t("Launcher"), group(launcher_rows)),
@@ -816,10 +816,10 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 ft.Text("STABLE", size=12, weight=ft.FontWeight.W_700,
                         color=ACCENT),
             ],
-            spacing=6, tight=True,
+            spacing=8, tight=True,
         ),
         bgcolor=ACCENT_TINT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         ink=False,
         on_click=lambda e: _cycle_update_channel(),
     )
@@ -856,7 +856,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         bgcolor=ft.Colors.with_opacity(0.6, BG),
         border=ft.border.Border.all(1, BORDER),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=18, vertical=9),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8),
         alignment=ft.Alignment.CENTER, ink=False,
         on_click=_send_test_notification,
     )
@@ -889,7 +889,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                 ft.Row([backup_now_btn, open_folder_btn], spacing=12),
                 restore_btn,
             ],
-            spacing=10,
+            spacing=12,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         ), pad_v=12),
     ]
@@ -933,7 +933,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
     doctor_entries_host = ft.Container(
         content=doctor_entries, visible=False,
         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        bgcolor=BG, padding=ft.padding.Padding.symmetric(horizontal=14,
+        bgcolor=BG, padding=ft.padding.Padding.symmetric(horizontal=16,
                                                           vertical=12),
     )
     doctor_cancel = threading.Event()
@@ -1062,7 +1062,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
                  ft.Text(i18n.t(label), size=12.5,
                          color=TEXT if primary else TEXT_DIM,
                          weight=ft.FontWeight.W_600)],
-                spacing=6, tight=True),
+                spacing=8, tight=True),
             bgcolor=ACCENT_TINT if primary else None,
             border=ft.border.Border.all(1, ACCENT if primary else BORDER),
             border_radius=RADIUS,
@@ -1153,7 +1153,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
         p.visible = (key == active_section["value"])
 
     # --- section rail ---------------------------------------------------------
-    rail = ft.Column(spacing=2, tight=True,
+    rail = ft.Column(spacing=4, tight=True,
                      horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     rail_items = {}   # key -> the row Container, built once (see _rebuild_rail)
 
@@ -1199,7 +1199,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             spacing=8, expand=True, scroll=ft.ScrollMode.AUTO,
         ),
         expand=True,
-        padding=ft.padding.Padding.only(right=6),
+        padding=ft.padding.Padding.only(right=8),
     )
 
     rail_host = ft.Container(content=rail, width=184)
@@ -1209,7 +1209,7 @@ def build_settings_tab(page, cfg, *, section_label, pixel_divider,
             ft.Container(width=1, bgcolor=BORDER),
             pane_host,
         ],
-        spacing=22,
+        spacing=24,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH,
         expand=True,
     )

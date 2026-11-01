@@ -164,7 +164,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     install_button = ft.Container(
         content=ft.Text("Install server", color=BG, weight=ft.FontWeight.W_700, size=14),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=13, horizontal=18),
+        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=12, horizontal=16),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_install_click, width=180,
         tooltip="Paper server - works with normal Minecraft and supports plugins.",
     )
@@ -273,7 +273,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # written to whitelist.json for the next start.
     whitelist_add_field = text_field("Player name", width=200)
     whitelist_status = ft.Text("", size=11, color=TEXT_DIM)
-    whitelist_list = ft.Column(spacing=6, wrap=True)
+    whitelist_list = ft.Column(spacing=8, wrap=True)
 
     def refresh_whitelist_list():
         version_id = active_version["value"]
@@ -304,9 +304,9 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                         icon_color=TEXT_DIM, tooltip=f"Remove {name}",
                         on_click=_remove,
                     ),
-                ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ], spacing=8, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 bgcolor=SURFACE_HI, border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=2),
+                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
             ))
         thread_safe_ui.refresh(whitelist_list)
 
@@ -331,7 +331,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     whitelist_add_button = ft.Container(
         content=ft.Text(i18n.t("Add"), size=12, color=BG, weight=ft.FontWeight.W_700),
         bgcolor=ACCENT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_whitelist_add,
     )
 
@@ -383,13 +383,13 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     gate_set_button = ft.Container(
         content=ft.Text("Set password", size=12, color=BG, weight=ft.FontWeight.W_700),
         bgcolor=ACCENT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_gate_set,
     )
     gate_clear_button = ft.Container(
         content=ft.Text(i18n.t("Remove"), size=12, color=TEXT_DIM, weight=ft.FontWeight.W_600),
         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=10),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_gate_clear,
     )
     # Distance caps: Minecraft ENFORCES view-distance / simulation-distance
@@ -699,7 +699,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             spacing=8, tight=True,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=14, vertical=11),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         ink=False, on_click=on_open_folder_click,
     )
 
@@ -775,7 +775,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             spacing=8, tight=True,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, DANGER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=14, vertical=11),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         ink=False, on_click=on_delete_server_click,
     )
 
@@ -824,9 +824,9 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         content=ft.Row(
             [ft.Icon(ft.Icons.SAVE_ROUNDED, color=BG, size=16),
              ft.Text(i18n.t("Save"), color=BG, weight=ft.FontWeight.W_800, size=13)],
-            spacing=7, tight=True,
+            spacing=8, tight=True,
         ),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=18, vertical=12),
+        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_save_settings,
     )
 
@@ -856,7 +856,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         ),
         bgcolor=SURFACE_HI, border_radius=RADIUS, ink=False,
         on_click=_toggle_advanced,
-        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
     )
     advanced_body = ft.Column(
         [
@@ -871,7 +871,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             ft.Container(height=4),
             section_label("Security password"),
             ft.Row([gate_password_field, gate_set_button,
-                    gate_clear_button, gate_status], spacing=10,
+                    gate_clear_button, gate_status], spacing=12,
                    vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Container(height=4),
             pixel_divider(),
@@ -919,7 +919,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 ft.Container(height=4),
                 section_label("Whitelist"),
                 ft.Row([whitelist_add_field, whitelist_add_button,
-                        whitelist_status], spacing=10,
+                        whitelist_status], spacing=12,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 whitelist_list,
                 ft.Container(height=4),
@@ -949,7 +949,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             return ACCENT
         return TEXT_DIM
 
-    console_log = ft.ListView(expand=True, spacing=1, auto_scroll=True,
+    console_log = ft.ListView(expand=True, spacing=4, auto_scroll=True,
                               auto_scroll_animation=scrolling.animation())
     console_line_count = ft.Text("0 lines", size=11, color=TEXT_FAINT, font_family=FONT_MONO)
 
@@ -1081,10 +1081,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         return ft.Container(
             content=ft.Row(
                 [ft.Icon(icon, size=15, color=TEXT), ft.Text(label, size=12.5, color=TEXT, weight=ft.FontWeight.W_600)],
-                spacing=6, tight=True,
+                spacing=8, tight=True,
             ),
             bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=9),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ink=False, on_click=on_click,
         )
 
@@ -1279,17 +1279,17 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     start_stop_button = ft.Container(
         content=ft.Text("Start server", color=BG, weight=ft.FontWeight.W_700, size=14),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=13, horizontal=20),
+        bgcolor=ACCENT, border_radius=RADIUS, padding=ft.padding.Padding.symmetric(vertical=12, horizontal=24),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_start_stop_click, width=180,
     )
 
     restart_button = ft.Container(
         content=ft.Row(
             [ft.Icon(ft.Icons.RESTART_ALT_ROUNDED, size=16, color=TEXT), ft.Text(i18n.t("Restart"), size=13, color=TEXT, weight=ft.FontWeight.W_600)],
-            spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+            spacing=8, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=13, horizontal=16),
+        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=16),
         alignment=ft.Alignment.CENTER, ink=False, on_click=on_restart_click, disabled=True,
     )
 
@@ -1329,10 +1329,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             [ft.Icon(ft.Icons.WARNING_ROUNDED, size=16, color=BG),
              ft.Text("Stop leftover server", size=13, color=BG,
                      weight=ft.FontWeight.W_700)],
-            spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+            spacing=8, tight=True, alignment=ft.MainAxisAlignment.CENTER,
         ),
         bgcolor=DANGER, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(vertical=13, horizontal=16),
+        padding=ft.padding.Padding.symmetric(vertical=12, horizontal=16),
         alignment=ft.Alignment.CENTER, ink=False,
         on_click=on_stop_orphan_click, visible=False,
     )
@@ -1381,7 +1381,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     command_field = ft.TextField(
         hint_text="type a command, press Enter",
-        border=ft.InputBorder.NONE, content_padding=ft.padding.Padding.symmetric(horizontal=4, vertical=10),
+        border=ft.InputBorder.NONE, content_padding=ft.padding.Padding.symmetric(horizontal=4, vertical=12),
         color=TEXT, hint_style=ft.TextStyle(color=TEXT_FAINT, size=13, font_family=FONT_MONO),
         cursor_color=ACCENT, bgcolor=None,
         height=40, expand=True, text_style=ft.TextStyle(font_family=FONT_MONO, size=13),
@@ -1390,7 +1390,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     )
     send_command_button = ft.Container(
         content=ft.Icon(ft.Icons.ARROW_FORWARD_ROUNDED, size=16, color=BG),
-        bgcolor=ACCENT, border_radius=RADIUS, padding=9, ink=False,
+        bgcolor=ACCENT, border_radius=RADIUS, padding=8, ink=False,
         on_click=on_send_command, disabled=True,
     )
 
@@ -1398,7 +1398,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # line count + clear) and the command input docked in a footer with a
     # shell prompt glyph - reads as "a console", not a form.
     terminal_container = ft.Container(
-        bgcolor="#0A0C08",
+        bgcolor=BG,
         border=ft.border.Border.all(1, BORDER),
         border_radius=RADIUS,
         content=ft.Column(
@@ -1407,14 +1407,12 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Container(width=9, height=9, border_radius=100, bgcolor="#5A6152"),
-                            ft.Container(width=9, height=9, border_radius=100, bgcolor="#4A4F45"),
-                            ft.Container(width=9, height=9, border_radius=100, bgcolor="#3A3F37"),
-                            ft.Container(width=6),
+                            ft.Icon(ft.Icons.TERMINAL_ROUNDED, size=16, color=TEXT_DIM),
+                            ft.Container(width=8),
                             ft.Text("server-console", size=12, color=TEXT_DIM, font_family=FONT_MONO),
                             ft.Container(expand=True),
                             console_line_count,
-                            ft.Container(width=10),
+                            ft.Container(width=12),
                             ft.Container(
                                 content=ft.Row(
                                     [ft.Icon(ft.Icons.CLEAR_ALL_ROUNDED, size=13, color=TEXT_DIM),
@@ -1428,9 +1426,9 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                         ],
                         spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    padding=ft.padding.Padding.symmetric(horizontal=10, vertical=7),
+                    padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
                 ),
-                ft.Container(height=1, bgcolor=BORDER, margin=ft.margin.Margin.symmetric(horizontal=1)),
+                ft.Container(height=1, bgcolor=BORDER, margin=ft.margin.Margin.symmetric(horizontal=4)),
                 # log body - FIXED height, not expand: the Console view is a
                 # scrolling column, and inside a scrollable parent expand
                 # collapses to zero (the old log did the same trick with a
@@ -1444,10 +1442,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                             command_field,
                             send_command_button,
                         ],
-                        spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    bgcolor="#11140E",
-                    padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
+                    bgcolor=SURFACE_HI,
+                    padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
                 ),
             ],
             spacing=0, tight=True,
@@ -1502,7 +1500,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                                     ft.Text("No plugins installed yet", size=14, color=TEXT, weight=ft.FontWeight.W_700),
                                     ft.Text("Pick one above and it lands here.", size=12, color=TEXT_DIM),
                                 ],
-                                spacing=2, expand=True,
+                                spacing=4, expand=True,
                             ),
                         ],
                         spacing=12,
@@ -1510,7 +1508,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                     bgcolor=SURFACE_HI,
                     border=ft.border.Border.all(1, BORDER),
                     border_radius=RADIUS,
-                    padding=14,
+                    padding=16,
                 )
             )
         visible_plugins = plugins if plugins_show_all["value"] else plugins[:5]
@@ -1523,7 +1521,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                         "Show fewer" if plugins_show_all["value"] else f"Show all installed ({len(plugins) - 5} more)",
                         size=12, color=ACCENT, weight=ft.FontWeight.W_700,
                     ),
-                    padding=ft.padding.Padding.symmetric(vertical=8, horizontal=10),
+                    padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
                     border_radius=RADIUS,
                     ink=False,
                     on_click=lambda e: (plugins_show_all.update({"value": not plugins_show_all["value"]}), refresh_plugins_list()),
@@ -1570,7 +1568,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                                         else ("Enabled" if p["enabled"] else "Disabled"),
                                         size=11, color=TEXT_FAINT, font_family=FONT_MONO),
                             ],
-                            spacing=2, expand=True,
+                            spacing=4, expand=True,
                         ),
                         # Protected plugins (Minekube Connect) get a lock instead
                         # of the toggle/delete controls - they're Cubeon's own
@@ -1593,10 +1591,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                             ]
                         ),
                     ],
-                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ),
             "transparent", ROW_HOVER,
         )
@@ -1607,7 +1605,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         border_color=CARD_BORDER, focused_border_color=ACCENT_DIM, color=TEXT,
         hint_style=ft.TextStyle(color=TEXT_FAINT), bgcolor=CARD_FILL, border_radius=RADIUS,
         height=46, expand=True, prefix_icon=ft.Icons.SEARCH_ROUNDED,
-        content_padding=ft.padding.Padding.symmetric(horizontal=14, vertical=12),
+        content_padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         on_submit=lambda e: run_plugin_search(),
     )
     plugin_search_status = ft.Text("", size=12, color=TEXT_DIM)
@@ -1628,22 +1626,22 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         bgcolor=SURFACE_HI, border=ft.border.Border.all(1, BORDER),
-        border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=14, vertical=9),
+        border_radius=RADIUS, padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8),
         visible=False,
     )
     _plugin_install_busy = {"v": False}   # one install at a time (double-click safe)
     plugin_install_registry = InstallRegistry()
-    plugin_results_list = ft.Column(spacing=10)
+    plugin_results_list = ft.Column(spacing=12)
     PLUGIN_PAGE_SIZE = 5
     plugin_browse_state = {"results": [], "page": 0}
     plugin_pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     plugin_pager_prev = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=False,
+        padding=8, border_radius=RADIUS, ink=False,
     )
     plugin_pager_next = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=False,
+        padding=8, border_radius=RADIUS, ink=False,
     )
     plugin_pager_row = ft.Row(
         [plugin_pager_prev, plugin_pager_label, plugin_pager_next],
@@ -1751,11 +1749,11 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                 [ft.Icon(ft.Icons.CHECK_ROUNDED if is_installed else ft.Icons.DOWNLOAD_ROUNDED,
                          color=TEXT_FAINT if is_installed else ACCENT, size=15),
                  install_btn_text],
-                spacing=6, tight=True,
+                spacing=8, tight=True,
             ),
             bgcolor=None if is_installed else ACCENT_TINT,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ink=False,
             on_click=None if is_installed else _install_plugin_handler(hit, feedback),
         )
@@ -1820,14 +1818,14 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                                     spacing=4,
                                 ),
                             ],
-                            spacing=3, expand=True,
+                            spacing=4, expand=True,
                         ),
                         install_btn,
                     ],
-                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=10),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
                 on_click=_open_plugin_detail,
             ),
             "transparent", ROW_HOVER,
@@ -1928,7 +1926,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # themselves, exactly like the mods browse pane.
     plugins_browse_pane = ft.Column(
         [
-            ft.Row([plugin_search_field], spacing=6),
+            ft.Row([plugin_search_field], spacing=8),
             ft.Container(height=12),
             ft.Row([plugin_market_title, ft.Container(expand=True), plugin_search_status],
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -1951,7 +1949,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         visible=False,
     )
 
-    plugins_view_segment_row = ft.Row(spacing=18)
+    plugins_view_segment_row = ft.Row(spacing=16)
 
     def _build_plugins_view_segment():
         plugins_view_segment_row.controls.clear()
@@ -1987,7 +1985,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             # share the screen one at a time - the installed list no longer
             # lives a full market-scroll below the search results.
             plugins_view_segment_row,
-            ft.Container(height=6),
+            ft.Container(height=8),
             plugins_browse_pane,
             plugins_installed_pane,
         ],
@@ -2167,18 +2165,18 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
             # one slim status bar: dot + state + address, nothing stacked
             ft.Row(
                 [status_dot, status_text, address_text],
-                spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             public_text,
             public_hint_text,
             orphan_notice,
-            ft.Row([stop_orphan_button], spacing=10),
-            ft.Container(height=6),
+            ft.Row([stop_orphan_button], spacing=12),
+            ft.Container(height=8),
             quick_actions_row,
             ft.Container(height=8),
             terminal_container,
         ],
-        spacing=6,
+        spacing=8,
         scroll=ft.ScrollMode.AUTO,
         expand=True,
     )
@@ -2201,7 +2199,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
                         ft.Container(height=4),
                         eula_checkbox,
                     ],
-                    spacing=10,
+                    spacing=12,
                 ),
                 bgcolor=SURFACE, border=ft.border.Border.all(1, BORDER), border_radius=RADIUS, padding=24,
             ),

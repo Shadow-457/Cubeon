@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<title>البدء مع Cubeon - التثبيت وأول تشغيل والإصدارات</title>
+<meta name="description" content="Which Cubeon fأي ملف Cubeon تنزّل، وما يطلبه أول تشغيل، وكيف تعمل النسخ وJava، وكيف تحدّث المشغّل.perty="og:title" content="Getting starteالبدء مع Cubeonperty="og:description" content="Install it, piثبّته، واختر إصدارًا، واضغط تشغيل - مع الإعدادات التي تستحق المعرفة في الطريق.="canonical" href="https://www.ylet.online/getting-started" />
+<meta property="og:site_name" content="Cubeon Launcher" />
+<meta property="og:type" content="article" />
+<meta property="og:image" content="https://www.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon lauمشغّل Cubeon معروض فوق عالم Minecraft: منتقي إصدار، واسم حساب، وزر تشغيل أخضر كبير.e="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
+<!-- cubeon:auto-language -->
+<script>
+(function () {
+  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  if (location.protocol === 'file:') return;
+  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
+  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
+  if (m) cur = m[1];
+  function search() {
+    var out = '', q;
+    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
+    return (out ? '?' + out : '') + location.hash;
+  }
+  function urlFor(code) {
+    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
+    if (rest === '/index.html') rest = '/';
+    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
+    return (code === 'en' ? '' : '/' + code) + rest + search();
+  }
+  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
+  var q = null;
+  try { q = new URLSearchParams(location.search); } catch (e) {}
+  if (q && q.get('lang') && names[q.get('lang')]) {
+    pref = q.get('lang');
+    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
+    location.replace(urlFor(pref));
+    return;
+  }
+  if (!pref) {
+    var list = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var code = String(list[i]).toLowerCase().split('-')[0];
+      if (names[code]) { pref = code; break; }
+    }
+  }
+  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
+})();
+</script>
+<!-- /cubeon:auto-language -->
+<link rel="stylesheet" href="/assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+<!-- cubeon:seo -->
+<link rel="alternate" hreflang="en" href="https://www.ylet.online/getting-started" />
+<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/getting-started" />
+<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/getting-started" />
+<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/getting-started" />
+<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/getting-started" />
+<link rel="canonical" href="https://www.ylet.online/ar/getting-started" />
+<meta property="og:url" content="https://www.ylet.online/ar/getting-started" />
+<!-- /cubeon:seo -->
+<link rel="stylesheet" href="/assets/rtl.css" />
+</head>
+<body>
+<a class="skip" href="#content">تخطَّ إلى المحتوى</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/ar" aria-label="Cubeon home"الصفحة الرئيسية لـ Cubeon="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776القائمةutton>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <!-- cubeon:language -->
+<div class="lang-menu">
+  <details>
+    <summary aria-label="اللغة: العربية"><span aria-hidden="true">🌐</span> AR</summary>
+    <nav class="lang-list" aria-label="اللغة">
+          <a href="/getting-started" hreflang="en" lang="en">English</a>
+          <a href="/ar/getting-started" hreflang="ar" lang="ar" aria-current="true">العربية</a>
+          <a href="/uk/getting-started" hreflang="uk" lang="uk">Українська</a>
+          <a href="/ru/getting-started" hreflang="ru" lang="ru">Русский</a>
+    </nav>
+  </details>
+</div>
+<!-- /cubeon:language -->
+     الرئيسيhref="/ar">الرئيسية</a>
+      <a href="/ar/download">تنزيل</a>
+      <a href="/ar/docs" aria-current="page">الوثائق</a>
+      <a href="/ar/doctor">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/ar/download">احصل على Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/ar">الرئيسية</a> / <a href="/ar/docs">الوثائق</a> / البدء</p>
+      <h1>البدء</h1>
+      <p class="lede">تنزيل واحد، واسم واحد، وزر لعب واحد. تغطي هذه الصفحة الملف الذي تختاره، وما يحدث في أول تشغيل، والإعدادات القليلة التي تستحق المعرفة.</p>
+      <p class="updated">تحديث 28 أكتوبر 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <nav aria-label="Docs guidالتنقل في الأدلةiv class="docs-nav-group">أدلة الوثائق<span class="docs-nav-label">الأدلة</span>
+          <a class="docs-nav-link" href="/ar/docs">كل الأدلة</a>
+          <a class="docs-nav-link" href="/ar/getting-started" aria-current="page">البدء</a>
+          <a class="docs-nav-link" href="/ar/mods">المودات والمحتوى</a>
+          <a class="docs-nav-link" href="/ar/modpacks">حزم المودات</a>
+          <a class="docs-nav-link" href="/ar/multiplayer">اللعب معًا</a>
+          <a class="docs-nav-link" href="/ar/cosmetics">السكنات والمستلزمات التجميلية</a>
+          <a class="docs-nav-link" href="/ar/troubleshooting">التعطلات والإصلاحات</a>
+          <a class="docs-nav-link" href="/ar/files">الملفات والنسخ الاحتياطية</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">في هذه الصفحة</span>
+          <a class="docs-nav-link" href="#download">ما الذي يجب تنزيله</a>
+          <a class="docs-nav-link" href="#first-launch">تشغيلك الأول</a>
+          <a class="docs-nav-link" href="#versions">الإصدارات والمحمّلات</a>
+          <a class="docs-nav-link" href="#instances">النسخ</a>
+          <a class="docs-nav-link" href="#java-memory">Java والذاكرة</a>
+          <a class="docs-nav-link" href="#fps-boost">تعزيز FPS</a>
+          <a class="docs-nav-link" href="#settings">إعدادات تستحق المعرفة</a>
+          <a class="docs-nav-link" href="#updates">التحديث</a>
+        </div>
+      </nav>
+    </aside>
+
+    <div class="docs-main">
+
+      <div class="docs-section" id="download">
+        <span class="docs-section-eyebrow">الخطوة الأولى</span>
+        <h2>ما الذي يجب تنزيله</h2>
+        <p>كل شيء موجود في <a href="/ar/download">صفحة التنزيل</a>، وكل إصدار مجاني دون الحاجة إلى حساب. اختر الملف الذي يناسب جهازك:</p>
+        <ul>
+          <li><strong>Windows - ملف الإعداد.</strong> انقر عليه نقرًا مزدوجًا، وتابع خطوات المثبّت، ثم شغّل Cubeon من قائمة ابدأ. هذا هو الخيار الأسهل لمعظم الناس.</li>
+          <li><strong>Linux - مثبّت أو حزمة.</strong> يتضمن ملف الإعداد المشغّل والأيقونة، ويضيف مدخلًا في قائمة التطبيقات، ويدعم الأنظمة التي لا تدعم FUSE. ويمكن لمستخدمي Debian وUbuntu اختيار الحزمة. ويبقى ملف AppImage المستقل متاحًا كبديل.</li>
+        </ul>
+        <pre><code>bash Cubeon-Linux-x86_64-Setup.sh</code></pre>
+        <p>لا يوجد إصدار لـ Mac بعد. وعند توفره سيكون على صفحة التنزيل.</p>
+
+        <h3>ما يحتاجه الجهاز</h3>
+        <ul>
+          <li>Windows 10 أو 11، أو توزيعة Linux حديثة بنواة 64 بت.</li>
+          <li>ذاكرة نظام لا تقل عن 4&nbsp;GB لـ Minecraft العادي؛ و8&nbsp;GB أو أكثر مريحة بعد إضافة المودات.</li>
+          <li>بطاقة رسوميات قادرة أصلًا على تشغيل Minecraft، ومساحة قرص صغيرة لكل إصدار مثبت.</li>
+        </ul>
+        <p><strong>لا</strong> تحتاج إلى حساب Minecraft أو بريد إلكتروني أو Java أو Python. فـ Cubeon تطبيق مكتفٍ بذاته، ويجلب ملفات اللعبة وبيئة تشغيل Java بنفسه.</p>
+
+        <h3>إذا حذّرك Windows بشأن الملف</h3>
+        <p>التطبيقات المستقلة الصغيرة غير موقّعة من ناشر كبير، لذا يعرض Windows SmartScreen تحذيرًا في المرة الأولى. اختر <strong>More info</strong> ثم <strong>Run anyway</strong> (أو <strong>Keep</strong> إذا سألك متصفحك أولًا). ولا تفعل ذلك إلا لملف نزّلته من صفحة التنزيل - ولا تعطّل أمن Windows ككل أبدًا لتشغيل تطبيق.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="first-launch">
+        <h2>تشغيلك الأول</h2>
+        <p>يفتح Cubeon على علامة تبويب اللعب. وتحدث ثلاثة أمور بهذا الترتيب:</p>
+        <ol>
+          <li><strong>اختر اسمًا.</strong> من ثلاثة إلى ستة عشر حرفًا، بلا كلمة مرور وبلا بريد إلكتروني. بالاسم يجدك أصدقاؤك، والأسماء تُمنح للأسبق - فاختر ما تريده الآن لا لاحقًا.</li>
+          <li><strong>اختر إصدار Minecraft</strong> من منتقي الإصدارات. واترك المحمّل على <strong>Vanilla</strong> ما لم تكن تعرف مسبقًا أنك بحاجة إلى مودات.</li>
+          <li><strong>اضغط تشغيل.</strong> أول تشغيل ينزّل اللعبة نفسها، فيستغرق بضع دقائق حسب اتصالك. ويعرض شريط التقدم ما يجري جلبه، ويتحول الزر إلى إلغاء أثناء العمل.</li>
+        </ol>
+        <p>الإلغاء أثناء ذلك التنزيل الأول آمن: لا شيء يبقى نصف مثبّت، والضغط على تشغيل مرة أخرى يكمل من حيث توقف.</p>
+        <div class="note">
+          <b>يستخدم Cubeon ملف تعريف دون اتصال</b>
+          <p>لا يوجد تسجيل دخول عبر Microsoft أو Mojang. وهذا ما يجعل "اختر اسمًا والعب" ممكنًا، لكنه يعني أيضًا أن الخوادم التي تتطلب حساب Minecraft حقيقيًا سترفضك - انظر <a href="/ar/multiplayer#offline">الأسماء دون اتصال والخوادم المدفوعة</a>.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="versions">
+        <h2>الإصدارات والمحمّلات</h2>
+        <p>"الإصدار" في Cubeon هو إصدار من Minecraft مضافًا إليه، اختياريًا، محمّل مودات. ويستطيع المشغّل تثبيت هذه المحمّلات لك:</p>
+        <ul>
+          <li><strong>Vanilla</strong> - اللعبة العادية. تعمل حزم الموارد، ولا تعمل المودات والشيدرات.</li>
+          <li><strong>Fabric</strong> و<strong>Quilt</strong> - الخيار المعتاد لمودات الأداء والمودات التجميلية ومعظم الحزم الحديثة.</li>
+          <li><strong>Forge</strong> و<strong>NeoForge</strong> - تحتاجهما المودات والحزم الأقدم التي صُممت لهما.</li>
+        </ul>
+        <p>القاعدة المهمة: لا يعمل المود إلا على المحمّل وإصدار Minecraft المخصصين له. فمود Fabric لا يعمل لمجرد تثبيت إصدار Forge، ومود 1.20.1 لا يعمل على 1.21. ويبدأ <a href="/ar/mods#before">دليل المودات</a> بهذا الفحص لسبب وجيه.</p>
+        <p>ثبّت ما تشاء من الإصدارات. كل إصدار يُنزَّل مرة واحدة ثم يبدأ بسرعة.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="instances">
+        <h2>النسخ</h2>
+        <p>النسخة هي إصدار واحد في مجلد خاص بإعداداته الخاصة. عوالمك وإعدادات الرسوميات واختصارات المفاتيح وقائمة الخوادم تنتمي إلى النسخة التي تشغّلها - فيمكن لعالم اختبار ريدستون وعالم مثقل بالشيدرات أن يتعايشا دون تنازع على <code>options.txt</code>.</p>
+        <ul>
+          <li><strong>بطاقة اللعب</strong> - تعرض النسخة التي اخترتها ومحمّلها. وتوجد هنا <strong>المجلد</strong> و<strong>إعادة التسمية</strong> و<strong>حذف</strong>.</li>
+          <li><strong>القلم</strong> - يفتح منتقي الأيقونات: 20 مكعبًا و20 رأس كائن. تُحفظ الأيقونة لكل نسخة؛ والنقر على البطاقة لا يزال يختارها.</li>
+          <li><strong>المحتوى المشترك</strong> - تُحفظ المودات المثبتة وحزم الموارد والشيدرات مرة واحدة وتشاركها كل النسخ، فلا يلزم إضافة مود مرتين.</li>
+        </ul>
+        <p>حذف نسخة <strong>لا</strong> يحذف مجلد عالمها. وإذا أردت إزالة العالم أيضًا، فاحذف ذلك المجلد بنفسك - ويوضح <a href="/ar/files#instances">داخل نسخة</a> موقعه.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="java-memory">
+        <h2>Java والذاكرة</h2>
+        <h3>نتولى Java عنك</h3>
+        <p>يستخدم Cubeon نسخة Java يجدها على جهازك إذا كانت حديثة بما يكفي للإصدار الذي اخترته، وإلا نزّل لك نسخة مجانية. ولا تحتاج إلى التدخل إلا إذا أردت بناء Java محددًا.</p>
+        <p>في هذه الحالة افتح <strong>الإعدادات</strong> &gt; <strong>Java</strong> ووجّهه إلى الملف التنفيذي <code>java</code>. واستخدم بناءً بنواة 64 بت: فالإصدارات من 1.18 إلى 1.20.4 تحتاج Java 17، و1.20.5 وما بعده يحتاج Java 21، وإصدارات 26.x تحتاج Java 25. والمسار إلى Java بنواة 32 بت أو إلى Java 8 قديم هو السبب الأكثر شيوعًا لفشل التشغيل بعد تغيير هذا يدويًا.</p>
+        <h3>الذاكرة</h3>
+        <p>يبدأك Cubeon عند 4&nbsp;GB، وهو مناسب لـ vanilla وللاستخدام الخفيف للمودات. وارفعه إلى 6-8&nbsp;GB مع حزمة مودات ثقيلة. أما رفعه كثيرًا على جهاز بذاكرة 4&nbsp;GB أو 8&nbsp;GB فيزيد الأمور سوءًا لا حسنًا: فنظام التشغيل وبقية اللعبة لا يزالان بحاجة إلى ذاكرة خاصة بهما.</p>
+        <p>في <strong>الإعدادات</strong> &gt; <strong>الأداء</strong> &gt; <strong>Java</strong>، وسّع <strong>أعلام Cubeon الافتراضية</strong> لترى بالضبط ما سيُمرَّر إلى اللعبة، بما في ذلك الخيارات التي تم تخطيها على عتادك. وتُضاف الأعلام المخصصة بعد الافتراضية.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="fps-boost">
+        <h2>تعزيز FPS</h2>
+        <p>تعزيز معدل الإطارات (FPS) مفعّل افتراضيًا. وعند التشغيل، يثبّت Sodium وخمسة مودات مرافقة (Lithium وImmediatelyFast وEntity Culling وFerriteCore وMore Culling) في ذلك الملف التعريفي، ويضبط خيارات الرسوميات المكلفة للإطارات على قيمها السريعة.</p>
+        <p>إيقافه يعيد رسوميات vanilla في التشغيل التالي - والمفتاح في قائمة اللعب ويوضح دائمًا وضعه. وتتضمن <a href="/ar/benchmarks">صفحة القياسات</a> الأرقام المقيسة، والتحفظات الملازمة لها.</p>
+        <div class="note tip">
+          <b>هل فعّلت التعزيز ولا يزال الأداء متقطعًا؟</b>
+          <p>قلّل مسافة العرض أولًا. فهي دائمًا تقريبًا الإعداد الأكبر أثرًا، وتكلفتها أقل بكثير مما تبدو. ويضم <a href="/ar/troubleshooting#performance">البطء أو التقطيع</a> بقية الحلول.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="settings">
+        <h2>إعدادات تستحق المعرفة</h2>
+        <p>توجد الإعدادات داخل لوحة الحساب، في شريط قصير على اليسار. وهذه هي التي يغيّرها الناس فعليًا:</p>
+        <ul>
+          <li><strong>اللغة</strong> - 22 لغة، قابلة للبحث بالاسم الأصلي أو الاسم الإنجليزي أو الرمز. والعربية والأردية والفارسية والبشتو تحوّل المشغّل كله إلى الاتجاه من اليمين إلى اليسار. ويسري تغيير اللغة بعد إعادة التشغيل، وتعود الرسائل التفصيلية غير المترجمة إلى الإنجليزية.</li>
+          <li><strong>شريط عنوان مخصص</strong> - مفعّل افتراضيًا على Windows وLinux. أوقفه إذا كان مدير النوافذ لديك يرسم شريط عنوانه الخاص.</li>
+          <li><strong>الإشعارات</strong> - <strong>النظام</strong> &gt; <strong>الإشعارات</strong> &gt; <strong>رسائل الدردشة</strong> يتحكم في تنبيهات الرسائل الواردة. والمحادثات المفتوحة لا تنبّهك، والسجل القديم لا ينبّهك أبدًا.</li>
+          <li><strong>النسخ الاحتياطية</strong> - احفظ إعدادات مشغّلك وسجله واستعدها. ويوضح <a href="/ar/files#backups">النسخ الاحتياطي</a> ما يشمله ذلك.</li>
+          <li><strong>لقطات الشاشة</strong> - قسم خاص بها، مع معرض لما التقطته داخل اللعبة.</li>
+          <li><strong>استيراد</strong> - افحص مجلد <code>.minecraft</code> قديمًا وانتقِ منه المودات والحزم والعوالم. ويتناول ذلك <a href="/ar/modpacks#import">الحزم والعوالم من إعداد قديم</a>.</li>
+        </ul>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="updates">
+        <h2>التحديث</h2>
+        <p>عند توفر إصدار جديد، يعرض Cubeon خيارَي التخطي والتحديث. اختر تحديث لتنزيله والتحقق منه وتثبيته وإعادة فتح Cubeon تلقائيًا.</p>
+        <ol>
+          <li>أغلق Minecraft وأوقف عمليات التثبيت النشطة أو الخوادم المستضافة.</li>
+          <li>انقر تحديث في Cubeon. ويمكنك الإلغاء أثناء التنزيل.</li>
+          <li>يُعاد فتح Cubeon بعد التثبيت. وقد تطلب تحديثات حزمة Debian/Ubuntu تصريحًا من النظام.</li>
+        </ol>
+        <p>لا يمس التحديث اسمك أو سكناتك أو عوالمك أو محتواك المثبت: فهي تعيش في مجلد المستخدم، لا في مجلد التطبيق (<a href="/ar/files#where">أين توجد الأشياء</a>).</p>
+        <p>يتيح لك <strong>الإعدادات</strong> &gt; <strong>التحديثات</strong> أيضًا اختيار قناة التحديث. فالمستقرة تحصل على الإصدارات، والتجريبية تحصل على نسخ الاختبار أيضًا.</p>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div class="docs-section" id="next">
+        <h2>التالي</h2>
+        <div class="docs-guide-links">
+          <a href="/ar/mods">إضافة مود</a>
+          <a href="/ar/modpacks">تثبيت حزمة مودات</a>
+          <a href="/ar/multiplayer">العب مع الأصدقاء</a>
+          <a href="/ar/cosmetics">تعيين سكن</a>
+          <a href="/ar/troubleshooting">حدث خلل ما</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="/ar"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>مشغّل مجاني يجعل لعب Minecraft مع أصدقائك سهلاً - بلا حساب، وبلا خادم مستأجر، وبلا أي تعقيد.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="/ar">الرئيسية</a>
+        <a href="/ar/download">تنزيل</a>
+        <a href="/ar/docs">الوثائق</a>
+        <a href="/ar/doctor">Doctor</a>
+      <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>الخصوصية &amp; القواعد</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="/ar/privacy">الخصوصية</a>
+        <a href="/ar/terms">الشروط</a>
+        <a href="/ar/refunds">الاسترداد</a>
+        <a href="/ar/cookies">ملفات تعريف الارتباط</a>
+        <a href="/ar/licenses">الشكر والتقدير</a>
+        <a href="/ar/privacy#delete">احذف بياناتي</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>Cubeon Launcher. للتواصل: <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon مشروع معجبين غير رسمي - غير تابع لـ Mojang أو Microsoft. وMinecraft علامة تجارية لـ Mojang AB. آخر تحديث للسياسات في 20 سبتمبر 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<الصفحاتt src="/assets/site.js" defer></script>
+<script src="/assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
+قانوني

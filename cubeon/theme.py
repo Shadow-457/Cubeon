@@ -238,6 +238,7 @@ SPACE_MD = 12
 SPACE_LG = 16
 SPACE_XL = 24
 SPACE_XXL = 32
+SPACE_XXXL = 48
 
 # --- Type ------------------------------------------------------------------
 # Minecraftia is the blocky pixel display face, used for LARGE text only
@@ -370,6 +371,12 @@ def apply_page_theme(page):
         font_family=FONT_BODY,
         use_material3=True,
         color_scheme=scheme,
+        splash_color="transparent",
+        highlight_color="transparent",
+        hover_color=ROW_HOVER,
+        focus_color=ACCENT_TINT_HI,
+        canvas_color=BG,
+        scaffold_bgcolor=BG,
         # Squared-off, warm dialogs (SURFACE_MAX = top elevation), flat.
         dialog_theme=ft.DialogTheme(
             shape=shape, bgcolor=SURFACE_MAX, elevation=0,
@@ -418,7 +425,7 @@ def quiet_chip(label, selected=False, on_click=None):
     instead of a strip of buttons; the selected chip is a faint green wash
     with green text. This is the fix for 'box inside box inside box': filters
     stop competing with the content they filter."""
-    return ft.Container(
+    control = ft.Container(
         content=ft.Text(
             label,
             size=12,
@@ -427,11 +434,13 @@ def quiet_chip(label, selected=False, on_click=None):
         ),
         bgcolor=ACCENT_TINT if selected else None,
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
         ink=False,
         on_click=on_click,
         animate=150,
     )
+    return attach_hover(control, control.bgcolor,
+                        ACCENT_TINT_HI if selected else ROW_HOVER) if on_click else control
 
 
 def text_tab(label, selected=False, on_click=None):
@@ -439,7 +448,7 @@ def text_tab(label, selected=False, on_click=None):
     the selected section gets a small accent rule underneath and full-brightness
     text; everything else is quiet dim text. Removes another class of boxes
     from the chrome above the actual content."""
-    return ft.Container(
+    control = ft.Container(
         content=ft.Container(
             content=ft.Text(
                 label,
@@ -447,14 +456,16 @@ def text_tab(label, selected=False, on_click=None):
                 color=TEXT if selected else TEXT_DIM,
                 weight=ft.FontWeight.W_700 if selected else ft.FontWeight.W_500,
             ),
-            padding=ft.padding.Padding.only(bottom=7),
+            padding=ft.padding.Padding.only(bottom=8),
             border=ft.border.Border.only(
                 bottom=ft.border.BorderSide(2, ACCENT if selected else "transparent")),
         ),
-        padding=ft.padding.Padding.symmetric(horizontal=2),
+        padding=ft.padding.Padding.symmetric(horizontal=4),
         ink=False,
+        border_radius=RADIUS,
         on_click=on_click,
     )
+    return attach_hover(control, None, ROW_HOVER) if on_click else control
 
 
 def _toggle_pop(switch, base_scale):

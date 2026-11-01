@@ -71,7 +71,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TAB_ORDER = ["play", "mods", "modpacks", "chat", "profile",
              "server_console", "server_plugins", "server_settings",
              "stats", "settings"]
-KNOWN_KEYS = set(TAB_ORDER)
+KNOWN_KEYS = set(TAB_ORDER) | {"account"}
 
 # Segment keys inside the Mods tab (content type) - see ui/mods_tab.py
 # CONTENT_TABS. Every one behaves identically apart from its own strings.
@@ -88,6 +88,9 @@ def discover_nav(page):
         if callable(h) and isinstance(d, tuple) and len(d) == 1 \
                 and isinstance(d[0], str) and d[0] in KNOWN_KEYS:
             out.setdefault(d[0], c)
+    # Settings and Account share the retained account/settings popup.
+    if "settings" not in out and "account" in out:
+        out["settings"] = out["account"]
     # The top bar's Settings gear is `lambda e: switch_tab("settings")` - no
     # key default to discover above, so it was MISSING from every past tour.
     # Match it by control type + tooltip; nav rows (server_settings etc.) are
@@ -95,7 +98,7 @@ def discover_nav(page):
     # can't be confused - and only fall back when the key wasn't found at all.
     if "settings" not in out:
         for c in every_control(page):
-            if (type(c).__name__ == "IconButton"
+            if (type(c).__name__ in {"IconButton", "Container"}
                     and (getattr(c, "tooltip", "") or "") == "Settings"
                     and callable(getattr(c, "on_click", None))):
                 out["settings"] = c
@@ -151,7 +154,7 @@ def reach_tab(page, nav, key):
     return key in nav and _click(nav[key])
 
 
-def _subtab(page, key, max_nodes=3):
+def _subtab(page, key, max_nodes=8):
     """Click an in-page segment tab (content type, browse/installed, skin/cape).
 
     Identified by handler default arg == key, exactly like nav keys - but a
@@ -928,7 +931,7 @@ def _after_build(page, outdir, pixel_ratio, empty, only):
             print(f"  not reached: {', '.join(miss)}")
         await asyncio.sleep(0.3)
         try:
-            page.window.destroy()             # fire-and-forget: close when done
+            await page.window.close()
         except Exception:
             pass
 
@@ -966,11 +969,10 @@ def _run_windowed(outdir, pixel_ratio, empty, only, software):
     # `target(page)` and only awaits it when it is a coroutine function, so use
     # functools.partial (which keeps that identity) rather than a lambda.
     from functools import partial
-    target = (capture_main_async if fz.has_async_entry() else capture_main)
-    fz.run_app(partial(target, outdir=outdir, pixel_ratio=pixel_ratio,
+    # Both pinned Flet 0.86 and 1.x invoke targets on their event loop and
+    # accept coroutine functions. run_sync is only for headless FakePage.
+    fz.run_app(partial(capture_main_async, outdir=outdir, pixel_ratio=pixel_ratio,
                        empty=empty, only=only))
-    import flet as ft
-    fz.run_app(lambda page: capture_main(page, outdir, pixel_ratio, empty, only))
 
 
 def _count_new_pngs(outdir, since):

@@ -1,0 +1,89 @@
+/* ============================================================================
+   Arabic (RTL) overrides for the Cubeon site.
+
+   Only loaded by /ar pages (the build adds the link when <html dir="rtl">).
+   The main stylesheet is written with physical left/right properties, so this
+   file mirrors the handful that carry meaning: nav alignment, reading order,
+   the docs rail, table alignment and small decorations. Layout, colour and
+   spacing stay exactly the same as the English site.
+   ========================================================================== */
+
+[dir="rtl"] body{font-family:'Inter','Noto Sans Arabic',system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif}
+[dir="rtl"] h1,[dir="rtl"] h2,[dir="rtl"] h3,[dir="rtl"] .brand,[dir="rtl"] .btn,
+[dir="rtl"] .nav-cta,[dir="rtl"] .docs-guide h3,[dir="rtl"] .docs-section h3{
+  font-family:'Noto Sans Arabic','Inter',system-ui,sans-serif;
+  text-transform:none;
+  letter-spacing:0;
+}
+/* The pixel font is Latin-only; keep the chunky buttons readable in Arabic. */
+[dir="rtl"] .btn,[dir="rtl"] .nav-cta{font-weight:700}
+[dir="rtl"] .brand{font-family:'Noto Sans Arabic','Inter',sans-serif;font-weight:700}
+
+/* Code, paths, commands and numbers stay left-to-right inside Arabic prose. */
+[dir="rtl"] code,[dir="rtl"] kbd,[dir="rtl"] samp,[dir="rtl"] pre,
+[dir="rtl"] .bm-val,[dir="rtl"] .fps,[dir="rtl"] .void-code{
+  direction:ltr;
+  unicode-bidi:embed;
+}
+[dir="rtl"] pre,[dir="rtl"] .docs-main pre{text-align:left}
+
+/* ---- navigation ---- */
+[dir="rtl"] .nav-links{margin-left:0;margin-right:auto}
+[dir="rtl"] .nav-toggle{margin-left:0;margin-right:auto}
+[dir="rtl"] .lang-list{right:auto;left:0}
+[dir="rtl"] .skip{left:auto;right:-9999px}
+[dir="rtl"] .skip:focus{left:auto;right:18px}
+
+/* ---- hero and cards ---- */
+[dir="rtl"] .dl-badge{left:auto;right:26px}
+[dir="rtl"] .fact b::before{margin-right:0;margin-left:10px}
+[dir="rtl"] .sun{right:auto;left:7%}
+[dir="rtl"] .sign::before{left:auto;right:10px}
+[dir="rtl"] .sign::after{right:auto;left:10px}
+[dir="rtl"] .depth{left:auto;right:14px}
+
+/* ---- FAQ ---- */
+[dir="rtl"] .q-a{text-align:right}
+[dir="rtl"] .q-a .plus{margin-left:0;margin-right:auto}
+
+/* ---- legal / consent ---- */
+[dir="rtl"] .accept-list{text-align:right}
+[dir="rtl"] .cookie-note{right:auto;left:18px;padding:12px 14px 12px 34px}
+[dir="rtl"] .cookie-note button{right:auto;left:8px}
+@media(max-width:520px){
+  [dir="rtl"] .cookie-note{left:14px;right:14px}
+}
+
+/* ---- benchmark tables ---- */
+[dir="rtl"] .bm-bar i{border-right:0;border-left:2px solid var(--line)}
+[dir="rtl"] .bm-val{text-align:left}
+[dir="rtl"] table.bm-table caption{text-align:right}
+[dir="rtl"] table.bm-table th,[dir="rtl"] table.bm-table td{text-align:left}
+[dir="rtl"] table.bm-table th:first-child,[dir="rtl"] table.bm-table td:first-child{text-align:right}
+[dir="rtl"] .bm-list li{padding-left:0;padding-right:28px}
+[dir="rtl"] .bm-list li::before{left:auto;right:4px}
+
+/* ---- docs: the reading rail moves to the right ---- */
+[dir="rtl"] .docs-sidebar{border-right:0;border-left:3px solid var(--line)}
+[dir="rtl"] .docs-search-icon{left:auto;right:11px}
+[dir="rtl"] .docs-search input{padding:9px 34px 9px 32px}
+[dir="rtl"] .docs-search-clear{right:auto;left:8px}
+[dir="rtl"] .docs-nav-link{padding:7px 24px 7px 16px;border-left:0;border-right:3px solid transparent}
+[dir="rtl"] .docs-nav-link.active,[dir="rtl"] .docs-nav-link[aria-current="page"]{
+  border-left-color:transparent;
+  border-right-color:var(--grass);
+}
+[dir="rtl"] .docs-nav-group+.docs-nav-group{/* the divider is horizontal; nothing to mirror */}
+[dir="rtl"] .docs-section ul,[dir="rtl"] .docs-section ol{margin:0 22px 16px 0}
+[dir="rtl"] .docs-table th,[dir="rtl"] .docs-table td{text-align:right}
+[dir="rtl"] .docs-guide{border-left:0;border-right:6px solid var(--grass)}
+[dir="rtl"] .docs-to-top,[dir="rtl"] .docs-back{/* text arrows are mirrored in the markup, not here */}
+
+/* ---- decorative landscape: clouds drift the other way ---- */
+[dir="rtl"] .cloud{animation-direction:reverse}
+
+@media(max-width:880px){
+  [dir="rtl"] .lang-menu{margin-right:0}
+  [dir="rtl"] .lang-list{padding:0 14px 0 0}
+  [dir="rtl"] .docs-sidebar{border-left:0;border-bottom:3px solid var(--grass)}
+}

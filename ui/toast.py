@@ -62,7 +62,7 @@ def _ensure_host(page):
     with thread_safe_ui.TREE_LOCK:
         host = _hosts.get(id(page))
         if host is None:
-            column = ft.Column([], spacing=10, tight=True,
+            column = ft.Column([], spacing=12, tight=True,
                                horizontal_alignment=ft.CrossAxisAlignment.END)
             host = ft.Container(content=column, top=TOP_OFFSET, right=RIGHT_OFFSET,
                                 width=TOAST_W, data="toast-host")
@@ -105,7 +105,7 @@ def _build(text, action, action_label, dismissed):
         body.append(ft.Container(
             content=ft.Text(str(action_label), size=12.5, color=color,
                             weight=ft.FontWeight.W_700),
-            padding=ft.padding.Padding.only(top=6),
+            padding=ft.padding.Padding.only(top=8),
             on_click=_act, ink=False, data="toast-action"))
 
     card = ft.Container(
@@ -121,12 +121,12 @@ def _build(text, action, action_label, dismissed):
                             ft.Container(
                                 content=ft.Icon(ft.Icons.CLOSE_ROUNDED, size=15,
                                                 color=TEXT_DIM),
-                                on_click=_close, ink=False, padding=2,
+                                on_click=_close, ink=False, padding=4,
                                 tooltip="Dismiss", data="toast-close"),
                         ],
-                        spacing=10, vertical_alignment=ft.CrossAxisAlignment.START,
+                        spacing=12, vertical_alignment=ft.CrossAxisAlignment.START,
                     ),
-                    padding=ft.padding.Padding.only(left=12, right=10, top=11, bottom=11),
+                    padding=ft.padding.Padding.only(left=12, right=12, top=12, bottom=12),
                     expand=True,
                 ),
             ],

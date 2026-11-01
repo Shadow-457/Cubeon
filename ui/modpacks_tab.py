@@ -40,6 +40,7 @@ from cubeon import modpacks as modpacks_backend
 from cubeon import thread_safe_ui  # control-level refresh() for per-file progress floods
 from ui.detail_dialog import open_project_detail
 from ui.install_feedback import InstallRegistry, compact_status
+from ui.content_states import loading_rows, empty_state
 from cubeon.paths import CUBEON_HOME
 
 
@@ -164,7 +165,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 ),
                 install_bar,
             ],
-            spacing=10,
+            spacing=12,
         ),
         bgcolor=SURFACE, border=ft.border.Border.all(1, ACCENT_DIM), border_radius=RADIUS,
         padding=16, visible=False,
@@ -505,7 +506,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 for p in profiles
             ],
         )
-        mods_column = ft.ListView(spacing=2, scroll=ft.ScrollMode.AUTO,
+        mods_column = ft.ListView(spacing=4, scroll=ft.ScrollMode.AUTO,
                                   cache_extent=320)
         mod_checks = []  # rebuilt whenever the selected profile changes
         create_status = ft.Text("", size=12, color=TEXT_DIM)
@@ -632,7 +633,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                         ft.Row(
                             [ft.Container(content=version_field, expand=2),
                              ft.Container(content=profile_dd, expand=3)],
-                            spacing=10,
+                            spacing=12,
                         ),
                         desc_field,
                         ft.Text("Mods to include", size=12, color=TEXT_DIM),
@@ -659,7 +660,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         border_color=CARD_BORDER, focused_border_color=ACCENT_DIM, color=TEXT,
         hint_style=ft.TextStyle(color=TEXT_FAINT), bgcolor=CARD_FILL,
         border_radius=RADIUS, height=46,
-        content_padding=ft.padding.Padding.symmetric(horizontal=14, vertical=12),
+        content_padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         on_submit=lambda e: run_search(),  # Enter = search immediately
         on_change=lambda e: _schedule_live_search(),  # typing = debounced search
@@ -680,6 +681,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         "results": [],          # items on the page currently rendered
         "page": 0,
         "empty_msg": "",
+        "errors": {},
         "pages": {},            # page_num -> merged hits already fetched
         "total_pages": MAX_PAGES,
         "gen": None,            # generation these pages belong to
@@ -687,9 +689,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     pager_prev = ft.Container(content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
-                              padding=6, border_radius=RADIUS, ink=False)
+                              padding=8, border_radius=RADIUS, ink=False)
     pager_next = ft.Container(content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT),
-                              padding=6, border_radius=RADIUS, ink=False)
+                              padding=8, border_radius=RADIUS, ink=False)
     pager_row = ft.Row([pager_prev, pager_label, pager_next],
                        alignment=ft.MainAxisAlignment.CENTER, spacing=4, visible=False)
 
@@ -727,19 +729,29 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         limit = PAGE_SIZE
         offset = page_num * PAGE_SIZE
         provider_results = {"modrinth": [], "curseforge": []}
+        finished = set()
+        failed = set()
         provider_lock = threading.Lock()
 
-        def publish(provider, hits):
-            with provider_lock:
+        def publish(provider, hits, *, error=False):
+            with provider_lock, thread_safe_ui.TREE_LOCK:
                 if gen != search_gen["v"]:
                     return
+                finished.add(provider)
+                if error:
+                    failed.add(provider)
                 provider_results[provider] = hits or []
                 merged = core.merge_modpack_hits(
                     provider_results["modrinth"], provider_results["curseforge"], query)
+                # Keep loading until both providers finish when neither has
+                # results. A failed provider must never leave an inert loader.
+                if not merged and len(finished) < 2:
+                    return
+                browse_state["errors"][page_num] = bool(failed) and not merged
                 browse_state["pages"][page_num] = merged
                 # A short page is the end of the result set; a full one leaves
                 # the advertised page count alone.
-                if len(merged) < PAGE_SIZE:
+                if len(finished) == 2 and len(merged) < PAGE_SIZE:
                     browse_state["total_pages"] = min(
                         browse_state["total_pages"], page_num + 1)
                 if browse_state["page"] == page_num:
@@ -750,10 +762,8 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 hits = core.search_modpacks_modrinth(
                     query, limit=limit, offset=offset)
             except Exception:
-                if gen != search_gen["v"]:
-                    return
-                browse_status.value = "Search failed - check your internet."
-                thread_safe_ui.refresh(browse_status)
+                logging.getLogger(__name__).warning("Modrinth pack search failed", exc_info=True)
+                publish("modrinth", [], error=True)
                 return
             publish("modrinth", hits)
 
@@ -762,7 +772,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 hits = core.search_modpacks_curseforge(
                     query, limit=limit, offset=offset)
             except Exception:
-                return  # CF is optional; Modrinth results already rendered
+                logging.getLogger(__name__).warning("CurseForge pack search failed", exc_info=True)
+                publish("curseforge", [], error=True)
+                return
             publish("curseforge", hits)
 
         threading.Thread(target=mr_worker, daemon=True).start()
@@ -771,13 +783,15 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def render_results(empty_msg):
         """Resets the browse to page 1 for the current query and starts its
         fetch. Later pages load only when the pager asks for them."""
-        browse_state["empty_msg"] = empty_msg
-        browse_state["page"] = 0
-        browse_state["pages"] = {}
-        browse_state["results"] = []
-        browse_state["total_pages"] = MAX_PAGES
-        browse_state["gen"] = search_gen["v"]
-        _render_page()
+        with thread_safe_ui.TREE_LOCK:
+            browse_state["empty_msg"] = empty_msg
+            browse_state["page"] = 0
+            browse_state["pages"] = {}
+            browse_state["errors"] = {}
+            browse_state["results"] = []
+            browse_state["total_pages"] = MAX_PAGES
+            browse_state["gen"] = search_gen["v"]
+            _render_page()
 
     def installed_pack_tokens() -> set:
         """Punctuation-free tokens of installed modpack *names*, so a Modrinth
@@ -798,72 +812,76 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         return tokens
 
     def _render_page():
-        if browse_state["gen"] is None:
-            # No browse has been started yet (a re-render triggered by an
-            # install before the tab's first load) - nothing to show.
-            return
-        page_num = browse_state["page"]
-        if page_num not in browse_state["pages"]:
-            # Not fetched yet: show loading and go get just this page.
-            if not results_view.controls or isinstance(results_view.controls[0], (ft.Text, ft.Row)):
-                results_view.controls[:] = [ft.Row(
-                    [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                     ft.Text("Loading...", size=13, color=TEXT_DIM)], spacing=10)]
-            results_view.disabled = True
-            pager_row.visible = False
-            # Scoped paint: switch_tab already sent the shell. A full diff here
-            # made the first Modpacks visit do two whole-tree passes back to
-            # back (the reported tab-switch hitch).
+        with thread_safe_ui.TREE_LOCK:
+            if browse_state["gen"] is None:
+                # No browse has been started yet (a re-render triggered by an
+                # install before the tab's first load) - nothing to show.
+                return
+            page_num = browse_state["page"]
+            if page_num not in browse_state["pages"]:
+                # Not fetched yet: show loading and go get just this page.
+                if (not results_view.controls or isinstance(results_view.controls[0], (ft.Text, ft.Row))
+                        or getattr(results_view.controls[0], "data", None) == "content-empty"):
+                    results_view.controls[:] = [loading_rows()]
+                results_view.disabled = True
+                pager_row.visible = False
+                # Scoped paint: switch_tab already sent the shell. A full diff here
+                # made the first Modpacks visit do two whole-tree passes back to
+                # back (the reported tab-switch hitch).
+                thread_safe_ui.refresh(results_view)
+                thread_safe_ui.refresh(pager_row)
+                _load_page(page_num, browse_state.get("gen"))
+                return
+            results = browse_state["pages"][page_num]
+            total_pages = max(1, browse_state["total_pages"])
+            page_num = max(0, min(page_num, total_pages - 1))
+            browse_state["page"] = page_num
+            results = browse_state["pages"].get(page_num, [])
+            browse_state["results"] = results
+
+            rows = []
+            if browse_state["errors"].get(page_num):
+                rows.append(empty_state("Search unavailable", "Check your connection, then try again.",
+                                        icon=ft.Icons.WIFI_OFF_ROUNDED, action_label="Retry",
+                                        on_action=lambda e: run_search()))
+            elif not results:
+                rows.append(empty_state(browse_state.get("empty_msg") or "No modpacks found",
+                                        "Try a different search."))
+            else:
+                installed = installed_pack_tokens()
+                for pack in results:
+                    title = re.sub(r"[^a-z0-9]+", "", (pack.get("title") or "").lower())
+                    slug = re.sub(r"[^a-z0-9]+", "", (pack.get("slug") or "").lower())
+                    is_installed = (bool(title) and title in installed) or \
+                        (bool(slug) and slug in installed)
+                    rows.append(build_pack_row(pack, is_installed))
+            results_view.controls[:] = rows
+            results_view.disabled = False
+
+            browse_status.value = f"{len(results)} packs" if results else ""
+            if (results and page_num == 0 and not _current_query()
+                    and not core.curseforge_enabled()):
+                # CurseForge classics (RLCraft, SkyFactory, ...) ARE included now,
+                # keyless via cfwidget. The optional key unlocks full search +
+                # faster installs - but that's detail for the hover, not a
+                # sentence on the page.
+                browse_status.value = "Includes CurseForge classics."
+                browse_status.tooltip = (
+                    "Popular CurseForge packs like RLCraft and SkyFactory are "
+                    "included. A free CurseForge key unlocks the full catalogue "
+                    "and faster installs.")
+            pager_label.value = f"Page {page_num + 1} of {total_pages}"
+            pager_row.visible = total_pages > 1
+            pager_prev.disabled = page_num <= 0
+            pager_next.disabled = page_num >= total_pages - 1
+            # The fetch usually lands after the user has already switched tabs or
+            # started scrolling. Repaint this tab's result region only.
             thread_safe_ui.refresh(results_view)
+            thread_safe_ui.refresh(browse_status)
+            thread_safe_ui.refresh(pager_label)
             thread_safe_ui.refresh(pager_row)
-            _load_page(page_num, browse_state.get("gen"))
-            return
-        results = browse_state["pages"][page_num]
-        total_pages = max(1, browse_state["total_pages"])
-        page_num = max(0, min(page_num, total_pages - 1))
-        browse_state["page"] = page_num
-        results = browse_state["pages"].get(page_num, [])
-        browse_state["results"] = results
-
-        rows = []
-        if not results:
-            rows.append(
-                ft.Text(browse_state.get("empty_msg", ""), size=13, color=TEXT_DIM))
-        else:
-            installed = installed_pack_tokens()
-            for pack in results:
-                title = re.sub(r"[^a-z0-9]+", "", (pack.get("title") or "").lower())
-                slug = re.sub(r"[^a-z0-9]+", "", (pack.get("slug") or "").lower())
-                is_installed = (bool(title) and title in installed) or \
-                    (bool(slug) and slug in installed)
-                rows.append(build_pack_row(pack, is_installed))
-        results_view.controls[:] = rows
-        results_view.disabled = False
-
-        browse_status.value = f"{len(results)} packs" if results else ""
-        if (results and page_num == 0 and not _current_query()
-                and not core.curseforge_enabled()):
-            # CurseForge classics (RLCraft, SkyFactory, ...) ARE included now,
-            # keyless via cfwidget. The optional key unlocks full search +
-            # faster installs - but that's detail for the hover, not a
-            # sentence on the page.
-            browse_status.value = "Includes CurseForge classics."
-            browse_status.tooltip = (
-                "Popular CurseForge packs like RLCraft and SkyFactory are "
-                "included. A free CurseForge key unlocks the full catalogue "
-                "and faster installs.")
-        pager_label.value = f"Page {page_num + 1} of {total_pages}"
-        pager_row.visible = total_pages > 1
-        pager_prev.disabled = page_num <= 0
-        pager_next.disabled = page_num >= total_pages - 1
-        # The fetch usually lands after the user has already switched tabs or
-        # started scrolling. Repaint this tab's result region only.
-        thread_safe_ui.refresh(results_view)
-        thread_safe_ui.refresh(browse_status)
-        thread_safe_ui.refresh(pager_label)
-        thread_safe_ui.refresh(pager_row)
-        thread_safe_ui.refresh(pager_prev)
-        thread_safe_ui.refresh(pager_next)
+            thread_safe_ui.refresh(pager_prev)
+            thread_safe_ui.refresh(pager_next)
 
     def _prev(e=None):
         if browse_state["page"] > 0:
@@ -880,11 +898,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     pager_next.on_click = _next
 
     def load_popular():
-        search_gen["v"] += 1
-        browse_title.value = "POPULAR MODPACKS"
-        # Loading state: repaint just the browse region.
-        thread_safe_ui.refresh(browse_title)
-        render_results(empty_msg="No modpacks found.")
+        with thread_safe_ui.TREE_LOCK:
+            search_gen["v"] += 1
+            browse_title.value = "POPULAR MODPACKS"
+            # Loading state: repaint just the browse region.
+            thread_safe_ui.refresh(browse_title)
+            render_results(empty_msg="No modpacks found.")
 
     # Search runs in TWO PHASES PER PAGE: Modrinth results render the moment
     # their (fast) request lands, then CurseForge hits are merged in when the
@@ -905,13 +924,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         _search_debounce["timer"].start()
 
     def run_search():
-        query = search_field.value.strip()
-        if not query:
-            load_popular()
-            return
-        search_gen["v"] += 1
-        browse_title.value = f'RESULTS FOR "{query.upper()}"'
-        render_results(empty_msg="No modpacks found for that search.")
+        with thread_safe_ui.TREE_LOCK:
+            query = search_field.value.strip()
+            if not query:
+                load_popular()
+                return
+            search_gen["v"] += 1
+            browse_title.value = f'RESULTS FOR "{query.upper()}"'
+            render_results(empty_msg="No modpacks found for that search.")
 
     def build_pack_row(pack, is_installed=False):
         """
@@ -947,12 +967,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                 [ft.Icon(ft.Icons.CHECK_ROUNDED if is_installed else ft.Icons.DOWNLOAD_ROUNDED,
                          color=TEXT_FAINT if is_installed else ACCENT, size=15),
                  install_btn_text],
-                spacing=6, tight=True,
+                spacing=8, tight=True,
             ),
             bgcolor=None if is_installed else ACCENT_TINT,
             width=136, height=36, alignment=ft.Alignment.CENTER,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ink=False,
             disabled=is_installed,
         )
@@ -1082,14 +1102,14 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                                         color=TEXT_FAINT,
                                         font_family=FONT_MONO),
                             ],
-                            spacing=3, expand=True,
+                            spacing=4, expand=True,
                         ),
                         install_btn,
                     ],
-                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=10),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
                 on_click=_open_pack_detail,
             ),
             "transparent", ROW_HOVER,
@@ -1168,7 +1188,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
             content=ft.Row([ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, color=ON_ACCENT, size=16),
                             ft.Text(i18n.t("Play"), size=13, weight=ft.FontWeight.W_700, color=ON_ACCENT)], spacing=4),
             bgcolor=ACCENT, border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=8), ink=False,
+            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8), ink=False,
             on_click=lambda e, m=meta: _play_installed(m),
         ), ACCENT, ACCENT_HI)
 
@@ -1314,15 +1334,15 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                                         weight=ft.FontWeight.W_600),
                                 ft.Text(subtitle, size=11, color=TEXT_FAINT, font_family=FONT_MONO),
                             ],
-                            spacing=2, expand=True,
+                            spacing=4, expand=True,
                         ),
                         play_btn,
                         delete_btn,
                     ],
-                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ),
             "transparent", ROW_HOVER,
         )
@@ -1348,19 +1368,9 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     def _render_installed_rows(packs):
         rows = []
         if not packs:
-            rows.append(
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Icon(ft.Icons.INVENTORY_2_OUTLINED, color=TEXT_DIM, size=28),
-                            ft.Text("No modpacks installed yet", size=14, color=TEXT, weight=ft.FontWeight.W_600),
-                            ft.Text("Install one above, or import a .mrpack file.", size=12, color=TEXT_DIM),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
-                    ),
-                    padding=28, alignment=ft.Alignment.CENTER,
-                )
-            )
+            rows.append(empty_state("No modpacks installed yet", "Browse packs, or import a .mrpack file.",
+                                    icon=ft.Icons.INVENTORY_2_ROUNDED, action_label="Browse",
+                                    on_action=lambda e: on_view_change("browse")))
         else:
             for meta in packs:
                 rows.append(build_installed_row(meta))
@@ -1388,12 +1398,12 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
     browse_pane = ft.Column(
         [
             install_card,
-            ft.Container(height=6),
-            ft.Row([search_field], spacing=6),
+            ft.Container(height=8),
+            ft.Row([search_field], spacing=8),
             ft.Container(height=12),
             ft.Row([browse_title, ft.Container(expand=True),
                     browse_status],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=10),
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=12),
             ft.Container(height=4),
             results_view,
             pager_row,
@@ -1413,7 +1423,7 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
         visible=False,
     )
 
-    view_segment_row = ft.Row(spacing=18)
+    view_segment_row = ft.Row(spacing=16)
 
     def _build_view_segment(n_packs=None):
         view_segment_row.controls.clear()
@@ -1455,37 +1465,37 @@ def build_modpacks_tab(page: ft.Page, cfg: dict, state: dict, *,
                             ft.Text("Install a whole pack - version, mods and settings in one click.",
                                     size=13, color=TEXT_DIM),
                         ],
-                        spacing=2,
+                        spacing=4,
                     ),
                     ft.Container(expand=True),
                     attach_hover(ft.Container(
                         content=ft.Row(
                             [ft.Icon(ft.Icons.ADD_ROUNDED, color=ON_ACCENT, size=16),
                              ft.Text("Create modpack", color=ON_ACCENT, size=13, weight=ft.FontWeight.W_700)],
-                            spacing=6,
+                            spacing=8,
                         ),
                         bgcolor=ACCENT, border_radius=RADIUS,
-                        padding=ft.padding.Padding.symmetric(horizontal=14, vertical=10),
+                        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
                         ink=False, on_click=open_create_dialog,
                     ), ACCENT, ACCENT_HI),
                     attach_hover(ft.Container(
                         content=ft.Row(
                             [ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=TEXT, size=16),
                              ft.Text("Install from file", color=TEXT, size=13, weight=ft.FontWeight.W_600)],
-                            spacing=6,
+                            spacing=8,
                         ),
                         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-                        padding=ft.padding.Padding.symmetric(horizontal=14, vertical=10),
+                        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
                         ink=False, on_click=open_mrpack_picker,
                     ), None, SURFACE_HI),
                 ],
             ),
-            ft.Container(height=14),
+            ft.Container(height=16),
             # View tabs: Browse (catalog) and Installed (your packs) share
             # the screen one at a time - the installed list no longer lives
             # a full catalog-scroll below the search results.
             view_segment_row,
-            ft.Container(height=6),
+            ft.Container(height=8),
             browse_pane,
             installed_pane,
         ],

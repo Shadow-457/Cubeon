@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<title>Cubeon Launcher Docs - Minecraft Setup, Mods &amp; Crash Help</title>
+<meta name="description" content="Cubeon Minecraft Launcher guides and screenshots: setup, mods, modpacks, skins, friends, servers, settings and crash help, with a full-size image gallery." />
+<meta property="og:title" content="Cubeon Launcher Docs - Minecraft Setup, Mods &amp; Crash Help" />
+<meta property="og:description" content="Cubeon Minecraft Launcher guides and screenshots: setup, mods, modpacks, skins, friends, servers, settings and crash help, with a full-size image gallery." />
+<meta property="og:site_name" content="Cubeon Launcher" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://www.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The Cubeon launcher shown over a Minecraft world: a version picker, an account name and a big green Play button." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
+<!-- cubeon:auto-language -->
+<script>
+(function () {
+  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  if (location.protocol === 'file:') return;
+  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
+  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
+  if (m) cur = m[1];
+  function search() {
+    var out = '', q;
+    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
+    return (out ? '?' + out : '') + location.hash;
+  }
+  function urlFor(code) {
+    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
+    if (rest === '/index.html') rest = '/';
+    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
+    return (code === 'en' ? '' : '/' + code) + rest + search();
+  }
+  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
+  var q = null;
+  try { q = new URLSearchParams(location.search); } catch (e) {}
+  if (q && q.get('lang') && names[q.get('lang')]) {
+    pref = q.get('lang');
+    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
+    location.replace(urlFor(pref));
+    return;
+  }
+  if (!pref) {
+    var list = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var code = String(list[i]).toLowerCase().split('-')[0];
+      if (names[code]) { pref = code; break; }
+    }
+  }
+  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
+})();
+</script>
+<!-- /cubeon:auto-language -->
+<link rel="stylesheet" href="/assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+<!-- cubeon:seo -->
+<link rel="alternate" hreflang="en" href="https://www.ylet.online/docs" />
+<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/docs" />
+<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/docs" />
+<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/docs" />
+<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/docs" />
+<link rel="canonical" href="https://www.ylet.online/uk/docs" />
+<meta property="og:url" content="https://www.ylet.online/uk/docs" />
+<!-- /cubeon:seo -->
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/uk" aria-label="Cubeon home"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-label="Menu">&#9776;</button>
+    <nav class="nav-links" id="navSlots" aria-label="Main">
+      <!-- cubeon:language -->
+<div class="lang-menu">
+  <details>
+    <summary aria-label="Мова: Українська"><span aria-hidden="true">🌐</span> UK</summary>
+    <nav class="lang-list" aria-label="Мова">
+          <a href="/uk/docs" hreflang="en" lang="en">English</a>
+          <a href="/ar/docs" hreflang="ar" lang="ar">العربية</a>
+          <a href="/uk/docs" hreflang="uk" lang="uk" aria-current="true">Українська</a>
+          <a href="/ru/docs" hreflang="ru" lang="ru">Русский</a>
+    </nav>
+  </details>
+</div>
+<!-- /cubeon:language -->
+      <a href="/uk">Home</a>
+      <a href="/uk/download">Download</a>
+      <a href="/uk/docs" aria-current="page">Docs</a>
+      <a href="/uk/doctor">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/uk/download">Get Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+  <header class="page-head">
+    <div class="wrap">
+      <p class="crumbs"><a href="/uk">Home</a> / Docs</p>
+      <h1>Cubeon Docs</h1>
+      <p class="lede">Player guides and screenshots for Cubeon Launcher. Install it, add mods and modpacks, join your friends, get your skin to show up, and fix a crash without reading Java.</p>
+      <p class="updated">Updated 31 October 2026</p>
+    </div>
+  </header>
+
+  <div class="docs-wrap">
+
+    <!-- =============== SIDEBAR =============== -->
+    <aside class="docs-sidebar" aria-label="Docs navigation">
+      <div class="docs-search-wrap">
+        <div class="docs-search">
+          <span class="docs-search-icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+          </span>
+          <input type="search" id="docsSearch" placeholder="Search the guides&#x2026;" autocomplete="off" aria-label="Search documentation" />
+          <button class="docs-search-clear" id="docsSearchClear" type="button" aria-label="Clear search">&#215;</button>
+        </div>
+      </div>
+      <p id="docsNoResults">No results found.</p>
+
+      <nav aria-label="Docs guides">
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">
+            <svg viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9zM4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5z"/></svg>
+            Guides
+          </span>
+          <a class="docs-nav-link" href="#docs-start" data-section="docs-start">All guides</a>
+          <a class="docs-nav-link" href="#guide-getting-started" data-section="guide-getting-started">Getting started</a>
+          <a class="docs-nav-link" href="#guide-mods" data-section="guide-mods">Mods &amp; content</a>
+          <a class="docs-nav-link" href="#guide-modpacks" data-section="guide-modpacks">Modpacks</a>
+          <a class="docs-nav-link" href="#guide-multiplayer" data-section="guide-multiplayer">Playing together</a>
+          <a class="docs-nav-link" href="#guide-cosmetics" data-section="guide-cosmetics">Skins &amp; cosmetics</a>
+          <a class="docs-nav-link" href="#guide-troubleshooting" data-section="guide-troubleshooting">Crashes &amp; fixes</a>
+          <a class="docs-nav-link" href="#guide-files" data-section="guide-files">Files &amp; backups</a>
+          <a class="docs-nav-link" href="#docs-screenshots" data-section="docs-screenshots">Screenshots</a>
+        </div>
+        <div class="docs-nav-group">
+          <span class="docs-nav-label">
+            <svg viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+            Also here
+          </span>
+          <a class="docs-nav-link" href="/uk/benchmarks">Benchmarks</a>
+          <a class="docs-nav-link" href="/uk/doctor">Crash Doctor</a>
+          <a class="docs-nav-link" href="/uk/help">Help &amp; FAQ</a>
+          <a class="docs-nav-link" href="/uk/about">About Cubeon &amp; official links</a>
+          <a class="docs-nav-link" href="/uk/download">Download</a>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- =============== MAIN =============== -->
+    <div class="docs-main" id="docsMain">
+
+      <div id="docs-start" class="docs-section">
+        <span class="docs-section-eyebrow">
+          <svg viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/></svg>
+          Start here
+        </span>
+        <h2>The three minutes version</h2>
+        <ol>
+          <li><strong>Get the app.</strong> <a href="/uk/download">Download Cubeon</a> for Windows or Linux, open it, and pick a name - no account, no email, no password.</li>
+          <li><strong>Pick a version and press Play.</strong> The first launch downloads the game, which takes a few minutes. After that it starts in seconds.</li>
+          <li><strong>Add your friends</strong> by their Cubeon name, or install a mod, a pack or nothing at all. Everything else on this page is a guide for when you want to go further.</li>
+        </ol>
+        <div class="note tip">
+          <b>Just want to play, nothing added?</b>
+          <p>You do not need any of the mod guides. Choose the version your friends play, press Play, and read <a href="/uk/multiplayer">playing together</a> when you want to host a world.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-getting-started" class="docs-section">
+        <h2>Getting started</h2>
+        <p>Which download to pick, what the launcher asks for on the first run, what an instance is, and how Java, memory and FPS boost are handled for you.</p>
+        <p><a href="/uk/getting-started">Read the getting started guide</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/getting-started#download">What to download</a>
+          <a href="/uk/getting-started#first-launch">Your first launch</a>
+          <a href="/uk/getting-started#instances">Instances explained</a>
+          <a href="/uk/getting-started#java-memory">Java and memory</a>
+          <a href="/uk/getting-started#fps-boost">FPS boost</a>
+          <a href="/uk/getting-started#updates">Updating</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-mods" class="docs-section">
+        <h2>Mods, resource packs and shaders</h2>
+        <p>How to find a mod that fits the version you actually launch, what happens to dependencies, how to turn a mod off without deleting it, and what Check &amp; repair does.</p>
+        <p><a href="/uk/mods">Read the mods guide</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/mods#before">Before you install</a>
+          <a href="/uk/mods#find">Finding a mod</a>
+          <a href="/uk/mods#install">Installing and dependencies</a>
+          <a href="/uk/mods#manage">Turning off, updating, removing</a>
+          <a href="/uk/mods#manual">Adding a jar by hand</a>
+          <a href="/uk/mods#repair">Check &amp; repair</a>
+          <a href="/uk/mods#resourcepacks">Resource packs</a>
+          <a href="/uk/mods#shaders">Shaders</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-modpacks" class="docs-section">
+        <h2>Modpacks</h2>
+        <p>What a pack actually installs, where packs come from, how updating one works, and why a failed install should not take your working pack with it.</p>
+        <p><a href="/uk/modpacks">Read the modpacks guide</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/modpacks#what">What a pack installs</a>
+          <a href="/uk/modpacks#browse">Installing a pack</a>
+          <a href="/uk/modpacks#import">Packs and worlds from an old setup</a>
+          <a href="/uk/modpacks#update">Updating a pack</a>
+          <a href="/uk/modpacks#remove">Removing a pack</a>
+          <a href="/uk/modpacks#failed">When an install fails</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-multiplayer" class="docs-section">
+        <h2>Playing together</h2>
+        <p>Friends by name, a free server hosted on your own PC, the join password and whitelist, and what to check when someone cannot get in.</p>
+        <p><a href="/uk/multiplayer">Read the playing together guide</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/multiplayer#friends">Friends and chat</a>
+          <a href="/uk/multiplayer#host">Hosting a world</a>
+          <a href="/uk/multiplayer#join">Joining a server</a>
+          <a href="/uk/multiplayer#whitelist">Whitelist and password</a>
+          <a href="/uk/multiplayer#cant-join">"I can't join" checklist</a>
+          <a href="/uk/multiplayer#offline">Offline names and premium servers</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-cosmetics" class="docs-section">
+        <h2>Skins, capes and cosmetics</h2>
+        <p>Uploading a skin, why the vanilla game will not show one, what other Cubeon players see, and the in-game HUD and zoom keys.</p>
+        <p><a href="/uk/cosmetics">Read the skins and cosmetics guide</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/cosmetics#skins">Uploading a skin</a>
+          <a href="/uk/cosmetics#capes">Capes</a>
+          <a href="/uk/cosmetics#items">Shoulder and back items</a>
+          <a href="/uk/cosmetics#not-showing">Skin not showing</a>
+          <a href="/uk/cosmetics#hud">HUD and zoom</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-troubleshooting" class="docs-section">
+        <h2>Crashes and fixes</h2>
+        <p>The launcher will not open, the game will not start, or it crashed mid-session. Includes the crash messages you are most likely to see and what each one usually means.</p>
+        <p><a href="/uk/troubleshooting">Read the troubleshooting guide</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/troubleshooting#quick">Quick triage</a>
+          <a href="/uk/troubleshooting#launcher">The launcher won't start</a>
+          <a href="/uk/troubleshooting#launch">The game won't start</a>
+          <a href="/uk/troubleshooting#messages">Common crash messages</a>
+          <a href="/uk/troubleshooting#doctor">Using the Crash Doctor</a>
+          <a href="/uk/troubleshooting#performance">Slow or stuttering</a>
+          <a href="/uk/troubleshooting#report">Reporting a bug</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="guide-files" class="docs-section">
+        <h2>Files, folders and backups</h2>
+        <p>Where your worlds, mods, logs and settings actually live, what is safe to delete, how backups work, and how to move everything to a new PC.</p>
+        <p><a href="/uk/files">Read the files guide</a></p>
+        <div class="docs-guide-links">
+          <a href="/uk/files#where">Where things live</a>
+          <a href="/uk/files#instances">Inside an instance</a>
+          <a href="/uk/files#logs">Logs and crash reports</a>
+          <a href="/uk/files#backups">Backups</a>
+          <a href="/uk/files#move">Moving to a new PC</a>
+          <a href="/uk/files#reset">Resetting or uninstalling</a>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <div id="docs-stuck" class="docs-section">
+        <h2>When none of this fits</h2>
+        <p>Open <a href="/uk/doctor">Cubeon Doctor</a> and drop the crash log in - it reads the report and writes a numbered list of things to try, without an account. The crash window in the launcher has a Doctor button that fills it in for you.</p>
+        <p>If it is not a crash, ask a person: the <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a> is the quickest answer, and <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a> reaches the developer. Include your operating system, the Cubeon version, and what you were doing when it broke - <a href="/uk/files#logs">the files guide</a> says which log to send and what to blank out first.</p>
+        <div class="note">
+          <b>Short answers live elsewhere</b>
+          <p><a href="/uk/help">Help &amp; FAQ</a> has the one-paragraph versions of the questions people ask most, and <a href="/uk/benchmarks">benchmarks</a> has the measured frame rates with the caveats attached.</p>
+        </div>
+      </div>
+
+      <hr class="docs-divider">
+
+      <section id="docs-screenshots" class="docs-section" aria-labelledby="screenshots-title">
+        <h2 id="screenshots-title">Cubeon Launcher screenshots</h2>
+        <p>Explore the launcher, its Minecraft content tools and in-game cosmetics. Open any image at full size, or follow its guide for the steps.</p>
+        <div class="docs-gallery">
+          <figure>
+            <a class="gallery-image" href="/assets/cubeon-play.png" aria-label="Open full-size image: Play and game versions">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-play.webp" type="image/webp">
+                <img src="/assets/cubeon-play.png" width="1268" height="724" loading="lazy" decoding="async" alt="Cubeon Launcher Play screen with Minecraft version selection and the Play button.">
+              </picture>
+            </a>
+            <figcaption><h3>Play and game versions</h3><p>Choose a game version and manage your Minecraft instances. <a href="/uk/getting-started#versions">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-mods.png" aria-label="Open full-size image: Mods browser">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-mods.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-mods.png" width="1268" height="719" loading="lazy" decoding="async" alt="Cubeon Launcher browsing compatible Minecraft mods from Modrinth.">
+              </picture>
+            </a>
+            <figcaption><h3>Mods browser</h3><p>Find mods for the Minecraft version and loader you use. <a href="/uk/mods#find">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-resource-packs.png" aria-label="Open full-size image: Resource packs">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-resource-packs.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-resource-packs.png" width="1262" height="712" loading="lazy" decoding="async" alt="Cubeon Launcher resource pack browser for Minecraft Java Edition.">
+              </picture>
+            </a>
+            <figcaption><h3>Resource packs</h3><p>Browse resource packs to change the look of your world. <a href="/uk/mods#resourcepacks">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-shaders.png" aria-label="Open full-size image: Shaders">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-shaders.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-shaders.png" width="1266" height="720" loading="lazy" decoding="async" alt="Cubeon Launcher shader browser with Minecraft shader packs.">
+              </picture>
+            </a>
+            <figcaption><h3>Shaders</h3><p>Explore shader packs and check the required shader runtime. <a href="/uk/mods#shaders">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-modpacks.png" aria-label="Open full-size image: Modpacks">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-modpacks.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-modpacks.png" width="1269" height="717" loading="lazy" decoding="async" alt="Cubeon Launcher modpack catalogue for Minecraft Java Edition.">
+              </picture>
+            </a>
+            <figcaption><h3>Modpacks</h3><p>Browse packs and install them into a dedicated profile. <a href="/uk/modpacks#browse">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-friends-chat.png" aria-label="Open full-size image: Friends and chat">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-friends-chat.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-friends-chat.png" width="1261" height="717" loading="lazy" decoding="async" alt="Cubeon Launcher friends and chat screen with personal details masked.">
+              </picture>
+            </a>
+            <figcaption><h3>Friends and chat</h3><p>See friends and chat from the launcher. Account and conversation details are hidden in this screenshot. <a href="/uk/multiplayer#friends">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-server-console.png" aria-label="Open full-size image: Server console">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-server-console.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-server-console.png" width="1262" height="718" loading="lazy" decoding="async" alt="Cubeon Launcher Minecraft server console, plugins and settings.">
+              </picture>
+            </a>
+            <figcaption><h3>Server console</h3><p>Manage a Minecraft server and share access with friends. <a href="/uk/multiplayer#host">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-account-settings.png" aria-label="Open full-size image: Account and settings">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-account-settings.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-account-settings.png" width="1262" height="715" loading="lazy" decoding="async" alt="Cubeon Launcher account and settings panel with account details masked.">
+              </picture>
+            </a>
+            <figcaption><h3>Account and settings</h3><p>Adjust launcher preferences. Personal account details are hidden in this screenshot. <a href="/uk/getting-started#settings">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-playtime-stats.png" aria-label="Open full-size image: Playtime statistics">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-playtime-stats.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-playtime-stats.png" width="1264" height="718" loading="lazy" decoding="async" alt="Cubeon Launcher Stats tab displaying daily Minecraft playtime.">
+              </picture>
+            </a>
+            <figcaption><h3>Playtime statistics</h3><p>Review your Minecraft playtime and activity in the Stats tab. <a href="/uk/getting-started#settings">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-launcher-cosmetics-wings.png" aria-label="Open full-size image: Skins and back cosmetics">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-launcher-cosmetics-wings.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-launcher-cosmetics-wings.png" width="1271" height="717" loading="lazy" decoding="async" alt="Cubeon Launcher cosmetics preview showing a Minecraft skin, shoulder companion and back items.">
+              </picture>
+            </a>
+            <figcaption><h3>Skins and back cosmetics</h3><p>Preview your skin and choose shoulder companions and back cosmetics. <a href="/uk/cosmetics#items">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/cubeon-cosmetics.webp" aria-label="Open full-size image: Cosmetics in Minecraft">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-cosmetics.webp" type="image/webp">
+                <img src="/assets/cubeon-cosmetics.webp" width="1280" height="720" loading="lazy" decoding="async" alt="Cubeon shoulder companion and back cosmetics on a Minecraft player beside the ocean.">
+              </picture>
+            </a>
+            <figcaption><h3>Cosmetics in Minecraft</h3><p>See shoulder and back cosmetics together on a player in game. <a href="/uk/cosmetics#who-sees">Read the guide</a>.</p></figcaption>
+          </figure>
+          <figure>
+            <a class="gallery-image" href="/assets/screenshots/cubeon-shoulder-companion-textures.png" aria-label="Open full-size image: Shoulder companion artwork">
+              <picture>
+                <source srcset="assets/screenshots/previews/cubeon-shoulder-companion-textures.webp" type="image/webp">
+                <img src="/assets/screenshots/cubeon-shoulder-companion-textures.png" width="1000" height="530" loading="lazy" decoding="async" alt="Ten Cubeon shoulder companion texture designs for Minecraft player cosmetics.">
+              </picture>
+            </a>
+            <figcaption><h3>Shoulder companion artwork</h3><p>Explore the texture designs used by Cubeon shoulder companions. <a href="/uk/cosmetics#items">Read the guide</a>.</p></figcaption>
+          </figure>
+        </div>
+      </section>
+
+    </div><!-- /docs-main -->
+  </div><!-- /docs-wrap -->
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="/uk"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>A free launcher that makes playing Minecraft with your friends easy - no account, no rented server, nothing complicated.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="/uk">Home</a>
+        <a href="/uk/download">Download</a>
+        <a href="/uk/docs">Docs</a>
+        <a href="/uk/doctor">Doctor</a>
+      <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>Privacy &amp; rules</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="/uk/privacy">Privacy</a>
+        <a href="/uk/terms">Terms</a>
+        <a href="/uk/refunds">Refunds</a>
+        <a href="/uk/cookies">Cookies</a>
+        <a href="/uk/licenses">Credits</a>
+        <a href="/uk/privacy#delete">Delete my data</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>Cubeon Launcher. Contact <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon is an unofficial fan project - not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang AB. Policies last updated 20 September 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js" defer></script>
+<script src="/assets/world.js" defer></script>
+<script>
+(function(){
+  var inp  = document.getElementById('docsSearch');
+  var clr  = document.getElementById('docsSearchClear');
+  var none = document.getElementById('docsNoResults');
+  var secs = document.querySelectorAll('.docs-section');
+  var divs = document.querySelectorAll('.docs-divider');
+  var navs = document.querySelectorAll('.docs-nav-link[data-section]');
+  if(!inp) return;
+
+  function esc(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+  function reset(){
+    inp.value=''; clr.classList.remove('vis'); none.style.display='none';
+    secs.forEach(function(s){s.style.display='';});
+    divs.forEach(function(d){d.style.display='';});
+    navs.forEach(function(a){a.classList.remove('hidden-by-search');});
+  }
+
+  function search(q){
+    if(!q){reset();return;}
+    clr.classList.add('vis');
+    var re=new RegExp(esc(q),'gi'), any=false;
+    secs.forEach(function(s){
+      var match=re.test(s.textContent||''); re.lastIndex=0;
+      s.style.display=match?'':'none';
+      if(match)any=true;
+    });
+    divs.forEach(function(d){d.style.display='none';});
+    secs.forEach(function(s){
+      if(s.style.display!=='none'){
+        var p=s.previousElementSibling;
+        if(p&&p.classList.contains('docs-divider'))p.style.display='';
+      }
+    });
+    navs.forEach(function(a){
+      var t=document.getElementById(a.getAttribute('data-section'));
+      a.classList.toggle('hidden-by-search',!(t&&t.style.display!=='none'));
+    });
+    none.style.display=any?'none':'block';
+  }
+
+  inp.addEventListener('input',function(){search(inp.value.trim());});
+  clr.addEventListener('click',reset);
+
+  /* active link on scroll */
+  var arr=Array.prototype.slice.call(secs);
+  function tick(){
+    var y=window.scrollY+110, cur='';
+    arr.forEach(function(s){if(s.offsetTop<=y)cur=s.id;});
+    navs.forEach(function(a){
+      a.classList.toggle('active',a.getAttribute('href')==='#'+cur);
+    });
+  }
+  window.addEventListener('scroll',tick,{passive:true}); tick();
+
+  /* smooth scroll */
+  navs.forEach(function(a){
+    a.addEventListener('click',function(e){
+      var h=a.getAttribute('href');
+      if(!h||h[0]!=='#')return;
+      var t=document.getElementById(h.slice(1));
+      if(!t)return;
+      e.preventDefault();
+      t.scrollIntoView({behavior:'smooth',block:'start'});
+      history.replaceState(null,'',h);
+    });
+  });
+})();
+</script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

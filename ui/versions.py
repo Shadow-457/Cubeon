@@ -80,13 +80,13 @@ def _chip(label, *, accent=False, danger=False):
         content=ft.Text(label, size=11, color=color,
                         weight=ft.FontWeight.W_600, font_family=FONT_MONO),
         bgcolor=bg, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=7, vertical=2),
+        padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
     )
 
 
 def _group_header(text):
     return ft.Container(content=section_label(text),
-                        padding=ft.padding.Padding.only(left=4, top=8, bottom=2))
+                        padding=ft.padding.Padding.only(left=4, top=8, bottom=4))
 
 
 def format_release(value) -> str:
@@ -185,7 +185,7 @@ class VersionPicker:
             content=ft.Row(
                 [self.label, ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18,
                                      color=TEXT_DIM)],
-                spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             bgcolor=SURFACE_HI,
             border=ft.border.Border.all(1, BORDER),
@@ -201,7 +201,7 @@ class VersionPicker:
             hint_text="Filter versions... e.g. 1.20",
             border_color=BORDER, focused_border_color=ACCENT, color=TEXT,
             bgcolor=SURFACE_HI, border_radius=RADIUS, height=44, text_size=13,
-            content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
+            content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
             prefix_icon=ft.Icons.SEARCH_ROUNDED,
             on_change=lambda e: self.rebuild(),
             visible=False,  # only worth showing once there's a long online list
@@ -222,7 +222,7 @@ class VersionPicker:
                 [ft.Icon(ft.Icons.STAR_ROUNDED, color=ACCENT, size=13),
                  ft.Text("Latest release", size=12, color=ACCENT,
                          weight=ft.FontWeight.W_600)],
-                spacing=6,
+                spacing=8,
             ),
             on_click=lambda e: self._pick(self._latest),
             ink=False,
@@ -235,10 +235,10 @@ class VersionPicker:
                 [ft.Icon(ft.Icons.ADD_ROUNDED, color=ACCENT, size=16),
                  ft.Text(i18n.t("New instance"), size=13, color=ACCENT,
                          weight=ft.FontWeight.W_700)],
-                spacing=6, tight=True,
+                spacing=8, tight=True,
             ),
             bgcolor=ACCENT_TINT, border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=14, vertical=9),
+            padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8),
             on_click=lambda e: self._browse(),
             ink=False,
         )
@@ -246,9 +246,9 @@ class VersionPicker:
             content=ft.Row(
                 [ft.Icon(ft.Icons.ARROW_BACK_ROUNDED, color=TEXT_DIM, size=14),
                  ft.Text(i18n.t("Back"), size=12.5, color=TEXT_DIM, weight=ft.FontWeight.W_600)],
-                spacing=6, tight=True,
+                spacing=8, tight=True,
             ),
-            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=6),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=8),
             on_click=lambda e: self._back(),
             ink=False,
             visible=False,
@@ -278,7 +278,7 @@ class VersionPicker:
                 border=ft.border.Border.all(
                     1, ACCENT if lid == self._install_loader else BORDER),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=14, vertical=12),
+                padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
                 ink=False,
                 on_click=lambda e, k=lid: self._set_install_loader(k),
             )
@@ -288,7 +288,7 @@ class VersionPicker:
             [
                 loader_chip_row,
             ],
-            spacing=6, visible=False, expand=True, scroll=ft.ScrollMode.AUTO,
+            spacing=8, visible=False, expand=True, scroll=ft.ScrollMode.AUTO,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         )
         self.loader_hint = ft.Text(
@@ -308,7 +308,7 @@ class VersionPicker:
 
         # Bounded lazy viewport: the panel is a long list, and building every
         # row at once made opening it visibly hitch on a big install set.
-        self.list = ft.ListView([], spacing=2, scroll=ft.ScrollMode.AUTO,
+        self.list = ft.ListView([], spacing=4, scroll=ft.ScrollMode.AUTO,
                                 expand=True, cache_extent=320,
                                 build_controls_on_demand=True)
 
@@ -351,7 +351,7 @@ class VersionPicker:
                 color=ft.Colors.with_opacity(0.45, "#000000"),
                 offset=ft.Offset(-8, 0),
             ),
-            padding=ft.padding.Padding.only(left=22, right=22, top=26, bottom=20),
+            padding=ft.padding.Padding.only(left=24, right=24, top=24, bottom=24),
             content=ft.Column(
                 [
                     ft.Row(
@@ -367,7 +367,7 @@ class VersionPicker:
                     ),
                     self.subtitle,
                     self.step_label,
-                    ft.Container(height=6),
+                    ft.Container(height=8),
                     self.filter_field,
                     self.loader_row,
                     self.offline_notice,
@@ -376,7 +376,7 @@ class VersionPicker:
                     self.icon_categories,
                     self.list,
                     self.install_hint,
-                    ft.Container(height=6),
+                    ft.Container(height=8),
                     ft.Row(
                         [self.back_link, self.latest_chip,
                          ft.Container(expand=True), self.browse_link, self.next_button],
@@ -812,7 +812,7 @@ class VersionPicker:
                             font_family=FONT_MONO),
             bgcolor=ACCENT_TINT,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=6, vertical=2),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
             visible=selected,
         )
         return ft.Container(
@@ -836,7 +836,7 @@ class VersionPicker:
                                         if inst.get("incomplete")
                                         else ft.Container(visible=False),
                                     ],
-                                    spacing=6,
+                                    spacing=8,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
                                 ft.Text(subtitle, size=11, color=TEXT_DIM,
@@ -850,14 +850,14 @@ class VersionPicker:
                                              overflow=ft.TextOverflow.ELLIPSIS,
                                              expand=True),
                                      size_text],
-                                    spacing=6,
+                                    spacing=8,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                                 ),
                             ],
-                            spacing=2, tight=True,
+                            spacing=4, tight=True,
                         ),
                         padding=ft.padding.Padding.symmetric(
-                            horizontal=10, vertical=8),
+                            horizontal=12, vertical=8),
                     ),
                 ],
                 spacing=0,
@@ -892,7 +892,7 @@ class VersionPicker:
             # stretching it across the panel.
             if len(cards) % 2:
                 cards.append(ft.Container(expand=True))
-            rows = [ft.Row(cards[i:i + 2], spacing=10,
+            rows = [ft.Row(cards[i:i + 2], spacing=12,
                            vertical_alignment=ft.CrossAxisAlignment.START)
                     for i in range(0, len(cards), 2)]
         else:
@@ -900,7 +900,7 @@ class VersionPicker:
                 content=ft.Text(
                     "No instances yet. Press \u201cNew instance\u201d to add one.",
                     size=12, color=TEXT_DIM),
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16))]
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=16))]
         with thread_safe_ui.TREE_LOCK:
             self.list.controls[:] = rows
         if size_slots:
@@ -935,7 +935,7 @@ class VersionPicker:
             ),
             bgcolor=ACCENT_TINT if selected else None,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ink=False,
             on_click=lambda e, k=entry.get("id"): self._pick(k),
             animate=100,
@@ -977,7 +977,7 @@ class VersionPicker:
                 content=ft.Row([
                     ft.ProgressRing(width=18, height=18, stroke_width=2, color=ACCENT),
                     ft.Text("Loading compatible versions…", color=TEXT_DIM, size=12),
-                ], spacing=10), padding=12)]
+                ], spacing=12), padding=12)]
         if self._support_error:
             rows = [ft.Text("Couldn't check this loader's versions. Press Retry.", size=12, color=TEXT_DIM)]
         if not rows:
@@ -1003,7 +1003,7 @@ class VersionPicker:
                 msg = "Can't reach the version list right now."
             rows.append(ft.Container(
                 content=ft.Text(msg, size=12, color=TEXT_DIM),
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=16)))
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=16)))
         with thread_safe_ui.TREE_LOCK:
             self.list.controls[:] = rows
 

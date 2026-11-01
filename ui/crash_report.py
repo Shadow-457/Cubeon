@@ -71,7 +71,7 @@ def _pill(text: str) -> ft.Container:
         bgcolor=ft.Colors.with_opacity(0.30, SURFACE_HI),
         border=ft.border.Border.all(1, BORDER),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=9, vertical=4),
+        padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
     )
 
 
@@ -145,11 +145,11 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                             selectable=True, data="crash-doctor-status")
     doctor_spinner = ft.ProgressRing(width=13, height=13, stroke_width=2,
                                      color=ACCENT, visible=False)
-    doctor_results = ft.ListView(spacing=6, padding=0, height=210)
+    doctor_results = ft.ListView(spacing=8, padding=0, height=210)
     doctor_results_host = ft.Container(
         content=doctor_results, visible=False,
         border=ft.border.Border.all(1, BORDER), border_radius=RADIUS,
-        bgcolor=BG, padding=ft.padding.Padding.symmetric(horizontal=10,
+        bgcolor=BG, padding=ft.padding.Padding.symmetric(horizontal=12,
                                                           vertical=8),
         data="crash-doctor-results",
     )
@@ -168,7 +168,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
              ft.Text(format_problem(entry), size=11.5, selectable=True,
                      color=TEXT if entry.get("fixed") else TEXT_DIM,
                      expand=True)],
-            spacing=6, vertical_alignment=ft.CrossAxisAlignment.START)
+            spacing=8, vertical_alignment=ft.CrossAxisAlignment.START)
 
     def _render_report(report):
         with thread_safe_ui.TREE_LOCK:
@@ -249,14 +249,14 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         bgcolor=BG,
         border=ft.InputBorder.NONE,
         content_padding=ft.padding.Padding.symmetric(
-            horizontal=10, vertical=8),
+            horizontal=12, vertical=8),
         # Selection is the manual fallback if the clipboard is unavailable.
         selection_color=ft.Colors.with_opacity(0.35, ACCENT),
     )
 
     meta_row = ft.Row(
         [_pill(version_label)] if version_label else [],
-        spacing=6, wrap=True,
+        spacing=8, wrap=True,
     )
 
     log_tile = ft.ExpansionTile(
@@ -267,7 +267,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
              else "Last part of the game log (older lines trimmed)"),
             size=10.5, color=TEXT_FAINT, font_family=FONT_MONO),
         controls=[log_field],
-        tile_padding=ft.padding.Padding.symmetric(horizontal=8, vertical=2),
+        tile_padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
         controls_padding=ft.padding.Padding.only(left=8, right=8, bottom=8),
         affinity=ft.TileAffinity.LEADING,
     )
@@ -287,9 +287,9 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
         content=ft.Column(
             [
                 ft.Text(reason, size=13, color=TEXT, selectable=True),
-                ft.Container(height=10),
+                ft.Container(height=12),
                 meta_row,
-                ft.Container(height=6),
+                ft.Container(height=8),
                 log_tile,
                 ft.Container(height=8),
                 ft.Row(
@@ -298,7 +298,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                     spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 doctor_results_host,
                 ft.Container(height=8),
-                ft.Column(footer_bits, spacing=3, tight=True),
+                ft.Column(footer_bits, spacing=4, tight=True),
             ],
             spacing=0, tight=True,
         ),
@@ -315,7 +315,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                         font_family=FONT_DISPLAY,
                         weight=ft.FontWeight.W_600),
             ],
-            spacing=10,
+            spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         content=content,
@@ -345,7 +345,7 @@ def build_crash_dialog(page, *, reason: str, log_text: str,
                     color=ON_ACCENT, bgcolor=ACCENT,
                     shape=ft.RoundedRectangleBorder(radius=RADIUS),
                     padding=ft.padding.Padding.symmetric(
-                        horizontal=18, vertical=14),
+                        horizontal=16, vertical=16),
                 ),
             ),
         ],

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<title>شكر وتقدير Cubeon والتراخيص</title>
+<meta name="description" content="الخطوط التي يستخدمها Cubeon، ومن صنعها، وما يملكه Mojang." />
+<meta property="og:title" content="شكر وتقدير Cubeon" />
+<meta property="og:description" content="الخطوط والأعمال الفنية وعلامة Minecraft التجارية." />
+<meta property="og:site_name" content="Cubeon Launcher" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://www.ylet.online/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="مشغّل Cubeon معروض فوق عالم Minecraft: منتقي إصدار، واسم حساب، وزر تشغيل أخضر كبير." />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/favicon.png" />
+<!-- cubeon:auto-language -->
+<script>
+(function () {
+  var names = { en: 1, ar: 1, uk: 1, ru: 1 }, cur = document.documentElement.lang || 'en';
+  if (location.protocol === 'file:') return;
+  if (/bot|crawl|spider|googlebot|bingbot|yandex|baidu/i.test(navigator.userAgent)) return;
+  var path = location.pathname, m = path.match(/^\/(ar|uk|ru)(?=\/|$)/), pref = null;
+  if (m) cur = m[1];
+  function search() {
+    var out = '', q;
+    try { q = new URLSearchParams(location.search); q.delete('lang'); out = q.toString(); } catch (e) {}
+    return (out ? '?' + out : '') + location.hash;
+  }
+  function urlFor(code) {
+    var rest = path.replace(/^\/(ar|uk|ru)(?=\/|$)/, '') || '/';
+    if (rest === '/index.html') rest = '/';
+    else if (rest.slice(-5) === '.html') rest = rest.slice(0, -5);
+    return (code === 'en' ? '' : '/' + code) + rest + search();
+  }
+  try { pref = localStorage.getItem('cubeon-lang'); } catch (e) {}
+  var q = null;
+  try { q = new URLSearchParams(location.search); } catch (e) {}
+  if (q && q.get('lang') && names[q.get('lang')]) {
+    pref = q.get('lang');
+    try { localStorage.setItem('cubeon-lang', pref); } catch (e) {}
+    location.replace(urlFor(pref));
+    return;
+  }
+  if (!pref) {
+    var list = navigator.languages || [navigator.language || ''];
+    for (var i = 0; i < list.length; i++) {
+      var code = String(list[i]).toLowerCase().split('-')[0];
+      if (names[code]) { pref = code; break; }
+    }
+  }
+  if (pref && names[pref] && pref !== cur) location.replace(urlFor(pref));
+})();
+</script>
+<!-- /cubeon:auto-language -->
+<link rel="stylesheet" href="/assets/site.css" />
+<script>document.documentElement.classList.add('js')</script>
+<!-- cubeon:seo -->
+<link rel="alternate" hreflang="en" href="https://www.ylet.online/licenses" />
+<link rel="alternate" hreflang="ar" href="https://www.ylet.online/ar/licenses" />
+<link rel="alternate" hreflang="uk" href="https://www.ylet.online/uk/licenses" />
+<link rel="alternate" hreflang="ru" href="https://www.ylet.online/ru/licenses" />
+<link rel="alternate" hreflang="x-default" href="https://www.ylet.online/licenses" />
+<link rel="canonical" href="https://www.ylet.online/ar/licenses" />
+<meta property="og:url" content="https://www.ylet.online/ar/licenses" />
+<!-- /cubeon:seo -->
+<link rel="stylesheet" href="/assets/rtl.css" />
+</head>
+<body>
+<a class="skip" href="#content">تخطَّ إلى المحتوى</a>
+
+<header class="navbar">
+  <div class="wrap">
+    <a class="brand" href="/ar" aria-labelالصفحة الرئيسية لـ Cubeonme"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+    <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navSlots" aria-labelالقائمةnu">☰</button>
+    <nav class="nav-links" id="navSlots" aria-labelالرئيسيin">
+      <!-- cubeon:language -->
+<div class="lang-menu">
+  <details>
+    <summary aria-label="اللغة: العربية"><span aria-hidden="true">🌐</span> AR</summary>
+    <nav class="lang-list" aria-label="اللغة">
+          <a href="/licenses" hreflang="en" lang="en">English</a>
+          <a href="/ar/licenses" hreflang="ar" lang="ar" aria-current="true">العربية</a>
+          <a href="/uk/licenses" hreflang="uk" lang="uk">Українська</a>
+          <a href="/ru/licenses" hreflang="ru" lang="ru">Русский</a>
+    </nav>
+  </details>
+</div>
+<!-- /cubeon:language -->
+      <a href="/ar">الرئيسية</a>
+      <a href="/ar/download">تنزيل</a>
+      <a href="/ar/docs">الوثائق</a>
+      <a href="/ar/doctor">Doctor</a>
+      <a class="nav-discord" href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>Discord</a>
+      <a class="nav-cta" href="/ar/download">احصل على Cubeon</a>
+    </nav>
+  </div>
+</header>
+
+<main id="content">
+<header class="page-head">
+  <div class="wrap">
+    <p class="crumbs"><a href="/ar">الرئيسية</a> / شكر وتقدير</p>
+    <h1>شكر وتقدير &amp; تراخيص</h1>
+    <p class="lede">ما بُني به Cubeon، ومن صنعه.</p>
+  </div>
+</header>
+
+<div class="prose">
+  <h2>الخطوط</h2>
+  <p>يستخدم هذا الموقع Inter وMinecraftia وNoto Sans Arabic (في الصفحات العربية فقط). كما يضم المشغّل خطوطًا كتابية لمنتقي اللغة، وتأتي إشعارات الترخيص مع ملفات الخطوط.</p>
+  <ul>
+    <li><strong>Inter</strong> — من صنع Rasmus Andersson، بترخيص SIL Open Font License 1.1.</li>
+    <li><strong>Minecraftia</strong> — من صنع Andrew Tyler، بترخيص Creative Commons Attribution Share Alike.</li>
+    <li><strong>Noto Sans Arabic UI وDevanagari UI وBengali UI وCubeon Language CJK</strong> — بترخيص SIL Open Font License 1.1. إن Cubeon Language CJK مجموعة فرعية من Noto Sans CJK SC من Adobe وGoogle. وتستخدم الصفحات العربية في الموقع مجموعة فرعية من Noto Sans Arabic.</li>
+  </ul>
+
+  <h2>الصور والأيقونات</h2>
+  <p>إن علامة المكعب Cubeon وأيقونة التطبيق ولقطات الشاشة في هذا الموقع ملك لنا. ولقطات الشاشة مأخوذة من التطبيق الحقيقي.</p>
+
+  <h2>ليست ملكًا لنا</h2>
+  <ul>
+    <li><strong>Minecraft</strong> علامة تجارية لـ Mojang AB. وCubeon مشروع معجبين غير رسمي، غير تابع لـ Mojang أو Microsoft ولا معتمد منهما.</li>
+    <li><strong>محتوى Minecraft</strong> — ملفات اللعبة والمودات والأسكنة التي صنعها آخرون — يعود إلى من صنعه ويأتي بشروطه الخاصة.</li>
+  </ul>
+
+  <h2>أسئلة حول أي من ذلك</h2>
+  <p>اسأل على <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</p>
+</div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div>
+      <a class="brand" href="/ar"><img class="mark" src="/assets/icon.svg" alt="" width="32" height="32"> Cubeon</a>
+      <p>مشغّل مجاني يجعل لعب Minecraft مع أصدقائك سهلاً - بلا حساب، وبلا خادم مستأجر، وبلا أي تعقيد.</p>
+    </div>
+    <div>
+      <h4>Cubeon</h4>
+      <nav class="foot-links" aria-label="Pages">
+                <a href="/ar">الرئيسية</a>
+        <a href="/ar/download">تنزيل</a>
+   الصفحات<a href="/ar/docs">الوثائق</a>
+        <a href="/ar/doctor">Doctor</a>
+      <a href="https://discord.gg/DTbG8P3Ru9" target="_blank" rel="noopener">Discord</a>
+        </nav>
+    </div>
+    <div>
+      <h4>الخصوصية &amp; القواعد</h4>
+      <nav class="foot-legal" aria-label="Legal">
+        <a href="/ar/privacy">الخصوصية</a>
+        <a href="/ar/terms">الشروط</a>
+    قانونيa href="/ar/refunds">الاسترداد</a>
+        <a href="/ar/cookies">ملفات تعريف الارتباط</a>
+        <a href="/ar/licenses">الشكر والتقدير</a>
+        <a href="/ar/privacy#delete">احذف بياناتي</a>
+      </nav>
+    </div>
+    <div class="foot-meta">
+      <span>Cubeon Launcher. للتواصل: <a href="mailto:hamza.457.shahbaz@gmail.com">hamza.457.shahbaz@gmail.com</a>.</span>
+      <span>Cubeon مشروع معجبين غير رسمي - غير تابع لـ Mojang أو Microsoft. وMinecraft علامة تجارية لـ Mojang AB. آخر تحديث للسياسات في 20 سبتمبر 2026.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js" defer></script>
+<script src="/assets/world.js" defer></script>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

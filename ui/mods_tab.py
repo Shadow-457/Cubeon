@@ -23,7 +23,7 @@ from cubeon import i18n
 from cubeon.mod_loaders import MOD_CAPABLE_LOADERS
 
 from cubeon.theme import (  # design system: corner radius, on-accent fg, hover states
-    RADIUS, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
+    RADIUS, RADIUS_LG, ON_ACCENT, ACCENT_HI, INFO, attach_hover,
     TEXT_FAINT, CARD_FILL, CARD_BORDER, ROW_HOVER, ACCENT_TINT,
     quiet_chip, text_tab, pixel_divider, animated_switch,
 )
@@ -38,6 +38,7 @@ from cubeon import thread_safe_ui  # TREE_LOCK for safe background-tree writes
 from cubeon import dialogs  # open/close dialogs across Flet versions
 from cubeon import instances as instance_info  # the selected instance's real loader
 from ui.install_feedback import InstallRegistry, compact_status, progress_text
+from ui.content_states import loading_rows, empty_state
 
 
 def batch_progress_text(value: float, total: float, eta: "str | None" = None) -> str:
@@ -281,7 +282,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         bgcolor=CARD_FILL,
         border_radius=RADIUS,
         height=40,
-        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=10),
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         on_change=_schedule_mods_filter,  # Debounced - see above
         on_submit=_filter_now,            # Enter = filter immediately
@@ -407,31 +408,17 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             if _is_mod():
                 empty_icon = ft.Icons.EXTENSION_OFF_ROUNDED
                 empty_title = "No mods installed yet"
-                empty_hint = "Download one from the list above."
+                empty_hint = "Find mods in Browse, or add one from a file."
             else:
                 empty_icon = ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED
                 empty_title = f"No {core.CONTENT_TYPES[_ct()]['label_plural'].lower()} installed yet"
-                empty_hint = "Download one from the list above."
-            rows.append(
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Icon(empty_icon, color=TEXT_DIM, size=28),
-                            ft.Text(empty_title, size=14, color=TEXT, weight=ft.FontWeight.W_600),
-                            ft.Text(empty_hint, size=12, color=TEXT_DIM),
-                        ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
-                    ),
-                    padding=32, alignment=ft.Alignment.CENTER,
-                )
-            )
+                empty_hint = "Find content in Browse, or add a file."
+            rows.append(empty_state(empty_title, empty_hint, icon=empty_icon,
+                                    action_label="Browse", on_action=lambda e: on_view_change("browse")))
         elif not mods:
             # Filter returned no results
             rows.append(
-                ft.Container(
-                    content=ft.Text("Nothing installed matches that filter.", size=13, color=TEXT_DIM),
-                    padding=20,
-                )
+                empty_state("No matching installed content", "Try another filter.")
             )
         else:
             # Build a row for each mod
@@ -446,7 +433,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             "Show fewer" if installed_show_all["value"] else f"Show all installed ({hidden} more)",
                             size=12, color=ACCENT, weight=ft.FontWeight.W_700,
                         ),
-                        padding=ft.padding.Padding.symmetric(vertical=8, horizontal=10),
+                        padding=ft.padding.Padding.symmetric(vertical=8, horizontal=12),
                         border_radius=RADIUS,
                         ink=False,
                         on_click=lambda e: (installed_show_all.update({"value": not installed_show_all["value"]}), refresh_mods_list()),
@@ -567,9 +554,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         content=ft.Row(
             [ft.Icon(ft.Icons.BUILD_ROUNDED, color=TEXT_DIM, size=14),
              ft.Text(i18n.t("Check & repair"), color=TEXT_DIM, size=12,
-                     weight=ft.FontWeight.W_600)], spacing=5, tight=True),
+                     weight=ft.FontWeight.W_600)], spacing=4, tight=True),
         border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
         tooltip="Repair missing dependencies and conflicts in the background. "
                 "Changed mods are kept as disabled backups.",
         ink=False, on_click=run_mod_repair, data="mods-check-repair",
@@ -691,16 +678,16 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                             color=ft.Colors.with_opacity(0.7, TEXT), font_family=FONT_MONO),
                                     *_compat_lines(m),
                                 ],
-                                spacing=2, expand=True,
+                                spacing=4, expand=True,
                             ),
                             ft.IconButton(ft.Icons.CLOSE_ROUNDED, icon_color=TEXT_FAINT,
                                           icon_size=17, tooltip=i18n.t("Remove"),
                                           on_click=on_delete_content),
                         ],
-                        spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     border_radius=RADIUS,
-                    padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+                    padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
                 ),
                 "transparent", ROW_HOVER,
             )
@@ -765,7 +752,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                     size=11.5, color=ft.Colors.with_opacity(0.7, TEXT), font_family=FONT_MONO,
                                 ),
                             ],
-                            spacing=2, expand=True,
+                            spacing=4, expand=True,
                         ),
                         # Protected mods (CustomSkinLoader, Cubeon Friends)
                         # get a lock instead of the toggle/delete controls -
@@ -789,10 +776,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             ]
                         ),
                     ],
-                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ),
             "transparent", ROW_HOVER,
         )
@@ -962,7 +949,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         bgcolor=CARD_FILL,
         border_radius=RADIUS,
         height=46,
-        content_padding=ft.padding.Padding.symmetric(horizontal=14, vertical=12),
+        content_padding=ft.padding.Padding.symmetric(horizontal=16, vertical=12),
         prefix_icon=ft.Icons.SEARCH_ROUNDED,
         on_submit=lambda e: run_mod_search(),  # Enter = search immediately
         expand=True,
@@ -1011,11 +998,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     browse_pager_label = ft.Text("", size=12, color=TEXT_DIM, font_family=FONT_MONO)
     browse_pager_prev = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_LEFT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=False,
+        padding=8, border_radius=RADIUS, ink=False,
     )
     browse_pager_next = ft.Container(
         content=ft.Icon(ft.Icons.CHEVRON_RIGHT_ROUNDED, size=18, color=TEXT),
-        padding=6, border_radius=RADIUS, ink=False,
+        padding=8, border_radius=RADIUS, ink=False,
     )
     browse_pager_row = ft.Row(
         [browse_pager_prev, browse_pager_label, browse_pager_next],
@@ -1147,13 +1134,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     # past". A bordered tray with an accent-filled selected pill makes the
     # current section obvious, and the icons say what each one is before the
     # label is read.
-    content_segment_row = ft.Row(spacing=2)
+    content_segment_row = ft.Row(spacing=4)
     content_segment_bar = ft.Container(
         content=content_segment_row,
         bgcolor=CARD_FILL,
         border=ft.border.Border.all(1, CARD_BORDER),
-        border_radius=RADIUS + 2,
-        padding=3,
+        border_radius=RADIUS_LG,
+        padding=4,
     )
     CONTENT_TAB_ICONS = {
         "mod": ft.Icons.EXTENSION_ROUNDED,
@@ -1172,7 +1159,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             else ft.FontWeight.W_500,
                             color=TEXT if selected else TEXT_DIM),
                 ],
-                spacing=6,
+                spacing=8,
                 tight=True,
             ),
             # Neutral selection: orange is kept for Download / primary actions.
@@ -1180,7 +1167,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             border=ft.border.Border.all(
                 1, ft.Colors.with_opacity(0.5, TEXT) if selected else "transparent"),
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
             ink=False,
             on_click=lambda e, t=tid: on_content_type_change(t),
             animate=ft.Animation(160, ft.AnimationCurve.EASE_OUT_CUBIC),
@@ -1348,12 +1335,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             except Exception as ex:
                 if not _browse_current(token):
                     return
-                browse_status_text.value = f"{error_prefix}: {ex}"
+                logging.getLogger(__name__).warning("%s: %s", error_prefix, ex, exc_info=True)
+                browse_status_text.value = "Search unavailable"
                 with thread_safe_ui.TREE_LOCK:
                     browse_results_view.disabled = False
                     browse_results_view.controls[:] = [
-                        ft.Text("Search unavailable. Check your connection and retry.", size=13, color=TEXT_DIM),
-                        quiet_chip("Retry", on_click=lambda event: run_mod_search_safe()),
+                        empty_state("Search unavailable", "Check your connection, then try again.",
+                                    icon=ft.Icons.WIFI_OFF_ROUNDED, action_label="Retry",
+                                    on_action=lambda event: run_mod_search_safe()),
                     ]
                 thread_safe_ui.refresh(browse_status_text)
                 thread_safe_ui.refresh(browse_results_view)
@@ -1428,13 +1417,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         """The placeholder shown while a page that isn't cached yet is being
         fetched - it keeps the pager out of the way so a stale page number
         can't be clicked while the real one is in flight."""
-        if not browse_results_view.controls or isinstance(browse_results_view.controls[0], (ft.Text, ft.Row)):
-            loading_row = ft.Row(
-                [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
-                 ft.Text("Loading...", size=13, color=TEXT_DIM)],
-                spacing=10,
-            )
-            browse_results_view.controls[:] = [loading_row]
+        if (not browse_results_view.controls or isinstance(browse_results_view.controls[0], (ft.Text, ft.Row))
+                or getattr(browse_results_view.controls[0], "data", None) == "content-empty"):
+            browse_results_view.controls[:] = [loading_rows()]
         browse_results_view.disabled = True
         browse_pager_row.visible = False
         # Scoped: a full page.update() here re-synced every mounted tab right
@@ -1479,7 +1464,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         rows = []
         if not results:
             rows.append(
-                ft.Text(browse_state.get("empty_msg", ""), size=13, color=TEXT_DIM))
+                empty_state(browse_state.get("empty_msg") or "No results",
+                            "Try a different search or adjust the filters."))
             if _is_mod() and _browse_query() and (search_scope["compatible"] or active_category["value"]):
                 rows.append(quiet_chip("Search all Modrinth", on_click=_search_all_modrinth))
         else:
@@ -1542,7 +1528,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         return ft.Row(
             [ft.ProgressRing(width=16, height=16, stroke_width=2, color=ACCENT),
              ft.Text("Loading details...", size=13, color=TEXT_DIM)],
-            spacing=10, alignment=ft.MainAxisAlignment.CENTER,
+            spacing=12, alignment=ft.MainAxisAlignment.CENTER,
         )
 
     def _detail_badge(text, tone="dim"):
@@ -1556,7 +1542,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             font_family=FONT_MONO),
             bgcolor=ACCENT_TINT if accent else CARD_FILL,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=7, vertical=3),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
             border=None if accent else ft.border.Border.all(1, CARD_BORDER),
         )
 
@@ -1591,7 +1577,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
 
         detail_body = ft.Column(
             [_detail_loading_row()],
-            spacing=14, width=680, height=_body_h,
+            spacing=16, width=680, height=_body_h,
             scroll=ft.ScrollMode.AUTO,
         )
 
@@ -1634,13 +1620,13 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                               icon_color=TEXT_DIM, icon_size=20,
                                               tooltip=i18n.t("Close"), on_click=_close),
                             ],
-                            spacing=14,
+                            spacing=16,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
                         pixel_divider(),
                         detail_body,
                     ],
-                    spacing=14, tight=True,
+                    spacing=16, tight=True,
                 ),
             ),
         )
@@ -1760,7 +1746,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                            color=TEXT_FAINT if done["v"] else fg,
                            size=16 if big else 15)
             btn = ft.Container(
-                content=ft.Row([icon, text], spacing=6, tight=True),
+                content=ft.Row([icon, text], spacing=8, tight=True),
                 bgcolor=ACCENT_TINT if done["v"]
                 else (ACCENT if big else ACCENT_TINT),
                 border_radius=RADIUS,
@@ -1828,7 +1814,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                     clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                     border=ft.border.Border.all(1, CARD_BORDER),
                 ))
-            return ft.Row(tiles, spacing=10, scroll=ft.ScrollMode.AUTO)
+            return ft.Row(tiles, spacing=12, scroll=ft.ScrollMode.AUTO)
 
         def _meta_line(details):
             """Only what a player decides on: how popular it is, what loader it
@@ -1845,7 +1831,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             if gvs:
                 shown = ", ".join(gvs[:3]) + ("…" if len(gvs) > 3 else "")
                 pills.append(_detail_badge("Minecraft " + shown))
-            return ft.Row(pills, spacing=6, run_spacing=6, wrap=True) if pills else None
+            return ft.Row(pills, spacing=8, run_spacing=8, wrap=True) if pills else None
 
         def _quick_action(details, versions):
             """The one thing most people came to do, at the top: get the newest
@@ -1877,7 +1863,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                           weight=ft.FontWeight.W_700),
                                   ft.Text(f"{vnum} is installed", size=11.5,
                                           color=TEXT_DIM)],
-                                 spacing=1, expand=True)],
+                                 spacing=4, expand=True)],
                             spacing=12,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER)
                     else:
@@ -1888,7 +1874,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                  ft.Text(vnum, size=16, color=TEXT,
                                          weight=ft.FontWeight.W_800,
                                          font_family=FONT_DISPLAY)],
-                                spacing=1, expand=True),
+                                spacing=4, expand=True),
                              _install_button(best, details,
                                              label="Install latest", big=True)],
                             spacing=12,
@@ -1903,7 +1889,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             holder.bgcolor = CARD_FILL
             holder.border = ft.border.Border.all(1, CARD_BORDER)
             holder.border_radius = RADIUS
-            holder.padding = ft.padding.Padding.symmetric(horizontal=14, vertical=12)
+            holder.padding = ft.padding.Padding.symmetric(horizontal=16, vertical=12)
             return holder
 
         def _description_block(body):
@@ -1914,7 +1900,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             if not preview:
                 return None
             full = {"ctrl": None, "shown": False}
-            holder = ft.Column(spacing=6)
+            holder = ft.Column(spacing=8)
             toggle_text = ft.Text("Read more", size=12, color=ACCENT,
                                   weight=ft.FontWeight.W_700)
             toggle = ft.Container(
@@ -1946,7 +1932,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 [ft.Text("About this mod", size=15, color=TEXT,
                          weight=ft.FontWeight.W_700, font_family=FONT_DISPLAY),
                  holder],
-                spacing=6)
+                spacing=8)
 
         def _versions_section(details, versions):
             """Compatible builds first, and only a handful of them - a mod like
@@ -1960,7 +1946,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             more_text = ft.Text("", size=12, color=ACCENT,
                                 weight=ft.FontWeight.W_700)
             more = ft.Container(content=more_text, visible=False, ink=False,
-                                padding=ft.padding.Padding.symmetric(vertical=6))
+                                padding=ft.padding.Padding.symmetric(vertical=8))
 
             def _paint():
                 rows = []
@@ -2001,7 +1987,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 [ft.Text(i18n.t("Versions"), size=15, color=TEXT,
                          weight=ft.FontWeight.W_700, font_family=FONT_DISPLAY),
                  list_holder, more],
-                spacing=6)
+                spacing=8)
 
         def _render_details(details, versions):
             controls = []
@@ -2054,7 +2040,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                     size=11, color=TEXT_FAINT,
                                     font_family=FONT_MONO, max_lines=2),
                             ],
-                            spacing=3, expand=True,
+                            spacing=4, expand=True,
                         ),
                         _install_button(
                             v, details,
@@ -2142,12 +2128,12 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                             color=TEXT_FAINT if is_installed else ACCENT, size=15),
                     download_btn_text,
                 ],
-                spacing=6, tight=True,
+                spacing=8, tight=True,
             ),
             bgcolor=None if is_installed else ACCENT_TINT,
             width=136, height=36, alignment=ft.Alignment.CENTER,
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=7),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ink=False,
             disabled=is_installed or bool(compatibility_note) or not _can_install(row_content_type),
             tooltip=compatibility_note or ("Choose a compatible mod loader on the Play tab first." if not _can_install(row_content_type) else None),
@@ -2327,14 +2313,14 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                     spacing=8,
                                 ),
                             ],
-                            spacing=3, expand=True,
+                            spacing=4, expand=True,
                         ),
                         download_btn,
                     ],
-                    spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=10, vertical=10),
+                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
             ),
             "transparent", ROW_HOVER,
         )
@@ -2384,7 +2370,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             spacing=8,
         ),
         visible=(state["mod_loader"] == "vanilla"),
-        padding=ft.padding.Padding.symmetric(vertical=6),
+        padding=ft.padding.Padding.symmetric(vertical=8),
     )
 
     # Shown on the Shaders segment: a shader .zip only does anything if Iris
@@ -2395,9 +2381,9 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                                  weight=ft.FontWeight.W_700)
     shader_setup_btn = ft.Container(
         content=ft.Row([ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=15, color=ACCENT),
-                        shader_setup_label], spacing=6, tight=True),
+                        shader_setup_label], spacing=8, tight=True),
         bgcolor=ACCENT_TINT, border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=14, vertical=8),
+        padding=ft.padding.Padding.symmetric(horizontal=16, vertical=8),
         ink=False,
         on_click=lambda e: _setup_shaders(),
     )
@@ -2408,10 +2394,10 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
                 shader_notice_text,
                 shader_setup_btn,
             ],
-            spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         visible=False,
-        padding=ft.padding.Padding.symmetric(vertical=6),
+        padding=ft.padding.Padding.symmetric(vertical=8),
     )
 
     def _sync_shader_notice():
@@ -2518,7 +2504,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         [
             ft.Row([mod_search_field, filters_button], spacing=8),
             category_chips_container,
-            ft.Container(height=6),
+            ft.Container(height=8),
             ft.Row([browse_title_text, ft.Container(expand=True), browse_status_text],
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             browse_results_view,
@@ -2537,7 +2523,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             ft.Row(
                 [section_label(i18n.t("Installed")), ft.Container(expand=True),
                  check_repair_btn, repair_status, installed_count_text],
-                spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             repair_details,
             installed_status,
             installed_filter_field,
@@ -2547,7 +2533,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
         visible=False,
     )
 
-    view_segment_row = ft.Row(spacing=22)
+    view_segment_row = ft.Row(spacing=24)
 
     def _build_view_segment():
         view_segment_row.controls.clear()
@@ -2638,11 +2624,11 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             [ft.Icon(ft.Icons.UPLOAD_FILE_ROUNDED, color=TEXT_DIM, size=14),
              ft.Text(i18n.t("From file"), color=TEXT_DIM, size=12,
                      weight=ft.FontWeight.W_600)],
-            spacing=5, tight=True,
+            spacing=4, tight=True,
         ),
         border=ft.border.Border.all(1, CARD_BORDER),
         border_radius=RADIUS,
-        padding=ft.padding.Padding.symmetric(horizontal=10, vertical=5),
+        padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
         tooltip="Install from a file on your computer",
         ink=False, on_click=open_local_mod_picker,
     ), "transparent", ROW_HOVER)
@@ -2652,8 +2638,8 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
     mods_tab = ft.Column(
         [
             # Header: just the title + one-line description.
-            ft.Column([header_title, header_subtitle], spacing=2),
-            ft.Container(height=14),
+            ft.Column([header_title, header_subtitle], spacing=4),
+            ft.Container(height=16),
             # Segment tabs and their contextual notices share ONE block: an
             # empty status line / hidden notice used to sit as separate
             # children here, each still collecting column spacing around a
@@ -2676,7 +2662,7 @@ def build_mods_tab(page: ft.Page, cfg: dict, state: dict, version_dropdown: ft.D
             ft.Row([view_segment_row, ft.Container(expand=True),
                     browse_scope_text, compatible_only],
                    spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Container(height=14),
+            ft.Container(height=16),
             browse_pane,
             installed_pane,
         ],

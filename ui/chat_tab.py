@@ -202,7 +202,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                             font_family=FONT_MONO),
                             bgcolor=ACCENT_TINT, border_radius=RADIUS,
                             padding=ft.padding.Padding.symmetric(
-                                horizontal=6, vertical=2),
+                                horizontal=8, vertical=4),
                         ),
                     ],
                     spacing=8,
@@ -304,7 +304,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         bgcolor=CARD_FILL,
         border_radius=RADIUS,
         height=40,
-        content_padding=ft.padding.Padding.symmetric(horizontal=10, vertical=8),
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         on_submit=lambda e: _do_add(),
     )
 
@@ -322,14 +322,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
         bgcolor=CARD_FILL,
         border_radius=RADIUS,
         height=36,
-        content_padding=ft.padding.Padding.symmetric(horizontal=10, vertical=6),
+        content_padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
         on_change=lambda e: _rebuild_friends(_last_roster["v"] or {}),
     )
 
     requests_label = section_label(i18n.t("Requests"))
-    requests_col = ft.Column(spacing=6)
+    requests_col = ft.Column(spacing=8)
     friends_label = section_label(i18n.t("Friends"))
-    friends_col = ft.Column(spacing=3)
+    friends_col = ft.Column(spacing=4)
 
     transcript_header = ft.Text("", size=16, color=TEXT,
                                 weight=ft.FontWeight.W_700, max_lines=1,
@@ -349,7 +349,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                              on_scroll=lambda e: _on_transcript_scroll(e),
                              scroll_interval=50,
                              padding=ft.padding.Padding.symmetric(
-                                 vertical=6, horizontal=2), visible=False)
+                                 vertical=8, horizontal=4), visible=False)
 
     # "Jump to newest" pill: appears while the view is scrolled up and sends
     # the transcript back to the bottom with one click.
@@ -365,14 +365,14 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                             ft.Text("Newest", size=11, color=ACCENT,
                                     weight=ft.FontWeight.W_600),
                         ],
-                        spacing=5, tight=True,
+                        spacing=4, tight=True,
                         alignment=ft.MainAxisAlignment.CENTER,
                     ),
                     bgcolor=SURFACE_HI,
                     border=ft.border.Border.all(1, ACCENT_DIM),
                     border_radius=RADIUS,
-                    padding=ft.padding.Padding.symmetric(horizontal=10,
-                                                         vertical=6),
+                    padding=ft.padding.Padding.symmetric(horizontal=12,
+                                                         vertical=8),
                     ink=False,
                     on_click=lambda e: _stick_bottom(force=True),
                 ),
@@ -445,7 +445,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     ink=False, on_click=lambda e, em=em: _insert_emoji(em),
                     tooltip=None,
                  ) for em in _EMOJIS[i:i + 8]],
-                spacing=2, run_spacing=2, wrap=True,
+                spacing=4, run_spacing=4, wrap=True,
             ) for i in range(0, len(_EMOJIS), 8)],
             spacing=0, tight=True,
         ),
@@ -567,7 +567,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             content=ft.Text(label, size=11, weight=ft.FontWeight.W_600,
                             color=fg),
             bgcolor=fill, border_radius=RADIUS, ink=False,
-            padding=ft.padding.Padding.symmetric(horizontal=10, vertical=4),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
             on_click=on_click,
         )
 
@@ -587,7 +587,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             content=ft.Text(str(count) if count < 100 else "99+", size=10,
                             color=ON_ACCENT, weight=ft.FontWeight.W_700),
             bgcolor=ACCENT, border_radius=9, ink=False,
-            padding=ft.padding.Padding.symmetric(horizontal=6, vertical=1),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
         )
 
     def _identity_label(metadata):
@@ -677,7 +677,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         tooltip=_full_date(last_ts) if last_ts else None),
                 badge,
             ],
-            spacing=3, tight=True,
+            spacing=4, tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.END,
         )
         row = ft.Container(
@@ -696,7 +696,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                     max_lines=1,
                                     overflow=ft.TextOverflow.ELLIPSIS),
                         ],
-                        spacing=1, tight=True, expand=True,
+                        spacing=4, tight=True, expand=True,
                     ),
                     trailing,
                 ],
@@ -706,7 +706,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
             bgcolor=_row_bg(is_sel),
             border_radius=RADIUS,
             ink=False,
-            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=7),
+            padding=ft.padding.Padding.symmetric(horizontal=8, vertical=8),
             tooltip=_recipient(name, f),
             on_click=lambda e, n=name: _select(n),
         )
@@ -751,7 +751,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         ft.Text(_uid_line(uid), size=10, color=TEXT_FAINT,
                                 font_family=FONT_MONO, max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS),
-                    ], spacing=1, tight=True, expand=True),
+                    ], spacing=4, tight=True, expand=True),
                     *actions,
                 ],
                 spacing=8,
@@ -1071,7 +1071,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                 text_align=(ft.TextAlign.RIGHT if mine
                                             else ft.TextAlign.LEFT)))
         return ft.Container(
-            content=ft.Column(rows, spacing=2, tight=True),
+            content=ft.Column(rows, spacing=4, tight=True),
             bgcolor=(CARD_FILL if (dim or failed)
                      else (ACCENT_TINT if mine else SURFACE_HI)),
             border=ft.border.Border.all(
@@ -1079,7 +1079,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 else (CARD_BORDER if (dim or failed)
                       else (ACCENT_DIM if mine else CARD_BORDER))),
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=11, vertical=8),
+            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=8),
             ink=False,
             tooltip=((_full_date(ts) + "  ·  click to copy") if ts
                      else "Click to copy this message"),
@@ -1477,10 +1477,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
 
     # --- poll loop -------------------------------------------------------
     def _tick():
-        # Event handlers and action completions share this lock with Flet's
-        # diff. Never change identity/header/list controls during a tree walk.
-        with thread_safe_ui.TREE_LOCK:
-            _tick_locked()
+        _tick_locked()
 
     def _tick_locked():
         if not tick_lock.acquire(blocking=False):
@@ -1490,24 +1487,30 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 roster = service.roster_payload()
             except Exception:
                 roster = None
+            # A socket callback can hold its lifecycle lock while delivering
+            # a launcher notice. Never wait for service/socket locks while
+            # holding TREE_LOCK, or neither thread can make progress.
             if roster:
-                _apply_identity(roster)
-                _render_roster(roster)
+                with thread_safe_ui.TREE_LOCK:
+                    _apply_identity(roster)
+                    _render_roster(roster)
             try:
                 ev = service.events_since(cursor["v"]) or {}
             except Exception:
                 ev = {}
-            if cursor["v"] >= 0:
-                for e in ev.get("events", []):
-                    _set_status(e.get("text") or "", bool(e.get("error")))
-            cursor["v"] = ev.get("cursor", cursor["v"])
-            name = selected["name"]
+            with thread_safe_ui.TREE_LOCK:
+                if cursor["v"] >= 0:
+                    for e in ev.get("events", []):
+                        _set_status(e.get("text") or "", bool(e.get("error")))
+                cursor["v"] = ev.get("cursor", cursor["v"])
+                name = selected["name"]
             if name:
                 viewing = (state.get("active_tab", "chat") == "chat"
                            and state.get("window_focused", True)
                            and not state.get("account_open", False))
                 _set_open(name, viewing)
-                _sweep_pending()
+                with thread_safe_ui.TREE_LOCK:
+                    _sweep_pending()
                 try:
                     kwargs = ({"viewing": viewing, "viewer": "launcher"}
                               if callable(getattr(service, "set_open_conversation", None))
@@ -1516,7 +1519,8 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                         name, last_seq.get(name, -1), **kwargs) or {}
                 except Exception:
                     payload = {}
-                _append_messages(payload.get("messages") or [], name)
+                with thread_safe_ui.TREE_LOCK:
+                    _append_messages(payload.get("messages") or [], name)
                 if viewing:
                     _mark_read(name)
         finally:
@@ -1567,13 +1571,13 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                             font_family=FONT_MONO),
                             bgcolor=ACCENT_TINT, border_radius=RADIUS,
                             padding=ft.padding.Padding.symmetric(
-                                horizontal=6, vertical=2),
+                                horizontal=8, vertical=4),
                         ),
                         ft.Container(expand=True),
                         conn_dot,
                         conn_text,
                     ],
-                    spacing=6,
+                    spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Container(height=4),
@@ -1586,11 +1590,11 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                                     you_text,
                                     your_id_text,
                                 ],
-                                spacing=1, tight=True, expand=True,
+                                spacing=4, tight=True, expand=True,
                             ),
                             copy_id_btn,
                         ],
-                        spacing=10,
+                        spacing=12,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     tooltip="Your Cubeon account (the ID is yours alone - "
@@ -1598,10 +1602,10 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     bgcolor=CARD_FILL,
                     border=ft.border.Border.all(1, CARD_BORDER),
                     border_radius=RADIUS,
-                    padding=ft.padding.Padding.symmetric(horizontal=10,
+                    padding=ft.padding.Padding.symmetric(horizontal=12,
                                                          vertical=8),
                 ),
-                ft.Container(height=6),
+                ft.Container(height=8),
                 add_field,
                 requests_label,
                 requests_col,
@@ -1611,7 +1615,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                 ft.Container(height=8),
                 status_text,
             ],
-            spacing=6,
+            spacing=8,
             scroll=ft.ScrollMode.AUTO,
             expand=True,
         ),
@@ -1631,7 +1635,7 @@ def build_chat_tab(page: ft.Page, cfg: dict, state: dict, service, *,
                     [
                         header_avatar,
                         ft.Column([transcript_header, transcript_sub],
-                                  spacing=1, expand=True, tight=True),
+                                  spacing=4, expand=True, tight=True),
                         remove_btn,
                     ],
                     spacing=12,
