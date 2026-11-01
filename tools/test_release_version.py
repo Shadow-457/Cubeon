@@ -87,6 +87,8 @@ check("promoted 1.3.27 is stable", rv.channel("1.3.27") == "stable")
 check("promoted v-prefixed input is stable", rv.channel("v1.3.27") == "stable")
 check("promoted 1.3.28 is stable", rv.channel("1.3.28") == "stable")
 check("promoted 1.3.38 is stable", rv.channel("1.3.38") == "stable")
+check("promoted 1.3.45 is stable", rv.channel("1.3.45") == "stable")
+check("the patch after 1.3.45 still defaults to beta", rv.channel("1.3.46") == "beta")
 check("the patch after 1.3.38 still defaults to beta", rv.channel("1.3.39") == "beta")
 check("the next patch still defaults to beta", rv.channel("1.3.29") == "beta")
 check("v-prefixed input is accepted", rv.channel("v1.3.1") == "beta")
@@ -213,6 +215,24 @@ try:
     check("stamp rejects garbage", raises(rv.stamp, "2.5"))
     check("stamp counts replacements per file",
           all(isinstance(n, int) and n > 0 for _p, n in rv.stamp("2.6.1", site=True)))
+
+    (tmp / "web" / "ar").mkdir()
+    localized = tmp / "web" / "ar" / "download.html"
+    localized.write_text(
+        '<p>الإصدار 1.3.38 &middot; مثبّت</p>'
+        '<a href="/releases/download/v1.3.38/old.zip">Archive</a>', encoding="utf-8")
+    saved_site = rv.SITE_FILES
+    rv.SITE_FILES = tuple((tmp / path.relative_to(rv.ROOT), pattern, replacement)
+                          for path, pattern, replacement in orig_site)
+    try:
+        rv.stamp("1.3.45")
+        translated = localized.read_text(encoding="utf-8")
+        check("stable stamp updates translated labels and preserves archive URLs",
+              'الإصدار 1.3.45' in translated
+              and '/releases/download/v1.3.38/old.zip' in translated)
+        check("localized stable stamping is idempotent", not rv.stamp("1.3.45", check=True))
+    finally:
+        rv.SITE_FILES = saved_site
 
     # The literal moved / two of them -> must raise, never silently no-op.
     (tmp / "cubeon" / "updater.py").write_text(

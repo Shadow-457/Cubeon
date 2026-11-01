@@ -66,16 +66,21 @@ UPDATER = ROOT / "cubeon" / "updater.py"
 # Files whose *display* text carries the version. The download worker resolves
 # release assets by name (the .deb by prefix/suffix, never by version), so these
 # are cosmetic - a stale one is ugly, not broken.
-SITE_FILES = (
-    # (path, compiled pattern, replacement template)
-    (ROOT / "web" / "index.html",
-     re.compile(r"(?<![\w.])v\d+\.\d+\.\d+(?![\w.])"), "v{version}"),
-    (ROOT / "web" / "download.html",
-     re.compile(r"(?<![\w.])Version \d+\.\d+\.\d+(?![\w.])"), "Version {version}"),
+SITE_FILES = tuple(
+    # Stamp localized display labels too, preserving their translated prefix.
+    (ROOT / "web" / locale / filename, pattern, replacement)
+    for locale in ("", "ar", "ru", "uk")
+    for filename, pattern, replacement in (
+        ("index.html", re.compile(r"(?<![\w.])v\d+\.\d+\.\d+(?![\w.])"),
+         "v{version}"),
+        ("download.html", re.compile(
+            r"(?<![\w.])((?:Version|الإصدار) )\d+\.\d+\.\d+(?![\w.])"),
+         r"\g<1>{version}"),
+    )
 )
 
 # Explicit maintainer promotion; keep this history so a rebuild retains its channel.
-STABLE_PROMOTIONS = frozenset({"1.3.27", "1.3.28", "1.3.38"})
+STABLE_PROMOTIONS = frozenset({"1.3.27", "1.3.28", "1.3.38", "1.3.45"})
 
 # Mirrors cubeon/updater.py::_TAG_RE: a release the updater can compare against.
 # Anything else (nightly, v1.2, v1.2.0-rc1) is not a candidate version.

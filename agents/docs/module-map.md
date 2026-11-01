@@ -1164,10 +1164,12 @@ requires retrying with normal system access, not changing unrelated app code.
 - A push to `main` starts the release workflow. Publishing, committing, deploying, and rewriting history
   require the user's explicit request.
 - `tools/release_version.py` owns stamping/channel policy. Zero-patch versions and explicit
-  `STABLE_PROMOTIONS` (v1.3.27, v1.3.28 and v1.3.38) are stable; other patches default to beta. Promotion preserves
+  `STABLE_PROMOTIONS` (v1.3.27, v1.3.28, v1.3.38 and v1.3.45) are stable; other patches default to beta. Promotion preserves
   published binaries/tag; use `[skip ci]` for metadata/site commits to avoid minting a new beta.
   Rebuild with the current workflow, not an old pre-promotion commit. Preserve concurrent release
   metadata and do not force-push over another change.
+  Stable website stamps include English, Arabic, Russian and Ukrainian fallback
+  homepage/download labels, preserving translated prefixes and archive URLs.
 - Publishing verifies the required assets. Test jobs are separate; a published release does not establish
   that every test or desktop smoke check passed.
 - Worker configuration is not proof of current deployment health. Preserve client/Worker protocol parity,

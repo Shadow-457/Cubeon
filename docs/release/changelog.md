@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — Seasonal Play artwork
+## 1.3.45 — Stable: content management and seasonal scenery
+
+Promoted the published v1.3.45 build to stable without changing its tag or
+binaries. Updated the stable channel policy and English/localized website
+version labels.
+
+### Seasonal Play artwork
 
 - Added the approved pixel-art trees, tilted sapling and ground artwork for all
   four seasons. Responsive images use bundled transparent assets and retain
@@ -18,7 +24,7 @@
 - Fixed a native Flet layout failure that rendered the overlay as a gray panel:
   the size listener now belongs to the inner Stack, outside the positioned host.
 
-## Unreleased — Mods, Resource Packs and Shaders audit
+### Mods, Resource Packs and Shaders audit
 
 - Added per-instance enable/disable switches for resource packs and shaders,
   including unpacked folders. Disabled entries stay recoverable and are excluded
