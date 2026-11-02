@@ -27,7 +27,7 @@ public final class CubeonHud {
 		KEYS,
 		ARMOR,
 		PING,
-		CPS
+		CPS, CLOCK, SYSTEM, POTIONS, COORDINATES, DIRECTION, BIOME, DAYLIGHT, COMBO
 	}
 
 	static final int KEY_SIZE = 20;
@@ -116,6 +116,14 @@ public final class CubeonHud {
 			renderOverlay(context, client, config, Overlay.CPS, screenW, screenH, CubeonHud::renderCps);
 		}
 
+        if (config.extrasEnabled()) {
+            for (Overlay overlay : Overlay.values()) if (overlay.ordinal() >= 5 && config.extraEnabled(slotOf(overlay)))
+                renderOverlay(context, client, config, overlay, screenW, screenH,
+                        (draw, mc, x, y) -> renderExtra(draw, mc, overlay, x, y, false));
+        }
+
+        com.cubeon.client.hud.screen.FriendsToastRenderer.render(context, client, screenW, screenH);
+
 		LegacyHealthProjection.render(context, client);
 	}
 
@@ -155,6 +163,7 @@ public final class CubeonHud {
 			case ARMOR -> ARMOR_WIDTH;
 			case PING -> pingWidth(client);
 			case CPS -> cpsWidth(client);
+			default -> ExtraHud.width(HudFeatures.at(overlay.ordinal()), client.textRenderer::getWidth);
 		};
 		return Math.max(1, Math.round(base * CubeonHud.scaleOf(overlay)));
 	}
@@ -166,6 +175,7 @@ public final class CubeonHud {
 			case ARMOR -> ARMOR_HEIGHT;
 			case PING -> client.textRenderer.fontHeight + 3;
 			case CPS -> cpsHeight(client);
+			default -> ExtraHud.height(HudFeatures.at(overlay.ordinal()));
 		};
 		return Math.max(1, Math.round(base * CubeonHud.scaleOf(overlay)));
 	}
@@ -185,6 +195,7 @@ public final class CubeonHud {
 			case ARMOR -> config.armorX;
 			case PING -> config.pingX;
 			case CPS -> config.cpsX;
+			default -> config.extra(slotOf(overlay)).x;
 		};
 		return Math.round(fraction * Math.max(0, screenW - widthOf(overlay, client)));
 	}
@@ -196,6 +207,7 @@ public final class CubeonHud {
 			case ARMOR -> config.armorY;
 			case PING -> config.pingY;
 			case CPS -> config.cpsY;
+			default -> config.extra(slotOf(overlay)).y;
 		};
 		return Math.round(fraction * Math.max(0, screenH - heightOf(overlay, client)));
 	}
@@ -229,6 +241,10 @@ public final class CubeonHud {
 				config.cpsX = CubeonHudConfig.clamp01(fractionX);
 				config.cpsY = CubeonHudConfig.clamp01(fractionY);
 			}
+			default -> {
+                var value = config.extra(slotOf(overlay));
+                value.x = CubeonHudConfig.clamp01(fractionX); value.y = CubeonHudConfig.clamp01(fractionY);
+            }
 		}
 	}
 
@@ -262,6 +278,7 @@ public final class CubeonHud {
 			case ARMOR -> "armor";
 			case PING -> "ping";
 			case CPS -> "cps";
+			default -> HudFeatures.at(overlay.ordinal()).slot;
 		};
 	}
 
@@ -438,5 +455,22 @@ public final class CubeonHud {
         } finally {
             context.getMatrices().pop();
         }
+    }
+
+    public static boolean screenOpen() { var client = MinecraftClient.getInstance(); return client.currentScreen != null; }
+    public static boolean hudHidden() { var client = MinecraftClient.getInstance(); return client.options.hudHidden; }
+    public static void renderExtra(DrawContext context, MinecraftClient client, Overlay overlay, int x, int y, boolean preview) {
+        ExtraHud.render(extraCanvas(context, client), HudFeatures.at(overlay.ordinal()), x, y, preview);
+        if (overlay == Overlay.POTIONS) for (int i = 0; i < ExtraHud.effects().size(); i++) {
+            if (ExtraHud.effects().get(i).icon() instanceof net.minecraft.client.texture.Sprite icon) { com.cubeon.client.hud.screen.ClientUiDraw.effect(context, icon, x + 2, y + 1 + i * 12); }
+        }
+    }
+    private static com.cubeon.client.ui.ClientUi.Canvas extraCanvas(DrawContext context, MinecraftClient client) {
+        return new com.cubeon.client.ui.ClientUi.Canvas() {
+            public void fill(int x0, int y0, int x1, int y1, int color) { context.fill(x0, y0, x1, y1, color); }
+            public void text(String value, int centerX, int y, int color) { context.drawTextWithShadow(client.textRenderer, value, centerX - client.textRenderer.getWidth(value) / 2, y, color); }
+            public int width(String value) { return client.textRenderer.getWidth(value); }
+            public String translate(String key) { return net.minecraft.text.Text.translatable(key).getString(); }
+        };
     }
 }

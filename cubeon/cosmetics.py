@@ -34,12 +34,19 @@ from PIL import Image
 from .config import save_config
 from .paths import active_game_dir
 
-SLOTS = ("shoulder", "back")
+SLOTS = ("shoulder", "back", "face", "head", "waist", "hand", "trail")
+SLOT_LABELS = {"shoulder": "Pets", "back": "Back", "face": "Face",
+               "head": "Head", "waist": "Waist", "hand": "Wrist", "trail": "Trails"}
 
 #: Absolute model-space attachment points (see gen_cosmetics.py).
 ANCHORS = {
     "shoulder": (-7.0, 0.0, 0.0),
     "back": (0.0, 2.0, 2.2),
+    "face": (0.0, 0.0, 0.0),
+    "head": (0.0, 0.0, 0.0),
+    "waist": (0.0, 10.0, 0.0),
+    "hand": (-5.0, 2.0, 0.0),
+    "trail": (0.0, 24.0, 0.0),
 }
 
 _REPO_ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -302,8 +309,10 @@ def render_thumbnail(item: dict, directory: str | None = None,
 
 def active(cfg: dict, slot: str) -> str | None:
     """The selected id for a slot, or None when the catalogue lost it."""
-    key = "active_shoulder_item" if slot == "shoulder" else "active_back_item"
-    return cfg.get(key)
+    if slot not in SLOTS:
+        return None
+    item = get(cfg.get(f"active_{slot}_item"))
+    return item["id"] if item and item["slot"] == slot else None
 
 
 def set_active(cfg: dict, slot: str, item_id: str | None) -> None:
@@ -314,7 +323,7 @@ def set_active(cfg: dict, slot: str, item_id: str | None) -> None:
         raise ValueError(f"Unknown cosmetic: {item_id}")
     if item_id is not None and get(item_id)["slot"] != slot:
         raise ValueError(f"{item_id} is not a {slot} item")
-    cfg["active_shoulder_item" if slot == "shoulder" else "active_back_item"] = item_id
+    cfg[f"active_{slot}_item"] = item_id
     sync_to_game(cfg)
     save_config(cfg)
     if cfg.get("manage_skin_mod", True):
@@ -325,8 +334,7 @@ def set_active(cfg: dict, slot: str, item_id: str | None) -> None:
 def selection_payload(cfg: dict) -> dict:
     return {
         "version": 1,
-        "shoulder": cfg.get("active_shoulder_item") or None,
-        "back": cfg.get("active_back_item") or None,
+        **{slot: active(cfg, slot) for slot in SLOTS},
     }
 
 

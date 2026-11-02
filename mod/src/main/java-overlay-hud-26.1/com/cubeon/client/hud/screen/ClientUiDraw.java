@@ -7,7 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /** Native cached texture quads; no image rasterization or upload on the render thread. */
-final class ClientUiDraw {
+public final class ClientUiDraw {
     private static final Map<String, Identifier> TEXTURES = new HashMap<>();
     private ClientUiDraw() { }
     static void image(GuiGraphicsExtractor context, String path, int x, int y, int w, int h, int u, int v,

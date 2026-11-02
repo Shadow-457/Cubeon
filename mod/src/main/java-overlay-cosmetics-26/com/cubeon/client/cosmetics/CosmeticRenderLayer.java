@@ -40,13 +40,22 @@ public final class CosmeticRenderLayer
         if (view == null) return;
         CosmeticCatalog.Catalog catalog = CosmeticCatalog.get();
         if (catalog == null) return;
-        pose.pushPose();
-        getParentModel().body.translateAndRotate(pose);
-        try {
-            drawItem(catalog, "back", pose, collector, light, view);
-            drawItem(catalog, "shoulder", pose, collector, light, view);
-        } finally {
-            pose.popPose();
+        for (String slot : CosmeticSelection.SLOTS) {
+            if ("trail".equals(slot) || view.items().get(slot) == null) continue;
+            pose.pushPose();
+            try {
+                if ("face".equals(slot) || "head".equals(slot)) {
+                    getParentModel().head.translateAndRotate(pose);
+                } else if ("hand".equals(slot)) {
+                    getParentModel().rightArm.translateAndRotate(pose);
+                    pose.translate(5 / 16.0f, -2 / 16.0f, 0);
+                } else {
+                    getParentModel().body.translateAndRotate(pose);
+                }
+                drawItem(catalog, slot, pose, collector, light, view);
+            } finally {
+                pose.popPose();
+            }
         }
     }
 

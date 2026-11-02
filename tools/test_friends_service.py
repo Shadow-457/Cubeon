@@ -1791,9 +1791,8 @@ def test_encrypted_chat():
        "transcript is oldest-first: our out, her in")
     ok(page["friend"] == "alice" and page["you"] == "Steve",
        "the payload names both sides of the conversation")
-    ok(any("New message from " in e["text"] and "Alice" not in e["text"]
-           for e in service.events_since(before)["events"]),
-       "an inbound DM announces itself on the status line")
+    ok(service.events_since(before)["events"] == [],
+       "a live DM in an already-visible conversation does not duplicate its notification")
 
     # Cursors: after= is a plain seq compare; seq is per-conversation.
     after = service.chat_payload("alice", 1)
@@ -1927,8 +1926,8 @@ def test_dm_send_guards():
         queue = service._out_pending[key]
         ok(not result["ok"] and len(queue) == 2 and queue[0] is oldest
            and queue[1] is siblings[0], "rollback removes only its exact same-key entry")
-        for _ in range(2):
-            service._file_own_echo({"ts": 123456}, "Alice")
+        for entry in list(queue):
+            service._file_own_echo(json.loads(entry["envelope"]), "Alice")
         ok(not service._out_pending, "same-timestamp surviving echoes drain the queue")
         counter = iter(range(1000, 1065))
 
@@ -1946,6 +1945,71 @@ def test_dm_send_guards():
     finally:
         e2ee.encrypt_dm = original_encrypt
         client.send_dm = original_send
+
+
+def test_chat_confirmation():
+    section("game sends wait for exact relay confirmation in the shared ring")
+    _identity_on_disk()
+    service, client, _ = build()
+    _, pub = _alice_keypair()
+    client.pubkeys["alice"] = pub
+    service._publish_async = lambda: None
+    service._CHAT_CONFIRM_TIMEOUT = .15
+    result = []
+    worker = threading.Thread(target=lambda: result.append(service.send_bridge_chat("alice", "from game")))
+    worker.start()
+    deadline = time.monotonic() + 2
+    while not any(kind == "dm" for kind, _ in client.sent) and time.monotonic() < deadline:
+        time.sleep(.001)
+    body = next(args[1] for kind, args in client.sent if kind == "dm")
+    ok(not result and not service.chat_payload("alice", -1)["messages"],
+       "socket write alone cannot finish the game send or populate confirmed history")
+    # Nickname/display changes and missing outer recipient must not lose sent text.
+    client.fire("dm", {"from": "Different nickname", "text": body, "id": "confirmed-game"})
+    worker.join(2)
+    messages = service.chat_payload("alice", -1)["messages"]
+    ok(result and result[0]["ok"] and len(messages) == 1 and messages[0]["text"] == "from game",
+       "sealed account handles file the game send before its successful response")
+    ok(messages[0]["id"] == "confirmed-game", "relay message ID reaches shared history")
+
+    before = len(client.sent)
+    result = service.send_bridge_chat("alice", "no echo")
+    ok(not result["ok"] and "not confirmed" in result["error"],
+       "missing echo is an honest bounded refusal; the game retains its draft")
+    ok(len(client.sent) == before + 1 and len(service.chat_payload("alice", -1)["messages"]) == 1,
+       "no retry, extra request, or falsely confirmed row on timeout")
+    late = client.sent[-1][1][1]
+    client.fire("dm", {"from": "Steve", "text": late, "id": "late-confirmation"})
+    client.fire("dm", {"from": "Steve", "text": late, "id": "late-confirmation"})
+    ok(sum(m["text"] == "no echo" for m in service.chat_payload("alice", -1)["messages"]) == 1,
+       "late confirmation reaches launcher once")
+
+    service.send_chat("alice", "recovered history")
+    wire = client.sent[-1][1][1]
+    service._on_history({"peer": "alice", "messages": [{"from": "Steve", "text": wire, "id": "history-send"}]})
+    ok(sum(m["text"] == "recovered history" for m in service.chat_payload("alice", -1)["messages"]) == 1,
+       "existing history backfill recovers a pending send without another relay request")
+
+    original_encrypt = e2ee.encrypt_dm
+    def collide(*args):
+        envelope = original_encrypt(*args); envelope["ts"] = 333
+        return envelope
+    try:
+        e2ee.encrypt_dm = collide
+        service.send_chat("alice", "first"); first = client.sent[-1][1][1]
+        service.send_chat("alice", "second"); second = client.sent[-1][1][1]
+        client.fire("dm", {"from": "Steve", "text": second, "id": "second-id"})
+        client.fire("dm", {"from": "Steve", "text": second, "id": "second-id"})
+        pending = service._out_pending[("alice", 333)]
+        ok(len(pending) == 1 and pending[0]["text"] == "first",
+           "reordered/replayed same-timestamp echoes do not consume another send")
+        client.fire("dm", {"from": "Steve", "text": first, "id": "first-id"})
+        tail = service.chat_payload("alice", -1)["messages"][-2:]
+        ok([message["text"] for message in tail] == ["second", "first"],
+           "each sealed envelope confirms its own plaintext exactly once")
+    finally:
+        e2ee.encrypt_dm = original_encrypt
+    service.stop()
 
 
 def test_seeded_history():
@@ -2221,6 +2285,12 @@ def test_chat_http():
        "POST /dm with blank text -> 400")
 
     # A real send + the relay echo, end to end over the bridge.
+    raw_send = client.send_dm
+    def confirmed_send(to, wire):
+        accepted = raw_send(to, wire)
+        client.fire("dm", {"from": "Steve", "to": to, "text": wire, "ts": 1})
+        return accepted
+    client.send_dm = confirmed_send
     status, body = call("POST", "/dm", {"to": "alice", "text": "over http"})
     ok(status == 200 and body["ok"] is True, "POST /dm sends")
     ok(not client.published_pubkey or True, "send keeps working")
@@ -2391,6 +2461,7 @@ def main():
         test_social_regressions()
         test_encrypted_chat()
         test_dm_send_guards()
+        test_chat_confirmation()
         test_pubkey_rotation()
         test_seeded_history()
         test_automatic_identity()

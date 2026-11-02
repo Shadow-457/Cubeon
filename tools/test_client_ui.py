@@ -67,36 +67,60 @@ public class UiTest {
   }
   void save(String name)throws Exception { ImageIO.write(image,"png",new File(name)); }
  }
+ static void bounds(HudMenu menu,int w,int h) {
+  for(int id=0;id<HudMenu.ACTION_COUNT;id++) {
+   var r=menu.control(id);if(r==null)continue;
+   check(r.w()>0&&r.h()>0&&r.x()>=0&&r.y()>=0&&r.x()+r.w()<=w&&r.y()+r.h()<=h,"Control fits at GUI scale: "+id);
+   check(menu.hit(r.x()+r.w()/2,r.y()+r.h()/2)==id,"Distinct hit target: "+id);
+   for(int j=0;j<id;j++) {
+    var q=menu.control(j);if(q==null)continue;
+    check(r.x()+r.w()<=q.x()||q.x()+q.w()<=r.x()||r.y()+r.h()<=q.y()||q.y()+q.h()<=r.y(),"Controls never overlap: "+id+","+j);
+   }
+  }
+ }
  public static void main(String[] args)throws Exception {
   Font font=Font.createFont(Font.TRUETYPE_FONT,new File(args[1])).deriveFont(10f);
   Properties labels=new Properties();try(var reader=new InputStreamReader(new FileInputStream(args[0]),StandardCharsets.UTF_8)){labels.load(reader);}
+  check(HudMenu.featureCount()==19&&HudMenu.overlayIndex(49)==-1,"Removed features leave no stale overlay actions");
   check(HudMenu.nextBlurIntensity(1)==1.25f && HudMenu.nextBlurIntensity(2)==.25f,"Blur intensity advances and wraps predictably");
   HudMenu.Settings settings=new HudMenu.Settings(){
-   public boolean visible(int overlay){return overlay%2==0;}public float scale(int overlay){return new float[]{1,.75f,1.5f,1.25f,2}[overlay];}
+   public boolean visible(int overlay){return overlay%2==0;}public float scale(int overlay){return new float[]{1,.75f,1.5f,1.25f,2}[overlay%5];}
    public boolean health(){return false;}public boolean animations(){return true;}public boolean wingDepth(){return true;}public boolean otherCosmetics(){return false;}public boolean cameraBlur(){return false;}public float blurIntensity(){return 1f;}
   };
   for(int[] size:new int[][]{{320,240},{520,304},{640,360},{960,540}}) {
    int w=size[0],h=size[1];HudMenu menu=new HudMenu();menu.layout(w,h);
-   for(int id=0;id<=HudMenu.DONE;id++) {
-    var rect=menu.control(id);
-    check(rect.w()>0&&rect.h()>0&&rect.x()>=0&&rect.y()>=0&&rect.x()+rect.w()<=w&&rect.y()+rect.h()<=h,"All twenty-four controls fit at every GUI scale");
-    check(menu.hit(rect.x()+rect.w()/2,rect.y()+rect.h()/2)==id,"Each toggle, move, size, utility and footer action has its own hit target");
-    for(int other=0;other<id;other++) {
-     var previous=menu.control(other);
-     check(rect.x()+rect.w()<=previous.x()||previous.x()+previous.w()<=rect.x()
-       ||rect.y()+rect.h()<=previous.y()||previous.y()+previous.h()<=rect.y(),"Control rectangles never overlap");
-    }
+   Canvas canvas=new Canvas(w,h,font,labels);Thread.sleep(180);menu.render(canvas,w,h,0,0,settings);
+   boolean[] visited=new boolean[HudMenu.featureCount()];
+   for(int page=0;page<menu.pages();page++) {
+    menu.render(canvas,w,h,0,0,settings);bounds(menu,w,h);
+    for(int i=0;i<visited.length;i++)if(menu.control(HudMenu.DETAIL+i)!=null)visited[i]=true;
+    menu.scroll(1);menu.layout(w,h);
    }
-   check(menu.hit(0,0)==HudMenu.NONE,"Backdrop clicks never change HUD preferences");
-   Canvas canvas=new Canvas(w,h,font,labels);Thread.sleep(160);menu.render(canvas,w,h,0,0,settings);
-   menu.step(1);check(menu.selection()==0,"First keyboard focus reaches FPS toggle");
-   for(int i=0;i<HudMenu.DONE;i++)menu.step(1);check(menu.selection()==HudMenu.DONE,"Keyboard reaches Done and every intervening action");
-   menu.step(1);check(menu.selection()==0,"Keyboard focus wraps");menu.step(-1);check(menu.selection()==HudMenu.DONE,"Reverse navigation wraps");
-   menu.render(canvas,w,h,0,0,settings);check(menu.selection()==HudMenu.DONE,"Stationary pointer preserves keyboard selection");
-   var keys=menu.control(3);menu.render(canvas,w,h,keys.x()+1,keys.y()+1,settings);check(menu.selection()==3,"Moving pointer resumes hover selection");
-   check(canvas.calls<3000,"Panel drawing is bounded, with no pixel or texture rebuild per frame");
-   check(canvas.quads>0&&canvas.quads<1000,"Native path uses cached antialiased corner and cube textures across three frames");
-   canvas.save("/tmp/cubeon-green-hud-"+h+".png");
+   for(boolean seen:visited)check(seen,"Every feature is reachable through pagination");
+   for(int i=0;i<HudMenu.featureCount();i++) {
+    menu.activate(HudMenu.DETAIL+i);menu.layout(w,h);bounds(menu,w,h);
+    menu.render(canvas,w,h,0,0,settings);
+    check(menu.control(HudMenu.BACK)!=null,"Details always have Back");
+    if(i<13)check(menu.control(HudMenu.toggleAction(i)+1)!=null&&menu.control(HudMenu.toggleAction(i)+2)!=null,"Every overlay has move and independent size controls");
+    menu.activate(HudMenu.BACK);menu.layout(w,h);
+   }
+   menu.activate(HudMenu.CATEGORY+4);menu.layout(w,h);
+   check(menu.control(HudMenu.SPRINT)!=null&&menu.control(0)==null,"Movement filters to auto sprint");
+   menu.activate(HudMenu.CATEGORY);menu.focusSearchShortcut();menu.type('/');check(menu.query().isEmpty(),"Search shortcut does not add a slash to the query");
+   for(int cp:"Potion".codePoints().toArray())menu.type(cp);
+   menu.layout(w,h);check(menu.control(HudMenu.toggleAction(7))!=null&&menu.control(0)==null,"Search matches translated feature titles");
+   check(menu.backspace()&&menu.query().equals("Potio"),"Search deletes a character");
+   menu.type(0x1f332);menu.backspace();check(menu.query().equals("Potio"),"Search deletion preserves Unicode boundaries");
+   for(int n=0;n<5;n++)menu.backspace();menu.back();menu.layout(w,h);
+   check(menu.hit(0,0)==HudMenu.NONE,"Backdrop clicks never change preferences");
+   menu.step(1);int focused=menu.selection();
+   check(menu.control(focused)!=null,"Keyboard skips hidden controls");
+   menu.render(canvas,w,h,0,0,settings);check(menu.selection()==focused,"Stationary pointer preserves keyboard focus");
+   var target=menu.control(HudMenu.SEARCH);menu.render(canvas,w,h,target.x()+1,target.y()+1,settings);
+   check(menu.selection()==HudMenu.SEARCH,"Pointer restores hover selection");
+   Canvas preview=new Canvas(w,h,font,labels);menu.render(preview,w,h,0,0,settings);
+   check(preview.calls<2000&&preview.quads<600,"Catalogue drawing stays bounded per frame");
+   preview.save("/tmp/cubeon-green-hud-"+h+".png");
    Canvas editor=new Canvas(w,h,font,labels);editor.fill(w/2-26,h/2-8,w/2+26,h/2+8,0xFF131711);
    editor.text("120 FPS",w/2,h/2-4,ClientUi.TEXT);
    HudEditorChrome.render(editor,w,h,"Move FPS",0,0,w/2-26,h/2-8,52,16,true);
@@ -106,9 +130,10 @@ public class UiTest {
    check(!HudEditorChrome.done(w,h,left+12,h-28),"Help label cannot close the editor");
    HudEditorChrome.render(editor,w,h,"Move FPS",0,0,0,0,52,16,false);
    HudEditorChrome.render(editor,w,h,"Move FPS",0,0,w-52,h-16,52,16,false);
+   menu.activate(HudMenu.CATEGORY);menu.layout(w,h);menu.scroll(-100);menu.layout(w,h);
    var previous=menu.control(0);menu.layout(w+80,h);
-   check(menu.control(0).x()!=previous.x()||menu.control(0).w()!=previous.w(),"Resize recomputes card bounds and pointer targets");
-   if(w>=624)check(menu.control(0).x()==previous.x()+40,"A fixed-width panel recenters on resize");
+   check(menu.control(0)!=null,"Resize preserves reachable first feature");
+   check(menu.control(0).x()!=previous.x()||menu.control(0).w()!=previous.w(),"Resize recomputes card bounds");
    Canvas wheelCanvas=new Canvas(w,h,font,labels);var wheel=new EmoteWheel();Thread.sleep(160);
    wheel.render(wheelCanvas,w,h,w/2,h/2-60,true,true);wheelCanvas.save("/tmp/cubeon-green-wheel-"+h+".png");
    check(wheelCanvas.calls<100&&wheelCanvas.quads<100,"Smooth wheel uses a bounded number of textured quads");
@@ -118,12 +143,12 @@ public class UiTest {
     Canvas variantCanvas=new Canvas(w,h,font,labels);variant.render(variantCanvas,w,h,0,0,true,true);
    }
   }
-  System.out.println("Custom font, all twenty-four controls including cosmetic preferences, minimum GUI scale, text/draw bounds, keyboard/pointer focus, resize, drag toolbar/edge frames and wheel previews passed.");
+  System.out.println("Custom font, feature catalogue, search, categories, all details, minimum GUI scale, text/draw bounds, keyboard/pointer focus, resize, drag toolbar/edge frames and wheel previews passed.");
  }
 }
 ''', encoding="utf-8")
             shared = ROOT / "mod/src/main/java/com/cubeon/client"
-            sources = [harness, shared / "Json.java", shared / "Bridge.java",
+            sources = [harness, shared / "Json.java", shared / "Bridge.java", shared / "hud/HudFeatures.java",
                        *sorted((shared / "ui").glob("*.java")), *sorted((shared / "emotes").glob("*.java"))]
             result = subprocess.run(["javac", "--release", "17", "-d", str(folder), *map(str, sources)], capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

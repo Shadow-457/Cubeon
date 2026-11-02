@@ -5,7 +5,15 @@
   "client": [
     "PlayerTabOverlayMixin",
     "YggdrasilSessionServiceMixin",
-    "EmoteModelMixin"
+    "EmoteModelMixin",
+    "ChatStackMixin",
+    "ModMenuCountMixin",
+    "ChunkDistanceOptionsMixin",
+    "LocalSimulationDistanceMixin",
+    "SodiumLegacyDistanceMixin",
+    "SodiumDistanceMixin",
+    "AutoSprintMixin",
+    "ComboDamageMixin"
   ],
   "injectors": {
     "defaultRequire": 0

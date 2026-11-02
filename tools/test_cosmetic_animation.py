@@ -65,7 +65,7 @@ public class AnimationTest {
                     near(bx*posed.normalX + by*posed.normalY + bz*posed.normalZ, 0, "Normal perpendicular to second edge");
                     for (int i = 0; i < 4; i++) {
                         check(Float.isFinite(posed.x[i]) && Float.isFinite(posed.y[i]) && Float.isFinite(posed.z[i]), "Finite coordinates");
-                        float bound = "wing".equals(q.motion) ? 55 : 20;
+                        float bound = "wing".equals(q.motion) ? 55 : 26;
                         check(Math.abs(posed.x[i]) < bound && Math.abs(posed.y[i]) < bound && Math.abs(posed.z[i]) < bound, "Bounded movement");
                         if ("head".equals(q.motion))
                             check(posed.x[i] < -4, "Pet turns must clear the player's head: " + item.id);
@@ -434,7 +434,7 @@ public class AnimationTest {
         benchmark(catalog.get("back_ember_wings_small"));
         verifySprint(catalog.get("back_void_wings"));
         verifyDragon(catalog);
-        System.out.println("All 25 cosmetics: idle movement, sealed mirrored wings, fixed attachments, lighting, cache safety, smoothing, pause, world reset and dragon N action passed.");
+        System.out.println("All cosmetics: idle movement, sealed mirrored wings, fixed attachments, lighting, cache safety, smoothing, pause, world reset and dragon N action passed.");
     }
 }
 '''

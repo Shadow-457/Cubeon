@@ -301,12 +301,12 @@ check("the pre-paint give-up names its kind",
       'record_giving_up(_retries, "pre_paint_crash")' in _main)
 check("the XWayland fallback is applied ONLY on a retry, after software GL",
       "_incident.retry_environment(" in _main
-      and _main.index("if os.path.exists(_gl_fallback_marker):")
+      and _main.index("if _retries or os.path.exists(_gl_fallback_marker):")
       < _main.index("_incident.retry_environment("))
-check("the failed-attempt count (in-process retries + CUBEON_GPU_RESTARTS) "
+check("the failed-attempt count survives pre-paint and mid-session re-execs and "
       "decides the driver",
       "_incident.retry_environment(\n                            _failed_attempts)"
-      in _main and 'os.environ.get(\n                                "CUBEON_GPU_RESTARTS"' in _main)
+      in _main and '_retries = max(0, int(os.environ.get("CUBEON_GPU_RESTARTS"' in _main)
 check("the retry env actually reaches the client",
       'os.environ[_fk] = _fv' in _main)
 check("no retry driver is hardcoded any more",

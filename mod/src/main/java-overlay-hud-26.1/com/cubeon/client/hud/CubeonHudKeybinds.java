@@ -24,6 +24,7 @@ public final class CubeonHudKeybinds {
 
 	private static KeyMapping openMenu;
 	private static KeyMapping emotes;
+    private static KeyMapping friendsChat;
 	private static KeyMapping wingFlare;
 	private static KeyMapping freelook;
 
@@ -48,6 +49,15 @@ public final class CubeonHudKeybinds {
 				66,
 				CATEGORY);
 		KeyMappingHelper.registerKeyMapping(emotes);
+
+		friendsChat = new KeyMapping(
+				"key." + CubeonHudClient.MOD_ID + ".friends_chat",
+				// 26.1/26.2 still call this KEYSYM; 26.3 renamed it to KEYBOARD
+				// (and dropped SCANCODE). One overlay per spelling - see hud-26.3.
+				InputConstants.Type.KEYSYM,
+				66,
+				CATEGORY);
+		KeyMappingHelper.registerKeyMapping(friendsChat);
 
 		wingFlare = new KeyMapping(
 				"key." + CubeonHudClient.MOD_ID + ".wing_flare",
@@ -85,6 +95,10 @@ public final class CubeonHudKeybinds {
 		if (client.player == null || client.level == null || client.screen != null) {
 			return;
 		}
+
+        if (friendsChat.consumeClick()) {
+            client.setScreen(new com.cubeon.client.hud.screen.FriendsChatScreen()); return;
+        }
 
 		if (emotes.consumeClick()) {
 			client.setScreen(new com.cubeon.client.hud.screen.EmoteMenuScreen());

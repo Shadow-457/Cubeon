@@ -25,7 +25,7 @@ public final class CubeonHud {
 		KEYS,
 		ARMOR,
 		PING,
-		CPS
+		CPS, CLOCK, SYSTEM, POTIONS, COORDINATES, DIRECTION, BIOME, DAYLIGHT, COMBO
 	}
 
 	static final int KEY_SIZE = 20;
@@ -111,6 +111,14 @@ public final class CubeonHud {
 			renderOverlay(graphics, client, config, Overlay.CPS, screenW, screenH, CubeonHud::renderCps);
 		}
 
+        if (config.extrasEnabled()) {
+            for (Overlay overlay : Overlay.values()) if (overlay.ordinal() >= 5 && config.extraEnabled(slotOf(overlay)))
+                renderOverlay(graphics, client, config, overlay, screenW, screenH,
+                        (draw, mc, x, y) -> renderExtra(draw, mc, overlay, x, y, false));
+        }
+
+        com.cubeon.client.hud.screen.FriendsToastRenderer.render(graphics, client, screenW, screenH);
+
 		EnemyHealthRenderer.render(graphics, client, deltaTracker.getGameTimeDeltaPartialTick(false),
 				client.gui.screen() == null && !client.gui.hud.isHidden(), client.gameRenderer.mainCamera().rotation());
 	}
@@ -151,6 +159,7 @@ public final class CubeonHud {
 			case ARMOR -> ARMOR_WIDTH;
 			case PING -> pingWidth(client);
 			case CPS -> cpsWidth(client);
+			default -> ExtraHud.width(HudFeatures.at(overlay.ordinal()), client.font::width);
 		};
 		return Math.max(1, Math.round(base * CubeonHud.scaleOf(overlay)));
 	}
@@ -162,6 +171,7 @@ public final class CubeonHud {
 			case ARMOR -> ARMOR_HEIGHT;
 			case PING -> client.font.lineHeight + 3;
 			case CPS -> cpsHeight(client);
+			default -> ExtraHud.height(HudFeatures.at(overlay.ordinal()));
 		};
 		return Math.max(1, Math.round(base * CubeonHud.scaleOf(overlay)));
 	}
@@ -181,6 +191,7 @@ public final class CubeonHud {
 			case ARMOR -> config.armorX;
 			case PING -> config.pingX;
 			case CPS -> config.cpsX;
+			default -> config.extra(slotOf(overlay)).x;
 		};
 		return Math.round(fraction * Math.max(0, screenW - widthOf(overlay, client)));
 	}
@@ -192,6 +203,7 @@ public final class CubeonHud {
 			case ARMOR -> config.armorY;
 			case PING -> config.pingY;
 			case CPS -> config.cpsY;
+			default -> config.extra(slotOf(overlay)).y;
 		};
 		return Math.round(fraction * Math.max(0, screenH - heightOf(overlay, client)));
 	}
@@ -225,6 +237,10 @@ public final class CubeonHud {
 				config.cpsX = CubeonHudConfig.clamp01(fractionX);
 				config.cpsY = CubeonHudConfig.clamp01(fractionY);
 			}
+			default -> {
+                var value = config.extra(slotOf(overlay));
+                value.x = CubeonHudConfig.clamp01(fractionX); value.y = CubeonHudConfig.clamp01(fractionY);
+            }
 		}
 	}
 
@@ -258,6 +274,7 @@ public final class CubeonHud {
 			case ARMOR -> "armor";
 			case PING -> "ping";
 			case CPS -> "cps";
+			default -> HudFeatures.at(overlay.ordinal()).slot;
 		};
 	}
 
@@ -435,5 +452,22 @@ public final class CubeonHud {
         } finally {
             graphics.pose().popMatrix();
         }
+    }
+
+    public static boolean screenOpen() { var client = Minecraft.getInstance(); return client.gui.screen() != null; }
+    public static boolean hudHidden() { var client = Minecraft.getInstance(); return client.gui.hud.isHidden(); }
+    public static void renderExtra(GuiGraphicsExtractor context, Minecraft client, Overlay overlay, int x, int y, boolean preview) {
+        ExtraHud.render(extraCanvas(context, client), HudFeatures.at(overlay.ordinal()), x, y, preview);
+        if (overlay == Overlay.POTIONS) for (int i = 0; i < ExtraHud.effects().size(); i++) {
+            if (ExtraHud.effects().get(i).icon() instanceof net.minecraft.resources.Identifier icon) { context.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, icon, x + 2, y + 1 + i * 12, 10, 10); }
+        }
+    }
+    private static com.cubeon.client.ui.ClientUi.Canvas extraCanvas(GuiGraphicsExtractor context, Minecraft client) {
+        return new com.cubeon.client.ui.ClientUi.Canvas() {
+            public void fill(int x0, int y0, int x1, int y1, int color) { context.fill(x0, y0, x1, y1, color); }
+            public void text(String value, int centerX, int y, int color) { context.text(client.font, value, centerX - client.font.width(value) / 2, y, color, true); }
+            public int width(String value) { return client.font.width(value); }
+            public String translate(String key) { return net.minecraft.network.chat.Component.translatable(key).getString(); }
+        };
     }
 }

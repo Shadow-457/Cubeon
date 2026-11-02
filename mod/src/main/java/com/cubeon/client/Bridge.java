@@ -2,6 +2,7 @@ package com.cubeon.client;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -337,6 +338,94 @@ public final class Bridge {
         emotes = List.copyOf(fresh);
     }
 
+    // Friends chat shares the launcher store. Only this poller performs HTTP.
+    public record ChatMessage(long seq, String direction, String text) { }
+    public record ChatView(String peer, List<ChatMessage> messages, boolean loading,
+                           boolean sending, String error) { }
+    public record ChatSent(long id, String peer, String text, Result result) { }
+    private record ChatRequest(long id, String peer, String text, String owner, String session) { }
+    private final Object chatLock = new Object();
+    private volatile ChatView chat = new ChatView("", List.of(), false, false, "");
+    private volatile ChatSent chatSent = new ChatSent(0, "", "", Result.OK);
+    private volatile ChatRequest chatRequest;
+    private long chatGeneration, chatSerial;
+    private final ArrayBlockingQueue<String> chatCloses = new ArrayBlockingQueue<>(8);
+
+    public ChatView chat() { return chat; }
+    public ChatSent chatSent() { return chatSent; }
+
+    public void openChat(String peer) {
+        String next = peer == null ? "" : peer.trim();
+        synchronized (chatLock) {
+            if (next.equals(chat.peer())) return;
+            if (!chat.peer().isEmpty()) chatCloses.offer(chat.peer());
+            chatGeneration++;
+            chat = new ChatView(next, List.of(), !next.isEmpty(), chatRequest != null, "");
+        }
+        wake();
+    }
+    public void closeChat() { openChat(""); }
+
+    /** At most one send in flight. Accepted means queued, not delivered. No auto-retry. */
+    public long sendChat(String peer, String text) {
+        if (peer == null || peer.isBlank() || text == null || text.isBlank() || text.length() > 1000) return 0;
+        synchronized (chatLock) {
+            if (chatRequest != null || !current.launcherUp() || !current.connected()) return 0;
+            long id = ++chatSerial;
+            chatRequest = new ChatRequest(id, peer, text.trim(), current.you(), tokenSession);
+            chat = new ChatView(chat.peer(), chat.messages(), chat.loading(), true, "");
+            wake();
+            return id;
+        }
+    }
+
+    private void refreshChat() {
+        String closed;
+        while ((closed = chatCloses.poll()) != null) post("/chatclose", Json.object("name", closed));
+        ChatRequest request;
+        synchronized (chatLock) { request = chatRequest; }
+        if (request != null) {
+            Result result = !loadToken() || !java.util.Objects.equals(request.session(), tokenSession)
+                    || !request.owner().equals(current.you())
+                    ? Result.fail("Your Cubeon session changed. Check the draft before sending again.")
+                    : post("/dm", "{\"to\":" + Json.quote(request.peer())
+                    + ",\"text\":" + Json.quote(request.text()) + "}");
+            synchronized (chatLock) {
+                chatSent = new ChatSent(request.id(), request.peer(), request.text(), result);
+                chatRequest = null;
+                chat = new ChatView(chat.peer(), chat.messages(), chat.loading(), false,
+                        result.ok() ? "" : result.error());
+            }
+        }
+        ChatView before;
+        long generation;
+        synchronized (chatLock) { before = chat; generation = chatGeneration; }
+        if (before.peer().isEmpty()) return;
+        long after = before.messages().isEmpty() ? -1 : before.messages().get(before.messages().size() - 1).seq();
+        String body = get("/chat?friend=" + URLEncoder.encode(before.peer(), StandardCharsets.UTF_8) + "&after=" + after);
+        synchronized (chatLock) {
+            if (generation != chatGeneration) return; // selection/close races cannot paint a different friend
+            if (body == null) {
+                chat = new ChatView(before.peer(), before.messages(), false, chatRequest != null,
+                        "Couldn't load messages. Keep Cubeon open; retrying…");
+                return;
+            }
+            Map<String, Object> data = Json.parseObject(body);
+            if (!before.peer().equalsIgnoreCase(Json.str(data, "friend", ""))) return;
+            var merged = new java.util.TreeMap<Long, ChatMessage>();
+            for (ChatMessage message : before.messages()) merged.put(message.seq(), message);
+            for (Object row : Json.list(data, "messages")) {
+                long seq = sequence(row, "seq");
+                String text = Json.str(row, "text", "");
+                if (seq < 0 || text.isEmpty()) continue;
+                merged.put(seq, new ChatMessage(seq, Json.str(row, "dir", "in"),
+                        text.substring(0, Math.min(4096, text.length()))));
+                while (merged.size() > 200) merged.pollFirstEntry();
+            }
+            chat = new ChatView(before.peer(), List.copyOf(merged.values()), false, chatRequest != null, chat.error().startsWith("Couldn't load messages.") ? "" : chat.error());
+        }
+    }
+
     // ---- state -----------------------------------------------------------
 
     private final HttpClient http = HttpClient.newBuilder()
@@ -367,6 +456,7 @@ public final class Bridge {
     // actions may invalidate credentials from their worker threads.
     private volatile String baseUrl;
     private volatile String token;
+    private volatile String tokenSession;
     private volatile long tokenStamp = -1;
     private volatile long tokenSize = -1;
     private int downStreak;
@@ -452,7 +542,7 @@ public final class Bridge {
     }
 
     private void pollLoop() {
-        long fullPollAt = 0;
+        long fullPollAt = 0, chatPollAt = 0;
         try {
             while (true) {
                 try {
@@ -461,7 +551,13 @@ public final class Bridge {
                         refresh();
                         fullPollAt = now + IDLE_POLL_MS;
                     }
-                    if (current.launcherUp()) quietly("emote sync", this::refreshEmotes);
+                    if (current.launcherUp()) {
+                        quietly("emote sync", this::refreshEmotes);
+                        if (now >= chatPollAt || chatRequest != null || !chatCloses.isEmpty()) {
+                            quietly("friends chat", this::refreshChat);
+                            chatPollAt = now + 750;
+                        }
+                    }
                 } catch (RuntimeException ex) {
                     // A malformed response or callback must not kill this
                     // thread: a dead poller leaves the screen frozen on its
@@ -470,7 +566,7 @@ public final class Bridge {
                     publish(down("Cubeon bridge error: " + ex));
                 }
                 long wait = current.launcherUp()
-                        ? (emoteRoom.isEmpty() ? IDLE_POLL_MS : 250)
+                        ? (emoteRoom.isEmpty() ? (chat.peer().isEmpty() ? IDLE_POLL_MS : 750) : 250)
                         : DOWN_BACKOFF_MS[Math.min(downStreak, DOWN_BACKOFF_MS.length - 1)];
                 synchronized (wakeLock) {
                     if (!wakeRequested) {
@@ -817,8 +913,16 @@ public final class Bridge {
                 invalidateToken();
                 return false;
             }
+            if (tokenSession != null && !tok.equals(tokenSession)) {
+                eventCursor = -1;
+                synchronized (chatLock) {
+                    chatGeneration++;
+                    chat = new ChatView(chat.peer(), List.of(), !chat.peer().isEmpty(), chatRequest != null, "");
+                }
+            }
             baseUrl = "http://127.0.0.1:" + (int) port;
             token = tok;
+            tokenSession = tok;
             tokenStamp = stamp;
             tokenSize = size;
             return true;

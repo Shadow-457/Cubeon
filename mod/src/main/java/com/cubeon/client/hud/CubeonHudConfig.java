@@ -34,6 +34,32 @@ public final class CubeonHudConfig {
 	public boolean showCps = false;
 	/** Compact bars anchored beneath nearby enemy names, opt-in. */
 	public boolean showEnemyHealth = false;
+	/** All new HUD widgets and movement/render features are opt-in. */
+	public java.util.Map<String, ExtraOverlay> extraOverlays = new java.util.HashMap<>();
+	public boolean autoSprint = false;
+	public boolean worldClock = false;
+	public static final class ExtraOverlay {
+		public boolean enabled = false;
+		public float x, y;
+		public Float scale = null;
+		public ExtraOverlay() { }
+		ExtraOverlay(HudFeatures feature) { x = feature.defaultX(); y = feature.defaultY(); }
+	}
+	public ExtraOverlay extra(String slot) {
+		if (extraOverlays == null) extraOverlays = new java.util.HashMap<>();
+		HudFeatures feature = HudFeatures.slot(slot);
+		if (feature == null || !feature.extra()) throw new IllegalArgumentException("Unknown extra overlay: " + slot);
+		return extraOverlays.computeIfAbsent(slot, key -> new ExtraOverlay(feature));
+	}
+	public boolean extraEnabled(String slot) {
+		ExtraOverlay value = extraOverlays == null ? null : extraOverlays.get(slot);
+		return value != null && value.enabled;
+	}
+	public boolean extrasEnabled() {
+		for (HudFeatures feature : HudFeatures.ALL)
+			if (feature.extra() && extraEnabled(feature.slot)) return true;
+		return false;
+	}
 	/** Keep cosmetics visible but skip all posing when disabled. */
 	public boolean cosmeticAnimations = true;
 	/** Layered curved Giant feathers; false selects the inexpensive flat mesh. */
@@ -151,6 +177,13 @@ public final class CubeonHudConfig {
 		instance.pingY = defaults.pingY;
 		instance.cpsX = defaults.cpsX;
 		instance.cpsY = defaults.cpsY;
+		for (HudFeatures feature : HudFeatures.ALL) if (feature.extra()) {
+			ExtraOverlay reset = new ExtraOverlay(feature);
+			reset.enabled = instance.extraEnabled(feature.slot);
+			defaults.extraOverlays.put(feature.slot, reset);
+		}
+		// Position reset preserves visibility choices.
+		instance.extraOverlays = defaults.extraOverlays;
 		instance.resetScales();
 	}
 
@@ -165,7 +198,10 @@ public final class CubeonHudConfig {
 			case "armor" -> armorScale;
 			case "ping" -> pingScale;
 			case "cps" -> cpsScale;
-			default -> null;
+			default -> {
+				ExtraOverlay extra = extraOverlays == null ? null : extraOverlays.get(slot);
+				yield extra == null ? null : extra.scale;
+			}
 		};
 		return value == null ? clampScale(scale) : clampScale(value);
 	}
@@ -180,7 +216,9 @@ public final class CubeonHudConfig {
 			case "ping" -> pingScale = clamped;
 			case "cps" -> cpsScale = clamped;
 			default -> {
-				return;
+				HudFeatures feature = HudFeatures.slot(slot);
+				if (feature == null || !feature.extra()) return;
+				extra(slot).scale = clamped;
 			}
 		}
 		save();
@@ -193,6 +231,8 @@ public final class CubeonHudConfig {
 		armorScale = null;
 		pingScale = null;
 		cpsScale = null;
+		if (extraOverlays != null) for (ExtraOverlay value : extraOverlays.values())
+			if (value != null) value.scale = null;
 		// The reset button means "back to how a fresh install looks", so the
 		// legacy shared value goes back to 1.0 too - leaving it at an old
 		// global size would make every overlay still oversized after a reset
@@ -216,6 +256,15 @@ public final class CubeonHudConfig {
 	}
 
 	private void clampAll() {
+		if (extraOverlays == null) extraOverlays = new java.util.HashMap<>();
+		extraOverlays.entrySet().removeIf(entry -> {
+			HudFeatures feature = HudFeatures.slot(entry.getKey());
+			return feature == null || !feature.extra() || entry.getValue() == null;
+		});
+		for (ExtraOverlay value : extraOverlays.values()) {
+			value.x = clamp01(value.x); value.y = clamp01(value.y);
+			if (value.scale != null) value.scale = clampScale(value.scale);
+		}
 		if (!Float.isFinite(cameraBlurIntensity)) cameraBlurIntensity = 1.0F;
 		cameraBlurIntensity = Math.max(.25F, Math.min(2.0F, cameraBlurIntensity));
 		emoteFavorites = com.cubeon.client.emotes.EmoteFavorites.normalize(emoteFavorites);

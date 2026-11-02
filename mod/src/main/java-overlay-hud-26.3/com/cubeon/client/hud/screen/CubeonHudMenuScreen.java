@@ -23,6 +23,7 @@ public final class CubeonHudMenuScreen extends Screen {
             return switch (OVERLAYS[index]) {
                 case FPS -> config.showFps; case KEYS -> config.showKeys;
                 case ARMOR -> config.showArmor; case PING -> config.showPing; case CPS -> config.showCps;
+                default -> config.extraEnabled(CubeonHud.slotOf(OVERLAYS[index]));
             };
         }
         public float scale(int index) { return CubeonHud.scaleOf(OVERLAYS[index]); }
@@ -32,6 +33,8 @@ public final class CubeonHudMenuScreen extends Screen {
         public boolean otherCosmetics() { return CubeonHudConfig.get().showOtherCosmetics; }
         public boolean cameraBlur() { return CubeonHudConfig.get().cameraMotionBlur; }
         public float blurIntensity() { return CubeonHudConfig.get().cameraBlurIntensity; }
+        public boolean sprint() { return CubeonHudConfig.get().autoSprint; }
+        public boolean worldClock() { return CubeonHudConfig.get().worldClock; }
     };
     public CubeonHudMenuScreen() { super(Component.translatable("cubeonclient.menu.title")); }
     @Override protected void init() { menu.layout(this.width, this.height); }
@@ -66,22 +69,39 @@ public final class CubeonHudMenuScreen extends Screen {
         return key(event.key()) || super.keyPressed(event);
     }
 
+    @Override public boolean charTyped(net.minecraft.client.input.CharacterEvent event) {
+        return menu.type(event.codepoint()) || super.charTyped(event);
+    }
+    @Override public boolean mouseScrolled(double x, double y, double horizontal, double amount) {
+        return menu.scroll(amount < 0 ? 1 : -1);
+    }
+
     private boolean key(int key) {
+        if (key == InputConstants.KEY_ESCAPE && menu.back()) return true;
+        if (key == InputConstants.KEY_BACKSPACE && menu.backspace()) return true;
+        if (menu.searchFocused()) {
+            if (key == InputConstants.KEY_RETURN) menu.activate(HudMenu.NONE);
+            return true;
+        }
+        if (key == InputConstants.KEY_SLASH) { menu.focusSearchShortcut(); return true; }
         if (key >= InputConstants.KEY_1 && key <= InputConstants.KEY_5) return choose((key - InputConstants.KEY_1) * 3);
         if (key == InputConstants.KEY_LEFT || key == InputConstants.KEY_UP) { menu.step(-1); return true; }
         if (key == InputConstants.KEY_RIGHT || key == InputConstants.KEY_DOWN || key == InputConstants.KEY_TAB) { menu.step(1); return true; }
         if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER || key == InputConstants.KEY_SPACE) return choose(menu.selection());
+        if (key == InputConstants.KEY_G) return choose(HudMenu.FRIENDS);
         if (key == InputConstants.KEY_E) return choose(HudMenu.EMOTES);
         if (key == InputConstants.KEY_K) { onClose(); return true; }
         return false;
     }
 
     private boolean choose(int action) {
-        if (action < 0 || action > HudMenu.DONE) return false;
+        if (action < 0 || action >= HudMenu.ACTION_COUNT) return false;
+        if (menu.activate(action)) return true;
         CubeonHudConfig config = CubeonHudConfig.get();
-        if (action < HudMenu.EMOTES) {
-            Overlay overlay = OVERLAYS[action / 3];
-            switch (action % 3) {
+        int overlayIndex = HudMenu.overlayIndex(action);
+        if (overlayIndex >= 0) {
+            Overlay overlay = OVERLAYS[overlayIndex];
+            switch (HudMenu.overlayOperation(action)) {
                 case 0 -> {
                     switch (overlay) {
                         case FPS -> config.showFps = !config.showFps;
@@ -89,6 +109,7 @@ public final class CubeonHudMenuScreen extends Screen {
                         case ARMOR -> config.showArmor = !config.showArmor;
                         case PING -> config.showPing = !config.showPing;
                         case CPS -> config.showCps = !config.showCps;
+                        default -> { var extra = config.extra(CubeonHud.slotOf(overlay)); extra.enabled = !extra.enabled; }
                     }
                     CubeonHudConfig.save();
                 }
@@ -103,6 +124,7 @@ public final class CubeonHudMenuScreen extends Screen {
             return true;
         }
         switch (action) {
+            case HudMenu.FRIENDS -> { if (this.minecraft != null) this.minecraft.gui.setScreen(new FriendsChatScreen()); }
             case HudMenu.EMOTES -> { if (this.minecraft != null) this.minecraft.gui.setScreen(new EmoteMenuScreen()); }
             case HudMenu.HEALTH -> { config.showEnemyHealth = !config.showEnemyHealth; CubeonHudConfig.save(); }
             case HudMenu.ANIMATIONS -> { config.cosmeticAnimations = !config.cosmeticAnimations; CubeonHudConfig.save(); }
@@ -112,6 +134,8 @@ public final class CubeonHudMenuScreen extends Screen {
                 com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
             case HudMenu.BLUR_INTENSITY -> { config.cameraBlurIntensity = HudMenu.nextBlurIntensity(config.cameraBlurIntensity);
                 com.cubeon.client.hud.blur.CameraBlurRenderer.reset(); CubeonHudConfig.save(); }
+            case HudMenu.SPRINT -> { config.autoSprint = !config.autoSprint; CubeonHudConfig.save(); }
+            case HudMenu.CLOCK_MODE -> { config.worldClock = !config.worldClock; CubeonHudConfig.save(); }
             case HudMenu.RESET -> { CubeonHudConfig.resetPositions(); CubeonHudConfig.save(); }
             case HudMenu.DONE -> onClose();
         }

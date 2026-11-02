@@ -125,6 +125,11 @@ DEFAULT_CONFIG = {
     # and the client mod draws them as textured boxes on the player.
     "active_shoulder_item": None,
     "active_back_item": None,
+    "active_face_item": None,
+    "active_head_item": None,
+    "active_waist_item": None,
+    "active_hand_item": None,
+    "active_trail_item": None,
     # Username the active skin was last mirrored to CustomSkinLoader under, so a
     # rename can clean up the stale <OLDNAME>.png instead of leaving it behind.
     "csl_synced_name": None,

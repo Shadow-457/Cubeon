@@ -35,6 +35,7 @@ public final class MoveOverlayScreen extends Screen {
 				case ARMOR -> "cubeonclient.editor.armor";
 				case PING -> "cubeonclient.editor.ping";
 				case CPS -> "cubeonclient.editor.cps";
+                default -> "cubeonclient.hud." + CubeonHud.slotOf(overlay);
 			}));
 		this.parent = parent;
 		this.overlay = overlay;
@@ -76,6 +77,7 @@ public final class MoveOverlayScreen extends Screen {
 			case ARMOR -> CubeonHud.renderArmor(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale));
 			case PING -> CubeonHud.renderPing(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale));
 			case CPS -> CubeonHud.renderCps(graphics, this.minecraft, (int) (x / hudScale), (int) (y / hudScale));
+            default -> CubeonHud.renderExtra(graphics, this.minecraft, overlay, (int)(x / hudScale), (int)(y / hudScale), true);
 		}
 
 		graphics.pose().popMatrix();

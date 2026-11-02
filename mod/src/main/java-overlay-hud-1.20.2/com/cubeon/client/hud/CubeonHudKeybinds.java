@@ -19,6 +19,7 @@ import org.lwjgl.glfw.GLFW;
 public final class CubeonHudKeybinds {
 	private static KeyBinding openMenu;
 	private static KeyBinding emotes;
+    private static KeyBinding friendsChat;
 	private static KeyBinding wingFlare;
 	private static KeyBinding freelook;
 	private static KeyBinding zoom;
@@ -40,6 +41,13 @@ public final class CubeonHudKeybinds {
 				GLFW.GLFW_KEY_B,
 				"key.category." + CubeonHudClient.MOD_ID + ".main");
 		KeyBindingHelper.registerKeyBinding(emotes);
+
+		friendsChat = new KeyBinding(
+				"key." + CubeonHudClient.MOD_ID + ".friends_chat",
+				InputUtil.Type.KEYSYM,
+				GLFW.GLFW_KEY_G,
+				"key.category." + CubeonHudClient.MOD_ID + ".main");
+		KeyBindingHelper.registerKeyBinding(friendsChat);
 
 		wingFlare = new KeyBinding(
 				"key." + CubeonHudClient.MOD_ID + ".wing_flare",
@@ -84,6 +92,10 @@ public final class CubeonHudKeybinds {
 		if (client.player == null || client.world == null || client.currentScreen != null) {
 			return;
 		}
+
+        if (friendsChat.wasPressed()) {
+            client.setScreen(new com.cubeon.client.hud.screen.FriendsChatScreen()); return;
+        }
 
 		if (emotes.wasPressed()) {
 			client.setScreen(new com.cubeon.client.hud.screen.EmoteMenuScreen());

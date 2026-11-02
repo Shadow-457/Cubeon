@@ -72,6 +72,7 @@ public class CubeonClient implements ClientModInitializer {
                 if (mc.player == null) {
                     return;
                 }
+                com.cubeon.client.ui.ClientToasts.accept(toast);
                 Text body = Text.literal(toast.text() == null ? "" : toast.text())
                         .formatted(toast.error() ? Formatting.RED : Formatting.WHITE);
                 mc.player.sendMessage(

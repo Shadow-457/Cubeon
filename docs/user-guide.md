@@ -97,8 +97,18 @@ Microsoft/Mojang account.
 - **In-game HUD and zoom:** press K in game to open the Cubeon Client menu.
   The HUD stays visible when using F3 debug information or F3+B hitboxes;
   F1 still hides it along with Minecraft's HUD.
-  Each overlay (FPS, keystrokes, armour, ping, CPS) has a row with a display
-  toggle, **Move**, and a clickable size percentage. Sizes are independent,
+  Search the categorized feature cards, use their switches to toggle a feature,
+  and choose **Configure** for Move, size and feature-specific options.
+  Clock (system/world time), system usage, potion effects, coordinates, compass,
+  biome, day/light, combo counter and auto sprint all start **disabled**.
+  Readouts use the original HUD's white shadowed text and a small black backing
+  that fits their content. Empty potion lists and an idle combo counter stay
+  hidden during gameplay; potion timers remain visible beside long effect names.
+  The combo counter counts confirmed melee damage to one opponent; incoming
+  damage, changing targets or a three-second gap resets it.
+  Auto sprint follows vanilla hunger and movement restrictions.
+  System usage shows Java heap RAM and Minecraft's **GPU frame load**, with a
+  dash when unavailable; it does not measure total hardware GPU/VRAM usage. Sizes are independent,
   so making the keystrokes bigger does not enlarge the FPS
   counter. The armour overlay shows only the four worn pieces, not the item in
   your hand. **Enemy Health** toggles a thin bar beneath nearby enemy names
@@ -115,6 +125,10 @@ Microsoft/Mojang account.
   returns to 25%. Both choices are saved. **Reset layout** restores overlay positions and sizes.
   Tab/arrows select controls; Enter activates them. In the drag editor,
   release the mouse to save and choose Done or press Enter to return.
+  Sodium and vanilla video options accept **1 chunk** for render and simulation
+  distance. Render distance 1 gives very short visibility and can improve FPS;
+  simulation 1 reduces nearby ticking in local worlds. Multiplayer simulation
+  remains controlled by the server. Normal defaults/maxima are preserved.
   Hold Z to zoom in; scroll the wheel to adjust it.
   Looking around is slower and lightly smoothed while zoomed; release to return.
   Z can be rebound under Controls → Key Binds → Cubeon Client. Zoom is
@@ -234,6 +248,27 @@ log and instructions from the page.
 Friends-enabled builds include chat and in-game integration. Some public
 builds omit these features. You do not need to deploy the backend yourself
 to use a build configured for Cubeon's services.
+
+Press **G** in Minecraft, or choose **Friends** in the **K** client menu, to
+message your Cubeon friends. Keep the launcher open: both views share the same
+encrypted conversations, so messages sent in either place appear in both.
+Use Enter to send, Ctrl+Up/Down to select a friend, and the wheel or Page Up/Down
+to scroll. The game keeps your draft until the friends relay confirms the
+message is in the shared conversation. An unconfirmed send retains its draft
+and asks you to check the conversation before sending again; there are no
+automatic resends. Rebind G in Minecraft's Controls.
+New live messages and invitations show a compact Cubeon toast in game; an open
+conversation stays quiet, and old history does not trigger alerts.
+
+Minecraft's Mod Menu title/button count shows loaded top-level mod files.
+Bundled Fabric API modules and libraries stay visible in Mod Menu's detailed list
+but do not inflate that count. Cubeon's Installed list can also include disabled
+files; those do not count as loaded in the game.
+
+Minecraft's regular chat automatically stacks consecutive identical styled
+messages as **hello ×4** within ten seconds. Different senders, intervening
+messages and server changes start a new stack. This is always enabled and
+changes only the displayed lines; original message history and signatures remain.
 
 Local server hosting runs on your computer. Shared access depends on the
 server and tunnel being available, and may be affected by firewall or

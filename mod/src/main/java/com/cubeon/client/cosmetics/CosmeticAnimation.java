@@ -64,12 +64,13 @@ public final class CosmeticAnimation {
 
     public static final class Frame {
         private final Transform body, head, leftWing, rightWing, pack;
-        private final float time, movement, flight, sprinting, wingPhase, dragon;
+        private final float time, movement, flight, sprinting, wingPhase, dragon, hover;
         private final float[] feathers;
         private final CosmeticCatalog.Item featherItem;
 
         private Frame(float t, float move, float gliding, float sprint, float phase, float dragonElapsed) {
             time = t; movement = move; flight = gliding; sprinting = sprint;
+            hover = .12f * sin(t * 1.8f);
             wingPhase = phase; dragon = dragonElapsed; feathers = null; featherItem = null;
             float breath = 0.018f * sin(t * 2.2f);
             body = new Transform(0, 0, 0.012f * sin(t * 1.1f)
@@ -112,6 +113,7 @@ public final class CosmeticAnimation {
             body = source.body; head = source.head; leftWing = source.leftWing;
             rightWing = source.rightWing; pack = source.pack;
             time = source.time; movement = source.movement; flight = source.flight;
+            hover = source.hover;
             sprinting = source.sprinting; wingPhase = source.wingPhase; dragon = source.dragon;
             featherItem = item;
             feathers = new float[item.feathers.size() * 3];
@@ -228,6 +230,7 @@ public final class CosmeticAnimation {
                         "body".equals(quad.motion) ? quad.pivotY : quad.parentPivotY,
                         "body".equals(quad.motion) ? quad.pivotZ : quad.parentPivotZ);
                 x[vertex] = px; y[vertex] = py; z[vertex] = pz;
+                if ("float".equals(quad.motion)) y[vertex] += frame.hover;
             }
             if (feather) {
                 // Lighting follows the flexed surface. The catalogue's outward winding

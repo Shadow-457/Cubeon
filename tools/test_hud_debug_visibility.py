@@ -30,7 +30,7 @@ FIXTURE = r'''
 import java.util.*;
 
 public class CubeonHud {
-    enum Overlay { FPS, KEYS, ARMOR, PING, CPS }
+    enum Overlay { FPS, KEYS, ARMOR, PING, CPS, CLOCK, SYSTEM, POTIONS, COORDINATES, DIRECTION, MINIMAP, BIOME, DAYLIGHT, COMBO }
     static final List<String> draws = new ArrayList<>();
     interface DrawAction { void draw(GuiBase gui, ClientBase client, int x, int y); }
     static void sampleClicks(ClientBase client) {}
@@ -45,6 +45,9 @@ public class CubeonHud {
     static void renderPing(GuiBase gui, ClientBase client, int x, int y) {}
     static void renderCps(GuiBase gui, ClientBase client, int x, int y) {}
 
+    static String slotOf(Overlay overlay) { return overlay.name().toLowerCase(); }
+    static void renderExtra(GuiBase gui, ClientBase client, Overlay overlay, int x, int y, boolean preview) {}
+    static Object extraCanvas(GuiBase gui, ClientBase client) { return gui; }
     // PRODUCTION_RENDER
 
     static void check(String reason, String... expected) throws Exception {
@@ -66,7 +69,7 @@ public class CubeonHud {
             for (boolean debug : new boolean[]{false, true}) {
                 client.debug.visible = debug;
                 client.options.debugEnabled = debug;
-                check("Debug=" + debug + " hitboxes=" + hitboxes, "FPS", "KEYS", "ARMOR", "PING", "CPS", "HEALTH");
+                check("Debug=" + debug + " hitboxes=" + hitboxes, "FPS", "KEYS", "ARMOR", "PING", "CPS", "TOAST", "HEALTH");
             }
         }
         // F1 and the editor still own visibility, even when F3 is active.
@@ -81,8 +84,13 @@ public class CubeonHud {
         check("Editor avoids drawing the HUD twice");
         client.currentScreen = client.screen = null;
         CubeonHudConfig.get().showKeys = false;
-        check("Per-overlay settings still apply with debug", "FPS", "ARMOR", "PING", "CPS", "HEALTH");
+        check("Per-overlay settings still apply with debug", "FPS", "ARMOR", "PING", "CPS", "TOAST", "HEALTH");
         CubeonHudConfig.get().showKeys = true;
+        CubeonHudConfig.get().clock = true;
+        check("New extras render alongside old overlays", "FPS", "KEYS", "ARMOR", "PING", "CPS", "CLOCK", "TOAST", "HEALTH");
+        client.options.hudHidden = client.options.hideGui = client.gui.hud.hidden = true;
+        check("F1 also hides new overlays");
+        client.options.hudHidden = client.options.hideGui = client.gui.hud.hidden = false;
         client.player = null;
         check("No player means no overlays");
         System.out.println("F3/debug/hitboxes stay visible; F1, editor, toggles and world exit passed.");
@@ -136,8 +144,13 @@ class Minecraft extends ClientBase {
 }
 class CubeonHudConfig {
     public boolean showFps = true, showKeys = true, showArmor = true, showPing = true, showCps = true;
+    public boolean clock;
+    public boolean extrasEnabled() { return clock; }
+    public boolean extraEnabled(String slot) { return clock && slot.equals("clock"); }
     private static final CubeonHudConfig INSTANCE = new CubeonHudConfig();
     public static CubeonHudConfig get() { return INSTANCE; }
+}
+class HudReadings {
 }
 class EnemyHealthRenderer {
     interface Projector { float[] project(Object point); }
@@ -145,6 +158,9 @@ class EnemyHealthRenderer {
     static void render(GuiBase gui, ClientBase client, float delta, boolean visible, Object rotation) {
         if (visible) CubeonHud.draws.add("HEALTH");
     }
+}
+class FriendsToastRenderer {
+    static void render(GuiBase gui, ClientBase client, int w, int h) { CubeonHud.draws.add("TOAST"); }
 }
 class LegacyHealthProjection {
     static void render(GuiBase gui, ClientBase client) { CubeonHud.draws.add("HEALTH"); }
@@ -159,7 +175,8 @@ class HudDebugVisibilityTests(unittest.TestCase):
         self.assertEqual(len(adapters), 8)
         for adapter in adapters:
             era = adapter.relative_to(MAIN).parts[0]
-            method = render_method(adapter.read_text())
+            method = render_method(adapter.read_text()).replace(
+                "com.cubeon.client.hud.screen.FriendsToastRenderer", "FriendsToastRenderer")
             client = "Minecraft" if "GuiGraphicsExtractor" in method else "MinecraftClient"
             source = FIXTURE.replace("// PRODUCTION_RENDER", method).replace(
                 "CLIENT_INSTANCE", client + ".getInstance()")

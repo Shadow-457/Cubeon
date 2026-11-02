@@ -31,6 +31,8 @@ public final class CosmeticsClient {
                     + "cosmetics are disabled.");
             return;
         }
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK
+                .register(client -> CosmeticTrails.tick());
         LivingEntityRenderLayerRegistrationCallback.EVENT.register(
                 (entityType, renderer, helper, context) -> {
                     if (renderer instanceof AvatarRenderer) {

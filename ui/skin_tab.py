@@ -810,13 +810,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         if not cfg.get("client_mod_enabled", True):
             return ("Cubeon Client is switched off in Settings, so this item "
                     "shows in the preview but not in-game.")
-        return ("Drawn by Cubeon Client in-game, attached to your body so it "
-                "follows sneaking, swimming and elytra flight.")
+        return ("Drawn by Cubeon Client in-game. Wearables follow your character; "
+                "trails appear briefly while walking.")
 
     def _cosmetic_pane(slot, title):
         grid = ft.Row(spacing=12, wrap=True, run_spacing=12)
         status = ft.Text("", size=12, color=TEXT_DIM)
-        key = "active_shoulder_item" if slot == "shoulder" else "active_back_item"
+        key = f"active_{slot}_item"
 
         def refresh():
             active_id = cfg.get(key)
@@ -867,12 +867,16 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         if slot == "back":
             controls.append(ft.Text("Small wings move gently. Press N in Minecraft for a Giant-wing flare; K → Cosmetic motion turns movement off.",
                                     size=11, color=TEXT_DIM))
+        elif slot == "trail":
+            controls.append(ft.Text("A few short-lived particles while walking. Cosmetic motion turns them off; Minecraft's particle limit still applies.",
+                                    size=11, color=TEXT_DIM))
         pane = ft.Column(controls, spacing=8)
         pane.load_items = refresh
         return pane
 
-    shoulder_pane = _cosmetic_pane("shoulder", "Shoulder Items")
-    back_pane = _cosmetic_pane("back", "Back Items")
+    cosmetic_panes = [(slot, cosmetics.SLOT_LABELS[slot],
+                      _cosmetic_pane(slot, cosmetics.SLOT_LABELS[slot]))
+                     for slot in cosmetics.SLOTS]
 
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for
@@ -882,11 +886,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     PANES = [
         ("skin", "Skin", skin_pane),
         ("cape", "Cape", cape_pane),
-        ("shoulder", "Shoulder", shoulder_pane),
-        ("back", "Back", back_pane),
+        *cosmetic_panes,
     ]
     pane_holder = ft.Container(content=skin_pane)
-    tab_row = ft.Row(spacing=16)
+    tab_row = ft.Row(spacing=12, wrap=True, run_spacing=8)
 
     def build_pane_tabs():
         tab_row.controls.clear()
@@ -917,6 +920,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             # Right shoulder is on the viewer's left in the front view; a
             # slight turn shows the pet and the face together.
             appearance.turn(25 - appearance.yaw)
+        elif pid in cosmetics.SLOTS:
+            appearance.turn(25 - appearance.yaw if pid in ("hand", "waist", "trail")
+                            else -appearance.yaw)
         thread_safe_ui.refresh(tab_row)
         thread_safe_ui.refresh(pane_holder)
         _flush_pending_thumbs()

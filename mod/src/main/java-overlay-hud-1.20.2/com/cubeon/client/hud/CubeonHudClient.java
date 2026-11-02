@@ -28,6 +28,7 @@ public final class CubeonHudClient implements ClientModInitializer {
 
 			ClientTickEvents.END_CLIENT_TICK.register(client -> {
 				CubeonHudKeybinds.tick();
+                HudReadings.tick();
 				com.cubeon.client.emotes.EmoteClient.tick();
 			});
 		} catch (Throwable missingApi) {

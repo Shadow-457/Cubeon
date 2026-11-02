@@ -91,6 +91,13 @@ package net.minecraft.client.render.entity.model;
 import net.minecraft.client.util.math.MatrixStack;
 public class PlayerEntityModel {
     public Body body = new Body();
+    public Part head = new Part(0, 0), rightArm = new Part(-5, 2);
+    public static class Part {
+        public final float x, y;
+        public Part(float x, float y) { this.x=x; this.y=y; }
+        public void rotate(MatrixStack matrices) { applyTransform(matrices); }
+        public void applyTransform(MatrixStack matrices) { matrices.translate(x/16, y/16, 0); }
+    }
     public static class Body {
         public static float y, z, pitch;
         public void rotate(MatrixStack matrices) { applyTransform(matrices); }

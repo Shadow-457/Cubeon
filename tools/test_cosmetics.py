@@ -4,7 +4,7 @@ Cosmetics exist twice on purpose: the launcher reads ``assets/cosmetics`` and
 the Cubeon Client reads its own copy from the mod jar. One generator writes
 both, and this test is what keeps that promise honest. It checks:
 
-* the catalogue's shape (25 items, 10 shoulder / 15 back, unique ids, valid boxes);
+* the catalogue's shape (43 items across seven slots, unique ids, valid boxes);
 * the atlas layout and every preview quad, including the mirrored wing;
 * that the wing's cut-out silhouette has real thickness on its edges, so it
   cannot render as a flat plank;
@@ -83,10 +83,12 @@ def test_catalog():
     every = cosmetics.items()
     shoulder = cosmetics.items("shoulder")
     back = cosmetics.items("back")
-    check("25 cosmetics", len(every) == 25, str(len(every)))
-    check("10 shoulder items", len(shoulder) == 10, str(len(shoulder)))
+    check("43 cosmetics", len(every) == 43, str(len(every)))
+    check("13 shoulder items", len(shoulder) == 13, str(len(shoulder)))
     check("15 back items", len(back) == 15, str(len(back)))
-    check("every item is in one slot", len(shoulder) + len(back) == len(every))
+    check("every item is in one slot", sum(len(cosmetics.items(s)) for s in cosmetics.SLOTS) == len(every))
+    for slot, count in {"face": 4, "head": 3, "waist": 3, "hand": 3, "trail": 2}.items():
+        check(f"{count} {slot} cosmetics", len(cosmetics.items(slot)) == count)
 
     ids = [item["id"] for item in every]
     textures = [item["texture"] for item in every]
@@ -423,7 +425,8 @@ def test_selection():
         payload = json.load(fh)
     check("payload shape", payload == {"version": 1,
                                        "shoulder": "shoulder_ember_fox",
-                                       "back": "back_ember_wings"},
+                                       "back": "back_ember_wings",
+                                       **{s: None for s in cosmetics.SLOTS if s not in ("back", "shoulder")}},
           repr(payload))
 
     mtime = os.stat(path).st_mtime_ns

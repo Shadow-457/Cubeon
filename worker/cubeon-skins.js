@@ -658,7 +658,13 @@ const COSMETIC_IDS = {
     "back_shell_pack", "back_banner_pack"]),
   shoulder: new Set(["shoulder_ember_fox", "shoulder_moss_frog", "shoulder_lantern_moth",
     "shoulder_frost_cub", "shoulder_cloud_serpent", "shoulder_gear_imp", "shoulder_spore_sprite",
-    "shoulder_star_owl", "shoulder_tide_turtle", "shoulder_pumpkin_pal"]),
+    "shoulder_star_owl", "shoulder_tide_turtle", "shoulder_pumpkin_pal",
+    "shoulder_moon_cat", "shoulder_ruby_dragon", "shoulder_dusk_crow"]),
+  face: new Set(["face_spectacles", "face_goggles", "face_mask", "face_visor"]),
+  head: new Set(["head_halo", "head_horns", "head_crown"]),
+  waist: new Set(["waist_belt", "waist_pouch", "waist_sheath"]),
+  hand: new Set(["hand_bracelet", "hand_glove", "hand_gadget"]),
+  trail: new Set(["trail_footsteps", "trail_leaves"]),
 };
 
 async function handleCosmetics(request, env) {
@@ -668,15 +674,20 @@ async function handleCosmetics(request, env) {
   if (!body) return problem(400, "bad_body");
   const uuid = typeof body.uuid === "string" ? body.uuid.toLowerCase() : "";
   if (!UUID_RE.test(uuid)) return problem(400, "bad_uuid");
-  for (const slot of ["back", "shoulder"]) {
-    if (body[slot] !== null && !COSMETIC_IDS[slot].has(body[slot]))
+  const selection = {};
+  for (const slot of Object.keys(COSMETIC_IDS)) {
+    // Old clients send only the two original slots. New fields are optional;
+    // omission clears them, so switching to an old client cannot leave ghost items.
+    const value = body[slot] === undefined ? null : body[slot];
+    if (value !== null && !COSMETIC_IDS[slot].has(value))
       return problem(400, "bad_cosmetic");
+    selection[slot] = value;
   }
   // A heartbeat must establish ownership first; this route cannot claim a UUID.
   const owner = await env.SKINS.get(`owner:${uuid}`);
   if (!owner || !constantTimeEqual(owner, secretHash)) return problem(403, "not_yours");
   if (await env.SKINS.get(`blocked:${uuid}`)) return problem(403, "blocked");
-  const record = JSON.stringify({ back: body.back, shoulder: body.shoulder });
+  const record = JSON.stringify(selection);
   const put = await putIfChanged(env, `cosmetics:${uuid}`, record);
   if (put === "quota") return problem(429, "kv_write_budget_exhausted");
   return json({ status: "ok" }, "no-store");
@@ -687,7 +698,11 @@ async function serveCosmetics(username, env) {
   const uuid = await env.SKINS.get(`pointer:${username.toLowerCase()}`);
   if (!uuid || await env.SKINS.get(`blocked:${uuid}`)) return notFound();
   const record = await env.SKINS.get(`cosmetics:${uuid}`, "json");
-  return json({ version: 1, username, uuid,
+  const extras = {};
+  for (const slot of ["face", "head", "waist", "hand", "trail"]) {
+    if (COSMETIC_IDS[slot].has(record?.[slot])) extras[slot] = record[slot];
+  }
+  return json({ version: 1, username, uuid, ...extras,
     back: COSMETIC_IDS.back.has(record?.back) ? record.back : null,
     shoulder: COSMETIC_IDS.shoulder.has(record?.shoulder) ? record.shoulder : null }, PROFILE_CACHE);
 }

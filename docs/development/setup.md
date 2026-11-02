@@ -52,8 +52,19 @@ python main.py
 If activation is unavailable, use `.venv\Scripts\python.exe` directly rather
 than changing the machine-wide execution policy.
 
+When `python main.py` finds missing or unsupported Flet packages, it checks
+`.venv` and then `.venv-build` in this checkout. If either contains matching
+Flet and `flet-desktop` 0.86.x releases, it restarts with that interpreter
+before importing the UI. Otherwise it exits with commands to install the
+project requirements. It does not change machine-wide Python packages.
+Packaged launchers use their bundled runtime.
+
 On Linux, the Flet desktop client also needs the system's GTK and graphics
 libraries. An import check alone does not verify that a window can open.
+Native client crashes recover in a fresh launcher process, with at most two
+retries shared across startup and later crashes. Linux recovery tries
+llvmpipe, then softpipe; a clean close restores the normal hardware path for
+the next launch. These launcher settings do not reach Minecraft.
 
 ## Check the environment
 

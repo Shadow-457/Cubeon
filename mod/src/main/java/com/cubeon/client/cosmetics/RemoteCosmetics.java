@@ -100,7 +100,7 @@ public final class RemoteCosmetics {
                     if (bytes.length <= 4096) {
                         items = CosmeticSelection.Items.parse(Json.parseObject(new String(bytes, StandardCharsets.UTF_8)));
                         failed = false; answered = true;
-                        if (items.back() == null && items.shoulder() == null) ttl = MISSING_TTL;
+                        if (items.empty()) ttl = MISSING_TTL;
                     }
                 }
             } else if (status == 404 || status == 403) {

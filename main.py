@@ -19,6 +19,9 @@ import asyncio     # For the filtered client-spawn wrapper (subprocess streams)
 import subprocess  # Detached launcher fallback when execv cannot replace us
 import re          # For regular expressions (used to clean mod slugs and parse version strings)
 import sys         # For runtime platform detection and PyInstaller bundle paths
+if __name__ == '__main__':
+    from source_runtime import ensure_source_runtime
+    ensure_source_runtime(__file__)
 if __name__ == '__main__' and '--cubeon-installer' in sys.argv:
     from cubeon.installer_ui import run_installer
     run_installer()
@@ -9595,9 +9598,7 @@ if __name__ == "__main__":
     #
     #   attempt 1: normal launch (hardware GL)
     #   client dies pre-paint -> relaunch with software GL
-    #   client dies again pre-paint -> relaunch ONCE more with software GL
-    #                                  (llvmpipe is usually reliable; a
-    #                                  second try gets past the flakiness)
+    #   client dies again -> one final fresh-process attempt with softpipe
     #   dies a third time / user closes normally -> give up, exit
     #
     # A clean session (window painted, then closed) resets the counter, so
@@ -9619,9 +9620,8 @@ if __name__ == "__main__":
     # (the cleanup slot itself is module-level; see its definition near the
     # imports. This local copy was a duplicate - removed.)
     _MAX_CLIENT_RETRIES = 2
-    # Mid-session GPU-crash re-execs (see the ui_painted-but-client-dead
-    # branch in _session_loop). Each restart bumps CUBEON_GPU_RESTARTS in the
-    # environment, which survives execv; a clean close resets it.
+    # All GPU-crash re-execs share CUBEON_GPU_RESTARTS, which survives execve.
+    # A mix of pre-paint and mid-session crashes must not reset the budget.
     _MAX_MIDSESSION_RESTARTS = 2
 
     # The flet client's exit status for the session that just ended, filled by
@@ -9796,23 +9796,19 @@ if __name__ == "__main__":
 
     def _session_loop():
         while True:
-            _retries = 0
+            try:
+                _retries = max(0, int(os.environ.get("CUBEON_GPU_RESTARTS", "0")))
+            except ValueError:
+                _retries = 0
             while True:
-                if os.path.exists(_gl_fallback_marker):
+                if _retries or os.path.exists(_gl_fallback_marker):
                     # How many client attempts have already died. The
-                    # in-process pre-paint retries know their own count; a
-                    # re-exec'd mid-session restart carries it forward in
-                    # CUBEON_GPU_RESTARTS (the fresh process starts at
-                    # _retries == 0). The DRIVER depends on it - llvmpipe
+                    # fresh process inherits CUBEON_GPU_RESTARTS for both
+                    # pre-paint and mid-session recovery. The driver is llvmpipe
                     # first, then softpipe - because the 2026-10-18 crash is
                     # in the LLVM rasterizer llvmpipe shares with radeonsi:
                     # see incident.driver_for_attempt.
-                    try:
-                        _failed_attempts = max(
-                            _retries, int(os.environ.get(
-                                "CUBEON_GPU_RESTARTS", "0") or "0"))
-                    except ValueError:
-                        _failed_attempts = _retries
+                    _failed_attempts = _retries
                     # retry_environment also carries a dice roll on the OTHER
                     # way the flet client dies on Linux (the GTK/Wayland path)
                     # - only here, after a crash, and only when it can help:
@@ -9985,8 +9981,7 @@ if __name__ == "__main__":
                     # The window HAD painted, but the client died to a signal:
                     # a mid-session crash (observed live 2026-09-08: Mesa
                     # 26.1 SIGSEGV inside libgallium during a GTK paint).
-                    # ft.run is ONCE-per-process - a second one hangs silently
-                    # - so the in-process retry below is NOT an option here.
+                    # ft.run is ONCE-per-process - a second one can hang.
                     # Recovery is a wholesale process replacement instead: arm
                     # the software-GL fallback so the fresh image doesn't hit
                     # the same driver bug, and re-exec.
@@ -9994,11 +9989,7 @@ if __name__ == "__main__":
                     # never turn this into an infinite relaunch loop; on
                     # exhaustion we exit, exactly as if the user had closed
                     # the window.
-                    try:
-                        _gpu_restarts = int(os.environ.get(
-                            "CUBEON_GPU_RESTARTS", "0")) + 1
-                    except ValueError:
-                        _gpu_restarts = 1
+                    _gpu_restarts = _retries + 1
                     if _gpu_restarts <= _MAX_MIDSESSION_RESTARTS:
                         try:
                             os.makedirs(_CUBEON_HOME, exist_ok=True)
@@ -10021,7 +10012,9 @@ if __name__ == "__main__":
                     return  # restart budget exhausted: exit
 
                 if _session_end_kind == "pre_paint_crash":
-                    # UI never painted: client crash. Arm fallback, retry.
+                    # A failed first frame still leaves native/Flet state in
+                    # this interpreter. Recover in a fresh process, just as
+                    # for a mid-session crash; never call ft.run twice here.
                     try:
                         os.makedirs(_CUBEON_HOME, exist_ok=True)
                         open(_gl_fallback_marker, "w").close()
@@ -10029,9 +10022,17 @@ if __name__ == "__main__":
                         pass
                     _retries += 1
                     if _retries <= _MAX_CLIENT_RETRIES:
+                        os.environ["CUBEON_GPU_RESTARTS"] = str(_retries)
                         print(f"cubeon: client died before showing the window "
-                              f"(attempt {_retries}) - retrying with software OpenGL")
+                              f"(attempt {_retries}) - restarting with software OpenGL",
+                              flush=True)
                         time.sleep(1.5)  # let the WM/core dump settle
+                        try:
+                            if not _relaunch_fresh_process():
+                                print("cubeon: couldn't restart the launcher")
+                        except Exception as ex:
+                            print(f"cubeon: startup restart via re-exec failed ({ex})")
+                        return
                     else:
                         print("cubeon: client keeps dying before the window "
                               "shows - giving up")

@@ -467,6 +467,10 @@ def test_removed_effect_guard():
             error = verify(path)
             ok(error is not None and why in error, f"verification rejects stale dragon wing entry {entry}")
         cases = (
+            ("com/cubeon/client/mixin/CustomReticleMixin.class", b"fixture"),
+            ("com/cubeon/client/hud/ExtraHud$MapRun.class", b"fixture"),
+            ("com/cubeon/client/hud/CubeonHudConfig.class", b"customReticle"),
+            ("assets/cubeon-client/lang/en_us.json", b'{"cubeonclient.hud.minimap":"Minimap"}'),
             ("com/cubeon/client/hud/MotionBlur.class", b"fixture"),
             ("assets/cubeon-client/post_effect/motion_blur_low.json", b"{}"),
             ("assets/cubeon-client/shaders/post/motion_blur.fsh", b"fixture"),

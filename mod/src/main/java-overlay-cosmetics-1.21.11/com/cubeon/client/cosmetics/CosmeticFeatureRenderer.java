@@ -48,13 +48,23 @@ public final class CosmeticFeatureRenderer
         if (catalog == null) {
             return;
         }
-        matrices.push();
-        getContextModel().body.applyTransform(matrices);
-        try {
-            drawItem(catalog, "back", matrices, queue, light, view);
-            drawItem(catalog, "shoulder", matrices, queue, light, view);
-        } finally {
-            matrices.pop();
+        for (String slot : CosmeticSelection.SLOTS) {
+            if ("trail".equals(slot) || view.items().get(slot) == null) continue;
+            matrices.push();
+            try {
+                if ("face".equals(slot) || "head".equals(slot)) {
+                    getContextModel().head.applyTransform(matrices);
+                } else if ("hand".equals(slot)) {
+                    getContextModel().rightArm.applyTransform(matrices);
+                    // Art is in standing body space; the native arm pivot is (-5, 2, 0).
+                    matrices.translate(5 / 16.0f, -2 / 16.0f, 0);
+                } else {
+                    getContextModel().body.applyTransform(matrices);
+                }
+                drawItem(catalog, slot, matrices, queue, light, view);
+            } finally {
+                matrices.pop();
+            }
         }
     }
 

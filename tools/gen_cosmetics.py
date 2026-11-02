@@ -67,6 +67,11 @@ MOD_CATALOG_DIR = os.path.join(MOD_DIR, "cosmetics")
 ANCHORS = {
     "shoulder": [-7.0, 0.0, 0.0],
     "back": [0.0, 2.0, 2.2],
+    "face": [0.0, 0.0, 0.0],
+    "head": [0.0, 0.0, 0.0],
+    "waist": [0.0, 10.0, 0.0],
+    "hand": [-5.0, 2.0, 0.0],
+    "trail": [0.0, 24.0, 0.0],
 }
 
 # ---------------------------------------------------------------------------
@@ -212,7 +217,7 @@ def _pet_front(pal, species):
     body, light, accent = pal['body'], pal['light'], pal['accent']
     ink = mix(pal['dark'], '#18202c', .6)
     cream = mix(light, '#fff3df', .4)
-    if species in ('ember_fox', 'gear_imp'):
+    if species in ('ember_fox', 'gear_imp', 'moon_cat'):
         for x in (3, 23):
             t.poly([(x, 8), (x + 3, 1), (x + 7, 8)], shade(body, -.16))
             t.poly([(x + 2, 6), (x + 3, 3), (x + 5, 6)], mix(body, '#f6b2ad', .7))
@@ -220,11 +225,29 @@ def _pet_front(pal, species):
         for x in (3, 23):
             t.r(x, 2, 6, 6, shade(body, -.10))
             t.r(x + 1, 3, 4, 3, mix(body, '#f4c4cb', .6))
-    elif species in ('star_owl', 'cloud_serpent'):
+    elif species in ('star_owl', 'cloud_serpent', 'ruby_dragon'):
         for x in (3, 24):
             t.poly([(x, 8), (x + 2, 1), (x + 5, 7)], accent)
             t.p(x + 2, 2, shade(accent, .4))
-    if species == 'ember_fox':
+    if species == 'moon_cat':
+        t.r(8, 23, 16, 7, cream)
+        for x in (2, 24):
+            t.hline(x, 24, 6, light)
+            t.hline(x, 27, 6, light)
+        t.poly([(14, 23), (18, 23), (16, 26)], '#e9a5b3')
+        t.vline(16, 26, 3, ink)
+    elif species == 'ruby_dragon':
+        t.r(7, 23, 18, 7, light)
+        t.r(10, 25, 2, 2, ink)
+        t.r(20, 25, 2, 2, ink)
+        for x in (10, 20):
+            t.r(x, 5, 2, 3, accent)
+    elif species == 'dusk_crow':
+        t.poly([(13, 22), (19, 22), (16, 29)], accent)
+        t.hline(14, 23, 4, light)
+        t.hline(5, 10, 6, shade(body, .3))
+        t.hline(21, 10, 6, shade(body, .3))
+    elif species == 'ember_fox':
         t.poly([(1, 19), (8, 18), (12, 23), (19, 23), (23, 18), (30, 19),
                 (28, 28), (24, 30), (7, 30), (3, 28)], cream)
         for x in (5, 22):
@@ -708,6 +731,12 @@ def pack_faces(pal, emblem="gear"):
 # ---------------------------------------------------------------------------
 
 PALETTES = {
+    "moon_cat": dict(body="#63647b", light="#e2dce9", dark="#292638",
+                     accent="#c6b4f3", eye="#83cfb1"),
+    "ruby_dragon": dict(body="#b84e56", light="#f4c49b", dark="#582333",
+                        accent="#eec169", eye="#ffc86a"),
+    "dusk_crow": dict(body="#353d50", light="#858fab", dark="#151c2c",
+                      accent="#c3aa72", eye="#b7cbea"),
     "ember_fox": dict(body="#e8722c", light="#f7d9a8", dark="#6b2e12",
                       accent="#ffc24d", eye="#2b1a10"),
     "moss_frog": dict(body="#4e9b3a", light="#cfe8a0", dark="#23471c",
@@ -989,6 +1018,118 @@ for theme in ("ember", "frost", "leaf", "void", "aurora"):
 # ---------------------------------------------------------------------------
 # Atlas packing + output
 # ---------------------------------------------------------------------------
+
+
+def _accessory(slot, key, name, blurb, pieces, *, floating=False):
+    """Small opaque pixel volumes; no uploaded meshes or extra texture requests.
+
+    Pieces are (origin, size, colour, optional face motif). All wearables use
+    standing model coordinates, including the right wrist, so the preview and
+    native attachment transforms can share exactly the same geometry.
+    """
+    boxes, painted = [], []
+    for origin, size, colour, *motif in pieces:
+        tile = Tile()
+        tile.r(0, 0, 16, 16, colour)
+        tile.hline(0, 0, 16, shade(colour, .22))
+        tile.hline(0, 15, 16, shade(colour, -.22))
+        if motif:
+            ink = shade(colour, -.45)
+            if motif[0] == "lens":
+                tile.poly([(2, 3), (5, 3), (13, 11), (10, 11)], shade(colour, .55))
+                tile.hline(4, 13, 9, shade(colour, -.2))
+            elif motif[0] == "gem":
+                tile.poly([(8, 2), (13, 8), (8, 14), (3, 8)], '#94d6d0')
+                tile.poly([(8, 3), (8, 8), (4, 8)], '#e1ffef')
+            elif motif[0] == "stitch":
+                for x in (2, 13):
+                    for y in range(3, 14, 3):
+                        tile.r(x, y, 1, 2, shade(colour, .45))
+                tile.hline(3, 5, 10, ink)
+            elif motif[0] == "watch":
+                tile.r(2, 2, 12, 12, '#18232c')
+                tile.hline(5, 5, 6, '#b2e4d1')
+                tile.r(5, 8, 2, 3, '#b2e4d1')
+                tile.r(9, 8, 2, 3, '#b2e4d1')
+            elif motif[0] == "leaf":
+                tile.poly([(2, 7), (8, 1), (14, 7), (8, 14)], shade(colour, .25))
+                tile.vline(8, 4, 10, ink)
+        faceset = {face: solid(shade(colour, amount)) for face, amount in
+                   (("back", -.12), ("left", -.08), ("right", -.04),
+                    ("top", .2), ("bottom", -.2))}
+        faceset["front"] = tile.im
+        index = len(painted)
+        painted.append(faceset)
+        boxes.append(dict(origin=origin, size=size, px=4, part=index,
+                          motion="float" if floating else "none"))
+    return dict(id=f"{slot}_{key}", slot=slot, name=name, blurb=blurb,
+                boxes=boxes, _faces=painted, wing_flare=False)
+
+
+INK, BRASS, LEATHER = '#30333f', '#c5a574', '#745344'
+
+
+def _glasses(lenses=False):
+    pieces = []
+    for x in (-3.75, .75):
+        pieces.extend([([x, -4.75, -4.75], [3, .5, .5], INK),
+                       ([x, -2.5, -4.75], [3, .5, .5], INK),
+                       ([x, -4.25, -4.75], [.5, 1.75, .5], INK),
+                       ([x+2.5, -4.25, -4.75], [.5, 1.75, .5], INK)])
+        if lenses:
+            pieces.append(([x+.5, -4.25, -4.65], [2, 1.75, .25], '#6d9eaa', 'lens'))
+    pieces.extend([([-.75, -4, -4.75], [1.5, .5, .5], BRASS),
+                   ([-4.5, -4.25, -4.5], [.5, .5, 5], INK),
+                   ([4, -4.25, -4.5], [.5, .5, 5], INK)])
+    return pieces
+
+
+ITEMS.extend([
+    _creature('shoulder_moon_cat', 'Moon Cat', 'A quiet violet cat with soft idle glances.', 'moon_cat'),
+    _creature('shoulder_ruby_dragon', 'Ruby Dragon', 'A pocket-sized dragon with warm scales.', 'ruby_dragon'),
+    _creature('shoulder_dusk_crow', 'Dusk Crow', 'A little dusk crow perched beside you.', 'dusk_crow'),
+    _accessory('face', 'spectacles', 'Round Spectacles', 'Thin dark frames with a brass bridge.', _glasses()),
+    _accessory('face', 'goggles', 'Pilot Goggles', 'Small blue lenses and a dark strap.', _glasses(True)),
+    _accessory('face', 'mask', 'Dusk Mask', 'A stitched cloth mask below the eyes.', [
+        ([-3.5, -2.5, -4.75], [7, 2.5, .5], '#45485f', 'stitch'),
+        ([-4.5, -2, -4.5], [.5, .5, 5], INK), ([4, -2, -4.5], [.5, .5, 5], INK)]),
+    _accessory('face', 'visor', 'Aurora Visor', 'A slim blue visor with silver edges.', [
+        ([-4, -4.75, -4.75], [8, .5, .5], '#bbc6cf'),
+        ([-3.75, -4.25, -4.75], [7.5, 2, .5], '#638eaa', 'lens'),
+        ([-4, -2.25, -4.75], [8, .25, .5], '#bbc6cf')]),
+    _accessory('head', 'halo', 'Sun Halo', 'A fine golden ring floating above your head.', [
+        ([-4, -10, -4], [8, .5, .5], BRASS), ([-4, -10, 3.5], [8, .5, .5], BRASS),
+        ([-4, -10, -3.5], [.5, .5, 7], BRASS), ([3.5, -10, -3.5], [.5, .5, 7], BRASS)], floating=True),
+    _accessory('head', 'horns', 'Ember Horns', 'Two compact dark horns with warm tips.', [
+        ([-4.5, -9, -1], [1.5, 1.5, 2], '#493842'), ([3, -9, -1], [1.5, 1.5, 2], '#493842'),
+        ([-4.75, -10.5, -.5], [1, 1.5, 1], '#c38561'), ([3.75, -10.5, -.5], [1, 1.5, 1], '#c38561')]),
+    _accessory('head', 'crown', 'Floating Crown', 'A small brass crown with a turquoise jewel.', [
+        ([-3, -10, -3], [6, .75, .5], BRASS, 'gem'), ([-3, -10, 2.5], [6, .75, .5], BRASS),
+        ([-3, -10, -2.5], [.5, .75, 5], BRASS), ([2.5, -10, -2.5], [.5, .75, 5], BRASS),
+        ([-3, -11, -3], [.75, 1, .5], BRASS), ([2.25, -11, -3], [.75, 1, .5], BRASS),
+        ([-.5, -11.5, -3], [1, 1.5, .5], BRASS)], floating=True),
+    _accessory('waist', 'belt', 'Traveller Belt', 'A narrow leather belt with a brass clasp.', [
+        ([-4.25, 9.75, -2.5], [8.5, 1.25, .5], LEATHER), ([-4.25, 9.75, 2], [8.5, 1.25, .5], LEATHER),
+        ([-4.5, 9.75, -2], [.5, 1.25, 4], LEATHER), ([4, 9.75, -2], [.5, 1.25, 4], LEATHER),
+        ([-.75, 9.75, -2.75], [1.5, 1.25, .25], BRASS)]),
+    _accessory('waist', 'pouch', 'Scout Pouch', 'A small stitched pouch at your hip.', [
+        ([2, 9, -3.25], [2.5, 3, 1], LEATHER, 'stitch'), ([2, 8.75, -3.5], [2.5, 1, .5], '#a47a54'),
+        ([2.75, 9.25, -3.75], [1, .5, .25], BRASS)]),
+    _accessory('waist', 'sheath', 'Sword Sheath', 'A decorative sheathed blade; purely cosmetic.', [
+        ([4.25, 8.5, .5], [1, 7, 1], '#494355', 'stitch'), ([4.25, 6.75, .5], [1, 1.75, 1], LEATHER),
+        ([3.75, 8.25, .25], [2, .5, 1.5], BRASS)]),
+    _accessory('hand', 'bracelet', 'Copper Bracelet', 'A small copper cuff on your right wrist.', [
+        ([-7, 9, -2.5], [3, .75, .5], '#b98a70'), ([-6, 9, -2.75], [1, .75, .25], BRASS)]),
+    _accessory('hand', 'glove', 'Ranger Glove', 'A light fingerless glove on your right hand.', [
+        ([-7, 9.25, -2.5], [3, 2.5, .5], '#454b49', 'stitch'), ([-7, 8.75, -2.75], [3, .5, .5], LEATHER)]),
+    _accessory('hand', 'gadget', 'Wrist Compass', 'A tiny instrument with a softly coloured dial.', [
+        ([-7, 9, -2.5], [3, 1, .5], LEATHER), ([-6.75, 8.75, -3], [2.5, 1.5, .5], '#a5adb1', 'watch')]),
+    _accessory('trail', 'footsteps', 'Soft Footsteps', 'Brief ground flecks while walking; no marks saved in the world.', [
+        ([-2.5, 23.75, 4], [1.5, .25, 2], '#ad9c85'), ([1, 23.75, 7], [1.5, .25, 2], '#ad9c85')]),
+    _accessory('trail', 'leaves', 'Falling Leaves', 'A few tiny leaf flecks while you walk.', [
+        ([-2.5, 21, 4], [1, 1, .25], '#bf884d', 'leaf'), ([1, 22, 6], [1, 1, .25], '#7d9854', 'leaf'),
+        ([-1, 23, 8], [1, 1, .25], '#a96c44', 'leaf')]),
+])
 
 
 def box_atlas_size(box):

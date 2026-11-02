@@ -71,6 +71,7 @@ public class CubeonClient implements ClientModInitializer {
                 if (mc.player == null) {
                     return;
                 }
+                com.cubeon.client.ui.ClientToasts.accept(toast);
                 Component body = Component.literal(toast.text() == null ? "" : toast.text())
                         .withStyle(toast.error() ? ChatFormatting.RED : ChatFormatting.WHITE);
                 // Chat (persistent, scrollable), not the action bar. This method

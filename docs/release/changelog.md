@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+- Refined in-game Client Settings with searchable categories, compact switches,
+  consistent feature cards and Configure panels. Added opt-in clock, Java RAM/GPU
+  frame readings, potion icons/timers, coordinates, compass, biome, day/light,
+  confirmed melee combos and auto sprint. Readouts match the original white/black
+  HUD, fit their text and hide empty potion lists/idle combos. Removed the proposed
+  custom crosshair and minimap, their settings, render hooks and sampling work.
+- In-game Friends chat now uses conversation bubbles, compact presence/identity
+  rows, custom send artwork and matching composer typography. Game sends clear
+  drafts only after relay confirmation reaches the shared launcher history.
+  Exact sealed-message matching handles nickname changes, replayed/reordered
+  echoes and timestamp collisions; existing backfill can recover missed echoes.
+- Render and simulation distance can reach 1 in vanilla and supported Sodium
+  video settings; local simulation honors 1, with multiplayer controlled by the
+  server. Native defaults, maxima and the server's chunk-streaming halo remain.
+
+- Mod Menu's title/button count now counts loaded top-level mod files once,
+  excluding built-in runtime entries and nested dependency modules. The detailed
+  list remains complete; disabled launcher files do not count as loaded.
+
+- Added custom in-game Cubeon Friends chat (G or K → Friends), synchronized
+  with the launcher's existing encrypted conversations. Background sends are
+  bounded, preserve failed/edited drafts, and never retry automatically.
+- Added compact in-game Cubeon toasts from the existing live-event feed.
+  Visible conversations and duplicated relay deliveries stay quiet.
+- Automatically stack consecutive identical styled Minecraft chat messages as
+  `hello ×4`, across supported versions, with no setting. Original history,
+  signatures and reporting are preserved; sender/server changes start a new run.
+
 ## 1.3.45 — Stable: content management and seasonal scenery
 
 Promoted the published v1.3.45 build to stable without changing its tag or

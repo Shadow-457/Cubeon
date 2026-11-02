@@ -74,7 +74,7 @@ with open(fake, "w", encoding="utf-8") as f:
 with open(driver, "w", encoding="utf-8") as f:
     f.write(textwrap.dedent('''
         """Runs the REAL main.py with the fake client installed."""
-        import os, sys, runpy
+        import os, sys, runpy, subprocess
         from pathlib import Path
         sys.path.insert(0, %(root)r)
         # Redirect before the first Cubeon import: paths.ensure_dirs(),
@@ -103,10 +103,32 @@ with open(driver, "w", encoding="utf-8") as f:
             lambda page_url, assets_dir, hidden:
             ([%(py)r, "-u", %(fake)r], os.environ.copy(),
              os.path.join(%(home)r, "client.pid")))
+        # Restart the real interpreter while reinstalling this fixture. The
+        # production handoff normally runs main.py directly; doing that here
+        # would escape the sandbox and start an unpatched native client.
+        real_execve = os.execve
+        def fixture_execve(executable, argv, env):
+            return real_execve(executable, [executable, %(driver)r], env)
+        os.execve = fixture_execve
+        # Windows uses the detached Popen handoff instead of execve. Keep
+        # that replacement sandboxed too; the fixture waits for it and
+        # forwards output so the outer test can observe the whole ladder.
+        real_popen = subprocess.Popen
+        def fixture_popen(argv, *args, **kwargs):
+            if (isinstance(argv, list) and len(argv) > 1
+                    and argv[1] == os.path.join(%(root)r, 'main.py')):
+                argv = [argv[0], %(driver)r]
+                kwargs['stdout'] = sys.stdout
+                kwargs['stderr'] = sys.stderr
+                proc = real_popen(argv, *args, **kwargs)
+                proc.wait(timeout=90)
+                return proc
+            return real_popen(argv, *args, **kwargs)
+        subprocess.Popen = fixture_popen
         sys.argv = ["main.py"]
         runpy.run_path(os.path.join(%(root)r, "main.py"), run_name="__main__")
     ''' % {"root": ROOT, "home": home, "game": game, "fake": fake,
-           "py": sys.executable}))
+           "py": sys.executable, "driver": driver}))
 
 env = dict(os.environ)
 env["CUBEON_GAME_DIR"] = game

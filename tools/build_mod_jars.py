@@ -55,6 +55,25 @@ ASSETS_JARS = os.path.join(ROOT, "assets", "jars")
 # (a bracket whose overlays list is wrong still builds - it just builds without
 # the HUD, and a missing com/cubeon/client/hud class is the only cheap way to see that).
 REQUIRED_ENTRIES = ("fabric.mod.json",
+                    "com/cubeon/client/chat/ChatStack.class",
+                    "com/cubeon/client/ModFileCount.class",
+                    "com/cubeon/client/mixin/ModMenuCountMixin.class",
+                    "com/cubeon/client/hud/HudFeatures.class",
+                    "com/cubeon/client/hud/ExtraHud.class",
+                    "com/cubeon/client/hud/HudReadings.class",
+                    "com/cubeon/client/ui/HudIcon.class",
+                    "com/cubeon/client/mixin/AutoSprintMixin.class",
+                    "com/cubeon/client/mixin/ComboDamageMixin.class",
+                    "com/cubeon/client/ChunkDistanceOptions.class",
+                    "com/cubeon/client/mixin/ChunkDistanceOptionsMixin.class",
+                    "com/cubeon/client/mixin/LocalSimulationDistanceMixin.class",
+                    "com/cubeon/client/mixin/SodiumLegacyDistanceMixin.class",
+                    "com/cubeon/client/mixin/SodiumDistanceMixin.class",
+                    "com/cubeon/client/ui/FriendsPanel.class",
+                    "com/cubeon/client/ui/ClientToasts.class",
+                    "com/cubeon/client/hud/screen/FriendsChatScreen.class",
+                    "com/cubeon/client/hud/screen/FriendsToastRenderer.class",
+                    "com/cubeon/client/mixin/ChatStackMixin.class",
                     "cubeon-client.mixins.json",
                     "cubeon-client.freelook.mixins.json",
                     "com/cubeon/client/hud/Freelook.class",
@@ -146,7 +165,9 @@ REQUIRED_ENTRIES += REQUIRED_ENTRIES_CAMERA_BLUR
 REMOVED_FEATURE_MARKERS = (b"/motionblur", b"motionblurmixin", b"motionblurstrength",
                            b'"motionblur"', b"\x00\x0amotionblur", b"motion_blur", b"dynamiccrosshair",
                            b"dynamic_crosshair", b"crosshairscale", b"crosshairmixin",
-                           b"cubeon-client-crosshair", b"rendertargethighlight")
+                           b"cubeon-client-crosshair", b"rendertargethighlight",
+                           b"customreticle", b"reticlemode", b"reticlesize", b"minimap",
+                           b"extrahud$maprun", b"extrahud$blip", b"extrahud$waypoint", b"extrahud$terrain")
 
 
 def removed_feature_entries(jar):

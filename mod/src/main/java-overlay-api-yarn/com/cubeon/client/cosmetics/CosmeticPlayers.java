@@ -27,7 +27,7 @@ public final class CosmeticPlayers {
                 || !local && (!config.showOtherCosmetics || player.squaredDistanceTo(client.player) > 4096)) return null;
         CosmeticSelection.Items items = local ? CosmeticSelection.snapshot()
                 : RemoteCosmetics.get(player.getName().getString());
-        if (items.back() == null && items.shoulder() == null) return null;
+        if (items.empty()) return null;
         var motion = MOTION.computeIfAbsent(player, ignored -> new CosmeticAnimation.Tracker());
         CosmeticAnimation.Frame frame = config.cosmeticAnimations
                 ? motion.sample(age, (float) player.getVelocity().horizontalLength() * 4,

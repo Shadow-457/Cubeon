@@ -33,6 +33,7 @@ public final class MoveOverlayScreen extends Screen {
 				case ARMOR -> "cubeonclient.editor.armor";
 				case PING -> "cubeonclient.editor.ping";
 				case CPS -> "cubeonclient.editor.cps";
+                default -> "cubeonclient.hud." + CubeonHud.slotOf(overlay);
 			}));
 		this.parent = parent;
 		this.overlay = overlay;
@@ -74,6 +75,7 @@ public final class MoveOverlayScreen extends Screen {
 			case ARMOR -> CubeonHud.renderArmor(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
 			case PING -> CubeonHud.renderPing(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
 			case CPS -> CubeonHud.renderCps(context, this.client, (int) (x / hudScale), (int) (y / hudScale));
+            default -> CubeonHud.renderExtra(context, this.client, overlay, (int)(x / hudScale), (int)(y / hudScale), true);
 		}
 
 		context.getMatrices().pop();

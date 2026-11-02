@@ -216,8 +216,9 @@ class FriendsService:
         ("set_whitelist_handler", "set_whitelisted"),
         ("set_events_provider", "events_since"),
         # Encrypted chat: POST /dm (send) and GET /chat (transcript polling).
-        ("set_dm_handler", "send_chat"),
+        ("set_dm_handler", "send_bridge_chat"),
         ("set_chat_provider", "chat_payload"),
+        ("set_chat_close_handler", "close_bridge_chat"),
         # Profile sync: compare this machine's Minecraft against a friend's and
         # pull whatever it's missing into the global mods store.
         ("set_sync_provider", "sync_payload"),
@@ -1447,9 +1448,11 @@ class FriendsService:
             sender = str(p.get("from") or "")
             recipient = str(p.get("to") or "")
             mine_c = friends.canonical_name(mine) or mine.lower()
-            if sender and (friends.canonical_name(sender) == mine_c
-                           or sender.lower() == mine_c):
-                self._file_own_echo(envelope, recipient)
+            # The sealed envelope carries the account handles used to send.
+            # Outer display fields can be absent or change with a nickname.
+            # An exact pending-envelope match below is required before filing.
+            if friends.canonical_name(envelope.get("from", "")) == mine_c:
+                self._file_own_echo(envelope, recipient, mid=str(p.get("id") or ""))
                 return
             keypair = self._ensure_e2ee()
             if not keypair:
@@ -1466,17 +1469,15 @@ class FriendsService:
         env_str = str(p.get("text") or "")
         if self._chat_append(canon, "in", sender, plain, ts, mid=mid, envelope=env_str):
             self._notify_incoming_message(canon, sender, plain)
-        # A message that arrived on its own should be visible even when the
-        # mod isn't on this conversation - the screen's status line is fed
-        # from this events ring. Our own echo is already the Send feedback.
-        self._notify(f"New message from {self.peer_label(sender)}.")
+            if not self._conversation_on_screen(canon):
+                self._notify(f"New message from {self.peer_label(sender)}.")
         self._changed()
 
-    def _file_own_echo(self, envelope: dict, recipient: str) -> None:
+    def _file_own_echo(self, envelope: dict, recipient: str, *, mid: str = "") -> None:
         """The relay confirmed it stored a message we sent. File the plaintext
         we remembered in send_chat() (keyed by peer + envelope ts) as an
         outbound line - only once, only after the echo proves it landed."""
-        canon = friends.canonical_name(recipient) or (recipient or "").lower()
+        canon = friends.canonical_name(envelope.get("to", "")) or friends.canonical_name(recipient)
         if not canon:
             return
         mine = self._my_name() or ""
@@ -1485,13 +1486,17 @@ class FriendsService:
             queue = self._out_pending.get(key)
             if not queue:
                 return   # nothing remembered (sent before this process, or replay)
-            plain = queue.pop(0)["text"]
+            fingerprint = json.dumps(envelope, sort_keys=True, separators=(",", ":"))
+            pending = next((entry for entry in queue if entry["envelope"] == fingerprint), None)
+            if pending is None:
+                return
+            queue.remove(pending)
             if not queue:
                 del self._out_pending[key]
         ts = envelope.get("ts") or int(time.time() * 1000)
-        mid = str(envelope.get("id") or "")
         env_str = json.dumps(envelope, separators=(",", ":"))
-        self._chat_append(canon, "out", mine, plain, ts, mid=mid, envelope=env_str)
+        self._chat_append(canon, "out", mine, pending["text"], ts, mid=mid, envelope=env_str)
+        pending["confirmed"].set()  # only after the shared launcher ring is visible
         self._changed()
 
     def _on_history(self, p) -> None:
@@ -1503,7 +1508,8 @@ class FriendsService:
         Only the *peer's* messages can be opened here: stored messages from
         our own send path are sealed to the recipient's key (a sender can't
         decrypt its own envelope), so those decrypt to nothing and are skipped -
-        they reach this ring through the live echo instead."""
+        an exact in-process pending envelope can instead be recovered as a
+        sender confirmation; other own-history rows remain unreadable."""
         peer = p.get("peer")
         if not isinstance(peer, str) or not peer:
             return
@@ -1521,6 +1527,12 @@ class FriendsService:
                 continue
             try:
                 envelope = json.loads(raw)
+                if friends.canonical_name(envelope.get("from", "")) == friends.canonical_name(mine):
+                    # Existing backfill can recover an accepted send whose
+                    # live echo was lost. The same exact pending matcher files
+                    # it once; no additional history request is needed.
+                    self._file_own_echo(envelope, peer, mid=str(m.get("id") or ""))
+                    continue
                 plain = e2ee.decrypt_dm(keypair[0], mine, envelope)
             except Exception:
                 continue
@@ -1598,7 +1610,17 @@ class FriendsService:
         self._peer_pubkeys[canon] = (pubkey, time.monotonic())
         return {"ok": True, "pubkey": pubkey}
 
-    def send_chat(self, to: str, text: str) -> dict:
+    _CHAT_CONFIRM_TIMEOUT = 4.0
+
+    def send_bridge_chat(self, to: str, text: str) -> dict:
+        """The game may clear its draft only after the relay echo reaches our ring.
+
+        Runs on a localhost handler thread, never either UI thread; no extra
+        relay requests or automatic resends. Launcher sends remain optimistic.
+        """
+        return self.send_chat(to, text, confirm=True)
+
+    def send_chat(self, to: str, text: str, *, confirm: bool = False) -> dict:
         """POST /dm: encrypt `text` for the friend and hand the envelope to
         the relay. The relay stores/forwards only ciphertext - and, crucially,
         only the recipient can ever decrypt it (a sender's shared secret needs
@@ -1641,8 +1663,15 @@ class FriendsService:
         # message the relay accepted should arrive in the same second.
         canon = friends.canonical_name(to) or to.lower()
         key = (canon, envelope["ts"])
-        pending = {"text": text}
+        pending = {"text": text, "confirmed": threading.Event(),
+                   "envelope": json.dumps(envelope, sort_keys=True, separators=(",", ":"))}
         with self._chat_lock:
+            if sum(len(queue) for queue in self._out_pending.values()) >= 64:
+                # Cap messages, including collisions within one timestamp.
+                first = next(iter(self._out_pending))
+                self._out_pending[first].pop(0)
+                if not self._out_pending[first]:
+                    del self._out_pending[first]
             self._out_pending.setdefault(key, []).append(pending)
             while len(self._out_pending) > 64:
                 self._out_pending.pop(next(iter(self._out_pending)))
@@ -1660,6 +1689,8 @@ class FriendsService:
                         del self._out_pending[key]
             return self._err(_NOT_CONNECTED)
         self._changed()
+        if confirm and not pending["confirmed"].wait(self._CHAT_CONFIRM_TIMEOUT):
+            return self._err("Message not confirmed yet. Check the conversation before sending again.")
         return self._ok()
 
     def chat_payload(self, friend: str, after, *, viewing: bool = True,
@@ -1735,6 +1766,11 @@ class FriendsService:
             self.mark_read(peer)
         return {"friend": peer, "you": you,
                 "messages": msgs[-_CHAT_PAGE:]}
+
+    def close_bridge_chat(self, friend: str) -> dict:
+        """Release only Minecraft's viewing lease; launcher viewing is independent."""
+        self.set_open_conversation(friend, open_=False, viewer="bridge")
+        return self._ok()
 
     def mark_read(self, friend: str) -> dict:
         """Mark a conversation as seen up to its newest message.

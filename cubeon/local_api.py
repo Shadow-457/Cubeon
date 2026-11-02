@@ -74,6 +74,7 @@ _providers = {
     "rename": None,
     "dm": None,
     "chat": None,
+    "chatclose": None,
     "sync": None,
     "syncstart": None,
     "syncdownload": None,
@@ -93,7 +94,7 @@ _providers = {
 # POST routes that take a single {"name": ...} and return a result dict. Keeping
 # them in one table means adding a friend-scoped action is a one-line change and
 # they can't drift apart in their error handling.
-_NAME_ROUTES = ("add", "accept", "decline", "remove", "rename", "join",
+_NAME_ROUTES = ("chatclose", "add", "accept", "decline", "remove", "rename", "join",
                 "syncstart", "syncdownload", "syncclose", "askjoin")
 
 # POST routes that take no arguments at all.
@@ -168,6 +169,10 @@ def set_rename_handler(fn) -> None:
     """fn(name) -> {"ok": bool, "error": str|None, "message": str}. Re-claims
     this machine's Cubeon name (rename). Blocking HTTP claim - run off UI threads."""
     _providers["rename"] = fn
+
+
+def set_chat_close_handler(fn) -> None:
+    _providers["chatclose"] = fn
 
 
 def set_dm_handler(fn) -> None:

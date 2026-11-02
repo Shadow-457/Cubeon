@@ -10,9 +10,9 @@ showed TWO dialogs for
 
 That binary is the FLET CLIENT - the Flutter/GTK window process Cubeon's
 Python half talks to - dying to a signal. main.py's ``__main__`` recovery
-ladder already HANDLES it (a pre-paint death is retried in-process with
-software OpenGL, twice; a mid-session death re-execs the whole launcher,
-twice; then it gives up). What did not exist was the EVIDENCE:
+ladder already HANDLES it (a crash re-execs the whole launcher with software
+OpenGL, with two retries shared by pre-paint and mid-session failures; then
+it gives up). What did not exist was the EVIDENCE:
 
   * every message about a crash was a ``print()`` to stdout, which nobody who
     launches Cubeon from a desktop menu ever sees, let alone can send to us;

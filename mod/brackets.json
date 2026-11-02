@@ -83,7 +83,8 @@
         "cubeon-emote-entity",
         "freelook-yarn",
         "freelook-camera-double",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn-legacy"
       ],
       "java": ">=17",
       "min": "1.20",
@@ -106,7 +107,8 @@
         "cubeon-emote-entity",
         "freelook-yarn",
         "freelook-camera-double",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn-legacy"
       ],
       "java": ">=17",
       "min": "1.20.1",
@@ -130,7 +132,8 @@
         "ui-texture-legacy",
         "freelook-yarn",
         "freelook-camera-double",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn-legacy"
       ],
       "java": ">=17",
       "min": "1.20.2",
@@ -154,7 +157,8 @@
         "ui-texture-legacy",
         "freelook-yarn",
         "freelook-camera-double",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn-legacy"
       ],
       "java": ">=17",
       "min": "1.20.3",
@@ -178,7 +182,8 @@
         "ui-texture-legacy",
         "freelook-yarn",
         "freelook-camera-double",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn-legacy"
       ],
       "java": ">=17",
       "min": "1.20.4",
@@ -202,7 +207,8 @@
         "ui-texture-legacy",
         "freelook-yarn",
         "freelook-camera-double",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn"
       ],
       "java": ">=17",
       "min": "1.20.5",
@@ -226,7 +232,8 @@
         "ui-texture-legacy",
         "freelook-yarn",
         "freelook-camera-double",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn"
       ],
       "java": ">=17",
       "min": "1.20.6",
@@ -250,7 +257,8 @@
         "ui-texture-legacy",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21",
@@ -274,7 +282,8 @@
         "ui-texture-legacy",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-legacy"
+        "camera-blur-legacy",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.1",
@@ -298,7 +307,8 @@
         "ui-texture-layer",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-post"
+        "camera-blur-post",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.2",
@@ -322,7 +332,8 @@
         "ui-texture-layer",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-post"
+        "camera-blur-post",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.3",
@@ -346,7 +357,8 @@
         "ui-texture-layer",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-post"
+        "camera-blur-post",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.4",
@@ -370,7 +382,8 @@
         "ui-texture-layer",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-gpu5"
+        "camera-blur-gpu5",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.5",
@@ -392,7 +405,8 @@
         "cubeon-emote-origin",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-gpu6"
+        "camera-blur-gpu6",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.6",
@@ -414,7 +428,8 @@
         "cubeon-emote-origin",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-gpu6"
+        "camera-blur-gpu6",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.7",
@@ -436,7 +451,8 @@
         "cubeon-emote-origin",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-gpu6"
+        "camera-blur-gpu6",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.8",
@@ -458,7 +474,8 @@
         "cubeon-emote-origin",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-gpu6"
+        "camera-blur-gpu6",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.9",
@@ -480,7 +497,8 @@
         "cubeon-emote-origin",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-gpu6"
+        "camera-blur-gpu6",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.10",
@@ -502,7 +520,8 @@
         "cubeon-emote-origin",
         "freelook-yarn",
         "freelook-camera-float",
-        "camera-blur-gpu9"
+        "camera-blur-gpu9",
+        "chat-yarn"
       ],
       "java": ">=21",
       "min": "1.21.11",
@@ -521,7 +540,8 @@
         "cosmetics-26",
         "cubeon-emote-mojang",
         "freelook-mojang",
-        "camera-blur-26.1"
+        "camera-blur-26.1",
+        "chat-mojang"
       ],
       "java": ">=25",
       "min": "26.1",
@@ -540,7 +560,8 @@
         "cosmetics-26",
         "cubeon-emote-mojang",
         "freelook-mojang",
-        "camera-blur-26.1"
+        "camera-blur-26.1",
+        "chat-mojang"
       ],
       "java": ">=25",
       "min": "26.1.1",
@@ -559,7 +580,8 @@
         "cosmetics-26",
         "cubeon-emote-mojang",
         "freelook-mojang",
-        "camera-blur-26.1"
+        "camera-blur-26.1",
+        "chat-mojang"
       ],
       "java": ">=25",
       "min": "26.1.2",
@@ -578,7 +600,8 @@
         "cosmetics-26",
         "cubeon-emote-mojang",
         "freelook-mojang",
-        "camera-blur-26.2"
+        "camera-blur-26.2",
+        "chat-mojang"
       ],
       "java": ">=25",
       "min": "26.2",
@@ -597,7 +620,8 @@
         "cosmetics-26",
         "cubeon-emote-mojang",
         "freelook-mojang",
-        "camera-blur-26.3"
+        "camera-blur-26.3",
+        "chat-mojang"
       ],
       "java": ">=25",
       "min": "26.3",

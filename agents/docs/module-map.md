@@ -10,6 +10,7 @@ substitute for current code.
 | Path | Responsibility |
 | --- | --- |
 | `main.py` | Startup, window/session lifecycle, navigation, Play orchestration |
+| `source_runtime.py` | Stdlib-only source runtime check/re-exec before Flet/package/installer imports |
 | `launcher_core.py` | Compatibility facade over the launcher modules |
 | `cubeon/` | Game/service logic and shared UI helpers |
 | `ui/` | Flet tab builders and dialogs |
@@ -71,6 +72,14 @@ keep builders consistent with the shared `THEME` contract.
 
 - Dependencies pin Flet and `flet-desktop` to `>=0.86,<0.87`; a machine-wide installation of another
   version is not the release environment.
+- `python main.py` verifies matching 0.86.x packages before any UI/package import;
+  `source_runtime.py` can re-exec a verified checkout `.venv` or `.venv-build` (isolated,
+  bounded metadata probes), otherwise prints local setup commands. Frozen builds skip it.
+  All client-crash recovery uses fresh interpreters: pre-paint and mid-session failures
+  share the two-restart `CUBEON_GPU_RESTARTS` budget and llvmpipe → softpipe ladder;
+  the inherited count enables fallback even if the marker could not be written.
+  Never call `ft.run` twice after a failed first frame. `test_source_runtime.py`,
+  `test_startup_recovery.py` and the real-process wedge test cover these contracts.
 - Mutate shared control trees under `thread_safe_ui.TREE_LOCK`; request scoped repaints through
   `thread_safe_ui.refresh()`. Background threads must not invoke a whole-page update directly.
 - Chat polling reads connection/events/history and updates service viewing/read state outside
@@ -567,6 +576,71 @@ keep builders consistent with the shared `THEME` contract.
   polls. The three follow-up polls run through `quietly(...)` so one malformed body cannot publish
   "bridge error" or skip the rest of the poll. `checkModFreshness` sets `staleWarned` only inside the
   `sink != null` branch - a poll before the toast sink exists must not swallow the one-time notice.
+- In-game Friends opens on remappable G or K → Friends. `ui/FriendsPanel.java`
+  shares custom artwork/layout across eight `hud/screen/FriendsChatScreen.java`
+  adapters; only the borderless native text input is a widget. Render the native
+  screen/background before the custom panel, then the composer: older
+  `Screen.render` paints its background itself. The launcher owns account,
+  encryption and history; Bridge polls `/chat` only for the open conversation
+  (750ms, incremental sequences, 200-message cap) on its existing daemon. Sends
+  allow one queued/inflight request, reject an account change, never auto-retry,
+  and preserve refused/edited drafts. Local API `/dm` binds `send_bridge_chat`:
+  its handler waits up to four seconds for the exact sealed-envelope echo to be
+  filed in the shared ring before returning success. Socket-enqueued launcher
+  sends stay optimistic. No retry or extra relay polling; timeout keeps pending
+  plaintext bounded to 64 sends for late echo/existing history recovery. Match
+  sealed account handles, not mutable outer display fields, and retain relay IDs.
+  Bubble wrapping is cached per message/width (200 entries), with visible clipping.
+  Yarn 1.21.9+/26.x native composers use `addFormatter`; older Yarn uses
+  `setRenderTextProvider`. `/chatclose` releases only viewer `bridge`;
+  launcher leases remain independent. Rotating API tokens reset chat/event cursors.
+  26.3 uses SDL modifiers: normalize Ctrl with `event.hasControlDownWithQuirk()`,
+  not the old GLFW bit 2, in the friends keyboard adapter.
+- `ui/ClientToasts.java` consumes the existing live events feed: six retained,
+  three drawn, five-second expiry, no extra network/thread/assets. All eight HUD
+  eras route it independently of individual overlay toggles, respecting F1/editor.
+  FriendsService announces only newly appended live DMs outside visible
+  conversations; replays/own echoes/history never add a new toast.
+- Optional `ModMenuCountMixin` overrides Mod Menu's `getDisplayedModCount` using
+  `ModFileCount`: only non-builtin Fabric `ModOrigin.Kind.PATH` sources, deduped by
+  normalized path groups. Nested modules remain in the detailed Mod Menu list,
+  and disabled launcher files are not loaded. `@Pseudo`, remap=false and optional
+  injection avoid a hard Mod Menu dependency; count is cached once after loading.
+  Loom dev runs expose Fabric API components as separate PATH jars; do not assume
+  their origin count equals a packaged API jar with nested components.
+- Client Settings uses shared `ui/HudMenu.java`/`HudIcon.java` across eight native
+  adapters: searchable categories, paged cards and details retain the original
+  five overlay action triplets; extras start at 25. `hud/HudFeatures` ordering
+  matches every native `Overlay` enum (13 overlays, 19 catalogue features).
+  Config extras/sprint default off; position/scale reset preserves visibility.
+  Removed minimap/crosshair have no sampler, renderer or mixin; config load prunes
+  obsolete extra slots while preserving the remaining saved choices. `ExtraHud`
+  caches display strings and skips disabled world reads. Native font widths give
+  content-sized bounds, the same 0x88000000 backing/white shadowed text as FPS/CPS,
+  12px single lines and 24px two-line readings. Empty potions and idle combos
+  render only in editor previews; potion height/timers follow active rows.
+  GPU data is Minecraft frame utilization, not system GPU/VRAM.
+  Auto sprint retains vanilla eligibility; confirmed melee packets exclude projectiles.
+  Yarn potion sprites follow each native UI texture era, with `AtlasManager`
+  from 1.21.9; 26.x world time uses `getDefaultClockTime()`.
+- Distance minimum hooks scope Minecraft option constructor constants by their
+  translation-key/field slices, preserving native codecs/defaults/maxima.
+  Sodium 0.4–0.7 adjusts matching translated option constructor minima; 0.8+
+  adjusts only the two General distance builder ranges. All Sodium hooks are
+  optional, with no hard dependency. Constructor HEAD variable handlers must
+  be static before `super()`; the native legacy-slider probe guards this.
+  Local integrated simulation lowers its
+  minimum to 1; dedicated servers remain authoritative and streaming halo 2
+  remains native. `test_client_distances.py` has opt-in native export/log checks;
+  `test_hud_features.py`, `test_client_ui.py` and all 24 actual builds cover config,
+  disabled sampling, UI geometry and API splits.
+- Automatic server-chat stacking uses `chat/ChatStack.java` and three native
+  adapters selected by `brackets.json` (`chat-yarn-legacy` through 1.20.4,
+  `chat-yarn` through 1.21.11, `chat-mojang` for 26.x). Only rendered queues change;
+  raw history, signatures, logging/reporting remain. One styled/source/tag run,
+  200-tick gap, connection/head identity gates, bounded references, no setting.
+  Native wrapped queues are newest-first with `endOfEntry=true` at the head;
+  removal stops before the next true boundary, and refresh replays original history.
 - `build_launch_command` honours a `-XX:+Use*GC` collector from the player's custom JVM flags: no
   forced G1 and no `-XX:G1*` tuning in that case. Default (no user collector) still gets exactly one
   `-XX:+UseG1GC` plus tuning.
@@ -1050,6 +1124,11 @@ keep builders consistent with the shared `THEME` contract.
 Tests are standalone scripts, normally isolated with `_sandbox_home` and safe fixtures. Run the affected
 script first, then the smoke gate.
 
+For native capture probes, verify `_NET_WM_PID`; use `xdotool search --all` when
+combining PID/name filters (the default combines them with OR). Close owned
+Minecraft probes with `wmctrl -i -c`, which allows world saving; `xdotool
+windowclose` deletes the X window and can produce a misleading BadWindow exit.
+
 ```bash
 python tools/test_mega_smoke.py
 python tools/test_mega_smoke.py --static
@@ -1078,13 +1157,13 @@ requires retrying with normal system access, not changing unrelated app code.
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
 | Website search visibility / translation | `test_website_seo.py`, `test_website_translation.py`, `test_website_browser.py` (optional Playwright) |
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
-| Chat | `test_chat_connection.py`, `test_chat_poll_locking.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
+| Chat | `test_in_game_chat.py`, `test_chat_stack.py --targets` (mapped jars), `test_chat_connection.py`, `test_chat_poll_locking.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
 | Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `node worker/test-cosmetics.mjs` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Camera motion blur | `test_camera_blur.py --targets`, `test_camera_blur_lifecycle.py`, `test_camera_blur_gpu.py` (Linux EGL/PyOpenGL), full 24-version Gradle build |
-| Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
+| Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
 | Launcher updates / installers | `test_launcher_updates.py`, `test_launcher_installers.py` (`--wine` optional), `test_linux_graphical_installer.py`, `test_update_notice.py`, `node worker/test-downloads.mjs` |

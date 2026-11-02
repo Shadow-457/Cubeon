@@ -28,6 +28,8 @@ import java.util.Map;
  * a plain JDK to check the geometry against the Python preview.
  */
 public final class CosmeticCatalog {
+    public static final List<String> SLOTS = List.of(
+            "back", "shoulder", "face", "head", "waist", "hand", "trail");
 
     /** Resource path inside the mod jar. */
     public static final String RESOURCE =
@@ -191,7 +193,7 @@ public final class CosmeticCatalog {
             if (id.isEmpty() || texture.isEmpty() || texWidth <= 0 || texHeight <= 0) {
                 return null;
             }
-            if (!"shoulder".equals(slot) && !"back".equals(slot)) {
+            if (!SLOTS.contains(slot)) {
                 return null;
             }
             List<Box> boxes = new ArrayList<>();

@@ -36,8 +36,8 @@ public final class CosmeticSelection {
     private static String lastText;
     private static long lastCheck;
     private static boolean loaded;
-    private static volatile String shoulder;
-    private static volatile String back;
+    public static final java.util.List<String> SLOTS = CosmeticCatalog.SLOTS;
+    private static volatile Items selected = new Items(null, null);
 
     private CosmeticSelection() {
     }
@@ -48,8 +48,7 @@ public final class CosmeticSelection {
         lastText = null;
         lastCheck = 0L;
         loaded = false;
-        shoulder = null;
-        back = null;
+        selected = new Items(null, null);
         refresh();
     }
 
@@ -70,8 +69,7 @@ public final class CosmeticSelection {
             // Missing file, read-only folder, half-written file: no cosmetics.
             lastText = null;
             loaded = true;
-            shoulder = null;
-            back = null;
+            selected = new Items(null, null);
             return;
         }
         if (text.equals(lastText)) {
@@ -80,28 +78,43 @@ public final class CosmeticSelection {
         }
         lastText = text;
         Map<String, Object> root = Json.parseObject(text);
-        shoulder = valid(Json.str(root, "shoulder", null), "shoulder");
-        back = valid(Json.str(root, "back", null), "back");
+        selected = Items.parse(root);
         loaded = true;
     }
 
     /** The selected id for a slot, or {@code null}. */
     public static String get(String slot) {
-        return "shoulder".equals(slot) ? shoulder : "back".equals(slot) ? back : null;
+        return selected.get(slot);
     }
 
     /** Immutable selection captured before queued rendering. */
-    public record Items(String back, String shoulder) {
-        public String get(String slot) { return "back".equals(slot) ? back : "shoulder".equals(slot) ? shoulder : null; }
+    public record Items(String back, String shoulder, String face, String head,
+                        String waist, String hand, String trail) {
+        public Items(String back, String shoulder) { this(back, shoulder, null, null, null, null, null); }
+        public boolean empty() { return back == null && shoulder == null && face == null
+                && head == null && waist == null && hand == null && trail == null; }
+        public String get(String slot) {
+            if (slot == null) return null;
+            return switch (slot) {
+                case "back" -> back; case "shoulder" -> shoulder; case "face" -> face;
+                case "head" -> head; case "waist" -> waist; case "hand" -> hand;
+                case "trail" -> trail; default -> null;
+            };
+        }
         public static Items parse(Map<String, Object> root) {
             return new Items(valid(Json.str(root, "back", null), "back"),
-                    valid(Json.str(root, "shoulder", null), "shoulder"));
+                    valid(Json.str(root, "shoulder", null), "shoulder"),
+                    valid(Json.str(root, "face", null), "face"),
+                    valid(Json.str(root, "head", null), "head"),
+                    valid(Json.str(root, "waist", null), "waist"),
+                    valid(Json.str(root, "hand", null), "hand"),
+                    valid(Json.str(root, "trail", null), "trail"));
         }
     }
 
     public static synchronized Items snapshot() {
         refresh();
-        return new Items(back, shoulder);
+        return selected;
     }
 
     /** Only rigged wings can play the N action; packs and unknown ids cannot. */

@@ -10,6 +10,31 @@
       0.0,
       2.0,
       2.2
+    ],
+    "face": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "head": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "waist": [
+      0.0,
+      10.0,
+      0.0
+    ],
+    "hand": [
+      -5.0,
+      2.0,
+      0.0
+    ],
+    "trail": [
+      0.0,
+      24.0,
+      0.0
     ]
   },
   "items": [
@@ -205969,6 +205994,1971 @@
           ],
           "width": 1.25,
           "curve": 0
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "shoulder_moon_cat",
+      "slot": "shoulder",
+      "name": "Moon Cat",
+      "blurb": "A quiet violet cat with soft idle glances.",
+      "texture": "shoulder_moon_cat.png",
+      "tex_w": 128,
+      "tex_h": 116,
+      "boxes": [
+        {
+          "origin": [
+            -9.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 8,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -9.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 8,
+          "uv": [
+            0,
+            50
+          ],
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shoulder_ruby_dragon",
+      "slot": "shoulder",
+      "name": "Ruby Dragon",
+      "blurb": "A pocket-sized dragon with warm scales.",
+      "texture": "shoulder_ruby_dragon.png",
+      "tex_w": 128,
+      "tex_h": 116,
+      "boxes": [
+        {
+          "origin": [
+            -9.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 8,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -9.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 8,
+          "uv": [
+            0,
+            50
+          ],
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shoulder_dusk_crow",
+      "slot": "shoulder",
+      "name": "Dusk Crow",
+      "blurb": "A little dusk crow perched beside you.",
+      "texture": "shoulder_dusk_crow.png",
+      "tex_w": 128,
+      "tex_h": 116,
+      "boxes": [
+        {
+          "origin": [
+            -9.0,
+            -2.0,
+            -1.5
+          ],
+          "size": [
+            4,
+            3,
+            3
+          ],
+          "px": 8,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "body",
+          "pivot": [
+            -7,
+            1,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -9.0,
+            -5.5,
+            -2.0
+          ],
+          "size": [
+            4,
+            4,
+            4
+          ],
+          "px": 8,
+          "uv": [
+            0,
+            50
+          ],
+          "mirror": false,
+          "motion": "head",
+          "pivot": [
+            -7,
+            -2,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "face_spectacles",
+      "slot": "face",
+      "name": "Round Spectacles",
+      "blurb": "Thin dark frames with a brass bridge.",
+      "texture": "face_spectacles.png",
+      "tex_w": 44,
+      "tex_h": 120,
+      "boxes": [
+        {
+          "origin": [
+            -3.75,
+            -4.75,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.75,
+            -2.5,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            6
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.75,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            12
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -1.25,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            23
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.75,
+            -4.75,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            34
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.75,
+            -2.5,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            40
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.75,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            46
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            3.25,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            57
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -0.75,
+            -4.0,
+            -4.75
+          ],
+          "size": [
+            1.5,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            68
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.5,
+            -4.25,
+            -4.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            74
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            4.0,
+            -4.25,
+            -4.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            98
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "face_goggles",
+      "slot": "face",
+      "name": "Pilot Goggles",
+      "blurb": "Small blue lenses and a dark strap.",
+      "texture": "face_goggles.png",
+      "tex_w": 44,
+      "tex_h": 140,
+      "boxes": [
+        {
+          "origin": [
+            -3.75,
+            -4.75,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.75,
+            -2.5,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            6
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.75,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            12
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -1.25,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            23
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.25,
+            -4.25,
+            -4.65
+          ],
+          "size": [
+            2,
+            1.75,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            34
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.75,
+            -4.75,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            44
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.75,
+            -2.5,
+            -4.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            50
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            0.75,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            56
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            3.25,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            0.5,
+            1.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            67
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            1.25,
+            -4.25,
+            -4.65
+          ],
+          "size": [
+            2,
+            1.75,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            78
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -0.75,
+            -4.0,
+            -4.75
+          ],
+          "size": [
+            1.5,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            88
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.5,
+            -4.25,
+            -4.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            94
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            4.0,
+            -4.25,
+            -4.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            118
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "face_mask",
+      "slot": "face",
+      "name": "Dusk Mask",
+      "blurb": "A stitched cloth mask below the eyes.",
+      "texture": "face_mask.png",
+      "tex_w": 60,
+      "tex_h": 60,
+      "boxes": [
+        {
+          "origin": [
+            -3.5,
+            -2.5,
+            -4.75
+          ],
+          "size": [
+            7,
+            2.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.5,
+            -2.0,
+            -4.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            4.0,
+            -2.0,
+            -4.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            38
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "face_visor",
+      "slot": "face",
+      "name": "Aurora Visor",
+      "blurb": "A slim blue visor with silver edges.",
+      "texture": "face_visor.png",
+      "tex_w": 68,
+      "tex_h": 24,
+      "boxes": [
+        {
+          "origin": [
+            -4.0,
+            -4.75,
+            -4.75
+          ],
+          "size": [
+            8,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.75,
+            -4.25,
+            -4.75
+          ],
+          "size": [
+            7.5,
+            2,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            6
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.0,
+            -2.25,
+            -4.75
+          ],
+          "size": [
+            8,
+            0.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            18
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "head_halo",
+      "slot": "head",
+      "name": "Sun Halo",
+      "blurb": "A fine golden ring floating above your head.",
+      "texture": "head_halo.png",
+      "tex_w": 68,
+      "tex_h": 76,
+      "boxes": [
+        {
+          "origin": [
+            -4.0,
+            -10.0,
+            -4.0
+          ],
+          "size": [
+            8,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.0,
+            -10.0,
+            3.5
+          ],
+          "size": [
+            8,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            6
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.0,
+            -10.0,
+            -3.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            7
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            12
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            3.5,
+            -10.0,
+            -3.5
+          ],
+          "size": [
+            0.5,
+            0.5,
+            7
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            44
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "head_horns",
+      "slot": "head",
+      "name": "Ember Horns",
+      "blurb": "Two compact dark horns with warm tips.",
+      "texture": "head_horns.png",
+      "tex_w": 28,
+      "tex_h": 56,
+      "boxes": [
+        {
+          "origin": [
+            -4.5,
+            -9.0,
+            -1.0
+          ],
+          "size": [
+            1.5,
+            1.5,
+            2
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            3.0,
+            -9.0,
+            -1.0
+          ],
+          "size": [
+            1.5,
+            1.5,
+            2
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            16
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.75,
+            -10.5,
+            -0.5
+          ],
+          "size": [
+            1,
+            1.5,
+            1
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            32
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            3.75,
+            -10.5,
+            -0.5
+          ],
+          "size": [
+            1,
+            1.5,
+            1
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            44
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "head_crown",
+      "slot": "head",
+      "name": "Floating Crown",
+      "blurb": "A small brass crown with a turquoise jewel.",
+      "texture": "head_crown.png",
+      "tex_w": 52,
+      "tex_h": 88,
+      "boxes": [
+        {
+          "origin": [
+            -3.0,
+            -10.0,
+            -3.0
+          ],
+          "size": [
+            6,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.0,
+            -10.0,
+            2.5
+          ],
+          "size": [
+            6,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.0,
+            -10.0,
+            -2.5
+          ],
+          "size": [
+            0.5,
+            0.75,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            2.5,
+            -10.0,
+            -2.5
+          ],
+          "size": [
+            0.5,
+            0.75,
+            5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            39
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -3.0,
+            -11.0,
+            -3.0
+          ],
+          "size": [
+            0.75,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            64
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            2.25,
+            -11.0,
+            -3.0
+          ],
+          "size": [
+            0.75,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            72
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -0.5,
+            -11.5,
+            -3.0
+          ],
+          "size": [
+            1,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            80
+          ],
+          "mirror": false,
+          "motion": "float",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "waist_belt",
+      "slot": "waist",
+      "name": "Traveller Belt",
+      "blurb": "A narrow leather belt with a brass clasp.",
+      "texture": "waist_belt.png",
+      "tex_w": 72,
+      "tex_h": 72,
+      "boxes": [
+        {
+          "origin": [
+            -4.25,
+            9.75,
+            -2.5
+          ],
+          "size": [
+            8.5,
+            1.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.25,
+            9.75,
+            2.0
+          ],
+          "size": [
+            8.5,
+            1.25,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            9
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -4.5,
+            9.75,
+            -2.0
+          ],
+          "size": [
+            0.5,
+            1.25,
+            4
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            18
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            4.0,
+            9.75,
+            -2.0
+          ],
+          "size": [
+            0.5,
+            1.25,
+            4
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            41
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -0.75,
+            9.75,
+            -2.75
+          ],
+          "size": [
+            1.5,
+            1.25,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            64
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "waist_pouch",
+      "slot": "waist",
+      "name": "Scout Pouch",
+      "blurb": "A small stitched pouch at your hip.",
+      "texture": "waist_pouch.png",
+      "tex_w": 28,
+      "tex_h": 32,
+      "boxes": [
+        {
+          "origin": [
+            2.0,
+            9.0,
+            -3.25
+          ],
+          "size": [
+            2.5,
+            3,
+            1
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            2.0,
+            8.75,
+            -3.5
+          ],
+          "size": [
+            2.5,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            18
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            2.75,
+            9.25,
+            -3.75
+          ],
+          "size": [
+            1,
+            0.5,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            26
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "waist_sheath",
+      "slot": "waist",
+      "name": "Sword Sheath",
+      "blurb": "A decorative sheathed blade; purely cosmetic.",
+      "texture": "waist_sheath.png",
+      "tex_w": 28,
+      "tex_h": 56,
+      "boxes": [
+        {
+          "origin": [
+            4.25,
+            8.5,
+            0.5
+          ],
+          "size": [
+            1,
+            7,
+            1
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            4.25,
+            6.75,
+            0.5
+          ],
+          "size": [
+            1,
+            1.75,
+            1
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            34
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            3.75,
+            8.25,
+            0.25
+          ],
+          "size": [
+            2,
+            0.5,
+            1.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            47
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "hand_bracelet",
+      "slot": "hand",
+      "name": "Copper Bracelet",
+      "blurb": "A small copper cuff on your right wrist.",
+      "texture": "hand_bracelet.png",
+      "tex_w": 28,
+      "tex_h": 12,
+      "boxes": [
+        {
+          "origin": [
+            -7.0,
+            9.0,
+            -2.5
+          ],
+          "size": [
+            3,
+            0.75,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -6.0,
+            9.0,
+            -2.75
+          ],
+          "size": [
+            1,
+            0.75,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "hand_glove",
+      "slot": "hand",
+      "name": "Ranger Glove",
+      "blurb": "A light fingerless glove on your right hand.",
+      "texture": "hand_glove.png",
+      "tex_w": 28,
+      "tex_h": 20,
+      "boxes": [
+        {
+          "origin": [
+            -7.0,
+            9.25,
+            -2.5
+          ],
+          "size": [
+            3,
+            2.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -7.0,
+            8.75,
+            -2.75
+          ],
+          "size": [
+            3,
+            0.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "hand_gadget",
+      "slot": "hand",
+      "name": "Wrist Compass",
+      "blurb": "A tiny instrument with a softly coloured dial.",
+      "texture": "hand_gadget.png",
+      "tex_w": 28,
+      "tex_h": 16,
+      "boxes": [
+        {
+          "origin": [
+            -7.0,
+            9.0,
+            -2.5
+          ],
+          "size": [
+            3,
+            1,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -6.75,
+            8.75,
+            -3.0
+          ],
+          "size": [
+            2.5,
+            1.5,
+            0.5
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            8
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "trail_footsteps",
+      "slot": "trail",
+      "name": "Soft Footsteps",
+      "blurb": "Brief ground flecks while walking; no marks saved in the world.",
+      "texture": "trail_footsteps.png",
+      "tex_w": 28,
+      "tex_h": 20,
+      "boxes": [
+        {
+          "origin": [
+            -2.5,
+            23.75,
+            4.0
+          ],
+          "size": [
+            1.5,
+            0.25,
+            2
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            1.0,
+            23.75,
+            7.0
+          ],
+          "size": [
+            1.5,
+            0.25,
+            2
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            11
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "wing_flare": false
+    },
+    {
+      "id": "trail_leaves",
+      "slot": "trail",
+      "name": "Falling Leaves",
+      "blurb": "A few tiny leaf flecks while you walk.",
+      "texture": "trail_leaves.png",
+      "tex_w": 12,
+      "tex_h": 20,
+      "boxes": [
+        {
+          "origin": [
+            -2.5,
+            21.0,
+            4.0
+          ],
+          "size": [
+            1,
+            1,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            0
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            1.0,
+            22.0,
+            6.0
+          ],
+          "size": [
+            1,
+            1,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            7
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "origin": [
+            -1.0,
+            23.0,
+            8.0
+          ],
+          "size": [
+            1,
+            1,
+            0.25
+          ],
+          "px": 4,
+          "uv": [
+            0,
+            14
+          ],
+          "mirror": false,
+          "motion": "none",
+          "pivot": [
+            0,
+            0,
+            0
+          ]
         }
       ],
       "wing_flare": false
