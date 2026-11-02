@@ -193,10 +193,8 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
 
     before = {v["id"] for v in get_installed_versions()}
 
-    # mll's FABRIC installer runs its jar with a plain subprocess.run (quilt
-    # hides the window, fabric missed it upstream) -> on Windows a black cmd
-    # box flashed on every loader install. Patch the shim in before anything
-    # runs; no-op off Windows and safe to repeat.
+    # Cover both legacy modules and mll 8's mod_loader adapters. Upstream
+    # STARTUPINFO alone still creates a console for some Windows child paths.
     from .winproc import patch_mll
     patch_mll()
 
@@ -215,6 +213,8 @@ def install_mod_loader(loader_id: str, mc_version: str, progress_cb, status_cb, 
                 "setMax": checked(max_cb)}
     callback["setStatus"]("Preparing mod loader")
     loader = mll.mod_loader.get_mod_loader(loader_id)
+    # Include adapters loaded lazily by get_mod_loader too.
+    patch_mll()
     # Resolve Java BEFORE the download starts: failing here is instant and the
     # message is actionable, versus a half-finished install and a bare WinError.
     java = loader_java(mc_version, loader_id)

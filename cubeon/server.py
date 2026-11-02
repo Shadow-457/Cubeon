@@ -122,40 +122,24 @@ def ensure_default_plugins(version_id: str, status_cb=None) -> dict:
     return result
 
 
-# AuthMe's stock timings are built for big public servers and feel harsh on
-# a friends-and-family one: 60 seconds to type /login before the kick, and
-# no session persistence, so EVERY rejoin needs a full /login. Cubeon
-# relaxes exactly those dials, every start, surgically - three keys in
-# AuthMe's own config.yml, nothing else touched:
-#   sessions.enabled  true          rejoining within the session window
-#                                   skips /login entirely
-#   sessions.timeout  10 (minutes)  how long a login lasts
-#   restrictions.timeout 300 (secs) time to type /login before the kick
-#   restrictions.maxRegPerIp 0      0 = unlimited registrations per IP.
-#                                   REQUIRED for Cubeon hosts: every player
-#                                   joining through the Minekube Connect
-#                                   tunnel arrives from the SAME apparent
-#                                   IP (the tunnel's local connection, e.g.
-#                                   127.0.0.1), so AuthMe's stock limit of
-#                                   one registration per IP makes the FIRST
-#                                   registrant block every friend after
-#                                   them with "exceeded the maximum number
-#                                   of registrations (1/1 ...) for your
-#                                   connection". The per-IP dial is
-#                                   meaningless on a tunneled server; the
-#                                   password layer itself is still what
-#                                   protects accounts.
+# Tunnel connections can share an apparent IP. Keep per-player passwords,
+# remove shared-IP registration/join/login caps, and disable IP-based session
+# reuse (another player using the same nickname must still supply its password).
+# AuthMe 6 uses separate login/register timeouts; older versions use timeout.
 AUTHME_TUNING = {
-    "sessions": {"enabled": "true", "timeout": "10"},
-    "restrictions": {"timeout": "300", "maxRegPerIp": "0"},
+    "sessions": {"enabled": "false", "timeout": "10"},
+    "restrictions": {"timeout": "300", "loginTimeout": "300",
+                     "registerTimeout": "300", "maxRegPerIp": "0",
+                     "maxLoginPerIp": "0", "maxJoinPerIp": "0"},
 }
 
 
 def _tune_authme_config(version_id: str) -> list[str]:
     """Applies AUTHME_TUNING to plugins/AuthMe/config.yml.
 
-    AuthMe generates its config on FIRST boot, so on a brand-new install
-    there's nothing to patch yet - this converges on the second start.
+    Seed the managed settings before FIRST boot. AuthMe's ConfigMe fills in
+    all remaining defaults; waiting for it to generate the file would leave
+    the first host session at the stock one-registration-per-IP limit.
 
     Section tracking uses an indent stack rather than a single "current
     section": AuthMe 6.x (ConfigMe) writes sections at indent 4
@@ -164,20 +148,26 @@ def _tune_authme_config(version_id: str) -> list[str]:
     innermost active header names the section, and a `timeout:`/`enabled:`
     key is only patched when that section is in AUTHME_TUNING - so the
     duplicate `timeout:` under both `sessions` and `restrictions` still
-    each gets its own value. Never creates the file (a partial AuthMe
-    config is worse than none) and never raises - a missing/unreadable
-    config just means defaults.
+    each gets its own value. Existing settings outside these keys stay intact.
     """
     path = os.path.join(get_plugins_dir(version_id), "AuthMe", "config.yml")
-    if not os.path.isfile(path):
-        return []
+    fresh = False
     try:
         with open(path, "r", encoding="utf-8") as f:
             lines = f.read().splitlines()
-    except OSError:
+    except FileNotFoundError:
+        lines = []
+    except (OSError, UnicodeError):
         return []
+    if not any(line.strip() and not line.lstrip().startswith("#") for line in lines):
+        fresh = True
+        lines = ["# AuthMe tunnel settings managed by Cubeon", "settings:"]
+        for section, tuning in AUTHME_TUNING.items():
+            lines.append(f"    {section}:")
+            lines.extend(f"        {key}: {value}" for key, value in tuning.items()
+                         if key != "timeout" or section == "sessions")
 
-    changes = []
+    changes = ["Created AuthMe tunnel settings before first startup"] if fresh else []
     stack: list[tuple[int, str]] = []  # (indent, section name) of open headers
     for i, line in enumerate(lines):
         stripped = line.strip()
@@ -201,13 +191,20 @@ def _tune_authme_config(version_id: str) -> list[str]:
                 changes.append(f"{section}.{key} = {tuning[key]}")
 
     if changes:
+        tmp = None
         try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path),
                                        prefix=".authme-", suffix=".tmp")
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines) + "\n")
             os.replace(tmp, path)
         except OSError:
+            if tmp is not None:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
             return []
     return changes
 
@@ -997,6 +994,8 @@ def start_server(version_id: str, ram_mb: int, java_path: str | None = None,
         command += HIGH_PING_JVM_FLAGS
     command += ["-jar", jar_name, "nogui"]
 
+    # Apply before every spawn, including callers outside the Servers UI.
+    _tune_authme_config(version_id)
     process = subprocess.Popen(
         command, cwd=server_dir,
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

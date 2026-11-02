@@ -22,6 +22,7 @@ from cubeon.theme import (
     attach_hover,  # hover-state helper for hand-built Container "buttons"
     ACCENT_TINT, ACCENT_TINT_HI,  # selected/hover washes for tiles/cards
     text_tab,      # underline-style segment tab (same chrome as Mods' content types)
+    keyboard_target,
     CARD_FILL, CARD_BORDER,  # translucent panel fills/outlines (Mods-tab language)
     ROW_HOVER,     # quiet hover lift for borderless rows/cards
     SURFACE_MAX, TEXT_FAINT,
@@ -123,12 +124,16 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     # Installed items render as a wrapping card grid (see _owned_card below),
     # wrapped in a fixed-height scroll region so it never becomes an endless
     # scroll.
-    skins_list_col = ft.Row(spacing=12, wrap=True, run_spacing=12)
+    skins_list_col = ft.Row(spacing=12, wrap=True, run_spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.START)
+    skin_cards = {}
 
     def render_preview_for(filename):
         appearance.refresh(invalidate=True)
 
     def set_active(filename: str | None):
+        if cfg.get("active_skin") == filename:
+            return
         try:
             core.set_active_skin(cfg, filename)
         except Exception as ex:
@@ -151,8 +156,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             upload_status.value = "Active skin set to this one."
         thread_safe_ui.refresh(skin_preview_name)
         thread_safe_ui.refresh(skin_preview_meta)
-        refresh_skins_list()
-        page.update()
+        sync_skin_selection()
+        thread_safe_ui.refresh(skins_list_col)
+        thread_safe_ui.refresh(upload_status)
 
     def delete_skin(filename: str):
         # Unguarded, a missing file or corrupt skins.json escaped the click
@@ -180,9 +186,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
     def _owned_card(*, label, sublabel, active, on_use, on_delete,
                     src=None, lazy_thumb=None, preview_w=76, preview_h=112,
                     icon=None, model_label=None, on_model=None):
-        """A selectable installed item: preview on top, name below, hover
-        actions at the bottom. The active card swaps the Use button for an
-        outlined ACTIVE pill and gets the accent border.
+        """Click the artwork/name to apply. Keep management actions separate;
+        selection updates retain the image and its keyboard target.
 
         src: ready preview bytes/asset path (default cape, already-cached b64).
         lazy_thumb: ("skin"|"cape", filename) - build the card immediately with
@@ -209,70 +214,83 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 icon or ft.Icons.IMAGE_NOT_SUPPORTED_OUTLINED, color=TEXT_DIM,
                 size=22)
         preview_stack = [c for c in (preview_img, placeholder) if c is not None]
-        actions = [
-            ft.Container(
-                content=ft.Text("ACTIVE", size=9.5, color=ACCENT,
-                                weight=ft.FontWeight.W_700,
-                                style=ft.TextStyle(letter_spacing=0.8)),
-                border=ft.border.Border.all(1, ACCENT), border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-            )
-            if active else
-            ft.Container(
-                content=ft.Text("Use", size=11, color=ACCENT,
-                                weight=ft.FontWeight.W_700),
-                bgcolor=ACCENT_TINT, border_radius=RADIUS,
-                padding=ft.padding.Padding.symmetric(horizontal=12, vertical=4),
-                ink=False, on_click=on_use,
-            ),
-        ]
+        selected = {"value": active}
+        name = ft.Text(label, size=12, color=TEXT, weight=ft.FontWeight.W_600,
+                       max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                       text_align=ft.TextAlign.CENTER)
+        state_label = ft.Text("", size=10, weight=ft.FontWeight.W_600,
+                              text_align=ft.TextAlign.CENTER)
+        check = ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color=ACCENT, size=18,
+                        right=2, top=2, visible=active)
+        artwork = ft.Stack([
+            ft.Container(content=ft.Row(preview_stack, spacing=0,
+                         alignment=ft.MainAxisAlignment.CENTER),
+                         height=preview_h + 12, alignment=ft.Alignment.CENTER),
+            check,
+        ])
+        def apply_item(e):
+            with thread_safe_ui.TREE_LOCK:
+                if not selected["value"]:
+                    on_use(e)
+
+        primary = ft.Container(
+            content=ft.Column([artwork, name,
+                ft.Text(sublabel, size=10, color=TEXT_DIM,
+                        text_align=ft.TextAlign.CENTER) if sublabel else ft.Container(),
+                state_label], spacing=5, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=8, border_radius=RADIUS, ink=False,
+            tooltip=f"Apply {label}" + (f" ({sublabel})" if sublabel else ""),
+            on_click=apply_item,
+            on_hover=lambda e: card.on_hover(e),
+        )
+        actions = []
+        if model_label:
+            actions.append(keyboard_target(ft.Container(
+                content=ft.Text(model_label, size=10, color=ACCENT),
+                on_click=on_model, bgcolor=CARD_FILL,
+                padding=ft.padding.Padding.symmetric(horizontal=6, vertical=5),
+                border_radius=RADIUS,
+                tooltip="Change arms: Auto → Alex (3 px) → Steve (4 px)"),
+                f"Change arm model for {label}"))
         if on_delete is not None:
-            actions.append(ft.Container(
+            actions.append(keyboard_target(ft.Container(
                 content=ft.Icon(ft.Icons.DELETE_OUTLINE_ROUNDED, color=DANGER, size=16),
                 width=30, height=28, bgcolor=CARD_FILL,
                 border=ft.border.Border.all(1, CARD_BORDER), border_radius=RADIUS,
                 alignment=ft.Alignment.CENTER, ink=False, on_click=on_delete,
                 tooltip=i18n.t("Delete"),
-            ))
+            ), f"Delete {label}"))
         footer = ft.Row(actions, spacing=8,
                         alignment=ft.MainAxisAlignment.CENTER)
         card = ft.Container(
             content=ft.Column(
-                [
-                    ft.Container(
-                        content=ft.Row(preview_stack,
-                                       alignment=ft.MainAxisAlignment.CENTER,
-                                       spacing=0),
-                        height=preview_h + 8, alignment=ft.Alignment.CENTER,
-                    ),
-                    ft.Text(label, size=12, color=ACCENT if active else TEXT,
-                            weight=ft.FontWeight.W_700, font_family=FONT_MONO,
-                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    (ft.Text(sublabel, size=10, color=TEXT_DIM)
-                     if sublabel else ft.Container()),
-                    (ft.Container(
-                        content=ft.Text(model_label, size=10, color=ACCENT),
-                        on_click=on_model, bgcolor=CARD_FILL,
-                        padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
-                        border_radius=RADIUS,
-                        tooltip="Change arms: Auto → Alex (3 px) → Steve (4 px)",
-                    ) if model_label else ft.Container()),
-                    ft.Container(height=4),
-                    footer,
-                ],
-                spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                [keyboard_target(primary, primary.tooltip),
+                 ft.Container(content=footer, height=34)
+                 if actions or preview_h != 76 else ft.Container()],
+                spacing=0, horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
             ),
-            width=158,
+            width=144,
             bgcolor=ACCENT_TINT if active else CARD_FILL,
             border=ft.border.Border.all(1, ACCENT if active else CARD_BORDER),
             border_radius=RADIUS,
-            padding=ft.padding.Padding.symmetric(horizontal=12, vertical=12),
+            padding=4,
         )
-        return attach_hover(card,
-                            ACCENT_TINT if active else CARD_FILL,
-                            ACCENT_TINT_HI if active else ROW_HOVER)
 
-    def _grid_scroll(grid, height=290):
+        def set_selected(value):
+            selected["value"] = bool(value)
+            check.visible = bool(value)
+            name.color = ACCENT if value else TEXT
+            state_label.value = "Equipped" if value else "Click to apply"
+            state_label.color = ACCENT if value else TEXT_DIM
+            card.bgcolor = ACCENT_TINT if value else CARD_FILL
+            card.border = ft.border.Border.all(1, ACCENT if value else CARD_BORDER)
+            attach_hover(card, card.bgcolor, ACCENT_TINT_HI if value else ROW_HOVER)
+
+        card.set_selected = set_selected
+        set_selected(active)
+        return card
+
+    def _grid_scroll(grid, height=350):
         """Fixed-height scroll region that keeps a wrapping card grid from
         stretching the tab to the length of the list."""
         return ft.Container(
@@ -394,8 +412,14 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         thread_safe_ui.refresh(upload_status)
         thread_safe_ui.refresh(skins_list_col)
 
+    def sync_skin_selection():
+        with thread_safe_ui.TREE_LOCK:
+            for filename, card in skin_cards.items():
+                card.set_selected(cfg.get("active_skin") == filename)
+
     def refresh_skins_list():
         skins = core.list_custom_skins()
+        skin_cards.clear()
         skins_list_col.controls.clear()
         # "None" is a real choice, not a missing feature: it clears the custom
         # skin so offline Minecraft shows its own default model (Steve/Alex).
@@ -430,6 +454,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                              else "Auto · " + ("Alex" if s.get("slim") else "Steve")),
                 on_model=lambda e, fn=s["filename"]: change_skin_arms(fn),
             ))
+        skin_cards[None] = skins_list_col.controls[0]
+        skin_cards.update((s["filename"], card) for s, card in
+                          zip(skins, skins_list_col.controls[1:]))
         _flush_pending_thumbs()
 
     def handle_skin_files(files):
@@ -543,7 +570,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                                 color=TEXT_DIM, text_align=ft.TextAlign.CENTER)
     cape_status = ft.Text("", size=12, color=TEXT_DIM)
     # Wrapping card grid, same as the skins installed list (see _owned_card).
-    capes_list_col = ft.Row(spacing=12, wrap=True, run_spacing=12)
+    capes_list_col = ft.Row(spacing=12, wrap=True, run_spacing=12,
+                            vertical_alignment=ft.CrossAxisAlignment.START)
+    cape_cards = {}
 
     def render_cape_preview_for(filename):
         appearance.refresh(invalidate=True)
@@ -552,6 +581,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         appearance.refresh(invalidate=True)
 
     def set_active_cape(filename):
+        if cfg.get("active_cape") == filename and not cfg.get("hide_cubeon_cape"):
+            return
         try:
             core.set_active_cape(cfg, filename)
         except Exception as ex:
@@ -572,8 +603,9 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             cape_status.value = "Using the default Cubeon cape."
         thread_safe_ui.refresh(cape_preview_name)
         thread_safe_ui.refresh(cape_preview_meta)
-        refresh_capes_list()
-        page.update()
+        sync_cape_selection()
+        thread_safe_ui.refresh(capes_list_col)
+        thread_safe_ui.refresh(cape_status)
 
     def hide_cape():
         """The Cape pane's None card: no cape on this player's screen."""
@@ -592,8 +624,8 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                              "your shared Cubeon cape.")
         thread_safe_ui.refresh(cape_preview_name)
         thread_safe_ui.refresh(cape_preview_meta)
-        refresh_capes_list()
-        page.update()
+        sync_cape_selection()
+        thread_safe_ui.refresh(capes_list_col)
 
     def delete_cape(filename):
         # Same guarded shape as delete_skin: silent handler exceptions made
@@ -612,8 +644,17 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         refresh_capes_list()
         page.update()
 
+    def sync_cape_selection():
+        with thread_safe_ui.TREE_LOCK:
+            hidden = bool(cfg.get("hide_cubeon_cape"))
+            for filename, card in cape_cards.items():
+                selected = hidden if filename == "__hidden__" else (
+                    not hidden and cfg.get("active_cape") == filename)
+                card.set_selected(selected)
+
     def refresh_capes_list():
         capes = core.list_custom_capes()
+        cape_cards.clear()
         capes_list_col.controls.clear()
 
         # "None" is a real choice here too. The shared cape is assigned by the
@@ -657,6 +698,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 on_delete=lambda e, fn=c["filename"]: delete_cape(fn),
                 preview_w=64, preview_h=84,
             ))
+
+        cape_cards["__hidden__"] = capes_list_col.controls[0]
+        cape_cards[None] = capes_list_col.controls[1]
+        cape_cards.update((c["filename"], card) for c, card in
+                          zip(capes, capes_list_col.controls[2:]))
 
         if not capes:
             capes_list_col.controls.append(
@@ -776,11 +822,13 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         return label
 
     skin_pane = ft.Column(
-        [skins_label, _grid_scroll(skins_list_col), skin_preview_name,
-         skin_preview_meta, upload_button, upload_status], spacing=8)
+        [ft.Row([ft.Container(content=skins_label, expand=True), upload_button]),
+         _grid_scroll(skins_list_col), skin_preview_name,
+         skin_preview_meta, upload_status], spacing=10)
     cape_pane = ft.Column(
-        [_cape_label_with_note(), _grid_scroll(capes_list_col), cape_preview_name,
-         cape_preview_meta, cape_upload_button, cape_status], spacing=8)
+        [ft.Row([ft.Container(content=_cape_label_with_note(), expand=True), cape_upload_button]),
+         _grid_scroll(capes_list_col), cape_preview_name,
+         cape_preview_meta, cape_status], spacing=10)
 
     # --- Shoulder / Back cosmetics ----------------------------------------
     # These are not uploads: the art ships with the Cubeon Client, and the
@@ -814,47 +862,82 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                 "trails appear briefly while walking.")
 
     def _cosmetic_pane(slot, title):
-        grid = ft.Row(spacing=12, wrap=True, run_spacing=12)
+        grid = ft.Row(spacing=12, wrap=True, run_spacing=12,
+                      vertical_alignment=ft.CrossAxisAlignment.START)
         status = ft.Text("", size=12, color=TEXT_DIM)
+        equipped = ft.Text("Nothing equipped", size=12, color=TEXT,
+                           max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
         key = f"active_{slot}_item"
+        cards = {}
+        groups = {}
+        category = {"id": "all"}
+        filter_row = ft.Row(spacing=10, wrap=True, run_spacing=4)
+
+        def sync_selection():
+            active_id = cfg.get(key)
+            item = cosmetics.get(active_id, appearance.cosmetics_dir)
+            equipped.value = f"Equipped: {item['name']}" if item else "Nothing equipped"
+            remove.disabled = item is None
+            for item_id, card in cards.items():
+                card.set_selected(active_id == item_id)
+
+        def filter_items(group):
+            with thread_safe_ui.TREE_LOCK:
+                category["id"] = group
+                for item_id, card in cards.items():
+                    card.visible = group == "all" or groups[item_id] == group
+                build_filters()
+            thread_safe_ui.refresh(grid)
+            thread_safe_ui.refresh(filter_row)
+
+        def build_filters():
+            filter_row.controls = [text_tab(label, selected=category["id"] == group,
+                on_click=lambda e, g=group: filter_items(g))
+                for group, label in (("all", "All"), ("small", "Small wings"),
+                                     ("giant", "Giant wings"), ("pack", "Packs"))]
 
         def refresh():
-            active_id = cfg.get(key)
-            grid.controls.clear()
-            grid.controls.append(_owned_card(
-                src=None, icon=ft.Icons.BLOCK_ROUNDED, label="None",
-                sublabel="Empty slot", active=active_id is None,
-                on_use=lambda e: choose(None), on_delete=None,
-                preview_w=76, preview_h=76))
-            for item in cosmetics.items(slot, appearance.cosmetics_dir):
-                wing = bool(item.get("feathers"))
-                card = _owned_card(
-                    src=_COSMETIC_MEMO.get(item["id"]), lazy_thumb=("cosmetic", item["id"]),
-                    label=item["name"].split(" (")[0] if wing else item["name"],
-                    sublabel=("Small" if item["id"].endswith("_small") else "Giant") if wing else "",
-                    active=active_id == item["id"],
-                    on_use=lambda e, i=item["id"]: choose(i), on_delete=None,
-                    preview_w=76, preview_h=76)
-                card.tooltip = item["blurb"]
-                grid.controls.append(card)
+            if not cards:
+                items = cosmetics.items(slot, appearance.cosmetics_dir)
+                # Start with the worn item in view; later choices keep their
+                # position so applying/filtering never reshuffles the grid.
+                items.sort(key=lambda item: item["id"] != cfg.get(key))
+                for item in items:
+                    wing = bool(item.get("feathers"))
+                    group = "small" if item["id"].endswith("_small") else "giant" if wing else "pack"
+                    cached = _COSMETIC_MEMO.get(item["id"])
+                    card = _owned_card(
+                        src=cached, lazy_thumb=None if cached else ("cosmetic", item["id"]),
+                        label=item["name"].split(" (")[0] if wing else item["name"],
+                        sublabel=("Small" if group == "small" else "Giant") if wing else "",
+                        active=cfg.get(key) == item["id"],
+                        on_use=lambda e, i=item["id"]: choose(i), on_delete=None,
+                        preview_w=76, preview_h=76)
+                    card.tooltip = item["blurb"]
+                    cards[item["id"]] = card
+                    groups[item["id"]] = group
+                    grid.controls.append(card)
+            sync_selection()
 
         def choose(item_id):
+            if cfg.get(key) == item_id:
+                return
             try:
                 core.set_active_cosmetic(cfg, slot, item_id)
             except Exception as ex:
                 status.value = f"Couldn't change this cosmetic: {ex}"
                 thread_safe_ui.refresh(status)
                 return
-            appearance.refresh(invalidate=True)
-            if item_id is None:
-                status.value = f"Cleared your {slot} item."
-            else:
-                status.value = f"Wearing {cosmetics.get(item_id)['name']} in-game."
-            refresh()
-            thread_safe_ui.refresh(grid)
-            thread_safe_ui.refresh(status)
-            _flush_pending_thumbs()
-            page.update()
+            with thread_safe_ui.TREE_LOCK:
+                appearance.refresh(invalidate=True)
+                status.value = ""
+                sync_selection()
+            for control in (grid, equipped, remove, status):
+                thread_safe_ui.refresh(control)
+
+        remove = ft.TextButton("Remove", icon=ft.Icons.CLOSE_ROUNDED,
+                               on_click=lambda e: choose(None), disabled=True,
+                               tooltip="Remove the equipped item")
 
         label = section_label("Your " + title)
         label.tooltip = _cosmetic_visibility_note()
@@ -863,7 +946,12 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             bgcolor=ACCENT_TINT, border_radius=RADIUS,
             padding=ft.padding.Padding.symmetric(horizontal=8, vertical=4),
             data="cosmetic-beta-" + slot)], spacing=8)
-        controls = [heading, _grid_scroll(grid), status]
+        controls = [ft.Row([ft.Container(content=heading, expand=True), remove]),
+                    equipped]
+        if slot == "back":
+            build_filters()
+            controls.append(filter_row)
+        controls.extend([_grid_scroll(grid), status])
         if slot == "back":
             controls.append(ft.Text("Small wings move gently. Press N in Minecraft for a Giant-wing flare; K → Cosmetic motion turns movement off.",
                                     size=11, color=TEXT_DIM))
@@ -874,9 +962,10 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
         pane.load_items = refresh
         return pane
 
+    # Keep the extra cosmetic categories hidden for now.
     cosmetic_panes = [(slot, cosmetics.SLOT_LABELS[slot],
                       _cosmetic_pane(slot, cosmetics.SLOT_LABELS[slot]))
-                     for slot in cosmetics.SLOTS]
+                     for slot in ("shoulder", "back")]
 
     # --- Tab state + switching --------------------------------------------
     # active_pane is a plain dict ref (same pattern the Mods tab uses for
@@ -937,7 +1026,7 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
                         [
                             ft.Text(i18n.t("Cosmetics"), size=24, color=TEXT,
                                     font_family=FONT_DISPLAY),
-                            ft.Text("Choose what your character wears in-game.",
+                            ft.Text("Click an item to equip it. Your preview updates automatically.",
                                     size=12, color=TEXT_DIM),
                         ], spacing=4, expand=True,
                     ),
@@ -945,9 +1034,11 @@ def build_skin_section(page: ft.Page, cfg: dict, *, section_label, pixel_divider
             ),
             ft.Container(height=8),
             ft.ResponsiveRow([
-                ft.Container(content=appearance.control, col={"xs": 12, "md": 6}),
-                ft.Container(content=ft.Column([tab_row, ft.Container(height=12), pane_holder], spacing=8),
-                             col={"xs": 12, "md": 6}),
+                ft.Container(content=appearance.control, col={"xs": 12, "md": 5, "lg": 4}),
+                ft.Container(content=ft.Column([tab_row, ft.Container(height=4), pane_holder], spacing=8),
+                             bgcolor=CARD_FILL, border=ft.border.Border.all(1, CARD_BORDER),
+                             border_radius=RADIUS, padding=16,
+                             col={"xs": 12, "md": 7, "lg": 8}, data="cosmetics-picker"),
             ], spacing=24, run_spacing=24),
         ],
         spacing=8,

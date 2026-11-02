@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -64,6 +65,45 @@ class SourceRuntimeTests(unittest.TestCase):
                         self.assertEqual(call.args[0][1:3], ['-I', '-c'])
                         self.assertEqual(call.kwargs['timeout'], 5)
                         self.assertTrue(call.kwargs['check'])
+
+    def test_windows_probe_is_hidden_and_selects_windowed_sibling(self):
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / '.venv/Scripts/python.exe'
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            windowed = executable.with_name('pythonw.exe')
+            windowed.touch()
+            with patch.object(runtime, 'os', SimpleNamespace(name='nt')), \
+                 patch.object(subprocess, 'CREATE_NO_WINDOW', 0x08000000, create=True), \
+                 patch.object(subprocess, 'STARTUPINFO', return_value=SimpleNamespace(dwFlags=0, wShowWindow=1), create=True), \
+                 patch.object(subprocess, 'STARTF_USESHOWWINDOW', 1, create=True), \
+                 patch.object(subprocess, 'SW_HIDE', 0, create=True), \
+                 patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '["0.86.5", "0.86.5"]')) as run:
+                self.assertEqual(runtime.project_runtime(temp), str(windowed))
+                self.assertEqual(run.call_args.args[0][0], str(executable))
+                self.assertEqual(run.call_args.kwargs['creationflags'], 0x08000000)
+                self.assertEqual(run.call_args.kwargs['startupinfo'].wShowWindow, 0)
+
+    def test_windows_replacement_is_hidden_even_without_pythonw(self):
+        fake_os = SimpleNamespace(name='nt', environ=os.environ)
+        with patch.object(runtime, 'os', fake_os), \
+             patch.object(runtime, 'runtime_versions', return_value=['1.0.3'] * 2), \
+             patch.object(runtime, 'project_runtime', return_value='fixture/python.exe'), \
+             patch.object(subprocess, 'CREATE_NO_WINDOW', 0x08000000, create=True), \
+             patch.object(subprocess, 'STARTUPINFO', return_value=SimpleNamespace(dwFlags=0, wShowWindow=1), create=True), \
+             patch.object(subprocess, 'STARTF_USESHOWWINDOW', 1, create=True), \
+             patch.object(subprocess, 'SW_HIDE', 0, create=True), \
+             patch.object(subprocess, 'Popen') as spawn, \
+             patch.dict(os.environ, {}, clear=True), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as stopped:
+                runtime.ensure_source_runtime(ROOT / 'main.py')
+            self.assertEqual(stopped.exception.code, 0)
+            self.assertEqual(spawn.call_count, 1)
+            self.assertEqual(spawn.call_args.args[0], ['fixture/python.exe', str(ROOT / 'main.py'), *sys.argv[1:]])
+            self.assertEqual(spawn.call_args.kwargs['creationflags'], 0x08000000)
+            self.assertEqual(spawn.call_args.kwargs['startupinfo'].wShowWindow, 0)
+            self.assertEqual(spawn.call_args.kwargs['env'][runtime._REEXEC], '1')
 
     def test_real_process_replacement_preserves_arguments_and_environment(self):
         with tempfile.TemporaryDirectory(prefix='cubeon-runtime-') as temp:

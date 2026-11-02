@@ -589,6 +589,7 @@ SUITES = [
     "test_perf_mods.py", "test_perf_mod_removal.py", "test_motion.py", "test_tab_navigation.py",
     "test_activity_stats.py", "test_keyboard_shortcuts.py", "test_keyboard_accessibility.py",
     "test_ui_sounds.py", "test_milestones.py", "test_play_backend_audit.py",
+    "test_winproc.py", "test_authme_config.py", "test_cosmetics_picker.py",
     "test_version_path_safety.py",
     "test_scrolling.py", "test_play_seasons.py", "test_launcher_pet.py",
     "test_appearance_preview.py", "test_loader_content_rules.py",

@@ -503,6 +503,11 @@ keep builders consistent with the shared `THEME` contract.
   recheck jar identity and dependencies; failures block Play. Lookup harnesses
   must isolate HOME before imports because performance preparation can migrate
   profile files (`test_launch_lookup_budget.py`, `test_perf_mod_removal.py`).
+- `mods._doctor_runtime_versions()` reads Fabric/Quilt loader-bundled mod metadata
+  from the selected loader's library JAR with the bounded stat cache. Both prelaunch
+  dependency repair and Doctor include these providers and compare their versions:
+  Fabric 0.20.1 supplies MixinExtras 0.5.5; 0.5.4 cannot satisfy a >=0.5.5 request.
+  Do not infer availability from the loader version or require a duplicate standalone JAR.
 - `required_dependencies(..., filename=...)` picks the build whose `files[].filename` matches; without a
   match (or without the argument) it uses `versions[0]`. The install path must pass the jar filename.
 - `_write_meta` MERGES into `<jar>.cubeon.json` (never replace it with just the caller's fields);
@@ -672,6 +677,17 @@ keep builders consistent with the shared `THEME` contract.
   respect instance ownership and atomic writes.
 - FPS boost is the Play-menu toggle. Turning it off restores the previous settings; do not replace
   Sodium's defaults with unsupported tuning claims.
+- `perf_mods.apply_max_fps_sodium()` seeds missing/partial configs with only
+  `performance.chunk_builder_threads` (always exactly 2 as requested by the player;
+  Sodium owns any hardware clamp).
+  Sodium 0.4/0.8/0.9 actual Gson readers retain all other compiled defaults.
+  Other tuning still edits existing keys only; writes use `atomicio.write_json`.
+  This fixes the first launch using Auto before Sodium generated its config.
+- Managed AuthMe settings are seeded before the first hosted-server spawn and
+  tuned on every start (`server._tune_authme_config`). Tunnel users can share an
+  apparent IP: registration/login/join IP caps are zero and IP-based session reuse
+  is disabled, while per-account passwords/database settings remain intact.
+  AuthMe 6 uses loginTimeout/registerTimeout; legacy configs use timeout.
 
 ### Configuration and identity files
 
@@ -720,6 +736,12 @@ keep builders consistent with the shared `THEME` contract.
 
 ### Cosmetics (shoulder and back items)
 
+- `ui/skin_tab.py` currently exposes only Skin, Cape, Pets (shoulder) and Back; Face, Head,
+  Waist, Wrist and Trails panes are hidden without removing catalogue slots or saved selections.
+- The right picker retains cosmetic/skin/cape cards and image controls on apply,
+  Back filtering and pane returns. Apply uses scoped `thread_safe_ui.refresh`
+  (one argument per call), updates equipped state and preserves card order;
+  worn-first ordering applies only when the card tree is initially built.
 - `appearance.CharacterModel` keeps outer skin texels as raised caps with 0.5-unit walls around
   transparent gaps; merged strips suppress internal/corner walls. The cached turntable and reference
   renderer share `appearance.render_faces` with per-pixel opaque depth and a translucent pass.
@@ -1080,6 +1102,16 @@ keep builders consistent with the shared `THEME` contract.
   non-null `custom_window_chrome` config value wins, and the one-time `custom_window_chrome_chosen` marker keeps a
   user's OFF from being migrated back on. macOS keeps the native frame. Maximize/fullscreen need explicit
   state.
+- `winproc.hidden()` copies caller STARTUPINFO and merges creation flags,
+  dropping CREATE_NEW_CONSOLE because Windows ignores CREATE_NO_WINDOW alongside it;
+  `patch_mll()` wraps only loaded minecraft_launcher_lib subprocess references,
+  including current mod_loader adapters/Java helpers. Run it before loader setup
+  and after lazy adapter resolution, plus before Java discovery. The shim covers
+  run/Popen/call/check_call/check_output; never monkeypatch global subprocess.
+- `source_runtime.py` keeps its Windows probe/replacement process options stdlib-only
+  so it can hide consoles before importing Cubeon/Flet. It prefers the verified
+  pythonw sibling and replaces Windows execve with a hidden spawn, then exits the
+  old interpreter. POSIX keeps execve; restart budget/arguments/environment survive.
 - Verify Java by running it; the launch-time Java settings check must never prompt. Do not blame Java
   for a graphics failure without evidence.
 - The game must not inherit launcher-only software-graphics overrides. Crash text must not promise a fix
@@ -1128,6 +1160,10 @@ For native capture probes, verify `_NET_WM_PID`; use `xdotool search --all` when
 combining PID/name filters (the default combines them with OR). Close owned
 Minecraft probes with `wmctrl -i -c`, which allows world saving; `xdotool
 windowclose` deletes the X window and can produce a misleading BadWindow exit.
+For FPS comparisons, prevent AFK throttling in the isolated fixture and verify
+`FramerateLimitTracker.getThrottleReason()` is NONE. Minecraft 26.3 accepts
+`inactivityFpsLimit:"minimized"`; `"none"` is invalid and falls back to AFK,
+which drops to 30 FPS after 60 seconds without input. Keep player settings intact.
 
 ```bash
 python tools/test_mega_smoke.py
@@ -1159,11 +1195,13 @@ requires retrying with normal system access, not changing unrelated app code.
 | Languages and preferences | `test_i18n.py`, `test_launcher_preferences.py`, `test_osnotify.py` |
 | Chat | `test_in_game_chat.py`, `test_chat_stack.py --targets` (mapped jars), `test_chat_connection.py`, `test_chat_poll_locking.py`, `test_chat_avatar_stability.py`, `test_chat_optimistic.py`, `test_faces.py` |
 | Quit / New Instance / RAM | `test_quit_game.py`, `test_new_instance_steps.py`, `test_launch_memory.py` |
-| Cosmetics | `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `node worker/test-cosmetics.mjs` |
+| FPS defaults | `test_perf_mods.py` |
+| Hosted authentication | `test_authme_config.py`, `test_server_integrity.py` |
+| Cosmetics | `test_cosmetics_picker.py`, `test_skin_loading.py`, `test_cosmetics.py`, `test_cosmetic_renderers.py`, `test_cosmetic_animation.py`, `test_appearance_preview.py`, `test_capes.py`, `test_skins_net.py`, `node worker/test-cosmetics.mjs` |
 | Enemy health bars | `test_enemy_health.py` (JDK, cached Gson/JOML), full 24-version Gradle build |
 | Freelook / zoom | `test_freelook.py` (`--targets` needs mapped game JARs), `test_zoom.py`, full 24-version Gradle build |
 | Camera motion blur | `test_camera_blur.py --targets`, `test_camera_blur_lifecycle.py`, `test_camera_blur_gpu.py` (Linux EGL/PyOpenGL), full 24-version Gradle build |
-| Windows/startup | `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
+| Windows/startup | `test_winproc.py`, `test_winwindow.py`, `test_winchrome.py`, `test_startup.py`, `test_source_runtime.py`, `test_startup_recovery.py`, `test_incident.py`, `test_wedge_watchdog.py`, `test_window_close.py`, `test_client_teardown_noise.py` |
 | Mod sources and jars | `test_mod_compile.py`, `test_mod_matrix.py`, `test_mod_bridge.py` |
 | Releases | `test_release_version.py`, `test_release_pipeline.py` |
 | Launcher updates / installers | `test_launcher_updates.py`, `test_launcher_installers.py` (`--wine` optional), `test_linux_graphical_installer.py`, `test_update_notice.py`, `node worker/test-downloads.mjs` |

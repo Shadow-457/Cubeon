@@ -243,6 +243,8 @@ def find_java_for_version(version_id: str, java_path: str | None = None) -> str:
     # sufficient major wins below.
     candidates.extend(_java_home_binaries())
     try:
+        from .winproc import patch_mll
+        patch_mll()
         for d in mll.java_utils.find_system_java_versions():
             candidates.append(os.path.join(d, "bin", "java"))
     except Exception:

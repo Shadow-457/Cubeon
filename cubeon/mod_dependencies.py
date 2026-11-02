@@ -25,8 +25,9 @@ def _scan(mc_version, loader, version_id):
     return entries
 
 
-def _providers(entries):
-    provided = {}
+def _providers(entries, runtime=None):
+    provided = {identity: version for identity, version in (runtime or {}).items()
+                if identity not in mods.DOCTOR_RUNTIME_IDS and version is not None}
     for item, meta, bundled in entries:
         if not item.get("enabled"):
             continue
@@ -43,13 +44,13 @@ def _requirements(entries, runtime):
             continue
         for identity, predicate in (meta.get("depends") or {}).items():
             identity = str(identity).lower()
-            if identity not in runtime:
+            if identity not in runtime or identity not in mods.DOCTOR_RUNTIME_IDS:
                 requirements.setdefault(identity, []).append((item, predicate))
     return requirements
 
 
 def _missing(entries, runtime):
-    providers = _providers(entries)
+    providers = _providers(entries, runtime)
     return {identity: owners for identity, owners in _requirements(entries, runtime).items()
             if identity not in providers or not all(
                 mods.version_satisfies(providers[identity], predicate)
@@ -63,7 +64,7 @@ def _usable(meta, provided, identity, owners, entries, runtime, mc_version, load
     if mods._doctor_local_incompatibility(meta, mc_version, loader):
         return False
     for key, predicate in (meta.get("depends") or {}).items():
-        actual = runtime.get(key)
+        actual = runtime.get(key) if key in mods.DOCTOR_RUNTIME_IDS else None
         if actual and not mods.version_satisfies(actual, predicate):
             return False
     # Replacing a dependency must not violate another requester's requirement
@@ -71,7 +72,7 @@ def _usable(meta, provided, identity, owners, entries, runtime, mc_version, load
     candidate_id = str(meta.get("id") or "").lower()
     remaining = [entry for entry in entries if entry[0].get("enabled")
                  and str(entry[1].get("id") or "").lower() != candidate_id]
-    providers = _providers(remaining)
+    providers = _providers(remaining, runtime)
     providers.update(provided)
     for key, constraints in _requirements(remaining, runtime).items():
         if key in provided and not all(mods.version_satisfies(provided[key], pred)
@@ -215,7 +216,7 @@ profile does no network work. Unfixed requirements are returned to the caller.
             errors[pending] = str(error)
             if isinstance(error, net.DownloadError) and not isinstance(error, net.HTTPStatusError):
                 network_down = True
-    providers = _providers(entries)
+    providers = _providers(entries, runtime)
     for identity, owners in _missing(entries, runtime).items():
         for item, predicate in owners:
             name = item.get("display_name") or item["filename"]

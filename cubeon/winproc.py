@@ -12,17 +12,17 @@ Two halves:
 
   hidden(**extra)   subprocess kwargs that hide the child window, merged with
                     whatever the caller already passes (a caller-supplied
-                    creationflags is OR-ed, not replaced).
+                    creationflags is preserved except CREATE_NEW_CONSOLE).
 
-  patch_mll()       minecraft_launcher_lib's FABRIC installer runs its
-                    installer jar with plain subprocess.run (its quilt module
-                    DOES hide the window - fabric was missed upstream), so the
-                    module's subprocess reference is replaced with a shim that
-                    injects the hidden flags. Called before any loader
-                    install; safe to call repeatedly.
+  patch_mll()       wraps subprocess references in minecraft_launcher_lib,
+                    including its current mod_loader adapters and Java helpers.
+                    Called before loader installation; safe to repeat.
 """
+import copy
+import importlib
 import os
 import subprocess
+import sys
 
 __all__ = ["hidden", "patch_mll"]
 
@@ -35,11 +35,12 @@ def hidden(**extra) -> dict:
     """
     if os.name != "nt":
         return extra
-    # A caller-supplied creationflags is OR-ed in (server.py needs
-    # CREATE_NEW_PROCESS_GROUP too); CREATE_NO_WINDOW is always included.
+    # CREATE_NO_WINDOW is ignored alongside CREATE_NEW_CONSOLE on Windows.
+    # Remove that conflicting flag; preserve grouping/job/lifecycle flags.
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    flags |= extra.pop("creationflags", 0) or 0
-    si = subprocess.STARTUPINFO()
+    flags |= (extra.pop("creationflags", 0) or 0) & ~getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    supplied_info = extra.pop("startupinfo", None)
+    si = copy.copy(supplied_info) if supplied_info is not None else subprocess.STARTUPINFO()
     si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     si.wShowWindow = subprocess.SW_HIDE
     kw = dict(extra)
@@ -49,11 +50,10 @@ def hidden(**extra) -> dict:
 
 
 class _HiddenSubprocess:
-    """A subprocess-module stand-in that hides windows on run/Popen.
+    """A subprocess-module stand-in that hides all child-launch helpers.
 
-    Only what minecraft_launcher_lib actually uses is overridden; everything
-    else forwards to the real module, so an upstream change can't silently
-    break it.
+    Standard launch helpers enforce the same policy. Constants and everything
+    else forward to the real module.
     """
 
     def __getattr__(self, name):
@@ -65,9 +65,19 @@ class _HiddenSubprocess:
     def Popen(self, *args, **kwargs):
         return subprocess.Popen(*args, **hidden(**kwargs))
 
+    def call(self, *args, **kwargs):
+        return subprocess.call(*args, **hidden(**kwargs))
+
+    def check_call(self, *args, **kwargs):
+        return subprocess.check_call(*args, **hidden(**kwargs))
+
+    def check_output(self, *args, **kwargs):
+        return subprocess.check_output(*args, **hidden(**kwargs))
+
 
 def patch_mll() -> None:
-    """Give minecraft_launcher_lib.fabric a window-hiding subprocess module.
+    """Hide subprocesses in loaded legacy/current mll modules, without
+    changing Python's shared subprocess module.
 
     Idempotent (the shim detects itself). Never raises: the shim is polish -
     a missed patch means one console flash, not a broken install.
@@ -75,12 +85,11 @@ def patch_mll() -> None:
     if os.name != "nt":
         return
     try:
-        import minecraft_launcher_lib.fabric as mll_fabric
+        importlib.import_module("minecraft_launcher_lib")
     except Exception:
         return
-    if isinstance(getattr(mll_fabric, "subprocess", None), _HiddenSubprocess):
-        return
-    try:
-        mll_fabric.subprocess = _HiddenSubprocess()
-    except Exception:
-        pass
+    for name, module in tuple(sys.modules.items()):
+        if not name.startswith("minecraft_launcher_lib.") or module is None:
+            continue
+        if getattr(module, "subprocess", None) is subprocess:
+            module.subprocess = _HiddenSubprocess()

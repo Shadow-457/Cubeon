@@ -304,7 +304,8 @@ def sanitize_entityculling_config(path: str | None = None) -> dict:
 # closes. The file is rewritten on every boosted launch; FPS boost OFF simply
 # stops enforcing it and hands Sodium's own config back to the player.
 #
-# Keys are matched by name against the section that is already in the file, so
+# Apart from the shared chunk_builder_threads option, keys are matched by name
+# against the section that is already in the file, so
 # a config from a different Sodium generation is never given an unknown key:
 # Sodium 0.4.x (Minecraft 1.20) keeps the same names for the shared performance
 # switches (chunk_builder_threads, use_*_culling, animate_only_visible_textures)
@@ -336,12 +337,10 @@ def chunk_builder_threads() -> int:
     default now; the old note is kept in agents/docs/module-map.md so nobody
     "fixes" it back to Auto a third time.
 
-    Still capped by cores so a small machine is never oversubscribed: 1 thread
-    on a 1-2 core box, 2 from 3 cores up. Sodium clamps any value to
-    `min(value, cores)` itself, so this can never ask for more than the box has.
+    Always save 2, as requested by the player. Sodium applies its own runtime
+    hardware limit; Cubeon must not silently turn this setting into 1 or Auto.
     """
-    cores = os.cpu_count() or 4
-    return max(1, min(2, cores - 1))
+    return 2
 
 
 SODIUM_MAX_FPS_OPTIONS = {
@@ -388,14 +387,14 @@ def apply_max_fps_sodium(path: str | None = None) -> dict:
 
     Returns {"changed", "detail", "path"} - the same shape as
     game_options.py's appliers, and the same contract: only keys the file
-    already has are touched (so a config from another Sodium generation is
-    never given an unknown key), the write is atomic and idempotent, and every
+    already has are touched, except the chunk-builder count shared by all
+    supported Sodium generations. The write is atomic and idempotent, and every
     failure is reported instead of raised. This runs on the launch path before
     the JVM starts, so it can never race Sodium's own save-on-exit.
 
-    A missing file is NOT created: without a config, Sodium uses its compiled
-    defaults, which are the fast values for every key except
-    chunk_builder_threads (Auto there, 2 once Sodium has written the file).
+    A fresh config seeds only performance.chunk_builder_threads. Sodium fills
+    its other compiled defaults when reading that partial config, so the first
+    launch also gets two builders without inventing version-specific options.
     """
     target = path or sodium_config_path()
     result = {"changed": [], "detail": "", "path": target}
@@ -403,15 +402,22 @@ def apply_max_fps_sodium(path: str | None = None) -> dict:
         with open(target, "r", encoding="utf-8") as fh:
             data = json.load(fh)
     except FileNotFoundError:
-        result["detail"] = ("no sodium-options.json yet (Sodium's own defaults "
-                            "are already the fast values)")
-        return result
+        data = {}
     except (OSError, ValueError):
         result["detail"] = "sodium-options.json is not readable"
         return result
     if not isinstance(data, dict):
         result["detail"] = "sodium-options.json is not an object"
         return result
+
+    # Every supported Sodium (0.4 through 0.9) has this section/key. Missing
+    # fields otherwise fall back to Auto even in an existing partial config.
+    if "performance" not in data:
+        data["performance"] = {}
+    performance = data.get("performance")
+    if isinstance(performance, dict) and "chunk_builder_threads" not in performance:
+        performance["chunk_builder_threads"] = chunk_builder_threads()
+        result["changed"].append("performance.chunk_builder_threads")
 
     for section, wanted in SODIUM_MAX_FPS_OPTIONS.items():
         current = data.get(section)
@@ -426,17 +432,9 @@ def apply_max_fps_sodium(path: str | None = None) -> dict:
         result["detail"] = "sodium options already at the fast values"
         return result
 
-    tmp = target + ".cubeon-tmp"
     try:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2)
-            fh.write("\n")
-        os.replace(tmp, target)
+        write_json(target, data)
     except OSError:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
         result["changed"] = []
         result["detail"] = "sodium-options.json is not writable"
         return result

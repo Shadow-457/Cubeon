@@ -40,6 +40,17 @@ def compatible(versions):
             and re.fullmatch(r"0\.86\.\d+", versions[0]) is not None)
 
 
+def _hidden_process_options():
+    # Keep startup stdlib-only: importing cubeon.winproc here imports the UI
+    # package before this guard has selected a compatible runtime.
+    if os.name != "nt":
+        return {}
+    info = subprocess.STARTUPINFO()
+    info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    info.wShowWindow = subprocess.SW_HIDE
+    return {"creationflags": subprocess.CREATE_NO_WINDOW, "startupinfo": info}
+
+
 def project_runtime(root):
     for name in (".venv", ".venv-build"):
         executable = Path(root) / name / (
@@ -51,9 +62,14 @@ def project_runtime(root):
             # would discard the environment we just verified.
             probe = subprocess.run(
                 [str(executable), "-I", "-c", _PROBE], capture_output=True,
-                text=True, timeout=5, check=True,
+                text=True, timeout=5, check=True, **_hidden_process_options(),
             )
             if compatible(json.loads(probe.stdout)):
+                # The verified sibling uses the same venv without allocating
+                # a console when restarting a Windows source launch.
+                windowed = executable.with_name("pythonw.exe")
+                if os.name == "nt" and windowed.is_file():
+                    return str(windowed)
                 return str(executable)
         except (OSError, subprocess.SubprocessError, ValueError):
             continue
@@ -77,6 +93,17 @@ def ensure_source_runtime(entry):
         env = os.environ.copy()
         env[_REEXEC] = "1"
         try:
+            if os.name == "nt":
+                # Windows execve cannot carry CREATE_NO_WINDOW. A hidden spawn
+                # also covers a valid environment that lacks pythonw.exe.
+                subprocess.Popen(
+                    [executable, str(Path(entry).absolute()), *sys.argv[1:]],
+                    env=env, stdin=subprocess.DEVNULL,
+                    stdout=sys.stdout if sys.stdout is not None else subprocess.DEVNULL,
+                    stderr=sys.stderr if sys.stderr is not None else subprocess.DEVNULL,
+                    **_hidden_process_options(),
+                )
+                raise SystemExit(0)
             os.execve(executable,
                       [executable, str(Path(entry).absolute()), *sys.argv[1:]],
                       env)

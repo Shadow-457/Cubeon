@@ -540,20 +540,21 @@ with tempfile.TemporaryDirectory() as tmp:
           and perf.SODIUM_MAX_FPS_OPTIONS["advanced"]["use_advanced_staging_buffers"] is True)
     check("chunk builder threads default to 2, not Sodium's Auto (0)",
           perf.SODIUM_MAX_FPS_OPTIONS["performance"]["chunk_builder_threads"] == 2
-          and perf.chunk_builder_threads() == min(2, max(1, (os.cpu_count() or 4) - 1)),
+          and perf.chunk_builder_threads() == 2,
           f"got {perf.SODIUM_MAX_FPS_OPTIONS['performance']['chunk_builder_threads']!r}")
-    # ... but never more than the machine has: 2 on 3+ cores, 1 on 1-2.
+    # Save exactly the player's requested 2 even on small/unknown machines;
+    # Sodium owns any runtime hardware clamp.
     _real_cpu_count = os.cpu_count
     try:
         os.cpu_count = lambda: 2
-        check("a 2-core box gets 1 builder thread, not 2",
-              perf.chunk_builder_threads() == 1)
+        check("a 2-core box still saves two builder threads",
+              perf.chunk_builder_threads() == 2)
         os.cpu_count = lambda: 3
         check("3 cores get 2", perf.chunk_builder_threads() == 2)
         os.cpu_count = lambda: 1
-        check("1 core gets 1", perf.chunk_builder_threads() == 1)
+        check("1 core still saves 2", perf.chunk_builder_threads() == 2)
         os.cpu_count = lambda: None
-        check("an unknown core count assumes 4 and asks for 2",
+        check("an unknown core count still saves 2",
               perf.chunk_builder_threads() == 2)
     finally:
         os.cpu_count = _real_cpu_count
@@ -567,7 +568,8 @@ with tempfile.TemporaryDirectory() as tmp:
     with open(path, "w", encoding="utf-8") as fh:
         _json.dump({"performance": {"use_fog_occlusion": 0,
                                     "use_block_face_culling": 1,
-                                    "use_entity_culling": True}}, fh)
+                                    "use_entity_culling": True,
+                                    "chunk_builder_threads": perf.chunk_builder_threads()}}, fh)
     numbers = perf.apply_max_fps_sodium(path)
     check("a 0/1 that means false/true is corrected, not accepted",
           numbers["changed"] == ["performance.use_fog_occlusion",
@@ -609,9 +611,33 @@ with tempfile.TemporaryDirectory() as tmp:
 
     missing = os.path.join(tmp, "nope", "sodium-options.json")
     result = perf.apply_max_fps_sodium(missing)
-    check("no config file -> nothing written and nothing invented",
-          result["changed"] == [] and not os.path.exists(missing)
-          and "defaults" in result["detail"], f"got {result!r}")
+    check("first launch seeds only the universally supported builder count",
+          result["changed"] == ["performance.chunk_builder_threads"]
+          and _json.load(open(missing, encoding="utf-8")) == {
+              "performance": {"chunk_builder_threads": perf.chunk_builder_threads()}},
+          f"got {result!r}")
+    check("first-launch seed is idempotent",
+          perf.apply_max_fps_sodium(missing)["changed"] == [])
+    with open(missing, "w", encoding="utf-8") as fh:
+        _json.dump({"notifications": {"has_seen_donation_prompt": True}}, fh)
+    partial = perf.apply_max_fps_sodium(missing)
+    check("partial config also gets two builders while retaining UI state",
+          partial["changed"] == ["performance.chunk_builder_threads"]
+          and _json.load(open(missing, encoding="utf-8")) == {
+              "notifications": {"has_seen_donation_prompt": True},
+              "performance": {"chunk_builder_threads": perf.chunk_builder_threads()}},
+          f"got {partial!r}")
+    from unittest.mock import patch
+    before_failure = open(missing, "rb").read()
+    with patch.dict(perf.SODIUM_MAX_FPS_OPTIONS["performance"], {"chunk_builder_threads": 8}), \
+         patch("cubeon.atomicio.os.replace", side_effect=OSError("read only")):
+        failed_write = perf.apply_max_fps_sodium(missing)
+    check("failed atomic write preserves the old config and cleans temp files",
+          failed_write["changed"] == []
+          and "not writable" in failed_write["detail"]
+          and open(missing, "rb").read() == before_failure
+          and not any(name.startswith(".atomic-") for name in os.listdir(os.path.dirname(missing))),
+          f"got {failed_write!r}")
 
     broken = os.path.join(tmp, "broken.json")
     with open(broken, "w", encoding="utf-8") as fh:

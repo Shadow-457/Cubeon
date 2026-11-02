@@ -104,7 +104,7 @@ async def native(page):
             await asyncio.sleep(.01)
         assert preview._shown == step and abs(preview.yaw - target) < .001, 'The Giant-wing rotation did not finish.'
         print('WING_ROTATION_SECONDS', round(time.monotonic() - start, 3), flush=True)
-    for name in ('Back', 'Shoulder', 'Cape', 'Skin'):
+    for name in ('Back', 'Pets', 'Cape', 'Skin'):
         start = time.monotonic()
         tab(root, name).on_click(None)
         print(name, 'CLICK_SECONDS', round(time.monotonic() - start, 3), flush=True)

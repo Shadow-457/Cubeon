@@ -247,6 +247,49 @@ class DependencyTests(unittest.TestCase):
         self.assertFalse(report["unfixed"])
         self.assertEqual(self.lookups, [])
 
+    def loader_fixture(self, bundled_version):
+        self.profile.joinpath("moreculling-1.6.2.jar").unlink()
+        self.mc = "26.3"
+        self.profile.joinpath("lithium.jar").write_bytes(jar("lithium", "0.26.1", {
+            "mixinextras": ">=0.5.5", "minecraft": "26.3"}))
+        game = Path(self.temp.name) / "game"
+        profile = game / "versions" / self.instance
+        profile.mkdir(parents=True)
+        profile.joinpath(self.instance + ".json").write_text(json.dumps({
+            "libraries": [{"name": "net.fabricmc:fabric-loader:0.20.1"}]}))
+        library = game / "libraries/net/fabricmc/fabric-loader/0.20.1/fabric-loader-0.20.1.jar"
+        library.parent.mkdir(parents=True)
+        library.write_bytes(jar("fabricloader", "0.20.1", nested={
+            "mixinextras-fabric": jar("mixinextras", bundled_version)}))
+        return patch.object(mods, "MINECRAFT_DIR", str(game))
+
+    def test_lithium_uses_mixinextras_bundled_in_selected_fabric_loader(self):
+        with self.loader_fixture("0.5.5"):
+            runtime = mods._doctor_runtime_versions(self.mc, "fabric", self.instance)
+            self.assertEqual(runtime["mixinextras"], "0.5.5")
+            report = self.run_doctor()
+            full_report = mods.mod_doctor(self.mc, "fabric", version_id=self.instance,
+                                          auto_fix=False, check_online=False)
+        self.assertEqual(report["unfixed"], [])
+        self.assertEqual(full_report["unfixed"], [])
+        self.assertEqual(self.lookups, [])
+        self.assertEqual(self.downloads, [])
+
+    def test_old_loader_bundle_does_not_satisfy_new_lithium_requirement(self):
+        with self.loader_fixture("0.5.4"):
+            report = self.run_doctor(check_online=False)
+        self.assertEqual(len(report["unfixed"]), 1)
+        self.assertEqual(report["unfixed"][0]["dependency"], "mixinextras")
+        self.assertIn("installed: 0.5.4", report["unfixed"][0]["detail"])
+        self.assertEqual(self.lookups, [])
+
+    def test_explicit_newer_mixinextras_can_satisfy_old_loader_bundle(self):
+        with self.loader_fixture("0.5.4"):
+            self.profile.joinpath("mixinextras.jar").write_bytes(jar("mixinextras", "0.5.5"))
+            report = self.run_doctor(check_online=False)
+        self.assertEqual(report["unfixed"], [])
+        self.assertEqual(self.lookups, [])
+
     def test_missing_api_submodule_installs_umbrella_project(self):
         self.profile.joinpath("moreculling-1.6.2.jar").unlink()
         self.profile.joinpath("sodium.jar").write_bytes(jar("sodium", "0.6", {

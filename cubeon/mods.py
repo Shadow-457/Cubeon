@@ -41,7 +41,7 @@ import shutil
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
+from functools import cmp_to_key, lru_cache
 from urllib.parse import urlsplit
 
 # `requests` costs ~97ms to import; this module is on the startup path but
@@ -2087,6 +2087,10 @@ def _doctor_local_incompatibility(metadata, mc_version, loader) -> str:
     return ""
 
 
+DOCTOR_RUNTIME_IDS = frozenset({"minecraft", "java", "fabricloader", "quilt_loader",
+                                "quilted_fabric_loader", "forge", "neoforge"})
+
+
 def _doctor_runtime_versions(mc_version: str, loader: str, version_id: str | None) -> dict:
     """Loader-provided dependencies, with versions from the selected profile.
 
@@ -2106,6 +2110,7 @@ def _doctor_runtime_versions(mc_version: str, loader: str, version_id: str | Non
             profile = json.load(source)
         prefixes = {"forge": "net.minecraftforge:fmlloader:", "neoforge": "net.neoforged:neoforge:",
                     "fabric": "net.fabricmc:fabric-loader:", "quilt": "org.quiltmc:quilt-loader:"}
+        library_root = os.path.realpath(os.path.join(MINECRAFT_DIR, "libraries"))
         for library in profile.get("libraries", []):
             name = library.get("name", "")
             prefix = prefixes.get(loader)
@@ -2114,6 +2119,20 @@ def _doctor_runtime_versions(mc_version: str, loader: str, version_id: str | Non
                 if loader == "forge":
                     value = value.removeprefix(mc_version + "-")
                 runtime[keys[0]] = value
+                if loader in ("fabric", "quilt"):
+                    # Fabric bundles MixinExtras inside its loader JAR; it
+                    # isn't a separate file in mods/. Read the selected
+                    # loader's actual nested metadata, using the same bounded
+                    # stat cache as installed mods, without a network lookup.
+                    group, artifact, version = name.split(":")[:3]
+                    relative = os.path.join(group.replace(".", os.sep), artifact,
+                                            version, f"{artifact}-{version}.jar")
+                    loader_path = os.path.realpath(os.path.join(library_root, relative))
+                    if os.path.commonpath((library_root, loader_path)) == library_root:
+                        _, bundled = _doctor_metadata(loader_path, loader)
+                        runtime.update({identity: bundled_version
+                                        for identity, bundled_version in bundled.items()
+                                        if identity not in DOCTOR_RUNTIME_IDS and bundled_version})
         args = profile.get("arguments", {}).get("game", [])
         flag = "--fml.forgeVersion" if loader == "forge" else "--fml.neoForgeVersion"
         if loader in ("forge", "neoforge") and flag in args:
@@ -2758,7 +2777,7 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
         for dep_id, predicate in (meta.get("depends") or {}).items():
             dep_key = str(dep_id).lower()
             # Minecraft itself and the loader are always "present".
-            if dep_key in runtime_versions:
+            if dep_key in runtime_versions and dep_key in DOCTOR_RUNTIME_IDS:
                 actual = runtime_versions[dep_key]
                 if dep_key != "minecraft" and actual and not version_satisfies(actual, predicate):
                     _report("loader-version", m.get("display_name"),
@@ -2770,7 +2789,9 @@ def mod_doctor(mc_version: str | None, loader: str | None, *,
                 # Not an enabled mod of its own - it may still be a module
                 # bundled inside one. The version comes from the nested jar so
                 # a predicate like ">=2.0.0" is still checked honestly.
-                bundled_version = provided.get(dep_key)
+                versions = [version for version in (provided.get(dep_key), runtime_versions.get(dep_key))
+                            if version is not None]
+                bundled_version = max(versions, key=cmp_to_key(_cmp_versions)) if versions else None
                 if bundled_version is not None:
                     if version_satisfies(bundled_version or "*", predicate):
                         continue
