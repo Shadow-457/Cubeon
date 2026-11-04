@@ -613,10 +613,15 @@ keep builders consistent with the shared `THEME` contract.
 - `sync_mods_to_game`'s copy fallback removes a partially written destination and raises a
   `RuntimeError` naming the jar (chained from the original error); never leave a truncated jar in
   `MINECRAFT_DIR/mods`.
-- Mod staging retains an unchanged jar only when it is recorded as launcher-owned
-  and `os.path.samefile` matches the selected profile's chosen file. Names/mtimes
-  cannot prove identity across profiles. Unchanged ownership manifests and global-store
+- Mod staging retains launcher-owned jars when `os.path.samefile` matches, or a
+  successful fallback-copy receipt matches both the selected source and destination.
+  `file_safety.copy_source_stamp` uses canonical path, device/inode, size, nanosecond
+  mtime/ctime and mode; folder packs include every nested entry and reject symlinked
+  trees for reuse. Names/mtimes alone cannot prove identity across profiles. Hidden
+  `<staging-marker>.copies` JSON receipts are optional; missing/invalid receipts
+  trigger normal copying. Unchanged ownership manifests, receipts and global-store
   links stay untouched; disabled/stale/dangling managed entries are still removed.
+  `tools/test_launch_staging_io.py` verifies fallback copies without hardlinks/symlinks.
 - Keyless CF entries are named `mods/<fileID>.jar`, so after download `_relocate_non_mod_jar` moves an
   archive with `pack.mcmeta` and no mod metadata to the instance's `resourcepacks/`; unresolvable
   entries are counted and reported through `status_cb`, never dropped silently.
@@ -1325,6 +1330,11 @@ requires retrying with normal system access, not changing unrelated app code.
 
 ## Releases and hosted services
 
+- Cubeon Bench is served at `/cubeon-bench`; its `<base href="/cubeon-bench/">`
+  keeps relative editor assets working when hosting strips the trailing slash.
+  Direct `file:` mode removes that base. Its browser harness serves the parent `web/`
+  directory. All main-site pages use the shared `.nav-bench`/`.nav-beta` rules in
+  `web/assets/site.css`, inside the desktop navigation and mobile menu.
 - `tools/translate_website.py` applies body and attribute edits together in descending original
   offsets; changing body lengths before attribute replacements corrupts tags and links. Relative
   `srcset` entries must become root asset paths on locale pages. Arabic checks use `check --lang ar`;

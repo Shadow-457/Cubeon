@@ -6829,20 +6829,11 @@ mod tests {
 
     #[test]
     fn partially_visible_keybind_rows_are_clipped_and_clickable() {
-        let mut atlas = atlas();
-        let button = crate::hud::Rect {
-            u0: 0.25,
-            v0: 0.25,
-            u1: 0.5,
-            v1: 0.5,
-            w: 20,
-            h: 20,
-        };
-        for name in ["button", "button_disabled", "button_highlighted"] {
-            atlas
-                .sprites
-                .insert(format!("gui/sprites/widget/{name}"), button);
-        }
+        let atlas = atlas();
+        // Glass controls use solid fills rather than vanilla button sprites.
+        let mut sample = HudBatch::new([480, 240]);
+        sample.fill(&atlas, 0.0, 0.0, 1.0, 1.0, u32::MAX);
+        let fill_uv = sample.vertices[0].uv;
         for above in [true, false] {
             let mut s = Settings::default();
             let mut ui = OptionsUi::default();
@@ -6877,8 +6868,7 @@ mod tests {
                 .vertices
                 .iter()
                 .filter(|v| {
-                    (0.25..=0.5).contains(&v.uv[0])
-                        && (0.25..=0.5).contains(&v.uv[1])
+                    v.uv == fill_uv
                         && v.pos[0] >= x
                         && v.pos[0] <= x + width
                         && v.pos[1] >= row_y
