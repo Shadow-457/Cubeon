@@ -54,7 +54,7 @@ impl Interact {
     /// `DoorInteractGoal.canUse`: the mob bumped into something and a
     /// wooden door is on its path within 1.5 blocks, or at its own head.
     fn can_use(&mut self, m: &Mob, w: &MobWorld) -> bool {
-        if !can_navigate_ground(m) || !m.cubeontal_collision {
+        if !can_navigate_ground(m) || !m.horizontal_collision {
             return false;
         }
         let Some(path) = m.ai.nav.path.as_ref().filter(|p| !p.is_done()) else {

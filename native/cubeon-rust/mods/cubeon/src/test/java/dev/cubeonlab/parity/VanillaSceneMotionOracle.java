@@ -333,7 +333,7 @@ public final class VanillaSceneMotionOracle {
         AABB b=p.getBoundingBox();
         for(var v:List.of(p.position(),p.getDeltaMovement(),new Vec3(b.minX,b.minY,b.minZ),new Vec3(b.maxX,b.maxY,b.maxZ)))
             out.printf("%016x %016x %016x ",Double.doubleToLongBits(v.x),Double.doubleToLongBits(v.y),Double.doubleToLongBits(v.z));
-        out.printf("%s %s %s %s %s %s %s %016x %s %s %s %08x %d %08x %d %d %s | %s%n",p.cubeontalCollision,p.verticalCollision,p.verticalCollisionBelow,p.minorCubeontalCollision,
+        out.printf("%s %s %s %s %s %s %s %016x %s %s %s %08x %d %08x %d %d %s | %s%n",p.horizontalCollision,p.verticalCollision,p.verticalCollisionBelow,p.minorHorizontalCollision,
             p.onGround(),noBlocks.getBoolean(p),pos(support.get(p)),Double.doubleToLongBits(p.fallDistance),pos(last.get(p)),p.needsSync,p.syncPosition,Float.floatToIntBits(storedSpeed.getFloat(p)),delay.getInt(p),Float.floatToIntBits(p.yHeadRot),trigger.getInt(p),grace.getInt(p),impact.get(p)==null?"none":vectorBits((Vec3)impact.get(p)),String.join(";",attributes));
         out.println("events "+String.join(" | ",p.events));p.events.clear();
         out.println("block "+Block.getId(p.level().getBlockState(new BlockPos(25,3,25)))+" frozen "+p.frozen+" "+p.isInPowderSnow+" "+p.wasInPowderSnow+" "+vectorBits((Vec3)stuck.get(p))+" fluid "+p.fluidState()+" "+p.swimState());

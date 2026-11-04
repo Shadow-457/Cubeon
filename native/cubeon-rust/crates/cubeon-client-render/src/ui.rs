@@ -636,7 +636,7 @@ pub fn slider_ext(
     value: f32,
     hover: bool,
     focused: bool,
-    can_change_value: bool,
+    _can_change_value: bool,
     active: bool,
     dragging: bool,
 ) {
@@ -677,6 +677,7 @@ fn slider_sprites(hover: bool, active: bool, dragging: bool) -> (&'static str, &
 
 /// Track and handle sprites: the track outline shows while dragged or focused with
 /// keyboard navigation (!can_change_value), hovering or editing highlights the handle.
+#[cfg(test)]
 fn slider_sprites_ext(
     hover: bool,
     active: bool,
@@ -898,7 +899,7 @@ pub fn tooltip_menu(
 }
 /// `MenuTooltipPositioner.positionTooltip`: the tooltip's top left with the
 /// pointer at `cursor`, the widget it belongs to at `rect`, and the screen.
-/// `MARGIN` 5 and `MOUSE_OFFSET_X` 12 on the cubeontal, and the
+/// `MARGIN` 5 and `MOUSE_OFFSET_X` 12 on the horizontal, and the
 /// `MAX_OVERLAP_WITH_WIDGET` 3 and `MAX_DISTANCE_TO_WIDGET` 5 of the vertical
 /// offset from the widget's top or bottom edge.
 pub fn menu_tooltip_position(

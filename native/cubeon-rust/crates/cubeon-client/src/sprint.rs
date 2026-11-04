@@ -60,8 +60,8 @@ pub struct Conditions {
     pub swimming: bool,
     pub in_water: bool,
     pub on_ground: bool,
-    pub cubeontal_collision: bool,
-    pub minor_cubeontal_collision: bool,
+    pub horizontal_collision: bool,
+    pub minor_horizontal_collision: bool,
 }
 impl Conditions {
     fn possible(self, allow_shallow_water: bool) -> bool {
@@ -87,7 +87,7 @@ impl Conditions {
         } else {
             !self.possible(self.flying)
                 || !forward
-                || (self.cubeontal_collision && !self.minor_cubeontal_collision)
+                || (self.horizontal_collision && !self.minor_horizontal_collision)
         }
     }
 }

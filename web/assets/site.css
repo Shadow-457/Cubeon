@@ -145,6 +145,11 @@ main{display:block}
   .nav-cta{text-align:center;justify-content:center;display:flex}
 }
 
+/* Bench is a navigation item, with a quiet status badge. */
+.nav-links .nav-bench{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.nav-links .nav-beta{font:600 9px/1.2 'Inter',system-ui,sans-serif;letter-spacing:.03em;text-transform:none;padding:3px 5px;border-radius:4px;border:1px solid currentColor;opacity:.68}
+@media(min-width:881px) and (max-width:1100px){.navbar .wrap{gap:12px}.nav-links{gap:3px}.nav-links a{padding-inline:9px;font-size:13px}}
+
 /* ---- hero: literal grass-block colour split, no gradient blur ---- */
 .hero{border-bottom:4px solid var(--dirt);padding:clamp(46px,7vw,86px) 0 clamp(40px,6vw,72px)}
 .hero-in{display:grid;grid-template-columns:1.05fr .95fr;gap:52px;align-items:center}

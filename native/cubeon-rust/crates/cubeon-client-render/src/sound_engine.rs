@@ -77,7 +77,7 @@ pub enum Ticking {
 pub struct CartSound {
     pub id: u32,
     pub position: [f64; 3],
-    /// `getDeltaMovement().cubeontalDistance()`.
+    /// `getDeltaMovement().horizontalDistance()`.
     pub speed: f64,
 }
 /// What a bee's or a guardian's sound instance reads about it.
@@ -85,7 +85,7 @@ pub struct CartSound {
 pub struct MobSound {
     pub id: u32,
     pub position: [f64; 3],
-    /// `getDeltaMovement().cubeontalDistance()`.
+    /// `getDeltaMovement().horizontalDistance()`.
     pub speed: f64,
     pub baby: bool,
     /// `Bee.isAngry`.

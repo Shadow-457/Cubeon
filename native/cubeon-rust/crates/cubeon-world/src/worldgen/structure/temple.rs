@@ -1,7 +1,7 @@
 //! Desert pyramids and jungle temples (DesertPyramidPiece, JungleTemplePiece).
 use super::{
     BoundingBox,
-    legacy::{CUBEONTAL, LegacyPiece, PieceContext, Result, random_cubeontal},
+    legacy::{HORIZONTAL, LegacyPiece, PieceContext, Result, random_horizontal},
     simple::Scattered,
 };
 use crate::nbt::{Compound, Tag};
@@ -19,7 +19,7 @@ pub struct DesertPyramidPiece {
 }
 impl DesertPyramidPiece {
     pub fn new(random: &mut impl RandomSource, west: i32, north: i32) -> Self {
-        let direction = random_cubeontal(random);
+        let direction = random_horizontal(random);
         Self {
             base: Scattered::new(west, 64, north, 21, 15, 21, direction),
             placed_chest: Mutex::new([false; 4]),
@@ -302,7 +302,7 @@ impl LegacyPiece for DesertPyramidPiece {
             f.place(c, chiseled, ox, -10, oz)?;
             f.place(c, cut, ox, -11, oz)?;
         }
-        for (i, d) in CUBEONTAL.into_iter().enumerate() {
+        for (i, d) in HORIZONTAL.into_iter().enumerate() {
             if !self.placed_chest.lock().unwrap()[i] {
                 let s = d.normal();
                 let placed = f.create_chest(
@@ -447,7 +447,7 @@ pub struct JungleTemplePiece {
 }
 impl JungleTemplePiece {
     pub fn new(random: &mut impl RandomSource, west: i32, north: i32) -> Self {
-        let direction = random_cubeontal(random);
+        let direction = random_horizontal(random);
         Self {
             base: Scattered::new(west, 64, north, 12, 10, 15, direction),
             placed: Mutex::new([false; 4]),

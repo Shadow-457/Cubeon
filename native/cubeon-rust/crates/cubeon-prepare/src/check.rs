@@ -21,20 +21,22 @@ pub(crate) fn write_stamp(resources: &Path) -> Result<(), String> {
 }
 
 pub(crate) fn remove_stamp(resources: &Path) -> Result<(), String> {
-    let path = resources.join(STAMP);
-    match std::fs::remove_file(&path) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-            Err(format!("{}: {e}", path.display()))
+    for name in [STAMP, "horizon-prepare.json"] {
+        let path = resources.join(name);
+        match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(format!("{}: {e}", path.display())),
+            _ => {}
         }
-        _ => Ok(()),
     }
+    Ok(())
 }
 
 /// What the resources at `resources` lack for `root`'s pinned version, each with what to run;
 /// empty when they are complete and current. Err when `root` has no readable research-lock.json.
 pub fn check(root: &Path, resources: &Path) -> Result<Vec<String>, String> {
     let lock = Lock::read(root)?;
-    let manifest_path = resources.join("cubeon-resources.json");
+    let current_manifest = resources.join("cubeon-resources.json");
+    let manifest_path = if current_manifest.exists() { current_manifest } else { resources.join("horizon-resources.json") };
     if !manifest_path.is_file() {
         return Ok(vec![format!(
             "{} is not prepared: cubeon-prepare --prepare",
@@ -58,7 +60,9 @@ pub fn check(root: &Path, resources: &Path) -> Result<Vec<String>, String> {
             lock.version
         ));
     }
-    let stamp = read_json(&resources.join(STAMP)).ok();
+    let current_stamp = resources.join(STAMP);
+    let stamp_path = if current_stamp.exists() { current_stamp } else { resources.join("horizon-prepare.json") };
+    let stamp = read_json(&stamp_path).ok();
     let made_by = int(stamp.as_ref().and_then(|s| s.get("output_version")));
     if made_by != Some(i64::from(OUTPUT_VERSION)) {
         lacking.push(format!(
@@ -234,6 +238,11 @@ mod tests {
         file(&assets.join("pack.mcmeta"), b"{}");
         file(&assets.join("minecraft/sounds.json"), b"{}");
         assert_eq!(check(&root, &out).unwrap(), Vec::<String>::new());
+        // The same verified resources remain launchable after the branding rename.
+        fs::rename(out.join("cubeon-resources.json"), out.join("horizon-resources.json")).unwrap();
+        fs::rename(out.join(STAMP), out.join("horizon-prepare.json")).unwrap();
+        assert_eq!(check(&root, &out).unwrap(), Vec::<String>::new());
+        fs::rename(out.join("horizon-prepare.json"), out.join(STAMP)).unwrap();
 
         fs::remove_file(assets.join("minecraft/font/unifont.zip")).unwrap();
         fs::remove_file(out.join(STAMP)).unwrap();

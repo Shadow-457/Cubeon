@@ -1734,10 +1734,10 @@ fn playsound_placement(
 /// to -180..180 as `Mth.wrapDegrees` does.
 pub(super) fn look_at(from: [f64; 3], to: [f64; 3]) -> [f32; 2] {
     let (dx, dy, dz) = (to[0] - from[0], to[1] - from[1], to[2] - from[2]);
-    let cubeontal = (dx * dx + dz * dz).sqrt();
+    let horizontal = (dx * dx + dz * dz).sqrt();
     // `Entity.lookAt` turns radians to degrees with the float constant
     // `57.2957763671875`, not `Math.toDegrees`.
-    let pitch = wrap_degrees((-(dy.atan2(cubeontal) * 57.295_776_367_187_5)) as f32);
+    let pitch = wrap_degrees((-(dy.atan2(horizontal) * 57.295_776_367_187_5)) as f32);
     let yaw = (dz.atan2(dx) * 57.295_776_367_187_5) as f32 - 90.0;
     [wrap_degrees(yaw), pitch]
 }

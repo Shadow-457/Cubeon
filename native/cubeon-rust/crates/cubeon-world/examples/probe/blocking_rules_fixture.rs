@@ -67,7 +67,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|r| {
                     let set = r["set"].as_u64().unwrap();
                     DamageReduction {
-                        cubeontal_angle: single(&r["angle"]),
+                        horizontal_angle: single(&r["angle"]),
                         types: (set != 0).then_some(set),
                         base: single(&r["base"]),
                         factor: single(&r["factor"]),

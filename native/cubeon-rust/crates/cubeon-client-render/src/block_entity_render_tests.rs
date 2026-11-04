@@ -30,7 +30,7 @@ fn quad() -> [[f32; 5]; 4] {
     ]
 }
 
-fn cubeontal_quad() -> [[f32; 5]; 4] {
+fn horizontal_quad() -> [[f32; 5]; 4] {
     [
         [0.0, 0.0, 0.0, 0.0, 0.0],
         [16.0, 0.0, 0.0, 1.0, 0.0],
@@ -94,7 +94,7 @@ fn bell_renderer() -> BlockEntityRenderer {
 fn chest_model(offset: f32) -> ModelPart {
     let chest_part = |y| ModelPart {
         pose: [0.0, y, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
-        polygons: vec![quad(), cubeontal_quad()],
+        polygons: vec![quad(), horizontal_quad()],
         children: Vec::new(),
     };
     ModelPart {

@@ -194,7 +194,7 @@ fn ramming_start(m: &mut Mob, w: &MobWorld, target: [i32; 3]) -> Option<[i32; 3]
     if !walkable(m, w, target) {
         return None;
     }
-    // Direction.Plane.CUBEONTAL: north, east, south, west.
+    // Direction.Plane.HORIZONTAL: north, east, south, west.
     let mut starts = Vec::new();
     for (dx, dz) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
         let mut p = target;

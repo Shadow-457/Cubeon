@@ -24,7 +24,7 @@ import net.minecraft.world.level.block.state.BlockState;
 /**
  * Original oracle: which chests join into a double chest. Each case line is
  * JSON: a chest's block state ("state") at the origin and another block state
- * ("other") at the cubeontal offset "at" ([dx, dz]); each holds the block
+ * ("other") at the horizontal offset "at" ([dx, dz]); each holds the block
  * entity its block makes (EntityBlock.newBlockEntity). Runs
  * DoubleBlockCombiner.combineWithNeigbour as ChestBlock.combine(state, level,
  * pos, true) calls it (the block's blockEntityType, ChestBlock.getBlockType,

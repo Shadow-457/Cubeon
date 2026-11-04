@@ -13,7 +13,7 @@ pub enum MoverType {
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CollisionFlags {
-    pub cubeontal: bool,
+    pub horizontal: bool,
     pub vertical: bool,
     pub below: bool,
     pub minor: bool,
@@ -76,10 +76,10 @@ pub trait EntityMoveWorld {
     fn set_on_ground_with_movement(
         &mut self,
         below: bool,
-        cubeontal: bool,
+        horizontal: bool,
         movement: Vec3,
     ) -> Result<(), Self::Error>;
-    fn minor_cubeontal_collision(&mut self, movement: Vec3) -> Result<bool, Self::Error>;
+    fn minor_horizontal_collision(&mut self, movement: Vec3) -> Result<bool, Self::Error>;
     fn legacy_on_position(&mut self) -> Result<BlockPos, Self::Error>;
     fn block_state(&mut self, p: BlockPos) -> Result<BlockStateId, Self::Error>;
     fn on_ground(&mut self) -> Result<bool, Self::Error>;
@@ -170,7 +170,7 @@ pub fn move_entity<W: EntityMoveWorld>(
     let x = different(movement.x, resolved.x);
     let z = different(movement.z, resolved.z);
     let mut flags = world.collision_flags();
-    flags.cubeontal = x || z;
+    flags.horizontal = x || z;
     world.set_collision_flags(flags);
     let nonzero_y = movement.y.abs() > 0.0;
     if nonzero_y || world.locally_authoritative()? {
@@ -178,10 +178,10 @@ pub fn move_entity<W: EntityMoveWorld>(
         flags.vertical = movement.y != resolved.y;
         flags.below = flags.vertical && movement.y < 0.0;
         world.set_collision_flags(flags);
-        world.set_on_ground_with_movement(flags.below, flags.cubeontal, resolved)?;
+        world.set_on_ground_with_movement(flags.below, flags.horizontal, resolved)?;
     }
-    let minor = if world.collision_flags().cubeontal {
-        world.minor_cubeontal_collision(resolved)?
+    let minor = if world.collision_flags().horizontal {
+        world.minor_horizontal_collision(resolved)?
     } else {
         false
     };
@@ -198,7 +198,7 @@ pub fn move_entity<W: EntityMoveWorld>(
         return Ok(());
     }
     if world.can_simulate()?
-        && (nonzero_y && world.collision_flags().vertical || world.collision_flags().cubeontal)
+        && (nonzero_y && world.collision_flags().vertical || world.collision_flags().horizontal)
     {
         world.restitute(state, x, z, resolved)?;
     }
@@ -212,7 +212,7 @@ pub fn move_entity<W: EntityMoveWorld>(
     let velocity = scale_by_block_speed(world.velocity()?, factor);
     world.set_velocity(velocity)
 }
-/// The last step of `Entity.move`: the cubeontal velocity is multiplied by
+/// The last step of `Entity.move`: the horizontal velocity is multiplied by
 /// `getBlockSpeedFactor()` (soul sand, honey), the vertical one is untouched.
 /// Every kind of entity ends its move here, so the player and the mobs share
 /// this one definition.

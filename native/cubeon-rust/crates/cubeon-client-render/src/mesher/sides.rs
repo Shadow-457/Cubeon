@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::{OPAQUE_LAYER, TerrainVertex};
 
 /// The buckets in mesh order: +X, +Z, other, +Y, -Z, -X, -Y. Seen from
-/// above (+Y, the commonest case), each pair of cubeontal sides with a
+/// above (+Y, the commonest case), each pair of horizontal sides with a
 /// common corner is then one run, or two.
 const BUCKETS: [Bucket; 7] = [
     Bucket::Side(0, true),

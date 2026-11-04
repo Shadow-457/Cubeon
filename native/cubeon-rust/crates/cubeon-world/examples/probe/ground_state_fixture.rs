@@ -36,7 +36,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let initial = &f["initial"];
         let mut state = GroundState {
             on_ground: initial["grounded"].as_bool().unwrap(),
-            cubeontal_collision: initial["cubeontal"].as_bool().unwrap(),
+            horizontal_collision: initial["horizontal"].as_bool().unwrap(),
             on_ground_no_blocks: initial["empty"].as_bool().unwrap(),
             supporting_block: position(&initial["support"]),
         };
@@ -75,14 +75,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 0 => state.check_support(ground, bounds, movement, find),
                 1 => state.set_with_movement(
                     ground,
-                    state.cubeontal_collision,
+                    state.horizontal_collision,
                     bounds,
                     movement,
                     find,
                 ),
                 2 => state.set_with_movement(
                     ground,
-                    op["cubeontal"].as_bool().unwrap(),
+                    op["horizontal"].as_bool().unwrap(),
                     bounds,
                     movement,
                     find,
@@ -97,7 +97,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             writeln!(
                 out,
                 "flags {} {} {}",
-                state.on_ground, state.cubeontal_collision, state.on_ground_no_blocks
+                state.on_ground, state.horizontal_collision, state.on_ground_no_blocks
             )?;
             if let Some(p) = state.supporting_block {
                 writeln!(out, "support {} {} {}", p.x, p.y, p.z)?;

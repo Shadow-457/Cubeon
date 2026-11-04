@@ -52,7 +52,7 @@ pub fn can_reach(chunk: ChunkPos, x: f64, z: f64, step: i32, end: i32, thickness
 pub fn carve_ellipsoid<O: CarverOutput>(
     chunk: ChunkPos,
     center: [f64; 3],
-    cubeontal: f64,
+    horizontal: f64,
     vertical: f64,
     output: &mut O,
     skip: impl FnMut([f64; 3], i32) -> bool,
@@ -60,7 +60,7 @@ pub fn carve_ellipsoid<O: CarverOutput>(
     carve_ellipsoid_with_budget(
         chunk,
         center,
-        cubeontal,
+        horizontal,
         vertical,
         output,
         skip,
@@ -73,7 +73,7 @@ pub fn carve_ellipsoid<O: CarverOutput>(
 pub fn carve_ellipsoid_with_budget<O: CarverOutput>(
     chunk: ChunkPos,
     [x, y, z]: [f64; 3],
-    cubeontal: f64,
+    horizontal: f64,
     vertical: f64,
     output: &mut O,
     mut skip: impl FnMut([f64; 3], i32) -> bool,
@@ -81,28 +81,28 @@ pub fn carve_ellipsoid_with_budget<O: CarverOutput>(
 ) -> Result<(), CarveError<O::Error>> {
     let cx = chunk.x.wrapping_shl(4);
     let cz = chunk.z.wrapping_shl(4);
-    let reach = 16. + cubeontal * 2.;
+    let reach = 16. + horizontal * 2.;
     if (x - f64::from(cx.wrapping_add(8))).abs() > reach
         || (z - f64::from(cz.wrapping_add(8))).abs() > reach
     {
         return Ok(());
     }
-    let min_x = floor_i32(x - cubeontal)
+    let min_x = floor_i32(x - horizontal)
         .wrapping_sub(cx)
         .wrapping_sub(1)
         .max(0);
-    let max_x = floor_i32(x + cubeontal).wrapping_sub(cx).min(15);
+    let max_x = floor_i32(x + horizontal).wrapping_sub(cx).min(15);
     let min_y = floor_i32(y - vertical).wrapping_sub(1).max(output.min_y());
     let max_y = floor_i32(y + vertical).wrapping_add(1).min(output.max_y());
-    let min_z = floor_i32(z - cubeontal)
+    let min_z = floor_i32(z - horizontal)
         .wrapping_sub(cz)
         .wrapping_sub(1)
         .max(0);
-    let max_z = floor_i32(z + cubeontal).wrapping_sub(cz).min(15);
+    let max_z = floor_i32(z + horizontal).wrapping_sub(cz).min(15);
     for lx in min_x..=max_x {
-        let nx = (f64::from(cx.wrapping_add(lx)) + 0.5 - x) / cubeontal;
+        let nx = (f64::from(cx.wrapping_add(lx)) + 0.5 - x) / horizontal;
         for lz in min_z..=max_z {
-            let nz = (f64::from(cz.wrapping_add(lz)) + 0.5 - z) / cubeontal;
+            let nz = (f64::from(cz.wrapping_add(lz)) + 0.5 - z) / horizontal;
             if nx * nx + nz * nz >= 1. {
                 continue;
             }

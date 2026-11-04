@@ -487,7 +487,7 @@ fn mineshaft_top(
 ) -> i32 {
     let (x, z) = (start[0] + 7, start[2] + 7);
     let mut terrain = floor(x, z) - 1;
-    // Plane.CUBEONTAL's order; the mod takes one more off after each.
+    // Plane.HORIZONTAL's order; the mod takes one more off after each.
     for (dx, dz) in [(0, -16), (16, 0), (0, 16), (-16, 0)] {
         terrain = terrain.min(floor(x + dx, z + dz)) - 1;
     }

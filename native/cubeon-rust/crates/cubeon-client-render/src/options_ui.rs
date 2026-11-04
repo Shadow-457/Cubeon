@@ -2024,6 +2024,7 @@ fn pairs(opts: &[Opt]) -> Vec<Row> {
 }
 impl OptionsUi {
     /// A switch of `cubeon-extras.txt` as the Extras page draws it: "Caption: On".
+    #[cfg(test)]
     fn extra_button(&self, s: &Settings, item: crate::extras::Item) -> Widget {
         let label = Text::option_name_value(
             Text::literal(item.caption_text()),
@@ -4837,7 +4838,7 @@ impl OptionsUi {
                     .map_or(150.0, |wd| wd.w);
                 return self.step_slider_option(s, opt, forward, width);
             }
-            // Otherwise, navigate cubeontally using 2D focus stepping
+            // Otherwise, navigate horizontally using 2D focus stepping
             if let Some(fid) = &self.focus {
                 if let Some(cur_pos) = focusables.iter().position(|(id, ..)| id == fid) {
                     let from = focusables[cur_pos].1;
@@ -7329,7 +7330,7 @@ mod tests {
         assert_ne!(
             ui.focus,
             Some(FocusId::Slider(Opt::Fov)),
-            "Focus moved to next widget cubeontally"
+            "Focus moved to next widget horizontally"
         );
 
         // 6. Navigate back to FOV slider with Left Arrow

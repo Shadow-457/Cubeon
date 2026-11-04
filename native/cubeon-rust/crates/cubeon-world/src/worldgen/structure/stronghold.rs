@@ -2,7 +2,7 @@
 //! ring positions of ChunkGeneratorStructureState.
 use super::{
     BoundingBox,
-    legacy::{LegacyPiece, PieceContext, PieceFrame, Result, make_bounding_box, random_cubeontal},
+    legacy::{LegacyPiece, PieceContext, PieceFrame, Result, make_bounding_box, random_horizontal},
 };
 use crate::{registry::BlockStateId, worldgen::biome::BiomeId};
 use cubeon_core::{
@@ -13,7 +13,7 @@ use cubeon_core::{
 use std::{collections::BTreeSet, f64::consts::PI, sync::Mutex};
 
 /// ChunkGeneratorStructureState.generateRingPositions with
-/// BiomeSource.findBiomeCubeontal (radius 112, step 1, not closest).
+/// BiomeSource.findBiomeHorizontal (radius 112, step 1, not closest).
 /// `biomes` samples a search's quarts in order, as one caching resolver.
 pub fn ring_positions(
     seed: i64,
@@ -29,7 +29,7 @@ pub fn ring_positions(
         .collect()
 }
 
-/// findBiomeCubeontal's radius, 112 blocks, in quarts.
+/// findBiomeHorizontal's radius, 112 blocks, in quarts.
 const SEARCH_QUARTS: i32 = 28;
 
 /// One ring position before its biome search: the chunk on the ring and the
@@ -48,7 +48,7 @@ impl RingSearch {
         let reach = (SEARCH_QUARTS * 4 + 8 + 15) / 16 + margin;
         (self.x - x).abs() <= reach && (self.z - z).abs() <= reach
     }
-    /// BiomeSource.findBiomeCubeontal around the ring chunk's centre: a
+    /// BiomeSource.findBiomeHorizontal around the ring chunk's centre: a
     /// random preferred biome within 112 blocks, else the ring chunk itself.
     ///
     /// Vanilla samples the square in order on one thread, and its climate
@@ -56,7 +56,7 @@ impl RingSearch {
     /// keeps it on a tie; so `biomes` gets the whole square at once, in
     /// vanilla's order. Fresh lookups moved seed 1234's first stronghold 6
     /// chunks: one quart on a lush caves / ocean tie went to the ocean.
-    /// `FixedBiomeSource.findBiomeCubeontal`: the one biome is allowed or it is not, and an
+    /// `FixedBiomeSource.findBiomeHorizontal`: the one biome is allowed or it is not, and an
     /// allowed one gives a random block of the square (two draws), not the reservoir search.
     pub fn find_fixed(
         &self,
@@ -493,7 +493,7 @@ pub fn generate(
     loop {
         random.set_large_feature_seed(seed.wrapping_add(tries), chunk[0], chunk[1]);
         tries += 1;
-        let d = random_cubeontal(random);
+        let d = random_horizontal(random);
         let b = make_bounding_box(chunk[0] * 16 + 2, 64, chunk[1] * 16 + 2, d, 5, 11, 5);
         let mut g = Builder {
             pieces: vec![Builder::piece(Kind::Start, b, d, 0)],

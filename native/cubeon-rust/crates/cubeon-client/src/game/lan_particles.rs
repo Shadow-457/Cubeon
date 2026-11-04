@@ -323,7 +323,7 @@ impl Game<'_> {
         known_movement: Vec3,
         living: bool,
     ) {
-        // `particle_velocity` refuses no cubeontal movement before any draw,
+        // `particle_velocity` refuses no horizontal movement before any draw,
         // so a resting entity skips the sweep (most items, orbs and carts).
         if self.remote.is_some() || (known_movement.x == 0.0 && known_movement.z == 0.0) {
             return;
@@ -873,7 +873,7 @@ mod tests {
     }
 
     /// `PowderSnowBlock.entityInside`: vertical-only movement skips the roll;
-    /// cubeontal movement uses nextBoolean, then X and Z floats in order.
+    /// horizontal movement uses nextBoolean, then X and Z floats in order.
     #[test]
     fn powder_snow_snowflakes_use_the_vanilla_movement_gate_and_random_order() {
         let mut stationary = LegacyRandom::new(1);

@@ -4,8 +4,8 @@
 use super::{
     LevelAccess, Sim,
     classes::Class,
-    query::is_cubeontal,
-    update::{CUBEONTAL, above, below, rel},
+    query::is_horizontal,
+    update::{HORIZONTAL, above, below, rel},
 };
 use crate::registry::BlockStateId;
 use cubeon_core::{geometry::Direction, position::BlockPos};
@@ -83,7 +83,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     || b.in_set(below, &t.enables_bubble_column_drag_down)
             }
             Class::Cactus => {
-                for direction in CUBEONTAL {
+                for direction in HORIZONTAL {
                     let at = rel(pos, direction);
                     if b.is_solid(self.state(at)) || b.is_lava_fluid(self.fluid_at(at).kind()) {
                         return Some(false);
@@ -106,7 +106,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     return Some(false);
                 }
                 let mut one = false;
-                for direction in CUBEONTAL {
+                for direction in HORIZONTAL {
                     let neighbour = self.rel_state(pos, direction);
                     if b.is_block(neighbour, n.chorus_plant) {
                         if one {
@@ -122,7 +122,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Class::ChorusPlant => {
                 let below_state = self.below_state(pos);
                 let vertical = !b.is_air(self.above_state(pos)) && !b.is_air(below_state);
-                for direction in CUBEONTAL {
+                for direction in HORIZONTAL {
                     let neighbour_pos = rel(pos, direction);
                     if b.is_block(self.state(neighbour_pos), block) {
                         if vertical {
@@ -185,7 +185,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     self.can_survive_at(depth + 1, state, pos)
                 }
             }
-            Class::FaceAttachedCubeontalDirectional => {
+            Class::FaceAttachedHorizontalDirectional => {
                 let direction = self.face_attached_connected(state).opposite();
                 self.sturdy(rel(pos, direction), direction.opposite())
             }
@@ -321,7 +321,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 }
                 if b.in_set(below_state, &t.supports_sugar_cane) {
                     let below = below(pos);
-                    for direction in CUBEONTAL {
+                    for direction in HORIZONTAL {
                         let at = rel(below, direction);
                         // Read block state before fluid state, matching vanilla's call order.
                         let adjacent = self.state(at);
@@ -337,7 +337,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::TripWireHook => {
                 let facing = b.facing(state);
-                is_cubeontal(facing) && self.sturdy(rel(pos, facing.opposite()), facing)
+                is_horizontal(facing) && self.sturdy(rel(pos, facing.opposite()), facing)
             }
             Class::Vegetation => {
                 let below = below(pos);
@@ -436,7 +436,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             _ => self.b.facing(state).opposite(),
         }
     }
-    /// `FaceAttachedCubeontalDirectionalBlock.getConnectedDirection`.
+    /// `FaceAttachedHorizontalDirectionalBlock.getConnectedDirection`.
     pub(crate) fn face_attached_connected(&self, state: BlockStateId) -> Direction {
         match self.b.table.text(state, self.b.props.face) {
             "ceiling" => Direction::Down,
@@ -533,7 +533,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         } else if b.is_face_sturdy(below_state, Direction::Up) {
             return 0;
         }
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let neighbour = self.rel_state(pos, direction);
             if b.is_block(neighbour, b.named.scaffolding) {
                 distance = distance.min(b.table.int(neighbour, b.props.distance) + 1);
@@ -571,7 +571,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             state = b.table.set_bool(state, p.up, accept);
         }
         let mut above_state = None;
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let key = self.direction_prop(direction);
             if b.table.bool(state, key) {
                 let mut support = self.vine_can_support_at_face(state, pos, direction);

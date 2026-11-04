@@ -323,7 +323,7 @@ impl CoralFeature {
             }
             let top = pos;
             let branches = random.next_int_bound(3)? + 2;
-            let mut directions = tb::CUBEONTAL;
+            let mut directions = tb::HORIZONTAL;
             tb::shuffle(&mut directions, random)?;
             for &direction in directions.iter().take(branches as usize) {
                 let mut pos = tb::relative(top, direction, 1);
@@ -345,7 +345,7 @@ impl CoralFeature {
         if !nested(feature, world, random, origin)? {
             return Ok(false);
         }
-        let claw = tb::CUBEONTAL[random.next_int_bound(4)? as usize];
+        let claw = tb::HORIZONTAL[random.next_int_bound(4)? as usize];
         let branches = random.next_int_bound(2)? + 2;
         let mut possible = [claw, tb::clockwise(claw), counter_clockwise(claw)];
         tb::shuffle(&mut possible, random)?;
@@ -627,7 +627,7 @@ impl MultifaceGrowthFeature {
             directions.push(Direction::Down);
         }
         if flag("can_place_on_wall")? {
-            directions.extend(tb::CUBEONTAL);
+            directions.extend(tb::HORIZONTAL);
         }
         Ok(Self {
             block,

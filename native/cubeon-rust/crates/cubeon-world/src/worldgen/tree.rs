@@ -365,7 +365,7 @@ impl RootPlacer {
             column[1] = column[1].wrapping_add(1);
         }
         let mut roots = vec![tb::offset(trunk_origin, 0, -1, 0)];
-        for direction in tb::CUBEONTAL {
+        for direction in tb::HORIZONTAL {
             let start = tb::relative(trunk_origin, direction, 1);
             let mut positions = Vec::new();
             if !self.simulate(run, tree, start, direction, trunk_origin, &mut positions, 0)? {

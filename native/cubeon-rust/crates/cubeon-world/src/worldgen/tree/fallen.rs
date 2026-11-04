@@ -76,7 +76,7 @@ impl FallenTreeFeature {
         };
         let stump = self.place_log(&mut run, origin, None)?;
         self.decorate(&mut run, &[stump], &self.stump_decorators, nested)?;
-        let direction = tb::CUBEONTAL[run.random.next_int_bound(4)? as usize];
+        let direction = tb::HORIZONTAL[run.random.next_int_bound(4)? as usize];
         let length = self.log_length.sample(run.random)? - 2;
         let mut start = tb::relative(origin, direction, 2 + run.random.next_int_bound(2)?);
         start = tb::offset(start, 0, 1, 0);

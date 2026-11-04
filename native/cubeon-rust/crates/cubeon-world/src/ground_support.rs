@@ -45,7 +45,7 @@ pub fn find_supporting_block<W: BlockCollisionWorld>(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GroundState {
     pub on_ground: bool,
-    pub cubeontal_collision: bool,
+    pub horizontal_collision: bool,
     pub on_ground_no_blocks: bool,
     pub supporting_block: Option<BlockPos>,
 }
@@ -55,17 +55,17 @@ impl GroundState {
     pub fn set_with_movement<E>(
         &mut self,
         on_ground: bool,
-        cubeontal_collision: bool,
+        horizontal_collision: bool,
         bounds: Aabb,
         movement: Option<Vec3>,
         find: impl FnMut(Aabb) -> Result<Option<BlockPos>, E>,
     ) -> Result<(), E> {
         self.on_ground = on_ground;
-        self.cubeontal_collision = cubeontal_collision;
+        self.horizontal_collision = horizontal_collision;
         self.check_support(on_ground, bounds, movement, find)
     }
     /// The optional movement is native's nullable movement argument. When the
-    /// first query misses, it can retry at the pre-cubeontal-movement footprint.
+    /// first query misses, it can retry at the pre-horizontal-movement footprint.
     pub fn check_support<E>(
         &mut self,
         on_ground: bool,

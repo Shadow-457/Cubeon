@@ -80,7 +80,7 @@ pub fn try_resolve_step_movement<S: std::borrow::Borrow<VoxelShape>, E>(
                 step_box,
                 &shapes,
             );
-            if candidate.cubeontal_distance_squared() > resolved.cubeontal_distance_squared() {
+            if candidate.horizontal_distance_squared() > resolved.horizontal_distance_squared() {
                 return Ok(candidate.subtract(Vec3::new(
                     0.0,
                     aabb.min(Axis::Y) - step_box.min(Axis::Y),
@@ -92,7 +92,7 @@ pub fn try_resolve_step_movement<S: std::borrow::Borrow<VoxelShape>, E>(
     Ok(resolved)
 }
 
-/// Resolve vanilla's Y-first, magnitude-dependent cubeontal axis ordering.
+/// Resolve vanilla's Y-first, magnitude-dependent horizontal axis ordering.
 ///
 /// The caller must supply vanilla-equivalent block/entity/world-border shapes.
 /// This helper does not collect shapes, step up, set grounded flags, modify

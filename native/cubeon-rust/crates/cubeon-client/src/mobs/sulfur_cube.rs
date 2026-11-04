@@ -40,7 +40,7 @@ pub struct Archetype {
     /// the archetype's factor).
     pub friction_modifier: f32,
     pub air_drag_modifier: f32,
-    pub cubeontal_power: f32,
+    pub horizontal_power: f32,
     pub vertical_power: f32,
     pub hit_sound: &'static str,
     pub push_sound: &'static str,
@@ -58,7 +58,7 @@ macro_rules! arch {
             bounciness: $phys.0,
             friction_modifier: $phys.1,
             air_drag_modifier: $phys.2,
-            cubeontal_power: $h,
+            horizontal_power: $h,
             vertical_power: $v,
             hit_sound: concat!("entity.sulfur_cube.", $n, ".hit"),
             push_sound: concat!("entity.sulfur_cube.", $n, ".push"),
@@ -618,9 +618,9 @@ fn normalize(v: [f64; 3]) -> [f64; 3] {
         [v[0] / length, v[1] / length, v[2] / length]
     }
 }
-/// `SulfurCube.applyCubeontalHitAngleScale`: the knock's direction turned by how far the
-/// attacker's aim is from the cube, in the cubeontal plane, times the scale.
-fn cubeontal_hit_angle_scale(
+/// `SulfurCube.applyHorizontalHitAngleScale`: the knock's direction turned by how far the
+/// attacker's aim is from the cube, in the horizontal plane, times the scale.
+fn horizontal_hit_angle_scale(
     scale: f32,
     angle: (f32, f32),
     eye: [f64; 3],
@@ -634,7 +634,7 @@ fn cubeontal_hit_angle_scale(
     ) as f32;
     rotate(angle.0, angle.1, f64::from(diff * scale))
 }
-/// `SulfurCube.applyVerticalHitAnglePowerTransfer`: power moved between the cubeontal and the
+/// `SulfurCube.applyVerticalHitAnglePowerTransfer`: power moved between the horizontal and the
 /// vertical launch by where the attacker aims between the cube's top and bottom.
 fn vertical_hit_angle_power_transfer(
     scale: f32,
@@ -680,7 +680,7 @@ fn push_factor(attribute: f64) -> f64 {
     (1.0 - attribute.clamp(-2.0, 1.0)).max(0.0)
 }
 /// What `SulfurCube.knockback` adds to the cube's movement for a blow of `damage`: the
-/// archetype's `powers` (cubeontal, vertical) turned by where the blow came from (`from`, the
+/// archetype's `powers` (horizontal, vertical) turned by where the blow came from (`from`, the
 /// direct entity: the direction of the knock) and, with the causing entity's `aim` (eye, view
 /// direction), by where it points; the rotation by height uses its feet (`attacker_feet`).
 #[allow(clippy::too_many_arguments)]
@@ -701,7 +701,7 @@ fn launch(
     let (mut h, mut v) = (h0, v0);
     if let Some((eye, look)) = aim {
         let look = normalize(look);
-        (xd, zd) = cubeontal_hit_angle_scale(1.6, (xd, zd), eye, look, center);
+        (xd, zd) = horizontal_hit_angle_scale(1.6, (xd, zd), eye, look, center);
         (h, v) = vertical_hit_angle_power_transfer(0.5, (h, v), eye, look, center, height);
     }
     // applyVerticalPositionAnglePowerRotation from feet to feet.
@@ -740,7 +740,7 @@ fn launch(
 /// (`source.getSourcePosition()`) with `knockback(0.4, ...)`. A source with a causing entity goes
 /// through `SulfurCube.knockback`; one with none (a cactus, a fall) through `super.knockback`.
 fn deal_default_knockback(m: &mut Mob, source: &Damage, damage: f32) {
-    // A projectile knocks the way it travelled (`calculateCubeontalHurtKnockbackDirection`),
+    // A projectile knocks the way it travelled (`calculateHorizontalHurtKnockbackDirection`),
     // else from the source's position.
     let (xd, zd) = match m.projectile_motion.take() {
         Some([x, z]) => (-x, -z),
@@ -769,7 +769,7 @@ pub fn knockback(
     let aim = m.attacker_aim.take();
     let from = from.unwrap_or([m.position.x, m.position.y, m.position.z]);
     let delta = launch(
-        (a.cubeontal_power, a.vertical_power),
+        (a.horizontal_power, a.vertical_power),
         resistance(a.knockback_resistance),
         damage,
         direction,
@@ -889,15 +889,15 @@ fn player_push(m: &mut Mob, p: &super::PlayerView, events: &mut Vec<MobEvent>) {
         return;
     }
     let (dx, dz) = (m.position.x - p.position.x, m.position.z - p.position.z);
-    let cubeontal = (dx * dx + dz * dz).sqrt();
+    let horizontal = (dx * dx + dz * dz).sqrt();
     let (bottom, top) = (m.position.y, m.position.y + f64::from(m.height()));
     let player_top = p.bounds.max_position().y;
-    if !(cubeontal < f64::from(1.3f32) && p.position.y <= top && player_top > bottom) {
+    if !(horizontal < f64::from(1.3f32) && p.position.y <= top && player_top > bottom) {
         return;
     }
     let a = archetype(m);
     let kb = push_factor(a.map_or(0.0, |a| a.knockback_resistance));
-    let len = cubeontal.max(1.0e-4);
+    let len = horizontal.max(1.0e-4);
     let speed = (p.velocity.length() * 2.0 * f64::from(0.3f32)).clamp(0.0, 0.5);
     let push = Vec3::new(
         dx / len * kb * speed,
@@ -1241,7 +1241,7 @@ mod launch_tests {
             damage: f32,
             /// The direct entity's position.
             from: [f64; 3],
-            /// Its cubeontal motion, if it is a projectile.
+            /// Its horizontal motion, if it is a projectile.
             motion: Option<[f64; 2]>,
             attacker_feet: [f64; 3],
             position: [f64; 3],

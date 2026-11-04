@@ -99,9 +99,9 @@ public final class VanillaSprintInputOracle {
             modify=LocalPlayer.class.getDeclaredMethod("modifyInput",net.minecraft.world.phys.Vec2.class);modify.setAccessible(true);
         }
         public net.minecraft.world.phys.Vec2 step(int mask)throws Exception{
-            p.flags=(p.controlled.onGround()?1<<14:0)|(p.controlled.cubeontalCollision?1<<15:0)|(p.controlled.minorCubeontalCollision?1<<16:0)
+            p.flags=(p.controlled.onGround()?1<<14:0)|(p.controlled.horizontalCollision?1<<15:0)|(p.controlled.minorHorizontalCollision?1<<16:0)
                 |(p.controlled.isInShallowWater()?1<<6:0)|(p.controlled.isUnderWater()?1<<10:0)|(p.controlled.isSwimming()?1<<12:0)|(p.controlled.isInWater()?1<<13:0);
-            p.cubeontalCollision=p.controlled.cubeontalCollision;p.minorCubeontalCollision=p.controlled.minorCubeontalCollision;
+            p.horizontalCollision=p.controlled.horizontalCollision;p.minorHorizontalCollision=p.controlled.minorHorizontalCollision;
             p.calls.clear();for(int i=0;i<keys.length;i++)down.setBoolean(keys[i],(mask&(1<<i))!=0);
             try{p.aiStep();throw new AssertionError("missing sprint boundary");}catch(Boundary expected){}
             p.controlled.setShiftKeyDown((mask&32)!=0);
@@ -135,7 +135,7 @@ public final class VanillaSprintInputOracle {
                 int initial=f.get("initial_keys").getAsInt();for(int i=0;i<keys.length;i++)down.setBoolean(keys[i],(initial&(1<<i))!=0);keyboard.tick();
                 for(var element:f.getAsJsonArray("steps")){var step=element.getAsJsonObject();p.flags=step.get("flags").getAsInt();p.calls.clear();p.item();
                     abilities.mayfly=p.flag(4);abilities.flying=p.flag(5);p.getFoodData().setFoodLevel(step.get("food").getAsInt());
-                    p.cubeontalCollision=p.flag(15);p.minorCubeontalCollision=p.flag(16);field(OptionInstance.class,"value").set(window,step.get("window").getAsInt());
+                    p.horizontalCollision=p.flag(15);p.minorHorizontalCollision=p.flag(16);field(OptionInstance.class,"value").set(window,step.get("window").getAsInt());
                     int mask=step.get("keys").getAsInt();for(int i=0;i<keys.length;i++)down.setBoolean(keys[i],(mask&(1<<i))!=0);
                     try{p.aiStep();throw new AssertionError("missing sprint boundary");}catch(Boundary expected){}
                     var vector=keyboard.getMoveVector();var calls=new ArrayList<String>();for(boolean value:p.calls)calls.add(Boolean.toString(value));

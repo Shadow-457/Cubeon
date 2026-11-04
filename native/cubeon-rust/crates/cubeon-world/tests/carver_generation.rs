@@ -70,7 +70,7 @@ fn invalid_bounds_skip_the_source_and_source_failures_stop_immediately() {
 
 #[test]
 fn holder_lists_preserve_duplicate_identity_and_reject_unknown_names() {
-    let definition = r#"{"type":"cave","probability":1,"y":{"absolute":8},"count":0,"thickness":1,"room_vertical_radius_multiplier":1,"cubeontal_radius_multiplier":1,"vertical_radius_multiplier":1,"floor_level":-1}"#;
+    let definition = r#"{"type":"cave","probability":1,"y":{"absolute":8},"count":0,"thickness":1,"room_vertical_radius_multiplier":1,"horizontal_radius_multiplier":1,"vertical_radius_multiplier":1,"floor_level":-1}"#;
     let catalog =
         CarverCatalog::from_json(&BTreeMap::from([("test".into(), definition.into())])).unwrap();
     let entries = catalog.decode_set(r#"["test","minecraft:test"]"#).unwrap();

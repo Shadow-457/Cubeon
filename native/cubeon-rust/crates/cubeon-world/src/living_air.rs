@@ -23,7 +23,7 @@ pub trait LivingAirWorld {
     fn is_player_class(&self) -> bool;
     /// Bind to Entity.move(SELF, movement), including collision and landing.
     fn move_self(&mut self, movement: Vec3) -> Result<(), Self::Error>;
-    fn cubeontal_collision(&self) -> bool;
+    fn horizontal_collision(&self) -> bool;
     fn jumping(&self) -> bool;
     fn was_in_powder_snow(&self) -> bool;
     fn can_walk_powder_snow(&mut self) -> Result<bool, Self::Error>;
@@ -121,7 +121,7 @@ pub fn relative_friction_movement<W: LivingAirWorld>(
     world.set_velocity(velocity)?;
     world.move_self(world.velocity())?;
     let mut velocity = world.velocity();
-    if (world.cubeontal_collision() || world.jumping())
+    if (world.horizontal_collision() || world.jumping())
         && (world.on_climbable()?
             || (world.was_in_powder_snow() && world.can_walk_powder_snow()?))
     {
@@ -155,16 +155,16 @@ pub fn travel_in_air<W: LivingAirWorld>(world: &mut W, input: Vec3) -> Result<()
     if !world.discard_friction()? {
         let modifier = world.air_drag_modifier()? as f32;
         let drag = modified_friction(0.91, modifier);
-        let cubeontal = friction * drag;
+        let horizontal = friction * drag;
         let vertical = if world.omnidirectional_air_mover()? {
             drag
         } else {
             modified_friction(0.98, modifier)
         };
         velocity = Vec3::new(
-            velocity.x * f64::from(cubeontal),
+            velocity.x * f64::from(horizontal),
             velocity.y * f64::from(vertical),
-            velocity.z * f64::from(cubeontal),
+            velocity.z * f64::from(horizontal),
         );
     }
     world.set_velocity(velocity)

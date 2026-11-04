@@ -201,7 +201,7 @@ fn classify(name: &str, prop: &dyn Fn(&str) -> Option<String>) -> Animate {
         "end_portal" => Animate::EndPortal,
         "lever" if powered => Animate::Lever {
             facing: facing(),
-            // FaceAttachedCubeontalDirectionalBlock.getConnectedDirection.
+            // FaceAttachedHorizontalDirectionalBlock.getConnectedDirection.
             connected: match prop("face").as_deref() {
                 Some("ceiling") => [0, -1, 0],
                 Some("floor") => [0, 1, 0],
@@ -1523,7 +1523,7 @@ fn block_animate_tick(
         }
         Animate::RedstoneWire { power, sides } => {
             let color = redstone_color(power);
-            let cubeontals = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
+            let horizontals = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
             let line = |engine: &mut ParticleEngine,
                         side: [i32; 3],
                         along: [i32; 3],
@@ -1543,7 +1543,7 @@ fn block_animate_tick(
                     );
                 }
             };
-            for (i, h) in cubeontals.into_iter().enumerate() {
+            for (i, h) in horizontals.into_iter().enumerate() {
                 match sides[i] {
                     2 => {
                         line(engine, h, [0, 1, 0], -0.5, 0.5);

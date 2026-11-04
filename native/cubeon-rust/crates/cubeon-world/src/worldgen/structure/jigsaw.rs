@@ -360,7 +360,7 @@ fn template_jigsaws<'a>(
     .next_int_bound(template.palettes().len() as i32)
     .unwrap_or(0) as usize;
     template
-        .jigsaws(palette, &|state| resources.jigsaw_cubeontal(state))
+        .jigsaws(palette, &|state| resources.jigsaw_horizontal(state))
         .iter()
         .map(|j| {
             let relative = StructureTemplate::transform(j.info.pos, Mirror::None, rotation, [0; 3]);

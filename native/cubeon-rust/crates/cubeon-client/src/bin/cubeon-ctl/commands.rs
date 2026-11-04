@@ -426,7 +426,7 @@ pub const COMMANDS: &[Cmd] = &[
     cmd!("mouse-move", Move, "mouse-move DX DY", "move the mouse: relative motion that turns the view like a player's mouse",
         "DX and DY are mouse units (pixels of relative motion) added to the frame's accumulated movement and turned by MouseHandler.turnPlayer: degrees = units x 0.15 x (sensitivity x 0.6 + 0.2)^3 x 8 (without the 8 while scoping), inverted axes and the cinematic camera included. Positive DX turns right, positive DY looks down. Works in the world with no screen open; replies with yaw and pitch after the frame that turned.",
         ["cubeon-ctl mouse-move 100 0", "cubeon-ctl mouse-move -25 40"],
-        &[p("dx", Ty::Num, "cubeontal motion (positive turns right)"), p("dy", Ty::Num, "vertical motion (positive looks down)")], mcp: true, local: false),
+        &[p("dx", Ty::Num, "horizontal motion (positive turns right)"), p("dy", Ty::Num, "vertical motion (positive looks down)")], mcp: true, local: false),
     cmd!("look-at", Move, "look-at X Y Z | look-at block X Y Z [FACE] | look-at entity ID  [--over S]", "turn to face a point, a block (a visible face of it) or an entity",
         "look-at block aims at a face the crosshair can reach and fails when none is visible. --over S turns there with mouse motion over S seconds (the shorter way round) instead of jumping.",
         ["cubeon-ctl look-at 10.5 65 3.5", "cubeon-ctl look-at block 10 64 3 up", "cubeon-ctl look-at entity 42 --over 0.4"],

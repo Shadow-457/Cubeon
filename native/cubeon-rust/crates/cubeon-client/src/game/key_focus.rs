@@ -74,7 +74,7 @@ pub(super) struct Context {
     pub gui: (f32, f32),
 }
 
-fn cubeontal(button: Button) -> bool {
+fn horizontal(button: Button) -> bool {
     matches!(button, Button::DPadLeft | Button::DPadRight)
 }
 
@@ -91,15 +91,15 @@ pub(super) fn act(nav: Nav, focus: Option<Target>, targets: &[Target], ctx: Cont
             Some(Target {
                 kind: Kind::Field, ..
             }),
-        ) if cubeontal(b) => Act::Pass,
-        (Nav::Arrow(b), None) if cubeontal(b) && ctx.typing => Act::Pass,
+        ) if horizontal(b) => Act::Pass,
+        (Nav::Arrow(b), None) if horizontal(b) && ctx.typing => Act::Pass,
         (
             Nav::Arrow(b),
             Some(Target {
                 kind: Kind::Slider { .. },
                 ..
             }),
-        ) if cubeontal(b) && ctx.slider_edit => {
+        ) if horizontal(b) && ctx.slider_edit => {
             Act::Nudge(if b == Button::DPadLeft { -1.0 } else { 1.0 })
         }
         (Nav::Arrow(b), Some(_)) => Act::Step(b),

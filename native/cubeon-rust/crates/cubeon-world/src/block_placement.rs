@@ -12,7 +12,7 @@ use crate::{
 use cubeon_core::geometry::Direction;
 use std::{collections::BTreeSet, io, sync::Arc};
 
-const CUBEONTAL: [Direction; 4] = [
+const HORIZONTAL: [Direction; 4] = [
     Direction::North,
     Direction::East,
     Direction::South,
@@ -229,7 +229,7 @@ impl BlockPlacement {
         let mut result = state;
         let mut above = None;
         let mut below = None;
-        for (index, direction) in CUBEONTAL.into_iter().enumerate() {
+        for (index, direction) in HORIZONTAL.into_iter().enumerate() {
             let mut side = if world
                 .attachment_at(position, direction)
                 .map_err(BlockPlacementError::Query)?

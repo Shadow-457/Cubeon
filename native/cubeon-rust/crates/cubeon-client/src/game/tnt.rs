@@ -658,7 +658,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             tnt.velocity.x, 0.0,
-            "still water must not add cubeontal motion"
+            "still water must not add horizontal motion"
         );
         world
             .set(

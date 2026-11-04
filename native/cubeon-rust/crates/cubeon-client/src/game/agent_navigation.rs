@@ -155,7 +155,7 @@ pub(crate) fn arrived(p: [f64; 3], target: [f64; 3], near: f64) -> bool {
         && (p[1] - target[1]).abs() <= near.max(1.0) + 1.0
 }
 
-fn cubeontal_distance(p: [f64; 3], aim: [f64; 3]) -> f64 {
+fn horizontal_distance(p: [f64; 3], aim: [f64; 3]) -> f64 {
     ((p[0] - aim[0]).powi(2) + (p[2] - aim[2]).powi(2)).sqrt()
 }
 
@@ -165,11 +165,11 @@ pub(crate) struct Progress {
 impl Progress {
     pub(crate) fn new(position: [f64; 3], aim: [f64; 3]) -> Self {
         Self {
-            best_distance: cubeontal_distance(position, aim),
+            best_distance: horizontal_distance(position, aim),
         }
     }
     pub(crate) fn advance(&mut self, p: [f64; 3], aim: [f64; 3]) -> bool {
-        let distance = cubeontal_distance(p, aim);
+        let distance = horizontal_distance(p, aim);
         if self.best_distance - distance >= 0.25 {
             self.best_distance = distance;
             true

@@ -256,7 +256,7 @@ fn main() -> io::Result<()> {
                     ("lerp", a.lerp(b, t)),
                     ("projected", a.projected_on(b)),
                     ("reverse", a.reverse()),
-                    ("cubeontal", a.cubeontal()),
+                    ("horizontal", a.horizontal()),
                 ] {
                     vector(&mut out, label, v)?;
                 }
@@ -267,8 +267,8 @@ fn main() -> io::Result<()> {
                         a.dot(b),
                         a.length_squared(),
                         a.length(),
-                        a.cubeontal_distance_squared(),
-                        a.cubeontal_distance(),
+                        a.horizontal_distance_squared(),
+                        a.horizontal_distance(),
                         a.distance_squared(b),
                         a.distance(b),
                     ],

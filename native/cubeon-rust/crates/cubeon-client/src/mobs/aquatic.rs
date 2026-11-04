@@ -553,14 +553,14 @@ fn squid_step(m: &mut Mob, client: bool) {
             m.anim.v[ROTATE_SPEED] *= 0.99;
         }
         let mv = m.velocity;
-        let cubeontal = (mv.x * mv.x + mv.z * mv.z).sqrt();
+        let horizontal = (mv.x * mv.x + mv.z * mv.z).sqrt();
         m.body_yaw += (-(cubeon_core::geometry::trig::atan2(mv.x, mv.z) as f32) * 57.295776
             - m.body_yaw)
             * 0.1;
         m.yaw = m.body_yaw;
         let v = &mut m.anim.v;
         v[Z_BODY_ROT] += PI * v[ROTATE_SPEED] * 1.5;
-        v[X_BODY_ROT] += (-(cubeon_core::geometry::trig::atan2(cubeontal, mv.y) as f32)
+        v[X_BODY_ROT] += (-(cubeon_core::geometry::trig::atan2(horizontal, mv.y) as f32)
             * 57.295776
             - v[X_BODY_ROT])
             * 0.1;

@@ -56,9 +56,8 @@ pub fn prepared_resources(dir: &Path) -> Option<PathBuf> {
         .and_then(|v| v["minecraft"]["version"].as_str().map(str::to_owned))
         .unwrap_or_else(|| cubeon_core::VANILLA_VERSION.into());
     let resources = dir.join(".local/cubeon-client").join(version);
-    resources
-        .join("cubeon-resources.json")
-        .exists()
+    cubeon_core::prepared_files::manifest_path(&resources)
+        .is_file()
         .then_some(resources)
 }
 

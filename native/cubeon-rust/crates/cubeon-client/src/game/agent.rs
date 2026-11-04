@@ -184,10 +184,10 @@ fn dist(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// 90 faces -X; positive pitch looks down).
 pub(super) fn yaw_pitch(eye: [f64; 3], at: [f64; 3]) -> (f32, f32) {
     let d = [at[0] - eye[0], at[1] - eye[1], at[2] - eye[2]];
-    let cubeontal = (d[0] * d[0] + d[2] * d[2]).sqrt();
+    let horizontal = (d[0] * d[0] + d[2] * d[2]).sqrt();
     (
         (-d[0]).atan2(d[2]).to_degrees() as f32,
-        (-d[1]).atan2(cubeontal).to_degrees() as f32,
+        (-d[1]).atan2(horizontal).to_degrees() as f32,
     )
 }
 
@@ -2005,7 +2005,7 @@ impl Game<'_> {
     fn step_goto(&mut self, g: &mut Goto, timed_out: bool) -> Option<Value> {
         let p = self.position();
         let on_ground = self.player.as_ref().is_some_and(|p| p.ground.on_ground);
-        let cubeontal =
+        let horizontal =
             |a: [f64; 3], b: [f64; 3]| ((a[0] - b[0]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
         if navigation::arrived(p, g.target, g.near) {
             return Some(
@@ -2090,7 +2090,7 @@ impl Game<'_> {
                 .fluid
                 != cubeon_client::blocks::Fluid::None
         };
-        if aim[1] > p[1] + 0.5 && cubeontal(p, aim) < 1.6 && on_ground {
+        if aim[1] > p[1] + 0.5 && horizontal(p, aim) < 1.6 && on_ground {
             g.jump_until = self.ticks + 4;
         }
         if self.ticks < g.jump_until || in_water {

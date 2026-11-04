@@ -260,7 +260,7 @@ impl Game<'_> {
         let Some(p) = self.player.as_ref() else {
             return;
         };
-        let cubeontal = ((d.x * d.x + d.z * d.z).sqrt() * 100.0).round() as i32;
+        let horizontal = ((d.x * d.x + d.z * d.z).sqrt() * 100.0).round() as i32;
         let total = ((d.x * d.x + d.y * d.y + d.z * d.z).sqrt() * 100.0).round() as i32;
         // Teleports are not travel.
         if total <= 0 || total > 1000 {
@@ -327,28 +327,28 @@ impl Game<'_> {
                 self.award_custom_stat("walk_under_water_one_cm", total)
             }
             None if in_water => {
-                if cubeontal > 0 {
-                    self.award_custom_stat("walk_on_water_one_cm", cubeontal)
+                if horizontal > 0 {
+                    self.award_custom_stat("walk_on_water_one_cm", horizontal)
                 }
             }
             None if climbing => {
                 self.award_custom_stat("climb_one_cm", (d.y * 100.0).round() as i32)
             }
             None if on_ground => {
-                if cubeontal > 0 {
+                if horizontal > 0 {
                     if sprinting {
-                        self.award_custom_stat("sprint_one_cm", cubeontal)
+                        self.award_custom_stat("sprint_one_cm", horizontal)
                     } else if crouching {
-                        self.award_custom_stat("crouch_one_cm", cubeontal)
+                        self.award_custom_stat("crouch_one_cm", horizontal)
                     } else {
-                        self.award_custom_stat("walk_one_cm", cubeontal)
+                        self.award_custom_stat("walk_one_cm", horizontal)
                     }
                 }
             }
             None if gliding => self.award_custom_stat("aviate_one_cm", total),
             // Airborne and not gliding: more than 25 cm sideways per move
             // (creative flight, or a long jump), not only flying.
-            None if cubeontal > 25 => self.award_custom_stat("fly_one_cm", cubeontal),
+            None if horizontal > 25 => self.award_custom_stat("fly_one_cm", horizontal),
             None => {}
         }
     }

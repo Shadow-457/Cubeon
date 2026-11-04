@@ -37,7 +37,7 @@ enum Kind {
     },
     Cherry {
         branch_count: IntProvider,
-        branch_cubeontal_length: IntProvider,
+        branch_horizontal_length: IntProvider,
         branch_start: [i32; 2],
         branch_end_offset: IntProvider,
     },
@@ -54,10 +54,10 @@ pub(super) struct TrunkPlacer {
     kind: Kind,
 }
 
-fn random_cubeontal(
+fn random_horizontal(
     random: &mut impl RandomSource,
 ) -> Result<Direction, cubeon_core::random::InvalidBound> {
-    Ok(tb::CUBEONTAL[random.next_int_bound(4)? as usize])
+    Ok(tb::HORIZONTAL[random.next_int_bound(4)? as usize])
 }
 
 impl TrunkPlacer {
@@ -115,8 +115,8 @@ impl TrunkPlacer {
                 }
                 Kind::Cherry {
                     branch_count: decoder.int_provider(required(&object, "branch_count")?, 1, 3)?,
-                    branch_cubeontal_length: decoder.int_provider(
-                        required(&object, "branch_cubeontal_length")?,
+                    branch_horizontal_length: decoder.int_provider(
+                        required(&object, "branch_horizontal_length")?,
                         2,
                         16,
                     )?,
@@ -253,7 +253,7 @@ impl TrunkPlacer {
                 min_height_for_leaves,
                 bend_length,
             } => {
-                let direction = random_cubeontal(run.random)?;
+                let direction = random_horizontal(run.random)?;
                 let log_height = tree_height - 1;
                 let mut pos = origin;
                 Self::place_below_trunk(run, tree, below)?;
@@ -294,7 +294,7 @@ impl TrunkPlacer {
                         && height < tree_height - 1
                         && run.random.next_float() < *branch_probability
                     {
-                        let direction = random_cubeontal(run.random)?;
+                        let direction = random_horizontal(run.random)?;
                         let length = extra_branch_length.sample(run.random)?;
                         let branch_pos =
                             0.max(length - extra_branch_length.sample(run.random)? - 1);
@@ -368,7 +368,7 @@ impl TrunkPlacer {
     ) -> TreeResult<Vec<FoliageAttachment>, W::Error> {
         Self::place_below_trunk(run, tree, tb::offset(origin, 0, -1, 0))?;
         let mut attachments = Vec::new();
-        let lean = random_cubeontal(run.random)?;
+        let lean = random_horizontal(run.random)?;
         let lean_height = tree_height - run.random.next_int_bound(4)? - 1;
         let mut lean_steps = 3 - run.random.next_int_bound(3)?;
         let (mut tx, mut tz) = (origin[0], origin[2]);
@@ -390,7 +390,7 @@ impl TrunkPlacer {
         }
         tx = origin[0];
         tz = origin[2];
-        let branch = random_cubeontal(run.random)?;
+        let branch = random_horizontal(run.random)?;
         if branch != lean {
             let branch_pos = lean_height - run.random.next_int_bound(2)? - 1;
             let mut steps = 1 + run.random.next_int_bound(3)?;
@@ -456,7 +456,7 @@ impl TrunkPlacer {
         Self::place_below_trunk(run, tree, tb::offset(below, 1, 0, 0))?;
         Self::place_below_trunk(run, tree, tb::offset(below, 0, 0, 1))?;
         Self::place_below_trunk(run, tree, tb::offset(below, 1, 0, 1))?;
-        let lean = random_cubeontal(run.random)?;
+        let lean = random_horizontal(run.random)?;
         let lean_height = tree_height - run.random.next_int_bound(4)?;
         let mut lean_steps = 2 - run.random.next_int_bound(3)?;
         let [x, y, z] = origin;
@@ -561,7 +561,7 @@ impl TrunkPlacer {
     ) -> TreeResult<Vec<FoliageAttachment>, W::Error> {
         let Kind::Cherry {
             branch_count,
-            branch_cubeontal_length,
+            branch_horizontal_length,
             branch_start: [start_min, start_max],
             branch_end_offset,
         } = &self.kind
@@ -605,7 +605,7 @@ impl TrunkPlacer {
                 false,
             ));
         }
-        let direction = random_cubeontal(run.random)?;
+        let direction = random_horizontal(run.random)?;
         let sideways = Axis::of(direction);
         let generate = |this: &Self,
                         run: &mut Run<'_, W, R>,
@@ -616,7 +616,7 @@ impl TrunkPlacer {
             let mut log = tb::offset(origin, 0, offset, 0);
             let end_offset = tree_height - 1 + branch_end_offset.sample(run.random)?;
             let extend = middle_continues || end_offset < offset;
-            let distance = branch_cubeontal_length.sample(run.random)? + i32::from(extend);
+            let distance = branch_horizontal_length.sample(run.random)? + i32::from(extend);
             let end = tb::offset(
                 tb::relative(origin, branch_direction, distance),
                 0,

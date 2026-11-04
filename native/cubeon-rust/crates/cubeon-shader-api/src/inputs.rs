@@ -169,7 +169,7 @@ uniform! {
         in_water: f32,
         /// The same for lava (`eye_in` 2).
         in_lava: f32,
-        /// The y of the cubeontal water plane `reflection` mirrors the world about, in world
+        /// The y of the horizontal water plane `reflection` mirrors the world about, in world
         /// blocks, while `has_reflection` is 1.
         water_plane: f32,
         /// 1 while the material stage's `reflection` holds this frame's water mirror, else 0.

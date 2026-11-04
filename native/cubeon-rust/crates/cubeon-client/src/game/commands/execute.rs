@@ -907,8 +907,8 @@ impl Game<'_> {
     fn facing(&self, s: Source, to: [f64; 3]) -> Source {
         let from = self.anchor_position(&s);
         let (dx, dy, dz) = (to[0] - from[0], to[1] - from[1], to[2] - from[2]);
-        let cubeontal = (dx * dx + dz * dz).sqrt();
-        let pitch = (-(dy.atan2(cubeontal).to_degrees())) as f32;
+        let horizontal = (dx * dx + dz * dz).sqrt();
+        let pitch = (-(dy.atan2(horizontal).to_degrees())) as f32;
         let yaw = (dz.atan2(dx).to_degrees() - 90.0) as f32;
         Source {
             rot: [yaw.rem_euclid(360.0), pitch],

@@ -237,7 +237,7 @@ pub const MOD_CRAFT_REMAINDERS: &str = "cubeon-mod-craft-remainders.json";
 /// A reduction of `blocks_attacks.damage_reductions`.
 #[derive(Clone, Debug)]
 pub struct BlockReduction {
-    pub cubeontal_angle: f32,
+    pub horizontal_angle: f32,
     /// Damage type ids or `#tags`; None blocks every type.
     pub types: Option<Vec<String>>,
     pub base: f32,
@@ -285,7 +285,7 @@ impl BlocksAttacks {
             Some(list) => list
                 .iter()
                 .map(|r| BlockReduction {
-                    cubeontal_angle: f(&r["cubeontal_blocking_angle"], 90.0),
+                    horizontal_angle: f(&r["horizontal_blocking_angle"], 90.0),
                     types: match &r["type"] {
                         Value::String(s) => Some(vec![s.clone()]),
                         Value::Array(a) => Some(
@@ -301,7 +301,7 @@ impl BlocksAttacks {
                 .collect(),
             // BlocksAttacks.CODEC default: block everything within 90 degrees.
             None => vec![BlockReduction {
-                cubeontal_angle: 90.0,
+                horizontal_angle: 90.0,
                 types: None,
                 base: 0.0,
                 factor: 1.0,
@@ -2305,7 +2305,7 @@ mod tests {
         let component = json!({
             "block_delay_seconds": 0.0,
             "disable_cooldown_scale": 0.0,
-            "damage_reductions": [{"cubeontal_blocking_angle": 180.0, "base": -0.5, "factor": 0.5}],
+            "damage_reductions": [{"horizontal_blocking_angle": 180.0, "base": -0.5, "factor": 0.5}],
             "item_damage": {"threshold": 1.0e9, "base": 0.0, "factor": 0.0},
             "bypassed_by": "#minecraft:bypasses_armor",
         });
@@ -2317,7 +2317,7 @@ mod tests {
         assert_eq!(b.delay_seconds, 0.0);
         assert_eq!(b.disable_scale, 0.0);
         assert_eq!(b.reductions.len(), 1);
-        assert_eq!(b.reductions[0].cubeontal_angle, 180.0);
+        assert_eq!(b.reductions[0].horizontal_angle, 180.0);
         assert_eq!((b.reductions[0].base, b.reductions[0].factor), (-0.5, 0.5));
         assert_eq!(b.item_damage.0, 1.0e9);
         assert_eq!(b.bypassed_by.as_deref(), Some("#minecraft:bypasses_armor"));
@@ -2328,7 +2328,7 @@ mod tests {
             cubeon_client_core::scoreboard::json_to_tag(&json!({})),
         ));
         let b = BlocksAttacks::of_stack(&bare, None).expect("defaults");
-        assert_eq!(b.reductions[0].cubeontal_angle, 90.0);
+        assert_eq!(b.reductions[0].horizontal_angle, 90.0);
         assert_eq!(b.disable_scale, 1.0);
     }
 

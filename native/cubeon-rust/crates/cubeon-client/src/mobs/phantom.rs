@@ -283,7 +283,7 @@ impl Goal for SweepAttack {
             // LevelEvent 1039: the bite.
             cx.events
                 .push(MobEvent::Sound("entity.phantom.bite", m.center(), 1.0, 1.0));
-        } else if m.cubeontal_collision || m.hurt_time > 0 {
+        } else if m.horizontal_collision || m.hurt_time > 0 {
             m.extra.flag = false;
         }
     }
@@ -303,7 +303,7 @@ fn wrap(d: f32) -> f32 {
 /// line.
 pub fn move_control(m: &mut Mob) {
     let mut speed = m.attrs.speed as f32;
-    if m.cubeontal_collision {
+    if m.horizontal_collision {
         m.yaw += 180.0;
         speed = 0.1;
     }

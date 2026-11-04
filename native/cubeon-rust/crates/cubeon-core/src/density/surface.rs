@@ -1,7 +1,7 @@
 use super::*;
 
 /// The unsliced search primitive. Compiled terrain graphs wrap this in a Y=0
-/// slice through `compile_surface_search`, so their upper bound is cubeontal.
+/// slice through `compile_surface_search`, so their upper bound is horizontal.
 #[derive(Clone, Debug)]
 pub struct FindTopSurfaceSampler {
     density: Arc<dyn DensitySampler>,

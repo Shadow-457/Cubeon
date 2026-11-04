@@ -1,4 +1,4 @@
-//! Native float-table view direction and cubeontal blocking angle arithmetic.
+//! Native float-table view direction and horizontal blocking angle arithmetic.
 use cubeon_core::geometry::{Vec3, trig};
 pub fn view_vector(pitch: f32, yaw: f32) -> Vec3 {
     let pitch = pitch * trig::DEG_TO_RAD;
@@ -17,8 +17,8 @@ pub fn acos(value: f64) -> f64 {
 pub fn blocking_angle(source: Vec3, position: Vec3, head_yaw: f32) -> f64 {
     let view = view_vector(0.0, head_yaw);
     let delta = source.subtract(position);
-    let cubeontal = Vec3::new(delta.x, 0.0, delta.z).normalize();
-    acos(cubeontal.dot(view))
+    let horizontal = Vec3::new(delta.x, 0.0, delta.z).normalize();
+    acos(horizontal.dot(view))
 }
 /// Native no-source-position fallback widens the float PI constant to double.
 pub const BLOCKING_FALLBACK_ANGLE: f64 = std::f32::consts::PI as f64;

@@ -27,7 +27,7 @@ impl Evaluator {
     }
     fn incoming<L: LevelAccess + ?Sized>(&self, sim: &Sim<'_, L>, pos: BlockPos) -> i32 {
         let mut signal = 0;
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let neighbor_pos = rel(pos, direction);
             let neighbor = sim.state(neighbor_pos);
             signal = signal.max(self.power(sim, neighbor_pos));
@@ -71,7 +71,7 @@ impl Evaluator {
         orientation: Orientation,
         turn_off: bool,
     ) {
-        for direction in orientation.cubeontal_directions() {
+        for direction in orientation.horizontal_directions() {
             self.enqueue(
                 sim,
                 rel(pos, direction),
@@ -83,7 +83,7 @@ impl Evaluator {
         for vertical in orientation.vertical_directions() {
             let offset = rel(pos, vertical);
             let solid = sim.is_redstone_conductor(sim.state(offset), offset);
-            for direction in orientation.cubeontal_directions() {
+            for direction in orientation.horizontal_directions() {
                 let neighbor = rel(pos, direction);
                 if (vertical == Direction::Up && !solid)
                     || (vertical == Direction::Down

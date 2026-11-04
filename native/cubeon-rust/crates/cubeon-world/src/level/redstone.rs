@@ -7,7 +7,7 @@ use super::{
     data::state_flags,
     query::{axis_of, clockwise, counter_clockwise},
     states::BlockId,
-    update::{CUBEONTAL, above, below, rel},
+    update::{HORIZONTAL, above, below, rel},
 };
 use crate::registry::BlockStateId;
 use cubeon_core::{
@@ -270,19 +270,19 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         self.b.table.text(state, self.direction_prop(direction)) != "none"
     }
     fn wire_is_cross(&self, state: BlockStateId) -> bool {
-        CUBEONTAL
+        HORIZONTAL
             .into_iter()
             .all(|d| self.wire_connected(state, d))
     }
     fn wire_is_dot(&self, state: BlockStateId) -> bool {
-        !CUBEONTAL
+        !HORIZONTAL
             .into_iter()
             .any(|d| self.wire_connected(state, d))
     }
     pub(crate) fn wire_cross_state(&self, power: i32) -> BlockStateId {
         let b = self.b;
         let mut state = b.default_of(b.named.redstone_wire);
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             state = b
                 .table
                 .set_text(state, self.direction_prop(direction), "side");
@@ -300,7 +300,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             table.int(state, b.props.power),
         );
         let can_up = self.wire_can_connect_up(pos);
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             if !self.wire_connected(result, direction) {
                 let side = self.wire_connecting_side(pos, direction, can_up);
                 result = table.set_text(result, self.direction_prop(direction), side);
@@ -372,7 +372,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     ) {
         let b = self.b;
         let wire = b.named.redstone_wire;
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             if b.table.text(state, self.direction_prop(direction)) != "none"
                 && !b.is_block(self.rel_state(pos, direction), wire)
             {
@@ -420,7 +420,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     }
     fn wire_incoming_signal(&self, pos: BlockPos) -> i32 {
         let mut signal = 0;
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let neighbour_pos = rel(pos, direction);
             let neighbour = self.state(neighbour_pos);
             signal = signal.max(self.wire_power_of(neighbour));
@@ -480,10 +480,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         }
     }
     pub(crate) fn wire_update_neighbors_of_neighboring_wires(&mut self, pos: BlockPos) {
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             self.wire_check_corner(rel(pos, direction));
         }
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let target = rel(pos, direction);
             if self.is_redstone_conductor(self.state(target), target) {
                 self.wire_check_corner(above(target));

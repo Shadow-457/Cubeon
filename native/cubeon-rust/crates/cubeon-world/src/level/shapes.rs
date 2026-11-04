@@ -6,7 +6,7 @@
 use super::{
     LevelAccess, Sim,
     classes::Class,
-    query::{axis_of, clockwise, counter_clockwise, is_cubeontal},
+    query::{axis_of, clockwise, counter_clockwise, is_horizontal},
     states::BlockId,
     update::{above, below, rel},
 };
@@ -303,7 +303,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::Chest => {
                 self.waterlogged_tick(state, pos);
-                if self.chest_can_connect_to(state, nstate) && is_cubeontal(dir) {
+                if self.chest_can_connect_to(state, nstate) && is_horizontal(dir) {
                     let neighbour_type = table.text(nstate, p.kind);
                     if table.text(state, p.kind) == "single"
                         && neighbour_type != "single"
@@ -441,7 +441,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     air
                 }
             }
-            Class::FaceAttachedCubeontalDirectional | Class::Lantern => {
+            Class::FaceAttachedHorizontalDirectional | Class::Lantern => {
                 if class == Class::Lantern {
                     self.waterlogged_tick(state, pos);
                     let connected = if table.bool(state, p.hanging) {
@@ -471,7 +471,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::Fence => {
                 self.waterlogged_tick(state, pos);
-                if is_cubeontal(dir) {
+                if is_horizontal(dir) {
                     let sturdy = b.is_face_sturdy(nstate, dir.opposite());
                     table.set_bool(
                         state,
@@ -484,7 +484,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::IronBars => {
                 self.waterlogged_tick(state, pos);
-                if is_cubeontal(dir) {
+                if is_horizontal(dir) {
                     let sturdy = b.is_face_sturdy(nstate, dir.opposite());
                     table.set_bool(
                         state,
@@ -748,7 +748,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::Stair => {
                 self.waterlogged_tick(state, pos);
-                if is_cubeontal(dir) {
+                if is_horizontal(dir) {
                     let shape = self.stairs_shape(state, pos);
                     table.set_text(state, p.shape, shape)
                 } else {
@@ -756,7 +756,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 }
             }
             Class::TripWire => {
-                if is_cubeontal(dir) {
+                if is_horizontal(dir) {
                     let connect = self.tripwire_should_connect_to(nstate, dir);
                     table.set_bool(state, self.direction_prop(dir), connect)
                 } else {

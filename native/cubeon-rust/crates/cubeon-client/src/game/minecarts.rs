@@ -114,8 +114,8 @@ pub(super) struct Minecart {
     /// `AbstractMinecart.onRails`: transitions into rails need a position snap.
     on_rails: bool,
     pub(super) on_ground: bool,
-    cubeontal_collision: bool,
-    /// The cubeontal speed the cart wanted when the collision stopped it:
+    horizontal_collision: bool,
+    /// The horizontal speed the cart wanted when the collision stopped it:
     /// `MinecartTNT.tick` reads the delta after the move, which a cart on a
     /// rail keeps (`AbstractMinecart.moveAlongTrack` re-applies the track's
     /// velocity), so a cart that ran into a block still counts as moving.
@@ -231,7 +231,7 @@ fn cart_push_from(feet: Vec3, cart: Vec3) -> Option<(f64, f64)> {
 }
 /// `MinecartFurnace.calculateNewPushAlong`: project the push onto movement.
 fn push_along(push: Vec3, movement: Vec3) -> Vec3 {
-    if push.cubeontal_distance_squared() > 1.0e-4 && movement.cubeontal_distance_squared() > 0.001
+    if push.horizontal_distance_squared() > 1.0e-4 && movement.horizontal_distance_squared() > 0.001
     {
         push.projected_on(movement).normalize().scale(push.length())
     } else {
@@ -371,7 +371,7 @@ impl Minecart {
             flipped: false,
             on_rails: false,
             on_ground: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             collision_speed: 0.0,
             fall_distance: 0.0,
             fall_blast: None,
@@ -406,7 +406,7 @@ impl Minecart {
             Vec3::new(p.x + w, p.y + HEIGHT, p.z + w),
         )
     }
-    fn cubeontal(&self) -> f64 {
+    fn horizontal(&self) -> f64 {
         self.velocity.x.hypot(self.velocity.z)
     }
     /// `AbstractContainerMenu.getRedstoneSignalFromContainer` of `slots`.
@@ -534,7 +534,7 @@ impl Game<'_> {
     }
     /// `AbstractMinecart.canCollideWith`, for `Entity.collide`'s `getEntityCollisions`:
     /// `AbstractBoat.canVehicleCollide` takes any other cart, boat, shulker or pushable mob and
-    /// player, except one riding this cart. A cart that runs into one has a cubeontal
+    /// player, except one riding this cart. A cart that runs into one has a horizontal
     /// collision, which sets a TNT minecart off.
     fn cart_entity_collisions(&self, c: &Minecart) -> Vec<Aabb> {
         let near = c.bounds().inflate(Vec3::new(2.0, 2.0, 2.0));
@@ -602,7 +602,7 @@ impl Game<'_> {
             subject: None,
         };
         // A zero move stays zero whatever surrounds it (`Entity.collide`, and the
-        // step-up needs a blocked cubeontal move): a cart standing on its rails,
+        // step-up needs a blocked horizontal move): a cart standing on its rails,
         // as most do, gathers no entity boxes.
         let entities = if delta.length_squared() == 0.0 {
             Vec::new()
@@ -621,9 +621,9 @@ impl Game<'_> {
                 c.position.z + moved.z,
             );
             c.on_ground = delta.y < 0.0 && moved.y > delta.y;
-            c.cubeontal_collision =
+            c.horizontal_collision =
                 (moved.x - delta.x).abs() > 1.0e-7 || (moved.z - delta.z).abs() > 1.0e-7;
-            if c.cubeontal_collision {
+            if c.horizontal_collision {
                 c.collision_speed = delta.x * delta.x + delta.z * delta.z;
             }
             if (moved.x - delta.x).abs() > 1.0e-7 {
@@ -736,7 +736,7 @@ impl Game<'_> {
             xd = -xd;
             zd = -zd;
         }
-        let pow = c.cubeontal().min(2.0);
+        let pow = c.horizontal().min(2.0);
         c.velocity = Vec3::new(pow * xd / length, c.velocity.y, pow * zd / length);
         if ridden
             && (intent[0] != 0.0 || intent[1] != 0.0)
@@ -747,7 +747,7 @@ impl Game<'_> {
             halt = false;
         }
         if halt {
-            if c.cubeontal() < 0.03 {
+            if c.horizontal() < 0.03 {
                 c.velocity = Vec3::ZERO;
             } else {
                 c.velocity = Vec3::new(c.velocity.x * 0.5, 0.0, c.velocity.z * 0.5);
@@ -789,7 +789,7 @@ impl Game<'_> {
             (self.rail_pos(c.position.x, c.position.y, c.position.z), old)
         {
             let speed = (old[1] - new[1]) * 0.05;
-            let h = c.cubeontal();
+            let h = c.horizontal();
             if h > 0.0 {
                 c.velocity.x *= (h + speed) / h;
                 c.velocity.z *= (h + speed) / h;
@@ -798,7 +798,7 @@ impl Game<'_> {
         }
         let (xn, zn) = (c.position.x.floor() as i32, c.position.z.floor() as i32);
         if xn != pos[0] || zn != pos[2] {
-            let h = c.cubeontal();
+            let h = c.horizontal();
             c.velocity = Vec3::new(
                 h * f64::from(xn - pos[0]),
                 c.velocity.y,
@@ -806,7 +806,7 @@ impl Game<'_> {
             );
         }
         if power {
-            let h = c.cubeontal();
+            let h = c.horizontal();
             if h > 0.01 {
                 c.velocity.x += c.velocity.x / h * 0.06;
                 c.velocity.z += c.velocity.z / h * 0.06;
@@ -897,13 +897,13 @@ impl Game<'_> {
         let delta = old.vector_to(c.position);
         let length = delta.length();
         if length > f64::from(1.0e-5_f32) {
-            if delta.cubeontal_distance_squared() > f64::from(1.0e-5_f32) {
+            if delta.horizontal_distance_squared() > f64::from(1.0e-5_f32) {
                 let yaw = 180.0 - java_degrees(delta.z, delta.x) as f32
                     + if c.flipped { 180.0 } else { 0.0 };
                 let pitch = if c.on_ground && !c.on_rails {
                     0.0
                 } else {
-                    (90.0 - java_degrees(delta.cubeontal_distance(), delta.y) as f32)
+                    (90.0 - java_degrees(delta.horizontal_distance(), delta.y) as f32)
                         * if c.flipped { -1.0 } else { 1.0 }
                 };
                 Self::set_cart_rotation(c, yaw, pitch);
@@ -915,7 +915,7 @@ impl Game<'_> {
                 };
             }
             Self::record_cart_step(c, length.min(self.max_speed_new(c)) as f32);
-        } else if initial.cubeontal_distance_squared() > 0.0 {
+        } else if initial.horizontal_distance_squared() > 0.0 {
             Self::record_cart_step(c, 1.0);
         }
     }
@@ -1003,14 +1003,14 @@ impl Game<'_> {
                 self.activate_cart(c, rail.powered);
             }
             let ridden = self.cart_is_vehicle(c.id);
-            let initial_h = c.velocity.cubeontal_distance();
+            let initial_h = c.velocity.horizontal_distance();
             let mut v = Vec3::new(c.velocity.x, 0.0, c.velocity.z);
             // calculateSlopeSpeed (once per tick): the slide grows with the
             // speed, so a descending cart keeps its pace.
             if !slope_done {
                 let slide =
                     0.0078125_f64.max(initial_h * 0.02) * if c.in_water { 0.2 } else { 1.0 };
-                let before = v.cubeontal_distance_squared();
+                let before = v.horizontal_distance_squared();
                 match rail.shape {
                     Shape::AscendingEast => v.x -= slide,
                     Shape::AscendingWest => v.x += slide,
@@ -1018,7 +1018,7 @@ impl Game<'_> {
                     Shape::AscendingSouth => v.z -= slide,
                     _ => {}
                 }
-                slope_done = v.cubeontal_distance_squared() != before;
+                slope_done = v.horizontal_distance_squared() != before;
                 if !slope_done {
                     v = Vec3::new(c.velocity.x, 0.0, c.velocity.z);
                 }
@@ -1033,7 +1033,7 @@ impl Game<'_> {
                     .normalize()
                     .scale(0.001);
                 let pushed = v.add_vector(input);
-                if pushed.cubeontal_distance_squared() != v.cubeontal_distance_squared() {
+                if pushed.horizontal_distance_squared() != v.horizontal_distance_squared() {
                     v = pushed;
                     halted = true;
                 }
@@ -1069,13 +1069,13 @@ impl Game<'_> {
                         v = dir.scale(len + 0.2);
                     }
                 }
-                boosted = v.cubeontal_distance_squared() != before.cubeontal_distance_squared();
+                boosted = v.horizontal_distance_squared() != before.horizontal_distance_squared();
                 if !boosted {
                     v = before;
                 }
             }
             c.velocity = v;
-            let new_h = v.cubeontal_distance();
+            let new_h = v.horizontal_distance();
             movement_left = if first {
                 new_h
             } else {
@@ -1142,7 +1142,7 @@ impl Game<'_> {
             old.add_vector(movement.normalize().scale(movement_left))
         };
         if out_pos.distance(old) <= new_pos.distance(old) {
-            movement_left = out_pos.vector_to(new_pos).cubeontal_distance();
+            movement_left = out_pos.vector_to(new_pos).horizontal_distance();
             new_pos = out_pos;
         } else {
             movement_left = 0.0;
@@ -1319,7 +1319,7 @@ impl Game<'_> {
         if self.minecart_improvements() {
             // MinecartTNT.tick reads the final delta after AbstractMinecart.tick,
             // including the pushes and fluid interaction after the track steps.
-            c.collision_speed = c.velocity.cubeontal_distance_squared();
+            c.collision_speed = c.velocity.horizontal_distance_squared();
         }
         // Variants.
         match c.kind {
@@ -1352,13 +1352,13 @@ impl Game<'_> {
                     self.particles
                         .add(&ParticleOptions::simple(ParticleType::Smoke), at, [0.0; 3]);
                 } else if c.fuse == 0 {
-                    // explode(cubeontalDistanceSqr()): a rising cart's
+                    // explode(horizontalDistanceSqr()): a rising cart's
                     // vertical speed adds nothing.
                     let speed = c.velocity.x * c.velocity.x + c.velocity.z * c.velocity.z;
                     self.explode_cart(c, speed);
                     return false;
                 }
-                if tnt_ignites_by_collision(c.cubeontal_collision, c.collision_speed) {
+                if tnt_ignites_by_collision(c.horizontal_collision, c.collision_speed) {
                     self.explode_cart(c, c.collision_speed);
                     return false;
                 }
@@ -1632,7 +1632,7 @@ impl Game<'_> {
     }
     /// `OldMinecartBehavior.pushAndPickupEntities` for living entities in cart
     /// `i`'s box (0.2 wider on each side): only a rideable cart moving at
-    /// `cubeontalDistanceSqr() >= 0.01` picks up; an eligible mob boards an
+    /// `horizontalDistanceSqr() >= 0.01` picks up; an eligible mob boards an
     /// empty cart (`startRiding`); others get `Entity.push`.
     fn pickup_from_cart(&mut self, i: usize) {
         let v = self.carts[i].velocity;
@@ -1842,7 +1842,7 @@ impl Game<'_> {
             .map(|c| CartSound {
                 id: c.id,
                 position: [c.position.x, c.position.y, c.position.z],
-                // Vec3.cubeontalDistance.
+                // Vec3.horizontalDistance.
                 speed: (c.velocity.x * c.velocity.x + c.velocity.z * c.velocity.z).sqrt(),
             })
             .collect();
@@ -2807,8 +2807,8 @@ fn cart_is_destroyed(creative: bool, damage: f32, ignites_tnt: bool) -> bool {
 
 /// `MinecartTNT.tick`'s collision detonation: a cart still moving at a tenth
 /// of a block a tick or more when a block stops it blows up.
-fn tnt_ignites_by_collision(cubeontal_collision: bool, speed_sqr: f64) -> bool {
-    cubeontal_collision && speed_sqr >= 0.009_999_999_776_482_582
+fn tnt_ignites_by_collision(horizontal_collision: bool, speed_sqr: f64) -> bool {
+    horizontal_collision && speed_sqr >= 0.009_999_999_776_482_582
 }
 
 /// NewMinecartBehavior's `(float) (Math.atan2(y, x) * 180.0 / Math.PI)` before

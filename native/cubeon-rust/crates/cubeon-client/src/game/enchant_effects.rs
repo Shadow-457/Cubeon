@@ -741,7 +741,7 @@ impl Game<'_> {
             wear = roll && on_ground && on_soul;
         }
         fx.applied_level = if active { level } else { 0 };
-        // `Entity.getKnownMovement` cubeontal speed of at least 1.0E-5.
+        // `Entity.getKnownMovement` horizontal speed of at least 1.0E-5.
         let walking = moved.x * moved.x + moved.z * moved.z >= 1.0e-10;
         let tick_effects = level > 0 && !flying && on_ground && walking && on_soul && tick % 5 == 0;
         // The attribute effects were applied to the player before: swap them.

@@ -887,7 +887,7 @@ impl Particle {
         p.size /= 2.0;
         let uo = random.next_float() * 3.0;
         let vo = random.next_float() * 3.0;
-        // getU0 = (uo + 1) / 4, getU1 = uo / 4: the crumb is mirrored cubeontally.
+        // getU0 = (uo + 1) / 4, getU1 = uo / 4: the crumb is mirrored horizontally.
         p.uv = [(uo + 1.0) / 4.0, vo / 4.0, uo / 4.0, (vo + 1.0) / 4.0];
         p
     }
@@ -1049,7 +1049,7 @@ impl Particle {
     }
 }
 /// `NoxiousGasCloudParticle.pickRandomParticleSpawnPoint`: a point up to three
-/// blocks from the centre of `center_block` in a random cubeontal direction,
+/// blocks from the centre of `center_block` in a random horizontal direction,
 /// a quarter block lower, from the level's random.
 fn pick_random_particle_spawn_point(random: &mut LegacyRandom, center_block: [i32; 3]) -> [f64; 3] {
     let dx = f64::from(random.next_float() - 0.5);
@@ -3872,7 +3872,7 @@ impl ParticleEngine {
                 if !p.removed && p.position[1] <= y_prev {
                     p.removed = true;
                 }
-                // randomCubeontalWiggling, then a second, cubeontal move.
+                // randomHorizontalWiggling, then a second, horizontal move.
                 let wiggle = |r: &mut LegacyRandom| {
                     let f = r.next_float() * 0.003;
                     f64::from(if r.next_boolean() { f } else { -f }) * 0.5

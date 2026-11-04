@@ -133,7 +133,7 @@ fn snapshot(out: &mut impl Write, player: &PlayerMotion) -> Result<()> {
     writeln!(
         out,
         "{} {} {} {} {} {} {} {:016x} {} {} {} {:08x} {} {:08x} {} {} {} | {}",
-        player.collision.cubeontal,
+        player.collision.horizontal,
         player.collision.vertical,
         player.collision.below,
         player.collision.minor,

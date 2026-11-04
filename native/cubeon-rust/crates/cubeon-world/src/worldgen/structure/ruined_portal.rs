@@ -2,7 +2,7 @@
 use super::{
     Mirror, Rotation, StructureResources,
     legacy::{
-        CUBEONTAL, PieceContext, Result, TemplateHandler, TemplatePiece, direction_name, offset,
+        HORIZONTAL, PieceContext, Result, TemplateHandler, TemplatePiece, direction_name, offset,
         opposite,
     },
     processor::ProcessorList,
@@ -314,7 +314,7 @@ fn vines(c: &mut PieceContext<'_>, pos: [i32; 3]) -> Result<()> {
     if c.is_air(state) || c.name(state) == "minecraft:vine" {
         return Ok(());
     }
-    let direction = random_cubeontal_dyn(c);
+    let direction = random_horizontal_dyn(c);
     let neighbour = offset(pos, direction, 1);
     let n = c.world.block(neighbour)?;
     if c.is_air(n) && c.world.face_full(pos, direction)? {
@@ -323,8 +323,8 @@ fn vines(c: &mut PieceContext<'_>, pos: [i32; 3]) -> Result<()> {
     }
     Ok(())
 }
-fn random_cubeontal_dyn(c: &mut PieceContext<'_>) -> Direction {
-    CUBEONTAL[c.random.int(4) as usize]
+fn random_horizontal_dyn(c: &mut PieceContext<'_>) -> Direction {
+    HORIZONTAL[c.random.int(4) as usize]
 }
 /// RuinedPortalPiece.postProcess.
 pub fn post_process(piece: &TemplatePiece, c: &mut PieceContext<'_>) -> Result<()> {

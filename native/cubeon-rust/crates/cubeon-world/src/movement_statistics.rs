@@ -90,13 +90,13 @@ pub fn check<W: MovementStatisticsWorld>(world: &mut W, delta: Vec3) -> Result<(
         return Ok(());
     }
     let distance_3d = || centimeters(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
-    let cubeontal = || centimeters(delta.x * delta.x + delta.z * delta.z);
+    let horizontal = || centimeters(delta.x * delta.x + delta.z * delta.z);
     if world.swimming()? {
         distance_with_exhaustion(world, MovementStat::Swim, distance_3d(), 0.01)
     } else if world.eyes_in_water()? {
         distance_with_exhaustion(world, MovementStat::WalkUnderWater, distance_3d(), 0.01)
     } else if world.in_water()? {
-        distance_with_exhaustion(world, MovementStat::WalkOnWater, cubeontal(), 0.01)
+        distance_with_exhaustion(world, MovementStat::WalkOnWater, horizontal(), 0.01)
     } else if world.on_climbable()? {
         if delta.y > 0.0 {
             // The native double round returns long; l2i then wraps, not saturates.
@@ -104,7 +104,7 @@ pub fn check<W: MovementStatisticsWorld>(world: &mut W, delta: Vec3) -> Result<(
         }
         Ok(())
     } else if world.on_ground()? {
-        let cm = cubeontal();
+        let cm = horizontal();
         if cm > 0 {
             let (stat, rate) = if world.sprinting()? {
                 (MovementStat::Sprint, 0.1)
@@ -119,7 +119,7 @@ pub fn check<W: MovementStatisticsWorld>(world: &mut W, delta: Vec3) -> Result<(
     } else if world.fall_flying()? {
         world.award(MovementStat::Aviate, distance_3d())
     } else {
-        let cm = cubeontal();
+        let cm = horizontal();
         if cm > 25 {
             world.award(MovementStat::Fly, cm)?;
         }

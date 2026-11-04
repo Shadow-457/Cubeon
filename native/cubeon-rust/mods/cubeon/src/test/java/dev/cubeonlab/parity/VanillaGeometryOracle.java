@@ -158,8 +158,8 @@ public final class VanillaGeometryOracle {
             }
             case "vec" -> {
                 Vec3 a = in.vector(), b = in.vector(); double t = in.number();
-                vector("add", a.add(b)); vector("subtract", a.subtract(b)); vector("vector-to", a.vectorTo(b)); vector("multiply", a.multiply(b)); vector("scale", a.scale(t)); vector("normalize", a.normalize()); vector("cross", a.cross(b)); vector("lerp", a.lerp(b, t)); vector("projected", a.projectedOn(b)); vector("reverse", a.reverse()); vector("cubeontal", a.cubeontal());
-                values("scalar", a.dot(b), a.lengthSqr(), a.length(), a.cubeontalDistanceSqr(), a.cubeontalDistance(), a.distanceToSqr(b), a.distanceTo(b));
+                vector("add", a.add(b)); vector("subtract", a.subtract(b)); vector("vector-to", a.vectorTo(b)); vector("multiply", a.multiply(b)); vector("scale", a.scale(t)); vector("normalize", a.normalize()); vector("cross", a.cross(b)); vector("lerp", a.lerp(b, t)); vector("projected", a.projectedOn(b)); vector("reverse", a.reverse()); vector("horizontal", a.horizontal());
+                values("scalar", a.dot(b), a.lengthSqr(), a.length(), a.horizontalDistanceSqr(), a.horizontalDistance(), a.distanceToSqr(b), a.distanceTo(b));
                 out.printf("flags %d %d %d %d%n", flag(a.equals(b)), flag(a.isFinite()), flag(a.closerThan(b, t)), Direction.getApproximateNearest(a).ordinal());
                 var order = Direction.axisStepOrder(a); out.printf("order %d %d %d%n", order.get(0).ordinal(), order.get(1).ordinal(), order.get(2).ordinal());
             }

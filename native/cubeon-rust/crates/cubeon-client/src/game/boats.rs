@@ -352,7 +352,7 @@ impl Game<'_> {
     fn fluid_height(&self, x: i32, y: i32, z: i32) -> Option<(f32, bool)> {
         self.fluid_height_of(x, y, z, Some(Fluid::Water))
     }
-    /// The cubeontal water plane around the camera for the water mirror: the median
+    /// The horizontal water plane around the camera for the water mirror: the median
     /// standing-water surface of a grid of columns 48 blocks around, each scanned down from
     /// the camera to its ground. A lake or the sea has one plane; the mirror shows only the
     /// water on it. With no water in reach the last plane found stays, so the mirror never

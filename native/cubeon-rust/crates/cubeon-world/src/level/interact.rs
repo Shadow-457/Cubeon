@@ -501,9 +501,9 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             return InteractionResult::Pass;
         }
         let connected = |s: BlockStateId, d: Direction| b.table.text(s, b.dir_prop(d)) != "none";
-        let cubeontal = super::update::CUBEONTAL;
-        let cross = cubeontal.into_iter().all(|d| connected(state, d));
-        let dot = !cubeontal.into_iter().any(|d| connected(state, d));
+        let horizontal = super::update::HORIZONTAL;
+        let cross = horizontal.into_iter().all(|d| connected(state, d));
+        let dot = !horizontal.into_iter().any(|d| connected(state, d));
         if !(cross || dot) {
             return InteractionResult::Pass;
         }
@@ -520,7 +520,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         }
         self.set_block_and_update(pos, next);
         let orientation = self.initial_orientation(None, Some(Direction::Up));
-        for direction in cubeontal {
+        for direction in horizontal {
             let relative = super::update::rel(pos, direction);
             if connected(state, direction) != connected(next, direction)
                 && self.is_redstone_conductor(self.state(relative), relative)

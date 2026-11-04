@@ -784,7 +784,7 @@ mod shulker_collision_tests {
         // Closed box: height 1.0
         assert!((aabb.min(Axis::Y) - 0.0).abs() < 1.0e-9);
         assert!((aabb.max(Axis::Y) - 1.0).abs() < 1.0e-9);
-        // Full cubeontal extent
+        // Full horizontal extent
         assert!((aabb.min(Axis::X) - 0.0).abs() < 1.0e-9);
         assert!((aabb.max(Axis::X) - 1.0).abs() < 1.0e-9);
     }

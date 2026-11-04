@@ -1,4 +1,4 @@
-//! Cubeontal generation write-zone predicate from the pinned chunk step.
+//! Horizontal generation write-zone predicate from the pinned chunk step.
 use cubeon_core::position::{BlockPos, ChunkPos};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn boxes_follow_padding_and_rotation() {
         let block = sample();
-        // A quarter turn swaps the cubeontal sizes.
+        // A quarter turn swaps the horizontal sizes.
         let (offset, size) = block.renderable_box(2, Rotation::Clockwise90);
         assert_eq!((offset, size), ([2, 3, 3], [5, 4, 3]));
         let bounds = block.structure_box([10, 64, 10], 2, Rotation::None);

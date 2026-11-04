@@ -3,6 +3,54 @@ import os
 import re
 import tempfile
 import shutil
+import stat
+
+
+def copy_source_stamp(path):
+    """Metadata for a copied file/tree, including replacements and nested edits.
+
+    This reads no payload bytes. Symlinked directory trees use normal staging;
+    they cannot be safely represented by a walk that doesn't follow links.
+    """
+    try:
+        def stamp(target):
+            info = os.stat(target)
+            return [info.st_dev, info.st_ino, info.st_size,
+                    info.st_mtime_ns, info.st_ctime_ns, info.st_mode]
+
+        result = [os.path.normcase(os.path.realpath(path)), stamp(path)]
+        if stat.S_ISDIR(result[1][-1]):
+            entries = []
+            def fail(error):
+                raise error
+            for directory, folders, files in os.walk(path, onerror=fail):
+                for name in sorted(folders + files):
+                    child = os.path.join(directory, name)
+                    if os.path.islink(child):
+                        return None
+                    entries.append([os.path.relpath(child, path), stamp(child)])
+                folders.sort()
+            result.append(entries)
+        elif not stat.S_ISREG(result[1][-1]):
+            return None
+        return result
+    except OSError:
+        return None
+
+
+def copied_entry_matches(source, destination, receipt):
+    """Reuse only an unchanged source and its successfully published copy."""
+    if not isinstance(receipt, list) or len(receipt) != 2:
+        return False
+    src = copy_source_stamp(source)
+    return src is not None and src == receipt[0] and copy_source_stamp(destination) == receipt[1]
+
+
+def copied_entry_receipt(source, destination, before):
+    """Record a copy only if its source stayed unchanged during publication."""
+    after = copy_source_stamp(source)
+    dest = copy_source_stamp(destination)
+    return [after, dest] if before is not None and before == after and dest is not None else None
 
 
 def entry_name(name, *, extensions=None):

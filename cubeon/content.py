@@ -1026,7 +1026,8 @@ def _read_staged(content_type: str) -> list[str]:
 def _write_staged(content_type: str, names: list[str]) -> None:
     path = os.path.join(content_dir(content_type), _STAGED_MARKER)
     try:
-        write_json(path, sorted(names))
+        if sorted(names) != sorted(_read_staged(content_type)) or not os.path.isfile(path):
+            write_json(path, sorted(names))
     except OSError:
         log.debug("couldn't record staged %s", content_type, exc_info=True)
 
@@ -1113,6 +1114,10 @@ def _sync_content_type(content_type: str, mc_version: str,
                        loader: str, version_id: str | None = None) -> None:
     d = content_dir(content_type)
     staged = _read_staged(content_type)
+    from .file_safety import copy_source_stamp, copied_entry_matches, copied_entry_receipt
+    from .mods import _read_copy_receipts, _write_copy_receipts
+    previous_copies = _read_copy_receipts(d, _STAGED_MARKER)
+    copies = {}
     _adopt_foreign_entries(content_type, staged, mc_version, loader, version_id)
 
     profile = profile_dir(content_type, mc_version, loader, version_id)
@@ -1152,6 +1157,12 @@ def _sync_content_type(content_type: str, mc_version: str,
                     continue
             except OSError:
                 pass
+            if copied_entry_matches(src, dst, previous_copies.get(fname)):
+                published.add(fname)
+                copies[fname] = previous_copies[fname]
+                continue
+        before = None
+        copied = False
         fd, tmp = tempfile.mkstemp(prefix=".stage-", dir=d)
         os.close(fd)
         os.remove(tmp)
@@ -1160,12 +1171,16 @@ def _sync_content_type(content_type: str, mc_version: str,
                 try:
                     os.symlink(src, tmp, target_is_directory=True)
                 except OSError:
+                    before = copy_source_stamp(src)
                     shutil.copytree(src, tmp)
+                    copied = True
             else:
                 try:
                     os.link(src, tmp)
                 except OSError:
+                    before = copy_source_stamp(src)
                     shutil.copyfile(src, tmp)
+                    copied = True
             if os.path.isdir(dst) and not os.path.islink(dst):
                 backup = tmp + ".old"
                 os.replace(dst, backup)
@@ -1178,6 +1193,10 @@ def _sync_content_type(content_type: str, mc_version: str,
             else:
                 os.replace(tmp, dst)
             published.add(fname)
+            if copied:
+                receipt = copied_entry_receipt(src, dst, before)
+                if receipt is not None:
+                    copies[fname] = receipt
         except OSError:
             if fname in staged and os.path.lexists(dst):
                 published.add(fname)
@@ -1189,6 +1208,7 @@ def _sync_content_type(content_type: str, mc_version: str,
                 os.remove(tmp)
 
     _write_staged(content_type, list(published))
+    _write_copy_receipts(d, _STAGED_MARKER, copies)
 
 
 def _valid_entry(name):

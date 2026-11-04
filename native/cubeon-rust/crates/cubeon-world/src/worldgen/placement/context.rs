@@ -50,7 +50,7 @@ pub trait PlacementContext {
     ) -> Result<(), PlacementQueryError> {
         Ok(())
     }
-    /// WorldGenRegion.ensureCanWrite: cubeontal write radius and upgrade height.
+    /// WorldGenRegion.ensureCanWrite: horizontal write radius and upgrade height.
     fn ensure_can_write(&mut self, _position: [i32; 3]) -> Result<bool, PlacementQueryError> {
         Ok(true)
     }

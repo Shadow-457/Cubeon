@@ -32,6 +32,14 @@ use std::{
 pub const FILE_NAME: &str = "cubeon-data.bin";
 /// The file it checks its preparation against.
 const SOURCE: &str = "cubeon-resources.json";
+/// Rebranding preserves existing locally prepared beta resources.
+pub fn manifest_path(root: &Path) -> std::path::PathBuf {
+    let current = root.join(SOURCE);
+    if current.exists() { current } else {
+        let legacy = root.join("horizon-resources.json");
+        if legacy.exists() { legacy } else { current }
+    }
+}
 /// The folders it holds, with their subfolders: the resources, and the
 /// structure templates world generation loads one by one.
 const FOLDERS: [&str; 3] = ["data", "assets", "worldgen/structure"];
@@ -104,7 +112,8 @@ impl PreparedFiles {
         (!names.is_empty()).then_some(names)
     }
     fn open(root: &Path) -> io::Result<Option<Self>> {
-        let path = root.join(FILE_NAME);
+        let current = root.join(FILE_NAME);
+        let path = if current.exists() { current } else { root.join("horizon-data.bin") };
         // A mirror's link to another root's file.
         if fs::symlink_metadata(&path)?.file_type().is_symlink() {
             return Ok(None);
@@ -132,7 +141,7 @@ impl PreparedFiles {
         let (raw_entries, pool) = rest.split_at(index_len as usize);
         if written_root[..root_len as usize]
             != *fs::canonicalize(root)?.as_os_str().as_encoded_bytes()
-            || source[..source_len as usize] != *fs::read(root.join(SOURCE))?
+            || source[..source_len as usize] != *fs::read(manifest_path(root))?
         {
             return Ok(None);
         }
@@ -265,7 +274,7 @@ pub fn read_to_string(path: &Path) -> io::Result<String> {
 /// into place, so a reader sees the old file or the new one. Nothing is
 /// written for a root without `cubeon-resources.json`.
 pub fn write(root: &Path) -> io::Result<()> {
-    let source = fs::read(root.join(SOURCE))?;
+    let source = fs::read(manifest_path(root))?;
     let canonical = fs::canonicalize(root)?;
     let root_bytes = canonical.as_os_str().as_encoded_bytes();
     let mut files = Vec::new();

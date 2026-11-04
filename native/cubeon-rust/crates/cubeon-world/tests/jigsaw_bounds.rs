@@ -44,7 +44,7 @@ fn a_jigsaw_structures_size_stops_at_twenty() {
     }
 }
 
-/// `JigsawStructure.MaxDistance` is `cubeontal` `Codec.intRange(1, 128)`
+/// `JigsawStructure.MaxDistance` is `horizontal` `Codec.intRange(1, 128)`
 /// beside `vertical` `ExtraCodecs.intRange(1, DimensionType.Y_SIZE)` (4064),
 /// given either as one number for both or as an object of the two.
 #[test]
@@ -52,8 +52,8 @@ fn a_jigsaw_structures_reach_stays_inside_vanillas() {
     for good in [
         json!({"max_distance_from_center": 1}),
         json!({"max_distance_from_center": 128}),
-        json!({"max_distance_from_center": {"cubeontal": 1, "vertical": 1}}),
-        json!({"max_distance_from_center": {"cubeontal": 128, "vertical": 4064}}),
+        json!({"max_distance_from_center": {"horizontal": 1, "vertical": 1}}),
+        json!({"max_distance_from_center": {"horizontal": 128, "vertical": 4064}}),
         // Absent, the reach stays at the 80 by 80 it had.
         json!({}),
     ] {
@@ -63,9 +63,9 @@ fn a_jigsaw_structures_reach_stays_inside_vanillas() {
         json!({"max_distance_from_center": 0}),
         json!({"max_distance_from_center": 129}),
         json!({"max_distance_from_center": -8}),
-        json!({"max_distance_from_center": {"cubeontal": 0, "vertical": 100}}),
-        json!({"max_distance_from_center": {"cubeontal": 64, "vertical": 0}}),
-        json!({"max_distance_from_center": {"cubeontal": 128, "vertical": 4065}}),
+        json!({"max_distance_from_center": {"horizontal": 0, "vertical": 100}}),
+        json!({"max_distance_from_center": {"horizontal": 64, "vertical": 0}}),
+        json!({"max_distance_from_center": {"horizontal": 128, "vertical": 4065}}),
     ] {
         assert!(!places(bad.clone()), "{bad}");
     }

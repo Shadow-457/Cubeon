@@ -154,7 +154,7 @@ impl Vec3 {
         self.scale(-1.0)
     }
     #[inline]
-    pub fn cubeontal(self) -> Self {
+    pub fn horizontal(self) -> Self {
         Self::new(self.x, 0.0, self.z)
     }
     #[inline]
@@ -178,12 +178,12 @@ impl Vec3 {
         self.length_squared().sqrt()
     }
     #[inline]
-    pub fn cubeontal_distance_squared(self) -> f64 {
+    pub fn horizontal_distance_squared(self) -> f64 {
         self.x * self.x + self.z * self.z
     }
     #[inline]
-    pub fn cubeontal_distance(self) -> f64 {
-        self.cubeontal_distance_squared().sqrt()
+    pub fn horizontal_distance(self) -> f64 {
+        self.horizontal_distance_squared().sqrt()
     }
     #[inline]
     pub fn distance_squared(self, other: Self) -> f64 {

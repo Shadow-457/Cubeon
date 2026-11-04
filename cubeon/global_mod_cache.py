@@ -105,7 +105,7 @@ def _verified_hash(path, stamp, algorithm='sha256'):
 def _matches_hashes(path, hashes):
     try:
         stat = os.stat(path)
-        stamp = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        stamp = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
         return all(_verified_hash(path, stamp, algo) == str(digest).lower()
                    for algo, digest in (hashes or {}).items()
                    if algo in ('sha256', 'sha512', 'sha1') and digest)
@@ -123,7 +123,7 @@ def cache_path_if_present(sha256_hex: str) -> "str | None":
     try:
         path = _store_path(filename)
         stat = os.stat(path)
-        stamp = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        stamp = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
         return path if _verified_hash(path, stamp) == sha256_hex.lower() else None
     except (OSError, ValueError):
         return None
@@ -324,7 +324,9 @@ def put_file(src_path: str, dest_path: str, hashes: dict = None) -> str:
     copy is made first), it links straight to the stored file. Returns
     dest_path."""
     hashes = hashes or {}
-    sha256_hex = _hash_file(src_path, "sha256")
+    info = os.stat(src_path)
+    stamp = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    sha256_hex = _verified_hash(os.path.realpath(src_path), stamp, "sha256")
     if not _matches_hashes(src_path, hashes):
         raise ValueError('The mod does not match its published content hash.')
     stored = cache_path_if_present(sha256_hex)

@@ -195,7 +195,7 @@ pub struct Column {
     pub spans: Spans,
 }
 impl Column {
-    /// Reduce an entire cubeontal footprint, rather than inflating its corner
+    /// Reduce an entire horizontal footprint, rather than inflating its corner
     /// column. A height is drawn where any column of the footprint holds a
     /// block there, in the material most of them hold: anything joined to
     /// the ground stays joined at every width. Drawing only heights most of
@@ -548,7 +548,7 @@ impl TileKey {
             level: self.level - 1,
         })
     }
-    /// The squared cubeontal distance from `camera` to the tile's nearest point.
+    /// The squared horizontal distance from `camera` to the tile's nearest point.
     fn reach(self, camera: [i32; 2]) -> i64 {
         let [x, _, z] = self.origin();
         let gap = |c: i32, lo: i32| i64::from((lo - c).max(c - lo - self.size()).max(0));

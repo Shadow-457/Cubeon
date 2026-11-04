@@ -96,7 +96,7 @@ impl Game<'_> {
                     .reductions
                     .iter()
                     .map(|r| DamageReduction {
-                        cubeontal_angle: r.cubeontal_angle,
+                        horizontal_angle: r.horizontal_angle,
                         types: r.types.as_ref().map(|t| t.iter().any(|s| matches(s))),
                         base: r.base,
                         factor: r.factor,

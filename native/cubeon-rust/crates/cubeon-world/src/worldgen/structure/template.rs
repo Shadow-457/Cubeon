@@ -431,7 +431,7 @@ impl StructureTemplate {
                 .blocks
                 .iter()
                 .filter_map(|info| {
-                    let cubeontal = jigsaw_states(info.state)?;
+                    let horizontal = jigsaw_states(info.state)?;
                     let nbt = info.nbt.clone().unwrap_or_default();
                     let joint = string(get(&nbt, "joint"));
                     let text = |key: &str, default: &str| {
@@ -445,7 +445,7 @@ impl StructureTemplate {
                         rollable: match joint.as_deref() {
                             Some("rollable") => true,
                             Some("aligned") => false,
-                            _ => !cubeontal,
+                            _ => !horizontal,
                         },
                         name: text("name", "minecraft:empty"),
                         pool: text("pool", "minecraft:empty"),

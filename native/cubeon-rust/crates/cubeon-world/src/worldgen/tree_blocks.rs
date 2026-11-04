@@ -323,8 +323,8 @@ impl Axis {
     }
 }
 
-/// Direction.Plane.CUBEONTAL order.
-pub(crate) const CUBEONTAL: [Direction; 4] = [
+/// Direction.Plane.HORIZONTAL order.
+pub(crate) const HORIZONTAL: [Direction; 4] = [
     Direction::North,
     Direction::East,
     Direction::South,

@@ -616,9 +616,6 @@ impl Loading {
                 // and before its sound engine (no clicks, no volume previews,
                 // and no music tracks to list or play).
                 Event::ButtonClick
-                | Event::CopyAgentDetails
-                | Event::ToggleRecording
-                | Event::ExportRepro
                 | Event::ListMusicTracks
                 | Event::PlayMusicTrack(..)
                 | Event::Volume(..) => {}

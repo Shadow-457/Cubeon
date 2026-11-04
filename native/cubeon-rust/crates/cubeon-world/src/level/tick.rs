@@ -4,7 +4,7 @@ use super::{
     Behaviours, LevelAccess, LevelEvent, Sim, Spread, Ticks,
     classes::Class,
     data::state_flags,
-    update::{CUBEONTAL, above, below, rel},
+    update::{HORIZONTAL, above, below, rel},
 };
 use crate::{fluid::FluidKind, registry::BlockStateId};
 use cubeon_core::{
@@ -837,13 +837,13 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             rel(pos, Direction::West),
             rel(pos, Direction::East),
         );
-        let cubeontal = is(w) || is(e);
+        let horizontal = is(w) || is(e);
         let vertical = is(n) || is(s);
         let diagonal = is(rel(w, Direction::North))
             || is(rel(e, Direction::North))
             || is(rel(e, Direction::South))
             || is(rel(w, Direction::South));
-        if (cubeontal && vertical) || diagonal {
+        if (horizontal && vertical) || diagonal {
             speed /= 2.0;
         }
         speed
@@ -877,7 +877,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             self.set_block(pos, b.table.set_int(state, b.props.age, age + 1), 2);
             return;
         }
-        let direction = CUBEONTAL[self.rand_int(4) as usize];
+        let direction = HORIZONTAL[self.rand_int(4) as usize];
         let relative = rel(pos, direction);
         let data = b.data(state);
         let below_state = self.below_state(relative);
@@ -1262,7 +1262,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let direction = Direction::ALL[self.rand_int(6) as usize];
         let above_pos = above(pos);
         let default = b.default_of(block);
-        if super::query::is_cubeontal(direction)
+        if super::query::is_horizontal(direction)
             && !b.table.bool(state, self.direction_prop(direction))
         {
             if !self.vine_can_spread(pos, block) {
@@ -1337,14 +1337,14 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     return;
                 }
                 let mut above_state = state;
-                for d in CUBEONTAL {
+                for d in HORIZONTAL {
                     if self.random().next_boolean()
                         || !b.multiface_can_attach(self.state(rel(above_pos, d)), d)
                     {
                         above_state = b.table.set_bool(above_state, self.direction_prop(d), false);
                     }
                 }
-                if CUBEONTAL
+                if HORIZONTAL
                     .into_iter()
                     .any(|d| b.table.bool(above_state, self.direction_prop(d)))
                 {
@@ -1363,13 +1363,13 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     below_state
                 };
                 let mut after = before;
-                for d in CUBEONTAL {
+                for d in HORIZONTAL {
                     if self.random().next_boolean() && b.table.bool(state, self.direction_prop(d)) {
                         after = b.table.set_bool(after, self.direction_prop(d), true);
                     }
                 }
                 if before != after
-                    && CUBEONTAL
+                    && HORIZONTAL
                         .into_iter()
                         .any(|d| b.table.bool(after, self.direction_prop(d)))
                 {
@@ -1432,7 +1432,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             grow_up = true;
         }
         let all_empty = |sim: &Self, at: BlockPos, ignore: Option<Direction>| {
-            CUBEONTAL
+            HORIZONTAL
                 .into_iter()
                 .all(|d| Some(d) == ignore || sim.is_empty_block(rel(at, d)))
         };
@@ -1453,7 +1453,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             let mut branched = false;
             for _ in 0..attempts {
-                let direction = CUBEONTAL[self.rand_int(4) as usize];
+                let direction = HORIZONTAL[self.rand_int(4) as usize];
                 let target = rel(pos, direction);
                 if self.is_empty_block(target)
                     && self.is_empty_block(below(target))

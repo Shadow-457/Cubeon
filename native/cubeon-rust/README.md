@@ -8,10 +8,15 @@ licenses and attributions remain in `THIRD_PARTY_NOTICES.md` and `third_party/`.
 The workspace contains the client's local dependency closure and original Java
 exporter sources. The upstream launcher and hosted server applications are excluded.
 Packages, internal namespaces, bundled translations, runtime icons and UI palettes
-use Cubeon branding. Cubeon owns the binaries, patches and releases.
+use Cubeon branding. Menus and loading screens use the launcher’s black-and-green
+glass palette and Cubeon cube mark, with visible “Ported from Horizon” credit.
+Cubeon owns the binaries, patches and releases.
 
 Cubeon's changes remove account/session loading, chat credentials, account HTTP,
 heartbeat and telemetry collection, default server injection and world sharing.
+The AI Agent settings and MCP dependency are removed, as are Discord Rich
+Presence controls and its IPC worker. Saved upstream toggles cannot enable them.
+An explicit local diagnostic socket remains for native capture/parity probes.
 Cosmetics services are disabled. Local identity is supplied by Cubeon and applied
 only to the owner's in-memory connection; remote offline servers keep their own
 standard identity rules. Original protocol and gameplay parity tests remain.

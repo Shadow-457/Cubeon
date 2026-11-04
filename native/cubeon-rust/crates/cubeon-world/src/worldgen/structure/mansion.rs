@@ -2,7 +2,7 @@
 use super::{
     BoundingBox, Mirror, Rotation, StructureResources,
     legacy::{
-        CUBEONTAL, PieceContext, Result, TemplateHandler, TemplatePiece, clockwise,
+        HORIZONTAL, PieceContext, Result, TemplateHandler, TemplatePiece, clockwise,
         counter_clockwise, create_chest, direction_name, offset, opposite,
     },
     processor::ProcessorList,
@@ -140,7 +140,7 @@ impl MansionGrid {
         (self.rooms[floor].get(x, y) & ID_MASK) == id
     }
     fn room_direction_1x2(&self, x: i32, y: i32, floor: usize, id: i32) -> Option<Direction> {
-        CUBEONTAL.into_iter().find(|&d| {
+        HORIZONTAL.into_iter().find(|&d| {
             let (dx, dz) = step(d);
             self.is_room_id(x + dx, y + dz, floor, id)
         })
@@ -180,7 +180,7 @@ impl MansionGrid {
                 }
             }
         }
-        let corridors: Vec<Direction> = CUBEONTAL
+        let corridors: Vec<Direction> = HORIZONTAL
             .into_iter()
             .filter(|&d| {
                 let (dx, dz) = step(d);
@@ -527,7 +527,7 @@ impl<R: RandomSource> Placer<'_, R> {
                     third_start = third_start && data & CORRIDOR_FLAG == CORRIDOR_FLAG;
                     let mut doors = Vec::new();
                     if data & DOOR_FLAG == DOOR_FLAG {
-                        for d in CUBEONTAL {
+                        for d in HORIZONTAL {
                             let (dx, dz) = step(d);
                             if grid.get(x + dx, y + dz) == 1 {
                                 doors.push(d);

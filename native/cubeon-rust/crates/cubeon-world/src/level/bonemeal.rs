@@ -6,7 +6,7 @@ use super::{
     classes::{Class, Interface},
     feature_world::LevelFeatureWorld,
     growth::grower,
-    update::{CUBEONTAL, above, below, rel},
+    update::{HORIZONTAL, above, below, rel},
 };
 use crate::{fluid::FluidState, registry::BlockStateId};
 use cubeon_core::{geometry::Direction, position::BlockPos, random::RandomSource};
@@ -800,7 +800,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         to_place: BlockStateId,
         shuffle: bool,
     ) -> Option<BlockPos> {
-        let mut directions = CUBEONTAL;
+        let mut directions = HORIZONTAL;
         if shuffle {
             // Util.shuffle.
             for i in (2..=directions.len()).rev() {
@@ -1157,7 +1157,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             if self.in_tag(grow, "minecraft:wall_corals") && b.table.has(grow, b.props.facing) {
                 let mut d = 0;
                 while !self.can_survive(grow, test) && d < 4 {
-                    let facing = CUBEONTAL[self.next_int(4) as usize];
+                    let facing = HORIZONTAL[self.next_int(4) as usize];
                     grow = b.table.set_dir(grow, b.props.facing, facing);
                     d += 1;
                 }

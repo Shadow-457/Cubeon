@@ -3,7 +3,7 @@ use super::{DecodeError, block_feature::FeatureBlockBindings, feature::FeatureWo
 use crate::registry::BlockStateId;
 use cubeon_core::random::{InvalidBound, RandomSource};
 use std::{collections::BTreeSet, sync::Arc};
-const CUBEONTAL: [[i32; 3]; 4] = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
+const HORIZONTAL: [[i32; 3]; 4] = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
 const NEIGHBORS: [[i32; 3]; 6] = [
     [0, -1, 0],
     [0, 1, 0],
@@ -126,7 +126,7 @@ impl ChorusPlantFeature {
         p: [i32; 3],
         except: Option<usize>,
     ) -> Result<bool, ChorusPlantError<W::Error>> {
-        for (i, d) in CUBEONTAL.into_iter().enumerate() {
+        for (i, d) in HORIZONTAL.into_iter().enumerate() {
             if except != Some(i) && !self.empty(world, offset(p, d))? {
                 return Ok(false);
             }
@@ -176,7 +176,7 @@ impl ChorusPlantFeature {
             for _ in 0..attempts {
                 let direction =
                     random.next_int_bound(4).map_err(ChorusPlantError::Random)? as usize;
-                let branch = offset(offset(p, [0, height, 0]), CUBEONTAL[direction]);
+                let branch = offset(offset(p, [0, height, 0]), HORIZONTAL[direction]);
                 if branch[0].wrapping_sub(root[0]).wrapping_abs() >= 8
                     || branch[2].wrapping_sub(root[2]).wrapping_abs() >= 8
                 {
@@ -189,7 +189,7 @@ impl ChorusPlantFeature {
                 {
                     branched = true;
                     self.connect(world, branch)?;
-                    self.connect(world, offset(branch, CUBEONTAL[opposite]))?;
+                    self.connect(world, offset(branch, HORIZONTAL[opposite]))?;
                     self.grow(world, random, branch, root, depth + 1)?;
                 }
             }

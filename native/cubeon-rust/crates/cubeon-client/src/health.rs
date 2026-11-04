@@ -1084,7 +1084,7 @@ mod tests {
                 delay_seconds: 0.25,
                 disable_scale: 1.0,
                 reductions: vec![DamageReduction {
-                    cubeontal_angle: 90.0,
+                    horizontal_angle: 90.0,
                     types: None,
                     base: 0.0,
                     factor: 1.0,
@@ -1353,7 +1353,7 @@ mod tests {
     /// takes its share and before motion changes; a mod's strength or
     /// direction is what pushes, a cancel pushes nothing, and with no mod in
     /// the way the push is vanilla's. Expected values are worked out by hand
-    /// from vanilla's formula: the cubeontal speed halves and the push is
+    /// from vanilla's formula: the horizontal speed halves and the push is
     /// subtracted along the normalized direction; on the ground the vertical
     /// speed becomes `min(0.4, vy / 2 + strength)`.
     #[test]

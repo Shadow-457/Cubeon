@@ -258,13 +258,13 @@ def main():
     artifacts = Path(args.artifacts); artifacts.mkdir(parents=True, exist_ok=True)
     candidates = [Path('/opt/google/chrome/chrome'), *Path.home().glob('.cache/ms-playwright/chromium-*/chrome-linux64/chrome')]
     executable = args.browser_path or next((str(p) for p in candidates if p.exists()), None)
-    server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Handler, directory=str(ROOT)))
+    server = ThreadingHTTPServer(('127.0.0.1', 0), partial(Handler, directory=str(ROOT.parent)))
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(executable_path=executable, headless=True, ignore_default_args=['--hide-scrollbars'], args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-crashpad-for-testing'])
             try:
-                run(browser, f'http://127.0.0.1:{server.server_port}/index.html', artifacts)
+                run(browser, f'http://127.0.0.1:{server.server_port}/cubeon-bench/', artifacts)
             finally:
                 browser.close()
     finally:

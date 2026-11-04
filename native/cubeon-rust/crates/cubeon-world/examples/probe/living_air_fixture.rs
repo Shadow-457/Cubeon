@@ -130,11 +130,11 @@ impl LivingAirWorld for World<'_> {
         }
         Ok(())
     }
-    fn cubeontal_collision(&self) -> bool {
+    fn horizontal_collision(&self) -> bool {
         self.flag(if self.moved {
-            "after_cubeontal"
+            "after_horizontal"
         } else {
-            "cubeontal"
+            "horizontal"
         })
     }
     fn jumping(&self) -> bool {

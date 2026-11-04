@@ -116,7 +116,7 @@ pub fn main() {
                 let cart = CartSound {
                     id,
                     position: [d(a[2]), d(a[3]), d(a[4])],
-                    // Vec3.cubeontalDistance.
+                    // Vec3.horizontalDistance.
                     speed: (d(a[5]) * d(a[5]) + d(a[7]) * d(a[7])).sqrt(),
                 };
                 if a[8] == "1" {

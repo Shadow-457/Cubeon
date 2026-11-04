@@ -574,10 +574,10 @@ impl ConnectedTextures {
             Method::OverlayRandom => Method::Random,
             Method::OverlayRepeat => Method::Repeat,
             Method::OverlayFixed => Method::Fixed,
-            Method::OverlayCubeontal => Method::Cubeontal,
+            Method::OverlayHorizontal => Method::Horizontal,
             Method::OverlayVertical => Method::Vertical,
-            Method::OverlayCubeontalVertical => Method::CubeontalVertical,
-            Method::OverlayVerticalCubeontal => Method::VerticalCubeontal,
+            Method::OverlayHorizontalVertical => Method::HorizontalVertical,
+            Method::OverlayVerticalHorizontal => Method::VerticalHorizontal,
             m => m,
         };
         let index = match method {
@@ -597,10 +597,10 @@ impl ConnectedTextures {
                     }
                 }
             }
-            Method::Cubeontal => geometry::cubeontal(mask()),
+            Method::Horizontal => geometry::horizontal(mask()),
             Method::Vertical => geometry::vertical(mask()),
-            Method::CubeontalVertical => geometry::cubeontal_vertical(mask()),
-            Method::VerticalCubeontal => geometry::vertical_cubeontal(mask()),
+            Method::HorizontalVertical => geometry::horizontal_vertical(mask()),
+            Method::VerticalHorizontal => geometry::vertical_horizontal(mask()),
             Method::Top => {
                 // Only sides join the block above: the top and bottom go on to the next rule.
                 if matches!(face, Face::Up | Face::Down) {
@@ -910,7 +910,7 @@ mod tests {
     fn connect_by_tile_reads_the_neighbours_same_side() {
         let mut ctm = world(&[(
             "glass.properties",
-            "matchBlocks=glass\nmethod=cubeontal\nconnect=tile\ntiles=0-3",
+            "matchBlocks=glass\nmethod=horizontal\nconnect=tile\ntiles=0-3",
         )]);
         // Stone shows the glass sprite (3) on its north side; the door only on its south.
         let mut faces = vec![[9u16; 6]; 7];
@@ -941,7 +941,7 @@ mod tests {
         assert_eq!(at([0, 63, 0]), tile(1002));
         let hv = world(&[(
             "glass.properties",
-            "matchBlocks=glass\nmethod=cubeontal+vertical\ntiles=0-6",
+            "matchBlocks=glass\nmethod=horizontal+vertical\ntiles=0-6",
         )]);
         // Alone in its row, glass above: the column's bottom, tile 4.
         assert_eq!(
@@ -1171,7 +1171,7 @@ mod tests {
         let rule = |orient: &str| {
             world(&[(
                 "glass.properties",
-                &*format!("matchBlocks=glass\nmethod=cubeontal\ntiles=0-3\norient={orient}"),
+                &*format!("matchBlocks=glass\nmethod=horizontal\ntiles=0-3\norient={orient}"),
             )])
         };
         // A mirrored north face (a vanilla pane's): its texture's right is east.

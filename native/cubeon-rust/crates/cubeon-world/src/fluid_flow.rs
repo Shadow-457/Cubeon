@@ -45,7 +45,7 @@ pub fn solid_face<W: FluidFlowWorld>(
 fn affects_flow(kind: FluidKind, neighbor: FluidState) -> bool {
     neighbor.kind() == FluidKind::Empty || neighbor.kind().same_family(kind)
 }
-const CUBEONTAL: [Direction; 4] = [
+const HORIZONTAL: [Direction; 4] = [
     Direction::North,
     Direction::East,
     Direction::South,
@@ -63,7 +63,7 @@ pub fn flow_at<W: FluidFlowWorld>(
     }
     let mut x = 0.0;
     let mut z = 0.0;
-    for direction in CUBEONTAL {
+    for direction in HORIZONTAL {
         let [dx, dy, dz] = direction.normal();
         let p = position.offset(dx, dy, dz);
         let neighbor = world.fluid(p)?;
@@ -93,7 +93,7 @@ pub fn flow_at<W: FluidFlowWorld>(
     }
     let mut result = Vec3::new(x, 0.0, z);
     if state.falling() {
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let [dx, dy, dz] = direction.normal();
             let p = position.offset(dx, dy, dz);
             if solid_face(world, state.kind(), p, direction)?

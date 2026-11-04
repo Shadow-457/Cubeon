@@ -78,12 +78,12 @@ pub fn extra_knockback(weapon: f32, strength: f32, sprinting: bool) -> (f32, boo
     (weapon / 2.0 + bonus, knockback_attack)
 }
 
-/// `causeExtraKnockback`'s cut of the attacker's cubeontal speed.
+/// `causeExtraKnockback`'s cut of the attacker's horizontal speed.
 pub const ATTACKER_SLOWDOWN: f64 = 0.6;
 
 /// What the attacking client's own `Player.attack` does to itself on a hit
 /// at another player, whose `RemotePlayer.hurtClient` lets the hit through:
-/// whether `causeExtraKnockback` cuts its cubeontal speed and stops its
+/// whether `causeExtraKnockback` cuts its horizontal speed and stops its
 /// sprint. This runs on the client's player, not the server's: held items and
 /// effects only change attributes on a server and neither of these two is
 /// synced, so `attack_damage` and `knockback` are the client's own ATTACK_DAMAGE

@@ -60,7 +60,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             let result = carve_ellipsoid(
                 chunk,
                 [d(&e["center"][0]), d(&e["center"][1]), d(&e["center"][2])],
-                d(&e["cubeontal"]),
+                d(&e["horizontal"]),
                 d(&e["vertical"]),
                 &mut output,
                 |[x, y, z], by| {

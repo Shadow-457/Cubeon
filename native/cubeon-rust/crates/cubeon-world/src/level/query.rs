@@ -32,7 +32,7 @@ pub(crate) const fn counter_clockwise(direction: Direction) -> Direction {
         other => other,
     }
 }
-pub(crate) const fn is_cubeontal(direction: Direction) -> bool {
+pub(crate) const fn is_horizontal(direction: Direction) -> bool {
     !matches!(direction, Direction::Up | Direction::Down)
 }
 pub(crate) fn axis_of(direction: Direction) -> cubeon_core::geometry::Axis {

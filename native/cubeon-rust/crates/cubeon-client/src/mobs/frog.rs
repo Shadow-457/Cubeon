@@ -325,7 +325,7 @@ impl LaySpawn {
         if !Self::empty(w, p) || Self::empty(w, [p[0], p[1] - 1, p[2]]) {
             return false;
         }
-        CUBEONTAL.iter().any(|d| {
+        HORIZONTAL.iter().any(|d| {
             let n = [p[0] + d[0], p[1], p[2] + d[1]];
             Self::is_air(w, n) && w.fluid(n[0], n[1] - 1, n[2]) == Fluid::Water
         })
@@ -370,7 +370,7 @@ impl LaySpawn {
             m.position.y.floor() as i32 - 1,
             m.position.z.floor() as i32,
         ];
-        for d in CUBEONTAL {
+        for d in HORIZONTAL {
             let rel = [below[0] + d[0], below[1], below[2] + d[1]];
             // `getFaceShape(UP).isEmpty()`: nothing reaches the top of the block.
             let open_top =
@@ -434,8 +434,8 @@ impl Goal for LaySpawn {
         m.extra.frog.lay_target = None;
     }
 }
-/// `Direction.Plane.CUBEONTAL` as x and z steps: north, east, south, west.
-const CUBEONTAL: [[i32; 2]; 4] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+/// `Direction.Plane.HORIZONTAL` as x and z steps: north, east, south, west.
+const HORIZONTAL: [[i32; 2]; 4] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 /// `BlockPos.withinManhattan`: nearest first, then x, y, and +z before -z.
 fn manhattan_box(o: [i32; 3], range: i32) -> Vec<[i32; 3]> {
     let mut out = Vec::new();

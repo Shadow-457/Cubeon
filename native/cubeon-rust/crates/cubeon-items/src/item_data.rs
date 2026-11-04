@@ -206,7 +206,7 @@ pub const OMINOUS_LAYERS: [(&str, &str); 8] = [
     ("stripe_center", "gray"),
     ("border", "light_gray"),
     ("stripe_middle", "black"),
-    ("half_cubeontal", "light_gray"),
+    ("half_horizontal", "light_gray"),
     ("circle", "light_gray"),
     ("border", "black"),
 ];

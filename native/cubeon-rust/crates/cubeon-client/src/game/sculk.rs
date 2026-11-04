@@ -1935,7 +1935,7 @@ impl Game<'_> {
         if flying || discrete {
             return;
         }
-        let cubeontal = ((dx * dx + dz * dz).sqrt() * f64::from(0.6f32)) as f32;
+        let horizontal = ((dx * dx + dz * dz).sqrt() * f64::from(0.6f32)) as f32;
         let block = (
             at[0].floor() as i32,
             (at[1] - 0.2).floor() as i32,
@@ -1947,7 +1947,7 @@ impl Game<'_> {
         let travelled = if climbable {
             ((dx * dx + dy * dy + dz * dz).sqrt() * f64::from(0.6f32)) as f32
         } else {
-            cubeontal
+            horizontal
         };
         let Some(entry) = self.sculk.steps.get_mut(&who) else {
             return;

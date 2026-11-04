@@ -251,7 +251,7 @@ impl Game<'_> {
             let BlockEntity::TestInstanceBlock(b) = entity else {
                 continue;
             };
-            // BeaconRenderer.getViewDistance: 256, by the cubeontal distance.
+            // BeaconRenderer.getViewDistance: 256, by the horizontal distance.
             let dx = f64::from(pos.0) + 0.5 - camera.x;
             let dz = f64::from(pos.2) + 0.5 - camera.z;
             if dx * dx + dz * dz >= 256.0 * 256.0 {

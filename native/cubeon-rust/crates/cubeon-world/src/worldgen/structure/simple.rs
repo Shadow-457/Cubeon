@@ -3,7 +3,7 @@ use super::{
     BoundingBox, Mirror, Rotation, StructureResources, StructureTemplate,
     legacy::{
         LegacyPiece, PieceContext, PieceFrame, Result, TemplateHandler, TemplatePiece,
-        create_chest, make_bounding_box, offset, random_cubeontal,
+        create_chest, make_bounding_box, offset, random_horizontal,
     },
     processor::ProcessorList,
 };
@@ -530,7 +530,7 @@ pub struct SwampHutPiece {
 }
 impl SwampHutPiece {
     pub fn new(random: &mut impl RandomSource, west: i32, north: i32) -> Self {
-        let direction = random_cubeontal(random);
+        let direction = random_horizontal(random);
         Self {
             base: Scattered::new(west, 64, north, 7, 7, 9, direction),
             spawned: Mutex::new(false),

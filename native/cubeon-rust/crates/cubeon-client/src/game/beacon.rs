@@ -655,11 +655,11 @@ impl Game<'_> {
         for (k, sections) in &self.far_beacons {
             let base = glam::DVec3::new(f64::from(k.0) + 0.5, f64::from(k.1), f64::from(k.2) + 0.5);
             let offset = base - camera;
-            let cubeontal = glam::DVec2::new(offset.x, offset.z).length();
-            if cubeontal >= view {
+            let horizontal = glam::DVec2::new(offset.x, offset.z).length();
+            if horizontal >= view {
                 continue;
             }
-            let distance = cubeontal as f32;
+            let distance = horizontal as f32;
             let scale = if scoping {
                 1.0
             } else {

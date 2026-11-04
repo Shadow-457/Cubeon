@@ -259,7 +259,7 @@ pub fn display_data(tag: &Tag, all: bool) -> Vec<(u8, i32, Value)> {
     let billboard = match tag.get("billboard") {
         Some(Tag::String(s)) => match s.to_string_lossy().as_str() {
             "vertical" => 1,
-            "cubeontal" => 2,
+            "horizontal" => 2,
             "center" => 3,
             _ => 0,
         },

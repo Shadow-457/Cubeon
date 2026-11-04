@@ -216,7 +216,7 @@ impl FluidFlowWorld for EntityFluidWorld<'_> {
 mod tests {
     use super::*;
     #[test]
-    fn items_follow_flowing_water_but_still_water_has_no_cubeontal_push() {
+    fn items_follow_flowing_water_but_still_water_has_no_horizontal_push() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/cubeon-client")
             .join(cubeon_core::VANILLA_VERSION);
@@ -260,7 +260,7 @@ mod tests {
             velocity: Vec3::ZERO,
             on_ground: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: 0,
             bob_offset: 0.0,
@@ -314,9 +314,9 @@ mod tests {
 
     /// `Entity.baseTick` pushes an experience orb by the current it sits in: an
     /// orb in flowing water gains velocity along the flow and moves, while an orb
-    /// in still source water does not gain cubeontal velocity (#7442).
+    /// in still source water does not gain horizontal velocity (#7442).
     #[test]
-    fn experience_orbs_follow_flowing_water_but_still_water_has_no_cubeontal_push() {
+    fn experience_orbs_follow_flowing_water_but_still_water_has_no_horizontal_push() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/cubeon-client")
             .join(cubeon_core::VANILLA_VERSION);

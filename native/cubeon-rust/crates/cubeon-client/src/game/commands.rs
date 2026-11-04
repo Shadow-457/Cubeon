@@ -3649,7 +3649,7 @@ impl Game<'_> {
                 allowed: &allowed,
                 origin: from,
                 radius: 6400,
-                cubeontal: 32,
+                horizontal: 32,
                 vertical: 64,
                 min_y: self.world.bottom_y(),
                 max_y: self.world.top_y() - 1,

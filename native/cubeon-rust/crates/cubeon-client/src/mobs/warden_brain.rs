@@ -570,10 +570,10 @@ pub(super) fn set_attack_target(m: &mut Mob, target: Who) {
     mm.cant_reach_walk_target_since.clear();
     mm.sonic_boom_cooldown.set_ttl((), 200);
 }
-/// `Entity.closerThan(target, cubeontal, vertical)`.
-fn closer_than(m: &Mob, p: Vec3, cubeontal: f64, vertical: f64) -> bool {
+/// `Entity.closerThan(target, horizontal, vertical)`.
+fn closer_than(m: &Mob, p: Vec3, horizontal: f64, vertical: f64) -> bool {
     let (dx, dy, dz) = (p.x - m.position.x, p.y - m.position.y, p.z - m.position.z);
-    dx * dx + dz * dz < cubeontal * cubeontal && dy * dy < vertical * vertical
+    dx * dx + dz * dz < horizontal * horizontal && dy * dy < vertical * vertical
 }
 /// `PositionTracker.isVisibleBy`.
 fn tracker_visible(m: &mut Mob, w: &MobWorld, t: Tracker) -> bool {

@@ -397,7 +397,7 @@ fn jump_scale(m: &Mob) -> f32 {
             .filter(|p| !p.is_done())
             .is_some_and(|p| f64::from(p.next_node().y) > m.position.y + 0.5);
     let high =
-        m.cubeontal_collision || step || m.ai.jumping && m.ai.mov.wanted[1] > m.position.y + 0.5;
+        m.horizontal_collision || step || m.ai.jumping && m.ai.mov.wanted[1] > m.position.y + 0.5;
     let base = if high {
         0.5
     } else if m.ai.mov.speed_modifier <= 0.6 {
@@ -730,7 +730,7 @@ mod tests {
         near(f64::from(jump_power(&m, 1.0)), 0.2);
         m.ai.mov.speed_modifier = 2.2;
         near(f64::from(jump_power(&m, 1.0)), 0.3);
-        m.cubeontal_collision = true;
+        m.horizontal_collision = true;
         near(f64::from(jump_power(&m, 1.0)), 0.5);
         m.attrs.jump_strength = 0.84;
         m.extra.effects.push(("minecraft:jump_boost", 100, 1));

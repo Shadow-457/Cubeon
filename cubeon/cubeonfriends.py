@@ -189,7 +189,7 @@ _mod_stamp_cache: dict = {}
 def _jar_info(path):
     try:
         stat = os.stat(path)
-        key = (path, stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns)
+        key = (path, stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns)
         if key in _jar_info_cache:
             return _jar_info_cache[key]
         with open(path, "rb") as fh:
@@ -202,7 +202,8 @@ def _jar_info(path):
             json.loads(jar.read(metadata))
             stamp = max(item.date_time for item in jar.infolist())
         result = (digest, stamp)
-        _jar_info_cache.clear()
+        if len(_jar_info_cache) >= 16:
+            _jar_info_cache.pop(next(iter(_jar_info_cache)))
         _jar_info_cache[key] = result
         return result
     except (OSError, ValueError, KeyError, zipfile.BadZipFile):

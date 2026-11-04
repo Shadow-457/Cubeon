@@ -3,7 +3,7 @@
 use super::{
     Behaviours, Dimension, LevelAccess, Sim, Spread,
     classes::{Class, Interface},
-    update::{CUBEONTAL, above, below, rel},
+    update::{HORIZONTAL, above, below, rel},
 };
 use crate::{
     fluid::{FluidKind, FluidState},
@@ -42,7 +42,7 @@ fn flowing_of(kind: FluidKind) -> FluidKind {
     }
 }
 
-/// `FlowingFluid.SpreadContext`: per-spread caches keyed by cubeontal offset.
+/// `FlowingFluid.SpreadContext`: per-spread caches keyed by horizontal offset.
 /// A spread looks at most `SPREAD_REACH` blocks away on each axis (the slope
 /// search's 4 steps after the first), so the caches are flat arrays around
 /// the origin: no hashing and no allocation on the hot path. A position
@@ -355,7 +355,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let b = self.b;
         let mut highest = 0;
         let mut sources = 0;
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let neighbour = self.rel_state(pos, direction);
             let fluid = b.fluid(neighbour);
             if fluid.kind().same_family(kind)
@@ -455,7 +455,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         context: &mut SpreadContext,
     ) -> i32 {
         let mut lowest = 1000;
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             if direction == from {
                 continue;
             }
@@ -491,7 +491,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let mut lowest = 1000;
         let mut result: Vec<(Direction, FluidState)> = Vec::new();
         let mut context: Option<SpreadContext> = None;
-        for direction in CUBEONTAL {
+        for direction in HORIZONTAL {
             let test_pos = rel(pos, direction);
             let test_state = self.state(test_pos);
             let test_fluid = self.b.fluid(test_state);
@@ -522,7 +522,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         result
     }
     fn source_neighbour_count(&self, kind: FluidKind, pos: BlockPos) -> i32 {
-        CUBEONTAL
+        HORIZONTAL
             .into_iter()
             .filter(|d| self.is_source_of(kind, self.fluid_at(rel(pos, *d))))
             .count() as i32

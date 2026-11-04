@@ -52,8 +52,8 @@ pub fn main() -> Result<()> {
                 swimming: flag(12),
                 in_water: flag(13),
                 on_ground: flag(14),
-                cubeontal_collision: flag(15),
-                minor_cubeontal_collision: flag(16),
+                horizontal_collision: flag(15),
+                minor_horizontal_collision: flag(16),
             };
             let input = keys(step["keys"].as_u64().unwrap());
             let mut calls = Vec::new();

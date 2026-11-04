@@ -685,7 +685,7 @@ pub struct Frame<'a> {
     /// `Camera.depthFar`: the far plane (`crate::camera::depth_far`).
     pub depth_far: f32,
     pub underwater: bool,
-    /// The y of the cubeontal water plane around the camera, in world blocks, while one
+    /// The y of the horizontal water plane around the camera, in world blocks, while one
     /// of Cubeon's own packs reads the water mirror (`Game::water_plane`,
     /// `Renderer::wants_water_plane`).
     pub water_plane: Option<f32>,
@@ -10715,7 +10715,7 @@ fn world_projection(fov_degrees: f32, aspect: f32, far: f32) -> Mat4 {
     Mat4::perspective_rh(fov_degrees.to_radians(), aspect, far, NEAR_PLANE)
 }
 
-/// `view_proj` mirrored about the cubeontal plane at the camera-relative height `plane`:
+/// `view_proj` mirrored about the horizontal plane at the camera-relative height `plane`:
 /// with F the mirror (y flips and moves to 2 * plane), `view_proj * F` negates column 1
 /// and moves column 3 by 2 * plane times column 1.
 ///
@@ -10729,7 +10729,7 @@ fn mirror_view_projection(view_proj: Mat4, plane: f32) -> Mat4 {
 }
 
 /// The mirror's `inverse_view` (the sky's rays): what the view sees, mirrored about the
-/// cubeontal plane at the camera-relative height `plane`, so F * `inverse_view`.
+/// horizontal plane at the camera-relative height `plane`, so F * `inverse_view`.
 fn mirror_inverse_view(inverse_view: [[f32; 4]; 4], plane: f32) -> [[f32; 4]; 4] {
     inverse_view.map(|[x, y, z, w]| [x, 2.0 * plane * w - y, z, w])
 }

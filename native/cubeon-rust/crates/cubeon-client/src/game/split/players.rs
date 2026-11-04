@@ -288,7 +288,7 @@ impl Split<'_> {
         }
         let profile = profiles.join(&name);
         let options = profile.join("options.txt");
-        let mut settings = if options.exists() {
+        let settings = if options.exists() {
             cubeon_client::settings::Settings::load(&options)
         } else {
             std::fs::create_dir_all(&profile)?;
@@ -440,7 +440,6 @@ impl Split<'_> {
             p.push(seat.to_string());
             p.into()
         });
-        let mut settings = settings;
         let gui = UiResources::load(&options.resources, &options.resources)?;
         // P1's output, heard from this player's camera too (`Audio::share`).
         let audio = host.audio.share(seat as u8);

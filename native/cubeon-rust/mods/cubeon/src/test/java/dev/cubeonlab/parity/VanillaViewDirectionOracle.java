@@ -11,7 +11,7 @@ public final class VanillaViewDirectionOracle {
         net.minecraft.SharedConstants.tryDetectVersion();net.minecraft.server.Bootstrap.bootStrap();Path dir=Path.of(args[1]);try(var out=new PrintWriter(Files.newBufferedWriter(dir.resolve(args[0]+".txt")));var lines=Files.lines(dir.resolve("inputs.txt"))){for(var line:(Iterable<String>)lines::iterator){var f=JsonParser.parseString(line).getAsJsonObject();switch(f.get("mode").getAsString()){
             case "acos":out.println("angle "+bits(Math.acos(number(f.get("value")))));break;
             case "view":{var v=Entity.calculateViewVector(single(f.get("pitch")),single(f.get("yaw")));out.println("view "+bits(v.x)+" "+bits(v.y)+" "+bits(v.z));break;}
-            case "blocking":{var view=Entity.calculateViewVector(0,single(f.get("yaw")));var delta=vec(f.get("source")).subtract(vec(f.get("position")));var cubeontal=new Vec3(delta.x,0,delta.z).normalize();out.println("angle "+bits(Math.acos(cubeontal.dot(view))));break;}
+            case "blocking":{var view=Entity.calculateViewVector(0,single(f.get("yaw")));var delta=vec(f.get("source")).subtract(vec(f.get("position")));var horizontal=new Vec3(delta.x,0,delta.z).normalize();out.println("angle "+bits(Math.acos(horizontal.dot(view))));break;}
             case "fallback":out.println("angle "+bits((double)(float)Math.PI));break;
             default:throw new AssertionError();}
         }}

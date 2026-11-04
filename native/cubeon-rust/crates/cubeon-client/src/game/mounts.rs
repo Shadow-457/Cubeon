@@ -866,7 +866,7 @@ fn dismount_location(
         .unwrap_or(candidates[2]);
     (spot, None)
 }
-/// `Entity.getCollisionCubeontalEscapeVector`: out of the vehicle's box
+/// `Entity.getCollisionHorizontalEscapeVector`: out of the vehicle's box
 /// along `yaw`, to the edge of the square it spans.
 fn escape_vector(vehicle_width: f64, passenger_width: f64, yaw: f32) -> Vec3 {
     // 1.0E-5F: a float literal widened to double.

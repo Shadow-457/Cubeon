@@ -90,7 +90,7 @@ public final class VanillaPlayerSyncOracle {
                         field(Entity.class, "yRot").setFloat(p, (float)number(op.get(3)));
                         field(Entity.class, "xRot").setFloat(p, (float)number(op.get(4)));
                         p.ground = op.get(5).getAsBoolean();
-                        p.cubeontalCollision = op.get(6).getAsBoolean();
+                        p.horizontalCollision = op.get(6).getAsBoolean();
                         sink.sent = false;
                         sendPosition.invoke(p);
                         if (!sink.sent) out.println("-");

@@ -722,7 +722,7 @@ pub fn distance(v: &Value, a: [f64; 3], b: [f64; 3]) -> bool {
     range_f(&v["x"], d[0].abs())
         && range_f(&v["y"], d[1].abs())
         && range_f(&v["z"], d[2].abs())
-        && range_f(&v["cubeontal"], (d[0] * d[0] + d[2] * d[2]).sqrt())
+        && range_f(&v["horizontal"], (d[0] * d[0] + d[2] * d[2]).sqrt())
         && range_f(
             &v["absolute"],
             (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt(),

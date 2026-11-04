@@ -539,7 +539,7 @@ mod tests {
         // Alone: every quarter the lone tile.
         assert_eq!(at(&[]), Some(Pick::Quarters([layer(100); 4])));
         // A north face's right is west: glass there (in its other state) joins the right
-        // quarters, the cubeontal piece. Stone doesn't.
+        // quarters, the horizontal piece. Stone doesn't.
         let right = Pick::Quarters([layer(100), layer(103), layer(100), layer(103)]);
         assert_eq!(at(&[([-1, 0, 0], 2)]), Some(right));
         assert_eq!(

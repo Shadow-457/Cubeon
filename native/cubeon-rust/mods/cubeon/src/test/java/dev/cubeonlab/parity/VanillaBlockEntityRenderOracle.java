@@ -441,7 +441,7 @@ public final class VanillaBlockEntityRenderOracle {
                     var sections = new ArrayList<BeaconRenderState.Section>();
                     for (var e : c.getAsJsonArray("beam")) sections.add(new BeaconRenderState.Section(e.getAsJsonArray().get(0).getAsInt(), e.getAsJsonArray().get(1).getAsInt()));
                     beacon.sections = sections;
-                    float distance = (float) cameraPos.subtract(Vec3.atCenterOf(pos)).cubeontalDistance();
+                    float distance = (float) cameraPos.subtract(Vec3.atCenterOf(pos)).horizontalDistance();
                     beacon.beamRadiusScale = Math.max(1.0F, distance / 96.0F);
                 } else
                 if (rs instanceof SignRenderState sign) {

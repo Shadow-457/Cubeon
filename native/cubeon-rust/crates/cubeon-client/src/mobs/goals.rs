@@ -575,7 +575,7 @@ impl Mob {
     ) -> Option<[f64; 3]> {
         self.land_random_pos_away_between(w, 0.0, f64::from(h), v, away)
     }
-    /// `LandRandomPos.getPosAway(mob, minCubeontalDist, maxCubeontalDist, verticalDist, avoidPos)`.
+    /// `LandRandomPos.getPosAway(mob, minHorizontalDist, maxHorizontalDist, verticalDist, avoidPos)`.
     pub fn land_random_pos_away_between(
         &mut self,
         w: &MobWorld,
@@ -1103,7 +1103,7 @@ impl Goal for Stroll {
 pub struct LookAtPlayer {
     pub range: f32,
     pub probability: f32,
-    pub only_cubeontal: bool,
+    pub only_horizontal: bool,
     /// `LookAtPlayerGoal(Mob.class, ...)`: the nearest mob, not the player.
     pub mobs: bool,
     /// `LookAtPlayerGoal(Strider.class, ...)`: only mobs of this species.
@@ -1118,7 +1118,7 @@ impl LookAtPlayer {
         Self {
             range,
             probability: 0.02,
-            only_cubeontal: false,
+            only_horizontal: false,
             mobs: false,
             only: None,
             interact: false,
@@ -1229,7 +1229,7 @@ impl Goal for LookAtPlayer {
     }
     fn tick(&mut self, m: &mut Mob, cx: &mut Cx) {
         if let Some((pos, eye)) = self.look_target(cx.w) {
-            let y = if self.only_cubeontal { m.eye_y() } else { eye };
+            let y = if self.only_horizontal { m.eye_y() } else { eye };
             m.look_at([pos.x, y, pos.z]);
             self.look_time -= 1;
         }

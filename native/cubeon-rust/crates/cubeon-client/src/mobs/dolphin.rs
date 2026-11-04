@@ -10,7 +10,7 @@ use crate::blocks::Fluid;
 use cubeon_core::geometry::trig::Mth;
 use cubeon_core::random::RandomSource;
 
-/// `Entity.getMotionDirection`: the cubeontal step of the yaw
+/// `Entity.getMotionDirection`: the horizontal step of the yaw
 /// (`Direction.fromYRot`: south, west, north, east).
 fn motion_step(yaw: f32) -> [i32; 2] {
     match (yaw / 90.0 + 0.5).floor() as i32 & 3 {
@@ -260,8 +260,8 @@ impl Goal for Jump {
             // Mth.rotLerp(0.2, xRot, 0).
             m.head_pitch += 0.2 * super::living::wrap(0.0 - m.head_pitch);
         } else if v.length() > f64::from(1.0e-5f32) {
-            let cubeontal = v.x.hypot(v.z);
-            m.head_pitch = ((-v.y).atan2(cubeontal) * f64::from(180.0f32)
+            let horizontal = v.x.hypot(v.z);
+            m.head_pitch = ((-v.y).atan2(horizontal) * f64::from(180.0f32)
                 / f64::from(std::f32::consts::PI)) as f32;
         }
     }
@@ -289,7 +289,7 @@ impl FollowPlayerRidden {
             leading: false,
         }
     }
-    /// `Entity.hasMovedCubeontallyRecently` of the rider, and the player's
+    /// `Entity.hasMovedHorizontallyRecently` of the rider, and the player's
     /// own position (its yaw gives the directions).
     fn rider<'a>(&self, cx: &'a Cx) -> Option<&'a super::PlayerView> {
         cx.w.player.as_ref().filter(|p| {

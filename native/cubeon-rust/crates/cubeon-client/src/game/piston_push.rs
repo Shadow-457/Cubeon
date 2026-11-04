@@ -480,7 +480,7 @@ impl Game<'_> {
             .unwrap_or(Vec3::ZERO)
         });
         // Entity.move updates an authoritative living entity's ground flag
-        // even for a cubeontal piston push. Keeping the old support flag
+        // even for a horizontal piston push. Keeping the old support flag
         // would run Frost Walker while the stand is moving over open water.
         if let Target::Entity(EntityHandle::ArmorStand(i)) = target {
             self.armor_stands[i].on_ground = limited.y < 0.0 && limited.y != resolved.y;

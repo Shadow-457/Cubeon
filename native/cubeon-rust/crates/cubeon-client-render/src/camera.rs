@@ -797,11 +797,11 @@ impl AvatarBob {
         [flap, lean, lean2]
     }
     /// `LocalPlayer.move`: `addWalkedDistance(Mth.length(dx, dz) * 0.6F)`
-    /// with the float cubeontal displacement.
+    /// with the float horizontal displacement.
     pub fn add_walked(&mut self, dx: f32, dz: f32) {
         self.walk_dist += (dx * dx + dz * dz).sqrt() * 0.6;
     }
-    /// `AbstractClientPlayer.updateBob`: toward the cubeontal speed (at most
+    /// `AbstractClientPlayer.updateBob`: toward the horizontal speed (at most
     /// 0.1) on the ground, toward 0 otherwise.
     pub fn update_bob(&mut self, on_ground_alive_not_swimming: bool, velocity: [f64; 3]) {
         let target = if on_ground_alive_not_swimming {

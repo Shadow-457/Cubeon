@@ -8,7 +8,7 @@ pub trait TypeMatchWorld {
 }
 #[derive(Clone, Copy, Debug)]
 pub struct DamageReduction<S> {
-    pub cubeontal_angle: f32,
+    pub horizontal_angle: f32,
     pub types: Option<S>,
     pub base: f32,
     pub factor: f32,
@@ -35,7 +35,7 @@ impl<S: Copy> DamageReduction<S> {
         damage: f32,
         angle: f64,
     ) -> Result<f32, W::Error> {
-        if angle > f64::from(0.017_453_292_f32 * self.cubeontal_angle) {
+        if angle > f64::from(0.017_453_292_f32 * self.horizontal_angle) {
             return Ok(0.0);
         }
         if let Some(set) = self.types {

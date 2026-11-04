@@ -1553,7 +1553,7 @@ mod tests {
     #[test]
     fn a_block_action_must_be_within_reach() {
         let mut g = guest_at([0.5, 64.0, 0.5]);
-        // Survival (4.5 + 1 from the eyes): five blocks off cubeontally,
+        // Survival (4.5 + 1 from the eyes): five blocks off horizontally,
         // not one further.
         assert!(g.may_reach_block([5, 64, 0]));
         assert!(!g.may_reach_block([6, 64, 0]));

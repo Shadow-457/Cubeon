@@ -555,7 +555,7 @@ struct Info {
     block_entity: bool,
     tints: [Tint; 2],
     tint_count: u8,
-    /// `OffsetType` as (max cubeontal, max vertical): vertical 0 for XZ.
+    /// `OffsetType` as (max horizontal, max vertical): vertical 0 for XZ.
     offset: Option<(f32, f32)>,
     /// `isSolid()` (legacy), for fluid corner heights.
     legacy_solid: bool,
@@ -706,9 +706,9 @@ impl MeshTables {
             let emissive = name == "magma_block"
                 || (matches!(name, "sculk_sensor" | "calibrated_sculk_sensor")
                     && props.get("sculk_sensor_phase").map(String::as_str) == Some("active"));
-            // OffsetType.XZ/XYZ with getMaxCubeontalOffset/getMaxVerticalOffset.
+            // OffsetType.XZ/XYZ with getMaxHorizontalOffset/getMaxVerticalOffset.
             let offset = s.random_offset.then(|| {
-                let cubeontal = if s.has_class("SpeleothemBlock") {
+                let horizontal = if s.has_class("SpeleothemBlock") {
                     0.125
                 } else {
                     0.25
@@ -718,7 +718,7 @@ impl MeshTables {
                     "short_grass" | "fern" | "short_dry_grass" | "tall_dry_grass" => 0.2,
                     _ => 0.0,
                 };
-                (cubeontal, vertical)
+                (horizontal, vertical)
             });
             let mut face = [0u8; 6];
             let mut cover = [0f32; 6];
@@ -937,10 +937,10 @@ impl MeshTables {
 }
 /// `OffsetType.XZ`/`XYZ`: a per-column jitter from `Mth.getSeed(x, 0, z)`.
 fn offset(info: &Info, x: i32, z: i32) -> Option<[f64; 3]> {
-    let (cubeontal, vertical) = info.offset?;
+    let (horizontal, vertical) = info.offset?;
     let seed = position_seed(BlockPos::new(x, 0, z));
     let nibble = |shift: u32| ((seed >> shift) & 15) as f32 / 15.0;
-    let h = f64::from(cubeontal);
+    let h = f64::from(horizontal);
     Some([
         ((f64::from(nibble(0)) - 0.5) * 0.5).clamp(-h, h),
         (f64::from(nibble(4)) - 1.0) * f64::from(vertical),

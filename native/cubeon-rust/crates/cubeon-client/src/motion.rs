@@ -456,7 +456,7 @@ impl PlayerMotion {
             self.velocity = movement;
         }
     }
-    /// `Player.isSweepAttack`, using the resident player's known cubeontal velocity.
+    /// `Player.isSweepAttack`, using the resident player's known horizontal velocity.
     pub fn is_sweep_attack(&self, strength: f32, critical: bool, sword: bool) -> bool {
         let movement = self.velocity;
         let limit = f64::from(self.speed) * 2.5;
@@ -940,8 +940,8 @@ impl PlayerMotion {
             shallow_water: self.fluids.was_touching_water && !self.is_under_water(),
             fall_flying: self.fall_flying,
             on_ground: self.ground.on_ground,
-            cubeontal_collision: self.collision.cubeontal,
-            minor_cubeontal_collision: self.collision.minor,
+            horizontal_collision: self.collision.horizontal,
+            minor_horizontal_collision: self.collision.minor,
             slow_item: self.item_use_slows_sprint,
             moving_slowly: self.moving_slowly(),
             in_water: self.fluids.was_touching_water,
@@ -1450,7 +1450,7 @@ impl MotionWorld<'_, '_, '_> {
             p.spin_hit = Some(id);
             p.auto_spin_attack_ticks = 0;
             p.velocity = p.velocity.scale(-0.2);
-        } else if p.collision.cubeontal {
+        } else if p.collision.horizontal {
             p.auto_spin_attack_ticks = 0;
         }
     }
@@ -1560,7 +1560,7 @@ impl MotionWorld<'_, '_, '_> {
                     )
                     .map_err(|e| e.to_string())?;
             }
-            // SlimeBlock.stepOn: a slow walk on slime drags the cubeontal
+            // SlimeBlock.stepOn: a slow walk on slime drags the horizontal
             // speed (the client moves its own player, so not the server's copy).
             if slime && !damage_only && !self.player.shift_key_down {
                 let abs_delta_y = self.player.velocity.y.abs();
@@ -1984,7 +1984,7 @@ impl MotionWorld<'_, '_, '_> {
         Ok(())
     }
     /// `PowderSnowBlock.entityInside`'s server particle: one snowflake at
-    /// the top of `p` when the player moved cubeontally this tick.
+    /// the top of `p` when the player moved horizontally this tick.
     fn powder_snow_snowflake(&mut self, p: BlockPos) {
         let feet = BlockPos::containing(self.player.position);
         if !self
@@ -2075,7 +2075,7 @@ impl MotionWorld<'_, '_, '_> {
         // it compares the delta before the move with the one after it, which
         // `Entity.move` leaves as the movement it resolved. `move_entity` does
         // not write that back, so the distance actually travelled stands in.
-        if !self.player.client_side && self.player.collision.cubeontal {
+        if !self.player.client_side && self.player.collision.horizontal {
             let travelled = self.player.position.subtract(before);
             let new_h = (travelled.x * travelled.x + travelled.z * travelled.z).sqrt();
             let dmg = fly_into_wall_damage(move_h, new_h);
@@ -2120,7 +2120,7 @@ impl MotionWorld<'_, '_, '_> {
         entity_move::move_entity(self, MoverType::ShulkerBox, movement)
     }
     /// `LocalPlayer.move`: the move, then `updateAutoJump` with the float
-    /// cubeontal displacement.
+    /// horizontal displacement.
     pub fn move_self(&mut self, movement: Vec3) -> Result<()> {
         let before = self.player.position;
         entity_move::move_entity(self, MoverType::SelfMovement, movement)?;
@@ -2382,7 +2382,7 @@ impl EntityMoveWorld for MotionWorld<'_, '_, '_> {
     fn set_on_ground_with_movement(
         &mut self,
         below: bool,
-        cubeontal: bool,
+        horizontal: bool,
         movement: Vec3,
     ) -> Result<()> {
         let position = self.player.position;
@@ -2395,17 +2395,17 @@ impl EntityMoveWorld for MotionWorld<'_, '_, '_> {
         };
         self.player.ground.set_with_movement(
             below,
-            cubeontal,
+            horizontal,
             bounds,
             Some(movement),
             |bounds| find_supporting_block(&mut collisions, context, position, bounds, 1_000_000),
         )?;
         Ok(())
     }
-    /// `LocalPlayer.isCubeontalCollisionMinor`: the move that hit a wall was
+    /// `LocalPlayer.isHorizontalCollisionMinor`: the move that hit a wall was
     /// within 8 degrees of the direction the input asked for.
-    fn minor_cubeontal_collision(&mut self, movement: Vec3) -> Result<bool> {
-        Ok(cubeontal_collision_minor(
+    fn minor_horizontal_collision(&mut self, movement: Vec3) -> Result<bool> {
+        Ok(horizontal_collision_minor(
             self.player.yaw,
             self.player.applied_input,
             movement,
@@ -2819,8 +2819,8 @@ impl LivingAirWorld for MotionWorld<'_, '_, '_> {
     fn move_self(&mut self, v: Vec3) -> Result<()> {
         MotionWorld::move_self(self, v)
     }
-    fn cubeontal_collision(&self) -> bool {
-        self.player.collision.cubeontal
+    fn horizontal_collision(&self) -> bool {
+        self.player.collision.horizontal
     }
     fn jumping(&self) -> bool {
         self.player.jumping
@@ -2922,8 +2922,8 @@ impl LivingMotionWorld for MotionWorld<'_, '_, '_> {
     }
 }
 
-/// `LocalPlayer.isCubeontalCollisionMinor` for the input `[xxa, zza]`.
-fn cubeontal_collision_minor(yaw: f32, input: [f32; 2], movement: Vec3) -> bool {
+/// `LocalPlayer.isHorizontalCollisionMinor` for the input `[xxa, zza]`.
+fn horizontal_collision_minor(yaw: f32, input: [f32; 2], movement: Vec3) -> bool {
     let rad = yaw * (std::f32::consts::PI / 180.0);
     let sin = f64::from(cubeon_core::geometry::trig::sin(f64::from(rad)));
     let cos = f64::from(cubeon_core::geometry::trig::cos(f64::from(rad)));
@@ -2996,28 +2996,28 @@ mod tests {
 
     use super::*;
 
-    /// `LocalPlayer.isCubeontalCollisionMinor`: sliding along a wall at a
+    /// `LocalPlayer.isHorizontalCollisionMinor`: sliding along a wall at a
     /// small angle to the input is minor; a sideways slide is not.
     #[test]
-    fn cubeontal_collision_minor_by_angle() {
+    fn horizontal_collision_minor_by_angle() {
         // Yaw 0 looks along +z; forward input.
         let fwd = [0.0, 1.0];
-        assert!(cubeontal_collision_minor(
+        assert!(horizontal_collision_minor(
             0.0,
             fwd,
             Vec3::new(0.02, 0.0, 0.2)
         ));
-        assert!(!cubeontal_collision_minor(
+        assert!(!horizontal_collision_minor(
             0.0,
             fwd,
             Vec3::new(0.2, 0.0, 0.05)
         ));
-        assert!(!cubeontal_collision_minor(
+        assert!(!horizontal_collision_minor(
             0.0,
             fwd,
             Vec3::new(0.0, 0.0, 0.0)
         ));
-        assert!(!cubeontal_collision_minor(
+        assert!(!horizontal_collision_minor(
             0.0,
             [0.0, 0.0],
             Vec3::new(0.0, 0.0, 0.2)
@@ -3025,7 +3025,7 @@ mod tests {
     }
 
     #[test]
-    fn sword_sweep_requires_charge_ground_and_slow_cubeontal_movement() {
+    fn sword_sweep_requires_charge_ground_and_slow_horizontal_movement() {
         let root = std::env::var_os("CUBEON_TEST_RESOURCES")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
@@ -3667,7 +3667,7 @@ mod tests {
     }
 
     /// `LivingEntity.handleFallFlyingCollisions`: a glide that meets a wall loses
-    /// the cubeontal speed it had, and the server's copy hurts by that loss,
+    /// the horizontal speed it had, and the server's copy hurts by that loss,
     /// `(moveHorLength - newMoveHorLength) * 10 - 3`, as `minecraft:fly_into_wall`.
     /// The speed it starts the tick with is the client's own movement
     /// (`handleMovePlayer` gives the server copy its delta movement), so the
@@ -3721,7 +3721,7 @@ mod tests {
     }
 
     #[test]
-    fn spectator_scroll_speed_controls_cubeontal_and_vertical_flight() {
+    fn spectator_scroll_speed_controls_horizontal_and_vertical_flight() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/cubeon-client")
             .join(cubeon_core::VANILLA_VERSION);
@@ -4008,7 +4008,7 @@ mod tests {
                 delay_seconds: 0.25,
                 disable_scale: 1.0,
                 reductions: vec![DamageReduction {
-                    cubeontal_angle: 90.0,
+                    horizontal_angle: 90.0,
                     types: None,
                     base: 0.0,
                     factor: 1.0,

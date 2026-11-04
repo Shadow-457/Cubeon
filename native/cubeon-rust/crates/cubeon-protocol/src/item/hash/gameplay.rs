@@ -513,7 +513,7 @@ pub(super) fn code(kind: i32, r: &mut Reader, names: &dyn Names) -> Option<HashC
                     "damage_reductions",
                     HashOps::create_list(reductions.into_iter().map(
                         |(angle, types, base, factor)| {
-                            float_or(RecordHash::new(), "cubeontal_blocking_angle", angle, 90.0)
+                            float_or(RecordHash::new(), "horizontal_blocking_angle", angle, 90.0)
                                 .optional("type", types)
                                 .field("base", HashOps::create_f32(base))
                                 .field("factor", HashOps::create_f32(factor))

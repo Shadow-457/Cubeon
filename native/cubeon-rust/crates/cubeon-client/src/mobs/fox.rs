@@ -767,12 +767,12 @@ impl Goal for Pounce {
             if v.y * v.y < f64::from(0.03f32) && m.head_pitch != 0.0 {
                 m.head_pitch += 0.2 * wrap(-m.head_pitch);
             } else {
-                let cubeontal = v.cubeontal_distance();
+                let horizontal = v.horizontal_distance();
                 let bias = if m.ai.jumping && v.y > 0.0 { 6.5 } else { 1.0 };
                 let y = v.y * bias;
-                let len = (cubeontal * cubeontal + y * y).sqrt();
+                let len = (horizontal * horizontal + y * y).sqrt();
                 if len > f64::from(1.0e-5f32) {
-                    let pitch = signum(-y) * jmath::acos(cubeontal / len) * 180.0
+                    let pitch = signum(-y) * jmath::acos(horizontal / len) * 180.0
                         / f64::from(std::f32::consts::PI);
                     m.head_pitch = (pitch as f32 % 360.0).clamp(-90.0, 90.0);
                 }

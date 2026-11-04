@@ -1629,7 +1629,7 @@ impl Game<'_> {
         for item in stacks {
             // Every death drop is its own ItemEntity, and the drop entity's
             // own random (not the level's) gives it the constructor's
-            // cubeontal push (its motion otherwise stays [0, 0.2, 0] and
+            // horizontal push (its motion otherwise stays [0, 0.2, 0] and
             // the drops land stacked at the mob's centre, without disturbing
             // the level random that the orbs' merge ids and block ticks read
             // next).
@@ -2340,12 +2340,12 @@ impl Game<'_> {
                         }
                     };
                     if hurt {
-                        let cubeontal = 2.5 * (1.0 - resistance);
+                        let horizontal = 2.5 * (1.0 - resistance);
                         let vertical = 0.5 * (1.0 - resistance);
                         let velocity = [
-                            direction[0] * cubeontal,
+                            direction[0] * horizontal,
                             direction[1] * vertical,
-                            direction[2] * cubeontal,
+                            direction[2] * horizontal,
                         ];
                         self.handle_mob_events(vec![MobEvent::Push { target, velocity }])?;
                     }

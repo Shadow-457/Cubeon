@@ -743,7 +743,7 @@ impl Ticker<'_, '_, '_, '_> {
         } else {
             degrees(-movement.x, -movement.z)
         };
-        let x_rot = degrees(movement.y, movement.cubeontal_distance());
+        let x_rot = degrees(movement.y, movement.horizontal_distance());
         self.p.pitch = lerp_rotation(self.p.pitch, x_rot);
         self.p.yaw = lerp_rotation(self.p.yaw, y_rot);
         self.check_left_owner(targets);

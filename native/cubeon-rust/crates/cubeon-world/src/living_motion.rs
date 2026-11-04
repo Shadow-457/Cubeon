@@ -208,10 +208,10 @@ mod tests {
             };
             jump_from_ground(&mut sprinting).unwrap();
             let (dx, dz) = impulse(yaw);
-            let cubeontal = ((dx * dx) + (dz * dz)).sqrt();
+            let horizontal = ((dx * dx) + (dz * dz)).sqrt();
             assert!(
-                (cubeontal - 0.2).abs() < 1.0e-4,
-                "yaw {yaw}: impulse length {cubeontal}"
+                (horizontal - 0.2).abs() < 1.0e-4,
+                "yaw {yaw}: impulse length {horizontal}"
             );
             assert!(
                 (sprinting.velocity.x - (before.x + dx)).abs() < 1.0e-9,

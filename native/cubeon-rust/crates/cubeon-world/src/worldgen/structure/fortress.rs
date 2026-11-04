@@ -1,7 +1,7 @@
 //! Nether fortresses: NetherFortressStructure and NetherFortressPieces.
 use super::{
     BoundingBox,
-    legacy::{LegacyPiece, PieceContext, PieceFrame, Result, make_bounding_box, random_cubeontal},
+    legacy::{LegacyPiece, PieceContext, PieceFrame, Result, make_bounding_box, random_horizontal},
     stronghold::orient_box,
 };
 use crate::registry::BlockStateId;
@@ -299,7 +299,7 @@ impl Builder {
 
 /// NetherFortressStructure.generatePieces.
 pub fn generate(random: &mut impl RandomSource, chunk: [i32; 2]) -> Vec<FortressPiece> {
-    let d = random_cubeontal(random);
+    let d = random_horizontal(random);
     let b = make_bounding_box(chunk[0] * 16 + 2, 64, chunk[1] * 16 + 2, d, 19, 10, 19);
     let mut g = Builder {
         pieces: vec![Builder::piece(Kind::Start, b, d, 0)],

@@ -577,7 +577,7 @@ impl Options {
             .ok_or("missing executable directory")?
             .join("resources");
         let mut o = Self {
-            resources: if sibling.join("cubeon-resources.json").exists() {
+            resources: if cubeon_core::prepared_files::manifest_path(&sibling).is_file() {
                 sibling
             } else {
                 std::path::Path::new(".local/cubeon-client").join(cubeon_core::VANILLA_VERSION)
@@ -3952,7 +3952,7 @@ impl Game<'_> {
             velocity: Vec3::new(velocity[0], velocity[1], velocity[2]),
             on_ground: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: i64::from(pickup_delay),
             bob_offset: bob,
@@ -4720,7 +4720,7 @@ impl Game<'_> {
         if prop("powered") != Some("true") {
             return;
         }
-        // FACING is cubeontal; getConnectedDirection is the face's direction.
+        // FACING is horizontal; getConnectedDirection is the face's direction.
         let facing = match prop("facing") {
             Some("north") => [0, 0, -1],
             Some("south") => [0, 0, 1],
@@ -17700,7 +17700,7 @@ impl Game<'_> {
                         && self.sleeping.is_none()
                         && self.player.is_some()
                         && !self.native_wheel_event(d)
-                        && let Some((wheel, (cubeontal_steps, vertical_steps))) = self
+                        && let Some((wheel, (horizontal_steps, vertical_steps))) = self
                             .mouse
                             .on_scroll(raw_x, raw_y, discrete, wheel_sensitivity)
                     {
@@ -17708,7 +17708,7 @@ impl Game<'_> {
                             let mut canceled = false;
                             self.native_mouse_scrolling(
                                 [scaled(raw_x), scaled(raw_y)],
-                                [cubeontal_steps, vertical_steps],
+                                [horizontal_steps, vertical_steps],
                                 [
                                     self.physical_buttons.contains(&MouseButton::Left),
                                     self.physical_buttons.contains(&MouseButton::Middle),
@@ -20284,7 +20284,7 @@ fn load_resources(
 /// the next starts read them from one file (#1961).
 fn write_prepared_files(root: PathBuf) {
     use cubeon_core::prepared_files;
-    if prepared_files::open(&root).is_some() || !root.join("cubeon-resources.json").is_file() {
+    if prepared_files::open(&root).is_some() || !prepared_files::manifest_path(&root).is_file() {
         return;
     }
     let spawned = std::thread::Builder::new()
@@ -21328,7 +21328,7 @@ impl ApplicationHandler for App {
 /// manifest is `cubeon-resources.json`): without them, say where they were
 /// looked for and how to get them, before a window or a loader starts.
 fn missing_resources(root: &std::path::Path) -> Option<String> {
-    if root.join("cubeon-resources.json").is_file() {
+    if cubeon_core::prepared_files::manifest_path(root).is_file() {
         return None;
     }
     let shown = std::path::absolute(root).unwrap_or_else(|_| root.to_path_buf());
@@ -21706,6 +21706,8 @@ mod startup_cpu_tests {
         assert!(missing.contains("launcher"), "{missing}");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("cubeon-resources.json"), "{}").unwrap();
+        assert_eq!(missing_resources(&root), None);
+        std::fs::rename(root.join("cubeon-resources.json"), root.join("horizon-resources.json")).unwrap();
         assert_eq!(missing_resources(&root), None);
         std::fs::remove_dir_all(&root).unwrap();
     }

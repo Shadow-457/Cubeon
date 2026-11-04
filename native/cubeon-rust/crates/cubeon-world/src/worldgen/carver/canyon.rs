@@ -6,7 +6,7 @@ pub struct CanyonShape {
     pub distance_factor: FloatProvider,
     pub thickness: FloatProvider,
     pub width_smoothness: i32,
-    pub cubeontal_radius_factor: FloatProvider,
+    pub horizontal_radius_factor: FloatProvider,
     pub vertical_radius_default_factor: f32,
     pub vertical_radius_center_factor: f32,
     pub y_scale: FloatProvider,
@@ -48,7 +48,7 @@ impl CanyonCarver {
                     1,
                     i32::MAX,
                 )?,
-                cubeontal_radius_factor: provider("cubeontal_radius_factor")?,
+                horizontal_radius_factor: provider("horizontal_radius_factor")?,
                 vertical_radius_default_factor: scalar(&shape, "vertical_radius_default_factor")?,
                 vertical_radius_center_factor: scalar(&shape, "vertical_radius_center_factor")?,
                 y_scale: provider("y_scale")?,
@@ -109,12 +109,12 @@ impl CanyonCarver {
         let (mut yaw_change, mut pitch_change) = (0f32, 0f32);
         let mut budget = 1 << 24;
         for step in 0..end {
-            let mut cubeontal = 1.5
+            let mut horizontal = 1.5
                 + f64::from(
                     sin(f64::from(step as f32 * std::f32::consts::PI / end as f32)) * thickness,
                 );
-            let mut vertical = cubeontal * y_scale;
-            cubeontal *= f64::from(self.shape.cubeontal_radius_factor.sample(&mut local));
+            let mut vertical = horizontal * y_scale;
+            horizontal *= f64::from(self.shape.horizontal_radius_factor.sample(&mut local));
             let center = 1. - (0.5 - step as f32 / end as f32).abs() * 2.;
             let multiplier = self.shape.vertical_radius_default_factor
                 + self.shape.vertical_radius_center_factor * center;
@@ -141,7 +141,7 @@ impl CanyonCarver {
             carve_ellipsoid_with_budget(
                 target,
                 [x, y, z],
-                cubeontal,
+                horizontal,
                 vertical,
                 output,
                 |[nx, ny, nz], by| {

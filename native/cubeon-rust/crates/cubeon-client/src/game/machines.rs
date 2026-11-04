@@ -1526,7 +1526,7 @@ mod item_column_tests {
             velocity: Vec3::ZERO,
             on_ground: true,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: 0,
             bob_offset: 0.0,

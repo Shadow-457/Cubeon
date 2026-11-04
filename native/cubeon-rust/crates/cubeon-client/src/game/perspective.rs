@@ -1304,7 +1304,7 @@ fn player_model_positions(
 
 /// The distance `LivingEntity.calculateEntityAnimation` walks the player's
 /// model for a move from `from` to `to`. `omnidirectionalAirMover()` is false
-/// for every player (`Entity`'s, not overridden), so only the cubeontal
+/// for every player (`Entity`'s, not overridden), so only the horizontal
 /// distance counts, flying and gliding included: rising or sinking straight
 /// up or down leaves the legs and arms still.
 fn player_walk_distance(from: Vec3, to: Vec3) -> f32 {
@@ -1341,7 +1341,7 @@ mod preview_tests {
         // Creative flight straight up (#3302) and straight down.
         assert_eq!(player_walk_distance(from, Vec3::new(0.5, 80.375, 0.5)), 0.0);
         assert_eq!(player_walk_distance(from, Vec3::new(0.5, 78.5, 0.5)), 0.0);
-        // Moving sideways while rising walks only the cubeontal part.
+        // Moving sideways while rising walks only the horizontal part.
         let d = player_walk_distance(from, Vec3::new(0.8, 81.0, 0.9));
         assert!((d - 0.5).abs() < 1e-6, "{d}");
     }

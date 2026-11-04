@@ -286,7 +286,7 @@ impl FoliagePlacer {
         self.leaves_row(run, tree, origin, r, y, double)?;
         let offset = i32::from(double);
         let log = tb::offset(origin, 0, -1, 0);
-        for along in tb::CUBEONTAL {
+        for along in tb::HORIZONTAL {
             let to_edge = tb::clockwise(along);
             let positive = matches!(to_edge, Direction::East | Direction::South);
             let to_edge_offset = if positive { r + offset } else { r };

@@ -115,13 +115,13 @@ pub fn apply_movement_emission<W: MovementEmissionWorld>(
     legacy_state: W::State,
 ) -> Result<(), W::Error> {
     let full = (movement.length() * f64::from(0.6f32)) as f32;
-    let cubeontal =
+    let horizontal =
         ((movement.x * movement.x + movement.z * movement.z).sqrt() * f64::from(0.6f32)) as f32;
     let p = world.on_position()?;
     let state = world.block_state(p)?;
     let climbable = climbable(world, state)?;
     world.set_movement_distance(
-        world.distances().movement + if climbable { full } else { cubeontal },
+        world.distances().movement + if climbable { full } else { horizontal },
     );
     world.set_flight_distance(world.distances().flight + full);
     if world.distances().movement > world.distances().next_step && !world.is_air(state)? {

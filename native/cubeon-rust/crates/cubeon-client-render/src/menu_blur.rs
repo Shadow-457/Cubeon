@@ -1,5 +1,5 @@
 //! Vanilla's menu background blur (`GameRenderer.processBlurEffect`, the
-//! `minecraft:blur` post chain): three rounds of a cubeontal then a vertical
+//! `minecraft:blur` post chain): three rounds of a horizontal then a vertical
 //! `post/box_blur` pass over the frame drawn so far, `menuBackgroundBlurriness`
 //! framebuffer pixels wide, before the screen is drawn over it. Works in the
 //! frame's own (gamma) values, as vanilla's main target does, and needs a

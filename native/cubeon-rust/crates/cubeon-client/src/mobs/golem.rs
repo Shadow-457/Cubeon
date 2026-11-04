@@ -623,7 +623,7 @@ mod tests {
                 "within 7 up or down"
             );
             // `DefaultRandomPos.getPosTowards` only accepts a spot within a
-            // quarter turn of the target, so the cubeontal step to the spot
+            // quarter turn of the target, so the horizontal step to the spot
             // is at most 90 degrees off the step to the target.
             let to_target = (8.5 - m.position.x, 0.5 - m.position.z);
             let to_spot = (wanted[0] - m.position.x, wanted[2] - m.position.z);

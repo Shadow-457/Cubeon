@@ -33,7 +33,7 @@ fn harm_amount(amplifier: u32) -> f32 {
 
 /// Whether a cloud at `at` (its floor) reaches a living entity: its box is
 /// `radius * 2` wide and 0.5 tall, and the entity's position must lie within
-/// the radius cubeontally.
+/// the radius horizontally.
 fn cloud_hits(at: [f64; 3], radius: f32, bounds: Aabb, pos: Vec3) -> bool {
     let r = f64::from(radius);
     let area = Aabb::new(
@@ -2117,9 +2117,9 @@ impl Game<'_> {
             let (xd, mut yd, zd) = (t.x - d.position.x, t.y - d.position.y, t.z - d.position.z);
             let dist2 = xd * xd + yd * yd + zd * zd;
             let max = f64::from(d.phase.fly_speed());
-            let cubeontal = xd.hypot(zd);
-            if cubeontal > 0.0 {
-                yd = (yd / cubeontal).clamp(-max, max);
+            let horizontal = xd.hypot(zd);
+            if horizontal > 0.0 {
+                yd = (yd / horizontal).clamp(-max, max);
             }
             d.velocity.y += yd * 0.01;
             d.yaw = wrap(d.yaw);
@@ -3093,12 +3093,12 @@ impl Game<'_> {
         let q = |v: f32| (v * 65535.0).round().clamp(0.0, 65535.0) as u32;
         let wrap_light = q(s.v0) | q(s.v1 - s.v0) << 16;
         let (dx, dy, dz) = (delta.x as f32, delta.y as f32, delta.z as f32);
-        let cubeontal = (dx * dx + dz * dz).sqrt();
+        let horizontal = (dx * dx + dz * dz).sqrt();
         let length = (dx * dx + dy * dy + dz * dz).sqrt();
         let m = glam::Mat4::from_translation(
             (from - camera).as_vec3() + glam::Vec3::new(0.0, 2.0, 0.0),
         ) * glam::Mat4::from_rotation_y(-dz.atan2(dx) - std::f32::consts::FRAC_PI_2)
-            * glam::Mat4::from_rotation_x(-cubeontal.atan2(dy) - std::f32::consts::FRAC_PI_2);
+            * glam::Mat4::from_rotation_x(-horizontal.atan2(dy) - std::f32::consts::FRAC_PI_2);
         let (v0, v1) = (-time * 0.01, length / 32.0 - time * 0.01);
         let (mut last_sin, mut last_cos, mut last_u) = (0.0f32, 0.75f32, 0.0f32);
         let u = |x: f32| s.u0 + (s.u1 - s.u0) * x;
@@ -3371,7 +3371,7 @@ impl Game<'_> {
             attributes: Vec::new(),
             precise: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             needs_sync: false,
             leash: None,
             spectator: false,

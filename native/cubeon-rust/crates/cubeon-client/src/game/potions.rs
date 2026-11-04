@@ -2104,7 +2104,7 @@ mod tests {
         assert!(!collect_dragon_breath(player_box, &mut expired));
         assert_eq!(expired[0].radius, 5.0);
 
-        // Out of cubeontal reach: cloud at 10 blocks away with radius 1:
+        // Out of horizontal reach: cloud at 10 blocks away with radius 1:
         // cloud X range [9.0, 11.0], player inflated X range [-2.3, 2.3] -> no overlap.
         let mut far = vec![super::super::dragon::Breath {
             id: 4,

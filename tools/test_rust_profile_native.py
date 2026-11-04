@@ -16,6 +16,17 @@ def main():
         source = folder / "profile.rs"
         source.write_text('''use cubeon_client_render::auth::*;
 fn main() {
+    let extras = cubeon_client_render::extras::Extras::parse("agentControl:true\ndiscordPresence:true\nnoAi:false\n");
+    assert_eq!(extras, cubeon_client_render::extras::Extras::default());
+    let saved = extras.serialize();
+    assert!(!saved.contains("agentControl") && !saved.contains("discordPresence"));
+    let atlas = cubeon_client_render::hud::HudAtlas::boot();
+    assert_eq!(atlas.sprites["cubeon/logo"].w, 64);
+    let mut batch = cubeon_client_render::hud::HudBatch::new([640, 480]);
+    cubeon_client_render::ui::glass_panel(&mut batch, &atlas, [10.0, 20.0, 150.0, 20.0], true, true);
+    assert!(!batch.vertices.is_empty());
+    assert!(batch.vertices.iter().all(|v| v.pos[0] >= 10.0 && v.pos[0] <= 160.0 && v.pos[1] >= 20.0 && v.pos[1] <= 40.0));
+    assert!(batch.vertices.iter().any(|v| v.color >> 24 < 255));
     assert!(AuthSession::parse("{}").is_err());
     let session = AuthSession::new("Fixture", 42, "discarded fixture token");
     assert!(join_server(&session, "fixture").is_err());

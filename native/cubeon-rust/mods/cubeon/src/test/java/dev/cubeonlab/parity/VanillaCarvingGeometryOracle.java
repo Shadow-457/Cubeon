@@ -26,7 +26,7 @@ public final class VanillaCarvingGeometryOracle {
                         out.println("cell "+x+" "+y+" "+z);int previous=calls[0]++;if(previous==e.get("fail").getAsInt())throw new OutputFailure();mask.carve(x,y,z);
                     }};
                     int mode=e.get("skip").getAsInt();boolean ok=true;
-                    try {WorldCarver.carveEllipsoid(chunk,d(center.get(0)),d(center.get(1)),d(center.get(2)),d(e.get("cubeontal")),d(e.get("vertical")),output,(x,y,z,by)->{
+                    try {WorldCarver.carveEllipsoid(chunk,d(center.get(0)),d(center.get(1)),d(center.get(2)),d(e.get("horizontal")),d(e.get("vertical")),output,(x,y,z,by)->{
                         boolean skip=switch(mode){case 0->x*x+y*y+z*z>=1;case 1->y<=-0.7||x*x+y*y+z*z>=1;case 2->Math.floorMod(by,3)==0;default->false;};
                         out.println("skip "+bits(x)+" "+bits(y)+" "+bits(z)+" "+by+" "+skip);return skip;
                     });}catch(OutputFailure error){ok=false;}

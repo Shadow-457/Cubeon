@@ -59,7 +59,7 @@ pub(super) struct StructureState {
 /// ones others took. Done by the first thread alone, the 128 stronghold
 /// searches kept every other worker blocked for seconds after each world load.
 struct RingWork {
-    /// The biome source is a `FixedBiomeSource`, which has its own cubeontal search.
+    /// The biome source is a `FixedBiomeSource`, which has its own horizontal search.
     fixed: bool,
     /// The concentric-ring sets, some with no positions.
     sets: Vec<usize>,

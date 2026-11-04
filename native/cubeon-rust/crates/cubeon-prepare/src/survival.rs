@@ -63,7 +63,7 @@ const CLASS_RULES: &[(&str, &str)] = &[
     ("DiodeBlock", "RigidBelow"),
     ("BaseCoralPlantTypeBlock", "FullBelow"),
     ("CeilingHangingSignBlock", "CenterAbove"),
-    ("FaceAttachedCubeontalDirectionalBlock", "FaceAttached"),
+    ("FaceAttachedHorizontalDirectionalBlock", "FaceAttached"),
     ("BambooSaplingBlock", "SupportsBamboo"),
     ("BambooStalkBlock", "SupportsBamboo"),
 ];

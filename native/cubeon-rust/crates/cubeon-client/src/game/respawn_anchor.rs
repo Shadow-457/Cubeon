@@ -56,9 +56,9 @@ impl RespawnConfig {
     }
 }
 
-/// `RespawnAnchorBlock.RESPAWN_CUBEONTAL_OFFSETS`, then the same a block
+/// `RespawnAnchorBlock.RESPAWN_HORIZONTAL_OFFSETS`, then the same a block
 /// below, a block above, and straight above.
-const CUBEONTAL: [[i32; 3]; 8] = [
+const HORIZONTAL: [[i32; 3]; 8] = [
     [0, 0, -1],
     [-1, 0, 0],
     [0, 0, 1],
@@ -69,10 +69,10 @@ const CUBEONTAL: [[i32; 3]; 8] = [
     [1, 0, 1],
 ];
 fn respawn_offsets() -> impl Iterator<Item = [i32; 3]> {
-    CUBEONTAL
+    HORIZONTAL
         .into_iter()
-        .chain(CUBEONTAL.into_iter().map(|[x, y, z]| [x, y - 1, z]))
-        .chain(CUBEONTAL.into_iter().map(|[x, y, z]| [x, y + 1, z]))
+        .chain(HORIZONTAL.into_iter().map(|[x, y, z]| [x, y - 1, z]))
+        .chain(HORIZONTAL.into_iter().map(|[x, y, z]| [x, y + 1, z]))
         .chain(std::iter::once([0, 1, 0]))
 }
 
@@ -247,7 +247,7 @@ impl Game<'_> {
     /// whose centre resists like water when water would flow into it.
     fn explode_anchor(&mut self, pos: [i32; 3], _state: BlockStateId) -> Result<()> {
         self.level_set(pos, self.world.air)?;
-        let cubeontal = [[0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]]
+        let horizontal = [[0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]]
             .into_iter()
             .any(|d| self.water_would_flow([pos[0] + d[0], pos[1], pos[2] + d[2]]));
         let above = self
@@ -256,7 +256,7 @@ impl Game<'_> {
             .get(self.world.block(pos[0], pos[1] + 1, pos[2]))
             .fluid
             == Fluid::Water;
-        let in_water = cubeontal || above;
+        let in_water = horizontal || above;
         let center = [
             f64::from(pos[0]) + 0.5,
             f64::from(pos[1]) + 0.5,

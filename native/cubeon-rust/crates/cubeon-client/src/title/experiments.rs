@@ -92,7 +92,7 @@ impl ExperimentsScreen {
     fn grid_left(w: f32) -> f32 {
         ((w - GRID) / 2.0).trunc()
     }
-    /// The i-th switch's button (`alignCubeontallyRight` in the 44-wide
+    /// The i-th switch's button (`alignHorizontallyRight` in the 44-wide
     /// column).
     fn switch_rect(&self, font: &Font, w: f32, i: usize) -> (f32, f32) {
         let top = self.grid_top(font) + i as f32 * FLAG_HEIGHT;

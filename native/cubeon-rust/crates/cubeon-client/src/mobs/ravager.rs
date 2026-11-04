@@ -107,7 +107,7 @@ pub fn ai_step(m: &mut Mob, w: &MobWorld, events: &mut Vec<MobEvent>) {
     } else {
         m.attrs.speed + (max - m.attrs.speed) * 0.1
     };
-    if m.cubeontal_collision && w.mob_griefing {
+    if m.horizontal_collision && w.mob_griefing {
         let b = m
             .bounds()
             .inflate(cubeon_core::geometry::Vec3::new(0.2, 0.2, 0.2));

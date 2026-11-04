@@ -89,7 +89,7 @@ mod tests {
             was_touching_water: false,
             no_gravity: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
         }
     }
 

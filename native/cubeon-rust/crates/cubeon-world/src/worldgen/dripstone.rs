@@ -458,7 +458,7 @@ impl SpeleothemClusterFeature {
         {
             return Ok(false);
         }
-        for direction in tb::CUBEONTAL {
+        for direction in tb::HORIZONTAL {
             if !self.adjacent_ok(world, tb::relative(p, direction, 1))? {
                 return Ok(false);
             }

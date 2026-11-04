@@ -71,7 +71,7 @@ fn y_rot(d: Direction) -> f32 {
 }
 /// `DirectionalPlaceContext.getRotation`: `get2DDataValue() * 90`, so a
 /// vertical direction (`data2d = -1`) gives -90 where `toYRot` gives 270: the
-/// same cubeontal facing, but the raw value a mod's placement hook reads.
+/// same horizontal facing, but the raw value a mod's placement hook reads.
 fn place_rotation(d: Direction) -> f32 {
     match d {
         Direction::Up | Direction::Down => -90.0,

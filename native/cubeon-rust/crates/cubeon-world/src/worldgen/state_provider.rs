@@ -547,7 +547,7 @@ impl BlockStateProvider {
 /// (`mineable/pickaxe` takes every stone block of a pack).
 pub(crate) const MAX_TAG_BLOCKS: usize = 1 << 20;
 
-/// Bind the pinned registry's full-axis/full-facing/cubeontal-facing property
+/// Bind the pinned registry's full-axis/full-facing/horizontal-facing property
 /// families. A five-way facing or two-axis property is a different property and
 /// is intentionally left unchanged. Unrelated properties retain their values.
 fn rotation_table(registry: &BlockRegistry) -> Result<Rotations, String> {
@@ -565,7 +565,7 @@ fn rotation_table(registry: &BlockRegistry) -> Result<Rotations, String> {
     }
     let axis: BTreeSet<&str> = ["x", "y", "z"].into_iter().collect();
     let facing: BTreeSet<&str> = DIRECTIONS.into_iter().collect();
-    let cubeontal: BTreeSet<&str> = DIRECTIONS[2..].iter().copied().collect();
+    let horizontal: BTreeSet<&str> = DIRECTIONS[2..].iter().copied().collect();
     let mut result = Vec::with_capacity(registry.len());
     for index in 0..registry.len() {
         let id = BlockStateId(index as u32);
@@ -574,14 +574,14 @@ fn rotation_table(registry: &BlockRegistry) -> Result<Rotations, String> {
         let directions = values.get(&(state.name.as_str(), "facing"));
         let mut rotated = [id; 6];
         // Most states have neither family: every rotation is the state itself.
-        if !full_axis && directions != Some(&facing) && directions != Some(&cubeontal) {
+        if !full_axis && directions != Some(&facing) && directions != Some(&horizontal) {
             result.push(rotated);
             continue;
         }
         for (direction, name) in DIRECTIONS.iter().enumerate() {
             let axis_value = full_axis.then_some(["y", "y", "z", "z", "x", "x"][direction]);
             let facing_value = (directions == Some(&facing)
-                || (direction >= 2 && directions == Some(&cubeontal)))
+                || (direction >= 2 && directions == Some(&horizontal)))
             .then_some(*name);
             // A rotation that sets what the state already has is the state.
             let unchanged = axis_value
@@ -612,7 +612,7 @@ mod tests {
     use super::*;
     use crate::nbt::Tag;
 
-    /// air, stone, oak_log axis x/y/z, furnace facing the four cubeontal
+    /// air, stone, oak_log axis x/y/z, furnace facing the four horizontal
     /// ways, observer facing all six with `powered` false then true, and a
     /// hopper's five-way facing.
     fn registry() -> BlockRegistry {
@@ -668,7 +668,7 @@ mod tests {
     }
 
     /// Rotations follow the direction (down, up, north, south, west, east):
-    /// a full axis turns, cubeontal facing turns only for the four sides,
+    /// a full axis turns, horizontal facing turns only for the four sides,
     /// full facing turns all six ways keeping its other properties, and a
     /// five-way facing or a block without these properties stays as it is.
     #[test]

@@ -2720,7 +2720,7 @@ fn stamp(base: &Path, mods: &[ContentMod]) -> Result<String> {
     parts.push(meta(&std::env::current_exe()?)?);
     let base = std::path::absolute(base)?;
     parts.push(
-        String::from_utf8_lossy(&fs::read(base.join("cubeon-resources.json"))?).into_owned(),
+        String::from_utf8_lossy(&fs::read(cubeon_core::prepared_files::manifest_path(&base))?).into_owned(),
     );
     for name in JSON_TABLES.iter().chain(&NBT_TABLES).chain(&TAG_BUNDLES) {
         if base.join(name).exists() {

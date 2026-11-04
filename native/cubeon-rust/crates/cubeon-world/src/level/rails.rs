@@ -151,7 +151,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         }
     }
     fn rail_count_potential_connections(&self, pos: BlockPos) -> i32 {
-        super::update::CUBEONTAL
+        super::update::HORIZONTAL
             .into_iter()
             .filter(|d| {
                 let p = rel(pos, *d);

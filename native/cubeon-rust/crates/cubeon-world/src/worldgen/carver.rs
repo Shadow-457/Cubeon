@@ -28,7 +28,7 @@ pub struct CaveCarver {
     pub thickness: FloatProvider,
     pub weird_thickness_bias: bool,
     pub room_vertical_radius_multiplier: FloatProvider,
-    pub cubeontal_radius_multiplier: FloatProvider,
+    pub horizontal_radius_multiplier: FloatProvider,
     pub vertical_radius_multiplier: FloatProvider,
     pub start_vertical_radius_multiplier: FloatProvider,
     pub floor_level: FloatProvider,
@@ -99,7 +99,7 @@ impl CaveCarver {
                 .transpose()?
                 .unwrap_or(false),
             room_vertical_radius_multiplier: provider("room_vertical_radius_multiplier")?,
-            cubeontal_radius_multiplier: provider("cubeontal_radius_multiplier")?,
+            horizontal_radius_multiplier: provider("horizontal_radius_multiplier")?,
             vertical_radius_multiplier: provider("vertical_radius_multiplier")?,
             start_vertical_radius_multiplier: optional(&object, "start_vertical_radius_multiplier")
                 .map(|v| FloatProvider::from_json(v.get()))
@@ -142,7 +142,7 @@ impl CaveCarver {
                     .wrapping_shl(4)
                     .wrapping_add(random.next_int_bound(16)?),
             );
-            let cubeontal = f64::from(self.cubeontal_radius_multiplier.sample(random));
+            let horizontal = f64::from(self.horizontal_radius_multiplier.sample(random));
             let vertical = f64::from(self.vertical_radius_multiplier.sample(random));
             let start_vertical = f64::from(self.start_vertical_radius_multiplier.sample(random));
             let floor = f64::from(self.floor_level.sample(random));
@@ -150,7 +150,7 @@ impl CaveCarver {
                 target,
                 output,
                 budget: &mut budget,
-                cubeontal,
+                horizontal,
                 vertical,
                 floor,
             };
@@ -190,7 +190,7 @@ struct CaveRun<'a, O: CarverOutput> {
     target: ChunkPos,
     output: &'a mut O,
     budget: &'a mut usize,
-    cubeontal: f64,
+    horizontal: f64,
     vertical: f64,
     floor: f64,
 }
@@ -209,14 +209,14 @@ impl<O: CarverOutput> CaveRun<'_, O> {
     fn ellipsoid(
         &mut self,
         position: [f64; 3],
-        cubeontal: f64,
+        horizontal: f64,
         vertical: f64,
     ) -> Result<(), CarverError<O::Error>> {
         let floor = self.floor;
         Ok(carve_ellipsoid_with_budget(
             self.target,
             position,
-            cubeontal,
+            horizontal,
             vertical,
             self.output,
             |[x, y, z], _| y <= floor || x * x + y * y + z * z >= 1.,
@@ -287,7 +287,7 @@ impl<O: CarverOutput> CaveRun<'_, O> {
             }
             self.ellipsoid(
                 path.position,
-                radius * self.cubeontal,
+                radius * self.horizontal,
                 vertical * self.vertical,
             )?;
         }

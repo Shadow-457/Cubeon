@@ -11,7 +11,7 @@ static ALLOCATOR: cubeon_threads::CensusAllocator = cubeon_threads::CensusAlloca
 /// The mod API level this game serves, kept in the program for the launcher
 /// to read without running it (`cubeon_mods::api_level::MARK`). `main`
 /// reads it, so the linker keeps it.
-static MOD_API_LEVEL: [u8; 27] = cubeon_mods::api_level::MARK;
+static MOD_API_LEVEL: [u8; cubeon_mods::api_level::MARK.len()] = cubeon_mods::api_level::MARK;
 
 fn main() {
     std::hint::black_box(&MOD_API_LEVEL);

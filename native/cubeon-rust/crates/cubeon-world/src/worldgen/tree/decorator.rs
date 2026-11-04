@@ -260,7 +260,7 @@ impl TreeDecorator {
                 };
                 let tree_y = first[1];
                 for &pos in lists.logs.iter().filter(|p| p[1].wrapping_sub(tree_y) <= 2) {
-                    for direction in tb::CUBEONTAL {
+                    for direction in tb::HORIZONTAL {
                         if d.run.random.next_float() <= 0.25 {
                             let n = direction.opposite().normal();
                             let p = tb::offset(pos, n[0], 0, n[2]);
@@ -615,7 +615,7 @@ impl<W: FeatureWorld + PlacementContext, R: RandomSource> Decorate<'_, '_, '_, W
                 }
             }
         } else {
-            let a = tb::CUBEONTAL[self.run.random.next_int_bound(4)? as usize];
+            let a = tb::HORIZONTAL[self.run.random.next_int_bound(4)? as usize];
             let facings = [a, tb::clockwise(a)];
             let base = first[1];
             for &log in &lists.logs {
@@ -656,7 +656,7 @@ impl<W: FeatureWorld + PlacementContext, R: RandomSource> Decorate<'_, '_, '_, W
         Ok(true)
     }
     fn adjacent_mushroom(&mut self, p: [i32; 3]) -> TreeResult<bool, W::Error> {
-        for direction in tb::CUBEONTAL {
+        for direction in tb::HORIZONTAL {
             if self.has(tb::relative(p, direction, 1), tb::SHELF_MUSHROOM)? {
                 return Ok(true);
             }

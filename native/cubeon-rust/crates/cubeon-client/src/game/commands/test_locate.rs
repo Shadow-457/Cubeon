@@ -31,7 +31,7 @@ fn locate_command(dimension: &str, at: Pos, y_rot: i32) -> String {
 }
 
 /// `Mth.floor(Mth.sqrt(dx * dx + dz * dz))` over ints.
-fn cubeontal_distance(dx: i32, dz: i32) -> i32 {
+fn horizontal_distance(dx: i32, dz: i32) -> i32 {
     ((dx.wrapping_mul(dx).wrapping_add(dz.wrapping_mul(dz))) as f32)
         .sqrt()
         .floor() as i32
@@ -111,7 +111,7 @@ impl Game<'_> {
                 command,
             );
             let distance = if *dimension == source_dim.id() {
-                cubeontal_distance(center.0 - pos.0, center.2 - pos.2).to_string()
+                horizontal_distance(center.0 - pos.0, center.2 - pos.2).to_string()
             } else {
                 "N/A".to_owned()
             };
@@ -345,9 +345,9 @@ mod tests {
     }
 
     #[test]
-    fn the_distance_is_the_floored_cubeontal_one() {
-        assert_eq!(cubeontal_distance(3, 4), 5);
-        assert_eq!(cubeontal_distance(-1, 1), 1);
+    fn the_distance_is_the_floored_horizontal_one() {
+        assert_eq!(horizontal_distance(3, 4), 5);
+        assert_eq!(horizontal_distance(-1, 1), 1);
         assert_eq!(path_of("minecraft:overworld"), "overworld");
     }
 }

@@ -1,14 +1,14 @@
 //! Which tile a connected face gets. A face's texture directions ([`Axes`]) say where its left,
 //! right, up and down neighbours are; [`neighbours`] turns the ones that join into a bit mask;
 //! each method then reads its tile from the mask ([`ctm_index`], [`compact_quarters`],
-//! [`cubeontal`], [`overlay_tiles`]...) or from the position ([`repeat_index`],
+//! [`horizontal`], [`overlay_tiles`]...) or from the position ([`repeat_index`],
 //! [`random_index`]).
 //!
 //! Nothing here knows OptiFine's files, so other connected-texture formats (Fusion's) share it:
 //! they build the same mask and read the same tables.
 //!
 //! The tile tables are OptiFine's documented templates (`ctm_template.png`,
-//! `ctm_compact_template.png`, `cubeontal_template.png`, `vertical_template.png`,
+//! `ctm_compact_template.png`, `horizontal_template.png`, `vertical_template.png`,
 //! `overlay_template.png`), read off the images.
 
 use super::Symmetry;
@@ -131,7 +131,7 @@ impl Axes {
     }
 
     /// On a cube column turned to `axis` as vanilla's blockstates turn one (`x=90, y=90` for
-    /// `x`, `x=90` for `z`): OptiFine's cubeontal and vertical methods, Continuity's
+    /// `x`, `x=90` for `z`): OptiFine's horizontal and vertical methods, Continuity's
     /// `orient=state_axis`.
     pub fn column(face: Face, axis: Axis) -> Self {
         let turn = |[x, y, z]: Vec3| match axis {
@@ -289,9 +289,9 @@ pub fn ctm_index(mask: u8) -> usize {
 /// bottom-right. Tile 0 has every border, 1 none, 2 its left and right ones (joined up and
 /// down), 3 its top and bottom ones, 4 only the inner corners.
 pub fn compact_quarters(mask: u8) -> [u8; 4] {
-    let quarter = |vertical: u8, cubeontal: u8, corner: u8| match (
+    let quarter = |vertical: u8, horizontal: u8, corner: u8| match (
         mask & vertical != 0,
-        mask & cubeontal != 0,
+        mask & horizontal != 0,
     ) {
         (false, false) => 0,
         (true, false) => 2,
@@ -307,8 +307,8 @@ pub fn compact_quarters(mask: u8) -> [u8; 4] {
     ]
 }
 
-/// `cubeontal`'s tile: 0 the left end of a row, 1 its middle, 2 its right end, 3 alone.
-pub fn cubeontal(mask: u8) -> usize {
+/// `horizontal`'s tile: 0 the left end of a row, 1 its middle, 2 its right end, 3 alone.
+pub fn horizontal(mask: u8) -> usize {
     match (mask & L != 0, mask & R != 0) {
         (false, true) => 0,
         (true, true) => 1,
@@ -327,20 +327,20 @@ pub fn vertical(mask: u8) -> usize {
     }
 }
 
-/// `cubeontal+vertical`'s 7 tiles: a face alone in its row takes `vertical`'s first three as
+/// `horizontal+vertical`'s 7 tiles: a face alone in its row takes `vertical`'s first three as
 /// tiles 4-6.
-pub fn cubeontal_vertical(mask: u8) -> usize {
-    match (cubeontal(mask), vertical(mask)) {
+pub fn horizontal_vertical(mask: u8) -> usize {
+    match (horizontal(mask), vertical(mask)) {
         (3, 3) => 3,
         (3, v) => 4 + v,
         (h, _) => h,
     }
 }
 
-/// `vertical+cubeontal`'s 7 tiles: a face alone in its column takes `cubeontal`'s first three
+/// `vertical+horizontal`'s 7 tiles: a face alone in its column takes `horizontal`'s first three
 /// as tiles 4-6.
-pub fn vertical_cubeontal(mask: u8) -> usize {
-    match (vertical(mask), cubeontal(mask)) {
+pub fn vertical_horizontal(mask: u8) -> usize {
+    match (vertical(mask), horizontal(mask)) {
         (3, 3) => 3,
         (3, h) => 4 + h,
         (v, _) => v,
@@ -479,13 +479,13 @@ mod tests {
 
     #[test]
     fn rows_and_columns() {
-        assert_eq!([R, R | L, L, 0].map(cubeontal), [0, 1, 2, 3]);
+        assert_eq!([R, R | L, L, 0].map(horizontal), [0, 1, 2, 3]);
         assert_eq!([U, U | D, D, 0].map(vertical), [0, 1, 2, 3]);
-        // Joined left: cubeontal wins. Alone in the row: the column's tiles, from 4.
-        assert_eq!(cubeontal_vertical(L | U), 2);
-        assert_eq!([U, U | D, D, 0].map(cubeontal_vertical), [4, 5, 6, 3]);
-        assert_eq!([R, R | L, L, 0].map(vertical_cubeontal), [4, 5, 6, 3]);
-        assert_eq!(vertical_cubeontal(U | R), 0);
+        // Joined left: horizontal wins. Alone in the row: the column's tiles, from 4.
+        assert_eq!(horizontal_vertical(L | U), 2);
+        assert_eq!([U, U | D, D, 0].map(horizontal_vertical), [4, 5, 6, 3]);
+        assert_eq!([R, R | L, L, 0].map(vertical_horizontal), [4, 5, 6, 3]);
+        assert_eq!(vertical_horizontal(U | R), 0);
     }
 
     #[test]

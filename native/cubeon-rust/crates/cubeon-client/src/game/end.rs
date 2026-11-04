@@ -285,10 +285,10 @@ struct EyeOfEnder {
 impl EyeOfEnder {
     /// EyeOfEnder.updateDeltaMovement.
     fn update_delta(old: glam::DVec3, position: glam::DVec3, target: glam::DVec3) -> glam::DVec3 {
-        let cubeontal = glam::DVec3::new(target.x - position.x, 0.0, target.z - position.z);
-        let length = cubeontal.length();
-        let old_cubeontal = old.x.hypot(old.z);
-        let mut wanted_speed = old_cubeontal + 0.0025 * (length - old_cubeontal);
+        let horizontal = glam::DVec3::new(target.x - position.x, 0.0, target.z - position.z);
+        let length = horizontal.length();
+        let old_horizontal = old.x.hypot(old.z);
+        let mut wanted_speed = old_horizontal + 0.0025 * (length - old_horizontal);
         let mut y = old.y;
         if length < 1.0 {
             wanted_speed *= 0.8;
@@ -299,7 +299,7 @@ impl EyeOfEnder {
         } else {
             -1.0
         };
-        cubeontal * (wanted_speed / length)
+        horizontal * (wanted_speed / length)
             + glam::DVec3::new(0.0, y + (wanted_y - y) * 0.015, 0.0)
     }
 }
@@ -1192,13 +1192,13 @@ impl Game<'_> {
         );
         // EyeOfEnder.signalTo.
         let delta = target - start;
-        let cubeontal = delta.x.hypot(delta.z);
-        let target = if cubeontal > 12.0 {
+        let horizontal = delta.x.hypot(delta.z);
+        let target = if horizontal > 12.0 {
             start
                 + glam::DVec3::new(
-                    delta.x / cubeontal * 12.0,
+                    delta.x / horizontal * 12.0,
                     8.0,
-                    delta.z / cubeontal * 12.0,
+                    delta.z / horizontal * 12.0,
                 )
         } else {
             target

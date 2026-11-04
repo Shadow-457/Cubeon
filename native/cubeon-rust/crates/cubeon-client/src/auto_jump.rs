@@ -80,7 +80,7 @@ fn intersects_segment(b: Aabb, from: Vec3, to: Vec3) -> bool {
 }
 
 /// `LocalPlayer.updateAutoJump(xa, za)` once `canAutoJump` holds: whether
-/// it sets `autoJumpTime = 1`. `xa`/`za` are the float cubeontal
+/// it sets `autoJumpTime = 1`. `xa`/`za` are the float horizontal
 /// displacement of the move.
 pub fn update_auto_jump<W: AutoJumpWorld>(
     world: &mut W,

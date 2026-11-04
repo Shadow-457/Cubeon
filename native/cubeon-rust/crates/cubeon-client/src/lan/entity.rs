@@ -67,12 +67,12 @@ pub struct EntityState {
     /// `Entity.getRequiresPrecisePosition` (primed TNT and falling blocks
     /// touching a block): moves are sent as full position syncs.
     pub precise: bool,
-    /// `Entity.verticalCollision` and `Entity.cubeontalCollision`: the last
+    /// `Entity.verticalCollision` and `Entity.horizontalCollision`: the last
     /// move's stops. An item that stopped on a block gets a full position
     /// sync rather than a 1/4096 delta whose decoded point is not the one it
     /// came to rest at (`ServerEntity.isFullPrecisionEncodingRequired`).
     pub vertical_collision: bool,
-    pub cubeontal_collision: bool,
+    pub horizontal_collision: bool,
     /// `Entity.needsSync`: send its changes this tick, due or not.
     pub needs_sync: bool,
     /// `Leashable.getLeashHolder`: the entity holding its lead.
@@ -109,7 +109,7 @@ impl EntityState {
         self.attributes.clear();
         self.precise = false;
         self.vertical_collision = false;
-        self.cubeontal_collision = false;
+        self.horizontal_collision = false;
         self.needs_sync = false;
         self.leash = None;
         self.spectator = false;
@@ -288,7 +288,7 @@ fn encode(v: f64) -> i64 {
 /// stopped by a block rests where the collision solver left it, which is not on
 /// the 1/4096 grid a delta decodes to; vanilla sends its exact position instead.
 /// The axis pairs are vanilla's own: a vertical stop looks at x and z, a
-/// cubeontal one at z and x.
+/// horizontal one at z and x.
 fn full_precision_required(e: &EntityState, delta: [i64; 3]) -> bool {
     if e.kind != "minecraft:item" {
         return false;
@@ -296,9 +296,9 @@ fn full_precision_required(e: &EntityState, delta: [i64; 3]) -> bool {
     let loss = |v: f64| encode(v) as f64 / 4096.0 - v;
     let vertical =
         delta[0] != 0 && loss(e.position[0]) != 0.0 || delta[2] != 0 && loss(e.position[2]) != 0.0;
-    let cubeontal =
+    let horizontal =
         delta[0] != 0 && loss(e.position[2]) != 0.0 || delta[2] != 0 && loss(e.position[0]) != 0.0;
-    e.vertical_collision && vertical || e.cubeontal_collision && cubeontal
+    e.vertical_collision && vertical || e.horizontal_collision && horizontal
 }
 
 impl ServerEntity {
@@ -779,7 +779,7 @@ pub struct Viewer<'a> {
 }
 
 /// One entity as this tick's range checks read it: where it is
-/// cubeontally, its id, its tracking range in blocks (scaled by
+/// horizontally, its id, its tracking range in blocks (scaled by
 /// `entity-broadcast-range-percentage`) and the chunk it is in (an index
 /// into the tick's chunks).
 #[derive(Clone, Copy)]
@@ -808,7 +808,7 @@ fn broadcast_to_player(v: &Viewer, p: &Probe) -> bool {
 }
 
 /// TrackedEntity.updatePlayer: within the type's range (capped by the view
-/// distance) cubeontally, shown to the client (`Entity.broadcastToPlayer`:
+/// distance) horizontally, shown to the client (`Entity.broadcastToPlayer`:
 /// `ServerPlayer`'s hides a spectator from players who are not spectators;
 /// a guest's camera is always its own player, so a spectating client sees
 /// every player) and in a chunk the client has. `held` remembers for
@@ -1249,7 +1249,7 @@ mod tests {
             attributes: Vec::new(),
             precise: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             needs_sync: false,
             leash: None,
             spectator: false,
@@ -1431,8 +1431,8 @@ mod tests {
         item.vertical_collision = true;
         assert!(full_precision_required(&item, [1, 0, 0]));
         item.vertical_collision = false;
-        item.cubeontal_collision = true;
-        // A cubeontal stop pairs an x delta with z, exactly as vanilla does.
+        item.horizontal_collision = true;
+        // A horizontal stop pairs an x delta with z, exactly as vanilla does.
         assert!(full_precision_required(&item, [1, 0, 0]));
         item.position[2] = 0.5;
         assert!(!full_precision_required(&item, [1, 0, 0]));
@@ -1455,7 +1455,7 @@ mod tests {
             let mut s = added(&e);
             changes(&mut s, &e);
             e.position = [0.3, 64.0, 0.3];
-            e.cubeontal_collision = collision;
+            e.horizontal_collision = collision;
             for _ in 0..19 {
                 assert!(changes(&mut s, &e).is_empty());
             }

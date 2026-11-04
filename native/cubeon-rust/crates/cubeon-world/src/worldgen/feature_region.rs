@@ -474,7 +474,7 @@ impl<'a, 'r, B: TerrainBlockStates, F> TerrainFeatureAccess<'a, 'r, B, F> {
             upgrade_height: UpgradeHeightPolicy::Unrestricted,
         }
     }
-    /// Apply the cubeontal write radius before invoking mutation policy/effects.
+    /// Apply the horizontal write radius before invoking mutation policy/effects.
     pub fn with_write_zone(mut self, zone: super::write_zone::GenerationWriteZone) -> Self {
         self.write_zone = Some(zone);
         self
@@ -487,7 +487,7 @@ impl<'a, 'r, B: TerrainBlockStates, F> TerrainFeatureAccess<'a, 'r, B, F> {
     }
     /// Read the resident center chunk's upgrade state before each write. The
     /// target chunk's upgrade state does not select the region's write height.
-    /// Cubeontal write radius is configured independently with `with_write_zone`.
+    /// Horizontal write radius is configured independently with `with_write_zone`.
     pub fn with_upgrade_center(
         mut self,
         center: cubeon_core::position::ChunkPos,

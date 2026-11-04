@@ -1,5 +1,5 @@
 //! Firework rockets (`FireworkRocketItem`, `FireworkRocketEntity`): launching
-//! from a block face, boosting a gliding player, the 1.15 cubeontal
+//! from a block face, boosting a gliding player, the 1.15 horizontal
 //! acceleration and 0.04 lift, the flight-duration lifetime, explosion
 //! damage with line of sight, and the client explosion (`createFireworks`).
 use super::{Game, Hit, item_draw::owner_at, view_vector};
@@ -182,13 +182,13 @@ impl Rocket {
         let Ok(moved) = scene.resolve(bounds, wanted, 0.0, false) else {
             return;
         };
-        let cubeontal = (moved.x - wanted.x).abs() > 1e-7 || (moved.z - wanted.z).abs() > 1e-7;
+        let horizontal = (moved.x - wanted.x).abs() > 1e-7 || (moved.z - wanted.z).abs() > 1e-7;
         self.position = Vec3::new(
             self.position.x + moved.x,
             self.position.y + moved.y,
             self.position.z + moved.z,
         );
-        self.velocity = if cubeontal {
+        self.velocity = if horizontal {
             Vec3::new(self.velocity.x, wanted.y, self.velocity.z)
         } else {
             wanted

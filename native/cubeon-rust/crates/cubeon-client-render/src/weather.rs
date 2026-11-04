@@ -282,7 +282,7 @@ pub fn snow_column(
     }
 }
 
-/// The constructor's 32x32 table of cubeontal column half-widths, indexed
+/// The constructor's 32x32 table of horizontal column half-widths, indexed
 /// relative to the camera block. The camera's own column divides 0 by 0.
 fn column_size(index: usize) -> (f32, f32) {
     static SIZES: std::sync::LazyLock<[(f32, f32); 32 * 32]> = std::sync::LazyLock::new(|| {

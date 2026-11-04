@@ -2550,7 +2550,7 @@ packet!(
 );
 packet!(Interact { id: i32 => VarInt, hand: i32 => VarInt, location: [f64; 3] => LpVec3, secondary: bool => Bool });
 packet!(
-    /// ServerboundMovePlayerPacket flags: 1 on ground, 2 cubeontal collision.
+    /// ServerboundMovePlayerPacket flags: 1 on ground, 2 horizontal collision.
     MovePlayerPos { x: f64 => Double, y: f64 => Double, z: f64 => Double, flags: u8 => UByte }
 );
 packet!(MovePlayerPosRot { x: f64 => Double, y: f64 => Double, z: f64 => Double, yaw: f32 => Float, pitch: f32 => Float, flags: u8 => UByte });

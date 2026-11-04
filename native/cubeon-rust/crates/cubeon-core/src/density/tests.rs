@@ -221,7 +221,7 @@ fn monotonic_mapping_skips_nai_and_rejects_nan_after_both_endpoints() {
 }
 
 #[test]
-fn shift_b_repeats_each_cubeontal_sample_and_preserves_tail() {
+fn shift_b_repeats_each_horizontal_sample_and_preserves_tail() {
     let mut context = SamplerContext::default();
     let volume = DensityVolume::new([2, 3, 4], [-17, -64, 32], [4, 8, 16]).unwrap();
     let source = Arc::new(PerlinNoise::new(&mut LegacyRandom::new(0)));

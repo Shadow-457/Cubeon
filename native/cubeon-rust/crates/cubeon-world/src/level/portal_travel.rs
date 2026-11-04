@@ -68,7 +68,7 @@ fn component(pos: BlockPos, axis: Axis) -> i32 {
         Axis::Z => pos.z,
     }
 }
-/// `Direction.getClockWise` for the cubeontal directions.
+/// `Direction.getClockWise` for the horizontal directions.
 fn clockwise(direction: Direction) -> Direction {
     match direction {
         Direction::North => Direction::East,

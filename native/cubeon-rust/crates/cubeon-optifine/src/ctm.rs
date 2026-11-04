@@ -18,10 +18,10 @@ pub enum Method {
     Ctm,
     /// 5 tiles, cut into quarters, and `ctm.N` replacements.
     CtmCompact,
-    Cubeontal,
+    Horizontal,
     Vertical,
-    CubeontalVertical,
-    VerticalCubeontal,
+    HorizontalVertical,
+    VerticalHorizontal,
     Top,
     Random,
     Repeat,
@@ -33,10 +33,10 @@ pub enum Method {
     OverlayRepeat,
     OverlayFixed,
     /// Continuity's overlay forms of the 4-tile methods.
-    OverlayCubeontal,
+    OverlayHorizontal,
     OverlayVertical,
-    OverlayCubeontalVertical,
-    OverlayVerticalCubeontal,
+    OverlayHorizontalVertical,
+    OverlayVerticalHorizontal,
 }
 
 impl Method {
@@ -46,10 +46,10 @@ impl Method {
             // MCPatcher's names for the same methods.
             "ctm" | "glass" => Ctm,
             "ctm_compact" => CtmCompact,
-            "cubeontal" | "bookshelf" => Cubeontal,
+            "horizontal" | "bookshelf" => Horizontal,
             "vertical" => Vertical,
-            "cubeontal+vertical" | "h+v" => CubeontalVertical,
-            "vertical+cubeontal" | "v+h" => VerticalCubeontal,
+            "horizontal+vertical" | "h+v" => HorizontalVertical,
+            "vertical+horizontal" | "v+h" => VerticalHorizontal,
             "top" | "sandstone" => Top,
             "random" => Random,
             "repeat" | "pattern" => Repeat,
@@ -59,10 +59,10 @@ impl Method {
             "overlay_random" => OverlayRandom,
             "overlay_repeat" => OverlayRepeat,
             "overlay_fixed" => OverlayFixed,
-            "overlay_cubeontal" => OverlayCubeontal,
+            "overlay_horizontal" => OverlayHorizontal,
             "overlay_vertical" => OverlayVertical,
-            "overlay_cubeontal+vertical" | "overlay_h+v" => OverlayCubeontalVertical,
-            "overlay_vertical+cubeontal" | "overlay_v+h" => OverlayVerticalCubeontal,
+            "overlay_horizontal+vertical" | "overlay_h+v" => OverlayHorizontalVertical,
+            "overlay_vertical+horizontal" | "overlay_v+h" => OverlayVerticalHorizontal,
             _ => return None,
         })
     }
@@ -80,11 +80,11 @@ impl Method {
         match self {
             Ctm | OverlayCtm => n(47),
             CtmCompact => (5, None),
-            Cubeontal | Vertical | OverlayCubeontal | OverlayVertical => n(4),
-            CubeontalVertical
-            | VerticalCubeontal
-            | OverlayCubeontalVertical
-            | OverlayVerticalCubeontal => n(7),
+            Horizontal | Vertical | OverlayHorizontal | OverlayVertical => n(4),
+            HorizontalVertical
+            | VerticalHorizontal
+            | OverlayHorizontalVertical
+            | OverlayVerticalHorizontal => n(7),
             Top | Fixed | OverlayFixed => n(1),
             Random | OverlayRandom => (1, None),
             // `checked_mul`'s `None` (a pattern no pack can fill) asks for 0 tiles: refused.
@@ -328,10 +328,10 @@ impl Rule {
             Some("texture") => Orient::Texture,
             // OptiFine's own behaviour.
             _ => match method {
-                Method::Cubeontal
+                Method::Horizontal
                 | Method::Vertical
-                | Method::CubeontalVertical
-                | Method::VerticalCubeontal => Orient::StateAxis,
+                | Method::HorizontalVertical
+                | Method::VerticalHorizontal => Orient::StateAxis,
                 _ => Orient::None,
             },
         };
@@ -579,7 +579,7 @@ mod tests {
         assert!(tile.matches_tile("assets/minecraft/textures/block/dirt.png"));
         assert_eq!(tile.connect, Connect::Tile);
         assert!(tile.prioritize);
-        let block = rule("block_bookshelf.properties", "method=cubeontal\ntiles=0-3")
+        let block = rule("block_bookshelf.properties", "method=horizontal\ntiles=0-3")
             .unwrap()
             .unwrap();
         assert!(block.matches_block("minecraft:bookshelf", |_| None));
@@ -634,7 +634,7 @@ mod tests {
         assert!(!ok("ctm", "tiles=0-45"));
         assert!(ok("ctm_compact", "tiles=0-6"));
         assert!(!ok("ctm_compact", "tiles=0-3"));
-        assert!(ok("cubeontal+vertical", "tiles=0-6"));
+        assert!(ok("horizontal+vertical", "tiles=0-6"));
         assert!(ok("repeat", "width=3\nheight=2\ntiles=0-5"));
         assert!(!ok("repeat", "width=3\nheight=2\ntiles=0-4"));
         assert!(!ok("repeat", "tiles=0"));

@@ -252,7 +252,7 @@ fn repurposed(check: Repurposed, queries: &mut impl CheckQueries, chunk: ChunkPo
                 *land >= min_land
             };
             for distance in [70, 35] {
-                // Direction.Plane.CUBEONTAL: north, east, south, west.
+                // Direction.Plane.HORIZONTAL: north, east, south, west.
                 for (dx, dz) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
                     if !sample(x0 + dx * distance, z0 + dz * distance, &mut land) {
                         return false;

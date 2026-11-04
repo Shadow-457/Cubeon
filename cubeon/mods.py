@@ -35,6 +35,7 @@ Fixed here by:
     pass the actual selected mc_version/loader through explicitly.
 """
 import json
+import logging
 import os
 import re
 import shutil
@@ -84,6 +85,23 @@ def _read_synced_manifest() -> set[str]:
     if not isinstance(data, list):
         return set()
     return {name for name in data if isinstance(name, str)}
+
+
+def _read_copy_receipts(directory, marker):
+    try:
+        with open(os.path.join(directory, marker + ".copies"), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_copy_receipts(directory, marker, receipts):
+    if receipts != _read_copy_receipts(directory, marker):
+        try:
+            write_json(os.path.join(directory, marker + ".copies"), receipts)
+        except OSError:
+            logging.getLogger(__name__).debug("copy staging cache unavailable", exc_info=True)
 
 
 def _backup_user_jar(fname: str) -> None:
@@ -1117,6 +1135,9 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
 
     os.makedirs(MODS_DIR, exist_ok=True)
     previously_synced = _read_synced_manifest()
+    from .file_safety import copy_source_stamp, copied_entry_matches, copied_entry_receipt
+    previous_copies = _read_copy_receipts(MODS_DIR, _SYNC_MANIFEST)
+    copies = {}
     wanted = set(chosen.values())
     retained = set()
     for fname in os.listdir(MODS_DIR):
@@ -1130,8 +1151,13 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
             # Unchanged relaunches avoid relinking jars and changing their ctime.
             if fname in wanted:
                 try:
-                    if os.path.samefile(os.path.join(profile_dir, fname), full):
+                    source = os.path.join(profile_dir, fname)
+                    if os.path.samefile(source, full):
                         retained.add(fname)
+                        continue
+                    if copied_entry_matches(source, full, previous_copies.get(fname)):
+                        retained.add(fname)
+                        copies[fname] = previous_copies[fname]
                         continue
                 except OSError:
                     pass
@@ -1165,7 +1191,11 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
             # jar behind - Fabric/Forge would try to load it and crash. Remove
             # the partial file and report which mod failed, readably.
             try:
+                before = copy_source_stamp(src)
                 shutil.copyfile(src, dst)
+                receipt = copied_entry_receipt(src, dst, before)
+                if receipt is not None:
+                    copies[fname] = receipt
             except Exception as ex:
                 try:
                     os.remove(dst)
@@ -1182,6 +1212,8 @@ def sync_mods_to_game(mc_version: str | None, loader: str | None,
             os.path.join(MODS_DIR, _SYNC_MANIFEST)):
         write_json(os.path.join(MODS_DIR, _SYNC_MANIFEST),
                    {"files": sorted(synced)})
+
+    _write_copy_receipts(MODS_DIR, _SYNC_MANIFEST, copies)
 
 
 def copy_mods_between_profiles(

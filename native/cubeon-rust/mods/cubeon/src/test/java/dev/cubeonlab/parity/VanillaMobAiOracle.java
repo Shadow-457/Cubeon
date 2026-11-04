@@ -1062,7 +1062,7 @@ public final class VanillaMobAiOracle {
                 sb.append("\tp ").append(d(item.getX())).append(',').append(d(item.getY())).append(',').append(d(item.getZ()));
                 Vec3 v = item.getDeltaMovement();
                 sb.append("\tv ").append(d(v.x)).append(',').append(d(v.y)).append(',').append(d(v.z));
-                sb.append("\tg ").append(item.onGround() ? 1 : 0).append(item.cubeontalCollision ? 1 : 0);
+                sb.append("\tg ").append(item.onGround() ? 1 : 0).append(item.horizontalCollision ? 1 : 0);
                 sb.append("\titem ").append(stack(item.getItem())).append(' ').append(item.getAge()).append(' ')
                     .append(field(ItemEntity.class, "pickupDelay").getInt(item));
                 out.println(sb);
@@ -1074,7 +1074,7 @@ public final class VanillaMobAiOracle {
             Vec3 v = m.getDeltaMovement();
             sb.append("\tv ").append(d(v.x)).append(',').append(d(v.y)).append(',').append(d(v.z));
             sb.append("\tr ").append(f(m.getYRot())).append(',').append(f(m.getXRot())).append(',').append(f(m.getYHeadRot())).append(',').append(f(m.yBodyRot));
-            sb.append("\tg ").append(m.onGround() ? 1 : 0).append(m.cubeontalCollision ? 1 : 0);
+            sb.append("\tg ").append(m.onGround() ? 1 : 0).append(m.horizontalCollision ? 1 : 0);
             sb.append("\thp ").append(f(m.getHealth()));
             sb.append("\tgoals ").append(goals((GoalSelector) get(m, "goalSelector")));
             sb.append("\ttargets ").append(goals((GoalSelector) get(m, "targetSelector")));

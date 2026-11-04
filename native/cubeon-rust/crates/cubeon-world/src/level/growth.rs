@@ -308,7 +308,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             .is_some_and(|f| f.configured(name).is_some())
     }
 
-    /// `TreeGrower.hasFlowers`: a flower within 2 blocks cubeontally, 1 vertically.
+    /// `TreeGrower.hasFlowers`: a flower within 2 blocks horizontally, 1 vertically.
     fn tree_has_flowers(&self, pos: BlockPos) -> bool {
         let b = self.b;
         let Some(flowers) = b.tag("minecraft:flowers") else {

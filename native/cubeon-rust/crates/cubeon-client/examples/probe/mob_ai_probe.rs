@@ -677,7 +677,7 @@ fn print(out: &mut String, t: i32, i: usize, m: &Mob, player_down: bool, now: i6
         out,
         "\tg {}{}\thp {}",
         u8::from(m.on_ground),
-        u8::from(m.cubeontal_collision),
+        u8::from(m.horizontal_collision),
         f(m.health)
     );
     let _ = write!(

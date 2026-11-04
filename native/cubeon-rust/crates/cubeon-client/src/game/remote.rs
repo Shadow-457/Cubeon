@@ -5498,7 +5498,7 @@ impl Game<'_> {
             velocity,
             on_ground: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: 0,
             bob_offset,
@@ -6678,7 +6678,7 @@ impl Game<'_> {
             }
             // Squid.aiStep follows LivingEntity's interpolation and head turn.
             cubeon_client::mobs::aquatic::squid_client_step(m, &mut mob_fx);
-            // WalkAnimationState.update from the cubeontal distance moved.
+            // WalkAnimationState.update from the horizontal distance moved.
             let (dx, dz) = (m.position.x - m.previous.x, m.position.z - m.previous.z);
             let (target, factor) = if cubeon_client::mobs::camel::is_camel(m.species()) {
                 // Camel.updateWalkAnimation.
@@ -6981,7 +6981,7 @@ impl Game<'_> {
         let (pos, on_ground, collision, sprinting) = (
             [p.position.x, p.position.y, p.position.z],
             p.ground.on_ground,
-            p.collision.cubeontal,
+            p.collision.horizontal,
             p.sprinting,
         );
         let (yaw, pitch, selected) = (self.yaw, self.pitch, self.selected);
@@ -8805,7 +8805,7 @@ impl Game<'_> {
     /// For a mob `hurtOrSimulate` fails here (`Entity.hurtClient`), so the
     /// hit has no attacker side; but `RemotePlayer.hurtClient` is true, so a
     /// hit on another player with extra knockback runs the attacker's side of
-    /// `causeExtraKnockback`: the 0.6 cubeontal speed cut and the sprint
+    /// `causeExtraKnockback`: the 0.6 horizontal speed cut and the sprint
     /// stop. Without it the next move outruns the server's player.
     fn remote_player_attack(&mut self, mob: usize) {
         // Java dispatches this through the target's RemotePlayer type. The
@@ -9915,10 +9915,10 @@ impl Game<'_> {
 fn look_at_rotation(from: [f64; 3], to: [f64; 3]) -> (f32, f32) {
     use cubeon_core::geometry::trig::atan2;
     let (dx, dy, dz) = (to[0] - from[0], to[1] - from[1], to[2] - from[2]);
-    let cubeontal = (dx * dx + dz * dz).sqrt();
+    let horizontal = (dx * dx + dz * dz).sqrt();
     // `* 180.0F / (float)Math.PI` on the double.
     let degrees = |r: f64| r * 180.0 / f64::from(std::f32::consts::PI);
-    let pitch = wrap_degrees((-degrees(atan2(dy, cubeontal))) as f32);
+    let pitch = wrap_degrees((-degrees(atan2(dy, horizontal))) as f32);
     let yaw = wrap_degrees(degrees(atan2(dz, dx)) as f32 - 90.0);
     (yaw, pitch)
 }

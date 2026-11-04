@@ -1,6 +1,8 @@
 # Cubeon Bench
 
-Open `index.html` directly, or serve this folder with `python3 -m http.server 8000`.
+On the main site, open `/cubeon-bench` from the Cubeon Bench link in the navigation. The page declares `/cubeon-bench/` as its asset base because hosting removes trailing slashes.
+
+Open `index.html` directly for file mode, or serve the parent `web/` folder with `python3 -m http.server 8000` and visit `/cubeon-bench/`.
 
 The library uses the original Minecraft PNGs in `textures/`, organized by their Minecraft folders. PNGs keep their native proportions, transparency, and animation strips. The editor supports the original resolution or scaling by 2× and 4×. Block previews use companion face textures; items have pixel edges, and player skins use Minecraft's skin layout.
 

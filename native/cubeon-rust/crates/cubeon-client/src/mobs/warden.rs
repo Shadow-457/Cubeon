@@ -321,9 +321,9 @@ fn sound(m: &Mob, name: &'static str, volume: f32, pitch: f32, events: &mut Vec<
 fn voice_pitch(m: &mut Mob) -> f32 {
     (m.random.next_float() - m.random.next_float()) * 0.2 + 1.0
 }
-fn closer_than(m: &Mob, p: Vec3, cubeontal: f64, vertical: f64) -> bool {
+fn closer_than(m: &Mob, p: Vec3, horizontal: f64, vertical: f64) -> bool {
     let (dx, dy, dz) = (p.x - m.position.x, p.y - m.position.y, p.z - m.position.z);
-    dx * dx + dz * dz < cubeontal * cubeontal && dy * dy < vertical * vertical
+    dx * dx + dz * dz < horizontal * horizontal && dy * dy < vertical * vertical
 }
 
 // ---- entity facts ----

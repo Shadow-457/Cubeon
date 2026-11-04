@@ -29,7 +29,7 @@ pub(crate) const UPDATE_SHAPE_ORDER: [Direction; 6] = [
     Direction::Down,
     Direction::Up,
 ];
-pub(crate) const CUBEONTAL: [Direction; 4] = [
+pub(crate) const HORIZONTAL: [Direction; 4] = [
     Direction::North,
     Direction::East,
     Direction::South,
@@ -673,7 +673,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     }
     /// `Level.updateNeighbourForOutputSignal`.
     pub fn update_neighbour_for_output_signal(&mut self, pos: BlockPos, block: BlockId) {
-        for direction in super::update::CUBEONTAL {
+        for direction in super::update::HORIZONTAL {
             let mut relative = rel(pos, direction);
             if !self.level.is_loaded(relative) {
                 continue;

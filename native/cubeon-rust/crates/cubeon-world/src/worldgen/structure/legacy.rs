@@ -353,15 +353,15 @@ pub struct PieceFrame {
     /// Blocks placeBlock must not replace (StructurePiece.canBeReplaced).
     pub keep: &'static [&'static str],
 }
-pub const CUBEONTAL: [Direction; 4] = [
+pub const HORIZONTAL: [Direction; 4] = [
     Direction::North,
     Direction::East,
     Direction::South,
     Direction::West,
 ];
-/// Direction.Plane.CUBEONTAL.getRandomDirection.
-pub fn random_cubeontal(random: &mut impl RandomSource) -> Direction {
-    CUBEONTAL[random.next_int_bound(4).unwrap_or(0) as usize]
+/// Direction.Plane.HORIZONTAL.getRandomDirection.
+pub fn random_horizontal(random: &mut impl RandomSource) -> Direction {
+    HORIZONTAL[random.next_int_bound(4).unwrap_or(0) as usize]
 }
 pub fn make_bounding_box(
     x: i32,
@@ -740,7 +740,7 @@ pub fn create_chest(
 /// blocks around it.
 fn reorient(c: &mut PieceContext<'_>, pos: [i32; 3], state: BlockStateId) -> Result<BlockStateId> {
     let mut states = [BlockStateId(0); 4];
-    for (index, d) in CUBEONTAL.iter().enumerate() {
+    for (index, d) in HORIZONTAL.iter().enumerate() {
         states[index] = c.world.block(offset(pos, *d, 1))?;
     }
     let facing = match c.property(state, "facing") {
@@ -757,7 +757,7 @@ fn reorient(c: &mut PieceContext<'_>, pos: [i32; 3], state: BlockStateId) -> Res
     Ok(c.with_property(state, "facing", direction_name(facing)))
 }
 /// `StructurePiece.reorient`: the facing of a chest, from the blocks around
-/// it. `states` are the four cubeontal neighbours (north, east, south, west).
+/// it. `states` are the four horizontal neighbours (north, east, south, west).
 /// `is_chest` tells whether a state is a chest, and `blocks` whether it draws
 /// as solid (`BlockState.isSolidRender`). None: a chest is next to it, and
 /// the state is kept.
@@ -775,7 +775,7 @@ fn reorient_facing(
         _ => 0,
     };
     let mut solid_neighbour: Option<Direction> = None;
-    for (i, d) in CUBEONTAL.iter().enumerate() {
+    for (i, d) in HORIZONTAL.iter().enumerate() {
         if is_chest(states[i]) {
             return None;
         }

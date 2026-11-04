@@ -40,7 +40,7 @@ pub fn fluid_falling_adjusted_movement<W: LivingFluidWorld>(
 }
 pub fn jump_out_of_fluid<W: LivingFluidWorld>(world: &mut W, old_y: f64) -> Result<(), W::Error> {
     let mut velocity = world.velocity();
-    if world.cubeontal_collision() {
+    if world.horizontal_collision() {
         let probe = Vec3::new(
             velocity.x,
             velocity.y + f64::from(0.6f32) - world.y() + old_y,
@@ -80,7 +80,7 @@ pub fn travel_in_water<W: LivingFluidWorld>(
     move_relative(world, input, speed)?;
     world.move_self(world.velocity())?;
     let mut velocity = world.velocity();
-    if world.cubeontal_collision() && world.on_climbable()? {
+    if world.horizontal_collision() && world.on_climbable()? {
         velocity.y = 0.2;
     }
     velocity = Vec3::new(

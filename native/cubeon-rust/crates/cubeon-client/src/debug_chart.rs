@@ -286,14 +286,14 @@ impl Chart {
             sum += value;
             self.bars(&mut out, samples, bottom, x, index);
         }
-        cubeontal_line(
+        horizontal_line(
             &mut out,
             left,
             left + width - 1,
             bottom - CHART_HEIGHT,
             WHITE,
         );
-        cubeontal_line(&mut out, left, left + width - 1, bottom - 1, WHITE);
+        horizontal_line(&mut out, left, left + width - 1, bottom - 1, WHITE);
         vertical_line(&mut out, left, bottom - CHART_HEIGHT, bottom, WHITE);
         vertical_line(
             &mut out,
@@ -371,10 +371,10 @@ impl Chart {
             Chart::Fps { framerate_limit } => {
                 shaded(out, font, "30 fps", left + 1, bottom - CHART_HEIGHT + 1);
                 shaded(out, font, "60 fps", left + 1, bottom - 30 + 1);
-                cubeontal_line(out, left, left + width - 1, bottom - 30, WHITE);
+                horizontal_line(out, left, left + width - 1, bottom - 30, WHITE);
                 if framerate_limit > 0 && framerate_limit <= 250 {
                     let y = bottom - self.height(1.0e9 / f64::from(framerate_limit)) - 1;
-                    cubeontal_line(out, left, left + width - 1, y, CYAN);
+                    horizontal_line(out, left, left + width - 1, y, CYAN);
                 }
             }
             Chart::Tps { mspt } => {
@@ -392,7 +392,7 @@ impl Chart {
                 for bytes in [64.0, 1024.0, 16384.0] {
                     let y = bottom - bandwidth_height(bytes);
                     shaded(out, font, &bandwidth_display(bytes), left + 1, y + 1);
-                    cubeontal_line(out, left, left + width - 1, y, WHITE);
+                    horizontal_line(out, left, left + width - 1, y, WHITE);
                 }
                 let y = bottom - bandwidth_height(MEGABYTE) + 1;
                 shaded(out, font, &bandwidth_display(MEGABYTE), left + 1, y);
@@ -475,8 +475,8 @@ pub fn srgb_lerp(alpha: f32, p0: u32, p1: u32) -> u32 {
     };
     argb(channel(24), channel(16), channel(8), channel(0))
 }
-/// `GuiGraphicsExtractor.cubeontalLine`.
-fn cubeontal_line(out: &mut Vec<GuiDraw>, x0: i32, x1: i32, y: i32, color: u32) {
+/// `GuiGraphicsExtractor.horizontalLine`.
+fn horizontal_line(out: &mut Vec<GuiDraw>, x0: i32, x1: i32, y: i32, color: u32) {
     out.push(fill(x0.min(x1), y, x0.max(x1) + 1, y + 1, color));
 }
 /// `GuiGraphicsExtractor.verticalLine`.

@@ -192,7 +192,7 @@ pub(super) fn release(state: &mut State) {
     state.scroll.release();
 }
 /// Done and Cancel, 150 wide and 8 apart in the footer
-/// (`LinearLayout.cubeontal().spacing(8)`); Done needs a biome.
+/// (`LinearLayout.horizontal().spacing(8)`); Done needs a biome.
 pub(super) fn buttons(w: f32, h: f32, state: &State) -> Vec<Button> {
     let x = ((w.ceil() - 308.0) * 0.5).trunc();
     let b = |x: f32, key: &str, fallback: &str, enabled: bool, id: u8| Button {

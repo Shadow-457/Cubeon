@@ -5,9 +5,9 @@ use super::{
     Behaviours, LevelAccess, LevelEvent, Sim, Ticks,
     classes::Class,
     data::ItemKind,
-    query::{axis_of, clockwise, counter_clockwise, is_cubeontal},
+    query::{axis_of, clockwise, counter_clockwise, is_horizontal},
     states::BlockId,
-    update::{CUBEONTAL, above, below, rel},
+    update::{HORIZONTAL, above, below, rel},
 };
 use crate::{fluid::FluidState, registry::BlockStateId};
 use cubeon_core::{
@@ -141,7 +141,7 @@ pub(crate) fn rotation_segment(degrees: f32) -> i32 {
 }
 /// `RotationSegment.convertToSegment(Direction)`.
 fn rotation_segment_of(direction: Direction) -> i32 {
-    if !is_cubeontal(direction) {
+    if !is_horizontal(direction) {
         0
     } else {
         super::query::data_2d(direction) << 2
@@ -149,7 +149,7 @@ fn rotation_segment_of(direction: Direction) -> i32 {
 }
 
 impl PlacementContext {
-    fn cubeontal_direction(&self) -> Direction {
+    fn horizontal_direction(&self) -> Direction {
         from_y_rot(f64::from(self.yaw))
     }
     fn nearest_looking_directions(&self) -> [Direction; 6] {
@@ -244,9 +244,9 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     } else if ctx.replace_clicked {
                         let above = ctx.hit.y - f64::from(ctx.hit_pos.y) > 0.5;
                         if kind == "bottom" {
-                            ctx.face == Direction::Up || (above && is_cubeontal(ctx.face))
+                            ctx.face == Direction::Up || (above && is_horizontal(ctx.face))
                         } else {
-                            ctx.face == Direction::Down || (!above && is_cubeontal(ctx.face))
+                            ctx.face == Direction::Down || (!above && is_horizontal(ctx.face))
                         }
                     } else {
                         true
@@ -351,12 +351,12 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 self.placement_at(block, depth + 1, ctx)
             };
         }
-        let cubeontal = ctx.cubeontal_direction();
+        let horizontal = ctx.horizontal_direction();
         Some(match class {
             Class::AbstractBed => {
-                let relative = rel(pos, cubeontal);
+                let relative = rel(pos, horizontal);
                 if self.can_be_replaced(self.state(relative), ctx) {
-                    Some(table.set_dir(default, p.facing, cubeontal))
+                    Some(table.set_dir(default, p.facing, horizontal))
                 } else {
                     None
                 }
@@ -369,19 +369,19 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             | Class::GlazedTerracotta
             | Class::Loom
             | Class::Stonecutter
-            | Class::Vault => Some(table.set_dir(default, p.facing, cubeontal.opposite())),
+            | Class::Vault => Some(table.set_dir(default, p.facing, horizontal.opposite())),
             Class::Repeater => {
                 let state = sup!()?;
                 let locked = self.diode_is_locked(pos, state);
                 Some(table.set_bool(state, p.locked, locked))
             }
             Class::EndPortalFrame => Some(table.set_bool(
-                table.set_dir(default, p.facing, cubeontal.opposite()),
+                table.set_dir(default, p.facing, horizontal.opposite()),
                 p.eye,
                 false,
             )),
             Class::Lectern => Some(table.set_bool(
-                table.set_dir(default, p.facing, cubeontal.opposite()),
+                table.set_dir(default, p.facing, horizontal.opposite()),
                 p.has_book,
                 false,
             )),
@@ -396,7 +396,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Class::WallSkull => {
                 let mut state = sup!()?;
                 for direction in ctx.nearest_looking_directions() {
-                    if is_cubeontal(direction) {
+                    if is_horizontal(direction) {
                         state = table.set_dir(state, p.facing, direction.opposite());
                         if !self.can_be_replaced(self.state(rel(pos, direction)), ctx) {
                             return Some(Some(state));
@@ -406,7 +406,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 None
             }
             Class::AmethystCluster => Some(table.set_dir(wl(default), p.facing, ctx.face)),
-            Class::Anvil => Some(table.set_dir(default, p.facing, clockwise(cubeontal))),
+            Class::Anvil => Some(table.set_dir(default, p.facing, clockwise(horizontal))),
             Class::BambooStalk => {
                 if self.fluid_at(pos).kind() != crate::fluid::FluidKind::Empty {
                     return Some(None);
@@ -476,7 +476,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::CalibratedSculkSensor => {
                 let state = sup!()?;
-                Some(table.set_dir(state, p.facing, cubeontal))
+                Some(table.set_dir(state, p.facing, horizontal))
             }
             Class::BaseCoralPlantType | Class::Conduit => {
                 let fluid = self.fluid_at(pos);
@@ -508,7 +508,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     _ => default,
                 };
                 for direction in ctx.nearest_looking_directions() {
-                    if is_cubeontal(direction) {
+                    if is_horizontal(direction) {
                         let facing = if class == Class::Cocoa {
                             direction
                         } else {
@@ -529,7 +529,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 let wall = b.default_of(table.block_by_name("minecraft:wall_torch")?);
                 let mut found = None;
                 for direction in ctx.nearest_looking_directions() {
-                    if is_cubeontal(direction) {
+                    if is_horizontal(direction) {
                         let state = table.set_dir(wall, p.facing, direction.opposite());
                         if self.can_survive(state, pos) {
                             found = Some(state);
@@ -542,7 +542,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Class::WallHangingSign => {
                 let mut state = default;
                 for direction in ctx.nearest_looking_directions() {
-                    if is_cubeontal(direction) && axis_of(direction) != axis_of(ctx.face) {
+                    if is_horizontal(direction) && axis_of(direction) != axis_of(ctx.face) {
                         state = table.set_dir(state, p.facing, direction.opposite());
                         if self.can_survive(state, pos)
                             && self.wall_hanging_sign_can_place(state, pos)
@@ -594,7 +594,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::BaseFire | Class::Fire | Class::SoulFire => Some(self.fire_state_for(pos)),
             Class::BaseRail => {
-                let east_west = matches!(cubeontal, Direction::East | Direction::West);
+                let east_west = matches!(horizontal, Direction::East | Direction::West);
                 let shape = if east_west {
                     "east_west"
                 } else {
@@ -613,7 +613,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     let state = table.set_dir(
                         table.set_text(default, p.attachment, attachment),
                         p.facing,
-                        cubeontal,
+                        horizontal,
                     );
                     if self.can_survive(state, pos) {
                         Some(state)
@@ -659,7 +659,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 let facing = if dripleaf_part {
                     b.facing(below_state)
                 } else {
-                    cubeontal.opposite()
+                    horizontal.opposite()
                 };
                 let source = self.fluid_at(pos) == FluidState::WATER;
                 Some(table.set_dir(
@@ -674,7 +674,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 let state = table.set_bool(default, p.waterlogged, water);
                 let state = table.set_bool(state, p.signal_fire, smoke);
                 let state = table.set_bool(state, p.lit, !water);
-                Some(table.set_dir(state, p.facing, cubeontal))
+                Some(table.set_dir(state, p.facing, horizontal))
             }
             Class::Candle => {
                 let current = self.state(pos);
@@ -728,14 +728,14 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 if b.is_block(current, block) {
                     Some(table.set_int(current, key, (table.int(current, key) + 1).min(4)))
                 } else {
-                    Some(table.set_dir(default, p.facing, cubeontal.opposite()))
+                    Some(table.set_dir(default, p.facing, horizontal.opposite()))
                 }
             }
             Class::Chest => {
                 let mut kind = "single";
-                let mut facing = cubeontal.opposite();
+                let mut facing = horizontal.opposite();
                 let face = ctx.face;
-                if is_cubeontal(face) && ctx.sneaking {
+                if is_horizontal(face) && ctx.sneaking {
                     if let Some(neighbour_facing) =
                         self.chest_candidate_partner_facing(default, pos, face.opposite())
                     {
@@ -780,7 +780,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 }
             }
             Class::CopperGolemStatue | Class::EnderChest | Class::Shelf => {
-                let mut state = wl(table.set_dir(default, p.facing, cubeontal.opposite()));
+                let mut state = wl(table.set_dir(default, p.facing, horizontal.opposite()));
                 if class == Class::Shelf {
                     let signal = self.has_neighbor_signal(pos);
                     state = table.set_bool(state, p.powered, signal);
@@ -797,8 +797,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Class::Crafter => {
                 let front = ctx.nearest_looking_direction().opposite();
                 let top = match front {
-                    Direction::Down => cubeontal.opposite(),
-                    Direction::Up => cubeontal,
+                    Direction::Down => horizontal.opposite(),
+                    Direction::Up => horizontal,
                     _ => Direction::Up,
                 };
                 let orientation = format!(
@@ -816,7 +816,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Class::Jigsaw => {
                 let front = ctx.face;
                 let top = if axis_of(front) == Axis::Y {
-                    cubeontal.opposite()
+                    horizontal.opposite()
                 } else {
                     Direction::Up
                 };
@@ -836,7 +836,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 Some(table.set_text(default, p.axis, super::states::axis_name(axis_of(ctx.face))))
             }
             Class::DecoratedPot => {
-                let state = table.set_dir(default, p.facing, cubeontal);
+                let state = table.set_dir(default, p.facing, horizontal);
                 Some(table.set_bool(wl(state), p.cracked, false))
             }
             Class::Door => {
@@ -846,7 +846,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     let powered =
                         self.has_neighbor_signal(pos) || self.has_neighbor_signal(above(pos));
                     let hinge = self.door_hinge(ctx);
-                    let state = table.set_dir(default, p.facing, cubeontal);
+                    let state = table.set_dir(default, p.facing, horizontal);
                     let state = table.set_text(state, p.hinge, hinge);
                     let state =
                         table.set_bool(table.set_bool(state, p.powered, powered), p.open, powered);
@@ -867,7 +867,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Class::PitcherCrop => Some(default),
             Class::SmallDripleaf => {
                 let state = sup!()?;
-                let state = table.set_dir(state, p.facing, cubeontal.opposite());
+                let state = table.set_dir(state, p.facing, horizontal.opposite());
                 let water = self.is_water_at(pos);
                 Some(
                     table
@@ -886,7 +886,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::DriedGhast => {
                 let state = sup!()?;
-                Some(table.set_dir(wl(state), p.facing, cubeontal.opposite()))
+                Some(table.set_dir(wl(state), p.facing, horizontal.opposite()))
             }
             Class::EndRod => {
                 let behind = self.state(rel(pos, ctx.face.opposite()));
@@ -898,7 +898,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::LightningRod => Some(wl(table.set_dir(default, p.facing, ctx.face))),
             Class::ShulkerBox => Some(table.set_dir(default, p.facing, ctx.face)),
-            Class::FaceAttachedCubeontalDirectional => {
+            Class::FaceAttachedHorizontalDirectional => {
                 for direction in ctx.nearest_looking_directions() {
                     let state = if axis_of(direction) == Axis::Y {
                         let face = if direction == Direction::Up {
@@ -906,7 +906,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                         } else {
                             "floor"
                         };
-                        table.set_dir(table.set_text(default, p.face, face), p.facing, cubeontal)
+                        table.set_dir(table.set_text(default, p.face, face), p.facing, horizontal)
                     } else {
                         table.set_dir(
                             table.set_text(default, p.face, "wall"),
@@ -936,7 +936,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::Fence => {
                 let mut state = sup!()?;
-                for direction in CUBEONTAL {
+                for direction in HORIZONTAL {
                     let neighbour = self.rel_state(pos, direction);
                     let sturdy = b.is_face_sturdy(neighbour, direction.opposite());
                     let connect =
@@ -985,11 +985,11 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Class::FenceGate => {
                 let open = self.has_neighbor_signal(pos);
                 let wall = |sim: &Self, d: Direction| b.in_set(sim.rel_state(pos, d), &t.walls);
-                let in_wall = match axis_of(cubeontal) {
+                let in_wall = match axis_of(horizontal) {
                     Axis::Z => wall(self, Direction::West) || wall(self, Direction::East),
                     _ => wall(self, Direction::North) || wall(self, Direction::South),
                 };
-                let state = table.set_dir(default, p.facing, cubeontal);
+                let state = table.set_dir(default, p.facing, horizontal);
                 let state = table.set_bool(table.set_bool(state, p.open, open), p.powered, open);
                 Some(table.set_bool(state, p.in_wall, in_wall))
             }
@@ -1121,12 +1121,12 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     "top"
                 };
                 let state =
-                    wl(table.set_text(table.set_dir(default, p.facing, cubeontal), p.half, half));
+                    wl(table.set_text(table.set_dir(default, p.facing, horizontal), p.half, half));
                 let shape = self.stairs_shape(state, pos);
                 Some(table.set_text(state, p.shape, shape))
             }
             Class::TrapDoor => {
-                let mut state = if !ctx.replace_clicked && is_cubeontal(ctx.face) {
+                let mut state = if !ctx.replace_clicked && is_horizontal(ctx.face) {
                     let top = ctx.hit.y - f64::from(pos.y) > 0.5;
                     table.set_text(
                         table.set_dir(default, p.facing, ctx.face),
@@ -1140,7 +1140,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                         "top"
                     };
                     table.set_text(
-                        table.set_dir(default, p.facing, cubeontal.opposite()),
+                        table.set_dir(default, p.facing, horizontal.opposite()),
                         p.half,
                         half,
                     )
@@ -1169,7 +1169,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             Class::TripWire => {
                 let mut state = default;
-                for direction in CUBEONTAL {
+                for direction in HORIZONTAL {
                     let connect =
                         self.tripwire_should_connect_to(self.rel_state(pos, direction), direction);
                     state = table.set_bool(state, self.direction_prop(direction), connect);
@@ -1435,7 +1435,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     fn door_hinge(&self, ctx: &PlacementContext) -> &'static str {
         let b = self.b;
         let pos = ctx.pos;
-        let place = ctx.cubeontal_direction();
+        let place = ctx.horizontal_direction();
         let above_pos = above(pos);
         let left = counter_clockwise(place);
         let right = clockwise(place);
@@ -1548,7 +1548,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             let carpet = b.table.set_bool(b.default_of(block), p.bottom, false);
             let updated = self.mossy_carpet_updated_state(carpet, above_pos, true);
             let mut result = updated;
-            for direction in CUBEONTAL {
+            for direction in HORIZONTAL {
                 let key = self.direction_prop(direction);
                 if b.table.text(result, key) != "none" && !self.random().next_boolean() {
                     result = b.table.set_text(result, key, "none");
@@ -1697,13 +1697,13 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 ctx.face
             }
         } else if ctx.face == Direction::Up {
-            ctx.cubeontal_direction()
+            ctx.horizontal_direction()
         } else {
             Direction::Up
         };
-        let mut cubeontal_distance = 0;
+        let mut horizontal_distance = 0;
         let mut placement = rel(pos, direction);
-        while cubeontal_distance < 7 {
+        while horizontal_distance < 7 {
             if !self.is_in_valid_bounds(placement) {
                 break;
             }
@@ -1728,8 +1728,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 break;
             }
             placement = rel(placement, direction);
-            if is_cubeontal(direction) {
-                cubeontal_distance += 1;
+            if is_horizontal(direction) {
+                horizontal_distance += 1;
             }
         }
         None

@@ -197,7 +197,7 @@ pub fn draw_part(
     }
 }
 
-/// `Direction.toYRot` for cubeontal facings (south 0, west 90, north 180, east 270).
+/// `Direction.toYRot` for horizontal facings (south 0, west 90, north 180, east 270).
 fn y_rot(facing: &str) -> f32 {
     match facing {
         "west" => 90.0,
@@ -878,7 +878,7 @@ impl CacheOptions {
 #[derive(Default)]
 pub struct BlockEntityShapes {
     models: HashMap<&'static str, ModelPart>,
-    /// Closed chest geometry by chest model: dimension lighting, cubeontal facing.
+    /// Closed chest geometry by chest model: dimension lighting, horizontal facing.
     closed_chests: HashMap<&'static str, [[Vec<Vertex>; 4]; 2]>,
     /// A `.jem`'s texture (atlas name) by model, drawn instead of vanilla's.
     textures: HashMap<&'static str, String>,
@@ -921,7 +921,7 @@ impl BlockEntityShapes {
         }
     }
 }
-/// A chest model with its lid closed, for each dimension lighting and cubeontal facing, its UVs
+/// A chest model with its lid closed, for each dimension lighting and horizontal facing, its UVs
 /// over the whole texture.
 fn closed_chest(model: &ModelPart) -> [[Vec<Vertex>; 4]; 2] {
     [false, true].map(|nether| {

@@ -827,7 +827,7 @@ impl Game<'_> {
             subject: None,
         };
         if let Ok(moved) = scene.resolve(bounds(h.position), h.velocity, 0.0, h.on_ground) {
-            let cubeontal =
+            let horizontal =
                 (moved.x - h.velocity.x).abs() > 1.0e-7 || (moved.z - h.velocity.z).abs() > 1.0e-7;
             h.on_ground = h.velocity.y < 0.0 && moved.y > h.velocity.y;
             h.position = Vec3::new(
@@ -835,7 +835,7 @@ impl Game<'_> {
                 h.position.y + moved.y,
                 h.position.z + moved.z,
             );
-            if h.state == State::Flying && (h.on_ground || cubeontal) {
+            if h.state == State::Flying && (h.on_ground || horizontal) {
                 h.velocity = Vec3::ZERO;
             }
         }
@@ -1399,7 +1399,7 @@ impl Game<'_> {
             subject: None,
         };
         if let Ok(moved) = scene.resolve(bounds(position), velocity, 0.0, on_ground) {
-            let cubeontal =
+            let horizontal =
                 (moved.x - velocity.x).abs() > 1.0e-7 || (moved.z - velocity.z).abs() > 1.0e-7;
             on_ground = velocity.y < 0.0 && moved.y > velocity.y;
             position = Vec3::new(
@@ -1407,7 +1407,7 @@ impl Game<'_> {
                 position.y + moved.y,
                 position.z + moved.z,
             );
-            if state == State::Flying && (on_ground || cubeontal) {
+            if state == State::Flying && (on_ground || horizontal) {
                 velocity = Vec3::ZERO;
             }
         }
@@ -1527,7 +1527,7 @@ mod tests {
             velocity: Vec3::new(0.2, 0.0, -0.1),
             on_ground: true,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: 0,
             bob_offset: 0.0,

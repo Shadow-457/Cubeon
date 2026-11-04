@@ -147,7 +147,7 @@ impl Orientation {
             self.up,
         ]
     }
-    pub fn cubeontal_directions(self) -> [Direction; 4] {
+    pub fn horizontal_directions(self) -> [Direction; 4] {
         [
             self.front.opposite(),
             self.front,

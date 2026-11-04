@@ -339,7 +339,7 @@ pub struct Flags {
     pub fall_immune: bool,
     /// FlyingMob-style travel (ghast, phantom): travelFlying without gravity.
     pub flying: bool,
-    /// Spiders: onClimbable while colliding cubeontally.
+    /// Spiders: onClimbable while colliding horizontally.
     pub climber: bool,
     /// Striders stand on lava.
     pub lava_walker: bool,
@@ -726,7 +726,7 @@ impl Damage {
     }
     /// `DamageSources.fireworks(rocket, owner)`: `attacker` is the owner
     /// (none for a rocket nobody fired), `from` the rocket's position, which
-    /// the knockback pushes away from (`calculateCubeontalHurtKnockbackDirection`).
+    /// the knockback pushes away from (`calculateHorizontalHurtKnockbackDirection`).
     pub fn fireworks(attacker: Option<Who>, from: [f64; 3]) -> Self {
         Self {
             kind: DamageKind::Fireworks,
@@ -1198,7 +1198,7 @@ pub struct Mob {
     pub head_pitch: f32,
     pub previous_head_pitch: f32,
     pub on_ground: bool,
-    pub cubeontal_collision: bool,
+    pub horizontal_collision: bool,
     pub vertical_collision_below: bool,
     /// `Entity.needsSync`: knocked back, pushed or jumped since its server
     /// last sent it, so the next update goes out at once.
@@ -1260,8 +1260,8 @@ pub struct Mob {
     /// direction and feet, which `SulfurCube.knockback` turns the launch by. Set by whoever deals
     /// the blow (`Game::attacker_aim`) and cleared once it is dealt.
     pub attacker_aim: Option<Aim>,
-    /// The cubeontal motion `(x, z)` of the projectile that is the direct entity of the blow
-    /// being dealt (`Projectile.calculateCubeontalHurtKnockbackDirection`): the knock goes the
+    /// The horizontal motion `(x, z)` of the projectile that is the direct entity of the blow
+    /// being dealt (`Projectile.calculateHorizontalHurtKnockbackDirection`): the knock goes the
     /// way it was travelling. None for any other direct entity.
     pub projectile_motion: Option<[f64; 2]>,
     pub climbing: bool,
@@ -2729,7 +2729,7 @@ impl Mob {
             head_pitch: 0.0,
             previous_head_pitch: 0.0,
             on_ground: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             vertical_collision_below: false,
             needs_sync: false,
             gear_knockback_resistance: None,
@@ -2923,7 +2923,7 @@ impl Mob {
         self.attacker_aim = None;
         hurt
     }
-    /// `damage` of a blow dealt by a projectile (`motion`: its cubeontal movement) whose owner
+    /// `damage` of a blow dealt by a projectile (`motion`: its horizontal movement) whose owner
     /// is `aim`.
     pub fn damage_projectile(
         &mut self,
@@ -3146,7 +3146,7 @@ impl Mob {
         // a source without a position knocks in a random direction.
         if knock && !source.no_knockback() {
             // dealDefaultKnockback: a projectile knocks the way it travelled
-            // (`calculateCubeontalHurtKnockbackDirection`), else from the source's position.
+            // (`calculateHorizontalHurtKnockbackDirection`), else from the source's position.
             let (dx, dz) = match self.projectile_motion {
                 Some([x, z]) => (-x, -z),
                 None => source.from.map_or((0.0, 0.0), |f| {

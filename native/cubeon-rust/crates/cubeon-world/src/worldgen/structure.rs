@@ -393,7 +393,7 @@ impl StructureResources {
     pub fn source_fluid(&self, state: BlockStateId) -> bool {
         self.sources.contains(&state)
     }
-    pub fn jigsaw_cubeontal(&self, state: BlockStateId) -> Option<bool> {
+    pub fn jigsaw_horizontal(&self, state: BlockStateId) -> Option<bool> {
         self.jigsaw_states.get(&state).copied()
     }
     pub fn processor_list(

@@ -209,7 +209,7 @@ impl RingSections {
 
 /// YUNG's Better Desert and Jungle Temples' placement: no start when a
 /// biome of the set is found around the chunk's middle block at height `y`
-/// (BiomeSource.findBiomeCubeontal with `radius` blocks and `step` quarts
+/// (BiomeSource.findBiomeHorizontal with `radius` blocks and `step` quarts
 /// between samples, closest first).
 ///
 /// ```json
@@ -302,7 +302,7 @@ fn jigsaw_depth_and_reach(v: &Value) -> (i32, [i32; 2]) {
         v["size"].as_i64().unwrap_or(0) as i32,
         pair(
             v.get("max_distance_from_center"),
-            "cubeontal",
+            "horizontal",
             "vertical",
             80,
             // DimensionType.Y_SIZE.
@@ -311,11 +311,11 @@ fn jigsaw_depth_and_reach(v: &Value) -> (i32, [i32; 2]) {
     )
 }
 /// The bounds `JigsawStructure`'s codec puts on those two: `size` is
-/// `Codec.intRange(0, 20)` and `MaxDistance` is `cubeontal`
+/// `Codec.intRange(0, 20)` and `MaxDistance` is `horizontal`
 /// `Codec.intRange(1, 128)` beside `vertical`
 /// `ExtraCodecs.intRange(1, DimensionType.Y_SIZE)`.
-fn jigsaw_reach_in_range(depth: i32, [cubeontal, vertical]: [i32; 2]) -> bool {
-    (0..=20).contains(&depth) && (1..=128).contains(&cubeontal) && (1..=4064).contains(&vertical)
+fn jigsaw_reach_in_range(depth: i32, [horizontal, vertical]: [i32; 2]) -> bool {
+    (0..=20).contains(&depth) && (1..=128).contains(&horizontal) && (1..=4064).contains(&vertical)
 }
 
 /// All structures and structure sets of a resource bundle, in registry
@@ -929,7 +929,7 @@ pub trait StartContext: JigsawContext {
     /// Noise biome at a quart position (caching resolver, no zoom).
     fn noise_biome(&mut self, quart: [i32; 3]) -> BiomeId;
     /// Noise biomes of `quarts` in order through one resolver, as
-    /// BiomeSource.findBiomeCubeontal samples: each climate lookup starts
+    /// BiomeSource.findBiomeHorizontal samples: each climate lookup starts
     /// from the previous result, which a tie keeps.
     fn noise_biomes(&mut self, quarts: &[[i32; 3]]) -> Vec<BiomeId>;
     /// `GenerationContext.validBiome`'s set: `None` is the `biome -> true`
@@ -1141,7 +1141,7 @@ pub(crate) fn try_generate(
                 }
             }
             let stub = top_of_chunk_center(context, chunk, HeightmapType::OceanFloorWg)?;
-            let direction = super::legacy::random_cubeontal(&mut random);
+            let direction = super::legacy::random_horizontal(&mut random);
             let piece = super::monument::MonumentBuilding::new(
                 &mut random,
                 chunk.x * 16 - 29,

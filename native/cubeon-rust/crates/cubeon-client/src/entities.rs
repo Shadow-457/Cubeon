@@ -56,7 +56,7 @@ pub fn move_applies(wanted: Vec3, moved: Vec3) -> bool {
     moved_sq > 1.0e-7 || wanted.length_squared() - moved_sq < 1.0e-7
 }
 
-/// `SlimeBlock.stepOn`: a slow walk or slide on slime drags the cubeontal
+/// `SlimeBlock.stepOn`: a slow walk or slide on slime drags the horizontal
 /// speed (`0.4 + |dy| * 0.2`); a fast vertical speed leaves it alone.
 pub fn slime_step_on_scale(velocity_y: f64) -> Option<f64> {
     let abs_delta_y = velocity_y.abs();
@@ -129,8 +129,8 @@ pub struct ItemEntity {
     /// `ServerEntity.isFullPrecisionEncodingRequired` reads it for items, whose
     /// resting position is exact while a 1/4096 delta is not.
     pub vertical_collision: bool,
-    /// `Entity.cubeontalCollision`: the last move was stopped on x or z.
-    pub cubeontal_collision: bool,
+    /// `Entity.horizontalCollision`: the last move was stopped on x or z.
+    pub horizontal_collision: bool,
 }
 /// What `Entity.doWaterSplashEffect` asks the level to do for a dropped item.
 /// Particles are drawn on the client (`Level.addParticle` is empty on the
@@ -477,13 +477,13 @@ impl ItemEntity {
         } else {
             self.velocity.y -= self.get_gravity();
         }
-        let cubeontal = self.velocity.x * self.velocity.x + self.velocity.z * self.velocity.z;
+        let horizontal = self.velocity.x * self.velocity.x + self.velocity.z * self.velocity.z;
         // ItemEntity.tick: skip move 3 of 4 ticks while grounded with no
-        // cubeontal speed. The idle branch still runs bubble-column push
+        // horizontal speed. The idle branch still runs bubble-column push
         // (`applyEffectsFromBlocksForLastMovements`), so lift builds up and
         // the item moves on the next wake-up (#4558).
         if !self.on_ground
-            || cubeontal > 1.0e-5
+            || horizontal > 1.0e-5
             || self.ticks.wrapping_add(self.id).is_multiple_of(4)
         {
             let scene = SceneCollisions {
@@ -530,7 +530,7 @@ impl ItemEntity {
             self.vertical_collision = moved.y != wanted.y;
             // `Mth.equal` on x and z (1e-5 as a float), exact on y.
             let differs = |a: f64, b: f64| (b - a).abs() >= 9.999_999_747_378_752e-6;
-            self.cubeontal_collision = differs(moved.x, wanted.x) || differs(moved.z, wanted.z);
+            self.horizontal_collision = differs(moved.x, wanted.x) || differs(moved.z, wanted.z);
             if moved.x != wanted.x {
                 self.velocity.x = 0.0;
             }
@@ -669,7 +669,7 @@ impl ItemEntity {
         stuck
     }
     /// `SlimeBlock.stepOn` for an item on the ground: slow vertical speed
-    /// drags the cubeontal speed, on idle ticks too.
+    /// drags the horizontal speed, on idle ticks too.
     fn slime_step_on(&mut self, world: &World, facts: &BlockFacts) {
         if !self.on_ground {
             return;
@@ -691,7 +691,7 @@ impl ItemEntity {
     /// `PistonMovingBlockEntity.causeBounce` for a dropped item. Vanilla then
     /// runs `Entity.move(MoverType.PISTON)`, which leaves the ground on an
     /// upward push; without that, `ItemEntity.tick` skips movement 3 of 4 ticks
-    /// while `onGround` with no cubeontal speed and gravity eats the bounce.
+    /// while `onGround` with no horizontal speed and gravity eats the bounce.
     pub fn piston_slime_bounce(&mut self, movement: Direction) {
         self.velocity = cubeon_world::piston_push::bounce_velocity(movement, self.velocity);
         self.on_ground = false;
@@ -1775,10 +1775,10 @@ impl ArmorStand {
     /// LivingEntity.travel (armor stands have no other movement): clamp tiny
     /// velocity components (`LivingEntity.aiStep`), move by the velocity (a
     /// landing stops the fall, `Block.updateEntityMovementAfterFallOn`, and a
-    /// wall collision zeros that cubeontal axis), let the blocks it is inside
+    /// wall collision zeros that horizontal axis), let the blocks it is inside
     /// push it (`push`: a bubble column), then in water the 0.8 slowdown and
     /// `getFluidFallingAdjustedMovement`, in air gravity 0.08, ground/air
-    /// cubeontal drag (`friction * 0.91`), and the 0.98 vertical drag, so a
+    /// horizontal drag (`friction * 0.91`), and the 0.98 vertical drag, so a
     /// stand at rest on the ground keeps -0.0784 as vanilla's.
     ///
     /// The game runs the fluid push first (`Entity::push_by_fluid`), then
@@ -1849,7 +1849,7 @@ impl ArmorStand {
             }
         }
         let mut velocity = wanted;
-        let mut cubeontal_collision = false;
+        let mut horizontal_collision = false;
         // Entity.collide: the world border's walls stop the stand too.
         let moved = SceneCollisions {
             world: scene.world,
@@ -1889,18 +1889,18 @@ impl ArmorStand {
                         )
                     });
             if (wanted.x - moved.x).abs() >= f64::from(1.0e-5_f32) {
-                cubeontal_collision = true;
+                horizontal_collision = true;
                 velocity.x = 0.0;
             }
             if moved.y != wanted.y {
                 velocity.y = 0.0;
             }
             if (wanted.z - moved.z).abs() >= f64::from(1.0e-5_f32) {
-                cubeontal_collision = true;
+                horizontal_collision = true;
                 velocity.z = 0.0;
             }
         }
-        if !in_water && cubeontal_collision && on_climbable(self.position) {
+        if !in_water && horizontal_collision && on_climbable(self.position) {
             velocity.y = 0.2;
         }
         self.velocity = velocity;
@@ -2034,7 +2034,7 @@ mod fire_environment_tests {
             velocity: Vec3::ZERO,
             on_ground: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: 0,
             bob_offset: 0.0,
@@ -2163,7 +2163,7 @@ mod destroyed_bundle_environment_tests {
             velocity: Vec3::ZERO,
             on_ground: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: 0,
             bob_offset: 0.0,
@@ -2266,7 +2266,7 @@ mod merge_tests {
             velocity: Vec3::ZERO,
             on_ground: true,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age,
             pickup_delay: 0,
             bob_offset: 0.0,
@@ -2691,7 +2691,7 @@ mod honey_slide_tests {
             velocity: Vec3::new(vx, vy, vz),
             on_ground: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 10,
             pickup_delay: 0,
             bob_offset: 0.0,
@@ -2723,7 +2723,7 @@ mod honey_slide_tests {
     }
 
     #[test]
-    fn a_fast_fall_scales_the_cubeontal_speed() {
+    fn a_fast_fall_scales_the_horizontal_speed() {
         let mut item = falling_item(-0.0625, 10.4, 0.5, 0.2, -0.30, -0.1);
         let old = old_delta_y(-0.30);
         assert!(old < -0.13);
@@ -2841,7 +2841,7 @@ mod slime_bounce_tests {
             velocity: Vec3::ZERO,
             on_ground: true,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 10,
             pickup_delay: 0,
             bob_offset: 0.0,
@@ -3543,7 +3543,7 @@ mod item_destroyed_tests {
             velocity: Vec3::ZERO,
             on_ground: false,
             vertical_collision: false,
-            cubeontal_collision: false,
+            horizontal_collision: false,
             age: 0,
             pickup_delay: 0,
             bob_offset: 0.0,

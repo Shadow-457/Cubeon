@@ -922,7 +922,7 @@ enum B {
         running: bool,
         fly: bool,
         speed: f32,
-        /// Cubeontal and vertical range (land strolls).
+        /// Horizontal and vertical range (land strolls).
         range: (i32, i32),
     },
     /// `BabyFollowAdult.create(3..16, 1.1, memory, true)`: the nearest

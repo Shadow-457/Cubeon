@@ -936,7 +936,7 @@ impl<'a, 'w> Finder<'a, 'w> {
             jump = self.mob.max_up_step.max(1.0).floor() as i32;
         }
         let height = self.floor_level(px, py, pz);
-        // Direction.Plane.CUBEONTAL: north, east, south, west; 2D index S=0 W=1 N=2 E=3.
+        // Direction.Plane.HORIZONTAL: north, east, south, west; 2D index S=0 W=1 N=2 E=3.
         const DIRS: [(i32, i32, usize); 4] = [(0, -1, 2), (1, 0, 3), (0, 1, 0), (-1, 0, 1)];
         let mut by2d: [Option<u32>; 4] = [None; 4];
         for (dx, dz, i2) in DIRS {

@@ -53,7 +53,7 @@ impl Game<'_> {
     /// `AbstractThrownPotion.onHitBlock` on the server: a potion (the stack's
     /// `potion_contents`) in `#douses_fire` douses the cell in front of the
     /// face it hit, the cell behind that (the block it hit) and the four
-    /// cubeontal neighbours of the cell in front. `hit` is the block and
+    /// horizontal neighbours of the cell in front. `hit` is the block and
     /// `face` the face it was hit on.
     pub(super) fn potion_hit_block(&mut self, stack: &ItemStack, hit: [i32; 3], face: Direction) {
         // `PotionContents.is(PotionTags.DOUSES_FIRE)` on the stack's `potion_contents`.
@@ -67,7 +67,7 @@ impl Game<'_> {
         let effect = relative(hit, face);
         self.douse_fire(effect);
         self.douse_fire(relative(effect, face.opposite()));
-        // Direction.Plane.CUBEONTAL.
+        // Direction.Plane.HORIZONTAL.
         for direction in [
             Direction::North,
             Direction::East,

@@ -827,7 +827,7 @@ fn effects_from_blocks(
                                 Vec3::new(f64::from(0.8_f32), 0.75, f64::from(0.8_f32));
                             let moved = m.previous.subtract(m.position);
                             if w.prop(x, y, z, "age") != Some("0")
-                                && moved.cubeontal_distance_squared() > 0.0
+                                && moved.horizontal_distance_squared() > 0.0
                                 && (moved.x.abs() >= f64::from(0.003_f32)
                                     || moved.z.abs() >= f64::from(0.003_f32))
                             {
@@ -1057,8 +1057,8 @@ fn base_tick(m: &mut Mob, w: &MobWorld, events: &mut Vec<MobEvent>) {
     // from the mob's random first.
     // `IronGolem.canSpawnSprintParticle`: moving, and a one in five draw, sprinting or not.
     let spawn = if m.species() == Species::IronGolem {
-        let cubeontal = m.velocity.x * m.velocity.x + m.velocity.z * m.velocity.z;
-        cubeontal > f64::from(2.500_000_3e-7_f32) && m.random.next_int_bound(5).unwrap_or(1) == 0
+        let horizontal = m.velocity.x * m.velocity.x + m.velocity.z * m.velocity.z;
+        horizontal > f64::from(2.500_000_3e-7_f32) && m.random.next_int_bound(5).unwrap_or(1) == 0
     } else {
         m.extra.sprinting && !m.fluids.in_water && !m.fluids.in_lava && m.alive()
     };
@@ -1509,7 +1509,7 @@ fn ai_step(m: &mut Mob, w: &MobWorld, level_random: &mut LegacyRandom, events: &
     push_entities(m, w, events);
     // Spider.tick: climbing while pressed against a wall.
     if m.kind.flags.climber {
-        m.climbing = m.cubeontal_collision;
+        m.climbing = m.horizontal_collision;
     }
     ageable_step(m, w, level_random, events);
     if m.alive() {

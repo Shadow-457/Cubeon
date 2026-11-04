@@ -398,7 +398,7 @@ pub fn smokey(w: &crate::mobs::MobWorld, at: [i32; 3]) -> bool {
     false
 }
 
-/// `CubeontalDirectionalBlock.FACING` as an x/z step.
+/// `HorizontalDirectionalBlock.FACING` as an x/z step.
 pub fn facing_step(facing: Option<&str>) -> [i32; 2] {
     match facing {
         Some("south") => [0, 1],

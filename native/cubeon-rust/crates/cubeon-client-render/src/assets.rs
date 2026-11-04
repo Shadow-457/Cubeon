@@ -119,7 +119,7 @@ fn invalid(message: &str) -> io::Error {
 impl Assets {
     pub fn load(root: &Path) -> Result<Self> {
         let manifest: Value = serde_json::from_reader(BufReader::new(File::open(
-            root.join("cubeon-resources.json"),
+            cubeon_core::prepared_files::manifest_path(root),
         )?))?;
         if manifest["data_version"].as_i64() != Some(i64::from(DATA_VERSION)) {
             return Err(invalid("resources do not match Cubeon's pinned data version").into());

@@ -2087,7 +2087,7 @@ mod tests {
         assert_eq!(run(0.01, vec![]).state, BlockStateId(1));
         assert_eq!(run(0.2999, vec![]).nbt, Some(Compound::new()));
         assert_eq!(run(0.3, vec![]).state, BlockStateId(2));
-        // The stairs' facing: Plane.CUBEONTAL[nextInt(4)] after the pick.
+        // The stairs' facing: Plane.HORIZONTAL[nextInt(4)] after the pick.
         assert_eq!(run(0.75, vec![2]).state, BlockStateId(12));
         assert_eq!(run(0.99, vec![1]).state, BlockStateId(11));
 

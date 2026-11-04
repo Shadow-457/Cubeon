@@ -166,15 +166,15 @@ impl EntityMoveWorld for World<'_> {
     fn set_on_ground_with_movement(
         &mut self,
         below: bool,
-        cubeontal: bool,
+        horizontal: bool,
         v: Vec3,
     ) -> io::Result<()> {
-        self.query(vec(&format!("ground-set {below} {cubeontal}"), v))?;
+        self.query(vec(&format!("ground-set {below} {horizontal}"), v))?;
         self.grounded = below;
-        self.flags.cubeontal = cubeontal;
+        self.flags.horizontal = horizontal;
         Ok(())
     }
-    fn minor_cubeontal_collision(&mut self, v: Vec3) -> io::Result<bool> {
+    fn minor_horizontal_collision(&mut self, v: Vec3) -> io::Result<bool> {
         self.query(vec("minor", v))?;
         Ok(self.flag("minor_result"))
     }
@@ -201,7 +201,7 @@ impl EntityMoveWorld for World<'_> {
         if self.flag("fall_mutates") {
             self.fall = 3.0;
             self.velocity = Vec3::new(17.0, 18.0, 19.0);
-            self.flags.cubeontal = self.flag("mutated_cubeontal");
+            self.flags.horizontal = self.flag("mutated_horizontal");
             self.flags.vertical = self.flag("mutated_vertical");
             self.flags.below = self.flag("mutated_below");
         }
@@ -350,7 +350,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Vec3::new(p.x + 0.3, p.y + 1.8, p.z + 0.3),
             ),
             flags: CollisionFlags {
-                cubeontal: flag("cubeontal"),
+                horizontal: flag("horizontal"),
                 vertical: flag("vertical"),
                 below: flag("below"),
                 minor: flag("minor"),
@@ -377,7 +377,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         writeln!(
             w.out,
             "flags {} {} {} {} {} {} {:016x}",
-            w.flags.cubeontal,
+            w.flags.horizontal,
             w.flags.vertical,
             w.flags.below,
             w.flags.minor,

@@ -328,7 +328,7 @@ impl MonsterRoomFeature {
                     continue;
                 }
                 let mut walls = 0;
-                for direction in tb::CUBEONTAL {
+                for direction in tb::HORIZONTAL {
                     if self.solid(world, tb::relative(p, direction, 1))? {
                         walls += 1;
                     }
@@ -351,7 +351,7 @@ impl MonsterRoomFeature {
         }
         Ok(true)
     }
-    /// StructurePiece.reorient for the chest's cubeontal facing.
+    /// StructurePiece.reorient for the chest's horizontal facing.
     fn reorient<W: FeatureWorld>(
         &self,
         world: &mut W,
@@ -360,7 +360,7 @@ impl MonsterRoomFeature {
     ) -> TreeResult<BlockStateId, W::Error> {
         let blocks = &*self.blocks;
         let mut solid_neighbor = None;
-        for direction in tb::CUBEONTAL {
+        for direction in tb::HORIZONTAL {
             let state = read(world, tb::relative(p, direction, 1))?;
             if blocks.has(state, tb::CHEST) {
                 return Ok(chest);

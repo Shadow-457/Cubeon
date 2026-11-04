@@ -76,7 +76,7 @@ pub fn panels(
 }
 
 /// The inventory effect background has a four-pixel nine-slice border. Since
-/// its height stays 32, only cubeontal slicing/tiling is needed.
+/// its height stays 32, only horizontal slicing/tiling is needed.
 fn background(batch: &mut HudBatch, atlas: &HudAtlas, panel: &EffectPanel) {
     let name = if panel.icon.ambient {
         "gui/sprites/container/inventory/effect_background_ambient"

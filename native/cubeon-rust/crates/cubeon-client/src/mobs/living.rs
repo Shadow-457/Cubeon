@@ -676,7 +676,7 @@ impl Mob {
         let differs = |a: f64, b: f64| (b - a).abs() >= f64::from(1.0e-5_f32);
         let x_hit = differs(wanted.x, moved.x);
         let z_hit = differs(wanted.z, moved.z);
-        self.cubeontal_collision = x_hit || z_hit;
+        self.horizontal_collision = x_hit || z_hit;
         // A server's mobs are authoritative (`isLocalInstanceAuthoritative`):
         // the vertical flags update even without vertical movement.
         let moved_vertically = wanted.y.abs() > 0.0;
@@ -694,7 +694,7 @@ impl Mob {
         // bounce back by the entity's bounciness or the block's (a slime
         // block, a bed), whichever is larger. A mob never sneaks, so nothing
         // suppresses its bounce there.
-        if moved_vertically && vertical || self.cubeontal_collision {
+        if moved_vertically && vertical || self.horizontal_collision {
             // Entity.getOnPos(0.2F): the block whose bounce this move sees.
             let on = (
                 self.position.x.floor() as i32,
@@ -725,7 +725,7 @@ impl Mob {
         self.supporting = self.supporting_block(w, moved);
         self.movement_emission(w, moved, events);
         // Entity.move's last step: soul sand, honey and the like slow the
-        // cubeontal speed of whatever the mob stands in or on.
+        // horizontal speed of whatever the mob stands in or on.
         let factor = self.block_speed_factor(w);
         self.velocity = cubeon_world::entity_move::scale_by_block_speed(self.velocity, factor);
     }
@@ -840,7 +840,7 @@ impl Mob {
             return;
         }
         let full = (moved.length() * f64::from(0.6_f32)) as f32;
-        let cubeontal =
+        let horizontal =
             ((moved.x * moved.x + moved.z * moved.z).sqrt() * f64::from(0.6_f32)) as f32;
         let supporting = self.supporting;
         let on = self.supported_on_pos(w, supporting, 1.0e-5);
@@ -848,7 +848,7 @@ impl Mob {
         let climbable = w.facts.get(state).name.as_ref() == "minecraft:powder_snow"
             || w.has_tag("minecraft:climbable", &w.facts.get(state).name);
         let steps = &mut self.ai.steps;
-        steps.move_dist += if climbable { full } else { cubeontal };
+        steps.move_dist += if climbable { full } else { horizontal };
         steps.fly_dist += full;
         if steps.move_dist > steps.next_step && !w.facts.is_air(state) {
             let legacy = self.supported_on_pos(w, supporting, 0.2);
@@ -1369,7 +1369,7 @@ impl Mob {
         }
         self.do_move(w, events);
         let mut movement = self.velocity;
-        if (self.cubeontal_collision || self.ai.jumping) && self.on_climbable(w) {
+        if (self.horizontal_collision || self.ai.jumping) && self.on_climbable(w) {
             movement.y = 0.2;
         }
         let mut y = movement.y;
@@ -1434,7 +1434,7 @@ impl Mob {
             self.move_relative(speed, input);
             self.do_move(w, events);
             let mut m = self.velocity;
-            if self.cubeontal_collision && self.kind.flags.climber {
+            if self.horizontal_collision && self.kind.flags.climber {
                 m.y = 0.2;
             }
             m = Vec3::new(
@@ -1474,7 +1474,7 @@ impl Mob {
             m.z,
         ));
         let wide = ahead.inflate(Vec3::new(1.0e-7, 1.0e-7, 1.0e-7));
-        if self.cubeontal_collision
+        if self.horizontal_collision
             && w.no_collision(ahead)
             && !w.contains_any_liquid(ahead)
             && !w.others_near(wide).any(|s| {
@@ -1578,7 +1578,7 @@ impl Mob {
         // nearly standing still, carries a tenth of a block forward.
         if self.species() == super::Species::Sniffer
             && self.ai.mov.speed_modifier > 0.0
-            && self.velocity.cubeontal_distance_squared() < 0.01
+            && self.velocity.horizontal_distance_squared() < 0.01
         {
             self.move_relative(0.1, Vec3::new(0.0, 0.0, 1.0));
         }
@@ -2180,7 +2180,7 @@ mod tests {
     }
 
     /// `Entity.move`'s last step, `getBlockSpeedFactor`: a mob sliding on soul
-    /// sand (0.4) or honey (0.4) keeps 40% of its cubeontal speed each move,
+    /// sand (0.4) or honey (0.4) keeps 40% of its horizontal speed each move,
     /// on stone it keeps all of it, and its vertical speed is untouched.
     #[test]
     fn a_mob_on_soul_sand_or_honey_is_slowed_by_the_move() {
@@ -2247,7 +2247,7 @@ mod tests {
                 m.velocity = Vec3::new(1.5, 0.0, 0.0);
                 m.do_move(&w, &mut Vec::new());
                 east_edge[i] = m.bounds().max_position().x;
-                assert_eq!(m.cubeontal_collision, bordered);
+                assert_eq!(m.horizontal_collision, bordered);
             }
             assert!(
                 east_edge[0] > 13.0,
@@ -2408,7 +2408,7 @@ mod tests {
             m.velocity
         );
         assert!(m.velocity.y > 0.0, "and it is still a hop");
-        // Already moving sideways: `cubeontalDistanceSqr` is over the 0.01.
+        // Already moving sideways: `horizontalDistanceSqr` is over the 0.01.
         let mut moving = sniffer(1.0, 0.2);
         assert!(hop(&mut moving));
         assert!(

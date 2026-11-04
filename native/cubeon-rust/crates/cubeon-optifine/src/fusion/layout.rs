@@ -19,7 +19,7 @@ pub enum Layout {
     /// 4 tiles in a column: alone, a column's top, middle and bottom.
     Vertical,
     /// 4 tiles in a row: alone, a row's left end, middle and right end.
-    Cubeontal,
+    Horizontal,
     /// 5 tiles, a whole one per face.
     Compact,
     /// Edge pieces drawn over the face toward the neighbours that join it.
@@ -151,7 +151,7 @@ impl Layout {
             "simple" => Self::Simple,
             "full" => Self::Full,
             "vertical" => Self::Vertical,
-            "cubeontal" => Self::Cubeontal,
+            "horizontal" => Self::Horizontal,
             "compact" => Self::Compact,
             "overlay" => Self::Overlay,
             _ => return None,
@@ -165,7 +165,7 @@ impl Layout {
             Self::Simple => (4, 4),
             Self::Full => (8, 6),
             Self::Vertical => (1, 4),
-            Self::Cubeontal => (4, 1),
+            Self::Horizontal => (4, 1),
             Self::Overlay => (6, 3),
         }
     }
@@ -189,8 +189,8 @@ impl Layout {
             // Alone, then the end that joins `b` (a column's top, a row's left end), the
             // middle, the other end.
             Self::Vertical => Tiles::One(straight(U, D)),
-            Self::Cubeontal => Tiles::One(straight(L, R)),
-            // An end, the centre, a vertical and a cubeontal section and a cross: joined
+            Self::Horizontal => Tiles::One(straight(L, R)),
+            // An end, the centre, a vertical and a horizontal section and a cross: joined
             // both ways, the centre only with every corner too.
             Self::Compact => Tiles::One(match (joined(L | R), joined(U | D)) {
                 (true, true) if joined(CORNERS) => 1,
@@ -273,7 +273,7 @@ mod tests {
         for layout in [
             Layout::Simple,
             Layout::Vertical,
-            Layout::Cubeontal,
+            Layout::Horizontal,
             Layout::Compact,
         ] {
             let (w, h) = layout.grid();
@@ -324,17 +324,17 @@ mod tests {
         assert_eq!(one(Layout::Vertical, D), 1);
         assert_eq!(one(Layout::Vertical, L | R), 0);
         // A row: the left end joins right.
-        assert_eq!(one(Layout::Cubeontal, R), 1);
-        assert_eq!(one(Layout::Cubeontal, L | R | U), 2);
-        assert_eq!(one(Layout::Cubeontal, L), 3);
+        assert_eq!(one(Layout::Horizontal, R), 1);
+        assert_eq!(one(Layout::Horizontal, L | R | U), 2);
+        assert_eq!(one(Layout::Horizontal, L), 3);
     }
 
     #[test]
     fn compact_picks_one_whole_tile() {
-        // A row's end draws the end tile; its middle the cubeontal section.
+        // A row's end draws the end tile; its middle the horizontal section.
         assert_eq!(one(Layout::Compact, R), 0);
         assert_eq!(one(Layout::Compact, L | R), 3);
-        // The top middle of a 3 x 3 square joins left, right and down: cubeontal.
+        // The top middle of a 3 x 3 square joins left, right and down: horizontal.
         assert_eq!(one(Layout::Compact, L | R | D | DL | DR), 3);
         assert_eq!(one(Layout::Compact, U | D | R), 2);
         // The square's middle, and a plus sign's.
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn pieced_quarters() {
-        // Joined right only: the left quarters are the lone tile, the right ones cubeontal.
+        // Joined right only: the left quarters are the lone tile, the right ones horizontal.
         assert_eq!(Layout::Pieced.tiles(R), Tiles::Quarters([0, 3, 0, 3]));
         // Joined up and right without the corner: the top-right quarter is the cross piece.
         assert_eq!(Layout::Pieced.tiles(U | R), Tiles::Quarters([2, 4, 0, 3]));
