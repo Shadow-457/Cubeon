@@ -290,7 +290,7 @@ def get_installed_versions() -> list[dict]:
     global _scan_cache
     versions_dir = os.path.join(MINECRAFT_DIR, "versions")
     if not os.path.isdir(versions_dir):
-        return []
+        return _with_rust_entries([])
 
     active = active_installs()
     key = _versions_scan_key(active)
@@ -298,7 +298,7 @@ def get_installed_versions() -> list[dict]:
         with _scan_cache_lock:
             cached = _scan_cache
         if cached is not None and cached[0] == key:
-            return [dict(v) for v in cached[1]]
+            return _with_rust_entries([dict(v) for v in cached[1]])
 
     result = _scan_installed_versions(versions_dir, active)
 
@@ -309,7 +309,12 @@ def get_installed_versions() -> list[dict]:
         fresh = _versions_scan_key(active)
         with _scan_cache_lock:
             _scan_cache = (fresh or key, result)
-    return [dict(v) for v in result]
+    return _with_rust_entries([dict(v) for v in result])
+
+
+def _with_rust_entries(java_entries):
+    from .rust_engine import installed_entries
+    return java_entries + installed_entries()
 
 
 def _scan_installed_versions(versions_dir: str, active: set[str]) -> list[dict]:
@@ -553,6 +558,15 @@ def delete_version(version_id: str) -> None:
     Raises ValueError with a readable message on anything the UI should
     surface (unknown id, path escape attempt, or an OS failure to remove).
     """
+    if version_id == "cubeon-rust-26.3":
+        from . import rust_engine, watchdog
+        running = watchdog.stale_session()
+        if running and running.get("version") == version_id:
+            raise ValueError("Can't delete a version while Minecraft is using it.")
+        if version_id in active_installs():
+            raise ValueError("Can't delete a version while it's installing.")
+        rust_engine.uninstall()
+        return
     target = version_folder(version_id)
     affected = {version_id, *dependents_of(version_id)}
     if affected & active_installs():

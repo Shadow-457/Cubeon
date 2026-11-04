@@ -1,0 +1,107 @@
+name: Build Cubeon Rust beta artifacts
+
+on:
+  push:
+    branches: [rust-beta-26.3]
+    paths:
+      - 'native/cubeon-rust/**'
+      - 'cubeon/rust_engine.py'
+      - 'tools/build_rust_engine.py'
+      - 'tools/fetch_rust_build_inputs.py'
+      - '.github/workflows/rust-beta.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-beta-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  runtime:
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: windows-latest
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    env:
+      CUBEON_RUST_VERSION: 26.3-beta.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/cubeon-rust -> target
+          cache-on-failure: true
+      - name: Linux build libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+      - run: python -m pip install requests minecraft-launcher-lib
+      - name: Get verified official resource inputs
+        run: python tools/fetch_rust_build_inputs.py
+      - name: Compile and package owned runtime
+        shell: bash
+        run: python tools/build_rust_engine.py --profile fast --java-home "$JAVA_HOME" --minecraft-dir build/rust-inputs --server-jar build/rust-inputs/server.jar
+      - name: Verify native CLI and exporter compatibility
+        shell: bash
+        run: |
+          suffix=""
+          if [ "$RUNNER_OS" = "Windows" ]; then suffix=".exe"; fi
+          native/cubeon-rust/target/fast/cubeon-rust$suffix --launch-api > build/rust-engine/launch-api.json
+          python -c 'import json; d=json.load(open("build/rust-engine/launch-api.json")); assert "session" not in str(d).lower(), d'
+          cargo test --locked --manifest-path native/cubeon-rust/Cargo.toml --profile fast --jobs 2 -p horizon-prepare -- --test-threads=2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cubeon-rust-${{ matrix.platform }}
+          path: |
+            build/rust-engine/*.zip
+            build/rust-engine/manifest.json
+          if-no-files-found: error
+
+  manifest:
+    needs: runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cubeon-rust-*
+          path: artifacts
+      - name: Merge platform manifests and verify actual archives
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path('artifacts')
+          merged = {'engine': 'rust', 'build': '26.3-beta.1', 'minecraft': '26.3', 'platforms': {}}
+          for manifest in sorted(root.glob('*/manifest.json')):
+              data = json.loads(manifest.read_text())
+              assert all(data[key] == merged[key] for key in ('engine', 'build', 'minecraft'))
+              for platform, item in data['platforms'].items():
+                  archive = manifest.parent / item['url'].rsplit('/', 1)[-1]
+                  assert archive.stat().st_size == item['size']
+                  with archive.open('rb') as stream:
+                      assert hashlib.file_digest(stream, 'sha256').hexdigest() == item['sha256']
+                  assert platform not in merged['platforms']
+                  merged['platforms'][platform] = item
+          assert set(merged['platforms']) == {'linux-x86_64', 'windows-x86_64'}
+          merged['source_commit'] = os.environ['GITHUB_SHA']
+          Path('manifest.json').write_text(json.dumps(merged, indent=2) + '\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cubeon-rust-release-manifest
+          path: manifest.json

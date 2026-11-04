@@ -62,6 +62,12 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
     # Track which version's settings/console are currently loaded, so a
     # stray callback from a previous version's install/console can't stomp
     # on whatever the user has switched to since.
+    from cubeon import rust_engine
+
+    def _hosting_allowed(version_id):
+        return (rust_engine.hosting_available(version_id)
+                and rust_engine.hosting_available(state.get("selected_version")))
+
     active_version = {"value": None}
 
     # --- Header -------------------------------------------------------
@@ -116,6 +122,9 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def on_install_click(e=None):
         version_id = active_version["value"]
+        if not _hosting_allowed(version_id):
+            _show_snack("Servers unavailable for Rust beta")
+            return
         if not version_id:
             return
         _set_install_busy(True)
@@ -1153,6 +1162,8 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def _start_blocked_reason(version_id: str | None) -> str | None:
         """Why Start can't run right now, in plain language - or None if it can."""
+        if not _hosting_allowed(version_id):
+            return "Servers unavailable for Rust beta"
         if not version_id:
             return "Select a version on the Play tab first."
         if install_in_progress["value"]:
@@ -1168,7 +1179,7 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         """Settings/install/eula/start controls are only meaningful once a
         version is selected, and starting needs the jar + EULA in place."""
         version_id = active_version["value"]
-        has_version = bool(version_id)
+        has_version = bool(version_id) and _hosting_allowed(version_id)
         installed = has_version and (snapshot['installed'] if snapshot is not None else core.is_server_installed(version_id))
         running = has_version and (snapshot['running'] if snapshot is not None else core.is_server_running(version_id))
 
@@ -1200,6 +1211,10 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
         callbacks. Shared by Start and Restart so they behave identically.
         Starting IS sharing now: the Minekube Connect plugin and config are
         ensured right here, so there's no separate enable button to forget."""
+        if not _hosting_allowed(version_id):
+            if on_started:
+                on_started()
+            return
         with thread_safe_ui.TREE_LOCK:
             console_log.controls.clear()
             console_line_count.value = "0 lines"
@@ -1268,6 +1283,9 @@ def build_server_tab(page: ft.Page, cfg: dict, state: dict, *,
 
     def on_restart_click(e=None):
         version_id = active_version["value"]
+        if not _hosting_allowed(version_id):
+            _show_snack("Servers unavailable for Rust beta")
+            return
         if not version_id or not core.is_server_installed(version_id):
             return
 

@@ -266,6 +266,7 @@ from ui.window_chrome import (  # Windows-only custom frame widgets (policy: cub
     build_resize_edges, set_resize_edges_visible,
 )
 from cubeon import winchrome  # Whether the frameless custom frame is used at all
+from cubeon import rust_engine
 from cubeon import instances as instance_info  # instance descriptors: loader / mods / size / last-played
 from cubeon import shortcuts as cubeon_shortcuts  # keyboard shortcut table (F11 fullscreen, Ctrl+1..9, ...)
 from cubeon.discord_rpc import DiscordPresence  # Optional Discord Rich Presence (no-op unless configured)
@@ -1887,6 +1888,18 @@ async def main(page: ft.Page):
     SIDEBAR_W = 92
     sidebar_ui = {"width": SIDEBAR_W}
 
+    def _sync_engine_navigation():
+        native = rust_engine.is_instance(version_dropdown.value)
+        for key in ("server", "server_console", "server_plugins", "server_settings"):
+            control = nav_buttons.get(key)
+            if control is not None:
+                control.disabled = native
+                control.opacity = 0.4 if native else 1.0
+                control.tooltip = i18n.t("Servers unavailable for Rust beta") if native else None
+                thread_safe_ui.refresh(control)
+        if native and active_tab["value"] in {"server_console", "server_plugins", "server_settings"}:
+            switch_tab("play")
+
     def _build_sidebar():
         """The left rail: nav tiles in the middle, Settings pinned at the foot.
 
@@ -2964,6 +2977,14 @@ async def main(page: ft.Page):
             _paint_loader_region()
             return
 
+        if rust_engine.is_instance(version_id):
+            state["mod_loader"] = "vanilla"
+            loader_toggle.selected_index = 0
+            loader_toggle.disabled = True
+            loader_status_text.visible = False
+            _paint_loader_region()
+            return
+
         already_installed = version_id in state["installed"]
 
         cached = loader_check_cache.get(version_id)
@@ -3396,6 +3417,8 @@ async def main(page: ft.Page):
         meta = (state.get("installed_meta") or {}).get(version_id) or {}
         name = meta.get("display_name") or core.suggest_friendly_name(
             str(version_id), str(version_id))
+        if rust_engine.is_instance(version_id):
+            name = "26.3 (Rust · Beta)"
         mark = "⚠" if meta.get("incomplete") else "●"
         version_dropdown.options = list(version_dropdown.options or []) + [
             ft.dropdown.Option(key=version_id, text=f"{name}  {mark}")]
@@ -3512,14 +3535,18 @@ async def main(page: ft.Page):
 
     def _create_new_instance(version_id, loader, icon_id):
         from cubeon import instance_icons
-        if loader not in LOADER_IDS or not instance_icons.valid(icon_id):
+        if loader not in (*LOADER_IDS, "rust") or not instance_icons.valid(icon_id):
             return False
         # The icon belongs to the resulting loader instance, which receives
         # its actual launch id during installation. Never change a sibling's
         # vanilla icon just because its files are reused for the download.
+        if loader == "rust":
+            if version_id != rust_engine.VERSION:
+                return False
+            version_id = rust_engine.INSTANCE_ID
         state["pending_instance_icon"] = {
             "version_id": version_id, "loader": loader, "icon": icon_id}
-        _pick_version(version_id, loader)
+        _pick_version(version_id, "vanilla" if loader == "rust" else loader)
         return on_play_click()
 
     def _save_new_instance_icon(choice, loader, target_version):
@@ -3542,8 +3569,10 @@ async def main(page: ft.Page):
         on_browse_online=lambda: refresh_version_list(online=True),
         # Install-time loader choice: the only place a loader can be picked
         # (2026-10-26). The Play card's switcher is gone.
-        loaders=[(lid, core.SUPPORTED_LOADERS[lid]) for lid in LOADER_IDS],
+        loaders=[(lid, core.SUPPORTED_LOADERS[lid]) for lid in LOADER_IDS] + [("rust", "Rust · Beta")],
         instance_exists=lambda lid, mc: (
+            (rust_engine.INSTANCE_ID in state["installed"] and not
+             (state.get("installed_meta", {}).get(rust_engine.INSTANCE_ID) or {}).get("incomplete")) if lid == "rust" else
             mc in state["installed"] if lid == "vanilla" else
             bool(core.find_installed_loader_version(state["installed"], lid, mc))),
         # Installed rows live in the same slide-in panel (Play / Rename /
@@ -4050,7 +4079,7 @@ async def main(page: ft.Page):
             return
         meta = (state.get("installed_meta") or {}).get(vid) if vid else None
         if meta and meta.get("incomplete"):
-            set_button_mode("incomplete")
+            set_button_mode("download" if rust_engine.is_instance(vid) else "incomplete")
         elif vid and vid in state["installed"]:
             pending = state.get("pending_loader_install") or {}
             if pending.get("version_id") == vid and pending.get("loader"):
@@ -4184,6 +4213,7 @@ async def main(page: ft.Page):
         picker.sync_label()   # the compact button mirrors the real dropdown
         version_id = version_dropdown.value
         state["selected_version"] = version_id  # keep Mods/Servers tabs in sync with the dropdown
+        _sync_engine_navigation()
         # A pending loader install is armed against one specific version. If
         # the user switches versions, that arm no longer applies - clear it so
         # lock_loader_to_installed / the Play button don't advertise installing
@@ -4673,6 +4703,7 @@ async def main(page: ft.Page):
         progress_bar.data = 1
         progress_label.value = "Preparing"
         progress_title.value = (
+            "Minecraft 26.3 · Rust Beta" if rust_engine.is_instance(version_id) else
             f"Minecraft {core.resolve_mc_version(version_id)}"
             f" · {core.SUPPORTED_LOADERS.get(install_loader, install_loader)}")
         progress_stage.value = "PREPARING"
@@ -4797,7 +4828,7 @@ async def main(page: ft.Page):
         # itself. A version folder missing its client jar cannot launch; say so
         # instead of handing a broken install to the launcher.
         _meta = (state.get("installed_meta") or {}).get(version_id)
-        if _meta and _meta.get("incomplete"):
+        if _meta and _meta.get("incomplete") and not rust_engine.is_instance(version_id):
             version_issue_text.value = _meta.get(
                 "issue", "This install is missing files.")
             version_issue_text.visible = True
@@ -4913,28 +4944,30 @@ async def main(page: ft.Page):
         try:
             target_version = version_id
             loader_id = install_loader or state["mod_loader"]
-            # Java probes can take seconds per executable. Keep them off the
-            # click handler, cancellable, and before any game-file writes.
-            _check_cancel()
-            if not ensure_java_major:
-                mc_version = core.resolve_mc_version(version_id)
-                jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
+            native = rust_engine.is_instance(version_id)
+            if not native:
+                # Java probes can take seconds per executable. Keep them off the
+                # click handler, cancellable, and before any game-file writes.
                 _check_cancel()
-                if not jstatus.get("ok") and jstatus.get("required"):
-                    java_prompt = (mc_version, jstatus, loader_id)
-                    return
-            installed_choice = instance_info.describe(
-                version_id, (state.get("installed_meta") or {}).get(version_id),
-                with_mods=False, play_store={})
-            keep_loader = (version_id in state["installed"] and
-                           installed_choice["loader"] == loader_id and
-                           not installed_choice["incomplete"])
-            if (loader_id != "vanilla" and not keep_loader and
-                    not core.is_loader_supported(loader_id, core.resolve_mc_version(version_id))):
-                raise RuntimeError(
-                    f"{core.SUPPORTED_LOADERS.get(loader_id, loader_id)} does not support "
-                    f"Minecraft {core.resolve_mc_version(version_id)}. "
-                    "Choose another version or loader in New instance.")
+                if not ensure_java_major:
+                    mc_version = core.resolve_mc_version(version_id)
+                    jstatus = core.jre.java_status(mc_version, cfg.get("java_path"))
+                    _check_cancel()
+                    if not jstatus.get("ok") and jstatus.get("required"):
+                        java_prompt = (mc_version, jstatus, loader_id)
+                        return
+                installed_choice = instance_info.describe(
+                    version_id, (state.get("installed_meta") or {}).get(version_id),
+                    with_mods=False, play_store={})
+                keep_loader = (version_id in state["installed"] and
+                               installed_choice["loader"] == loader_id and
+                               not installed_choice["incomplete"])
+                if (loader_id != "vanilla" and not keep_loader and
+                        not core.is_loader_supported(loader_id, core.resolve_mc_version(version_id))):
+                    raise RuntimeError(
+                        f"{core.SUPPORTED_LOADERS.get(loader_id, loader_id)} does not support "
+                        f"Minecraft {core.resolve_mc_version(version_id)}. "
+                        "Choose another version or loader in New instance.")
 
             # Define callback functions that update UI elements from the
             # background thread. Progress repaints are control-level:
@@ -4996,154 +5029,166 @@ async def main(page: ft.Page):
                 set_bar(None)
                 _paint_progress()
 
-            # --- The Java the user agreed to have fetched ---------------------
-            # Runs before anything else so the failure mode is the honest one
-            # ("couldn't install Java") rather than a half-downloaded Minecraft
-            # followed by a WinError 2 from the loader installer. The progress
-            # callbacks are reused, so this shows up in the same bar with the
-            # same cancel button. A JreError carries a message written for the
-            # user, so it is re-raised as-is and lands in the normal error path
-            # with that text instead of a traceback.
-            if ensure_java_major:
+            if native:
+                loader_id = "vanilla"
+                launch_mc = rust_engine.VERSION
+                rust_engine.install(cfg=cfg, cancel=cancel, status_cb=status_cb,
+                                    progress_cb=progress_cb, max_cb=max_cb)
                 _check_cancel()
-                progress_stage.value = "JAVA"
-                thread_safe_ui.refresh(progress_stage)
-                progress_bar.data = 1
-                core.jre.install_jre(
-                    int(ensure_java_major),
-                    progress_cb=lambda done, total: progress_cb(
-                        done / (total or 1)),
-                    status_cb=status_cb)
-
-            # Serialize filesystem writes for this version, with cancellable waits.
-            _check_cancel()
-            if version_id not in state["installed"]:
-                progress_stage.value = "GAME FILES"
-                thread_safe_ui.refresh(progress_stage)
-                lock = _install_lock(version_id)
-                # Wait in short slices so cancellation remains responsive.
-                while not lock.acquire(timeout=0.25):
+                _rescan_installed()
+                _adopt_installed_instance(version_id, "vanilla")
+                if icon_choice.get("version_id") == version_id:
+                    _save_new_instance_icon(icon_choice, "rust", version_id)
+                _paint_progress(force=True)
+            else:
+                # --- The Java the user agreed to have fetched ---------------------
+                # Runs before anything else so the failure mode is the honest one
+                # ("couldn't install Java") rather than a half-downloaded Minecraft
+                # followed by a WinError 2 from the loader installer. The progress
+                # callbacks are reused, so this shows up in the same bar with the
+                # same cancel button. A JreError carries a message written for the
+                # user, so it is re-raised as-is and lands in the normal error path
+                # with that text instead of a traceback.
+                if ensure_java_major:
                     _check_cancel()
-                    status_cb("Waiting for another installation to finish")
-                try:
-                    # A cancel may have arrived while waiting for the lock.
-                    _check_cancel()
-                    if version_id not in state["installed"]:
-                        core.install_version(version_id, progress_cb, status_cb,
-                                             max_cb, cancel_event=cancel,
-                                             # The launch passes cfg's java path
-                                             # as executablePath, so mll's own
-                                             # runtime copy is dead weight -
-                                             # see versions.install_version.
-                                             explicit_java=bool(
-                                                 cfg.get("java_path")))
-                        state["installed"].add(version_id)
-                        # Publish it immediately: a fresh install is a new
-                        # instance, and the version panel is keyed on the full
-                        # metadata map, not on state["installed"].
-                        _rescan_installed()
-                        _paint_progress(force=True)  # never coalesce the end
-                finally:
-                    lock.release()
+                    progress_stage.value = "JAVA"
+                    thread_safe_ui.refresh(progress_stage)
+                    progress_bar.data = 1
+                    core.jre.install_jre(
+                        int(ensure_java_major),
+                        progress_cb=lambda done, total: progress_cb(
+                            done / (total or 1)),
+                        status_cb=status_cb)
 
-            # If a mod loader is selected, install it if supported - but only
-            # if it isn't already installed for this version, otherwise every
-            # single launch re-downloads/reinstalls it for no reason.
-            loader_id = install_loader or state["mod_loader"]
-            launch_mc = core.resolve_mc_version(version_id)
-            selected_instance = instance_info.describe(
-                version_id, state.get("installed_meta", {}).get(version_id), with_mods=False)
-            if version_id in state["installed"] and selected_instance["loader"] != "vanilla":
-                loader_id = selected_instance["loader"]
-                launch_mc = selected_instance["base_version"]
-            try:
-                for pack in core.list_installed_modpacks():
-                    if pack.get("version_id") == version_id:
-                        launch_mc = pack.get("mc_version") or launch_mc
-                        loader_id = pack.get("loader") or loader_id
-                        break
-            except Exception:
-                pass
-            # Loader support is a property of the *Minecraft version*, not of
-            # the raw launch id. version_id can be a loader install row like
-            # "fabric-loader-0.19.5-26.1.2" (or a TLauncher-style renamed id);
-            # asking is_loader_supported/find_installed_loader_version with
-            # that raw id would report "unsupported" and point the existing-
-            # install lookup at an empty profile even though the loader is
-            # right there. The numeric base is what those checks mean.
-            base_version = launch_mc
-            if loader_id != "vanilla":
-                loader_label = core.SUPPORTED_LOADERS.get(loader_id, loader_id)
-                keep_selected = (version_id in state["installed"]
-                                 and not selected_instance["incomplete"]
-                                 and selected_instance["loader"] == loader_id)
-                if keep_selected or core.is_loader_supported(loader_id, base_version):
-                    # If the selected row IS already a launchable install of
-                    # this loader (a cloned pack instance, the canonical
-                    # fabric-loader-... row, an imported TLauncher id), launch
-                    # that exact id. Replacing it with the canonical lookup
-                    # would silently launch a different instance - and, after
-                    # instance isolation, a different mod profile.
-                    existing_id = core.find_installed_loader_version(state["installed"], loader_id, base_version)
-                    if keep_selected:
-                        target_version = version_id
-                    elif existing_id:
-                        target_version = existing_id
-                    else:
-                        status_cb(f"Installing {loader_label} loader")
-                        progress_stage.value = "MOD LOADER"
-                        set_bar(None)
-                        thread_safe_ui.refresh(progress_stage)
-                        target_version = core.install_mod_loader(
-                            loader_id, base_version, progress_cb, status_cb,
-                            max_cb, cancel_event=cancel)
+                # Serialize filesystem writes for this version, with cancellable waits.
+                _check_cancel()
+                if version_id not in state["installed"]:
+                    progress_stage.value = "GAME FILES"
+                    thread_safe_ui.refresh(progress_stage)
+                    lock = _install_lock(version_id)
+                    # Wait in short slices so cancellation remains responsive.
+                    while not lock.acquire(timeout=0.25):
                         _check_cancel()
-                        state["installed"].add(target_version)
-                        # The loader install is its own launchable instance row
-                        # (e.g. "fabric-loader-0.19.5-26.1.2") - without this it
-                        # only appeared after some later full list refresh.
-                        _rescan_installed()
-                        _paint_progress(force=True)  # never coalesce the end
-                else:
-                    raise RuntimeError(
-                        f"{loader_label} does not support Minecraft {base_version}. "
-                        "Choose another version or loader in New instance.")
+                        status_cb("Waiting for another installation to finish")
+                    try:
+                        # A cancel may have arrived while waiting for the lock.
+                        _check_cancel()
+                        if version_id not in state["installed"]:
+                            core.install_version(version_id, progress_cb, status_cb,
+                                                 max_cb, cancel_event=cancel,
+                                                 # The launch passes cfg's java path
+                                                 # as executablePath, so mll's own
+                                                 # runtime copy is dead weight -
+                                                 # see versions.install_version.
+                                                 explicit_java=bool(
+                                                     cfg.get("java_path")))
+                            state["installed"].add(version_id)
+                            # Publish it immediately: a fresh install is a new
+                            # instance, and the version panel is keyed on the full
+                            # metadata map, not on state["installed"].
+                            _rescan_installed()
+                            _paint_progress(force=True)  # never coalesce the end
+                    finally:
+                        lock.release()
 
-            # The loader install is done (or was skipped) - the pending arm
-            # that put Play into "INSTALL FABRIC & PLAY" mode has served its
-            # purpose and must be cleared, so the button returns to a normal
-            # "play"/"running" state and lock_loader_to_installed doesn't
-            # keep re-arming it on the next version re-selection.
-            if (icon_choice.get("version_id") == version_id
-                    and icon_choice.get("loader") == loader_id):
-                _save_new_instance_icon(icon_choice, loader_id, target_version)
-            if (state.get("pending_loader_install") or {}).get("version_id") == version_id:
-                state["pending_loader_install"] = None
+                # If a mod loader is selected, install it if supported - but only
+                # if it isn't already installed for this version, otherwise every
+                # single launch re-downloads/reinstalls it for no reason.
+                loader_id = install_loader or state["mod_loader"]
+                launch_mc = core.resolve_mc_version(version_id)
+                selected_instance = instance_info.describe(
+                    version_id, state.get("installed_meta", {}).get(version_id), with_mods=False)
+                if version_id in state["installed"] and selected_instance["loader"] != "vanilla":
+                    loader_id = selected_instance["loader"]
+                    launch_mc = selected_instance["base_version"]
+                try:
+                    for pack in core.list_installed_modpacks():
+                        if pack.get("version_id") == version_id:
+                            launch_mc = pack.get("mc_version") or launch_mc
+                            loader_id = pack.get("loader") or loader_id
+                            break
+                except Exception:
+                    pass
+                # Loader support is a property of the *Minecraft version*, not of
+                # the raw launch id. version_id can be a loader install row like
+                # "fabric-loader-0.19.5-26.1.2" (or a TLauncher-style renamed id);
+                # asking is_loader_supported/find_installed_loader_version with
+                # that raw id would report "unsupported" and point the existing-
+                # install lookup at an empty profile even though the loader is
+                # right there. The numeric base is what those checks mean.
+                base_version = launch_mc
+                if loader_id != "vanilla":
+                    loader_label = core.SUPPORTED_LOADERS.get(loader_id, loader_id)
+                    keep_selected = (version_id in state["installed"]
+                                     and not selected_instance["incomplete"]
+                                     and selected_instance["loader"] == loader_id)
+                    if keep_selected or core.is_loader_supported(loader_id, base_version):
+                        # If the selected row IS already a launchable install of
+                        # this loader (a cloned pack instance, the canonical
+                        # fabric-loader-... row, an imported TLauncher id), launch
+                        # that exact id. Replacing it with the canonical lookup
+                        # would silently launch a different instance - and, after
+                        # instance isolation, a different mod profile.
+                        existing_id = core.find_installed_loader_version(state["installed"], loader_id, base_version)
+                        if keep_selected:
+                            target_version = version_id
+                        elif existing_id:
+                            target_version = existing_id
+                        else:
+                            status_cb(f"Installing {loader_label} loader")
+                            progress_stage.value = "MOD LOADER"
+                            set_bar(None)
+                            thread_safe_ui.refresh(progress_stage)
+                            target_version = core.install_mod_loader(
+                                loader_id, base_version, progress_cb, status_cb,
+                                max_cb, cancel_event=cancel)
+                            _check_cancel()
+                            state["installed"].add(target_version)
+                            # The loader install is its own launchable instance row
+                            # (e.g. "fabric-loader-0.19.5-26.1.2") - without this it
+                            # only appeared after some later full list refresh.
+                            _rescan_installed()
+                            _paint_progress(force=True)  # never coalesce the end
+                    else:
+                        raise RuntimeError(
+                            f"{loader_label} does not support Minecraft {base_version}. "
+                            "Choose another version or loader in New instance.")
 
-            # A loader install is its own launchable instance. The click that
-            # started this worker ran on the base vanilla row, so without this
-            # the card/dropdown (and cfg["last_version"] on the next start)
-            # kept pointing at vanilla - the "I downloaded Fabric but got
-            # vanilla" report. Adopt what we actually installed/selected.
-            if target_version != version_id:
-                _adopt_installed_instance(target_version, loader_id)
+                # The loader install is done (or was skipped) - the pending arm
+                # that put Play into "INSTALL FABRIC & PLAY" mode has served its
+                # purpose and must be cleared, so the button returns to a normal
+                # "play"/"running" state and lock_loader_to_installed doesn't
+                # keep re-arming it on the next version re-selection.
+                if (icon_choice.get("version_id") == version_id
+                        and icon_choice.get("loader") == loader_id):
+                    _save_new_instance_icon(icon_choice, loader_id, target_version)
+                if (state.get("pending_loader_install") or {}).get("version_id") == version_id:
+                    state["pending_loader_install"] = None
 
-            # Now that the version (and loader, if any) is installed, the
-            # loader choice is locked in - refresh the cached support map and
-            # re-lock the switcher so it can't be changed after the fact.
-            # (No coalesced-progress flush needed anymore: the progress
-            # callbacks repaint their own controls directly.)
-            support = dict(loader_check_cache.get(version_id, {}))
-            for lid in LOADER_IDS:
-                if lid == "vanilla":
-                    continue
-                installed_now = bool(core.find_installed_loader_version(state["installed"], lid, base_version))
-                supported_prev = support.get(lid, (True, False))[0]
-                support[lid] = (supported_prev, installed_now)
-            loader_check_cache[version_id] = support
-            if version_dropdown.value == version_id:
-                lock_loader_to_installed(version_id, support)
-                style_loader_segments(support)
+                # A loader install is its own launchable instance. The click that
+                # started this worker ran on the base vanilla row, so without this
+                # the card/dropdown (and cfg["last_version"] on the next start)
+                # kept pointing at vanilla - the "I downloaded Fabric but got
+                # vanilla" report. Adopt what we actually installed/selected.
+                if target_version != version_id:
+                    _adopt_installed_instance(target_version, loader_id)
+
+                # Now that the version (and loader, if any) is installed, the
+                # loader choice is locked in - refresh the cached support map and
+                # re-lock the switcher so it can't be changed after the fact.
+                # (No coalesced-progress flush needed anymore: the progress
+                # callbacks repaint their own controls directly.)
+                support = dict(loader_check_cache.get(version_id, {}))
+                for lid in LOADER_IDS:
+                    if lid == "vanilla":
+                        continue
+                    installed_now = bool(core.find_installed_loader_version(state["installed"], lid, base_version))
+                    supported_prev = support.get(lid, (True, False))[0]
+                    support[lid] = (supported_prev, installed_now)
+                loader_check_cache[version_id] = support
+                if version_dropdown.value == version_id:
+                    lock_loader_to_installed(version_id, support)
+                    style_loader_segments(support)
 
             # Everything installable is on disk now. From here on the work is
             # local setup + spawning the game, which cannot be interrupted
@@ -5411,7 +5456,7 @@ async def main(page: ft.Page):
                         pass
                 kicked = ("loginFailedInfo.invalidSession" in line
                           or "not logged into your Minecraft account" in line)
-                if kicked and not _session_watch["shown"]:
+                if kicked and not native and not _session_watch["shown"]:
                     _session_watch["shown"] = True
                     server = _session_watch["server"] or "That server"
                     _explain_offline_kick(server, username)
@@ -6315,8 +6360,14 @@ async def main(page: ft.Page):
         else:
             hero_title.value = "Minecraft"
         hero_version_text.value = vid or "no version selected"
+        if rust_engine.is_instance(vid):
+            hero_title.value = custom or "Minecraft 26.3"
+            hero_version_text.value = "26.3"
         hero_loader_chip_text.value = core.SUPPORTED_LOADERS.get(
             state.get("mod_loader") or "vanilla", "Vanilla")
+        if rust_engine.is_instance(vid):
+            hero_loader_chip_text.value = "Rust · Beta"
+        fps_boost_tile.visible = not rust_engine.is_instance(vid)
         _refresh_hero_banner(vid)
         # Plain ft.Text controls only repaint when updated. The selection path
         # deliberately avoids page.update() (it diffs every mounted tab), so
@@ -6324,7 +6375,7 @@ async def main(page: ft.Page):
         # unrelated full repaint - the user saw it only after switching to
         # another tab and back. One control-level patch each.
         for _painted in (hero_title, hero_version_text,
-                         hero_loader_chip_text, version_issue_text):
+                         hero_loader_chip_text, version_issue_text, fps_boost_tile):
             thread_safe_ui.refresh(_painted)
 
     # Now assemble the actual Play tab UI. Hierarchy is deliberate:
@@ -8023,6 +8074,10 @@ async def main(page: ft.Page):
         # Settings is not a tab any more: it lives in the combined
         # Account & Settings popup. The nav entry (and every deep link) opens
         # that popup, so the previous tab stays visible behind the scrim.
+        if (key in {"server", "server_console", "server_plugins", "server_settings"}
+                and not rust_engine.hosting_available(version_dropdown.value)):
+            _show_snack(i18n.t("Servers unavailable for Rust beta"))
+            return
         if key == "settings":
             _open_account_panel()
             return

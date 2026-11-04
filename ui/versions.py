@@ -265,6 +265,7 @@ class VersionPicker:
             "quilt": "For Quilt-compatible mods.",
             "forge": "For Forge mods and modpacks.",
             "neoforge": "For NeoForge mods and modpacks.",
+            "rust": "26.3 only · Local profiles · 1000 FPS target",
         }
         for lid, label in self.loaders:
             chip = ft.Container(
@@ -421,6 +422,8 @@ class VersionPicker:
 
     def set_offline(self):
         """The online fetch failed: say so and hide the filter."""
+        if self._install_loader == "rust":
+            return
         self._offline = True
         self._loading = False
         self._apply_mode()
@@ -436,20 +439,23 @@ class VersionPicker:
         label = self.label_for(val) if val else None
         self.label.value = (label or val or "No versions installed yet")
         self.label.color = TEXT if (label or val) else TEXT_DIM
+        thread_safe_ui.refresh(self.button)
 
     # -- interaction ---------------------------------------------------
     def _apply_mode(self):
+        native = self._install_loader == "rust"
         new = self._mode == "new"
         versions = new and self._new_step == 2
         icons = self._mode == "icons" or (new and self._new_step == 3)
         if new:
             self.title.value = i18n.t('New instance')
             self.step_label.value = f"Step {self._new_step} of 3 · " + {
-                1: "Mod loader", 2: "Minecraft version", 3: "Instance icon"}[self._new_step]
+                1: "Game engine / mod loader", 2: "Minecraft version", 3: "Instance icon"}[self._new_step]
             loader = dict(self.loaders).get(self._install_loader, self._install_loader)
             self.subtitle.value = {
                 1: "Choose how you want to play.",
-                2: f"{loader} · Choose a Minecraft version.",
+                2: ("Rust · Beta · 26.3 only · Servers unavailable" if native
+                    else f"{loader} · Choose a Minecraft version."),
                 3: f"{loader} · Minecraft {self._new_version}",
             }[self._new_step]
             self.next_button.content = {
@@ -468,12 +474,14 @@ class VersionPicker:
         self.step_label.visible = new
         self.next_button.visible = new
         self.list.visible = not new or self._new_step != 1
-        self.filter_field.visible = bool(versions and self._online and not self._offline)
+        self.filter_field.visible = bool(versions and not native and self._online and not self._offline)
         self.loader_row.visible = bool(new and self._new_step == 1)
         self.version_heading.visible = False
-        self.install_hint.visible = False
+        self.install_hint.visible = bool(versions and native)
+        if native:
+            self.install_hint.value = "1000 FPS target. Actual performance depends on hardware and settings."
         self.retry_link.visible = bool(versions and (self._offline or self._support_error))
-        self.latest_chip.visible = bool(versions and self._online and self._latest)
+        self.latest_chip.visible = bool(versions and not native and self._online and self._latest)
         self.back_link.visible = new or icons
         self.browse_link.visible = not new and not icons
         self.offline_notice.visible = bool(versions and (self._offline or self._support_error))
@@ -494,6 +502,7 @@ class VersionPicker:
             "quilt": "A loader for Quilt-compatible mods.",
             "forge": "For mods and modpacks built for Forge.",
             "neoforge": "For mods and modpacks built for NeoForge.",
+            "rust": "Rust beta · Local profiles · Servers unavailable",
         }.get(loader_id, "Use mods made for this loader.")
         for lid, chip in self._loader_chips.items():
             active = lid == loader_id
@@ -611,6 +620,13 @@ class VersionPicker:
         thread_safe_ui.refresh(self.panel)
 
     def _load_versions(self):
+        if self._install_loader == "rust":
+            self._support_generation += 1
+            self._loading = self._offline = self._support_error = self._support_loading = False
+            self._apply_mode()
+            self._render_new()
+            thread_safe_ui.refresh(self.panel)
+            return
         self._loading = True
         self._offline = False
         self._support_error = False
@@ -942,6 +958,11 @@ class VersionPicker:
         )
 
     def _available_entries(self):
+        if self._install_loader == "rust":
+            if self.instance_exists and self.instance_exists("rust", "26.3"):
+                return []
+            return [{"id": "26.3", "text": "Minecraft 26.3", "loader": "rust",
+                     "loader_label": "Rust · Beta", "type": "release"}]
         query = (self.filter_field.value or "").strip().lower()
 
         def matches(e):
@@ -981,7 +1002,9 @@ class VersionPicker:
         if self._support_error:
             rows = [ft.Text("Couldn't check this loader's versions. Press Retry.", size=12, color=TEXT_DIM)]
         if not rows:
-            msg = ("No versions match your search." if query else
+            msg = ("Already installed. Select Rust from your Instances list."
+                   if self._install_loader == "rust" else
+                   "No versions match your search." if query else
                    "Loading versions..." if self._online is False
                    and not self.offline_notice.visible
                    else "Nothing new to add.")

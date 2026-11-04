@@ -18,6 +18,7 @@ substitute for current code.
 | `worker/` | Skins, invites, friends, downloads, and waitlist services |
 | `packaging/` | Platform build scripts and installers |
 | `tools/` | Standalone tests, development harnesses, and release tooling |
+| `native/cubeon-rust/` | Cubeon-maintained MIT Horizon source snapshot, native client and local resource preparer |
 
 ## Module ownership
 
@@ -25,6 +26,7 @@ substitute for current code.
 | --- | --- |
 | Paths and configuration | `cubeon/paths.py`, `config.py`, `atomicio.py` |
 | Game installation and launch | `versions.py`, `mod_loaders.py`, `launch.py`, `jre.py` |
+| Native Rust beta | `rust_engine.py`; bundling in `tools/build_rust_engine.py` |
 | Instances | `instances.py`, `versions.py`, `content.py` |
 | Mods and packs | `mods.py`, `modpacks.py`, `global_mod_cache.py`, `content.py` |
 | Content compatibility | `packformat.py`, `doctor.py`, `mod_dependencies.py`, `content.py` |
@@ -336,6 +338,34 @@ keep builders consistent with the shared `THEME` contract.
   settling time: the tour's early capture can be flat while a later capture shows the existing art.
 - Vanilla accepts resource packs, not mods or shader packs. Other loaders are valid when compatible;
   shaders also require Iris/Oculus-style support.
+- Rust beta uses the **existing Play Instances/version panel**, New instance →
+  engine/mod loader → Rust · Beta → 26.3 only → icon → Download & Play. There is
+  no additional sidebar destination. `cubeon/rust_engine.py` owns canonical
+  `cubeon-rust-26.3`; native dispatch precedes Java preflight, profile validation,
+  JAR staging and legacy world adoption, while sharing launch claims/logs/Quit.
+- Native builds/resources/inputs/worlds live under `CUBEON_HOME/rust/`; removal
+  clears the installation marker and preserves worlds/settings. Runtime/archive
+  hashes and resources are checked before launch; cheap installed scans do not hash
+  executables. Failed staged replacements retain the previous working files.
+- Rust resources come from verified official Mojang downloads or local cache and
+  are prepared locally. The pinned exporters require **exact Java 25 once**, not
+  during gameplay. `_find_preparation_java` checks configured Java, PATH, JAVA_HOME,
+  managed 25, and bounded conventional JDK directories including `~/jdks`/`.jdks`/
+  SDKMAN; it resolves symlinks before deriving `--java-home`. Download is a fallback.
+  Do not change normal Java game's minimum-version selection to satisfy exporters.
+- Native local identity uses Cubeon's stable UUID for the owner's memory connection
+  across name changes, without changing remote offline server/guest identity rules.
+  Account/session/services/telemetry are disabled; required world simulation stays.
+  Selected Rust disables Server navigation/setup/start/restart; Java selection
+  restores it. Preserve a running Java server and its stop path.
+- `tools/build_rust_engine.py` packages both executables, compiled original exporters,
+  source fingerprints and license notices, never Mojang JARs/assets/generated data.
+  Source checkouts reuse verified `build/rust-engine/<platform>` bundles, including
+  same-beta rebuilds; distributed installs use Cubeon's pinned release manifest.
+  `.github/workflows/rust-beta.yml` is manual and produces artifacts only. Linux
+  native rendering/save/reopen is verified; Windows CI/public release and measured
+  FPS remain pending. **1000 FPS is a target**, not a measured claim.
+  See [Rust integration](../../docs/development/horizon-integration-plan.md).
 - Content install gating uses the selected INSTANCE's real loader (`ui/mods_tab._instance_mod_capable` ->
   `instances.describe`), not `state["mod_loader"]` (a sibling instance or armed install can make the
   switcher say Fabric). A pending install for this version counts; packs always.
@@ -1188,6 +1218,7 @@ requires retrying with normal system access, not changing unrelated app code.
 | Mods and artwork | `test_mod_ui_stability.py`, `test_modpack_performance.py`, `test_loader_content_rules.py` |
 | Navigation backend reads | `test_navigation_background.py`, `test_server_repaint_scope.py`, `test_tab_repaint_scope.py` |
 | Instance isolation | `test_modpacks.py`, `test_instances.py`, `test_versions_profile_key.py` |
+| Rust beta | `test_rust_engine.py`, `test_rust_profile_native.py` (compiled renderer), `test_rust_engine_native.py` (built bundle/prepared resources/GPU); `capture_rust_beta.py` (native Flet) |
 | Mod discovery | `test_mod_search.py`, `test_mod_detail.py` |
 | Doctor and crash repair | `test_crash.py`, `test_doctor_consent.py`, `test_doctor_background.py`, `test_doctor_reporting.py`, `test_mod_prelaunch_dependencies.py`, `test_launch_fixes.py` |
 | Website Doctor / instance icons | `test_webdoctor.py`, `test_webdoctor_browser.py` (optional Playwright), `test_instance_icons.py` |
